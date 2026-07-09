@@ -37,6 +37,7 @@
 
 import { db, classifyPrismaError } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordJobRun } from "@/lib/job-run";
 
 /**
  * Run `fn` if and only if we can acquire the advisory lock for `jobId`.
@@ -97,8 +98,25 @@ export async function withJobLock<T>(
     return null;
   }
 
+  // We hold the lock → this tick actually ran. Record its outcome (one
+  // JobRun row) for the Infra / Ops "Cron / Jobs" card. Skips (lock held
+  // elsewhere) are NOT recorded — they're logged, not "runs". Recording
+  // is failure-isolated inside recordJobRun.
+  const startedAt = new Date();
+  const t0 = Date.now();
   try {
-    return await fn();
+    const out = await fn();
+    await recordJobRun({ job: jobName, startedAt, status: "OK", durationMs: Date.now() - t0 });
+    return out;
+  } catch (err) {
+    await recordJobRun({
+      job: jobName,
+      startedAt,
+      status: "FAILED",
+      durationMs: Date.now() - t0,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
   } finally {
     // Best-effort unlock. If this fails (e.g., DB connection died
     // mid-tick), Postgres releases the advisory lock automatically at

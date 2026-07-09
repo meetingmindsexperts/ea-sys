@@ -13,6 +13,7 @@
 | **Email (SES)** | SES `GetAccount` + CloudWatch `AWS/SES` | Sending enabled? sandbox? 24h quota used, max send rate, **bounce / complaint rate**, 24h send/bounce/complaint counts. *"Why didn't the email send?"* |
 | **Alarms** | CloudWatch `DescribeAlarms` | Anything currently in **ALARM** — one-glance "is something on fire". |
 | **Host metrics** | CloudWatch `GetMetricData` | EC2 **CPU %**, **CPU credit balance** (the t3 throttle trap), memory, disk. |
+| **Cron / Jobs** | our own `JobRun` table (Postgres) | Each background-worker cron: **last run + OK/FAILED**, duration, 24h OK/fail counts, and worker liveness ("last seen"). **Zero AWS cost** — it's our DB. |
 
 Each card degrades independently: if a source fails (e.g. the IAM below isn't attached yet),
 that card shows a friendly error and the rest still render.
@@ -57,6 +58,21 @@ Host metrics need the EC2 instance id. On the box it's **auto-detected via IMDSv
 config. If detection ever fails, set `EC2_INSTANCE_ID=i-…` explicitly. (Memory/disk also
 require the CloudWatch **agent** to publish `mem_used_percent` / `disk_used_percent`; if it
 only ships logs, those two tiles show "—" and CPU still works.)
+
+## Cron / Jobs — how it's sourced
+
+The worker's `withJobLock` (the single choke point every cron tick passes through) writes
+**one `JobRun` row per tick** — `job`, `startedAt`/`finishedAt`, `status` (OK/FAILED),
+`durationMs`, `error`. **Why a table and not logs:** healthy ticks log at `debug`, which the
+SystemLog writer skips, so logs can show *failures* but not a reliable *"last good run"* — the
+`JobRun` table is the durable record. Skips (lock held elsewhere) are **not** recorded (they're
+logged, not runs). Rows are pruned to **14 days** by the hourly `mcp-oauth-cleanup` job
+(piggybacked, no extra schedule). Volume is ~2.5k rows/day across all jobs — trivial.
+Covers: cert-issue, scheduled-emails, webinar-recordings, webinar-attendance,
+mcp-oauth-cleanup, invoice-reconciliation. Files:
+[src/lib/job-run.ts](../src/lib/job-run.ts) (record + prune),
+[worker/lib/advisory-lock.ts](../worker/lib/advisory-lock.ts) (records inside the lock).
+Migration `20260709120000_add_job_run` (additive). **No IAM / AWS needed for this card.**
 
 ## Cost & safety
 - **On-demand only** (a Refresh button), never polled, and a **60s server cache** means even

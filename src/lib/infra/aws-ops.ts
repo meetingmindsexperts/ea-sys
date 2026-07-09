@@ -24,6 +24,7 @@ import {
 } from "@aws-sdk/client-cloudwatch";
 import { SESv2Client, GetAccountCommand } from "@aws-sdk/client-sesv2";
 import { apiLogger } from "@/lib/logger";
+import { db } from "@/lib/db";
 
 const REGION = process.env.AWS_CLOUDWATCH_REGION || process.env.AWS_REGION || "ap-south-1";
 const SES_REGION = process.env.AWS_SES_REGION || process.env.AWS_REGION || "ap-south-1";
@@ -75,6 +76,16 @@ export interface SesInfo {
   complaint24h: number | null;
 }
 
+export interface JobStatus {
+  job: string;
+  lastStatus: string; // "OK" | "FAILED"
+  lastRunAt: string;
+  lastDurationMs: number;
+  lastError: string | null;
+  ok24h: number;
+  failed24h: number;
+}
+
 export interface InfraSnapshot {
   generatedAt: string;
   region: string;
@@ -82,6 +93,7 @@ export interface InfraSnapshot {
   ses: { status: SourceStatus; error?: string; info: SesInfo | null };
   alarms: { status: SourceStatus; error?: string; inAlarm: AlarmRow[] };
   metrics: { status: SourceStatus; error?: string; instanceId: string | null; values: MetricValue[] };
+  jobs: { status: SourceStatus; error?: string; workerLastSeen: string | null; rows: JobStatus[] };
 }
 
 let cache: { at: number; snap: InfraSnapshot } | null = null;
@@ -269,17 +281,63 @@ async function fetchMetrics(instanceId: string | null): Promise<InfraSnapshot["m
   }
 }
 
+async function fetchJobs(): Promise<InfraSnapshot["jobs"]> {
+  try {
+    // Latest tick per job (DISTINCT ON) + 24h OK/FAILED counts. This is our
+    // own Postgres — no AWS cost. Successful ticks live here (not in the
+    // debug-skipped SystemLog), so this is the reliable "last good run".
+    const latest = await db.$queryRaw<
+      Array<{ job: string; startedAt: Date; status: string; durationMs: number; error: string | null }>
+    >`SELECT DISTINCT ON (job) job, "startedAt", status::text AS status, "durationMs", error
+      FROM "JobRun" ORDER BY job, "startedAt" DESC`;
+
+    const since = new Date(Date.now() - 24 * 3600_000);
+    const counts = await db.jobRun.groupBy({
+      by: ["job", "status"],
+      where: { startedAt: { gte: since } },
+      _count: { _all: true },
+    });
+    const ok = new Map<string, number>();
+    const failed = new Map<string, number>();
+    for (const c of counts) {
+      (c.status === "OK" ? ok : failed).set(c.job, c._count._all);
+    }
+
+    const rows: JobStatus[] = latest
+      .map((r) => ({
+        job: r.job,
+        lastStatus: r.status,
+        lastRunAt: r.startedAt.toISOString(),
+        lastDurationMs: r.durationMs,
+        lastError: r.error,
+        ok24h: ok.get(r.job) ?? 0,
+        failed24h: failed.get(r.job) ?? 0,
+      }))
+      .sort((a, b) => a.job.localeCompare(b.job));
+
+    const workerLastSeen = rows.reduce<string | null>(
+      (max, r) => (max == null || r.lastRunAt > max ? r.lastRunAt : max),
+      null,
+    );
+    return { status: "ok", workerLastSeen, rows };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:jobs-failed");
+    return { status: "error", error: (err as Error).message, workerLastSeen: null, rows: [] };
+  }
+}
+
 // ── Public ─────────────────────────────────────────────────────────
 
 export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
   if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.snap;
 
   const instanceId = await getInstanceId();
-  const [deploys, alarms, ses, metrics] = await Promise.all([
+  const [deploys, alarms, ses, metrics, jobs] = await Promise.all([
     fetchDeploys(),
     fetchAlarms(),
     fetchSes(),
     fetchMetrics(instanceId),
+    fetchJobs(),
   ]);
   const snap: InfraSnapshot = {
     generatedAt: new Date().toISOString(),
@@ -288,6 +346,7 @@ export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
     alarms,
     ses,
     metrics,
+    jobs,
   };
   cache = { at: Date.now(), snap };
   return snap;

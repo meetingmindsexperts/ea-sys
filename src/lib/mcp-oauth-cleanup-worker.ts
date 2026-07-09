@@ -23,6 +23,7 @@
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { pruneJobRuns } from "@/lib/job-run";
 
 // Grace period after an access token's `expiresAt` during which the
 // refresh-token flow could still resurrect a session. Beyond this we
@@ -45,9 +46,11 @@ export async function runMcpOAuthCleanupTick(): Promise<McpOAuthCleanupTickRepor
   const now = new Date();
   const tokenCutoff = new Date(now.getTime() - TOKEN_GRACE_PERIOD_MS);
 
-  const [codes, tokens] = await Promise.all([
+  const [codes, tokens, prunedJobRuns] = await Promise.all([
     db.mcpOAuthAuthCode.deleteMany({ where: { expiresAt: { lt: now } } }),
     db.mcpOAuthAccessToken.deleteMany({ where: { expiresAt: { lt: tokenCutoff } } }),
+    // Piggyback the JobRun retention prune on this hourly job (14-day window).
+    pruneJobRuns(14),
   ]);
 
   const durationMs = Date.now() - startedAt;
@@ -55,6 +58,7 @@ export async function runMcpOAuthCleanupTick(): Promise<McpOAuthCleanupTickRepor
     msg: "mcp-oauth-cleanup:tick-complete",
     expiredCodes: codes.count,
     expiredTokens: tokens.count,
+    prunedJobRuns,
     durationMs,
   });
 

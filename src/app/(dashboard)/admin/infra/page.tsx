@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
-  RefreshCw, Rocket, Mail, BellRing, Cpu, Loader2, AlertTriangle, CheckCircle2, ExternalLink,
+  RefreshCw, Rocket, Mail, BellRing, Cpu, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Timer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +22,15 @@ interface Snapshot {
   ses: { status: string; error?: string; info: null | { sendingEnabled: boolean; sandbox: boolean; max24Hour: number | null; sentLast24Hours: number | null; maxSendRate: number | null; bounceRate: number | null; complaintRate: number | null; send24h: number | null; bounce24h: number | null; complaint24h: number | null } };
   alarms: { status: string; error?: string; inAlarm: { name: string; metric: string; reason: string; since: string | null }[] };
   metrics: { status: string; error?: string; instanceId: string | null; values: { label: string; value: number | null; unit: string }[] };
+  jobs: { status: string; error?: string; workerLastSeen: string | null; rows: { job: string; lastStatus: string; lastRunAt: string; lastDurationMs: number; lastError: string | null; ok24h: number; failed24h: number }[] };
+}
+
+function ago(iso: string | null): string {
+  if (!iso) return "never";
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
 }
 
 function fmtTime(iso: string) {
@@ -99,6 +108,50 @@ export default function InfraPage() {
         <p className="text-sm text-red-600">{error}</p>
       ) : snap ? (
         <div className="grid lg:grid-cols-2 gap-4">
+          {/* Cron / Jobs — full width */}
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Timer className="h-4 w-4 text-primary" /> Cron / Jobs
+                {snap.jobs.status === "ok" && (
+                  <span className="text-xs font-normal text-muted-foreground ml-auto">
+                    worker last seen {ago(snap.jobs.workerLastSeen)}
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StatusNote status={snap.jobs.status} error={snap.jobs.error} unconfiguredHint="No job runs recorded yet." />
+              {snap.jobs.status === "ok" && (snap.jobs.rows.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No worker runs recorded yet (deploy the worker + wait for the first tick).</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs text-muted-foreground">
+                      <tr><th className="p-1.5">Job</th><th className="p-1.5">Last run</th><th className="p-1.5">Status</th><th className="p-1.5 text-right">Duration</th><th className="p-1.5 text-right">24h OK</th><th className="p-1.5 text-right">24h fail</th></tr>
+                    </thead>
+                    <tbody>
+                      {snap.jobs.rows.map((j) => (
+                        <tr key={j.job} className="border-t align-top">
+                          <td className="p-1.5 font-medium">{j.job}</td>
+                          <td className="p-1.5 text-muted-foreground whitespace-nowrap">{ago(j.lastRunAt)}</td>
+                          <td className="p-1.5">
+                            {j.lastStatus === "OK"
+                              ? <span className="text-emerald-600 text-xs font-medium">OK</span>
+                              : <span className="text-red-600 text-xs font-medium" title={j.lastError || ""}>FAILED</span>}
+                          </td>
+                          <td className="p-1.5 text-right text-muted-foreground whitespace-nowrap">{j.lastDurationMs} ms</td>
+                          <td className="p-1.5 text-right">{j.ok24h}</td>
+                          <td className={`p-1.5 text-right ${j.failed24h > 0 ? "text-red-600 font-medium" : "text-muted-foreground"}`}>{j.failed24h}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
           {/* Alarms */}
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><BellRing className="h-4 w-4 text-primary" /> Alarms</CardTitle></CardHeader>

@@ -2211,3 +2211,29 @@ model RsvpDinnerResponse {
   @@index([dinnerId])
   @@index([inviteId])
 }
+
+// ── Worker job runs ────────────────────────────────────────────────
+// One row per background-worker tick (written by withJobLock). Powers
+// the Infra / Ops "Cron / Jobs" card — did each cron run, when, did it
+// fail. Successful ticks log at debug (skipped by SystemLog), so this
+// persisted record is the reliable "last good run" source. Pruned to
+// 14 days by the hourly oauth-cleanup job. Docs: docs/INFRA_OPS.md.
+
+enum JobRunStatus {
+  OK
+  FAILED
+}
+
+model JobRun {
+  id         String       @id @default(cuid())
+  job        String
+  startedAt  DateTime
+  finishedAt DateTime
+  status     JobRunStatus
+  durationMs Int
+  error      String?      @db.Text
+  createdAt  DateTime     @default(now())
+
+  @@index([job, startedAt])
+  @@index([startedAt])
+}
