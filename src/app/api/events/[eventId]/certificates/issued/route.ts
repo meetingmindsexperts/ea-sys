@@ -129,6 +129,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         issuedAt: true,
         lastResentAt: true,
         resendCount: true,
+        lastReissuedAt: true,
+        reissueCount: true,
         revokedAt: true,
         revocationReason: true,
         certificateTemplate: { select: { id: true, name: true } },

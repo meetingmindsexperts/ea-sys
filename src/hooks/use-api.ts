@@ -2200,6 +2200,8 @@ export interface IssuedCertificateRow {
   issuedAt: string;
   lastResentAt: string | null;
   resendCount: number;
+  lastReissuedAt: string | null;
+  reissueCount: number;
   revokedAt: string | null;
   revocationReason: string | null;
   certificateTemplate: { id: string; name: string } | null;
@@ -2231,7 +2233,7 @@ export function useIssuedCertificates({
   return useQuery({
     queryKey: queryKeys.issuedCertificates(eventId, { registrationId, speakerId }),
     queryFn: () =>
-      fetchApi<{ certificates: IssuedCertificateRow[] }>(
+      fetchApi<{  certificates: IssuedCertificateRow[] }>(
         `/api/events/${eventId}/certificates/issued?${qs}`,
       ),
     enabled,

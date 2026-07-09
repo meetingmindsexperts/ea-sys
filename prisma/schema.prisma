@@ -425,6 +425,13 @@ model IssuedCertificate {
   /// and never resent.
   lastResentAt          DateTime?
   resendCount           Int             @default(0)
+  /// Re-render + resend from the CURRENT template (the "resend latest version"
+  /// action + bulk reissue). Distinct from resendCount (which replays the
+  /// frozen original) — a reissue re-renders the PDF AND re-sends, so it also
+  /// bumps reprintCount + resendCount, but reissueCount is the clean count of
+  /// how many times the recipient got a *refreshed* certificate.
+  lastReissuedAt        DateTime?
+  reissueCount          Int             @default(0)
   revokedAt             DateTime?
   revocationReason      String?
 
@@ -491,6 +498,11 @@ model CertificateIssueRun {
   /// render → SENDING directly, so the cert lands in the inbox without
   /// an operator click. Manual runs (false) keep the review gate.
   autoIssue             Boolean            @default(false)
+  /// True when this run RE-RENDERS + re-sends already-issued certs from the
+  /// CURRENT template (bulk "resend latest to everyone") instead of issuing
+  /// new ones. Reissue runs skip the render/AWAITING_REVIEW gates: the worker
+  /// drains each item via reRenderAndResendCert (re-render existing + resend).
+  reissue               Boolean            @default(false)
   triggeredAt           DateTime           @default(now())
   rendererStartedAt     DateTime?
   rendererFinishedAt    DateTime?

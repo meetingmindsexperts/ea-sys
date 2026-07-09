@@ -48,15 +48,18 @@ import {
   loadRecipient,
   allocateSerial,
   loadPosterAbstractTitle,
-} from "./issue-worker";
+} from "./cert-context";
 import type { CertificateData, CertificateTemplate } from "./types";
 
 export interface DeliverContext {
   eventId: string;
   organizationId: string;
-  actorUserId: string;
+  /** Operator who triggered it. NULL for a worker-driven bulk run with no
+   *  operator (never today — the bulk route always sets one — but null keeps
+   *  the audit/issuedByUserId FKs valid instead of an empty-string FK failure). */
+  actorUserId: string | null;
   /** Where the request came from — written into the audit trail. */
-  source: "rest";
+  source: "rest" | "bulk";
 }
 
 export type DeliverSuccess = {
@@ -175,7 +178,7 @@ async function sendCertEmail(args: {
   emailSubjectTemplate: string;
   emailBodyTemplate: string;
   organizationId: string;
-  triggeredByUserId: string;
+  triggeredByUserId: string | null;
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const event = await db.event.findUnique({
     where: { id: args.eventId },
@@ -434,7 +437,12 @@ export async function reRenderAndResendCert(ctx: DeliverContext, certificateId: 
     return { ok: false, code: "RENDER_FAILED", error: `Could not re-render the certificate (${msg}).`, status: 500 };
   }
 
-  // Point the cert at the fresh PDF + bump the reprint counters (finally used).
+  // Point the cert at the fresh PDF + bump the reprint counters. NOTE:
+  // reprintCount counts RENDER attempts (bumped here, before the send) — so a
+  // repeatedly-send-failing item increments reprintCount each retry while
+  // reissueCount (bumped only on delivery, below) stays flat. That's intended:
+  // reprintCount = "times re-rendered", reissueCount = "times a refreshed cert
+  // was actually delivered".
   await db.issuedCertificate.update({
     where: { id: certificateId },
     data: {
@@ -472,7 +480,13 @@ export async function reRenderAndResendCert(ctx: DeliverContext, certificateId: 
 
   await db.issuedCertificate.update({
     where: { id: certificateId },
-    data: { resendCount: { increment: 1 }, lastResentAt: new Date() },
+    data: {
+      resendCount: { increment: 1 },
+      lastResentAt: new Date(),
+      // Dedicated reissue counter — the clean "refreshed cert delivered" metric.
+      reissueCount: { increment: 1 },
+      lastReissuedAt: new Date(),
+    },
   });
   await writeAudit(ctx, "CERT_REISSUED", certificateId, { serial: cert.serial, recipientEmail });
 

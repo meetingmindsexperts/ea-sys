@@ -51,14 +51,15 @@ describe("reclaimStalledRuns (autoIssue-aware)", () => {
     expect(rendering.where.status).toBe("RENDERING");
     expect(rendering.data).toEqual({ status: "PENDING" });
 
-    // (2) MANUAL SENDING → AWAITING_REVIEW
+    // (2) MANUAL issue SENDING → AWAITING_REVIEW (excludes auto AND reissue).
     expect(manualSending.where.status).toBe("SENDING");
     expect(manualSending.where.autoIssue).toBe(false);
+    expect(manualSending.where.reissue).toBe(false);
     expect(manualSending.data).toEqual({ status: "AWAITING_REVIEW" });
 
-    // (3) AUTO SENDING → stay SENDING, only refresh lastTickAt (NO status change)
+    // (3) AUTO + REISSUE SENDING → stay SENDING, only refresh lastTickAt.
     expect(autoSending.where.status).toBe("SENDING");
-    expect(autoSending.where.autoIssue).toBe(true);
+    expect(autoSending.where.OR).toEqual([{ autoIssue: true }, { reissue: true }]);
     expect(autoSending.data.status).toBeUndefined();
     expect(autoSending.data.lastTickAt).toBeInstanceOf(Date);
   });

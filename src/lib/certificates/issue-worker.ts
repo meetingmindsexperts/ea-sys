@@ -50,7 +50,15 @@ import {
   SYSTEM_DEFAULT_SUBJECT,
   defaultBodyForCategory,
 } from "./email-tokens";
-import type { CertificateData, CertificateTemplate, AccreditationEntry } from "./types";
+import type { CertificateData, CertificateTemplate } from "./types";
+import {
+  loadEventContext,
+  loadRecipient,
+  allocateSerial,
+  loadPosterAbstractTitle,
+  type EventContext,
+} from "./cert-context";
+import { reRenderAndResendCert, type DeliverContext } from "./deliver";
 
 // Tunables — the math: at 50 renders/tick × 50ms each = 2.5s per tick
 // for the render phase (well under any HTTP timeout). For email at the
@@ -119,20 +127,25 @@ export async function reclaimStalledRuns(): Promise<number> {
     where: { status: "RENDERING", lastTickAt: { lt: cutoff } },
     data: { status: "PENDING" },
   });
-  // MANUAL SENDING stalls → bounce to AWAITING_REVIEW so an operator re-confirms
-  // before the rest of the batch goes out (the human-review gate is the point).
+  // MANUAL issue SENDING stalls → bounce to AWAITING_REVIEW so an operator
+  // re-confirms before the rest of the batch goes out (the human-review gate is
+  // the point). Excludes auto AND reissue runs — neither has that gate.
   const sendingStalls = await db.certificateIssueRun.updateMany({
-    where: { status: "SENDING", lastTickAt: { lt: cutoff }, autoIssue: false },
+    where: { status: "SENDING", lastTickAt: { lt: cutoff }, autoIssue: false, reissue: false },
     data: { status: "AWAITING_REVIEW" },
   });
-  // AUTO (survey-gated) SENDING stalls have NO operator to re-confirm. Demoting
-  // them to AWAITING_REVIEW would strand the run un-emailed forever — and the
-  // registration is already terminally stamped, so the sweep won't re-enqueue
-  // it (silent non-delivery). Keep them in SENDING and just refresh lastTickAt
-  // so the next tick re-drains the remaining emailedAt-null items (the send
-  // phase is re-entrant; per-item failures are already marked + excluded).
+  // AUTO (survey-gated) + REISSUE (bulk resend) SENDING stalls have NO review
+  // gate. Demoting them to AWAITING_REVIEW would strand them (auto: the reg is
+  // already stamped so the sweep won't re-enqueue; reissue: there's no render
+  // phase to re-run). Keep them in SENDING and just refresh lastTickAt so the
+  // next tick re-drains the remaining emailedAt-null items — the send/reissue
+  // phase is re-entrant and per-item failures are already marked + excluded.
   const autoSendingStalls = await db.certificateIssueRun.updateMany({
-    where: { status: "SENDING", lastTickAt: { lt: cutoff }, autoIssue: true },
+    where: {
+      status: "SENDING",
+      lastTickAt: { lt: cutoff },
+      OR: [{ autoIssue: true }, { reissue: true }],
+    },
     data: { lastTickAt: new Date() },
   });
   const total = renderingStalls.count + sendingStalls.count + autoSendingStalls.count;
@@ -160,12 +173,39 @@ async function processRun(runId: string): Promise<RunTickResult> {
     where: { id: runId },
     select: {
       id: true, eventId: true, type: true, status: true,
-      certificateTemplateId: true, autoIssue: true,
+      certificateTemplateId: true, autoIssue: true, reissue: true,
+      triggeredByUserId: true,
       totalCount: true, renderedCount: true, emailedCount: true, failedCount: true,
       rendererStartedAt: true, errors: true,
     },
   });
   if (!run) {
+    return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
+  }
+
+  // Reissue runs (bulk "resend latest to everyone") skip the render +
+  // AWAITING_REVIEW gates entirely: PENDING → SENDING, then each item is
+  // drained via reRenderAndResendCert (re-render the EXISTING cert from the
+  // current template + resend). Kept fully separate from the issue path below
+  // so that path is byte-for-byte unchanged.
+  if (run.reissue) {
+    if (run.status === "PENDING") {
+      const claim = await db.certificateIssueRun.updateMany({
+        where: { id: runId, status: "PENDING" },
+        data: {
+          status: "SENDING",
+          rendererStartedAt: run.rendererStartedAt ?? new Date(),
+          emailerStartedAt: new Date(),
+          lastTickAt: new Date(),
+        },
+      });
+      if (claim.count === 0) {
+        return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
+      }
+    }
+    if (run.status === "SENDING" || run.status === "PENDING") {
+      return processReissuePhase(runId, run.eventId, run.triggeredByUserId);
+    }
     return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
   }
 
@@ -659,136 +699,76 @@ async function processSendPhase(
   return { renderedThisTick: 0, emailedThisTick: emailed, transitionedTo: null };
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── REISSUE phase (bulk re-render + resend) ───────────────────────────────────
 
-export interface EventContext {
-  name: string;
-  startDate: Date;
-  endDate: Date;
-  venue: string | null;
-  city: string | null;
-  country: string | null;
-  organizationName: string;
-  organizationLogo: string | null;
-  cmeHours: number | null;
-  // Narrowed to AccreditationEntry so it satisfies the renderer's
-  // CertificateEventContext shape (it expects the body field to be the
-  // closed union, not a wide string).
-  accreditations: AccreditationEntry[];
-  settings: unknown;
-}
+/** Drain a reissue run: each item points at an EXISTING cert; re-render it from
+ *  the current template + resend via the shared reRenderAndResendCert (same
+ *  logic as the single "Resend latest version" action — no duplication). */
+async function processReissuePhase(
+  runId: string,
+  eventId: string,
+  triggeredByUserId: string | null,
+): Promise<RunTickResult> {
+  const event = await db.event.findUnique({ where: { id: eventId }, select: { organizationId: true } });
+  if (!event) {
+    await failRun(runId, "Event not found");
+    return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "FAILED" };
+  }
 
-export async function loadEventContext(eventId: string): Promise<EventContext | null> {
-  const event = await db.event.findUnique({
-    where: { id: eventId },
-    select: {
-      name: true, startDate: true, endDate: true,
-      venue: true, city: true, country: true,
-      cmeHours: true, settings: true,
-      organization: { select: { name: true, logo: true } },
-    },
+  const items = await db.certificateIssueRunItem.findMany({
+    where: { runId, issuedCertificateId: { not: null }, emailedAt: null },
+    take: EMAIL_BATCH_SIZE,
   });
-  if (!event) return null;
-  const settings = event.settings && typeof event.settings === "object" && !Array.isArray(event.settings)
-    ? (event.settings as Record<string, unknown>) : {};
-  const cme = settings.cme && typeof settings.cme === "object" && !Array.isArray(settings.cme)
-    ? settings.cme as Record<string, unknown> : {};
-  const accreditations = (cme.accreditations as AccreditationEntry[]) ?? [];
-  return {
-    name: event.name,
-    startDate: event.startDate,
-    endDate: event.endDate,
-    venue: event.venue,
-    city: event.city,
-    country: event.country,
-    organizationName: event.organization.name,
-    organizationLogo: event.organization.logo,
-    cmeHours: event.cmeHours == null ? null : Number(event.cmeHours),
-    accreditations,
-    settings: event.settings,
+
+  if (items.length === 0) {
+    await db.certificateIssueRun.update({
+      where: { id: runId },
+      data: { status: "COMPLETED", emailerFinishedAt: new Date(), lastTickAt: new Date() },
+    });
+    apiLogger.info({ msg: "cert-issue-worker:reissue-phase-complete", runId });
+    return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "COMPLETED" };
+  }
+
+  await db.certificateIssueRun.update({ where: { id: runId }, data: { lastTickAt: new Date() } });
+
+  const ctx: DeliverContext = {
+    eventId,
+    organizationId: event.organizationId,
+    // Bulk reissue is always operator-triggered; fall back to null (not "")
+    // defensively so the audit/issuedByUserId FKs stay valid if a null-triggered
+    // reissue run ever exists.
+    actorUserId: triggeredByUserId ?? null,
+    source: "bulk",
   };
-}
 
-// readTemplateForType (settings JSON lookup) deleted on 2026-06-02 —
-// templates moved to the CertificateTemplate table; the run carries the
-// templateId directly.
-
-export async function loadRecipient(
-  registrationId: string | null,
-  speakerId: string | null,
-): Promise<CertificateData["recipient"] | null> {
-  if (registrationId) {
-    const reg = await db.registration.findUnique({
-      where: { id: registrationId },
-      select: {
-        attendee: {
-          select: { title: true, firstName: true, lastName: true, email: true,
-            organization: true, jobTitle: true, city: true, country: true },
-        },
-      },
-    });
-    const a = reg?.attendee;
-    if (!a) return null;
-    return {
-      title: a.title,
-      firstName: a.firstName,
-      lastName: a.lastName,
-      fullName: formatRecipientName(a.title, a.firstName, a.lastName),
-      organization: a.organization,
-      jobTitle: a.jobTitle,
-      city: a.city,
-      country: a.country,
-    };
+  let emailed = 0;
+  for (const item of items) {
+    try {
+      const result = await reRenderAndResendCert(ctx, item.issuedCertificateId!);
+      if (result.ok) {
+        await db.certificateIssueRunItem.update({
+          where: { id: item.id },
+          data: { renderedAt: new Date(), emailedAt: new Date() },
+        });
+        await db.certificateIssueRun.update({
+          where: { id: runId },
+          data: { renderedCount: { increment: 1 }, emailedCount: { increment: 1 } },
+        });
+        emailed++;
+      } else {
+        await markItemFailed(runId, item.id, "email", `${result.code}: ${result.error}`);
+        apiLogger.warn({ msg: "cert-issue-worker:reissue-item-failed", runId, itemId: item.id, code: result.code });
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      await markItemFailed(runId, item.id, "email", message);
+      apiLogger.warn({ err: e, msg: "cert-issue-worker:reissue-item-error", runId, itemId: item.id });
+    }
   }
-  if (speakerId) {
-    const s = await db.speaker.findUnique({
-      where: { id: speakerId },
-      select: {
-        title: true, firstName: true, lastName: true, email: true,
-        organization: true, jobTitle: true, city: true, country: true,
-      },
-    });
-    if (!s) return null;
-    return {
-      title: s.title,
-      firstName: s.firstName,
-      lastName: s.lastName,
-      fullName: formatRecipientName(s.title, s.firstName, s.lastName),
-      organization: s.organization,
-      jobTitle: s.jobTitle,
-      city: s.city,
-      country: s.country,
-    };
-  }
-  return null;
+  return { renderedThisTick: 0, emailedThisTick: emailed, transitionedTo: null };
 }
 
-export function formatRecipientName(title: string | null, first: string, last: string): string {
-  const map: Record<string, string> = { DR: "Dr.", MR: "Mr.", MRS: "Mrs.", MS: "Ms.", PROF: "Prof." };
-  const t = title ? `${map[title] ?? ""} ` : "";
-  return `${t}${first} ${last}`.trim();
-}
-
-export async function allocateSerial(eventId: string, type: CertificateType): Promise<string> {
-  const counter = await db.certificateSerialCounter.upsert({
-    where: { eventId_type: { eventId, type } },
-    create: { eventId, type, lastSerial: 1 },
-    update: { lastSerial: { increment: 1 } },
-    select: { lastSerial: true },
-  });
-  const code = await db.event.findUnique({ where: { id: eventId }, select: { code: true } });
-  const prefix = code?.code ?? eventId.slice(0, 6).toUpperCase();
-  return `${prefix}-${type.slice(0, 3)}-${String(counter.lastSerial).padStart(4, "0")}`;
-}
-
-export async function loadPosterAbstractTitle(speakerId: string, eventId: string): Promise<string | null> {
-  const abstract = await db.abstract.findFirst({
-    where: { eventId, presentationType: "POSTER", status: "ACCEPTED", speakerId },
-    select: { title: true },
-    orderBy: { createdAt: "asc" },
-  });
-  return abstract?.title ?? null;
-}
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function getRunTriggerUserId(runId: string): Promise<string | null> {
   // Null for survey-gated auto-issue runs (no operator). The cert's

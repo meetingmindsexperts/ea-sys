@@ -46,7 +46,7 @@ vi.mock("@/lib/certificates/email-tokens", () => ({
   SYSTEM_DEFAULT_SUBJECT: "Your {{certificateType}}",
   defaultBodyForCategory: () => "<p>Body</p>",
 }));
-vi.mock("@/lib/certificates/issue-worker", () => ({
+vi.mock("@/lib/certificates/cert-context", () => ({
   loadRecipient: (r: string | null, s: string | null) => mockLoadRecipient(r, s),
   loadEventContext: (e: string) => mockLoadEvent(e),
   allocateSerial: (e: string, t: string) => mockAllocSerial(e, t),
@@ -182,6 +182,9 @@ describe("reRenderAndResendCert", () => {
     expect(firstUpdate.pdfUrl).toBeTruthy();
     const secondUpdate = mockDb.issuedCertificate.update.mock.calls[1][0].data;
     expect(secondUpdate.resendCount).toEqual({ increment: 1 });
+    // Dedicated reissue counter bumps alongside resend on a successful reissue.
+    expect(secondUpdate.reissueCount).toEqual({ increment: 1 });
+    expect(secondUpdate.lastReissuedAt).toBeInstanceOf(Date);
     expect(mockSend).toHaveBeenCalledTimes(1);
     expect(mockDb.auditLog.create).toHaveBeenCalledTimes(1);
   });

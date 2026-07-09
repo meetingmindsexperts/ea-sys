@@ -499,14 +499,20 @@ function CertRow({ cert, isResending, onResend }: CertRowProps) {
               </>
             )}
           </div>
-          {cert.resendCount > 0 && (
+          {cert.reissueCount > 0 ? (
             <div className="text-amber-700">
-              Resent {cert.resendCount} time{cert.resendCount === 1 ? "" : "s"}
-              {cert.lastResentAt &&
-                ` · last ${formatDistanceToNow(new Date(cert.lastResentAt), {
-                  addSuffix: true,
-                })}`}
+              Reissued {cert.reissueCount} time{cert.reissueCount === 1 ? "" : "s"} (latest template)
+              {cert.lastReissuedAt &&
+                ` · last ${formatDistanceToNow(new Date(cert.lastReissuedAt), { addSuffix: true })}`}
             </div>
+          ) : (
+            cert.resendCount > 0 && (
+              <div className="text-amber-700">
+                Resent {cert.resendCount} time{cert.resendCount === 1 ? "" : "s"}
+                {cert.lastResentAt &&
+                  ` · last ${formatDistanceToNow(new Date(cert.lastResentAt), { addSuffix: true })}`}
+              </div>
+            )
           )}
           {isRevoked && (
             <div className="flex items-center gap-1 text-red-600">
