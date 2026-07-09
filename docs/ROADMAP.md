@@ -467,6 +467,22 @@ load-bearing for an external consumer.
 | **`?tags=` GET filter is case-sensitive and skips `normalizeTag`, while writes Title-Case** | LOW | XS | On write, [`normalizeTag`](../src/lib/utils.ts) Title-Cases every word, so a tag typed `committee` / `COMMITTEE` is stored `Committee`. But the registrations `?tags=` query path only `.trim()`s each value ([registrations/route.ts](../src/app/api/events/%5BeventId%5D/registrations/route.ts)) and `hasSome` is an exact match — so **`?tags=committee` silently returns `[]`** against a `Committee` tag. Surprising, and it reads as "no data" rather than "no match". Fix: run the query values through `normalizeTag` too (+1 test). Integrations currently work around it by pulling unfiltered and matching case-insensitively client-side. |
 | **MCP `list_registrations` has no `tags` param** | — | S | REST supports `?tags=` (any-of `hasSome`); the MCP tool doesn't, so an agent can't pull a tagged cohort (committee, VIP…) without listing everything. Pairs with the proposed `?segment=committee\|faculty\|internal` union filter in [COMMITTEE_MEMBERS.md](COMMITTEE_MEMBERS.md) §4c. |
 
+### Speaker ↔ companion-registration lifecycle — deferred (July 9, 2026)
+
+`Speaker.status` (invitation lifecycle: `INVITED`/`CONFIRMED`/`DECLINED`/`CANCELLED`)
+and `Registration.status` (attendance lifecycle: `PENDING`/`CONFIRMED`/`CANCELLED`/
+`WAITLISTED`/`CHECKED_IN`) are **independent enums on different models and never
+sync**. The companion registration is created with `status: "CONFIRMED"` **hardcoded**
+([speaker-companion.ts](../src/lib/speaker-companion.ts)) and nothing ever revisits it.
+Increasingly load-bearing now that **committee members are added as Speakers** (they're
+complimentary, and the companion gives them badge/barcode/check-in/certs — see
+[COMMITTEE_MEMBERS.md](COMMITTEE_MEMBERS.md)).
+
+| Finding | Sev | Effort | Notes |
+|---|---|---|---|
+| **A DECLINED speaker keeps a CONFIRMED companion registration — badge + entry barcode stay valid** | MED | S–M | Setting `Speaker.status = DECLINED` (or `CANCELLED`) leaves `sourceRegistration.status = CONFIRMED`, so the person retains a **valid entry barcode, printable badge, and check-in eligibility**. Nothing revokes it; cancelling is a manual, easily-forgotten step. This is a **physical-access** gap at the door, not just a data one. **Wanted:** on a transition *into* `DECLINED`/`CANCELLED`, set the companion registration to `CANCELLED` — **behind a confirmation prompt**, because *declining to speak ≠ not attending* (a committee member may decline a speaking slot yet still attend as committee). The prompt should offer **"Also cancel their registration (revokes badge + entry barcode)"** vs **"Keep the registration"**. Consider the reverse too (`DECLINED → CONFIRMED` — reactivate the registration?). **Implementation:** the status write happens in **both** the REST speaker `PUT` ([speakers/[speakerId]/route.ts](../src/app/api/events/%5BeventId%5D/speakers/%5BspeakerId%5D/route.ts)) and MCP `update_speaker` ([tools/speakers.ts](../src/lib/agent/tools/speakers.ts)) — put the cascade in **one shared helper / `speaker-service`**, not mirrored in two callers (see the no-cross-caller-duplication rule). Route the registration transition through the shared `planSeatTransition`/`releaseSeat` applier (a faculty companion holds no seat — `createdSource: SPEAKER_COMPANION` is excluded by `seatCounter` — so the seat move is a no-op, but going through the applier prevents divergence). Audit-log the cascade. |
+| **Speaker → companion profile edits don't sync** | LOW | S | Known Phase-0 follow-up: editing a speaker's name/profile doesn't propagate to the companion registration's attendee row (the two drift). Same shared-helper landing spot as the row above. |
+
 ### Backlog — prioritized pick list (June 24, 2026)
 
 A single scannable view of what's workable, in priority order. Each item links to
