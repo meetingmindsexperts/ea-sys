@@ -448,12 +448,21 @@ model IssuedCertificate {
   // until the render phase completes for this cert.
   pdfUrl String?
 
+  /// The run item that produced/delivered this cert — the 1:N side of the
+  /// multi-cert-per-email model (one person-keyed run item can carry several
+  /// certs, one per template in the run's templateIds). The legacy 1:1 link
+  /// (CertificateIssueRunItem.issuedCertificateId, relation
+  /// "RunItemPrimaryCert") still gets the FIRST cert so pre-bundle readers
+  /// keep working. SetNull so deleting a run keeps the cert audit trail.
+  issueRunItemId String?
+
   event               Event                    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   registration        Registration?            @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   speaker             Speaker?                 @relation(fields: [speakerId], references: [id], onDelete: SetNull)
   issuedBy            User?                    @relation(fields: [issuedByUserId], references: [id])
   certificateTemplate CertificateTemplate?     @relation(fields: [certificateTemplateId], references: [id], onDelete: SetNull)
-  issueRunItem        CertificateIssueRunItem?
+  issueRunItem        CertificateIssueRunItem? @relation("RunItemPrimaryCert")
+  deliveredViaItem    CertificateIssueRunItem? @relation("RunItemBundleCerts", fields: [issueRunItemId], references: [id], onDelete: SetNull)
 
   // One cert per TEMPLATE per recipient (was per type) — lets one person hold
   // multiple role-specific certs (Speaker + Moderator + Committee), each from
@@ -465,6 +474,7 @@ model IssuedCertificate {
   @@index([eventId, type])
   @@index([certificateTemplateId])
   @@index([serial])
+  @@index([issueRunItemId])
 }
 
 /// Bulk certificate-issuing run. One row per "issue all certificates of
@@ -482,9 +492,16 @@ model CertificateIssueRun {
   eventId               String
   type                  CertificateType
   /// Which template fired this run. Nullable for legacy rows (pre-flip);
-  /// new runs always set it. SetNull on template delete — the run row
-  /// survives as audit even if the template is later removed.
+  /// SINGLE-template runs still set it (legacy readers depend on it). A
+  /// MULTI-template bundle run leaves it null and lists its templates in
+  /// `templateIds`. SetNull on template delete — the run row survives as
+  /// audit even if the template is later removed.
   certificateTemplateId String?
+  /// Multi-cert-per-email model: ALL templates this run issues (1..3).
+  /// Empty array = legacy single-template run → read certificateTemplateId.
+  /// Plain id array (not a junction) — runs are short-lived work orders;
+  /// the durable template link lives on each IssuedCertificate.
+  templateIds           String[]           @default([])
   status                CertIssueRunStatus @default(PENDING)
   totalCount            Int
   renderedCount         Int                @default(0)
@@ -570,7 +587,13 @@ model CertificateIssueRunItem {
   run               CertificateIssueRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   registration      Registration?       @relation(fields: [registrationId], references: [id], onDelete: SetNull)
   speaker           Speaker?            @relation(fields: [speakerId], references: [id], onDelete: SetNull)
-  issuedCertificate IssuedCertificate?  @relation(fields: [issuedCertificateId], references: [id])
+  /// Legacy 1:1 link — the FIRST cert this item produced. Kept populated on
+  /// every new write so pre-bundle readers (issued list, resend route, run
+  /// UI) work unchanged. Bundle runs link EVERY cert via bundleCertificates.
+  issuedCertificate IssuedCertificate?  @relation("RunItemPrimaryCert", fields: [issuedCertificateId], references: [id])
+  /// All certs produced/delivered by this (person-keyed) item — one per
+  /// applicable template in the run's templateIds.
+  bundleCertificates IssuedCertificate[] @relation("RunItemBundleCerts")
 
   @@unique([runId, registrationId])
   @@unique([runId, speakerId])

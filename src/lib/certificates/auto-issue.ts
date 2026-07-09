@@ -338,6 +338,9 @@ async function processRegistration(
           eventId: reg.eventId,
           type: target.category,
           certificateTemplateId: target.templateId,
+          // Bundle-model dual-write (Phase 5 collapses a person's targets
+          // into ONE multi-template run; until then each run is 1-template).
+          templateIds: [target.templateId],
           autoIssue: true,
           triggeredByUserId: null,
           status: "PENDING",

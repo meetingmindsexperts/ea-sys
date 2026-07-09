@@ -160,6 +160,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           eventId: eventIdLocked,
           type: template.category,
           certificateTemplateId: template.id,
+          // Dual-write for the bundle model — single-template runs list
+          // themselves in templateIds too, so bundle-aware readers never
+          // need the legacy-column fallback for new rows.
+          templateIds: [template.id],
           status: "PENDING",
           totalCount: eligible.length,
           triggeredByUserId: userIdLocked,

@@ -412,6 +412,10 @@ async function renderAndStoreItem(args: {
         speakerId: item.speakerId,
         type,
         certificateTemplateId,
+        // Bundle-model dual-write: every cert links back to the run item
+        // that produced it (1:N side); the item's legacy 1:1
+        // issuedCertificateId still gets set by the caller.
+        issueRunItemId: item.id,
         serial: certData.serial,
         issuedByUserId: await getRunTriggerUserId(args.runId),
         recipientSnapshot: recipientData as unknown as Prisma.InputJsonValue,
