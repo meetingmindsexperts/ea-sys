@@ -25,6 +25,7 @@ import {
 import { SESv2Client, GetAccountCommand } from "@aws-sdk/client-sesv2";
 import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
+import { EXPECTED_JOBS } from "@/lib/worker-jobs";
 
 const REGION = process.env.AWS_CLOUDWATCH_REGION || process.env.AWS_REGION || "ap-south-1";
 const SES_REGION = process.env.AWS_SES_REGION || process.env.AWS_REGION || "ap-south-1";
@@ -78,9 +79,10 @@ export interface SesInfo {
 
 export interface JobStatus {
   job: string;
-  lastStatus: string; // "OK" | "FAILED"
-  lastRunAt: string;
-  lastDurationMs: number;
+  cadence: string; // human-readable schedule (or "" for an unexpected/unknown job)
+  lastStatus: string | null; // "OK" | "FAILED" | null (never run)
+  lastRunAt: string | null;
+  lastDurationMs: number | null;
   lastError: string | null;
   ok24h: number;
   failed24h: number;
@@ -302,21 +304,32 @@ async function fetchJobs(): Promise<InfraSnapshot["jobs"]> {
     for (const c of counts) {
       (c.status === "OK" ? ok : failed).set(c.job, c._count._all);
     }
+    const latestByJob = new Map(latest.map((r) => [r.job, r]));
 
-    const rows: JobStatus[] = latest
-      .map((r) => ({
-        job: r.job,
-        lastStatus: r.status,
-        lastRunAt: r.startedAt.toISOString(),
-        lastDurationMs: r.durationMs,
-        lastError: r.error,
-        ok24h: ok.get(r.job) ?? 0,
-        failed24h: failed.get(r.job) ?? 0,
-      }))
+    // Show the FULL expected roster (every configured job), merged with the
+    // recorded runs — so a job that's never ticked shows up as "never" rather
+    // than being invisible. Any recorded job NOT in the roster is appended
+    // (defensive: a job added to the worker but not yet listed).
+    const cadence = new Map(EXPECTED_JOBS.map((j) => [j.name, j.cadence]));
+    const names = new Set<string>([...cadence.keys(), ...latestByJob.keys()]);
+    const rows: JobStatus[] = [...names]
+      .map((job) => {
+        const r = latestByJob.get(job);
+        return {
+          job,
+          cadence: cadence.get(job) ?? "",
+          lastStatus: r ? r.status : null,
+          lastRunAt: r ? r.startedAt.toISOString() : null,
+          lastDurationMs: r ? r.durationMs : null,
+          lastError: r ? r.error : null,
+          ok24h: ok.get(job) ?? 0,
+          failed24h: failed.get(job) ?? 0,
+        };
+      })
       .sort((a, b) => a.job.localeCompare(b.job));
 
     const workerLastSeen = rows.reduce<string | null>(
-      (max, r) => (max == null || r.lastRunAt > max ? r.lastRunAt : max),
+      (max, r) => (r.lastRunAt && (max == null || r.lastRunAt > max) ? r.lastRunAt : max),
       null,
     );
     return { status: "ok", workerLastSeen, rows };

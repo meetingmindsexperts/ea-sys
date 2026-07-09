@@ -22,7 +22,7 @@ interface Snapshot {
   ses: { status: string; error?: string; info: null | { sendingEnabled: boolean; sandbox: boolean; max24Hour: number | null; sentLast24Hours: number | null; maxSendRate: number | null; bounceRate: number | null; complaintRate: number | null; send24h: number | null; bounce24h: number | null; complaint24h: number | null } };
   alarms: { status: string; error?: string; inAlarm: { name: string; metric: string; reason: string; since: string | null }[] };
   metrics: { status: string; error?: string; instanceId: string | null; values: { label: string; value: number | null; unit: string }[] };
-  jobs: { status: string; error?: string; workerLastSeen: string | null; rows: { job: string; lastStatus: string; lastRunAt: string; lastDurationMs: number; lastError: string | null; ok24h: number; failed24h: number }[] };
+  jobs: { status: string; error?: string; workerLastSeen: string | null; rows: { job: string; cadence: string; lastStatus: string | null; lastRunAt: string | null; lastDurationMs: number | null; lastError: string | null; ok24h: number; failed24h: number }[] };
 }
 
 function ago(iso: string | null): string {
@@ -128,19 +128,22 @@ export default function InfraPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="text-left text-xs text-muted-foreground">
-                      <tr><th className="p-1.5">Job</th><th className="p-1.5">Last run</th><th className="p-1.5">Status</th><th className="p-1.5 text-right">Duration</th><th className="p-1.5 text-right">24h OK</th><th className="p-1.5 text-right">24h fail</th></tr>
+                      <tr><th className="p-1.5">Job</th><th className="p-1.5">Schedule</th><th className="p-1.5">Last run</th><th className="p-1.5">Status</th><th className="p-1.5 text-right">Duration</th><th className="p-1.5 text-right">24h OK</th><th className="p-1.5 text-right">24h fail</th></tr>
                     </thead>
                     <tbody>
                       {snap.jobs.rows.map((j) => (
                         <tr key={j.job} className="border-t align-top">
                           <td className="p-1.5 font-medium">{j.job}</td>
+                          <td className="p-1.5 text-xs text-muted-foreground whitespace-nowrap">{j.cadence || "—"}</td>
                           <td className="p-1.5 text-muted-foreground whitespace-nowrap">{ago(j.lastRunAt)}</td>
                           <td className="p-1.5">
                             {j.lastStatus === "OK"
                               ? <span className="text-emerald-600 text-xs font-medium">OK</span>
-                              : <span className="text-red-600 text-xs font-medium" title={j.lastError || ""}>FAILED</span>}
+                              : j.lastStatus === "FAILED"
+                                ? <span className="text-red-600 text-xs font-medium" title={j.lastError || ""}>FAILED</span>
+                                : <span className="text-muted-foreground text-xs">awaiting first run</span>}
                           </td>
-                          <td className="p-1.5 text-right text-muted-foreground whitespace-nowrap">{j.lastDurationMs} ms</td>
+                          <td className="p-1.5 text-right text-muted-foreground whitespace-nowrap">{j.lastDurationMs == null ? "—" : `${j.lastDurationMs} ms`}</td>
                           <td className="p-1.5 text-right">{j.ok24h}</td>
                           <td className={`p-1.5 text-right ${j.failed24h > 0 ? "text-red-600 font-medium" : "text-muted-foreground"}`}>{j.failed24h}</td>
                         </tr>
