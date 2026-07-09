@@ -69,11 +69,28 @@ export function classifyPrismaError(message: string): {
   if (/authentication failed|password authentication/i.test(m)) {
     return { category: "DB authentication failed", retryable: false };
   }
-  if (/Tls handshake|TLS error|certificate/i.test(m)) {
+  // NOTE: match TLS-specific phrases only. A bare /certificate/i also matches
+  // our own model names (`prisma.issuedCertificate.create()`,
+  // `certificateTemplateId`), which filed every cert unique-constraint
+  // violation under "DB TLS error".
+  if (
+    /Tls handshake|TLS error|SSL error|self[- ]signed certificate|certificate verif|certificate has expired|unable to get local issuer certificate/i.test(
+      m,
+    )
+  ) {
     return { category: "DB TLS error", retryable: false };
   }
   if (/Can't reach database|server is not allowing connections/i.test(m)) {
     return { category: "DB unreachable", retryable: true };
+  }
+  // Constraint violations are application-level, not connectivity. They get
+  // their own Sentry bucket so a duplicate-insert never masquerades as an
+  // infrastructure problem. Not retryable — retrying re-violates.
+  if (/Unique constraint failed|\bP2002\b/i.test(m)) {
+    return { category: "DB unique constraint violation", retryable: false };
+  }
+  if (/Foreign key constraint (failed|violated)|\bP2003\b/i.test(m)) {
+    return { category: "DB foreign key constraint violation", retryable: false };
   }
   return null;
 }

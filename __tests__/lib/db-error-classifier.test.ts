@@ -179,6 +179,29 @@ describe("Prisma error classifier — non-retryable errors", () => {
     expect(payload.msg).toBe("DB TLS error");
     expect(payload.retryable).toBe(false);
   });
+
+  it("classifies a unique constraint violation as its own non-retryable category", async () => {
+    const payload = await fireError(
+      "Invalid `prisma.issuedCertificate.create()` invocation:\n\nUnique constraint failed on the fields: (`eventId`,`certificateTemplateId`,`registrationId`)",
+    );
+    // Regression: the model name `issuedCertificate` used to match a bare
+    // /certificate/i in the TLS pattern, filing this as "DB TLS error".
+    expect(payload.msg).toBe("DB unique constraint violation");
+    expect(payload.retryable).toBe(false);
+  });
+
+  it("classifies a foreign key constraint violation as non-retryable", async () => {
+    const payload = await fireError("Foreign key constraint failed on the field: `eventId`");
+    expect(payload.msg).toBe("DB foreign key constraint violation");
+    expect(payload.retryable).toBe(false);
+  });
+
+  it("does not classify a cert-model error message as a TLS error", async () => {
+    const payload = await fireError(
+      "Invalid `prisma.certificateTemplate.update()` invocation: An operation failed because it depends on one or more records that were required but not found.",
+    );
+    expect(payload.msg).not.toBe("DB TLS error");
+  });
 });
 
 describe("Prisma error classifier — unknown messages", () => {
