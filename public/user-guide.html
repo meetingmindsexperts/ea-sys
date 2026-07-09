@@ -2014,10 +2014,20 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <ul>
           <li>A reprint months later renders byte-for-byte the same PDF &mdash; the snapshot doesn&rsquo;t drift with the underlying Registration / Speaker / Event records.</li>
           <li>Deleting a template is BLOCKED if any cert was issued from it. You can rename to mark as retired, but the audit chain stays linked.</li>
-          <li>You can&rsquo;t accidentally double-issue someone the same category &mdash; the eligibility query excludes anyone who already holds a cert of that category.</li>
+          <li>You can&rsquo;t accidentally double-issue someone the same template &mdash; the eligibility query excludes anyone who already holds a cert from that template.</li>
         </ul>
 
-        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Need to issue a duplicate? Use the dashboard reprint flow</div><div class="c-text">If a recipient asks for a re-send (lost the email, wrong address, etc.), open their detail sheet, find their issued cert in the history, and use the reprint action there &mdash; preserves the serial. A second Issue run won&rsquo;t fire for them because they already hold a cert of that category.</div></div></div>
+        <div class="sub-title" style="font-size:1em;margin-top:14px">Resending &amp; issuing from a person&rsquo;s detail sheet</div>
+        <p>Open any <strong>Registration</strong> or <strong>Speaker</strong> &rarr; their detail sheet has a <strong>Certificates</strong> card listing every certificate they hold. From there you can, per person, without touching tags or the bulk Issue flow:</p>
+        <ul>
+          <li><strong>Resend latest version</strong> (the per-row <em>Resend</em> button) &mdash; <strong>re-renders the certificate from the <u>current</u> template</strong> (so a corrected greeting, a fixed design, or any template edit is picked up) and emails it again. The serial stays the same; the PDF is refreshed. This is the button to use after you&rsquo;ve fixed something on a template &mdash; it pushes the corrected certificate to that person.</li>
+          <li><strong>Issue certificate</strong> &mdash; pick any template and issue it to this one person on the spot. This is a <strong>direct override: it does <u>not</u> check tags</strong>, so it always works even if the person was missed by the survey/auto-issue tagging. (It refuses only if they already hold that template&rsquo;s cert &mdash; use Resend latest instead.)</li>
+          <li><strong>Resend all (N)</strong> &mdash; appears when the person holds two or more certs (e.g. Committee + Speaker + Moderator). One click re-renders + resends <em>all</em> of them from their current templates, as separate emails (one PDF each), and tells you if any failed.</li>
+        </ul>
+
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">&ldquo;Resend&rdquo; now means &ldquo;resend the <em>latest</em> version&rdquo;</div><div class="c-text">Resending always re-renders from the current template, so if you correct a mistake (a wrong greeting token, a design tweak) and then hit Resend, the recipient gets the <strong>fixed</strong> certificate &mdash; you don&rsquo;t have to revoke + re-issue. The card shows &ldquo;Reissued N times (latest template)&rdquo; so you can see how many times a refreshed copy went out.</div></div></div>
+
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Fixed a template after some certs went out? Resend to just those people</div><div class="c-text">If you corrected a template <em>after</em> issuing, resend the fixed version from each affected person&rsquo;s Certificates card (Resend latest). A one-click <strong>&ldquo;Resend latest to everyone&rdquo;</strong> for a whole template is coming to the Certificates page; until then, the per-person Resend covers it.</div></div></div>
       </div>
 
       <div class="sub" id="s18-12">

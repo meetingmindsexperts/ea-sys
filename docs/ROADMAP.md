@@ -430,6 +430,26 @@ MCP session date-validation → the shared `isSessionWithinEventDates`. Deferred
 | **`ATTENDEE_ROLE_VALUES` enum set duplicated in 2 MCP tool files (#7)** | LOW | XS | Re-declared in [tools/speakers.ts](../src/lib/agent/tools/speakers.ts) + [tools/registrations.ts](../src/lib/agent/tools/registrations.ts); `tools/_shared.ts` already holds the sibling enum sets. Move it there. |
 | **`escapeHtml` — 4 more copies repo-wide** | LOW | XS | The 3 cert copies are now shared via [src/lib/html.ts](../src/lib/html.ts); `speaker-agreement.ts`, `email.ts`, `abstract-notifications.ts`, `presenter-agreement.ts` still have local copies. Point them at `@/lib/html` (email.ts's is intentionally private — confirm before touching). |
 
+### Certificate rework — deferred review findings (July 9, 2026)
+
+On-demand single issue + single/bulk **re-render + resend from the CURRENT
+template** shipped across `6539d95` (single service + routes) → `140723d`
+(Phase-3 UI: Issue / Resend-latest / Resend-all + no-silent-failure logging) →
+`84979c7` (Phase-4 bulk + `reissueCount`). Independent adversarial review on the
+Phase-4 backend: **SAFE TO SHIP — 0 blocker / 0 high** (the make-or-break
+`@@unique([runId, speakerId])` NULL question is provably collision-free — it's a
+partial unique index `WHERE speakerId IS NOT NULL`, so NULL-facet bulk items are
+excluded from the index entirely). Fixed in-band: L1 (null-not-`""` `actorUserId`
+for a worker-triggered reissue), M1-doc (`reprintCount` = render-attempts vs
+`reissueCount` = delivered-refreshes). Deferred:
+
+| Finding | Sev | Effort | Notes |
+|---|---|---|---|
+| **Bulk-reissue UI trigger not built yet** | — | M | The `bulk-reissue` endpoint + worker are live; the certificates-page "Resend latest to everyone (N)" button (per template, optional tag) + run-progress polling is the one remaining piece. Single-cert Issue / Resend-latest / Resend-all are already wired on the IssuedCertificatesCard. |
+| **M1 — `reRenderAndResendCert` bumps `reprintCount` + `pdfUrl` before the send** | MED | S | On a repeatedly-send-failing item, `reprintCount` increments each retry while `reissueCount` stays flat. Documented as intended (reprint = render attempts, reissue = delivered). If it ever reads as misleading, move the `reprintCount` bump into the post-send success block alongside `resendCount`/`reissueCount` (needs 2 deliver-test assertion updates). [deliver.ts](../src/lib/certificates/deliver.ts) |
+| **L2 — "one active reissue run per template" guard has a TOCTOU window** | LOW | S | `findFirst`-then-`create` in separate steps ([bulk-reissue/route.ts](../src/app/api/events/%5BeventId%5D/certificates/bulk-reissue/route.ts)) — two near-simultaneous requests could both pass → a recipient gets two re-render+resend emails. Rate-limited (10/hr/user) + operator-driven, so low. Close with a partial unique index (`WHERE reissue AND status NOT IN terminal`) or a row-locked in-tx guard. |
+| **L3 — cert revoked between cohort-snapshot and drain shows as a run failure, not a clean skip** | LOW | XS | `reRenderAndResendCert` re-checks `revokedAt` (correct — no email to a revoked cert), but the item is marked failed (`CERT_REVOKED`) → inflates the run's `failedCount`. Cosmetic; could be a distinct "skipped" state. |
+
 ### Backlog — prioritized pick list (June 24, 2026)
 
 A single scannable view of what's workable, in priority order. Each item links to

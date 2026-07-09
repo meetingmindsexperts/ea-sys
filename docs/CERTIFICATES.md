@@ -367,8 +367,71 @@ were consciously deferred — see [ROADMAP.md](ROADMAP.md)
 §"Certificates — operator-feedback round, deferred review findings
 (June 3, 2026)" for the trigger-driven backlog.
 
+## On-demand delivery + bulk reissue (July 9, 2026)
+
+The June-3 resend **replays the frozen original** (old PDF + old cover-email
+snapshot). A later round added the ability to **re-render from the *current*
+template** (so a corrected greeting / design propagates), to do it in **bulk**,
+and to **issue on demand to one person**. Shared core:
+`src/lib/certificates/deliver.ts`.
+
+### Shared service — `deliver.ts`
+- `issueSingleCertificate(ctx, { templateId, registrationId|speakerId })` —
+  issue ONE template to ONE recipient on demand (render → create cert → email).
+  **Tag-independent** — a deliberate operator override; the tag gate only governs
+  auto/bulk *selection*. Returns 409 `ALREADY_ISSUED` when they already hold the
+  template's cert (per-template `@@unique`).
+- `reRenderAndResendCert(ctx, certificateId)` — re-render an EXISTING cert from
+  the CURRENT template, update `pdfUrl`, resend with the **current** cover email.
+  Bumps `reprintCount` (render attempts) + `resendCount` + the new
+  `reissueCount` / `lastReissuedAt` (delivered refreshes). Org-scoped lookup;
+  logs every rejection.
+- The render/recipient helpers (`loadEventContext`, `loadRecipient`,
+  `allocateSerial`, `loadPosterAbstractTitle`, `formatRecipientName`,
+  `EventContext`) were extracted from `issue-worker.ts` into `cert-context.ts`
+  so the worker can call `reRenderAndResendCert` without a circular import
+  (worker → deliver → cert-context; deliver does **not** import the worker).
+
+### Routes
+- `POST .../certificates/issue-single` — single issue (synchronous). 30/hr/user.
+- `POST .../issued/[certId]/reissue` — single re-render + resend (synchronous);
+  shares the 30/hr `cert-resend` bucket. **The IssuedCertificatesCard "Resend"
+  button now calls THIS** (re-render latest), not the frozen `/resend` route.
+- `POST .../certificates/bulk-reissue` `{ templateId, tag? }` — bulk re-render +
+  resend to every already-issued cert for a template (optional attendee/speaker
+  tag filter). 10/hr/user; guarded against a concurrent reissue run for the same
+  template.
+
+### Reissue runs (worker)
+`CertificateIssueRun.reissue Boolean` (migration `20260709100000`, additive).
+A reissue run **skips the render + AWAITING_REVIEW gates**: `processRun` routes
+`run.reissue` to `processReissuePhase`, which drains each item
+(`issuedCertificateId` set → the existing cert) via `reRenderAndResendCert`
+(EMAIL_BATCH_SIZE/tick, SES-safe). Per-item failure isolation via
+`markItemFailed`; re-entrant (re-drains only `emailedAt: null`).
+`reclaimStalledRuns` keeps a stalled reissue run **in SENDING** (refresh
+`lastTickAt`) rather than bouncing it to AWAITING_REVIEW (which has no reissue
+handler). **All reissue logic sits behind `if (run.reissue)` — the existing
+issue / auto-issue path is byte-for-byte unchanged.**
+
+### UI (IssuedCertificatesCard)
+- **Issue certificate** — template picker → single issue.
+- **Resend latest version** (per row) — re-render + resend from the current template.
+- **Resend all (N)** — re-render + resend every non-revoked cert the person holds,
+  one email each, partial-failure safe with a live progress counter.
+- Each row shows "Reissued N times (latest template)" from `reissueCount`.
+
+Independent adversarial review (July 9): **SAFE TO SHIP, 0 blocker / 0 high**.
+The `CertificateIssueRunItem` uniqueness is enforced as **partial unique indexes**
+(`WHERE speakerId IS NOT NULL`), so a bulk `createMany` of N items sharing a NULL
+facet cannot collide. Deferred MEDIUM/LOW → see
+[ROADMAP.md](ROADMAP.md) §"Certificate rework — deferred review findings (July 9, 2026)".
+
 ## Deferred / not implemented
 
+- **Bulk-reissue UI trigger** — the `bulk-reissue` endpoint is live; the
+  certificates-page "Resend latest to everyone (N)" button + run-progress polling
+  is the one remaining piece.
 - **MCP Issue tool** — operator must use the dashboard for issuing
   (email dialog is interactive)
 - **Mid-run email edit** — once a run is created, the cover-email
