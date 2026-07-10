@@ -349,37 +349,37 @@ model CertificateSerialCounter {
 /// orphaned in extremis, but the API rejects). This preserves issued-cert
 /// audit trail integrity.
 model CertificateTemplate {
-  id               String          @id @default(cuid())
-  eventId          String
-  name             String // organizer-defined, e.g. "VIP Attendance"
-  category         CertificateType // ATTENDANCE | APPRECIATION
+  id                String          @id @default(cuid())
+  eventId           String
+  name              String // organizer-defined, e.g. "VIP Attendance"
+  category          CertificateType // ATTENDANCE | APPRECIATION
   // Role/designation this template certifies (e.g. "Speaker", "Moderator",
   // "Organizing Committee"). Drives the {{role}} token. Lets one person hold
   // several role-specific certs — uniqueness is per-template (see
   // IssuedCertificate @@unique), so 3 role-templates → 3 certs.
-  role             String?
+  role              String?
   // Static per-template CME hours (organizer-entered). Snapshotted onto the
   // issued cert; overrides the event-level CME hours when set.
-  cmeHours         Decimal?        @db.Decimal(4, 1)
+  cmeHours          Decimal?        @db.Decimal(4, 1)
   // Phase-2 survey-gated auto-issue. When `autoIssueOnSurvey` is on, the
   // cert worker auto-issues this template to anyone who completes the
   // survey AND holds `autoIssueTag` (attendee tag for ATTENDANCE, speaker
   // tag for APPRECIATION). Off by default — opt-in per template.
-  autoIssueOnSurvey Boolean        @default(false)
-  autoIssueTag     String?
-  backgroundPdfUrl String?
+  autoIssueOnSurvey Boolean         @default(false)
+  autoIssueTag      String?
+  backgroundPdfUrl  String?
   // CertificateTextBox[] — same shape as src/lib/certificates/types.ts
-  textBoxes        Json            @default("[]")
-  sortOrder        Int             @default(0)
+  textBoxes         Json            @default("[]")
+  sortOrder         Int             @default(0)
   // Per-template default cover email (cert PDF is always attached). Both
   // nullable — when null the Issue dialog pre-fills the system default.
   // Tokens supported in body: recipientName, eventName, eventDateRange,
   // venueLine, organizationName, certificateType, certificateSerial,
   // plus abstractTitle on APPRECIATION templates.
-  emailSubject     String?
-  emailBody        String?         @db.Text
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  emailSubject      String?
+  emailBody         String?         @db.Text
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   event              Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
   issuedCertificates IssuedCertificate[]
@@ -589,13 +589,13 @@ model CertificateIssueRunItem {
   errorPhase          String? // "render" | "email"
   errorMessage        String?
 
-  run               CertificateIssueRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  registration      Registration?       @relation(fields: [registrationId], references: [id], onDelete: SetNull)
-  speaker           Speaker?            @relation(fields: [speakerId], references: [id], onDelete: SetNull)
+  run                CertificateIssueRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  registration       Registration?       @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  speaker            Speaker?            @relation(fields: [speakerId], references: [id], onDelete: SetNull)
   /// Legacy 1:1 link — the FIRST cert this item produced. Kept populated on
   /// every new write so pre-bundle readers (issued list, resend route, run
   /// UI) work unchanged. Bundle runs link EVERY cert via bundleCertificates.
-  issuedCertificate IssuedCertificate?  @relation("RunItemPrimaryCert", fields: [issuedCertificateId], references: [id])
+  issuedCertificate  IssuedCertificate?  @relation("RunItemPrimaryCert", fields: [issuedCertificateId], references: [id])
   /// All certs produced/delivered by this (person-keyed) item — one per
   /// applicable template in the run's templateIds.
   bundleCertificates IssuedCertificate[] @relation("RunItemBundleCerts")
@@ -760,44 +760,44 @@ model Attendee {
 }
 
 model Registration {
-  id                  String             @id @default(cuid())
-  eventId             String
-  ticketTypeId        String?
-  pricingTierId       String?
-  attendeeId          String
-  userId              String?
-  serialId            Int?
-  status              RegistrationStatus @default(PENDING)
-  paymentStatus       PaymentStatus      @default(UNPAID)
+  id                         String                     @id @default(cuid())
+  eventId                    String
+  ticketTypeId               String?
+  pricingTierId              String?
+  attendeeId                 String
+  userId                     String?
+  serialId                   Int?
+  status                     RegistrationStatus         @default(PENDING)
+  paymentStatus              PaymentStatus              @default(UNPAID)
   /// venue vs online; only a choice on HYBRID events. VIRTUAL ⇒ no
   /// qrCode/badge, uncapped (skips soldCount), no DTCM barcode.
-  attendanceMode      AttendanceMode     @default(IN_PERSON)
-  qrCode              String?            @unique
-  dtcmBarcode         String?            @unique
-  badgeType           String?
-  referrer            String?
-  utmSource           String?
-  utmMedium           String?
-  utmCampaign         String?
-  checkedInAt         DateTime?
+  attendanceMode             AttendanceMode             @default(IN_PERSON)
+  qrCode                     String?                    @unique
+  dtcmBarcode                String?                    @unique
+  badgeType                  String?
+  referrer                   String?
+  utmSource                  String?
+  utmMedium                  String?
+  utmCampaign                String?
+  checkedInAt                DateTime?
   /// First time this registrant entered our webinar lobby / joined the live
   /// view (set by the presence heartbeat). Durable "Joined" indicator; the
   /// live who's-here-now state lives in WebinarPresence. Same write-once
   /// convention as checkedInAt.
-  webinarFirstJoinedAt DateTime?
+  webinarFirstJoinedAt       DateTime?
   // Badge-print analytics: first-print timestamp + total prints (reprints
   // bump the count). Set by the badge route; powers "badges printed vs
   // registered" and reprint metrics. Per-print history lives in AuditLog
   // (action BADGE_PRINTED).
-  badgePrintedAt      DateTime?
-  badgePrintCount     Int                @default(0)
+  badgePrintedAt             DateTime?
+  badgePrintCount            Int                        @default(0)
   /// Set when the registrant submits the post-event feedback survey
   /// at `/e/[slug]/survey?token=...`. Used by the reporting view +
   /// audit trail; NOT consumed by the cert eligibility query (the
   /// cert system filters by `Attendee.tags` containing "survey-
   /// completed" which the same submit handler writes). Mirrors the
   /// existing `checkedInAt` / `badgePrintedAt` convention.
-  surveyCompletedAt   DateTime?
+  surveyCompletedAt          DateTime?
   /// Phase-2 survey-gated cert auto-issue state. The cert worker sweeps
   /// registrations where `surveyCompletedAt IS NOT NULL AND
   /// certAutoIssueCheckedAt IS NULL AND (nextAttemptAt IS NULL OR <= now)`,
@@ -813,56 +813,56 @@ model Registration {
   ///   checkedAt set,  error non-NULL       → gave up after retries
   /// Partial index in the migration keeps the candidate scan cheap.
   certAutoIssueCheckedAt     DateTime?
-  certAutoIssueAttempts      Int       @default(0)
+  certAutoIssueAttempts      Int                        @default(0)
   certAutoIssueNextAttemptAt DateTime?
   certAutoIssueError         String?
   /// Which code path created this row — public form vs admin add vs
   /// MCP agent vs CSV import etc. See enum `RegistrationCreatedSource`
   /// for the full list. NULL on historical rows that pre-date the
   /// column; the detail sheet renders "Unknown" for those.
-  createdSource       RegistrationCreatedSource?
-  notes               String?            @db.Text
+  createdSource              RegistrationCreatedSource?
+  notes                      String?                    @db.Text
   // Billing details (for invoices/tax)
-  taxNumber           String?
-  billingFirstName    String?
-  billingLastName     String?
-  billingEmail        String?
-  billingPhone        String?
-  billingAddress      String?
-  billingCity         String?
-  billingState        String?
-  billingZipCode      String?
-  billingCountry      String?
+  taxNumber                  String?
+  billingFirstName           String?
+  billingLastName            String?
+  billingEmail               String?
+  billingPhone               String?
+  billingAddress             String?
+  billingCity                String?
+  billingState               String?
+  billingZipCode             String?
+  billingCountry             String?
   // Promo code discount
-  promoCodeId         String?
-  discountAmount      Decimal?           @db.Decimal(10, 2)
-  originalPrice       Decimal?           @db.Decimal(10, 2)
+  promoCodeId                String?
+  discountAmount             Decimal?                   @db.Decimal(10, 2)
+  originalPrice              Decimal?                   @db.Decimal(10, 2)
   /// Running total refunded so far (partial refunds accumulate here). The
   /// registration stays PAID while 0 < refundedAmount < paidTotal and flips
   /// to REFUNDED only when the full paid amount is returned. The Billing UI
   /// shows "Refunded X of Y". Written by the refund route + charge.refunded
   /// webhook reconciliation.
-  refundedAmount      Decimal            @default(0) @db.Decimal(10, 2)
+  refundedAmount             Decimal                    @default(0) @db.Decimal(10, 2)
   // Sponsor attribution — set when paymentStatus = INCLUSIVE so reports
   // can group "all Abbott-sponsored attendees." References the entry's
   // id inside Event.settings.sponsors[] JSON (no FK because sponsors
   // are stored as a JSON array on the event, not a Prisma table).
-  sponsorId           String?
+  sponsorId                  String?
   // Third-party billing ("charge to another account") — when set, the
   // invoice is addressed to this BillingAccount (the attendee's hospital,
   // or a pharma/grant covering this specific doctor) instead of the
   // attendee. ORTHOGONAL to paymentStatus: money is still owed and the
   // registration stays UNPAID/PENDING until the payer settles — this only
   // redirects the bill-to party. null = self-pay (unchanged behavior).
-  billingAccountId    String?
+  billingAccountId           String?
   // Optional PO / grant / authorization reference printed on the invoice.
-  payerReference      String?
+  payerReference             String?
   // Per-registration fallback: when true, an unpaid third-party invoice
   // may be reassigned back to the attendee (finance action); also keeps
   // the attendee's Pay-Now path available as a guarantor.
-  attendeeIsGuarantor Boolean            @default(false)
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  attendeeIsGuarantor        Boolean                    @default(false)
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
 
   event                    Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   ticketType               TicketType?               @relation(fields: [ticketTypeId], references: [id])
@@ -883,6 +883,7 @@ model Registration {
   // is best-effort + nullable, set on the import-registrations path).
   importedSpeakers         Speaker[]                 @relation("SpeakerSourceRegistration")
   surveyResponse           SurveyResponse?
+  refundAttempts           RefundAttempt[]
 
   @@unique([eventId, serialId])
   @@index([sponsorId])
@@ -1002,36 +1003,36 @@ model Payment {
 // ==================== SPEAKER MANAGEMENT ====================
 
 model Speaker {
-  id                    String        @id @default(cuid())
-  eventId               String
-  userId                String?
-  title                 Title?
-  role                  AttendeeRole?
-  email                 String
-  additionalEmail       String?
-  firstName             String
-  lastName              String
-  bio                   String?       @db.Text
-  organization          String?
-  jobTitle              String?
-  phone                 String?
-  website               String?
-  photo                 String?
-  city                  String?
-  state                 String?
-  zipCode               String?
-  country               String?
-  specialty             String?
-  customSpecialty       String?
-  registrationType      String?
-  tags                  String[]      @default([])
-  socialLinks           Json          @default("{}")
-  status                SpeakerStatus @default(INVITED)
-  externalId            String?
-  agreementAcceptedAt   DateTime?
-  agreementAcceptedIp   String?
-  agreementAcceptedBy   String?
-  agreementTextSnapshot String?       @db.Text
+  id                             String        @id @default(cuid())
+  eventId                        String
+  userId                         String?
+  title                          Title?
+  role                           AttendeeRole?
+  email                          String
+  additionalEmail                String?
+  firstName                      String
+  lastName                       String
+  bio                            String?       @db.Text
+  organization                   String?
+  jobTitle                       String?
+  phone                          String?
+  website                        String?
+  photo                          String?
+  city                           String?
+  state                          String?
+  zipCode                        String?
+  country                        String?
+  specialty                      String?
+  customSpecialty                String?
+  registrationType               String?
+  tags                           String[]      @default([])
+  socialLinks                    Json          @default("{}")
+  status                         SpeakerStatus @default(INVITED)
+  externalId                     String?
+  agreementAcceptedAt            DateTime?
+  agreementAcceptedIp            String?
+  agreementAcceptedBy            String?
+  agreementTextSnapshot          String?       @db.Text
   // Presenter (abstract-author) agreement — DISTINCT from the faculty speaker
   // agreement above. A person can be both a faculty speaker (agreement*) and an
   // abstract author (presenterAgreement*); the two are accepted independently.
@@ -1040,16 +1041,16 @@ model Speaker {
   presenterAgreementAcceptedAt   DateTime?
   presenterAgreementAcceptedIp   String?
   presenterAgreementAcceptedBy   String?
-  presenterAgreementTextSnapshot String?  @db.Text
+  presenterAgreementTextSnapshot String?       @db.Text
   // Optional pointer to the Registration this speaker was imported from.
   // Null for independent / manually-added / sponsor-suggested speakers (the
   // common case — a speaker need not be a registrant). Set only on the
   // import-registrations path. Enables surfacing the registration's activity
   // on the speaker WITHOUT duplicating it. SetNull so deleting the
   // registration leaves the speaker intact (it's a first-class entity).
-  sourceRegistrationId  String?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
+  sourceRegistrationId           String?
+  createdAt                      DateTime      @default(now())
+  updatedAt                      DateTime      @updatedAt
 
   event                    Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user                     User?                     @relation(fields: [userId], references: [id])
@@ -1244,11 +1245,11 @@ model EventSession {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  abstract        Abstract?        @relation(fields: [abstractId], references: [id])
-  track           Track?           @relation(fields: [trackId], references: [id])
-  speakers        SessionSpeaker[]
-  topics          SessionTopic[]
+  event            Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  abstract         Abstract?         @relation(fields: [abstractId], references: [id])
+  track            Track?            @relation(fields: [trackId], references: [id])
+  speakers         SessionSpeaker[]
+  topics           SessionTopic[]
   zoomMeeting      ZoomMeeting?
   zoomAttendances  ZoomAttendance[]
   webinarPresences WebinarPresence[]
@@ -2010,14 +2011,14 @@ model ScheduledEmail {
   recipientType String // "speakers" | "registrations" | "reviewers" | "abstracts"
   emailType     String // matches bulkEmailSchema.emailType values
   customSubject String?
-  customMessage String? @db.Text
+  customMessage String?  @db.Text
   attachments   Json? // [{ name, content (base64), contentType }]
   filters       Json? // { status?, ticketTypeId? }
   // Explicitly-selected recipient ids (the "send to selected" path). Empty
   // array = filter-based send (resolve recipients at fire time). Lets the
   // immediate-send route queue selected-recipient sends without losing the
   // selection — the worker passes these through to executeBulkEmail.
-  recipientIds String[] @default([])
+  recipientIds  String[] @default([])
 
   scheduledFor DateTime
   status       ScheduledEmailStatus @default(PENDING)
@@ -2175,7 +2176,7 @@ model EmailLog {
 // single dietary note. Docs: docs/DINNER_RSVP.md.
 
 enum RsvpStatus {
-  PENDING   // invited, not yet responded
+  PENDING // invited, not yet responded
   RESPONDED // submitted the form (attending ≥0 dinners)
 }
 
@@ -2199,21 +2200,21 @@ model RsvpDinner {
 }
 
 model RsvpInvite {
-  id           String     @id @default(cuid())
-  eventId      String
-  token        String     @unique
-  inviteeName  String
-  inviteeEmail String
+  id             String     @id @default(cuid())
+  eventId        String
+  token          String     @unique
+  inviteeName    String
+  inviteeEmail   String
   // Soft references (no FK) to the person's Registration/Speaker facet,
   // if the invitee was picked from an existing record. The invite keeps
   // its own name/email snapshot, so a dangling id is harmless.
   registrationId String?
   speakerId      String?
-  dietary      String?    @db.Text
-  status       RsvpStatus @default(PENDING)
-  respondedAt  DateTime?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  dietary        String?    @db.Text
+  status         RsvpStatus @default(PENDING)
+  respondedAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   event     Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
   responses RsvpDinnerResponse[]
@@ -2250,6 +2251,52 @@ model RsvpDinnerResponse {
 enum JobRunStatus {
   OK
   FAILED
+}
+
+/// One row per refund ATTEMPT, persisted BEFORE the Stripe call (crash-safety
+/// for money movement — review finding H4/H5, July 10 2026). The row id is the
+/// Stripe idempotency key (`refund-attempt-{id}`) and rides in the Stripe
+/// refund's metadata, so a crashed/ambiguous attempt can always be verified
+/// against Stripe and reconciled by the sweep in
+/// src/lib/refund-reconciliation.ts:
+///   PENDING   — booked in refundedAmount; Stripe call in flight (or process
+///               died before it — the sweep resolves which).
+///   SUCCEEDED — money moved (or manual refund recorded).
+///   FAILED    — Stripe refused and the booking was rolled back.
+///   UNKNOWN   — Stripe errored AND verification failed; booking kept, sweep
+///               retries verification until it can resolve.
+model RefundAttempt {
+  id                    String              @id @default(cuid())
+  registrationId        String
+  registration          Registration        @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  /// Payment row targeted (plain column, no FK — audit/ops record).
+  paymentId             String?
+  /// Stripe payment intent the refund runs against; null for manual/offline.
+  stripePaymentIntentId String?
+  amount                Decimal             @db.Decimal(10, 2)
+  refundedBefore        Decimal             @db.Decimal(10, 2)
+  refundedAfter         Decimal             @db.Decimal(10, 2)
+  /// Whether the registration was flipped to REFUNDED by this attempt's
+  /// booking — the sweep needs it to roll the flip back on a failed attempt.
+  flippedToRefunded     Boolean             @default(false)
+  kind                  String // "stripe" | "manual"
+  status                RefundAttemptStatus @default(PENDING)
+  stripeRefundId        String?
+  error                 String?
+  source                String?
+  issuedByUserId        String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  @@index([registrationId])
+  @@index([status, createdAt])
+}
+
+enum RefundAttemptStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  UNKNOWN
 }
 
 model JobRun {

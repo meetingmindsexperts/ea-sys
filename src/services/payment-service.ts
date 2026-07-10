@@ -6,6 +6,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError } from "@/lib/invoice-service";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
+import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
 
 /**
  * Payment service — the domain home for money movement on a registration:
@@ -18,6 +19,8 @@ import { applyRegistrationTransition } from "@/lib/registration-seat-db";
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const truncateError = (err: unknown) => String(err instanceof Error ? err.message : err).slice(0, 500);
 
 // ── issueCreditNoteForRegistration ───────────────────────────────────────────
 
@@ -156,6 +159,7 @@ export type RefundErrorCode =
   | "INVALID_AMOUNT"
   | "LOST_LOCK"
   | "STRIPE_FAILED"
+  | "REFUND_STATE_UNKNOWN"
   | "UNKNOWN";
 
 export interface RefundSummary {
@@ -279,47 +283,146 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
     const isFull = refundedAfter >= paidTotal - 0.005;
     const formattedAmount = `${currency} ${amount.toFixed(2)}`;
 
-    // Optimistic lock on the running refunded total: guarded by the observed
-    // `refundedAmount` so two concurrent refunds can't both commit (loser → LOST_LOCK).
-    const locked = await db.registration.updateMany({
-      where: { id: registrationId, paymentStatus: "PAID", refundedAmount: registration.refundedAmount },
-      data: {
-        refundedAmount: refundedAfter,
-        ...(isFull ? { paymentStatus: "REFUNDED" as const } : {}),
-      },
+    // ── Crash-safe booking: claim + persist the attempt ATOMICALLY ──────────
+    // Optimistic lock on the running refunded total (loser → LOST_LOCK), and
+    // in the SAME transaction a RefundAttempt row — persisted BEFORE any
+    // Stripe call. The attempt id becomes the Stripe idempotency key AND rides
+    // in the refund's metadata, so whatever happens next (process death,
+    // timeout, ambiguous SDK error) the attempt is verifiable against Stripe:
+    // inline below on error, or by the sweep in
+    // src/lib/refund-reconciliation.ts for anything left PENDING/UNKNOWN.
+    const attempt = await db.$transaction(async (tx) => {
+      const locked = await tx.registration.updateMany({
+        where: { id: registrationId, paymentStatus: "PAID", refundedAmount: registration.refundedAmount },
+        data: {
+          refundedAmount: refundedAfter,
+          ...(isFull ? { paymentStatus: "REFUNDED" as const } : {}),
+        },
+      });
+      if (locked.count === 0) return null;
+      return tx.refundAttempt.create({
+        data: {
+          registrationId,
+          paymentId: payment?.id ?? null,
+          stripePaymentIntentId: isManualRefund ? null : payment!.stripePaymentId,
+          amount,
+          refundedBefore,
+          refundedAfter,
+          flippedToRefunded: isFull,
+          kind: isManualRefund ? "manual" : "stripe",
+          source,
+          issuedByUserId: issuedByUserId ?? null,
+        },
+        select: { id: true },
+      });
     });
-    if (locked.count === 0) {
+    if (!attempt) {
+      apiLogger.warn({ msg: "refund:lost-lock", registrationId, eventId });
       return { ok: false, code: "LOST_LOCK", message: "A refund for this registration is already in progress." };
     }
 
     let stripeRefundId: string | null = null;
     if (isManualRefund) {
+      // Money moves out-of-band — the booking IS the record. A missed status
+      // update here is benign: the sweep confirms stale manual attempts.
+      await db.refundAttempt
+        .update({ where: { id: attempt.id }, data: { status: "SUCCEEDED" } })
+        .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: attempt.id }));
       apiLogger.info({
         msg: "Manual/offline refund recorded (no Stripe charge to reverse)",
-        registrationId, eventId, paymentId: payment?.id ?? null, amount, currency, partial: !isFull, source, issuedBy: issuedByUserId ?? null,
+        registrationId, eventId, attemptId: attempt.id, paymentId: payment?.id ?? null, amount, currency, partial: !isFull, source, issuedBy: issuedByUserId ?? null,
       });
     } else {
-      // Stripe partial refund. Idempotency key carries the cumulative refunded
-      // total so each partial is distinct but a retry of the SAME partial dedups.
       try {
         const stripe = getStripe();
         const refund = await stripe.refunds.create(
-          { payment_intent: payment!.stripePaymentId!, amount: toStripeAmount(amount, currency) },
-          { idempotencyKey: `refund-${payment!.id}-${refundedAfter.toFixed(2)}` }
+          {
+            payment_intent: payment!.stripePaymentId!,
+            amount: toStripeAmount(amount, currency),
+            // Ground truth for verification/reconciliation — never remove.
+            metadata: { refundAttemptId: attempt.id, registrationId },
+          },
+          // Per-attempt key: immune to the cumulative-total collision that
+          // wedged retries after a rollback (same cumulative reached by a
+          // different amount → Stripe idempotency_error for ~24h).
+          { idempotencyKey: `refund-attempt-${attempt.id}` }
         );
         stripeRefundId = refund.id;
+        await db.refundAttempt
+          .update({ where: { id: attempt.id }, data: { status: "SUCCEEDED", stripeRefundId } })
+          .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: attempt.id }));
       } catch (stripeErr) {
-        // Roll the running total back — no money moved.
-        await db.registration.update({
-          where: { id: registrationId },
-          data: { refundedAmount: registration.refundedAmount, paymentStatus: "PAID" },
-        }).catch((rollbackErr) => apiLogger.error({ rollbackErr, msg: "Failed to roll back refunded amount after Stripe error", registrationId }));
-        apiLogger.error({ err: stripeErr, msg: "Stripe refund failed", registrationId, paymentIntentId: payment!.stripePaymentId });
-        return { ok: false, code: "STRIPE_FAILED", message: "Refund could not be processed. Please try again or issue the refund directly in Stripe." };
+        // The SDK throwing does NOT mean the refund didn't happen (client
+        // timeouts). VERIFY against Stripe before deciding — rolling back a
+        // refund that actually went through would erase real money movement
+        // (and a webhook that already delta-skipped will never redeliver).
+        const outcome = await findStripeRefundForAttempt(payment!.stripePaymentId!, attempt.id);
+
+        if (outcome.verified && outcome.found) {
+          // Refund exists at Stripe — treat as success, keep the booking.
+          stripeRefundId = outcome.refundId;
+          await db.refundAttempt
+            .update({ where: { id: attempt.id }, data: { status: "SUCCEEDED", stripeRefundId } })
+            .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: attempt.id }));
+          apiLogger.warn({
+            msg: "refund:stripe-error-but-refund-exists — booking kept",
+            err: stripeErr, registrationId, attemptId: attempt.id, stripeRefundId,
+          });
+        } else if (outcome.verified) {
+          // Provably no refund at Stripe → roll the booking back,
+          // CONDITIONALLY on our booked total still being in place (a webhook
+          // reconcile in the window must not be clobbered).
+          const rolledBack = await db.registration.updateMany({
+            where: { id: registrationId, refundedAmount: refundedAfter },
+            data: {
+              refundedAmount: registration.refundedAmount,
+              ...(isFull ? { paymentStatus: "PAID" as const } : {}),
+            },
+          }).catch((rollbackErr) => {
+            apiLogger.error({ rollbackErr, msg: "Failed to roll back refunded amount after Stripe error", registrationId, attemptId: attempt.id });
+            return null;
+          });
+          if (rolledBack && rolledBack.count > 0) {
+            await db.refundAttempt
+              .update({ where: { id: attempt.id }, data: { status: "FAILED", error: truncateError(stripeErr) } })
+              .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: attempt.id }));
+            apiLogger.error({ err: stripeErr, msg: "Stripe refund failed", registrationId, attemptId: attempt.id, paymentIntentId: payment!.stripePaymentId });
+            return { ok: false, code: "STRIPE_FAILED", message: "Refund could not be processed. Please try again or issue the refund directly in Stripe." };
+          }
+          // Rollback lost a race (or errored) — leave for the sweep/human.
+          await db.refundAttempt
+            .update({ where: { id: attempt.id }, data: { status: "UNKNOWN", error: `Rollback did not apply: ${truncateError(stripeErr)}` } })
+            .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: attempt.id }));
+          apiLogger.error({ err: stripeErr, msg: "refund:rollback-did-not-apply — sweep will reconcile", registrationId, attemptId: attempt.id });
+          return {
+            ok: false,
+            code: "REFUND_STATE_UNKNOWN",
+            message: "The refund could not be completed and the books need reconciliation — the system will resolve it automatically within ~10 minutes. Check the Stripe Dashboard before retrying.",
+          };
+        } else {
+          // Stripe unreachable for verification too — keep the booking
+          // (rolling back blind risks erasing a real refund) and let the
+          // sweep resolve it. Over-alerting on money is deliberate.
+          await db.refundAttempt
+            .update({ where: { id: attempt.id }, data: { status: "UNKNOWN", error: truncateError(stripeErr) } })
+            .catch((err) => apiLogger.warn({ err, msg: "refund:attempt-status-update-failed", attemptId: attempt.id }));
+          apiLogger.error({ err: stripeErr, msg: "refund:state-unknown — verification unavailable, sweep will reconcile", registrationId, attemptId: attempt.id });
+          notifyEventAdmins(eventId, {
+            type: "PAYMENT",
+            title: "⚠ Refund state unknown",
+            message: `A ${formattedAmount} refund for ${registration.attendee.firstName} ${registration.attendee.lastName} could not be confirmed with Stripe — the system will reconcile automatically within ~10 minutes. Check the Stripe Dashboard before retrying.`,
+            link: `/events/${eventId}/registrations`,
+          }).catch((err: unknown) => apiLogger.error({ err, msg: "Failed to send refund-unknown admin notification" }));
+          return {
+            ok: false,
+            code: "REFUND_STATE_UNKNOWN",
+            message: "The refund could not be confirmed with Stripe. The system will reconcile automatically within ~10 minutes — check the Stripe Dashboard before retrying.",
+          };
+        }
       }
       apiLogger.info({
         msg: "Refund issued",
-        registrationId, eventId, stripeRefundId, amount, currency, partial: !isFull, refundedAfter, paidTotal, source, issuedBy: issuedByUserId ?? null,
+        registrationId, eventId, attemptId: attempt.id, stripeRefundId, amount, currency, partial: !isFull, refundedAfter, paidTotal, source, issuedBy: issuedByUserId ?? null,
       });
     }
 

@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeInstance } = vi.hoisted(() => {
+const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeRefundsList, mockStripeInstance } = vi.hoisted(() => {
   const mockStripeRefundsCreate = vi.fn();
-  const mockStripeInstance = { refunds: { create: mockStripeRefundsCreate } };
+  const mockStripeRefundsList = vi.fn();
+  const mockStripeInstance = { refunds: { create: mockStripeRefundsCreate, list: mockStripeRefundsList } };
   return {
     mockAuth: vi.fn(),
     mockDb: {
@@ -13,12 +14,29 @@ const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeInst
       payment: { update: vi.fn() },
       invoice: { findFirst: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
+      refundAttempt: { create: vi.fn(), update: vi.fn() },
+      $transaction: vi.fn(),
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     mockStripeRefundsCreate,
+    mockStripeRefundsList,
     mockStripeInstance,
   };
 });
+
+// Implementations survive vi.clearAllMocks() (it clears call history only), so
+// these defaults hold across every describe's own beforeEach:
+// - verification (verify-before-rollback) sees Stripe reachable + refund absent;
+// - the claim+attempt transaction routes to the shared mocks.
+mockStripeRefundsList.mockResolvedValue({ data: [] });
+mockDb.refundAttempt.create.mockResolvedValue({ id: "att-1" });
+mockDb.refundAttempt.update.mockResolvedValue({});
+mockDb.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) =>
+  cb({
+    registration: { updateMany: mockDb.registration.updateMany },
+    refundAttempt: { create: mockDb.refundAttempt.create },
+  }),
+);
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -229,8 +247,9 @@ describe("Refund: Stripe error rollback", () => {
     mockStripeRefundsCreate.mockRejectedValue(new Error("Stripe error: card_declined"));
     const res = await POST(makeRequest(), makeParams());
     expect(res.status).toBe(502);
-    // Rollback: registration.update restores PAID + the prior refunded total
-    expect(mockDb.registration.update).toHaveBeenCalledWith(
+    // Rollback is now a CONDITIONAL updateMany (verify-before-rollback flow):
+    // restores PAID + the prior refunded total, guarded on our booked value.
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ paymentStatus: "PAID" }) })
     );
   });
@@ -264,11 +283,14 @@ describe("Refund: idempotency key", () => {
     mockDb.payment.update.mockResolvedValue({});
   });
 
-  it("passes idempotency key derived from payment id", async () => {
+  it("passes the per-attempt idempotency key + verification metadata", async () => {
     await POST(makeRequest(), makeParams());
     expect(mockStripeRefundsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ payment_intent: "pi_test123" }),
-      expect.objectContaining({ idempotencyKey: "refund-pay-1-150.00" })
+      expect.objectContaining({
+        payment_intent: "pi_test123",
+        metadata: { refundAttemptId: "att-1", registrationId: "reg-1" },
+      }),
+      expect.objectContaining({ idempotencyKey: "refund-attempt-att-1" })
     );
   });
 });

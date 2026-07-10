@@ -9,6 +9,7 @@
  */
 
 import { runInvoiceReconciliationTick } from "@/lib/invoice-reconciliation-worker";
+import { resolveStaleRefundAttempts } from "@/lib/refund-reconciliation";
 import { apiLogger } from "@/lib/logger";
 import { withJobLock } from "../lib/advisory-lock";
 import { JOB_IDS } from "../lib/job-ids";
@@ -26,6 +27,19 @@ export async function tick(): Promise<void> {
         err,
         msg: "worker:tick-uncaught",
         job: JOB_NAME,
+      });
+    }
+    // Refund-attempt sweep (review H4/H5, July 10 2026) rides the same
+    // money-reconciliation cadence: settles PENDING/UNKNOWN RefundAttempt rows
+    // older than 10 min against Stripe's ground truth. Isolated try/catch so
+    // an invoice-sweep failure can't starve it and vice versa.
+    try {
+      await resolveStaleRefundAttempts();
+    } catch (err) {
+      apiLogger.error({
+        err,
+        msg: "worker:tick-uncaught",
+        job: `${JOB_NAME}:refund-attempts`,
       });
     }
   });

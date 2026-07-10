@@ -13,6 +13,7 @@ const {
   mockDb,
   mockAuth,
   stripeRefundsCreate,
+  stripeRefundsList,
   sendEmailSpy,
 } = vi.hoisted(() => ({
   mockDb: {
@@ -21,9 +22,12 @@ const {
     payment: { update: vi.fn() },
     invoice: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
+    refundAttempt: { create: vi.fn(), update: vi.fn() },
+    $transaction: vi.fn(),
   },
   mockAuth: vi.fn(),
   stripeRefundsCreate: vi.fn(),
+  stripeRefundsList: vi.fn(),
   sendEmailSpy: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -36,7 +40,7 @@ vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/stripe", () => ({
-  getStripe: () => ({ refunds: { create: stripeRefundsCreate } }),
+  getStripe: () => ({ refunds: { create: stripeRefundsCreate, list: stripeRefundsList } }),
   // Real behaviour for USD (non-zero-decimal): major → minor units.
   toStripeAmount: (amount: number) => Math.round(amount * 100),
 }));
@@ -90,6 +94,17 @@ beforeEach(() => {
   mockDb.registration.update.mockResolvedValue({});
   mockDb.payment.update.mockResolvedValue({});
   stripeRefundsCreate.mockResolvedValue({ id: "re_1", status: "succeeded" });
+  // Verification (verify-before-rollback): Stripe reachable, refund absent.
+  stripeRefundsList.mockResolvedValue({ data: [] });
+  mockDb.refundAttempt.create.mockResolvedValue({ id: "att1" });
+  mockDb.refundAttempt.update.mockResolvedValue({});
+  // The service's claim+attempt transaction routes to the shared mocks.
+  mockDb.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) =>
+    cb({
+      registration: { updateMany: mockDb.registration.updateMany },
+      refundAttempt: { create: mockDb.refundAttempt.create },
+    }),
+  );
 });
 
 describe("refund — credit-note gate", () => {
@@ -163,8 +178,8 @@ describe("refund — Stripe payment", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ refundId: "re_1", manual: false, status: "succeeded", amount: 100, fullyRefunded: true });
     expect(stripeRefundsCreate).toHaveBeenCalledWith(
-      { payment_intent: "pi_123", amount: 10000 },
-      { idempotencyKey: "refund-pay1-100.00" },
+      { payment_intent: "pi_123", amount: 10000, metadata: { refundAttemptId: "att1", registrationId: "reg1" } },
+      { idempotencyKey: "refund-attempt-att1" },
     );
   });
 
@@ -176,23 +191,41 @@ describe("refund — Stripe payment", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ amount: 30, refundedAmount: 30, fullyRefunded: false });
     expect(stripeRefundsCreate).toHaveBeenCalledWith(
-      { payment_intent: "pi_123", amount: 3000 },
-      { idempotencyKey: "refund-pay1-30.00" },
+      { payment_intent: "pi_123", amount: 3000, metadata: { refundAttemptId: "att1", registrationId: "reg1" } },
+      { idempotencyKey: "refund-attempt-att1" },
     );
     expect(mockDb.payment.update).not.toHaveBeenCalled();
   });
 
-  it("rolls the refunded total back and 502s when Stripe fails", async () => {
+  it("rolls the refunded total back (conditionally) and 502s when Stripe fails and the refund is provably absent", async () => {
     mockDb.registration.findUnique.mockResolvedValue(
       registration({ id: "pay1", stripePaymentId: "pi_123", amount: 100, currency: "USD" }),
     );
     stripeRefundsCreate.mockRejectedValue(new Error("stripe down"));
+    // stripeRefundsList default: reachable + empty → verified absent → rollback.
     const res = await POST(req(), { params });
     expect(res.status).toBe(502);
-    expect(mockDb.registration.update).toHaveBeenCalledWith({
-      where: { id: "reg1" },
+    expect((await res.json()).code).toBe("STRIPE_FAILED");
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg1", refundedAmount: 100 },
       data: { refundedAmount: 0, paymentStatus: "PAID" },
     });
+  });
+
+  it("502 REFUND_STATE_UNKNOWN — Stripe fails AND verification unreachable → booking kept for the sweep", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(
+      registration({ id: "pay1", stripePaymentId: "pi_123", amount: 100, currency: "USD" }),
+    );
+    stripeRefundsCreate.mockRejectedValue(new Error("stripe down"));
+    stripeRefundsList.mockRejectedValue(new Error("stripe still down"));
+    const res = await POST(req(), { params });
+    expect(res.status).toBe(502);
+    expect((await res.json()).code).toBe("REFUND_STATE_UNKNOWN");
+    // Only the claim ran — no rollback write.
+    expect(mockDb.registration.updateMany).toHaveBeenCalledTimes(1);
+    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "UNKNOWN" }) }),
+    );
   });
 });
 
