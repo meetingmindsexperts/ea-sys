@@ -164,6 +164,87 @@ describe("runAutoIssueSweep", () => {
     expect(itemArg.registrationId).toBeNull();
   });
 
+  it("bundles a committee+speaker person into ONE run + ONE person-keyed item (one email)", async () => {
+    registrationFindMany.mockResolvedValue([
+      {
+        id: "reg_5",
+        eventId: "evt_1",
+        certAutoIssueAttempts: 0,
+        attendee: { title: "DR", firstName: "Jane", lastName: "Doe", email: "j@x.com", tags: ["delegate"] },
+      },
+    ]);
+    certificateTemplateFindMany.mockResolvedValue([attendanceTpl, appreciationTpl]);
+    speakerFindFirst.mockResolvedValueOnce({
+      id: "spk_5", title: "DR", firstName: "Jane", lastName: "Doe", email: "j@x.com", tags: ["speaker"],
+    });
+
+    const res = await runAutoIssueSweep({ now: NOW });
+
+    // ONE run covering both templates — not two 1-template runs.
+    expect(txRunCreate).toHaveBeenCalledTimes(1);
+    const runArg = txRunCreate.mock.calls[0][0].data;
+    expect(runArg.templateIds).toEqual(["tpl_att", "tpl_app"]);
+    expect(runArg.certificateTemplateId).toBeNull();
+    // Multi bundle → null cover snapshot (send phase uses the MULTI defaults).
+    expect(runArg.emailSubject).toBeNull();
+    expect(runArg.emailBody).toBeNull();
+    // ONE person-keyed item with BOTH facets + the stamped subset.
+    expect(txRunItemCreate).toHaveBeenCalledTimes(1);
+    const itemArg = txRunItemCreate.mock.calls[0][0].data;
+    expect(itemArg.registrationId).toBe("reg_5");
+    expect(itemArg.speakerId).toBe("spk_5");
+    expect(itemArg.templateIds).toEqual(["tpl_att", "tpl_app"]);
+    expect(res.runsCreated).toBe(2); // targets enqueued
+  });
+
+  it("a single surviving target keeps its template's own cover email snapshot", async () => {
+    registrationFindMany.mockResolvedValue([
+      {
+        id: "reg_6", eventId: "evt_1", certAutoIssueAttempts: 0,
+        attendee: { title: null, firstName: "Sam", lastName: "Lee", email: "s@x.com", tags: [] },
+      },
+    ]);
+    certificateTemplateFindMany.mockResolvedValue([appreciationTpl]);
+    speakerFindFirst.mockResolvedValueOnce({
+      id: "spk_6", title: null, firstName: "Sam", lastName: "Lee", email: "s@x.com", tags: ["speaker"],
+    });
+
+    await runAutoIssueSweep({ now: NOW });
+
+    const runArg = txRunCreate.mock.calls[0][0].data;
+    expect(runArg.certificateTemplateId).toBe("tpl_app");
+    expect(runArg.templateIds).toEqual(["tpl_app"]);
+    expect(runArg.emailSubject).toBe("Thanks");
+    expect(runArg.emailBody).toBe("<p>Thanks</p>");
+  });
+
+  it("drops an already-covered target but still bundles the remaining one", async () => {
+    registrationFindMany.mockResolvedValue([
+      {
+        id: "reg_7", eventId: "evt_1", certAutoIssueAttempts: 0,
+        attendee: { title: null, firstName: "A", lastName: "B", email: "a@x.com", tags: ["delegate"] },
+      },
+    ]);
+    certificateTemplateFindMany.mockResolvedValue([attendanceTpl, appreciationTpl]);
+    speakerFindFirst.mockResolvedValueOnce({
+      id: "spk_7", title: null, firstName: "A", lastName: "B", email: "a@x.com", tags: ["speaker"],
+    });
+    // The ATTENDANCE cert already exists; APPRECIATION survives.
+    txIssuedCertFindFirst.mockImplementation((args: { where: { certificateTemplateId: string } }) =>
+      Promise.resolve(args.where.certificateTemplateId === "tpl_att" ? { id: "cert_existing" } : null),
+    );
+
+    const res = await runAutoIssueSweep({ now: NOW });
+
+    expect(txRunCreate).toHaveBeenCalledTimes(1);
+    const runArg = txRunCreate.mock.calls[0][0].data;
+    expect(runArg.templateIds).toEqual(["tpl_app"]);
+    const itemArg = txRunItemCreate.mock.calls[0][0].data;
+    expect(itemArg.registrationId).toBeNull();
+    expect(itemArg.speakerId).toBe("spk_7");
+    expect(res.runsCreated).toBe(1);
+  });
+
   it("skips enqueue when a cert already exists for the (template, recipient)", async () => {
     registrationFindMany.mockResolvedValue([
       {

@@ -302,18 +302,18 @@ async function processRegistration(
 
   let created = 0;
   await db.$transaction(async (tx) => {
+    // Idempotency guards run per target FIRST — a target is dropped when a
+    // cert already exists OR an auto-run item already covers this
+    // (event, template, recipient). The bundle-aware item check matches
+    // both legacy 1-template runs (certificateTemplateId) and bundle runs
+    // (templateIds has).
+    const surviving: typeof targets = [];
     for (const target of targets) {
-      const tmpl = templateMap.get(target.templateId);
-      if (!tmpl) continue;
-
+      if (!templateMap.has(target.templateId)) continue;
       const isSpeakerRecipient = target.recipient === "speaker";
-      const recipientId = isSpeakerRecipient ? speaker!.id : reg.id;
-
-      // Idempotency guard — skip if a cert already exists OR an auto-run
-      // item already covers this (event, template, recipient).
       const recipientWhere = isSpeakerRecipient
-        ? { speakerId: recipientId }
-        : { registrationId: recipientId };
+        ? { speakerId: speaker!.id }
+        : { registrationId: reg.id };
       const existingCert = await tx.issuedCertificate.findFirst({
         where: { eventId: reg.eventId, certificateTemplateId: target.templateId, ...recipientWhere },
         select: { id: true },
@@ -321,35 +321,63 @@ async function processRegistration(
       if (existingCert) continue;
       const existingItem = await tx.certificateIssueRunItem.findFirst({
         where: {
-          run: { eventId: reg.eventId, certificateTemplateId: target.templateId, autoIssue: true },
+          run: {
+            eventId: reg.eventId,
+            autoIssue: true,
+            OR: [
+              { certificateTemplateId: target.templateId },
+              { templateIds: { has: target.templateId } },
+            ],
+          },
           ...recipientWhere,
         },
         select: { id: true },
       });
       if (existingItem) continue;
+      surviving.push(target);
+    }
 
-      const recipientName = isSpeakerRecipient
-        ? formatName(speaker!)
-        : formatName(reg.attendee ?? {});
-      const recipientEmail = isSpeakerRecipient ? speaker!.email : reg.attendee?.email ?? null;
+    if (surviving.length > 0) {
+      // ONE run + ONE person-keyed item covering the person's whole
+      // surviving target set → ONE email with every earned PDF attached
+      // (a committee+speaker person no longer gets two emails).
+      const templateIds = surviving.map((t) => t.templateId);
+      const anySpeakerTarget = surviving.some((t) => t.recipient === "speaker");
+      const anyRegistrationTarget = surviving.some((t) => t.recipient === "registration");
+      const runType = anyRegistrationTarget ? "ATTENDANCE" : "APPRECIATION";
+      // Cover email: a single template keeps its own saved cover email
+      // (today's behavior); a multi bundle leaves the snapshot null so the
+      // send phase falls back to the MULTI defaults ({{certificateList}}).
+      const single = surviving.length === 1 ? templateMap.get(surviving[0].templateId) : null;
+      if (!single && surviving.length > 1) {
+        apiLogger.info({
+          msg: "cert-auto-issue:multi-default-cover",
+          registrationId: reg.id,
+          eventId: reg.eventId,
+          templateIds,
+        });
+      }
+      // Name/email anchor: prefer the attendee (registration facet), else
+      // the speaker — matches how the render phase resolves recipients.
+      const recipientName = anyRegistrationTarget
+        ? formatName(reg.attendee ?? {})
+        : formatName(speaker!);
+      const recipientEmail = anyRegistrationTarget
+        ? reg.attendee?.email ?? null
+        : speaker!.email;
 
       const run = await tx.certificateIssueRun.create({
         data: {
           eventId: reg.eventId,
-          type: target.category,
-          certificateTemplateId: target.templateId,
-          // Bundle-model dual-write (Phase 5 collapses a person's targets
-          // into ONE multi-template run; until then each run is 1-template).
-          templateIds: [target.templateId],
+          type: runType,
+          certificateTemplateId: surviving.length === 1 ? surviving[0].templateId : null,
+          templateIds,
           autoIssue: true,
           triggeredByUserId: null,
           status: "PENDING",
           totalCount: 1,
-          // Snapshot the template's cover email so a later template edit
-          // doesn't change in-flight auto emails (send phase reads the run,
-          // falling back to the system default when null).
-          emailSubject: tmpl.emailSubject,
-          emailBody: tmpl.emailBody,
+          emailSubject: single?.emailSubject ?? null,
+          emailBody: single?.emailBody ?? null,
           notes: "Auto-issued on survey completion",
         },
         select: { id: true },
@@ -357,13 +385,15 @@ async function processRegistration(
       await tx.certificateIssueRunItem.create({
         data: {
           runId: run.id,
-          registrationId: isSpeakerRecipient ? null : recipientId,
-          speakerId: isSpeakerRecipient ? recipientId : null,
+          registrationId: anyRegistrationTarget ? reg.id : null,
+          speakerId: anySpeakerTarget ? speaker!.id : null,
           recipientName,
           recipientEmail,
+          // The stamped subset the render phase issues (bundle model).
+          templateIds,
         },
       });
-      created++;
+      created = surviving.length;
     }
 
     // Terminal stamp — clears any prior error + attempts now that we've
