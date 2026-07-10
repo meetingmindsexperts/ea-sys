@@ -849,7 +849,9 @@ docker pull 803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:<tag>
 
 - **Rollback** = redeploy a previous `:<sha>` (no rebuild) — e.g. run
   `IMAGE_TAG=<old-sha> bash scripts/deploy.sh` on the box, or re-run the older
-  green Actions deploy.
+  green Actions deploy. **Full step-by-step runbook (code image + DB restore
+  points + uploads/.env + combined scenarios + post-rollback checklist):
+  [docs/ROLLBACK.md](ROLLBACK.md).**
 - **DR caveat:** ECR is in **Mumbai** — a full-region loss takes it down too. For
   region-independent recovery, enable **ECR cross-region replication → Singapore**
   (`ap-southeast-1`, where the DR S3 bucket is) — a one-time registry setting.
