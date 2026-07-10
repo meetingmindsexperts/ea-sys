@@ -26,6 +26,15 @@ export interface CoverEmailBundleCert {
 /** Pre-resolved values the sender feeds in. */
 export interface CoverEmailTokenContext {
   recipientName: string;
+  /**
+   * Split name parts — optional because only the bulk-email send path (and
+   * the preview) carries them; the manual Issue worker's run items snapshot
+   * `recipientName` only. Back the `{{firstName}}`/`{{lastName}}` tokens so
+   * a saved EMAIL template picked as the cert cover (its greeting is
+   * usually "Dear {{firstName}}") renders correctly instead of blank.
+   */
+  firstName?: string | null;
+  lastName?: string | null;
   eventName: string;
   eventStartDate: Date;
   eventEndDate: Date;
@@ -172,8 +181,17 @@ export async function resolveCoverEmailTokens(
   const distinctLabels = [...new Set(certs.map((c) => CERT_TYPE_LABELS[c.type]))];
   const baseTokens: Record<string, string> = {
     recipientName: ctx.recipientName,
+    // Saved EMAIL templates reused as cert covers use these vars — resolve
+    // them here so a "Dear {{firstName}}" greeting doesn't render blank.
+    // Fall back to the full recipientName when the caller has no split
+    // parts (manual Issue runs snapshot only the full name).
+    firstName: ctx.firstName?.trim() || ctx.recipientName,
+    lastName: ctx.lastName?.trim() || "",
     eventName: ctx.eventName,
     eventDateRange: formatDateRange(ctx.eventStartDate, ctx.eventEndDate),
+    // Aliases matching the EmailTemplate variable names.
+    eventDate: formatDate(ctx.eventStartDate),
+    eventVenue: ctx.venue ?? "",
     venueLine: composeVenueLine(ctx),
     organizationName: ctx.organizationName,
     certificateType: distinctLabels.join(" & "),

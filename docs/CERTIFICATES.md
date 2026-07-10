@@ -476,6 +476,24 @@ cert cover email isn't an `EmailTemplate` slug). Now:
   (available for tagless templates too — design check is independent of
   routing).
 
+**Cover-email source picker (same day):** instead of typing a subject/message
+from scratch, the dialog's **Cover email** dropdown pre-fills the editable
+Subject/Message fields from either (a) a selected certificate template's
+**saved cover** (the one edited in the cert template editor — offered when it
+has one), or (b) a **saved email template** from Communications → Email
+Templates (active custom templates; `stripDocumentWrapper` applied so a
+legacy full-document template doesn't nest inside the branding wrapper).
+"Certificate default" clears the fields (per-template/bundle default applies,
+as before). The FIELDS remain the source of truth for the send — the picker
+is a copy action, so edits after picking just diverge. To make saved email
+templates render correctly as covers, the cert token resolver
+([email-tokens-resolver.ts](../src/lib/certificates/email-tokens-resolver.ts))
+now also resolves **`{{firstName}}`/`{{lastName}}`** (threaded from the
+bulk-send recipient; `{{firstName}}` falls back to the full `recipientName`
+on the manual-Issue path, which snapshots only the full name) and
+**`{{eventDate}}`/`{{eventVenue}}`** aliases. Unknown tokens still render
+empty + warn (`cert-email-token:unknown`).
+
 ## Deferred / not implemented
 
 - **Tag-scoped bulk reissue in the UI** — the certificates-page

@@ -35,6 +35,8 @@ import {
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { stripDocumentWrapper } from "@/lib/email-utils";
+import { defaultCoverEmailFor } from "@/lib/certificates/email-tokens";
 import {
   PAYMENT_STATUS_DISPLAY_ORDER,
   PAYMENT_STATUS_LABELS,
@@ -304,6 +306,13 @@ export function BulkEmailDialog({
   const [localExcludeFaculty, setLocalExcludeFaculty] = useState(false);
   // certificate only — the CertificateTemplate ids to issue (multi-select).
   const [certTemplateIds, setCertTemplateIds] = useState<string[]>([]);
+  // Certificate sends only — where the cover email comes from. Picking a
+  // source PRE-FILLS the editable Subject/Message fields (the fields stay
+  // the source of truth for the send): "default" clears them (the send then
+  // uses the per-template saved cover / bundle system default), `cert:{id}`
+  // copies a certificate template's saved cover, `tpl:{slug}` copies a
+  // saved email template from Communications → Email Templates.
+  const [coverSource, setCoverSource] = useState("default");
   // When scheduling a send that started from a row selection, the organizer
   // chooses whether the scheduled email goes to that fixed set of rows or to
   // everyone matching the current filters at send time. The latter is
@@ -331,6 +340,7 @@ export function BulkEmailDialog({
       setLocalTags(tagsFilter ?? []);
       setLocalExcludeFaculty(false);
       setCertTemplateIds([]);
+      setCoverSource("default");
       setScheduledAudience("matching");
       setFiltersOpen(
         (paymentStatusFilter != null && paymentStatusFilter !== "all") ||
@@ -380,7 +390,13 @@ export function BulkEmailDialog({
   // built-in options above).
   const { data: templatesData } = useEmailTemplates(eventId);
   const customTemplates = (
-    (templatesData?.templates ?? []) as Array<{ slug: string; name: string; isActive: boolean }>
+    (templatesData?.templates ?? []) as Array<{
+      slug: string;
+      name: string;
+      isActive: boolean;
+      subject: string;
+      htmlContent: string;
+    }>
   ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
 
   const emailTypes: EmailTypeOption[] = [
@@ -484,6 +500,37 @@ export function BulkEmailDialog({
 
   const removeAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Certificate cover-email source picker — copies the chosen source into
+  // the editable Subject/Message fields. A later manual edit simply diverges
+  // from the picked source; the FIELDS are what the send uses.
+  const applyCoverSource = (value: string) => {
+    setCoverSource(value);
+    if (value === "default") {
+      setCustomSubject("");
+      setCustomMessage("");
+      return;
+    }
+    if (value.startsWith("cert:")) {
+      const t = certTemplateOptions.find((x) => x.id === value.slice(5));
+      if (!t) return;
+      // A template may have saved only one half of the cover — fall back to
+      // the category system default for the missing half, mirroring what
+      // the real send would use.
+      const fallback = defaultCoverEmailFor(1, t.category);
+      setCustomSubject(t.emailSubject?.trim() || fallback.subject);
+      setCustomMessage(t.emailBody?.trim() || fallback.body);
+      return;
+    }
+    if (value.startsWith("tpl:")) {
+      const t = customTemplates.find((x) => x.slug === value.slice(4));
+      if (!t) return;
+      setCustomSubject(t.subject);
+      // Legacy saved templates can be full HTML documents — strip to the
+      // body fragment so the cert pipeline's branding wrapper isn't nested.
+      setCustomMessage(stripDocumentWrapper(t.htmlContent));
+    }
   };
 
   const handlePreview = async () => {
@@ -739,11 +786,19 @@ export function BulkEmailDialog({
                             className="mt-0.5"
                             disabled={tagless || (!certTemplateIds.includes(t.id) && certTemplateIds.length >= 5)}
                             checked={certTemplateIds.includes(t.id)}
-                            onCheckedChange={(c) =>
+                            onCheckedChange={(c) => {
                               setCertTemplateIds((prev) =>
                                 c === true ? [...prev, t.id] : prev.filter((id) => id !== t.id),
-                              )
-                            }
+                              );
+                              // Deselecting the template whose saved cover
+                              // is the picked source removes its option —
+                              // point the picker back at "default" (the
+                              // already-copied subject/message fields are
+                              // untouched; they drive the send).
+                              if (c !== true && coverSource === `cert:${t.id}`) {
+                                setCoverSource("default");
+                              }
+                            }}
                           />
                           <span>
                             <span className="font-medium">{t.name}</span>
@@ -782,6 +837,62 @@ export function BulkEmailDialog({
                 certificates are re-attached (same serial), never duplicated. Any
                 registration status qualifies (check-in not required); cancelled
                 registrations are always excluded.
+              </p>
+            </div>
+          )}
+
+          {/* Certificate cover-email source — pre-fills the Subject/Message
+              fields from a certificate template's saved cover OR a saved
+              email template, instead of typing from scratch. */}
+          {isCertificate && (
+            <div className="space-y-2">
+              <Label>Cover email</Label>
+              <Select value={coverSource} onValueChange={applyCoverSource}>
+                <SelectTrigger className="data-[size=default]:h-auto min-h-12 py-1">
+                  <SelectValue placeholder="Certificate default" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">
+                    <div>
+                      <div className="font-medium">Certificate default</div>
+                      <div className="text-xs text-muted-foreground">
+                        Each template&apos;s saved cover email (or the system default) — leave subject/message blank
+                      </div>
+                    </div>
+                  </SelectItem>
+                  {certTemplateOptions
+                    .filter(
+                      (t) =>
+                        certTemplateIds.includes(t.id) &&
+                        (t.emailSubject?.trim() || t.emailBody?.trim()),
+                    )
+                    .map((t) => (
+                      <SelectItem key={`cert:${t.id}`} value={`cert:${t.id}`}>
+                        <div>
+                          <div className="font-medium">{t.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Saved cover from the certificate template editor
+                          </div>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  {customTemplates.map((t) => (
+                    <SelectItem key={`tpl:${t.slug}`} value={`tpl:${t.slug}`}>
+                      <div>
+                        <div className="font-medium">{t.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          Saved email template (Communications → Email Templates)
+                        </div>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Picking a source pre-fills the subject and message below — edit freely
+                before sending. Tokens like {"{{recipientName}}"}, {"{{firstName}}"},{" "}
+                {"{{certificateList}}"} and {"{{certificateSerial}}"} resolve per
+                recipient; unknown tokens render blank.
               </p>
             </div>
           )}

@@ -97,3 +97,42 @@ describe("resolveCoverEmailTokens — bundle context", () => {
     expect(out).not.toContain("<b>Bold</b>");
   });
 });
+
+// ── Saved-email-template compatibility tokens (July 10, 2026) ────────────────
+// A saved EmailTemplate reused as the cert cover email commonly greets with
+// {{firstName}} and references {{eventDate}}/{{eventVenue}} — these resolve
+// in the cert pipeline too, so the greeting never renders blank.
+
+describe("resolveCoverEmailTokens — email-template compat tokens", () => {
+  it("resolves {{firstName}}/{{lastName}} from the split name parts", async () => {
+    const out = await resolveCoverEmailTokens("Dear {{firstName}} {{lastName}},", {
+      ...baseCtx,
+      firstName: "Jane",
+      lastName: "Doe",
+    });
+    expect(out).toBe("Dear Jane Doe,");
+  });
+
+  it("falls back {{firstName}} → full recipientName when no split parts (manual Issue path)", async () => {
+    const out = await resolveCoverEmailTokens("Dear {{firstName}},", baseCtx);
+    expect(out).toBe("Dear Dr Jane Doe,");
+  });
+
+  it("{{lastName}} renders empty when no split parts (never a duplicate full name)", async () => {
+    const out = await resolveCoverEmailTokens("x{{lastName}}x", baseCtx);
+    expect(out).toBe("xx");
+  });
+
+  it("resolves {{eventDate}} (start date) and {{eventVenue}}", async () => {
+    const out = await resolveCoverEmailTokens("{{eventDate}} @ {{eventVenue}}", {
+      ...baseCtx,
+      venue: "Dubai World Trade Centre",
+    });
+    expect(out).toBe("1st April 2026 @ Dubai World Trade Centre");
+  });
+
+  it("{{eventVenue}} renders empty when the event has no venue", async () => {
+    const out = await resolveCoverEmailTokens("x{{eventVenue}}x", baseCtx);
+    expect(out).toBe("xx");
+  });
+});

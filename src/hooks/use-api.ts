@@ -2334,6 +2334,11 @@ export interface CertTemplateOption {
   /** The template's tag — decides who receives it on every issue path
    *  (manual, bulk email, survey auto-issue). Null = matches nobody. */
   autoIssueTag?: string | null;
+  /** Per-template saved cover email (edited in the certificate template
+   *  editor) — offered as a "Cover email" pre-fill source in the bulk-email
+   *  dialog. Null = template has no saved cover (system default applies). */
+  emailSubject?: string | null;
+  emailBody?: string | null;
 }
 
 /** List an event's certificate templates (for the single-issue picker). */

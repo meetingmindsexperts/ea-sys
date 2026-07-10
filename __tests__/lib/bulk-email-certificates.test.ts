@@ -129,6 +129,10 @@ describe("executeCertificateBulkSend", () => {
     expect(sent.certs.map((c: { serial: string }) => c.serial).sort()).toEqual(["APP-1", "ATT-1"]);
     expect(sent.emailSubjectTemplate).toContain("Your certificates");
     expect(sent.recipientName).toBe("Dr. Jane Doe");
+    // Split name parts thread through so a saved email template picked as
+    // the cover ({{firstName}} greeting) resolves per recipient.
+    expect(sent.recipientFirstName).toBe("Jane");
+    expect(sent.recipientLastName).toBe("Doe");
   });
 
   it("tag-filters: recipient with only the attendance tag gets only that cert (its own cover email)", async () => {

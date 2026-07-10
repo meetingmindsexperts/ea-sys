@@ -552,6 +552,11 @@ export async function sendCertificateBundleEmail(args: {
   organizationId: string | null;
   recipientEmail: string;
   recipientName: string;
+  /** Split name parts — back the {{firstName}}/{{lastName}} cover-email
+   *  tokens (saved email templates reused as covers). Optional: the manual
+   *  Issue worker snapshots only the full recipientName. */
+  recipientFirstName?: string | null;
+  recipientLastName?: string | null;
   registrationId: string | null;
   speakerId: string | null;
   certs: BundleEmailCert[];
@@ -589,6 +594,8 @@ export async function sendCertificateBundleEmail(args: {
   };
   const tokenCtx: CoverEmailTokenContext = {
     recipientName: args.recipientName,
+    firstName: args.recipientFirstName,
+    lastName: args.recipientLastName,
     eventName: event.name,
     eventStartDate: event.startDate,
     eventEndDate: event.endDate,
@@ -605,6 +612,8 @@ export async function sendCertificateBundleEmail(args: {
   const escapedTokenCtx: CoverEmailTokenContext = {
     ...tokenCtx,
     recipientName: escapeHtml(tokenCtx.recipientName),
+    firstName: tokenCtx.firstName ? escapeHtml(tokenCtx.firstName) : tokenCtx.firstName,
+    lastName: tokenCtx.lastName ? escapeHtml(tokenCtx.lastName) : tokenCtx.lastName,
     eventName: escapeHtml(tokenCtx.eventName),
     organizationName: escapeHtml(tokenCtx.organizationName),
     venue: tokenCtx.venue ? escapeHtml(tokenCtx.venue) : tokenCtx.venue,
@@ -727,6 +736,8 @@ export async function buildCertCoverEmailPreview(args: {
   };
   const tokenCtx: CoverEmailTokenContext = {
     recipientName: "Dr. Sample Attendee",
+    firstName: "Sample",
+    lastName: "Attendee",
     eventName: event.name,
     eventStartDate: event.startDate,
     eventEndDate: event.endDate,

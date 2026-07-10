@@ -314,6 +314,8 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       organizationId: organizationId ?? null,
       recipientEmail: recipient.email,
       recipientName: formatRecipientName(recipient.title ?? null, recipient.firstName, recipient.lastName),
+      recipientFirstName: recipient.firstName,
+      recipientLastName: recipient.lastName,
       registrationId: facets.registrationId,
       speakerId: facets.speakerId,
       certs: bundled.map((b) => ({
