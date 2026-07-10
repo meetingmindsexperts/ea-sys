@@ -217,8 +217,13 @@ The platform handles the entire event lifecycle — from public registration and
 A 4-angle production review of the registrations + speakers + companion-registration
 domain (lifecycle · facets · security · duplication/logging). Full report with quoted
 code + failure scenarios: [docs/CODE_REVIEW_REGISTRATIONS_SPEAKERS.html](CODE_REVIEW_REGISTRATIONS_SPEAKERS.html)
-(browseable at `/admin/docs`). All 9 HIGHs were fixed in the same-day 8-phase remediation
-round; the mediums/lows below are deferred and independently shippable. Suggested order:
+(browseable at `/admin/docs`). The 9 HIGHs are being fixed in a same-day 8-phase
+remediation round — **phases 1–6 landed July 10** (`a1641fe` activity-route IDOR,
+`c5e56cd` CSV formula injection, `f910e41` companion-CANCELLED link + registration→speaker
+email cascade, `47644cc` MCP tag sync, `dafef1d` promo usedCount lifecycle, `34ad041`
+registration PUT atomicity); phases 7–8 (bulk-type repricing guards + check-in
+unification) in flight. The mediums/lows below are deferred and independently
+shippable. Suggested order:
 M4 first (only one that moves real money), then the MCP-parity cluster (M7/M8/M9/L4),
 then logging hygiene (M12/M13), then the `updateRegistration()` service extraction (#5
 below in the cross-caller section) which stops the drift class from regenerating.

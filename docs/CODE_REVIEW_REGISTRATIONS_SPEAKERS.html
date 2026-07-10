@@ -663,9 +663,9 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
     <tr><td>1</td><td>H1</td><td>Route both <code>/activity</code> lookups through <code>buildEventAccessWhere</code>; add <code>denyReviewer</code>; regression test for the org-null role.</td><td>✅ Fixed (Jul 10)</td></tr>
     <tr><td>2</td><td>H2</td><td>Shared <code>escapeCsvCell()</code> with formula neutralisation (phone-number exemption so <code>+971…</code> survives round-trips); applied to every unprotected export path.</td><td>✅ Fixed (Jul 10)</td></tr>
     <tr><td>3</td><td>H3, H4</td><td>Companion link excludes CANCELLED rows (falls through to a fresh Faculty companion); registration email PATCH cascades to the linked Speaker facet (in-sync speakers only; diverged ones warn; collision → 409 <code>SPEAKER_EMAIL_TAKEN</code>).</td><td>✅ Fixed (Jul 10)</td></tr>
-    <tr><td>4</td><td>H5</td><td>MCP <code>update_speaker</code> / <code>update_registration</code> route tag writes through <code>person-tag-sync</code>.</td><td>In progress</td></tr>
-    <tr><td>5</td><td>H6</td><td>Guard the promo decrement (<code>usedCount &gt; 0</code>); re-claim on reactivation; make cancel/reactivate symmetric.</td><td>In progress</td></tr>
-    <tr><td>6</td><td>H7</td><td>Move the attendee update and contact sync inside the transaction, after the optimistic-lock check.</td><td>In progress</td></tr>
+    <tr><td>4</td><td>H5</td><td>MCP <code>update_speaker</code> / <code>update_registration</code> route tag writes through <code>person-tag-sync</code>.</td><td>✅ Fixed (Jul 10)</td></tr>
+    <tr><td>5</td><td>H6</td><td>Promo <code>usedCount</code> made symmetric: guarded decrement on cancel, re-claim on reactivation, no double release via promo-remove on a cancelled reg.</td><td>✅ Fixed (Jul 10)</td></tr>
+    <tr><td>6</td><td>H7</td><td>Attendee update moved inside the transaction after the optimistic-lock check; tag/contact syncs post-commit.</td><td>✅ Fixed (Jul 10)</td></tr>
     <tr><td>7</td><td>H8</td><td>Bulk-type re-stamps <code>originalPrice</code> and enforces the unpaid / no-discount guards.</td><td>In progress</td></tr>
     <tr><td>8</td><td>H9</td><td>Single check-in helper shared by both REST handlers and the MCP tool: payment gate, audit row, and the CANCELLED override routed through <code>applyRegistrationTransition</code>.</td><td>In progress</td></tr>
   </tbody>
@@ -746,6 +746,72 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
     up-front with 409 <code>SPEAKER_EMAIL_TAKEN</code> before anything is written; the happy path returns
     <code>speakerSynced: true</code>, which the audit row and the dialog toast now surface (the toast also
     gained the speaker-side <code>companionSynced</code> flag it never showed).
+  </p>
+</div>
+
+<div class="finding high">
+  <h3>Phase 4 · H5 — MCP tag sync <span class="sev low">FIXED · commit 47644cc</span></h3>
+  <p class="lbl">Files changed</p>
+  <ul>
+    <li><code>src/lib/agent/tools/speakers.ts</code> — <code>update_speaker</code> executor</li>
+    <li><code>src/lib/agent/tools/registrations.ts</code> — <code>update_registration</code> executor</li>
+    <li><code>__tests__/lib/mcp-tag-sync-parity.test.ts</code> (new, 4 tests)</li>
+  </ul>
+  <p class="lbl">What the fix does</p>
+  <p>
+    Both MCP executors now load the pre-update tags (+ <code>sourceRegistrationId</code> on the speaker
+    side), compute the delta with the same <code>computeTagDelta</code> the REST PUTs use, and call
+    <code>syncSpeakerTagsToRegistrations</code> / <code>syncRegistrationTagsToSpeakers</code> after the
+    primary write commits — so agent/n8n-tagged committee speakers now reach the companion
+    <code>attendee.tags</code> (certificate auto-issue routing, <code>tagsInclude</code> bulk-email
+    filters, and <code>?tags=</code> queries all see them), and attendee-side tags reach the speaker
+    facet. The sync is best-effort by contract (the helper logs and never throws). Tests keep the real
+    <code>computeTagDelta</code> and pin the exact payload each executor hands the sync, including
+    the Title-Case normalization stored tags carry, plus the no-tags no-sync case.
+  </p>
+</div>
+
+<div class="finding high">
+  <h3>Phase 5 · H6 — promo <code>usedCount</code> lifecycle <span class="sev low">FIXED · commit dafef1d</span></h3>
+  <p class="lbl">Files changed</p>
+  <ul>
+    <li><code>src/lib/registration-seat-db.ts</code> — <code>applyRegistrationTransition</code></li>
+    <li><code>src/services/promo-code-service.ts</code> — <code>removePromoCodeFromRegistration</code></li>
+    <li><code>__tests__/lib/registration-transition.test.ts</code> (rewritten, +3 cases), <code>__tests__/services/promo-code-service.test.ts</code> (+1)</li>
+  </ul>
+  <p class="lbl">What the fix does</p>
+  <p>
+    The shared transition applier's promo movement is now <strong>symmetric and guarded</strong>:
+    becoming CANCELLED releases <code>usedCount</code> with a <code>usedCount &gt; 0</code> predicate
+    (never below zero — matching <code>releaseExistingRedemption</code>), and leaving CANCELLED
+    <strong>re-claims</strong> the redemption the registration still holds (it kept its
+    <code>promoCodeId</code> + <code>discountAmount</code> through the cancel). The re-claim is
+    deliberately not <code>maxUses</code>-gated — it restores a previously-held redemption, same policy
+    as bulk seat reactivation. Separately, removing the promo from an already-CANCELLED registration no
+    longer decrements a second time: it clears <code>promoCodeId</code>/<code>discountAmount</code> and
+    the redemption row only, so a later reactivation sees no promo and won't re-claim. A test simulates
+    the full cancel → reactivate → cancel sequence against a live counter and pins net-zero movement.
+  </p>
+</div>
+
+<div class="finding high">
+  <h3>Phase 6 · H7 — registration PUT atomicity <span class="sev low">FIXED · commit 34ad041</span></h3>
+  <p class="lbl">Files changed</p>
+  <ul>
+    <li><code>src/app/api/events/[eventId]/registrations/[registrationId]/route.ts</code> — PUT handler</li>
+    <li><code>__tests__/api/registration-put-atomicity.test.ts</code> (new, 3 tests)</li>
+  </ul>
+  <p class="lbl">What the fix does</p>
+  <p>
+    The attendee patch is now built up front but written <strong>inside the transaction, after the
+    optimistic-lock <code>updateMany</code> succeeds</strong> — so a <code>STALE_WRITE</code> 409 or a
+    <code>CAPACITY_EXCEEDED</code> rollback persists <em>nothing</em> (previously the attendee row,
+    Contact-store sync and speaker-tag mirror had already committed before the lock was even checked,
+    silently interleaving two editors' data). The speaker-tag mirror and <code>syncToContact</code> moved
+    to after the transaction commits, with their exact payloads unchanged. This also restores atomicity
+    parity with the MCP executor, which already did the attendee write in-tx. Tests pin: stale write →
+    409 with zero attendee writes and no contact sync; happy path → in-tx ordering
+    (<code>registration.updateMany</code> → <code>attendee.update</code>) with sync after commit.
   </p>
 </div>
 
