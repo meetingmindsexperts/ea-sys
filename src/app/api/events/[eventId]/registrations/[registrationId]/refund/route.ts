@@ -21,6 +21,9 @@ const HTTP_STATUS_FOR_CODE: Record<RefundErrorCode, number> = {
   INVALID_AMOUNT: 400,
   LOST_LOCK: 409,
   STRIPE_FAILED: 502,
+  // Some slices refunded, one failed — the failed remainder was released;
+  // retry refunds the rest.
+  REFUND_PARTIALLY_COMPLETED: 502,
   // Booked but unconfirmable with Stripe — the reconciliation sweep resolves
   // it within ~10 min; the message tells the operator not to retry blindly.
   REFUND_STATE_UNKNOWN: 502,

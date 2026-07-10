@@ -26,6 +26,7 @@ const {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
         aggregate: vi.fn(),
       },
       $transaction: vi.fn(),
@@ -204,7 +205,11 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
     mockDb.payment.update.mockResolvedValue({});
-    // Default: the reg's only PAID payment is this $100 Stripe charge.
+    // Per-payment claim succeeds by default; registration roll-up returns the
+    // post-increment total (tests override per scenario).
+    mockDb.payment.updateMany.mockResolvedValue({ count: 1 });
+    mockDb.registration.update.mockResolvedValue({ refundedAmount: 100 });
+    // Default: the reg's only settled payment is this $100 Stripe charge.
     mockDb.payment.aggregate.mockResolvedValue({ _sum: { amount: 100 } });
     createCreditNoteMock.mockResolvedValue({ invoice: { id: "cn1" }, created: true });
   });
@@ -223,9 +228,12 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
       ...(created !== undefined ? { created } : {}),
     });
 
+  // Per-payment reconciliation (M4): `refundedAmount` here is the PAYMENT's
+  // own counter — the number Stripe's per-charge cumulative reconciles against.
   const paymentRow = (refundedAmount: number, amount = 100) => ({
     id: "pay-1",
     amount,
+    refundedAmount,
     registrationId: "reg-1",
     registration: { eventId: "evt-1", refundedAmount, event: { organizationId: "org-1" } },
   });
@@ -235,84 +243,117 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
   it("reconciles a FULL Dashboard refund → refundedAmount + REFUNDED + credit note", async () => {
     mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 10000 })); // $100 of $100
     mockDb.payment.findUnique.mockResolvedValue(paymentRow(0, 100));
+    mockDb.registration.update.mockResolvedValue({ refundedAmount: 100 });
 
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(200);
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg-1", refundedAmount: { lt: 100 } },
-      data: { refundedAmount: 100, paymentStatus: "REFUNDED" },
+    // Per-payment claim: counter → cumulative, status flips (charge fully refunded).
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: "pay-1", refundedAmount: 0 },
+      data: { refundedAmount: 100, status: "REFUNDED" },
     });
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay-1" }, data: { status: "REFUNDED" } });
+    // Registration roll-up: delta incremented, then full → REFUNDED flip.
+    expect(mockDb.registration.update).toHaveBeenCalledWith({
+      where: { id: "reg-1" },
+      data: { refundedAmount: { increment: 100 } },
+      select: { refundedAmount: true },
+    });
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg-1", paymentStatus: "PAID" },
+      data: { paymentStatus: "REFUNDED" },
+    });
     await flush();
     expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 100 }));
   });
 
-  it("H2: full refund of ONE charge on a multi-payment reg keeps PAID (paidTotal = sum of all PAID)", async () => {
-    // Reg collected $100 = $60 Stripe + $40 manual. Dashboard fully refunds the
-    // $60 Stripe charge. paidTotal must be $100 (aggregate), so isFull is false.
-    mockDb.payment.aggregate.mockResolvedValue({ _sum: { amount: 100 } });
-    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 6000 })); // $60 refunded
-    mockDb.payment.findUnique.mockResolvedValue(paymentRow(0, 60)); // this charge is $60
+  it("M4: full refund of ONE charge on a mixed Stripe+manual reg keeps PAID and reconciles per-payment", async () => {
+    // Reg collected $150 = $100 Stripe + $50 manual; a $50 MANUAL refund was
+    // already recorded (reg counter 50). Dashboard fully refunds the $100
+    // Stripe charge. Old code compared Stripe's cumulative against the MIXED
+    // counter (delta = 100−50 = 50) and under-recorded; per-payment tracking
+    // computes the true delta of 100.
+    mockDb.payment.aggregate.mockResolvedValue({ _sum: { amount: 150 } });
+    mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 10000 })); // $100 refunded
+    const row = paymentRow(0, 100);
+    row.registration.refundedAmount = 50; // mixed counter already holds the manual refund
+    mockDb.payment.findUnique.mockResolvedValue(row);
+    mockDb.registration.update.mockResolvedValue({ refundedAmount: 150 }); // 50 + 100
 
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(200);
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg-1", refundedAmount: { lt: 60 } },
-      data: { refundedAmount: 60 }, // NO REFUNDED flip — $40 manual still owed
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: "pay-1", refundedAmount: 0 },
+      data: { refundedAmount: 100, status: "REFUNDED" },
     });
-    expect(mockDb.payment.update).not.toHaveBeenCalled();
+    expect(mockDb.registration.update).toHaveBeenCalledWith({
+      where: { id: "reg-1" },
+      data: { refundedAmount: { increment: 100 } }, // TRUE delta, not 50
+      select: { refundedAmount: true },
+    });
+    // 150 refunded of 150 collected → full flip.
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg-1", paymentStatus: "PAID" },
+      data: { paymentStatus: "REFUNDED" },
+    });
     await flush();
-    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 60 }));
+    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 100 }));
   });
 
   it("reconciles a PARTIAL Dashboard refund → keeps PAID, credit note for the delta", async () => {
     mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 3000 })); // $30 of $100
     mockDb.payment.findUnique.mockResolvedValue(paymentRow(0, 100));
+    mockDb.registration.update.mockResolvedValue({ refundedAmount: 30 });
 
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(200);
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg-1", refundedAmount: { lt: 30 } },
-      data: { refundedAmount: 30 }, // no REFUNDED flip on partial
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: "pay-1", refundedAmount: 0 },
+      data: { refundedAmount: 30 }, // no status flip — charge not fully refunded
     });
-    expect(mockDb.payment.update).not.toHaveBeenCalled();
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled(); // no REFUNDED flip on partial
     await flush();
     expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 30 }));
   });
 
   it("only credits the incremental delta on a second (larger) refund", async () => {
     mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 5000 })); // now $50 total
-    mockDb.payment.findUnique.mockResolvedValue(paymentRow(30, 100)); // $30 already reconciled
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(30, 100)); // $30 already reconciled on this charge
+    mockDb.registration.update.mockResolvedValue({ refundedAmount: 50 });
 
     await POST(makeWebhookRequest());
-    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg-1", refundedAmount: { lt: 50 } },
+    expect(mockDb.payment.updateMany).toHaveBeenCalledWith({
+      where: { id: "pay-1", refundedAmount: 30 },
       data: { refundedAmount: 50 },
     });
+    expect(mockDb.registration.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { refundedAmount: { increment: 20 } } })
+    );
     await flush();
     expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 20 })); // delta only
   });
 
   it("is idempotent — a retry with an already-reconciled total skips (no CN, no writes)", async () => {
     mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 10000 }));
-    mockDb.payment.findUnique.mockResolvedValue(paymentRow(100, 100)); // already fully reconciled
+    mockDb.payment.findUnique.mockResolvedValue(paymentRow(100, 100)); // charge already fully reconciled
 
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(200);
-    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.payment.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
     await flush();
     expect(createCreditNoteMock).not.toHaveBeenCalled();
   });
 
-  it("skips the credit note when a concurrent delivery already claimed the delta", async () => {
+  it("500s (Stripe retries) when a concurrent delivery moved the payment counter", async () => {
     mockConstructEvent.mockReturnValue(makeChargeEvent("pi_1", { amountRefunded: 10000 }));
     mockDb.payment.findUnique.mockResolvedValue(paymentRow(0, 100));
-    mockDb.registration.updateMany.mockResolvedValue({ count: 0 }); // lost the race
+    mockDb.payment.updateMany.mockResolvedValue({ count: 0 }); // lost the per-payment claim
 
-    await POST(makeWebhookRequest());
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(500);
     await flush();
     expect(createCreditNoteMock).not.toHaveBeenCalled();
-    expect(mockDb.payment.update).not.toHaveBeenCalled();
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
   });
 
   it("warns and skips when no Payment record found for paymentIntentId (unknown charge age)", async () => {

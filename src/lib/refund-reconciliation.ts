@@ -120,12 +120,15 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         continue;
       }
 
-      // Provably no refund at Stripe → the booking overstates. Roll it back,
-      // CONDITIONALLY on the booked total still being in place.
+      // Provably no refund at Stripe → the booking overstates by this
+      // attempt's amount. Un-book via a GUARDED DECREMENT (not a set-back):
+      // sibling slices of the same refund — or webhook reconciliations of
+      // other charges — may have legitimately moved the total in the
+      // meantime; we only remove the portion THIS attempt booked.
       const rolledBack = await db.registration.updateMany({
-        where: { id: attempt.registrationId, refundedAmount: attempt.refundedAfter },
+        where: { id: attempt.registrationId, refundedAmount: { gte: Number(attempt.amount) } },
         data: {
-          refundedAmount: attempt.refundedBefore,
+          refundedAmount: { decrement: Number(attempt.amount) },
           ...(attempt.flippedToRefunded ? { paymentStatus: "PAID" as const } : {}),
         },
       });

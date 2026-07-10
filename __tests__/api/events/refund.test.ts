@@ -199,7 +199,7 @@ describe("Refund: business rule validations", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).manual).toBe(true);
     expect(mockStripeRefundsCreate).not.toHaveBeenCalled();
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay-1" }, data: { status: "REFUNDED" } });
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay-1" }, data: { refundedAmount: 150, status: "REFUNDED" } });
   });
 });
 
@@ -314,10 +314,10 @@ describe("Refund: success path", () => {
     expect(body).toMatchObject({ refundId: "re_abc", status: "succeeded" });
   });
 
-  it("updates payment record to REFUNDED", async () => {
+  it("updates payment record to REFUNDED (counter + status)", async () => {
     await POST(makeRequest(), makeParams());
     expect(mockDb.payment.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: "REFUNDED" } })
+      expect.objectContaining({ data: expect.objectContaining({ status: "REFUNDED" }) })
     );
   });
 

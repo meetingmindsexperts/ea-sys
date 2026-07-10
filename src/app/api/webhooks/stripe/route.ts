@@ -346,6 +346,7 @@ export async function POST(req: Request) {
         select: {
           id: true,
           amount: true,
+          refundedAmount: true,
           registrationId: true,
           registration: {
             select: {
@@ -380,49 +381,64 @@ export async function POST(req: Request) {
       }
 
       const round2 = (n: number) => Math.round(n * 100) / 100;
-      // Stripe's `amount_refunded` is the CUMULATIVE refunded total (minor units)
-      // — supports partial + repeated Dashboard refunds. Reconcile our running
-      // `Registration.refundedAmount` up to it.
+      // Stripe's `amount_refunded` is the CUMULATIVE refunded total FOR THIS
+      // CHARGE (minor units). Reconcile it against the PER-PAYMENT counter
+      // (`Payment.refundedAmount`), NOT the registration's mixed total —
+      // `Registration.refundedAmount` also accumulates manual/offline refunds,
+      // and comparing Stripe's per-charge cumulative against the mixed number
+      // either under-recorded (a prior manual refund ate the delta and the
+      // Stripe refund vanished from the books) or mislabeled remaining
+      // balances on mixed Stripe+manual registrations (review M4).
       const cumulativeRefunded = round2(fromStripeAmount(charge.amount_refunded, charge.currency));
-      // `paidTotal` is the FULL collected total for the registration — the sum of
-      // ALL PAID payments (a reg can hold a Stripe charge + a manual/offline
-      // capture). Deriving it from this single PaymentIntent's row would flag a
-      // full refund of one charge as "fully refunded" and mislabel the whole reg,
-      // stranding the rest. Matches the refund route's paidTotal derivation.
-      const paidAgg = await db.payment.aggregate({
-        where: { registrationId: payment.registrationId, status: "PAID" },
-        _sum: { amount: true },
-      });
-      const paidTotal = round2(Number(paidAgg._sum.amount ?? payment.amount));
-      const already = round2(Number(payment.registration.refundedAmount));
-      const delta = round2(cumulativeRefunded - already);
-      const isFull = cumulativeRefunded >= paidTotal - 0.005;
+      const alreadyForPayment = round2(Number(payment.refundedAmount));
+      const delta = round2(cumulativeRefunded - alreadyForPayment);
 
-      // A route-initiated refund already bumped `refundedAmount` to this value,
-      // so a delta of 0 means "already accounted for" → skip (idempotent on
+      // A route-initiated refund already bumped THIS payment's counter, so a
+      // delta of 0 means "already accounted for" → skip (idempotent on
       // retries too). Only a Stripe-Dashboard (out-of-band) refund advances it.
       if (delta <= 0) {
         apiLogger.info({ msg: "charge.refunded: already reconciled, skipping", registrationId: payment.registrationId, paymentIntentId, cumulativeRefunded });
         return NextResponse.json({ received: true });
       }
 
-      // Claim the delta atomically — guarded by `refundedAmount < cumulative` so
-      // two concurrent webhook deliveries can't both advance it / both mint a CN.
-      const claimed = await db.registration.updateMany({
-        where: { id: payment.registrationId, refundedAmount: { lt: cumulativeRefunded } },
+      // Claim the delta atomically on the PAYMENT row — optimistic on the
+      // observed counter so two concurrent deliveries can't both advance it /
+      // both mint a CN. The loser 500s and Stripe's retry re-reads a counter
+      // that already includes the winner's delta (→ delta ≤ 0 → skip).
+      const paymentFullyRefunded = cumulativeRefunded >= Number(payment.amount) - 0.005;
+      const claimed = await db.payment.updateMany({
+        where: { id: payment.id, refundedAmount: payment.refundedAmount },
         data: {
           refundedAmount: cumulativeRefunded,
-          ...(isFull ? { paymentStatus: "REFUNDED" as const } : {}),
+          ...(paymentFullyRefunded ? { status: "REFUNDED" as const } : {}),
         },
       });
       if (claimed.count === 0) {
-        apiLogger.info({ msg: "charge.refunded: delta claimed by a concurrent delivery, skipping", registrationId: payment.registrationId, paymentIntentId });
-        return NextResponse.json({ received: true });
+        apiLogger.warn({ msg: "charge.refunded: payment counter moved concurrently — 500 so Stripe retries", registrationId: payment.registrationId, paymentIntentId });
+        return NextResponse.json({ error: "Concurrent reconciliation" }, { status: 500 });
       }
 
-      // Flip the Payment row to REFUNDED only on a FULL refund.
+      // Roll the delta up into the registration's mixed running total, and
+      // flip the whole reg REFUNDED only when the new total covers everything
+      // collected (settled = PAID + REFUNDED rows — refunded payments still
+      // represent money that was collected).
+      const paidAgg = await db.payment.aggregate({
+        where: { registrationId: payment.registrationId, status: { in: ["PAID", "REFUNDED"] } },
+        _sum: { amount: true },
+      });
+      const paidTotal = round2(Number(paidAgg._sum.amount ?? payment.amount));
+      const updatedReg = await db.registration.update({
+        where: { id: payment.registrationId },
+        data: { refundedAmount: { increment: delta } },
+        select: { refundedAmount: true },
+      });
+      const newRegTotal = round2(Number(updatedReg.refundedAmount));
+      const isFull = newRegTotal >= paidTotal - 0.005;
       if (isFull) {
-        await db.payment.update({ where: { id: payment.id }, data: { status: "REFUNDED" } });
+        await db.registration.updateMany({
+          where: { id: payment.registrationId, paymentStatus: "PAID" },
+          data: { paymentStatus: "REFUNDED" },
+        });
       }
 
       apiLogger.info({
@@ -431,6 +447,7 @@ export async function POST(req: Request) {
         paymentIntentId,
         delta,
         cumulativeRefunded,
+        regRefundedTotal: newRegTotal,
         paidTotal,
         partial: !isFull,
       });

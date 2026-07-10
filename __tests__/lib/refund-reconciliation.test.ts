@@ -91,9 +91,10 @@ describe("resolveStaleRefundAttempts", () => {
     mockDb.refundAttempt.findMany.mockResolvedValue([attempt({ flippedToRefunded: true })]);
     const r = await resolveStaleRefundAttempts();
     expect(r).toMatchObject({ rolledBack: 1 });
+    // Guarded decrement — sibling slices / webhook adjustments preserved.
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg1", refundedAmount: 50 },
-      data: { refundedAmount: 0, paymentStatus: "PAID" },
+      where: { id: "reg1", refundedAmount: { gte: 50 } },
+      data: { refundedAmount: { decrement: 50 }, paymentStatus: "PAID" },
     });
     expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "FAILED" }) }),
@@ -106,8 +107,8 @@ describe("resolveStaleRefundAttempts", () => {
     mockDb.refundAttempt.findMany.mockResolvedValue([attempt({ flippedToRefunded: false, refundedBefore: 20, refundedAfter: 70 })]);
     await resolveStaleRefundAttempts();
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg1", refundedAmount: 70 },
-      data: { refundedAmount: 20 },
+      where: { id: "reg1", refundedAmount: { gte: 50 } },
+      data: { refundedAmount: { decrement: 50 } },
     });
   });
 

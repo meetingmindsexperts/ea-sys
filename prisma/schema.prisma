@@ -971,6 +971,14 @@ model Payment {
   stripePaymentId   String?       @unique
   stripeCustomerId  String?
   status            PaymentStatus @default(PENDING)
+  /// Per-PAYMENT refunded running total (review H6/M4, July 10 2026). The
+  /// registration-level `Registration.refundedAmount` mixes Stripe + manual
+  /// money; this column tracks how much of THIS payment has been returned, so
+  /// refunds allocate across payments (each Stripe slice capped at its own
+  /// charge) and `charge.refunded` reconciles Stripe's per-charge cumulative
+  /// against the right counter. `status` flips to REFUNDED when this reaches
+  /// `amount`.
+  refundedAmount    Decimal       @default(0) @db.Decimal(10, 2)
   receiptUrl        String?
   /// Stripe's hosted receipt page URL (charge.receipt_url) — the canonical
   /// "stripe_receipt". `stripeReceiptFile` is our durable local snapshot of that

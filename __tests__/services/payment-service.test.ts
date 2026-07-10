@@ -65,7 +65,8 @@ function reg(payment: Record<string, unknown> | null, extra: Record<string, unkn
     ticketType: { price: 100, currency: "USD" },
     pricingTier: null,
     event: { organizationId: "org1", taxRate: null, taxLabel: null },
-    payments: payment ? [payment] : [],
+    // Per-payment refunded counter defaults to 0 (as in the real schema).
+    payments: payment ? [{ refundedAmount: 0, ...payment }] : [],
     ...extra,
   };
 }
@@ -105,7 +106,8 @@ describe("refundRegistration", () => {
     const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest", issuedByUserId: "u1" });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.refund).toMatchObject({ manual: true, status: "recorded", amount: 100, refundedAmount: 100, fullyRefunded: true, refundId: null });
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "p1" }, data: { status: "REFUNDED" } });
+    // Per-payment counter bumped + flipped in one write.
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "p1" }, data: { refundedAmount: 100, status: "REFUNDED" } });
     await flush();
     expect(mockDb.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "REFUND_ISSUED" }) }));
   });
@@ -122,7 +124,8 @@ describe("refundRegistration", () => {
       { idempotencyKey: "refund-attempt-att1" },
     );
     expect(mockDb.refundAttempt.update).toHaveBeenCalledWith({ where: { id: "att1" }, data: { status: "SUCCEEDED", stripeRefundId: "re_1" } });
-    expect(mockDb.payment.update).not.toHaveBeenCalled();
+    // Per-payment counter bumped WITHOUT a status flip (payment not fully refunded).
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "p1" }, data: { refundedAmount: 30 } });
     await flush();
     expect(mockDb.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "PARTIAL_REFUND_ISSUED" }) }));
   });
@@ -199,10 +202,11 @@ describe("refundRegistration", () => {
     // default verifyRefundSpy: { verified: true, found: false }
     const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
     expect(r).toMatchObject({ ok: false, code: "STRIPE_FAILED" });
-    // Rollback is CONDITIONAL on our booked total still being in place.
+    // Rollback is a GUARDED DECREMENT of the un-executed portion (multi-slice
+    // safe — sibling slices / webhook adjustments in the window are preserved).
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg1", refundedAmount: 100 },
-      data: { refundedAmount: 0, paymentStatus: "PAID" },
+      where: { id: "reg1", refundedAmount: { gte: 100 } },
+      data: { refundedAmount: { decrement: 100 }, paymentStatus: "PAID" },
     });
     expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "att1" }, data: expect.objectContaining({ status: "FAILED" }) }),
@@ -238,6 +242,106 @@ describe("refundRegistration", () => {
     );
     // Booking kept: only the claim ran, no rollback shape.
     expect(mockDb.registration.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Phase 4: multi-payment allocation (H6) ────────────────────────────────
+
+  it("mixed Stripe+manual full refund → Stripe slice capped at its charge, manual remainder recorded, both counters bumped", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(reg(null, {
+      payments: [
+        { id: "pStripe", stripePaymentId: "pi_1", amount: 100, currency: "USD", refundedAmount: 0 },
+        { id: "pManual", stripePaymentId: null, amount: 50, currency: "USD", refundedAmount: 0 },
+      ],
+    }));
+    mockDb.refundAttempt.create
+      .mockResolvedValueOnce({ id: "attS" })
+      .mockResolvedValueOnce({ id: "attM" });
+
+    const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.refund).toMatchObject({ amount: 150, paidTotal: 150, refundedAmount: 150, fullyRefunded: true, manual: false });
+      expect(r.refund.slices).toEqual([
+        { paymentId: "pStripe", kind: "stripe", amount: 100, stripeRefundId: "re_1" },
+        { paymentId: "pManual", kind: "manual", amount: 50, stripeRefundId: null },
+      ]);
+    }
+    // Stripe called ONLY for the Stripe charge, capped at its amount — the old
+    // payments[0] pick would have either buried the Stripe charge in a
+    // "manual" refund or asked Stripe for $150 against a $100 intent.
+    expect(stripeRefundsCreate).toHaveBeenCalledTimes(1);
+    expect(stripeRefundsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_intent: "pi_1", amount: 10000 }),
+      { idempotencyKey: "refund-attempt-attS" },
+    );
+    // Both per-payment counters bumped + flipped (each fully refunded).
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pStripe" }, data: { refundedAmount: 100, status: "REFUNDED" } });
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pManual" }, data: { refundedAmount: 50, status: "REFUNDED" } });
+  });
+
+  it("two Stripe charges → the refund spans both, each slice capped and separately keyed", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(reg(null, {
+      payments: [
+        { id: "pA", stripePaymentId: "pi_A", amount: 100, currency: "USD", refundedAmount: 0 },
+        { id: "pB", stripePaymentId: "pi_B", amount: 50, currency: "USD", refundedAmount: 0 },
+      ],
+    }));
+    mockDb.refundAttempt.create
+      .mockResolvedValueOnce({ id: "attA" })
+      .mockResolvedValueOnce({ id: "attB" });
+    stripeRefundsCreate
+      .mockResolvedValueOnce({ id: "re_A" })
+      .mockResolvedValueOnce({ id: "re_B" });
+
+    const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", amount: 120, source: "rest" });
+    expect(r.ok).toBe(true);
+    expect(stripeRefundsCreate).toHaveBeenNthCalledWith(1,
+      expect.objectContaining({ payment_intent: "pi_A", amount: 10000 }),
+      { idempotencyKey: "refund-attempt-attA" });
+    expect(stripeRefundsCreate).toHaveBeenNthCalledWith(2,
+      expect.objectContaining({ payment_intent: "pi_B", amount: 2000 }),
+      { idempotencyKey: "refund-attempt-attB" });
+    if (r.ok) {
+      expect(r.refund.slices).toEqual([
+        { paymentId: "pA", kind: "stripe", amount: 100, stripeRefundId: "re_A" },
+        { paymentId: "pB", kind: "stripe", amount: 20, stripeRefundId: "re_B" },
+      ]);
+    }
+  });
+
+  it("REFUND_PARTIALLY_COMPLETED when a later slice fails — completed slices kept, remainder un-booked by decrement", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(reg(null, {
+      payments: [
+        { id: "pA", stripePaymentId: "pi_A", amount: 100, currency: "USD", refundedAmount: 0 },
+        { id: "pB", stripePaymentId: "pi_B", amount: 50, currency: "USD", refundedAmount: 0 },
+      ],
+    }));
+    mockDb.refundAttempt.create
+      .mockResolvedValueOnce({ id: "attA" })
+      .mockResolvedValueOnce({ id: "attB" });
+    stripeRefundsCreate
+      .mockResolvedValueOnce({ id: "re_A" })
+      .mockRejectedValueOnce(new Error("declined"));
+    // Verification: slice B provably absent.
+    verifyRefundSpy.mockResolvedValue({ verified: true, found: false, refundId: null });
+
+    const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" }); // full 150
+    expect(r).toMatchObject({
+      ok: false,
+      code: "REFUND_PARTIALLY_COMPLETED",
+      meta: expect.objectContaining({ refundedThisCall: 100, failedAmount: 50 }),
+    });
+    // The failed remainder (50) is released via guarded decrement; the booking
+    // had flipped REFUNDED (full amount) so the reg goes back to PAID.
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg1", refundedAmount: { gte: 50 } },
+      data: { refundedAmount: { decrement: 50 }, paymentStatus: "PAID" },
+    });
+    // Slice A's money stays on the books.
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pA" }, data: { refundedAmount: 100, status: "REFUNDED" } });
+    expect(mockDb.refundAttempt.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "attB" }, data: expect.objectContaining({ status: "FAILED" }) }),
+    );
   });
 
   it("REFUND_STATE_UNKNOWN when the rollback loses its race (state moved on) → attempt UNKNOWN", async () => {

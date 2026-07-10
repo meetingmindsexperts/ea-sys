@@ -78,7 +78,8 @@ function registration(paymentOverrides: Record<string, unknown> | null, extra: R
     ticketType: { name: "Standard", price: 100, currency: "USD" },
     pricingTier: null,
     event: { id: "ev1", organizationId: "org1", name: "Ev", startDate: new Date("2026-11-01"), taxRate: null, taxLabel: null },
-    payments: paymentOverrides ? [paymentOverrides] : [],
+    // Per-payment refunded counter defaults to 0 (as in the real schema).
+    payments: paymentOverrides ? [{ refundedAmount: 0, ...paymentOverrides }] : [],
     ...extra,
   };
 }
@@ -131,13 +132,15 @@ describe("refund — manual/offline payment", () => {
     expect(await res.json()).toEqual({
       refundId: null, manual: true, status: "recorded",
       amount: 100, currency: "USD", refundedAmount: 100, paidTotal: 100, fullyRefunded: true,
+      slices: [{ paymentId: "pay1", kind: "manual", amount: 100, stripeRefundId: null }],
     });
     expect(stripeRefundsCreate).not.toHaveBeenCalled();
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
       where: { id: "reg1", paymentStatus: "PAID", refundedAmount: 0 },
       data: { refundedAmount: 100, paymentStatus: "REFUNDED" },
     });
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { status: "REFUNDED" } });
+    // Per-payment counter bumped + flipped in one write.
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { refundedAmount: 100, status: "REFUNDED" } });
   });
 
   it("PARTIAL manual refund keeps reg PAID + payment PAID, tracks refundedAmount", async () => {
@@ -151,12 +154,15 @@ describe("refund — manual/offline payment", () => {
       where: { id: "reg1", paymentStatus: "PAID", refundedAmount: 0 },
       data: { refundedAmount: 40 }, // no paymentStatus flip on partial
     });
-    expect(mockDb.payment.update).not.toHaveBeenCalled(); // payment stays PAID on partial
+    // Per-payment counter tracks the partial; the payment's STATUS stays PAID.
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { refundedAmount: 40 } });
   });
 
   it("a partial that completes the balance flips to REFUNDED", async () => {
+    // Post-migration reality: the earlier $60 partial is tracked on the
+    // payment's own counter too (the backfill attributes single-payment regs).
     mockDb.registration.findUnique.mockResolvedValue(
-      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD" }, { refundedAmount: 60 }),
+      registration({ id: "pay1", stripePaymentId: null, amount: 100, currency: "USD", refundedAmount: 60 }, { refundedAmount: 60 }),
     );
     const res = await POST(req({ amount: 40 }), { params });
     expect(res.status).toBe(200);
@@ -165,7 +171,7 @@ describe("refund — manual/offline payment", () => {
       where: { id: "reg1", paymentStatus: "PAID", refundedAmount: 60 },
       data: { refundedAmount: 100, paymentStatus: "REFUNDED" },
     });
-    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { status: "REFUNDED" } });
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { refundedAmount: 100, status: "REFUNDED" } });
   });
 });
 
@@ -194,7 +200,8 @@ describe("refund — Stripe payment", () => {
       { payment_intent: "pi_123", amount: 3000, metadata: { refundAttemptId: "att1", registrationId: "reg1" } },
       { idempotencyKey: "refund-attempt-att1" },
     );
-    expect(mockDb.payment.update).not.toHaveBeenCalled();
+    // Per-payment counter tracks the partial; the payment's STATUS stays PAID.
+    expect(mockDb.payment.update).toHaveBeenCalledWith({ where: { id: "pay1" }, data: { refundedAmount: 30 } });
   });
 
   it("rolls the refunded total back (conditionally) and 502s when Stripe fails and the refund is provably absent", async () => {
@@ -206,9 +213,10 @@ describe("refund — Stripe payment", () => {
     const res = await POST(req(), { params });
     expect(res.status).toBe(502);
     expect((await res.json()).code).toBe("STRIPE_FAILED");
+    // Guarded decrement of the un-executed portion (multi-slice safe).
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: "reg1", refundedAmount: 100 },
-      data: { refundedAmount: 0, paymentStatus: "PAID" },
+      where: { id: "reg1", refundedAmount: { gte: 100 } },
+      data: { refundedAmount: { decrement: 100 }, paymentStatus: "PAID" },
     });
   });
 
