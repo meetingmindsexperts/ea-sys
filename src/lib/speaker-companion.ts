@@ -98,8 +98,17 @@ export async function ensureSpeakerCompanionRegistration(
   }
 
   if (speaker.email) {
+    // Never link a CANCELLED registration as the attendee facet — check-in
+    // hard-rejects cancelled rows, so the link would hand the speaker a dead
+    // badge/barcode permanently (the sourceRegistrationId short-circuit above
+    // makes the first link sticky). A registered-then-cancelled person who is
+    // later added as faculty falls through to a fresh Faculty companion.
     const existing = await db.registration.findFirst({
-      where: { eventId: speaker.eventId, attendee: { email: speaker.email } },
+      where: {
+        eventId: speaker.eventId,
+        attendee: { email: speaker.email },
+        status: { not: "CANCELLED" },
+      },
       select: { id: true },
       orderBy: { createdAt: "asc" },
     });

@@ -77,6 +77,8 @@ export function ChangeEmailDialog({
       if (json.userCascaded) parts.push("Login email updated.");
       if (json.contactAction === "updated") parts.push("Contact record re-pointed.");
       if (json.contactAction === "merged") parts.push("Merged into existing contact at that email.");
+      if (json.speakerSynced) parts.push("Linked speaker profile updated too.");
+      if (json.companionSynced) parts.push("Linked registration updated too.");
       toast.success(parts.join(" "));
 
       reset();

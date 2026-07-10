@@ -515,6 +515,53 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Speaker-facet cascade (reciprocal of the speaker email PATCH's companion
+    // sync). If a Speaker points at THIS registration via sourceRegistrationId
+    // and its email is still in step with the old address, the speaker facet
+    // must follow — otherwise agreements/invitations keep going to the dead
+    // address and re-adding the person at the corrected email mints a
+    // duplicate Speaker + second companion. A speaker whose email was
+    // deliberately diverged (differs from the old address) is left alone.
+    const linkedSpeaker = await db.speaker.findFirst({
+      where: { eventId, sourceRegistrationId: registrationId },
+      select: { id: true, email: true },
+    });
+    const speakerToSync =
+      linkedSpeaker && linkedSpeaker.email.toLowerCase() === oldEmail ? linkedSpeaker : null;
+    if (linkedSpeaker && !speakerToSync) {
+      apiLogger.warn({
+        msg: "events/registrations/email:linked-speaker-email-diverged",
+        eventId,
+        registrationId,
+        speakerId: linkedSpeaker.id,
+      });
+    }
+
+    if (speakerToSync) {
+      // Speaker.(eventId, email) is unique — refuse rather than P2002 mid-tx.
+      const speakerCollision = await db.speaker.findFirst({
+        where: { eventId, email: newEmail, id: { not: speakerToSync.id } },
+        select: { id: true },
+      });
+      if (speakerCollision) {
+        apiLogger.warn({
+          msg: "events/registrations/email:speaker-email-taken",
+          eventId,
+          registrationId,
+          speakerId: speakerToSync.id,
+          collidingSpeakerId: speakerCollision.id,
+        });
+        return NextResponse.json(
+          {
+            error:
+              "This person is also a speaker, and another speaker on this event already uses that email",
+            code: "SPEAKER_EMAIL_TAKEN",
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const result = await db.$transaction(async (tx) => {
       // If the Attendee row is shared across multiple Registrations
       // (schema allows it — public register's orphan-attendee reuse path
@@ -572,7 +619,17 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         newEmail,
       });
 
-      return { updatedAttendee, contactAction, attendeeCloned };
+      // Cascade to the linked speaker facet (see the pre-tx checks above).
+      let speakerSynced = false;
+      if (speakerToSync) {
+        await tx.speaker.update({
+          where: { id: speakerToSync.id },
+          data: { email: newEmail },
+        });
+        speakerSynced = true;
+      }
+
+      return { updatedAttendee, contactAction, attendeeCloned, speakerSynced };
     });
 
     db.auditLog
@@ -591,6 +648,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
             attendeeCloned: result.attendeeCloned,
             userCascaded: Boolean(registration.userId),
             contactAction: result.contactAction,
+            speakerSynced: result.speakerSynced,
             ip: getClientIp(req),
           },
         },
@@ -604,6 +662,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       attendeeCloned: result.attendeeCloned,
       userCascaded: Boolean(registration.userId),
       contactAction: result.contactAction,
+      speakerSynced: result.speakerSynced,
     });
 
     return NextResponse.json({
@@ -611,6 +670,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       attendeeCloned: result.attendeeCloned,
       userCascaded: Boolean(registration.userId),
       contactAction: result.contactAction,
+      speakerSynced: result.speakerSynced,
     });
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {

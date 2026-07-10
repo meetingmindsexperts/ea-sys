@@ -658,16 +658,16 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
 
 <div class="tbl-wrap">
 <table>
-  <thead><tr><th>Phase</th><th>Findings</th><th>Change</th></tr></thead>
+  <thead><tr><th>Phase</th><th>Findings</th><th>Change</th><th>Status</th></tr></thead>
   <tbody>
-    <tr><td>1</td><td>H1</td><td>Route both <code>/activity</code> lookups through <code>buildEventAccessWhere</code>; add <code>denyReviewer</code>; regression test for the org-null role.</td></tr>
-    <tr><td>2</td><td>H2</td><td>Shared <code>escapeCsvCell()</code> with formula neutralisation; applied to every export path.</td></tr>
-    <tr><td>3</td><td>H3, H4</td><td>Companion link excludes CANCELLED and prefers active rows; registration email PATCH cascades to the Speaker facet.</td></tr>
-    <tr><td>4</td><td>H5</td><td>MCP <code>update_speaker</code> / <code>update_registration</code> route tag writes through <code>person-tag-sync</code>.</td></tr>
-    <tr><td>5</td><td>H6</td><td>Guard the promo decrement (<code>usedCount &gt; 0</code>); re-claim on reactivation; make cancel/reactivate symmetric.</td></tr>
-    <tr><td>6</td><td>H7</td><td>Move the attendee update and contact sync inside the transaction, after the optimistic-lock check.</td></tr>
-    <tr><td>7</td><td>H8</td><td>Bulk-type re-stamps <code>originalPrice</code> and enforces the unpaid / no-discount guards.</td></tr>
-    <tr><td>8</td><td>H9</td><td>Single check-in helper shared by both REST handlers and the MCP tool: payment gate, audit row, and the CANCELLED override routed through <code>applyRegistrationTransition</code>.</td></tr>
+    <tr><td>1</td><td>H1</td><td>Route both <code>/activity</code> lookups through <code>buildEventAccessWhere</code>; add <code>denyReviewer</code>; regression test for the org-null role.</td><td>✅ Fixed (Jul 10)</td></tr>
+    <tr><td>2</td><td>H2</td><td>Shared <code>escapeCsvCell()</code> with formula neutralisation (phone-number exemption so <code>+971…</code> survives round-trips); applied to every unprotected export path.</td><td>✅ Fixed (Jul 10)</td></tr>
+    <tr><td>3</td><td>H3, H4</td><td>Companion link excludes CANCELLED rows (falls through to a fresh Faculty companion); registration email PATCH cascades to the linked Speaker facet (in-sync speakers only; diverged ones warn; collision → 409 <code>SPEAKER_EMAIL_TAKEN</code>).</td><td>✅ Fixed (Jul 10)</td></tr>
+    <tr><td>4</td><td>H5</td><td>MCP <code>update_speaker</code> / <code>update_registration</code> route tag writes through <code>person-tag-sync</code>.</td><td>In progress</td></tr>
+    <tr><td>5</td><td>H6</td><td>Guard the promo decrement (<code>usedCount &gt; 0</code>); re-claim on reactivation; make cancel/reactivate symmetric.</td><td>In progress</td></tr>
+    <tr><td>6</td><td>H7</td><td>Move the attendee update and contact sync inside the transaction, after the optimistic-lock check.</td><td>In progress</td></tr>
+    <tr><td>7</td><td>H8</td><td>Bulk-type re-stamps <code>originalPrice</code> and enforces the unpaid / no-discount guards.</td><td>In progress</td></tr>
+    <tr><td>8</td><td>H9</td><td>Single check-in helper shared by both REST handlers and the MCP tool: payment gate, audit row, and the CANCELLED override routed through <code>applyRegistrationTransition</code>.</td><td>In progress</td></tr>
   </tbody>
 </table>
 </div>

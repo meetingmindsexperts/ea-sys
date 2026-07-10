@@ -72,6 +72,24 @@ describe("ensureSpeakerCompanionRegistration", () => {
     expect(txRegistrationCreate).not.toHaveBeenCalled();
   });
 
+  it("never links a CANCELLED registration as the companion (review H3)", async () => {
+    // The email-match query must exclude CANCELLED rows — a cancelled reg
+    // hard-fails check-in, so linking it hands the speaker a dead barcode
+    // permanently. The where clause is the contract.
+    registrationFindFirst.mockResolvedValueOnce(null); // (post-filter: nothing linkable)
+    ticketTypeFindFirst.mockResolvedValueOnce({ id: "ftype" });
+
+    await ensureSpeakerCompanionRegistration(base);
+
+    expect(registrationFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { not: "CANCELLED" } }),
+      }),
+    );
+    // Falls through to creating a fresh Faculty companion.
+    expect(txRegistrationCreate).toHaveBeenCalled();
+  });
+
   it("creates a comp, uncapped Faculty companion when no match exists", async () => {
     registrationFindFirst.mockResolvedValueOnce(null);
     ticketTypeFindFirst.mockResolvedValueOnce(null);

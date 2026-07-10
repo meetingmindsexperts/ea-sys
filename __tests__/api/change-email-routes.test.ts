@@ -382,6 +382,77 @@ describe("PATCH /api/events/[eventId]/registrations/[registrationId]/email", () 
     expect(body.contactAction).toBe("merged");
     expect(mockDb.contact.delete).toHaveBeenCalledWith({ where: { id: "c-old" } });
   });
+
+  // ── Speaker-facet cascade (review H4 — reciprocal of the speaker PATCH's
+  //    companion sync). A Speaker pointing at THIS registration via
+  //    sourceRegistrationId must follow the email change, else agreements keep
+  //    going to the dead address and re-adding mints a duplicate Speaker.
+  it("cascades to a linked speaker whose email matches the old address", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
+    mockDb.registration.findFirst.mockResolvedValueOnce({
+      id: "reg-1",
+      userId: null,
+      attendee: { id: "att-1", email: "old@x.com" },
+    });
+    mockDb.speaker.findFirst
+      .mockResolvedValueOnce({ id: "spk-9", email: "old@x.com" }) // linked-speaker lookup
+      .mockResolvedValueOnce(null); // no Speaker.(eventId,email) collision
+    mockDb.attendee.update.mockResolvedValueOnce({ id: "att-1", email: "new@x.com" });
+    mockDb.contact.findFirst.mockResolvedValueOnce(null);
+    mockDb.speaker.update.mockResolvedValueOnce({ id: "spk-9", email: "new@x.com" });
+
+    const res = await regPatch(makeReq({ newEmail: "new@x.com" }), regParams);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.speakerSynced).toBe(true);
+    expect(mockDb.speaker.findFirst).toHaveBeenNthCalledWith(1, {
+      where: { eventId: "evt-1", sourceRegistrationId: "reg-1" },
+      select: { id: true, email: true },
+    });
+    expect(mockDb.speaker.update).toHaveBeenCalledWith({
+      where: { id: "spk-9" },
+      data: { email: "new@x.com" },
+    });
+  });
+
+  it("leaves a deliberately-diverged linked speaker alone (warn, no clobber)", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
+    mockDb.registration.findFirst.mockResolvedValueOnce({
+      id: "reg-1",
+      userId: null,
+      attendee: { id: "att-1", email: "old@x.com" },
+    });
+    mockDb.speaker.findFirst.mockResolvedValueOnce({ id: "spk-9", email: "other@x.com" });
+    mockDb.attendee.update.mockResolvedValueOnce({ id: "att-1", email: "new@x.com" });
+    mockDb.contact.findFirst.mockResolvedValueOnce(null);
+
+    const res = await regPatch(makeReq({ newEmail: "new@x.com" }), regParams);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.speakerSynced).toBe(false);
+    expect(mockDb.speaker.update).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 SPEAKER_EMAIL_TAKEN when the cascade would collide, without writing anything", async () => {
+    mockAuth.mockResolvedValueOnce(adminSession);
+    mockDb.event.findFirst.mockResolvedValueOnce({ id: "evt-1", organizationId: "org-1" });
+    mockDb.registration.findFirst.mockResolvedValueOnce({
+      id: "reg-1",
+      userId: null,
+      attendee: { id: "att-1", email: "old@x.com" },
+    });
+    mockDb.speaker.findFirst
+      .mockResolvedValueOnce({ id: "spk-9", email: "old@x.com" }) // linked speaker
+      .mockResolvedValueOnce({ id: "spk-other" }); // Speaker.(eventId,email) collision
+
+    const res = await regPatch(makeReq({ newEmail: "new@x.com" }), regParams);
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("SPEAKER_EMAIL_TAKEN");
+    expect(mockDb.attendee.update).not.toHaveBeenCalled();
+    expect(mockDb.speaker.update).not.toHaveBeenCalled();
+  });
 });
 
 // ─── Contact PATCH ──────────────────────────────────────────────────────────
