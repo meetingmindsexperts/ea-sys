@@ -776,27 +776,27 @@ const regTotal = netPrice + regTaxAmount;</code></pre>
     <td>Persist a refund-attempt record (nonce) before the Stripe call; idempotency key carries the nonce; rollback becomes webhook-aware (conditional claim); a sweep reconciles incomplete attempts. Closes the crash window, the erased-refund interleaving, and the key wedge in one design.</td>
   </tr>
   <tr>
-    <td>4 — Multi-payment refunds</td>
+    <td>4 — Multi-payment refunds<br /><strong>✅ Fixed (Jul 10, <code>1191b25</code>)</strong></td>
     <td><a href="#h6">H6</a>, <a href="#m4">M4</a></td>
     <td>Allocate refunds across payments (per-payment Stripe refund capped at each charge, manual remainder recorded); track Stripe-refunded separately from the mixed counter so <code>charge.refunded</code> reconciles against the right number.</td>
   </tr>
   <tr>
-    <td>5 — IDOR + finance-GET scoping</td>
+    <td>5 — IDOR + finance-GET scoping<br /><strong>✅ Fixed (Jul 10, <code>c480834</code>)</strong></td>
     <td><a href="#h9">H9</a>, <a href="#h10">H10</a></td>
     <td>Bind the registration to event + org inside <code>createInvoice</code> (mirror the MCP tool); route every invoice/quote GET through <code>buildEventAccessWhere</code> + isolation tests (same pattern as the July 7 fix).</td>
   </tr>
   <tr>
-    <td>6 — Book-cooking write paths</td>
+    <td>6 — Book-cooking write paths<br /><strong>✅ Fixed (Jul 10, <code>da2531c</code>)</strong></td>
     <td><a href="#h12">H12</a>, <a href="#m6">M6</a></td>
-    <td>Enforce the admin-settable paymentStatus subset server-side (REST PUT + MCP single + bulk); constrain MCP <code>update_invoice_status</code> transitions (refuse PAID/backwards or route through the promote path); MCP version bump.</td>
+    <td>Enforce the admin-settable paymentStatus subset server-side (REST PUT + MCP single + bulk); constrain MCP <code>update_invoice_status</code> transitions (refuse PAID/backwards or route through the promote path); MCP version bump (0.4.16).</td>
   </tr>
   <tr>
-    <td>7 — Dashboard-refund parity</td>
+    <td>7 — Dashboard-refund parity<br /><strong>✅ Fixed (Jul 10, <code>48e7397</code>)</strong></td>
     <td><a href="#h11">H11</a></td>
     <td>Webhook's out-of-band branch adopts the service's side-effect contract: audit row, admin notification, <code>issueCreditNoteForRegistration</code>, and the same no-attendee-email policy (or an explicit product decision that Dashboard refunds DO email — either way, one policy).</td>
   </tr>
   <tr>
-    <td>8 — Manual capture truthfulness</td>
+    <td>8 — Manual capture truthfulness<br /><strong>✅ Fixed (Jul 10, <code>fa96114</code>)</strong></td>
     <td><a href="#h7">H7</a>, <a href="#m11">M11</a></td>
     <td>Partial captures stop flipping full-PAID (flip only when payments cover the total); documents derive from captured amounts; divergence warn + audit flag; rate limit; route through <code>issuePaidRegistrationDocuments</code>.</td>
   </tr>
@@ -905,7 +905,102 @@ const regTotal = netPrice + regTaxAmount;</code></pre>
     to the new semantics in the two pre-existing refund suites.</li>
 </ul>
 
-<p><em>Phases 4–8 will be appended here as they ship.</em></p>
+<h3>Phase 4 — Multi-payment refunds: per-payment allocation (H6 + M4) · commit <code>1191b25</code></h3>
+<ul>
+  <li><strong><code>prisma/schema.prisma</code> + migration <code>20260710130000_add_payment_refunded_amount</code></strong>
+    (additive/idempotent/blue-green safe, owner-approved): <code>Payment.refundedAmount</code> — the
+    per-payment refunded counter — with an idempotent backfill (REFUNDED rows → full amount;
+    single-payment regs inherit the reg's partial total).</li>
+  <li><strong><code>src/services/payment-service.ts</code></strong> — <em>(H6)</em> refunds now
+    <strong>allocate</strong> across the registration's settled payments: Stripe charges first (they
+    reverse automatically, each slice capped at its own charge's remaining), manual payments next
+    (recorded), residue unattributed (hand-flipped regs). One RefundAttempt per slice — the Phase 3
+    machinery composes (per-slice idempotency keys, metadata verification, sweep). A mid-plan slice
+    failure keeps completed slices, un-books the remainder via a <strong>guarded decrement</strong>
+    (replaces the set-back rollback everywhere — multi-slice + webhook-concurrency safe), and returns
+    the new 502 <code>REFUND_PARTIALLY_COMPLETED</code>; an unverifiable slice keeps only itself booked
+    (UNKNOWN → sweep). <code>RefundSummary</code> gains <code>slices[]</code> (also audited). Payment
+    rows flip REFUNDED per-charge when their own counter reaches their amount.</li>
+  <li><strong><code>src/app/api/webhooks/stripe/route.ts</code></strong> — <em>(M4)</em>
+    <code>charge.refunded</code> now reconciles Stripe's per-charge cumulative against
+    <strong>this payment's</strong> counter (optimistic claim; loser 500s → retry → delta≤0 skip),
+    then rolls the TRUE delta into the registration total — a prior manual refund can no longer eat
+    the delta (a real Dashboard refund used to vanish from the books entirely on mixed regs).</li>
+  <li><strong>Tests</strong>: +4 allocation cases (mixed full, two-charge span, partial-failure
+    decrement + <code>REFUND_PARTIALLY_COMPLETED</code>, per-slice keys) + webhook/service/route suites
+    updated to per-payment semantics, incl. a mixed-reg M4 case pinning the true delta.</li>
+</ul>
+
+<h3>Phase 5 — Invoice-create IDOR + ONSITE finance scoping (H9 + H10) · commit <code>c480834</code></h3>
+<ul>
+  <li><strong><code>src/lib/invoice-service.ts</code></strong> — <em>(H9)</em> <code>createInvoice</code>
+    binds the registration lookup to <code>eventId + organizationId</code>
+    (<code>findFirstOrThrow</code>) so no caller can mint an invoice from another event's — or another
+    org's — registration; <strong><code>…/invoices/route.ts</code> POST</strong> also pre-binds the
+    body's registrationId (truthful 404 + warn instead of a generic 500).</li>
+  <li><strong>Every finance GET routed through <code>buildEventAccessWhere</code></strong> —
+    <em>(H10)</em> invoices list + create, invoice detail GET/PUT, invoice PDF, invoice send, invoices
+    export, registration quote PDF, and the three registrant-route staff branches (quote / invoices
+    list / invoice PDF). ONSITE (and MEMBER — both finance-capable since June 17) are now
+    assignment-gated on the finance surface exactly like the July 7 desk routes.</li>
+  <li><strong>Tests</strong>: new <code>__tests__/api/finance-cross-event-isolation.test.ts</code>
+    (REAL <code>buildEventAccessWhere</code> — unassigned ONSITE → 404 on list/pdf/quote, ADMIN stays
+    org-scoped, foreign-registration mint → 404, bound create passes).</li>
+</ul>
+
+<h3>Phase 6 — Book-cooking write paths (H12 + M6) · commit <code>da2531c</code> · MCP 0.4.16</h3>
+<ul>
+  <li><strong>REST PUT + MCP <code>update_registration</code> + MCP
+    <code>bulk_update_registration_status</code></strong> — <em>(H12)</em> paymentStatus writes accept
+    only the admin-settable subset (UNASSIGNED/UNPAID/PAID/COMPLIMENTARY/INCLUSIVE);
+    PENDING/REFUNDED/FAILED are rejected with <code>PAYMENT_STATUS_NOT_SETTABLE</code> + a pointer to
+    the gated refund flow. New shared <code>ADMIN_SETTABLE_PAYMENT_STATUSES</code>
+    (drift-guarded against the UI's <code>MANUAL_PAYMENT_STATUSES</code> by test); the stale
+    "REFUNDED only flips the DB flag" tool descriptions are gone. Reads/filters keep the full enum.</li>
+  <li><strong>MCP <code>update_invoice_status</code></strong> — <em>(M6)</em> now CANCELLED/OVERDUE
+    only (dashboard parity); PAID/REFUNDED/SENT/DRAFT rejected with
+    <code>INVOICE_STATUS_NOT_SETTABLE</code> and an explanation of which flow mints each.</li>
+  <li><strong>Tests</strong>: +12 (rejection matrices on single/bulk/invoice paths, admin-settable
+    passes, subset drift guard). Connected MCP clients should reconnect (tool surface changed).</li>
+</ul>
+
+<h3>Phase 7 — Dashboard-refund parity (H11) · commit <code>48e7397</code></h3>
+<ul>
+  <li><strong><code>src/app/api/webhooks/stripe/route.ts</code></strong> — the out-of-band branch now
+    carries the service contract: a <code>REFUND_ISSUED</code>/<code>PARTIAL_REFUND_ISSUED</code>
+    audit row (<code>source: stripe-webhook</code>), a "Refund reconciled from Stripe" admin
+    notification, and <strong>NO attendee email</strong> — one policy across both refund entry points
+    (Dashboard refunds used to email the credit note while route refunds deliberately don't). The CN
+    is recorded via <code>issueCreditNoteForRegistration</code> (send:false, source:system), which also
+    adds the <code>CREDIT_NOTE_ISSUED</code> audit row and logs cap rejections as warn with their code
+    — closing deferred L2 (silent webhook-CN-cap-rejection) in passing.</li>
+</ul>
+
+<h3>Phase 8 — Manual capture truthfulness (H7 + M11) · commit <code>fa96114</code></h3>
+<ul>
+  <li><strong><code>…/registrations/[registrationId]/payments/route.ts</code></strong> —
+    <em>(H7)</em> PAID flips only when the captured total (this capture + prior settled payments,
+    same currency) covers the computed amount owed; a partial capture records the Payment row, leaves
+    the registration unpaid (balance visible, chases keep it), and notifies admins
+    "Partial Payment Recorded (X of Y captured)". Documents are issued only on full payment. A
+    foreign-currency capture is recorded but never counts toward fully-paid. Amount/currency
+    divergence from the computed total is warn-logged + flagged in the audit row. The endpoint —
+    the widest money-write population (ONSITE + MEMBER desk temps) — finally gets a rate limit
+    (60/hr/user). Response gains <code>fullyPaid</code>/<code>capturedTotal</code>/<code>totalDue</code>.</li>
+  <li><em>(M11)</em> the hand-mirrored fan-out copy is gone — the route calls
+    <code>issuePaidRegistrationDocuments</code>, the same helper the webhook + reconciliation worker
+    use (its "single fan-out for ALL payment channels" docblock is now true); a docs failure is
+    retried by the reconciliation worker within ~10 minutes.</li>
+  <li><strong>Tests</strong>: +5 (partial no-flip/no-docs/notify, accumulate-to-full flips + issues,
+    foreign-currency never covers, shared fan-out args, docs-failure still 200).</li>
+</ul>
+
+<div class="note">
+  <strong>Scoreboard after the fix round:</strong> B1 + all 11 HIGHs fixed, plus M3, M4, M6, M11 and
+  deferred-L2 along the way. Remaining (tracked in <code>docs/ROADMAP.md</code> §"Payments/refunds
+  review — deferred findings"): M1, M2, M5, M7, M8, M9, M10, M12, L1, L2, L3, and the H2 sub-item
+  "cancel should expire open Stripe checkout sessions".
+</div>
 
 <footer>
   Produced by four independent review passes (money-flow lifecycle · concurrency &amp; idempotency ·

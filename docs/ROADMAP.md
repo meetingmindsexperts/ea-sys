@@ -212,6 +212,67 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Current Release — July 10, 2026
 
+### Payments / refunds / credit-notes review (July 10, 2026) — deferred findings
+
+A 4-angle production review of the money domain (money-flow lifecycle · concurrency &
+idempotency · RBAC/security · drift/failure-visibility). Full report with quoted code +
+failure scenarios: [docs/CODE_REVIEW_PAYMENTS_REFUNDS.html](CODE_REVIEW_PAYMENTS_REFUNDS.html)
+(browseable at `/admin/docs/CODE_REVIEW_PAYMENTS_REFUNDS.html`). **The BLOCKER (B1
+sponsor-paid double-collection) + all 11 HIGHs were fixed the same day** in an 8-phase
+round (`4cffd0a` charging gates, `b490392` charge-level webhook idempotency, `b579bbe`
+RefundAttempt crash-safety + sweep, `1191b25` multi-payment allocation +
+`Payment.refundedAmount`, `c480834` invoice IDOR + ONSITE finance scoping, `da2531c`
+paymentStatus/invoice-status write subsets (MCP 0.4.16 — clients reconnect), `48e7397`
+Dashboard-refund parity, `fa96114` manual-capture truthfulness). M3, M4, M6, M11 and
+the old deferred "L2 silent webhook-CN-cap-rejection" were closed in the same round.
+Two new migrations (both additive/idempotent/blue-green-safe): `20260710120000_add_refund_attempt`
++ `20260710130000_add_payment_refunded_amount` (with backfill).
+
+Deferred (each independently shippable; report anchors in the HTML doc):
+
+- **M1 — post-payment document minting is check-then-act** (`invoice-service.ts` invoice
+  check in-tx but unlocked; receipt check outside its tx; manual recovery branch uses a
+  non-locking `payment.count`). Concurrent webhook / reconciliation-worker / manual paths
+  can double-mint PAID invoices+receipts and double-email. Fix shape: the same
+  `SELECT … FOR UPDATE` pattern `createCreditNote` uses, or a partial unique index on
+  `(registrationId, type)` for INVOICE/RECEIPT.
+- **M2 — `cancelRegistration` seat/promo transition uses a pre-refund snapshot**: a
+  type/tier change during the multi-second CN+refund phase releases the wrong counter.
+  Fix: re-read (or `FOR UPDATE`) inside the cancel transaction.
+- **M5 — PAID invoice totals come from CURRENT pricing, not the captured Payment**: the
+  promote-in-place path keeps fully stale amounts (pre-created SENT invoice at $500,
+  promo applied, attendee pays $400 → PAID doc still says $500); minted docs can diverge
+  from `session.amount_total` after a reprice. Fix: mint/reconcile PAID documents against
+  `Payment.amount`.
+- **M7 — refund + cancel endpoints have no rate limit, and refund omits `denyFinance`**
+  (guard asymmetry vs credit-notes; safe today only because `denyReviewer` blocks every
+  non-finance role).
+- **M8 — webhook doesn't compare `session.amount_total` to the amount currently owed**
+  (silent underpayment on a stale ~24h checkout session after a reprice). Log-and-flag,
+  not reject.
+- **M9 — `calcInvoicePricing` is a fourth, unrounded totals implementation + three
+  divergent `round2` copies** → cent-boundary artifacts between the CN cap and the refund
+  remaining. Fix: one totals function + one exported `round2`.
+- **M10 — invoice/CN PDFs recompute tax from `taxRate` instead of printing the stored,
+  reconciled `taxAmount`/`total`** (defeats the partial-CN reconciliation; also no
+  `isZeroDecimalCurrency` in CN math → fractional JPY).
+- **M12 — silent 4xx sweep**: five payment-service rejection codes (incl. LOST_LOCK) and
+  the refund/credit-notes/cancel routes' 401/404s log nothing; `denyReviewer`/`denyFinance`
+  never log a rejection. Cheapest durable fix: log inside the guards.
+- **L1 — public document route serves SENT over PAID**: `orderBy: { status: "asc" }`
+  sorts by Postgres enum DEFINITION order (comment claims the opposite); CANCELLED not
+  excluded. One-line fix + a case exclusion.
+- **L2 — registrant portal hand-rolls discount/tax/total client-side**
+  (`e/[slug]/my-registration/page.tsx`) instead of importing `computeRegistrationFinancials`
+  (pure, client-safe — drop-in swap).
+- **L3 — doc drift: MEMBER has been finance-capable since June 17** (`FINANCE_ROLES`
+  includes MEMBER + ONSITE) but CLAUDE.md's RBAC section and route comments still claim
+  MEMBER money is hidden/redacted. Align docs — or re-confirm the product decision if
+  MEMBER finance visibility was NOT intended to survive.
+- **H2 sub-item — cancel should expire open Stripe checkout sessions** (needs the
+  checkout session id stored at create; the webhook guard shipped in Phase 1 already
+  flags+records a payment landing on a cancelled reg, so this is belt-and-braces).
+
 ### Registrations & speakers review (July 10, 2026) — deferred findings
 
 A 4-angle production review of the registrations + speakers + companion-registration
