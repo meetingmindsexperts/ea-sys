@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — Payments, Refunds &amp; Credit Notes (July 2026)</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1d21;
+    --muted: #5f6b7a;
+    --line: #e3e8ee;
+    --card: #f7f9fb;
+    --accent: #00aade;
+    --blocker: #b91c1c;
+    --high: #c2410c;
+    --medium: #a16207;
+    --low: #0f766e;
+    --code-bg: #f3f5f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 1rem 6rem;
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--fg); background: var(--bg);
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header { padding: 3rem 0 1.5rem; border-bottom: 3px solid var(--accent); margin-bottom: 2rem; }
+  h1 { font-size: 2rem; margin: 0 0 .4rem; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: .95rem; }
+  h2 {
+    font-size: 1.35rem; margin: 3rem 0 1rem; padding-bottom: .4rem;
+    border-bottom: 1px solid var(--line); letter-spacing: -.01em;
+  }
+  h3 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: .86em; }
+  code { background: var(--code-bg); padding: .12em .35em; border-radius: 3px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: .85rem 1rem; overflow-x: auto; line-height: 1.5; margin: .75rem 0;
+  }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .93rem; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  .tbl-wrap { overflow-x: auto; }
+  .sev { font-weight: 700; font-size: .74rem; letter-spacing: .05em; text-transform: uppercase;
+         padding: .16em .5em; border-radius: 3px; color: #fff; white-space: nowrap; }
+  .sev.blocker { background: var(--blocker); }
+  .sev.high { background: var(--high); }
+  .sev.medium { background: var(--medium); }
+  .sev.low { background: var(--low); }
+  .finding {
+    background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line);
+    border-radius: 6px; padding: 1.1rem 1.3rem; margin: 1.25rem 0;
+  }
+  .finding.blocker { border-left-color: var(--blocker); }
+  .finding.high { border-left-color: var(--high); }
+  .finding.medium { border-left-color: var(--medium); }
+  .finding.low { border-left-color: var(--low); }
+  .finding h3 { margin-top: 0; }
+  .loc { color: var(--muted); font-size: .87rem; margin: .1rem 0 .8rem; }
+  .lbl { font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em;
+         color: var(--muted); margin: .9rem 0 .2rem; }
+  .note { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 6px; padding: .9rem 1.1rem; margin: 1.25rem 0; }
+  .note.warn { background: #fffbeb; border-color: #fde68a; }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: .3rem 0; }
+  .toc a { color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--line); }
+  .toc a:hover { border-bottom-color: var(--accent); }
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #93a1b0; --line: #2b3138;
+      --card: #1b1f24; --code-bg: #22272d;
+      --blocker: #ef4444; --high: #fb923c; --medium: #fbbf24; --low: #2dd4bf;
+    }
+    .sev { color: #14171a; }
+    .note { background: #0c2b3a; border-color: #1e4a5f; }
+    .note.warn { background: #33290c; border-color: #66551a; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Payments, Refunds &amp; Credit Notes</h1>
+  <p class="sub">
+    Production-readiness audit · 10 July 2026 · EA-SYS <code>main</code> @ <code>420f139</code><br />
+    Four independent review passes: money-flow lifecycle · concurrency &amp; idempotency ·
+    RBAC / security · drift, duplication &amp; failure-visibility.
+  </p>
+</header>
+
+<div class="note">
+  <strong>How to read this.</strong> Findings are grouped by <em>theme</em>, not by which reviewer found
+  them — the same root causes surfaced from several angles, and where two independent passes hit the
+  same defect that is noted (it raises confidence). Each finding carries a severity, the exact code, and
+  a concrete failure scenario. Everything already tracked in <code>docs/ROADMAP.md</code> from the
+  partial-refunds and cancel-with-refund reviews (M1–M3, L1–L3, the staged-edits / generic-500 /
+  auto-CN-divergence items) was deliberately excluded, <em>except</em> the queued "newest-payment-only"
+  item, which is scoped precisely here as <a href="#h6">H6</a> because it moves real money.
+  The highest-severity findings were independently re-verified in source by the lead reviewer
+  (B1, H1, H2, H3, H4, H5, H9, H10, L1, L3 — quoted lines confirmed byte-for-byte).
+</div>
+
+<h2 id="summary">1. Executive summary</h2>
+
+<p>
+  The <strong>core designs are sound</strong> and several are genuinely careful: the credit-note cap is
+  enforced inside the transaction under a real <code>SELECT … FOR UPDATE</code> row lock (and it holds
+  through pgbouncer); checkout derives every price server-side — the client sends only a
+  <code>registrationId</code>; the Stripe webhook verifies signatures on the raw body before any
+  processing and re-validates metadata ids against the DB; the refund amount is server-capped against
+  the remaining balance; duplicate Payment rows from webhook retries of the <em>same</em> session are
+  structurally blocked by <code>stripePaymentId @unique</code>; and the seat/promo status transition is
+  now consolidated in <code>applyRegistrationTransition</code> across all three callers — the known
+  duplication has shrunk, not grown.
+</p>
+
+<p>
+  The risk concentrates in <strong>four structural patterns</strong>, and almost every finding below is
+  an instance of one of them:
+</p>
+
+<ol>
+  <li>
+    <strong>The Stripe webhook is a second, ungoverned money-writer.</strong> It flips
+    <code>paymentStatus</code>, mints documents, and reconciles refunds through hand-inlined logic that
+    shares none of <code>payment-service</code>'s gates or side-effect contract — so it pays cancelled
+    registrations (<a href="#h2">H2</a>), drops real settlements when the registration is already PAID
+    via another channel (<a href="#h1">H1</a>), never checks the amount paid against the amount owed
+    (<a href="#m8">M8</a>), and applies the opposite refund-communication policy to the same event
+    depending on which button the organizer clicked (<a href="#h11">H11</a>).
+  </li>
+  <li>
+    <strong>One counter conflates two money sources.</strong> <code>Registration.refundedAmount</code>
+    and the single <code>payments[0]</code> pick assume one payment from one source. Any registration
+    with mixed Stripe + manual money breaks every refund path (<a href="#h6">H6</a>), and the webhook's
+    delta-reconcile silently miscounts against the mixed total (<a href="#m4">M4</a>).
+  </li>
+  <li>
+    <strong>Money state is written on the wrong side of slow network calls.</strong> The refund books
+    the DB <em>before</em> Stripe moves money with no crash recovery (<a href="#h4">H4</a>), the
+    rollback can erase a refund that really happened (<a href="#h5">H5</a>), checkout demotes a
+    possibly-already-PAID row from a stale pre-Stripe read (<a href="#h3">H3</a>), and cancel releases
+    seats from a snapshot taken seconds before the transaction (<a href="#m2">M2</a>).
+  </li>
+  <li>
+    <strong>The finance <em>read</em> surface never got the ONSITE per-event fix.</strong> The July 7
+    remediation routed the five desk routes through <code>buildEventAccessWhere</code> — but every
+    invoice/quote GET still org-scopes only, and ONSITE (and MEMBER, per the June 17 decision) is
+    finance-capable (<a href="#h10">H10</a>). The same unbound-id class also allows minting an invoice
+    against another event's — or another org's — registration (<a href="#h9">H9</a>).
+  </li>
+</ol>
+
+<p>
+  One finding is graded <strong>BLOCKER</strong> because it double-charges real attendees in completely
+  normal operation, with no race and no attacker: a sponsor-paid (INCLUSIVE) registration shows a live
+  Pay&nbsp;Now button and checkout accepts the payment (<a href="#b1">B1</a>).
+</p>
+
+<h2 id="counts">2. Findings at a glance</h2>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>Severity</th><th>Count</th><th>IDs</th></tr>
+  <tr><td><span class="sev blocker">Blocker</span></td><td>1</td><td><a href="#b1">B1</a></td></tr>
+  <tr><td><span class="sev high">High</span></td><td>11</td><td><a href="#h1">H1</a>–<a href="#h11">H11</a></td></tr>
+  <tr><td><span class="sev medium">Medium</span></td><td>12</td><td><a href="#m1">M1</a>–<a href="#m12">M12</a></td></tr>
+  <tr><td><span class="sev low">Low</span></td><td>3</td><td><a href="#l1">L1</a>–<a href="#l3">L3</a></td></tr>
+</table>
+</div>
+
+<h2 id="charging">3. Charging money — checkout &amp; the Stripe webhook</h2>
+
+<div class="finding blocker" id="b1">
+  <h3><span class="sev blocker">Blocker</span> &nbsp; B1 — Sponsor-paid (INCLUSIVE) registrations show a live Pay Now, and checkout accepts it → double collection</h3>
+  <p class="loc"><code>src/app/api/public/events/[slug]/checkout/route.ts:90</code> · <code>src/app/e/[slug]/my-registration/page.tsx:419-422</code></p>
+  <p>
+    The codebase's own <code>NO_PAYMENT_DUE_STATUSES</code> (registration-enums) is
+    PAID / COMPLIMENTARY / INCLUSIVE / REFUNDED — but both the checkout gate and the registrant portal
+    check only the first two:
+  </p>
+<pre><code>// checkout/route.ts:90 — INCLUSIVE and REFUNDED sail through
+if (registration.paymentStatus === "PAID" || registration.paymentStatus === "COMPLIMENTARY") {
+  ... return NextResponse.json({ error: "Payment already completed" }, { status: 400 });
+
+// my-registration/page.tsx — same two-status check drives the UI
+const isPaid = reg.paymentStatus === "PAID";
+const isComplimentary = reg.paymentStatus === "COMPLIMENTARY" || netPrice === 0;
+const showPayment = !isPaid &amp;&amp; !isComplimentary &amp;&amp; reg.status !== "CANCELLED";</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Admin marks a $500 registration INCLUSIVE (sponsor paid a lump sum offline). The attendee opens
+    <code>/my-registration</code> and sees an amber "Payment Required — Total Due $500" card with a
+    working Pay&nbsp;Now button. One click → Stripe charges them → the webhook overwrites
+    <code>INCLUSIVE → PAID</code>, destroying the sponsor attribution semantics and collecting the money
+    twice (sponsor + attendee). No race, no attacker — this fires in normal operation the moment a
+    sponsor-paid attendee logs in. REFUNDED registrations get the same live Pay&nbsp;Now (the
+    re-pay's stranded-<code>refundedAmount</code> aftermath is deferred L1; the INCLUSIVE double
+    collection is net-new). Fix shape: gate both surfaces on <code>NO_PAYMENT_DUE_STATUSES</code>.
+  </p>
+</div>
+
+<div class="finding high" id="h1">
+  <h3><span class="sev high">High</span> &nbsp; H1 — Webhook idempotency is registration-level, not charge-level: a second real Stripe settlement is silently dropped from the books</h3>
+  <p class="loc"><code>src/app/api/webhooks/stripe/route.ts:68-72, 123-129, 179-217</code> — found independently by two review passes</p>
+  <p>
+    The "idempotency" check answers <em>"is this registration paid?"</em>, not <em>"was this checkout
+    session already processed?"</em>:
+  </p>
+<pre><code>// Idempotency: skip if already paid
+if (registration.paymentStatus === "PAID") {
+  apiLogger.info({ msg: "Stripe webhook: registration already paid, skipping", registrationId });
+  return NextResponse.json({ received: true });
+}
+...
+// in-tx recheck — same registration-level key
+const current = await tx.registration.findUnique({ ... select: { paymentStatus: true } });
+if (current?.paymentStatus === "PAID") return;</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Two ways a real charge vanishes: <strong>(a)</strong> two checkout sessions for the same registration
+    (both legally created while UNPAID — the checkout route permits this; different payment intents, so
+    <code>stripePaymentId @unique</code> doesn't apply). The user pays both; webhook&nbsp;1 sets PAID +
+    Payment row; webhook&nbsp;2 hits the skip → the second settled charge gets <strong>no Payment
+    row</strong>. <strong>(b)</strong> desk records a cash payment (the payments route wins its
+    <code>paymentStatus != PAID</code> claim) while the registrant's Stripe checkout completes → the card
+    charge is unrecorded. In both cases the money exists in Stripe but is invisible to
+    <code>paidTotal</code>, refund caps, and finance exports — and a later <code>charge.refunded</code>
+    for the orphaned intent hits <code>payment.findUnique → not found → warn + 200</code>, so it can't
+    even be reconciled by refunding it. Extra wrinkle: when the <em>in-tx</em> recheck short-circuits
+    (not the pre-check), execution falls through to the post-commit block, which still logs "Payment
+    completed", notifies admins "Payment Received", and re-runs
+    <code>issuePaidRegistrationDocuments</code> — whose <code>sendPaymentDocumentsEmail</code> is called
+    unconditionally, so the attendee gets a duplicate documents email for money that was never recorded.
+  </p>
+</div>
+
+<div class="finding high" id="h2">
+  <h3><span class="sev high">High</span> &nbsp; H2 — Webhook completes payment on a CANCELLED registration; cancel never expires the open Stripe session</h3>
+  <p class="loc"><code>src/app/api/webhooks/stripe/route.ts:53-152</code> · <code>src/services/payment-service.ts:417-489</code></p>
+  <p>
+    <code>checkout.session.completed</code> never inspects <code>registration.status</code> before
+    flipping <code>paymentStatus</code> to PAID. The checkout route excludes CANCELLED only at
+    session-<em>create</em> time, and <code>cancelRegistration</code> neither expires open Stripe
+    sessions nor guards against later payment.
+  </p>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Registrant clicks Pay&nbsp;Now (session created, <code>paymentStatus → PENDING</code>). Admin cancels
+    the registration (PENDING ≠ PAID, so no refund step; seat + promo released). Registrant completes
+    payment in the still-open Stripe tab (sessions live ~24h) → the row becomes
+    <code>status=CANCELLED, paymentStatus=PAID</code>, a PAID invoice + receipt are minted and emailed,
+    and money is collected for a seat that was already released — with nothing distinguishing it from a
+    normal payment. The detail GET's CANCELLED handling (<code>balanceDue: 0</code>) further masks the
+    anomaly. Fix shape: webhook refuses (or flags + notifies) when <code>status === "CANCELLED"</code>;
+    cancel expires any open checkout session for the registration.
+  </p>
+</div>
+
+<div class="finding high" id="h3">
+  <h3><span class="sev high">High</span> &nbsp; H3 — Checkout unconditionally flips <code>paymentStatus → PENDING</code> after the slow Stripe call: can clobber PAID → PENDING → UNPAID and re-open the pay path</h3>
+  <p class="loc"><code>src/app/api/public/events/[slug]/checkout/route.ts:167-171</code></p>
+<pre><code>// Update payment status to PENDING
+await db.registration.update({
+  where: { id: registrationId },
+  data: { paymentStatus: "PENDING" },
+});</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    The PAID guard runs on a read taken <em>before</em> the network-bound
+    <code>stripe.checkout.sessions.create</code> call. User has two tabs (or phone + laptop): tab A's
+    session is paid and the webhook commits PAID + Payment row; tab B's request read the row as UNPAID
+    before that commit, passes the guard, spends ~500ms creating session&nbsp;2, then unconditionally
+    writes PENDING — demoting a PAID registration. 24h later, <code>checkout.session.expired</code> for
+    session&nbsp;2 runs <code>updateMany({ where: { paymentStatus: "PENDING" }, data: { paymentStatus:
+    "UNPAID" } })</code> — a fully-paid registration with a PAID Payment row now shows UNPAID, gets
+    payment-reminder chased, and can be charged a second time (the PAID guard now passes). Fix shape is
+    the codebase's own pattern: a conditional claim —
+    <code>updateMany({ where: { id, paymentStatus: { notIn: ["PAID", "COMPLIMENTARY", ...] } } })</code>.
+  </p>
+</div>
+
+<div class="finding medium" id="m8">
+  <h3><span class="sev medium">Medium</span> &nbsp; M8 — Webhook flips PAID without reconciling <code>amount_total</code> against the amount currently owed</h3>
+  <p class="loc"><code>src/app/api/webhooks/stripe/route.ts:69-152</code></p>
+  <p>
+    Checkout sessions live ~24h at a frozen price. If the registration is repriced in that window (promo
+    removed, bulk type change re-stamping <code>originalPrice</code>, tier applied), the registrant pays
+    the <strong>stale, cheaper session</strong> and the registration goes PAID for less than owed — with
+    no warn log of the delta. Signature verification and metadata re-validation are correct; this is
+    purely the missing amount comparison. A log-and-flag (not reject) of
+    <code>session.amount_total</code> vs the current computed total closes the silent-underpayment
+    window.
+  </p>
+</div>
+
+<h2 id="refunding">4. Refunding money — payment-service &amp; <code>charge.refunded</code></h2>
+
+<div class="finding high" id="h4">
+  <h3><span class="sev high">High</span> &nbsp; H4 — Refund is booked in the DB <em>before</em> Stripe moves money; a crash in between records a refund that never happened, with no recovery path</h3>
+  <p class="loc"><code>src/services/payment-service.ts:284-309</code></p>
+  <p>
+    The optimistic-lock write commits <code>refundedAmount = refundedAfter</code> (and possibly
+    <code>paymentStatus: "REFUNDED"</code>) as a standalone statement, and only <em>then</em> calls
+    Stripe:
+  </p>
+<pre><code>const locked = await db.registration.updateMany({
+  where: { id: registrationId, paymentStatus: "PAID", refundedAmount: registration.refundedAmount },
+  data: { refundedAmount: refundedAfter, ...(isFull ? { paymentStatus: "REFUNDED" as const } : {}) },
+});
+...
+const refund = await stripe.refunds.create(
+  { payment_intent: payment!.stripePaymentId!, amount: toStripeAmount(amount, currency) },</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    <code>updateMany</code> commits → the process dies (deploy restart, OOM, any crash before the Stripe
+    call returns) → Stripe never refunded, but the registration shows <code>refundedAmount = X</code>
+    (or fully REFUNDED). Nothing recovers this: <code>charge.refunded</code> never fires (no Stripe
+    refund exists), the reconciliation worker only covers invoices, and a full "refund" leaves
+    <code>paymentStatus = REFUNDED</code> so a retry hits <code>NOT_PAID</code>. The attendee never gets
+    their money, yet the books say they did. The Stripe-error rollback only covers the case where
+    <code>stripe.refunds.create</code> <em>returns</em> an error — not a process death. This is the
+    mirror image of deferred M3 and is not covered by it. Fix shape: persist a refund-intent record
+    (per-attempt nonce) before the Stripe call and reconcile/sweep incomplete intents — which also fixes
+    H5's key collision.
+  </p>
+</div>
+
+<div class="finding high" id="h5">
+  <h3><span class="sev high">High</span> &nbsp; H5 — "Stripe succeeded but the SDK threw" + a fast <code>charge.refunded</code> webhook: the rollback erases a real refund permanently, and a retry can over-refund; the idempotency key can also wedge refunds for 24h</h3>
+  <p class="loc"><code>src/services/payment-service.ts:308, 311-316</code> · <code>src/app/api/webhooks/stripe/route.ts:294-297</code></p>
+<pre><code>// route rollback — unconditional
+} catch (stripeErr) {
+  await db.registration.update({
+    where: { id: registrationId },
+    data: { refundedAmount: registration.refundedAmount, paymentStatus: "PAID" },
+  })
+
+// webhook delta claim
+if (delta &lt;= 0) {
+  apiLogger.info({ msg: "charge.refunded: already reconciled, skipping", ... });
+  return NextResponse.json({ received: true });
+}</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    <strong>Interleaving:</strong> route bumps <code>refundedAmount</code> 0→50 →
+    <code>stripe.refunds.create</code> times out client-side but the refund WAS created at Stripe →
+    Stripe fires <code>charge.refunded</code> (cumulative 50) → webhook reads
+    <code>refundedAmount = 50</code>, <code>delta = 0</code> → <strong>skips and 200s</strong> (Stripe
+    never redelivers) → the route's catch then rolls <code>refundedAmount</code> back to 0 and
+    <code>paymentStatus</code> to PAID. Final state: Stripe returned $50 to the attendee; the books say
+    $0 refunded. The deferred M3 fix (conditional rollback) does <strong>not</strong> close this
+    ordering — the webhook skipped <em>without writing</em>, so the rollback condition still matches.
+    Follow-on: the organizer, seeing STRIPE_FAILED, retries with a different partial ($30) → new
+    idempotency key → Stripe creates a <strong>second real refund</strong> → $80 returned on a $100
+    charge.
+  </p>
+  <p>
+    <strong>Key wedge (same root):</strong> the idempotency key
+    <code>refund-{paymentId}-{refundedAfter}</code> encodes the cumulative total, but a rollback lets
+    the same cumulative be re-reached by a <em>different</em> amount: refund $50 fails (key
+    <code>-50.00</code> stored at Stripe with the error) → rollback to 0 → refund $30 (ok) → refund $20
+    → <code>refundedAfter = 50.00</code> → same key, different <code>amount</code> param → Stripe
+    <code>idempotency_error</code> → every retry rebuilds the identical key; the last $20 is
+    unrefundable via the product for ~24h. A per-attempt nonce persisted before the Stripe call (H4's
+    fix) resolves both.
+  </p>
+</div>
+
+<div class="finding high" id="h6">
+  <h3><span class="sev high">High</span> &nbsp; H6 — <code>refundRegistration</code> operates on <code>payments[0]</code> only: on a mixed Stripe + manual registration, every refund path is wrong (precise scoping of the queued "newest-payment-only" item)</h3>
+  <p class="loc"><code>src/services/payment-service.ts:237-238, 296-329</code> — the only refund site; it backs both <code>/refund</code> and <code>/cancel { refund: true }</code></p>
+<pre><code>const payment = registration.payments[0];        // newest PAID payment
+const isManualRefund = !payment?.stripePaymentId;
+...
+const refund = await stripe.refunds.create(
+  { payment_intent: payment!.stripePaymentId!, amount: toStripeAmount(amount, currency) }, ...</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    <code>paidTotal</code> correctly sums ALL PAID payments, but the refund executes against exactly
+    one. Registration with Stripe $100 + manual $50 (<code>paidTotal</code> 150):
+  </p>
+  <ul>
+    <li><strong>Manual payment newest:</strong> <code>isManualRefund = true</code> → a full $150 refund
+      is merely "recorded" — the $100 Stripe charge is <strong>never reversed in Stripe</strong>. Via
+      cancel-with-refund this is one click ("Cancel &amp; refund 150"): the reg is cancelled, the
+      response says <code>manual: true</code>, and the buried Stripe charge is on the admin to notice.</li>
+    <li><strong>Stripe payment newest:</strong> the default full refund calls Stripe for $150 against a
+      $100 payment intent → Stripe rejects → STRIPE_FAILED (502) → <strong>cancel-with-refund is
+      permanently blocked</strong>. Even after a partial $100 succeeds, the Payment row stays PAID
+      (only flipped on <code>isFull</code> of the registration), so the remaining $50 still routes to
+      the exhausted intent and fails forever — the manual $50 is unrefundable through the product.</li>
+  </ul>
+  <p>
+    Scope-limited to multi-payment registrations (recovery captures, deposit + balance, desk top-ups) —
+    but those are exactly the messy cases refunds get requested on. Fix shape: allocate the requested
+    amount across payments (per-payment Stripe <code>refunds.create</code> capped at each charge, manual
+    remainder recorded).
+  </p>
+</div>
+
+<div class="finding medium" id="m4">
+  <h3><span class="sev medium">Medium</span> &nbsp; M4 — <code>charge.refunded</code> reconciles Stripe's <em>Stripe-only</em> cumulative against the <em>mixed</em> <code>refundedAmount</code> counter</h3>
+  <p class="loc"><code>src/app/api/webhooks/stripe/route.ts:276, 287-297</code></p>
+  <p>
+    <code>Registration.refundedAmount</code> accumulates <strong>manual</strong> refunds too, but the
+    webhook treats it as Stripe's cumulative. Reg with Stripe $100 + manual $50; a $50 manual refund is
+    recorded (<code>refundedAmount = 50</code>); later the $100 Stripe charge is refunded in the
+    Dashboard → webhook computes <code>delta = 100 − 50 = 50</code>, sets
+    <code>refundedAmount = 100</code> (truth: 150 refunded), leaves the reg PAID with "$50 remaining",
+    and auto-mints a $50 credit note while $100 actually moved. A manual refund ≥ the Dashboard refund
+    makes <code>delta ≤ 0</code> → the Stripe refund is <em>entirely</em> unrecorded. Same root as H6
+    (one counter, two money sources); distinct site and failure. Durable fix: track Stripe-refunded
+    per-payment (or a separate Stripe-cumulative column) rather than reconciling into the mixed total.
+  </p>
+</div>
+
+<div class="finding medium" id="m3">
+  <h3><span class="sev medium">Medium</span> &nbsp; M3 — <code>charge.refunded</code> arriving before its Payment row exists is ACKed with 200 and permanently lost</h3>
+  <p class="loc"><code>src/app/api/webhooks/stripe/route.ts:267-270</code></p>
+<pre><code>if (!payment) {
+  apiLogger.warn({ msg: "charge.refunded: no Payment record found", paymentIntentId });
+  return NextResponse.json({ received: true });
+}</code></pre>
+  <p>
+    Stripe does not guarantee event ordering. An operator refunds from the Dashboard moments after
+    payment while <code>checkout.session.completed</code> is still mid-flight (it makes two synchronous
+    Stripe API reads before its DB tx) → <code>charge.refunded</code> processes first → no Payment row →
+    200 → never redelivered. The reg stays PAID with <code>refundedAmount = 0</code> forever; no sweep
+    reconciles refunds. Returning 500 (→ Stripe retries) when the intent is unknown — or a
+    refund-reconciliation sweep mirroring the invoice one — closes it. This same 200-on-not-found is
+    what makes H1's orphaned second charge doubly unrecoverable.
+  </p>
+</div>
+
+<div class="finding medium" id="m2">
+  <h3><span class="sev medium">Medium</span> &nbsp; M2 — <code>cancelRegistration</code> applies the seat/promo transition from a snapshot taken before the slow CN + refund phase: a concurrent type/tier change releases the wrong counter</h3>
+  <p class="loc"><code>src/services/payment-service.ts:421-434 → 475-489</code></p>
+  <p>
+    The cancel transaction's claim (<code>status: { not: "CANCELLED" }</code>) only defends against a
+    concurrent <em>cancel</em>. The <code>prev</code> passed to
+    <code>applyRegistrationTransition</code> — <code>ticketTypeId</code>, <code>pricingTierId</code>,
+    <code>promoCodeId</code> — comes from a read taken before the multi-second credit-note + Stripe
+    refund phase. A detail-sheet PUT that changes the type from A to B during that window (releasing A,
+    claiming B) is then followed by the cancel tx releasing <strong>A again</strong> from the stale
+    snapshot (the <code>soldCount ≥ 1</code> guard masks the double-release when A has other sales,
+    silently under-counting) while B — the counter the row actually holds — is never released → B
+    phantom-sells-out. Same staleness applies to <code>promoCodeId</code>. Fix: re-read (or
+    <code>FOR UPDATE</code>) inside the transaction, as <code>createCreditNote</code> already does.
+  </p>
+</div>
+
+<div class="finding high" id="h11">
+  <h3><span class="sev high">High</span> &nbsp; H11 — Out-of-band (Stripe Dashboard) refunds bypass the payment-service side-effect contract: no audit row, no admin notification — but they DO email the attendee, the exact opposite of the route-initiated policy</h3>
+  <p class="loc"><code>src/app/api/webhooks/stripe/route.ts:299-344</code></p>
+<pre><code>const { invoice: cn } = await createCreditNote({ ... });
+await sendInvoiceEmail(cn.id);   // attendee gets an email</code></pre>
+  <p>
+    A refund executed from the Stripe Dashboard leaves <strong>zero <code>AuditLog</code> trail</strong>
+    (there is no <code>db.auditLog</code> call anywhere in the webhook file) and no in-app admin
+    notification — while <code>refundRegistration</code> writes <code>REFUND_ISSUED</code> and notifies
+    admins. And the communication policy is inverted: payment-service explicitly documents <em>"no
+    automatic refund-confirmation email — the organizer communicates the refund manually"</em>, yet the
+    webhook unconditionally emails the credit note. Whether the attendee hears about a refund depends on
+    which button the organizer clicked. The webhook also calls raw <code>createCreditNote</code> instead
+    of <code>issueCreditNoteForRegistration</code>, skipping the <code>CREDIT_NOTE_ISSUED</code> audit
+    row. This is cross-caller drift in the one domain the services layer was built to own.
+  </p>
+</div>
+
+<h2 id="documents">5. Documents of record — invoices, receipts, credit notes</h2>
+
+<div class="finding high" id="h9">
+  <h3><span class="sev high">High</span> &nbsp; H9 — Cross-org / cross-event IDOR on manual invoice creation: the body's <code>registrationId</code> is never bound to the event or org</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/invoices/route.ts:105</code> → <code>src/lib/invoice-service.ts:140</code></p>
+<pre><code>// route — event is org-checked, but the registration id is passed through unbound
+const invoice = await createInvoice({
+  registrationId: validated.data.registrationId,   // ← body input
+  eventId, organizationId: session.user.organizationId!, ...
+
+// invoice-service — loads by id alone
+const registration = await db.registration.findUniqueOrThrow({
+  where: { id: registrationId },                   // ← no eventId / organizationId predicate
+  include: registrationInclude,
+});</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    An ORGANIZER of org A posts a <code>registrationId</code> belonging to org B (or a different event
+    in the same org). An invoice is minted under org A / event A's numbering, priced from org B's
+    registration, and org B's registrant's name, email, and billing render in org A's invoice list,
+    detail, and PDF. Also a within-org integrity bug: the invoice's <code>eventId</code> disagrees with
+    <code>registration.eventId</code>. Notably the <strong>MCP path already does this right</strong>
+    (<code>tools/invoices.ts</code> binds <code>event: { organizationId }</code> and derives
+    <code>eventId</code> from the registration) — the REST route is the outlier. Single-org today makes
+    the cross-tenant leg latent, but this is exactly the class the multi-tenancy impact doc warns about.
+  </p>
+</div>
+
+<div class="finding medium" id="m1">
+  <h3><span class="sev medium">Medium</span> &nbsp; M1 — Post-payment document minting is check-then-act with no row lock: webhook / reconciliation-worker / manual paths can double-mint PAID invoices + receipts and double-email</h3>
+  <p class="loc"><code>src/lib/invoice-service.ts:238-259</code> (invoice check in-tx but unlocked) · <code>:335-345</code> (receipt check entirely outside its tx) · <code>payments/route.ts:268-271</code> (non-locking recovery count)</p>
+  <p>
+    Unlike <code>createCreditNote</code> (which correctly takes <code>SELECT … FOR UPDATE</code>), there
+    is no serialization and no <code>@@unique([registrationId, type])</code>. The webhook's detached
+    post-commit block is slowed by two <code>charges.retrieve</code> round-trips; the reg is already
+    PAID-with-Payment-and-no-invoice, so the reconciliation worker's next tick picks it up — both call
+    the documents fan-out → two PAID invoices with distinct sequence numbers, two receipts, two
+    "payment received" emails. Same race between manual capture and the worker. Related: the manual
+    route's <em>recovery</em> branch guards with a non-locking <code>tx.payment.count</code> — two
+    concurrent recovery clicks can both insert Payment rows, doubling <code>paidTotal</code> and
+    therefore the refund/CN caps. Fix shape: the same row-lock pattern <code>createCreditNote</code>
+    uses, or a partial unique index on <code>(registrationId, type)</code> for INVOICE/RECEIPT.
+  </p>
+</div>
+
+<div class="finding medium" id="m5">
+  <h3><span class="sev medium">Medium</span> &nbsp; M5 — PAID invoice/receipt totals come from <em>current</em> pricing, never from the Payment actually captured; the promote-in-place path keeps fully stale amounts</h3>
+  <p class="loc"><code>src/lib/invoice-service.ts:238-259</code> (promote) · <code>:224, 265-288</code> (mint) · charge source <code>webhooks/stripe/route.ts:75-77</code></p>
+  <p>
+    Two divergence windows: <strong>(a)</strong> admin pre-creates a SENT invoice at $500; a promo
+    (−$100) is applied afterwards; the attendee pays $400 (checkout uses live pricing) → the invoice is
+    promoted to PAID still stating $500 — the emailed PAID document overstates the charge.
+    <strong>(b)</strong> the reverse: a session is created at price X, the reg is repriced before
+    payment; the attendee pays X (<code>session.amount_total</code>) but the freshly minted PAID
+    invoice's totals come from <code>calcInvoicePricing</code> on the <em>new</em> registration state —
+    <code>Payment.amount ≠ Invoice.total</code>. Downstream, CN caps read the computed total and refund
+    caps read the payments sum, so the mismatch propagates into both ceilings (the cap split itself is
+    deferred M1 of the earlier review; the false PAID document is the finding here). Fix shape: PAID
+    documents should be minted from — or at least reconciled against — the captured
+    <code>Payment.amount</code>.
+  </p>
+</div>
+
+<div class="finding medium" id="m10">
+  <h3><span class="sev medium">Medium</span> &nbsp; M10 — PDFs recompute tax and grand total from <code>taxRate</code> instead of printing the stored, reconciled <code>taxAmount</code>/<code>total</code>, defeating the partial-CN reconciliation</h3>
+  <p class="loc"><code>src/lib/pdf/document-layout.ts:429-433</code> (via <code>credit-note-pdf.ts</code> and <code>invoice-pdf.ts</code>) · reconciliation at <code>invoice-service.ts:514-517</code></p>
+<pre><code>// createCreditNote deliberately reconciles the last component:
+const cnTax = round2(amt - (cnSubtotal - cnDiscount));
+
+// drawTotals throws the reconciled figure away and re-derives:
+const taxAmount = input.taxRate ? discountedSubtotal * (input.taxRate / 100) : 0;
+const grandTotal = discountedSubtotal + taxAmount;</code></pre>
+  <p>
+    For a partial credit note with proportionally rounded components, the printed VAT line and
+    "TOTAL CREDIT" can drift a cent from <code>invoice.total</code> — the number in the refund cap, the
+    audit row, and the dialog the organizer confirmed. A financial document should print the frozen row,
+    not re-run pricing. Related nit: none of the CN/refund math consults
+    <code>isZeroDecimalCurrency</code>, so a JPY credit note can carry fractional yen components.
+  </p>
+</div>
+
+<div class="finding medium" id="m9">
+  <h3><span class="sev medium">Medium</span> &nbsp; M9 — <code>calcInvoicePricing</code> is a fourth parallel totals implementation, unrounded, and there are three divergent <code>round2</code> copies</h3>
+  <p class="loc"><code>src/lib/invoice-service.ts:112-128, 426</code> · <code>src/lib/registration-financials.ts:54, 121-123</code> · <code>src/services/payment-service.ts:20</code> · <code>webhooks/stripe/route.ts:272</code></p>
+<pre><code>// invoice-service — no rounding at any step
+const taxAmount = taxRate ? discountedPrice * (taxRate / 100) : 0;
+const total = discountedPrice + taxAmount;</code></pre>
+  <p>
+    vs <code>registration-financials.ts</code> which rounds each step with <code>Number.EPSILON</code> —
+    and the three local <code>round2</code> copies differ on the EPSILON (so <code>1.005</code> rounds
+    differently by call site). Concrete cost: <code>createCreditNote</code>'s cap uses
+    <code>calcInvoicePricing</code>'s unrounded total while <code>refundRegistration</code>'s remaining
+    uses <code>computeRegistrationFinancials().total</code> — two "same" totals that can differ at the
+    cent boundary, producing spurious <code>CREDIT_LIMIT_EXCEEDED</code> / <code>INVALID_AMOUNT</code> /
+    "0.01 remaining" artifacts on tax-bearing amounts. This is the exact class of the July-7
+    payment-reminder bug. Fix: one totals function, one exported <code>round2</code>.
+  </p>
+</div>
+
+<div class="finding low" id="l1">
+  <h3><span class="sev low">Low</span> &nbsp; L1 — Public document route serves the wrong invoice: <code>orderBy: { status: "asc" }</code> sorts by enum <em>definition</em> order, so DRAFT/SENT beat PAID — the opposite of the comment's claim</h3>
+  <p class="loc"><code>src/app/api/public/events/[slug]/registrations/[registrationId]/document/route.ts:105-111</code></p>
+<pre><code>// Prefer the post-payment Invoice when one exists. Ordered so a
+// PAID row wins over a pending SENT row; ...
+orderBy: [{ status: "asc" }, { createdAt: "desc" }],</code></pre>
+  <p>
+    <code>InvoiceStatus</code> is declared <code>DRAFT, SENT, PAID, OVERDUE, CANCELLED, REFUNDED</code>;
+    Postgres sorts enums by definition order, so <code>asc</code> ranks DRAFT and SENT <em>before</em>
+    PAID. A registration with an admin pre-payment SENT invoice plus a post-payment PAID one hands the
+    payer the unpaid-looking SENT document — and a CANCELLED-only invoice is still served rather than
+    falling through to the quote (the <code>where</code> doesn't exclude CANCELLED). Not a leak (the
+    public-by-CUID + rate-limit posture is documented and the slug + id binding is correct) — a
+    wrong-money-document bug on a public surface.
+  </p>
+</div>
+
+<h2 id="manual">6. The desk path — manual payment capture</h2>
+
+<div class="finding high" id="h7">
+  <h3><span class="sev high">High</span> &nbsp; H7 — Manual <em>partial</em> capture flips the registration fully PAID and emails a PAID invoice + receipt asserting the <strong>full</strong> computed total; amount and currency are client-supplied and never reconciled; no rate limit</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/registrations/[registrationId]/payments/route.ts:46-47, 210-211, 253-262, 354-372</code> — found independently by two review passes</p>
+<pre><code>amount: z.number().positive().max(1_000_000).optional(),
+currency: z.string().length(3).toUpperCase().optional(),
+...
+const amount = data.amount ?? fallbackAmount;      // client value wins over computed total
+...
+const claim = await tx.registration.updateMany({
+  where: { id: registrationId, paymentStatus: { not: "PAID" } },
+  data: { paymentStatus: "PAID" },                  // unconditional full-PAID on any amount
+});</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Total due $105; desk records an $80 bank transfer (partial captures are an intended flow — the
+    detail GET's own comment says "a partial bank-transfer capture correctly leaves a balance").
+    Result: the reg is PAID, the attendee is emailed an Invoice <em>and</em> a Receipt both asserting
+    $105 paid (<code>createPaidInvoice</code>/<code>createPaidReceipt</code> compute from
+    <code>calcInvoicePricing</code>, never from <code>Payment.amount</code>), the reg drops out of every
+    unpaid list and chase, while the detail sheet simultaneously shows <code>balanceDue: 25</code> — the
+    $25 is never collected and the issued documents are false. Compounding: <code>amount: 1,
+    currency: "IDR"</code> on a USD 2,000 registration is accepted verbatim (widest write population of
+    any money endpoint — ONSITE + MEMBER via <code>REGISTRATION_DESK_ALLOW</code>), with no
+    <code>checkRateLimit</code> and no warn/audit flag when the captured amount diverges from the
+    computed total. Fix shape: keep partial captures, but only flip PAID when payments cover the total
+    (else leave PENDING/partial), derive documents from captured amounts, log + audit-flag any
+    amount/currency divergence, add a rate limit.
+  </p>
+</div>
+
+<div class="finding medium" id="m11">
+  <h3><span class="sev medium">Medium</span> &nbsp; M11 — <code>issuePaidRegistrationDocuments</code>'s docblock claims it is "the single post-payment fan-out used by ALL payment channels" — but manual capture hand-mirrors the fan-out with different semantics</h3>
+  <p class="loc"><code>src/lib/invoice-service.ts:906-912</code> vs <code>payments/route.ts:344-402</code></p>
+  <p>
+    The manual route inlines <code>createPaidInvoice → createPaidReceipt →
+    sendPaymentDocumentsEmail</code> itself, fire-and-forgetting the email where the helper awaits it,
+    and its header carries the exact smell the house rule names: <em>"mirrors the Stripe webhook
+    flow"</em>. The next change to the fan-out (e.g. a third document) lands in webhook + reconciliation
+    + resend and silently misses manual capture. Fix: route manual capture through the helper; correct
+    the docblock either way.
+  </p>
+</div>
+
+<h2 id="access">7. Access control &amp; the second write-surface</h2>
+
+<div class="finding high" id="h10">
+  <h3><span class="sev high">High</span> &nbsp; H10 — ONSITE cross-event finance access: the entire invoice/quote GET surface org-scopes instead of using <code>buildEventAccessWhere</code></h3>
+  <p class="loc"><code>registrations/[registrationId]/quote/route.ts:28</code> · <code>invoices/route.ts:29</code> (list) · <code>invoices/[invoiceId]/route.ts:26</code> (detail) · <code>invoices/[invoiceId]/pdf/route.ts:26</code> · <code>invoices/export/route.ts:41</code> · the "org member" branches in <code>registrant/registrations/[registrationId]/quote|invoices|invoices/[invoiceId]/pdf</code></p>
+<pre><code>// identical shape in all listed routes
+const event = await db.event.findFirst({
+  where: { id: eventId, organizationId: session.user.organizationId! },</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    All of these gate with <code>denyFinance</code> — which <strong>passes ONSITE and MEMBER</strong>
+    (both are in <code>FINANCE_ROLES</code> since June 17) — then scope by org only. An ONSITE temp
+    assigned only to Event A can list, export, and download invoices and quote PDFs for <strong>any
+    event in the org</strong>: full amounts, attendee PII, billing addresses, tax numbers, and the org's
+    bank details. This is byte-for-byte the July 7 adversarial-review BLOCKER class ("every
+    ONSITE-reachable route must route its event lookup through <code>buildEventAccessWhere</code>") —
+    that fix covered the five desk routes but none of the finance GETs. The money <em>writes</em> in
+    this domain are correct (payments uses <code>buildEventAccessWhere</code>; refund/CN/cancel/promo
+    block ONSITE via <code>denyReviewer</code>).
+  </p>
+</div>
+
+<div class="finding high" id="h12">
+  <h3><span class="sev high">High</span> &nbsp; H12 — REST PUT and MCP <code>bulk_update_registration_status</code> can flip <code>paymentStatus: REFUNDED</code> as a bare flag — no CN gate, no <code>refundedAmount</code>, no Payment flip — and the UI enums file claims the server excludes it</h3>
+  <p class="loc"><code>registrations/[registrationId]/route.ts:34</code> (<code>z.nativeEnum(PaymentStatus)</code>) · <code>src/lib/agent/register-mcp-tools.ts:508-512</code> · claim at <code>registration-enums.ts:58</code></p>
+  <p>
+    The single-update MCP tool at least warns ("only flips the DB flag"); the bulk tool's description
+    does not, and REST PUT accepts the full enum while the UI file asserts <em>"Stripe-driven states
+    (PENDING/REFUNDED/FAILED) are excluded"</em> — a UI-only claim, unenforced server-side. An agent
+    instruction like "mark these refunded" produces up to 200 regs labeled REFUNDED with
+    <code>refundedAmount = 0</code>, Payment rows still PAID (so <code>paidTotal</code> still sums), no
+    credit note, no <code>REFUND_ISSUED</code> audit — books that say money was returned when none
+    moved, invisible to the gated-refund flow's "Refunded X of Y" display. Fix shape: reject (or route
+    through the gated flow) REFUNDED/PENDING/FAILED on the admin-settable write paths, matching the
+    documented subset.
+  </p>
+</div>
+
+<div class="finding medium" id="m6">
+  <h3><span class="sev medium">Medium</span> &nbsp; M6 — MCP <code>update_invoice_status</code> allows arbitrary money-state flips with no state machine, no registration sync, and an undocumented PAID hazard</h3>
+  <p class="loc"><code>src/lib/agent/tools/invoices.ts:106-164</code> vs REST <code>invoices/[invoiceId]/route.ts:56</code></p>
+<pre><code>const data: Prisma.InvoiceUpdateInput = { status: status as never };
+if (status === "PAID") data.paidDate = new Date();</code></pre>
+  <p>
+    Any org API key or OAuth token can flip <code>CANCELLED → PAID</code>, <code>PAID → DRAFT</code>, or
+    stamp an invoice PAID (with <code>paidDate</code>) against a registration still UNPAID — no Payment
+    row, no receipt, off the promote-in-place path. The REST equivalent is deliberately narrower (only
+    <code>cancel</code> / <code>mark_overdue</code>), so the MCP tool is a strict guard bypass relative
+    to the dashboard; its description warns only about REFUNDED. Either warn for PAID too, or make
+    PAID/backwards transitions refuse.
+  </p>
+</div>
+
+<div class="finding medium" id="m7">
+  <h3><span class="sev medium">Medium</span> &nbsp; M7 — Refund and cancel have no rate limit, and refund omits <code>denyFinance</code> (guard asymmetry across the three sibling money writes)</h3>
+  <p class="loc"><code>refund/route.ts:42-43</code> · <code>cancel/route.ts</code> · contrast <code>credit-notes/route.ts:54</code></p>
+  <p>
+    Credit-notes has <code>checkRateLimit</code> (60/hr); refund and cancel — the two endpoints that
+    actually move money through Stripe — have none, so a compromised organizer session can fire
+    unbounded <code>stripe.refunds.create</code> calls. And the guard stack differs for no reason:
+    refund runs only <code>denyReviewer</code> while credit-notes and cancel add
+    <code>denyFinance</code>. Safe today by coincidence (<code>denyReviewer</code> blocks every
+    non-finance role), but one <code>{ allow: … }</code> refactor away from opening Stripe refunds to
+    desk staff, and the inconsistency defeats the "denyFinance guards every money route" invariant
+    reviewers grep for.
+  </p>
+</div>
+
+<h2 id="visibility">8. Failure visibility &amp; documentation truth</h2>
+
+<div class="finding medium" id="m12">
+  <h3><span class="sev medium">Medium</span> &nbsp; M12 — Silent 4xx across the money surface: five payment-service rejection codes (including LOST_LOCK) and the routes' 401/404s log nothing; the auth guards never log a rejection</h3>
+  <p class="loc"><code>payment-service.ts:214, 217, 264, 292, 436, 439</code> · <code>refund/route.ts:39, 57, 70-75</code> · <code>credit-notes/route.ts:47, 73</code> · <code>cancel/route.ts:41, 58</code> · <code>auth-guards.ts:56-58, 74-81</code></p>
+  <p>
+    <code>REGISTRATION_NOT_FOUND</code>, <code>NOT_PAID</code>, <code>ALREADY_FULLY_REFUNDED</code>,
+    <code>LOST_LOCK</code> (the 409 you'd most want in <code>/logs</code> — "a refund is already in
+    progress"), and <code>ALREADY_CANCELLED</code> return as error-values with no log in the service,
+    and all three routes map <code>!result.ok</code> straight to HTTP with no <code>apiLogger</code>
+    call. <code>denyReviewer</code>/<code>denyFinance</code> return bare 403s with no log, so a probing
+    attacker enumerating money endpoints with a restricted role is invisible. The payments route is the
+    domain's own gold standard (every branch logs) — the rest should match. Cheapest durable fix: log
+    inside the guards themselves + one logging pass at the three route boundaries.
+  </p>
+</div>
+
+<div class="finding low" id="l2">
+  <h3><span class="sev low">Low</span> &nbsp; L2 — Registrant portal hand-rolls the discount/tax/total math client-side instead of importing <code>computeRegistrationFinancials</code></h3>
+  <p class="loc"><code>src/app/e/[slug]/my-registration/page.tsx:413-427</code></p>
+<pre><code>const regDiscount = Math.min(Number(reg.discountAmount ?? 0), price);
+const netPrice = Math.max(0, price - regDiscount);
+const regTaxAmount = regTaxRate &gt; 0 ? netPrice * regTaxRate / 100 : 0;
+const regTotal = netPrice + regTaxAmount;</code></pre>
+  <p>
+    It correctly imports <code>readRegistrationBasePrice</code> but then duplicates the rest of the
+    formula (unrounded, own discount cap) that <code>registration-financials.ts</code> exists to own —
+    the registrant-facing "Total Due" is the one surface exempted from that file's "can never diverge"
+    guarantee. The helper is pure/<code>Intl</code>-free and safe in client components — a drop-in swap.
+  </p>
+</div>
+
+<div class="finding low" id="l3">
+  <h3><span class="sev low">Low</span> &nbsp; L3 — Doc drift: CLAUDE.md's RBAC section and route comments still claim MEMBER is finance-barred; <code>FINANCE_ROLES</code> has included MEMBER since June 17</h3>
+  <p class="loc"><code>src/lib/finance-visibility.ts:19</code> (truth) · <code>invoices/route.ts:24</code> ("MEMBER … is barred" — false) · CLAUDE.md RBAC section</p>
+<pre><code>const FINANCE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE"]);</code></pre>
+  <p>
+    The June 17 decision record in the module is authoritative: MEMBER + ONSITE are desk operators who
+    record payments and therefore SEE money. But CLAUDE.md still describes MEMBER as "no access to
+    financial data" with <code>redactFinancialFields</code> applied (which never fires for MEMBER now),
+    and the invoices route's comment repeats the stale claim. This misled this very review's brief.
+    Whichever way the organizer actually wants it, code and docs must agree — and if MEMBER
+    finance-visibility was NOT intended to survive, that's a product decision to re-confirm, not a code
+    fix.
+  </p>
+</div>
+
+<h2 id="plan">9. Suggested remediation phases</h2>
+
+<p>
+  Grouped so each phase is one commit, independently shippable, testable, and small enough to review.
+  Ordering favors "stops charging/refunding real money wrongly" first.
+</p>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>Phase</th><th>Findings</th><th>Shape of the fix</th></tr>
+  <tr>
+    <td>1 — Charging gates</td>
+    <td><a href="#b1">B1</a>, <a href="#h2">H2</a>, <a href="#h3">H3</a></td>
+    <td>Gate checkout + portal on <code>NO_PAYMENT_DUE_STATUSES</code>; webhook refuses/flags CANCELLED regs + cancel expires open sessions; checkout's PENDING flip becomes a conditional claim. Small, surgical, all three are guard-clause fixes.</td>
+  </tr>
+  <tr>
+    <td>2 — Webhook idempotency</td>
+    <td><a href="#h1">H1</a>, <a href="#m3">M3</a></td>
+    <td>Key idempotency on the checkout session / payment intent (not <code>paymentStatus</code>); record the Payment row even when the reg is already PAID (flag as over-collection + notify); stop the docs fan-out on the in-tx skip; 500-retry (not 200) on <code>charge.refunded</code> for an unknown intent.</td>
+  </tr>
+  <tr>
+    <td>3 — Refund ordering + attempt nonce</td>
+    <td><a href="#h4">H4</a>, <a href="#h5">H5</a></td>
+    <td>Persist a refund-attempt record (nonce) before the Stripe call; idempotency key carries the nonce; rollback becomes webhook-aware (conditional claim); a sweep reconciles incomplete attempts. Closes the crash window, the erased-refund interleaving, and the key wedge in one design.</td>
+  </tr>
+  <tr>
+    <td>4 — Multi-payment refunds</td>
+    <td><a href="#h6">H6</a>, <a href="#m4">M4</a></td>
+    <td>Allocate refunds across payments (per-payment Stripe refund capped at each charge, manual remainder recorded); track Stripe-refunded separately from the mixed counter so <code>charge.refunded</code> reconciles against the right number.</td>
+  </tr>
+  <tr>
+    <td>5 — IDOR + finance-GET scoping</td>
+    <td><a href="#h9">H9</a>, <a href="#h10">H10</a></td>
+    <td>Bind the registration to event + org inside <code>createInvoice</code> (mirror the MCP tool); route every invoice/quote GET through <code>buildEventAccessWhere</code> + isolation tests (same pattern as the July 7 fix).</td>
+  </tr>
+  <tr>
+    <td>6 — Book-cooking write paths</td>
+    <td><a href="#h12">H12</a>, <a href="#m6">M6</a></td>
+    <td>Enforce the admin-settable paymentStatus subset server-side (REST PUT + MCP single + bulk); constrain MCP <code>update_invoice_status</code> transitions (refuse PAID/backwards or route through the promote path); MCP version bump.</td>
+  </tr>
+  <tr>
+    <td>7 — Dashboard-refund parity</td>
+    <td><a href="#h11">H11</a></td>
+    <td>Webhook's out-of-band branch adopts the service's side-effect contract: audit row, admin notification, <code>issueCreditNoteForRegistration</code>, and the same no-attendee-email policy (or an explicit product decision that Dashboard refunds DO email — either way, one policy).</td>
+  </tr>
+  <tr>
+    <td>8 — Manual capture truthfulness</td>
+    <td><a href="#h7">H7</a>, <a href="#m11">M11</a></td>
+    <td>Partial captures stop flipping full-PAID (flip only when payments cover the total); documents derive from captured amounts; divergence warn + audit flag; rate limit; route through <code>issuePaidRegistrationDocuments</code>.</td>
+  </tr>
+  <tr>
+    <td>Deferred → ROADMAP</td>
+    <td><a href="#m1">M1</a>, <a href="#m2">M2</a>, <a href="#m5">M5</a>, <a href="#m7">M7</a>, <a href="#m8">M8</a>, <a href="#m9">M9</a>, <a href="#m10">M10</a>, <a href="#m12">M12</a>, <a href="#l1">L1</a>–<a href="#l3">L3</a></td>
+    <td>Tracked in <code>docs/ROADMAP.md</code> §"Payments/refunds/credit-notes review" with the same discipline as the registrations review. M12 (logging) and L1 (one-line orderBy fix) are cheap enough to ride along with any phase.</td>
+  </tr>
+</table>
+</div>
+
+<h2 id="clean">10. What checked out clean</h2>
+
+<ul>
+  <li><strong>Credit-note cap</strong> genuinely holds under the <code>SELECT … FOR UPDATE</code> row lock, including through the pgbouncer transaction pooler.</li>
+  <li><strong>Checkout pricing is fully server-derived</strong> — the client sends only <code>registrationId</code>; IP rate limits are in place.</li>
+  <li><strong>Webhook signature verification</strong> is correct: raw body, verified before any processing, metadata <code>registrationId</code> re-validated against the DB.</li>
+  <li><strong>Refund amount is server-capped</strong> against the remaining balance, and the service binds <code>registration.eventId !== eventId → 404</code>.</li>
+  <li><strong>Duplicate Payment rows from retries of the same session</strong> are blocked by <code>stripePaymentId @unique</code>.</li>
+  <li><strong>Route-initiated refund vs its own webhook echo</strong> is idempotent in the happy path (the route bumps <code>refundedAmount</code> before Stripe, so the webhook's delta-skip makes replays safe — the failure modes are only in the error interleavings of H5).</li>
+  <li><strong>Seat/promo status transitions</strong> are consolidated in <code>applyRegistrationTransition</code> across payment-service, REST PUT, and MCP bulk — the known duplication has been reduced, not grown.</li>
+  <li><strong>Registrant ownership checks</strong> on quote/invoice/promo self-service paths are sound; both promo routes are rate-limited and fully guarded.</li>
+  <li><strong>The deprecated <code>createReceipt</code> re-export</strong> is fully removed with no orphan callers; no UI copy promises a refund email; CN amounts render positive consistently.</li>
+  <li>Suspicions checked and dropped: <code>round2</code> EPSILON drift between payment-service and registration-financials is sub-cent and absorbed by tolerances (the cap-boundary case is M9); the refund idempotency key is sound <em>absent</em> rollback (the wedge needs H5's interleaving); <code>charge.refunded</code>'s <code>paidTotal</code> fallback for already-REFUNDED Payment rows is covered.</li>
+</ul>
+
+<footer>
+  Produced by four independent review passes (money-flow lifecycle · concurrency &amp; idempotency ·
+  RBAC/security · drift &amp; failure-visibility) with lead-reviewer source verification of the
+  top-severity findings. Companion to
+  <a href="/admin/docs/CODE_REVIEW_REGISTRATIONS_SPEAKERS.html">CODE_REVIEW_REGISTRATIONS_SPEAKERS.html</a>
+  (July 10, 2026). Deferred items land in <code>docs/ROADMAP.md</code>; fixes will be appended to this
+  document phase-by-phase as they ship.
+</footer>
+
+</div>
+</body>
+</html>
