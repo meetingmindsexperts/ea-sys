@@ -761,17 +761,17 @@ const regTotal = netPrice + regTaxAmount;</code></pre>
 <table>
   <tr><th>Phase</th><th>Findings</th><th>Shape of the fix</th></tr>
   <tr>
-    <td>1 — Charging gates</td>
+    <td>1 — Charging gates<br /><strong>✅ Fixed (Jul 10, <code>4cffd0a</code>)</strong></td>
     <td><a href="#b1">B1</a>, <a href="#h2">H2</a>, <a href="#h3">H3</a></td>
-    <td>Gate checkout + portal on <code>NO_PAYMENT_DUE_STATUSES</code>; webhook refuses/flags CANCELLED regs + cancel expires open sessions; checkout's PENDING flip becomes a conditional claim. Small, surgical, all three are guard-clause fixes.</td>
+    <td>Gate checkout + portal on <code>NO_PAYMENT_DUE_STATUSES</code>; webhook refuses/flags CANCELLED regs + cancel expires open sessions; checkout's PENDING flip becomes a conditional claim. Small, surgical, all three are guard-clause fixes. <em>See §11 for what shipped.</em></td>
   </tr>
   <tr>
-    <td>2 — Webhook idempotency</td>
+    <td>2 — Webhook idempotency<br /><strong>✅ Fixed (Jul 10, <code>b490392</code>)</strong></td>
     <td><a href="#h1">H1</a>, <a href="#m3">M3</a></td>
     <td>Key idempotency on the checkout session / payment intent (not <code>paymentStatus</code>); record the Payment row even when the reg is already PAID (flag as over-collection + notify); stop the docs fan-out on the in-tx skip; 500-retry (not 200) on <code>charge.refunded</code> for an unknown intent.</td>
   </tr>
   <tr>
-    <td>3 — Refund ordering + attempt nonce</td>
+    <td>3 — Refund ordering + attempt nonce<br /><strong>✅ Fixed (Jul 10, <code>b579bbe</code>)</strong></td>
     <td><a href="#h4">H4</a>, <a href="#h5">H5</a></td>
     <td>Persist a refund-attempt record (nonce) before the Stripe call; idempotency key carries the nonce; rollback becomes webhook-aware (conditional claim); a sweep reconciles incomplete attempts. Closes the crash window, the erased-refund interleaving, and the key wedge in one design.</td>
   </tr>
@@ -823,12 +823,96 @@ const regTotal = netPrice + regTaxAmount;</code></pre>
   <li>Suspicions checked and dropped: <code>round2</code> EPSILON drift between payment-service and registration-financials is sub-cent and absorbed by tolerances (the cap-boundary case is M9); the refund idempotency key is sound <em>absent</em> rollback (the wedge needs H5's interleaving); <code>charge.refunded</code>'s <code>paidTotal</code> fallback for already-REFUNDED Payment rows is covered.</li>
 </ul>
 
+<h2 id="fixes">11. Fixes applied — what changed, file by file</h2>
+
+<p>Each phase is one gated commit (tsc · eslint · full vitest · build, all green before commit).</p>
+
+<h3>Phase 1 — Charging gates (B1 + H2 + H3) · commit <code>4cffd0a</code> · deployed</h3>
+<ul>
+  <li><strong><code>src/app/api/public/events/[slug]/checkout/route.ts</code></strong> —
+    <em>(B1)</em> the pre-Stripe guard now rejects every <code>NO_PAYMENT_DUE_STATUSES</code> member
+    (PAID / COMPLIMENTARY / <strong>INCLUSIVE</strong> / <strong>REFUNDED</strong>) with a
+    status-specific message ("This registration is sponsor-paid — no payment is due."), not just
+    PAID/COMPLIMENTARY. <em>(H3)</em> the post-session "→ PENDING" write became a <strong>conditional
+    claim</strong> (<code>updateMany … paymentStatus notIn NO_PAYMENT_DUE</code>); a lost claim
+    <strong>expires the just-created Stripe session</strong> so the stale payment link can't be
+    completed later, and returns 400.</li>
+  <li><strong><code>src/app/api/webhooks/stripe/route.ts</code></strong> — <em>(H2)</em>
+    <code>checkout.session.completed</code> now detects <code>registration.status === CANCELLED</code>:
+    the Payment row + PAID flip still happen (money truth — the gated refund flow needs PAID to
+    reverse it), but the attendee documents email is suppressed and admins get an error-level log
+    (<code>stripe-webhook:payment-on-cancelled-registration</code>) + a
+    "⚠ Payment on a CANCELLED registration — issue a refund" notification.</li>
+  <li><strong><code>src/app/e/[slug]/my-registration/page.tsx</code></strong> — <em>(B1 UI)</em>
+    Pay&nbsp;Now is hidden for INCLUSIVE/REFUNDED; the status banner now tells the truth
+    ("Sponsored registration — no payment required." / "This registration's payment was refunded.")
+    instead of "Payment received".</li>
+  <li><strong>Tests</strong>: new <code>__tests__/api/public-checkout-route.test.ts</code> (7 — the
+    NO_PAYMENT_DUE matrix, the notIn claim shape, lost-race → session expired, expire-failure still
+    400s) + 2 webhook cancelled-reg cases in <code>__tests__/api/webhooks/stripe.test.ts</code>.</li>
+  <li><strong>Deferred within H2</strong>: cancel does not yet expire open checkout sessions (needs a
+    stored session id — tracked in ROADMAP as a follow-up; the webhook guard closes the silent-money
+    harm).</li>
+</ul>
+
+<h3>Phase 2 — Charge-level webhook idempotency (H1 + M3) · commit <code>b490392</code></h3>
+<ul>
+  <li><strong><code>src/app/api/webhooks/stripe/route.ts</code></strong> — <em>(H1)</em> idempotency
+    re-keyed from "is the reg PAID?" to <strong>"was this payment intent recorded?"</strong>
+    (<code>Payment.stripePaymentId</code> unique lookup). A NEW charge on an already-PAID registration
+    is now <strong>recorded</strong> (Payment row created; registration untouched) with an error-level
+    <code>stripe-webhook:duplicate-charge-recorded</code> log + "⚠ Possible double payment" admin
+    notification, and no attendee documents email. An in-tx P2002 on <code>stripePaymentId</code>
+    (concurrent retry) resolves to already-processed instead of a 500-then-skip. The old in-tx-skip
+    fallthrough that re-ran the documents fan-out (duplicate email) is gone. <em>(M3)</em>
+    <code>charge.refunded</code> for an unknown intent on a charge <strong>younger than 24h</strong>
+    now returns 500 so Stripe retries until the Payment row exists (out-of-order delivery); older
+    charges still ACK (shared-account safety).</li>
+  <li><strong>Tests</strong>: +5 / 2 rewritten in <code>__tests__/api/webhooks/stripe.test.ts</code>
+    (true-retry skip, duplicate-charge recording + alert, P2002-as-retry, young-charge 500,
+    old-charge ACK).</li>
+</ul>
+
+<h3>Phase 3 — Crash-safe refunds: RefundAttempt + verify-before-rollback + sweep (H4 + H5) · commit <code>b579bbe</code></h3>
+<ul>
+  <li><strong><code>prisma/schema.prisma</code> + migration <code>20260710120000_add_refund_attempt</code></strong>
+    (additive/idempotent/blue-green safe — new enum + table only, owner-approved): <code>RefundAttempt</code>
+    persists every refund attempt <em>before</em> the Stripe call (amount, before/after totals,
+    payment intent, kind, PENDING/SUCCEEDED/FAILED/UNKNOWN status).</li>
+  <li><strong><code>src/services/payment-service.ts</code></strong> — <em>(H4)</em> the optimistic-lock
+    claim and the attempt row now commit <strong>atomically in one transaction</strong> before Stripe
+    is called; the attempt id is the idempotency key (<code>refund-attempt-{id}</code>) and rides in
+    the Stripe refund's <code>metadata.refundAttemptId</code>. <em>(H5)</em> the error path
+    <strong>verifies against Stripe before deciding</strong>: refund exists → success, booking kept;
+    provably absent → <em>conditional</em> rollback + FAILED; unverifiable → booking kept (never roll
+    back blind), attempt UNKNOWN, new 502 <code>REFUND_STATE_UNKNOWN</code> ("the system reconciles in
+    ~10 minutes — check Stripe before retrying") + admin alert. The per-attempt key also kills the
+    cumulative-total collision that could wedge refunds behind Stripe's
+    <code>idempotency_error</code> for ~24h.</li>
+  <li><strong><code>src/lib/refund-reconciliation.ts</code> (new)</strong> —
+    <code>findStripeRefundForAttempt()</code> (ground-truth check by metadata) +
+    <code>resolveStaleRefundAttempts()</code>: the sweep that settles PENDING/UNKNOWN attempts older
+    than 10 min (confirm at Stripe / roll back + "Refund did not complete" alert / terminal
+    manual-review on a lost rollback race — no per-tick churn).</li>
+  <li><strong><code>worker/jobs/invoice-reconciliation.ts</code></strong> — the sweep rides the
+    existing 10-min money-reconciliation tick (isolated try/catch; no new worker job wiring).</li>
+  <li><strong><code>…/refund/route.ts</code></strong> — <code>REFUND_STATE_UNKNOWN → 502</code> in the
+    status map.</li>
+  <li><strong>Tests</strong>: +19 across 4 suites — service ordering (attempt persisted before Stripe,
+    asserted via invocation order), all three error outcomes, sweep outcomes (manual-confirm,
+    confirmed-at-Stripe, rollback+alert, lost-race terminal, unreachable-left-pending, one-bad-row
+    isolation), route contracts incl. the new code; idempotency-key + rollback expectations updated
+    to the new semantics in the two pre-existing refund suites.</li>
+</ul>
+
+<p><em>Phases 4–8 will be appended here as they ship.</em></p>
+
 <footer>
   Produced by four independent review passes (money-flow lifecycle · concurrency &amp; idempotency ·
   RBAC/security · drift &amp; failure-visibility) with lead-reviewer source verification of the
   top-severity findings. Companion to
   <a href="/admin/docs/CODE_REVIEW_REGISTRATIONS_SPEAKERS.html">CODE_REVIEW_REGISTRATIONS_SPEAKERS.html</a>
-  (July 10, 2026). Deferred items land in <code>docs/ROADMAP.md</code>; fixes will be appended to this
+  (July 10, 2026). Deferred items land in <code>docs/ROADMAP.md</code>; fixes are appended to this
   document phase-by-phase as they ship.
 </footer>
 
