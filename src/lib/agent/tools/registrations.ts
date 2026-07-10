@@ -8,6 +8,7 @@ import { needsQrCode, holdsSeat, seatCounter, type SeatCounter } from "@/lib/reg
 import { releaseSeats, applyRegistrationTransition } from "@/lib/registration-seat-db";
 import { resolveRepricing } from "@/lib/registration-repricing";
 import { syncToContact } from "@/lib/contact-sync";
+import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { readSponsors } from "@/lib/webinar";
@@ -802,6 +803,21 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         firstName: result.attendee.firstName,
         lastName: result.attendee.lastName,
       }).catch((err) => apiLogger.error({ err }, "agent:update_registration contact-sync-failed"));
+    }
+
+    // Mirror the tag delta onto the person's Speaker facet (same call the REST
+    // registration PUT makes — review H5: the MCP path used to bypass this, so
+    // agent-written attendee tags never reached speaker.tags and APPRECIATION
+    // cert routing / speaker tag filters missed them). Best-effort by contract:
+    // the helper logs + never throws.
+    if (Array.isArray(attendeeUpdates.tags)) {
+      await syncRegistrationTagsToSpeakers(existing.eventId, [
+        {
+          registrationId,
+          email: existing.attendee.email,
+          delta: computeTagDelta(existing.attendee.tags, attendeeUpdates.tags as string[]),
+        },
+      ]);
     }
 
     // Refresh denormalized event stats (fire-and-forget)

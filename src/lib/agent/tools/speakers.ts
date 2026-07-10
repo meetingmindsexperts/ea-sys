@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
+import { computeTagDelta, syncSpeakerTagsToRegistrations } from "@/lib/person-tag-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -213,7 +214,10 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
 
     const existing = await db.speaker.findFirst({
       where: { id: speakerId, event: { organizationId: ctx.organizationId } },
-      select: { id: true, eventId: true, email: true, firstName: true, lastName: true, status: true },
+      select: {
+        id: true, eventId: true, email: true, firstName: true, lastName: true,
+        status: true, tags: true, sourceRegistrationId: true,
+      },
     });
     if (!existing) return { error: `Speaker ${speakerId} not found or access denied` };
 
@@ -325,6 +329,22 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
       firstName: updated.firstName,
       lastName: updated.lastName,
     }).catch((err) => apiLogger.error({ err }, "agent:update_speaker contact-sync-failed"));
+
+    // Mirror the tag delta onto the person's Registration facet (same call the
+    // REST speaker PUT makes — review H5: the MCP path used to bypass this, so
+    // agent-tagged committee speakers never reached attendee.tags, silently
+    // breaking cert auto-issue / tag filters / ?tags= queries for them).
+    // Best-effort by contract: the helper logs + never throws.
+    if (Array.isArray(updates.tags)) {
+      await syncSpeakerTagsToRegistrations(existing.eventId, [
+        {
+          speakerId,
+          email: existing.email,
+          sourceRegistrationId: existing.sourceRegistrationId,
+          delta: computeTagDelta(existing.tags, updates.tags as string[]),
+        },
+      ]);
+    }
 
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(ctx.eventId);
