@@ -212,6 +212,82 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Current Release — July 10, 2026
 
+### Check-in & badges review (July 10, 2026) — findings, NONE YET FIXED
+
+A 4-angle production review of the check-in + badges domain ahead of real conferences with 500–2000
+in-person attendees: **0 BLOCKER / 8 HIGH / 7 MED / 4 LOW**. Full report:
+[docs/CODE_REVIEW_CHECKIN_BADGES.html](CODE_REVIEW_CHECKIN_BADGES.html). **No code fixes shipped yet** —
+the review landed at the end of a session. Severity is calibrated: 0 BLOCKERs because no barcode leak is
+reachable by an arbitrary unauthenticated caller (all require an org-attached account or an unguessable
+cuid), unlike the same-day sessions blockers.
+
+**Fix these before the next live event (door-day):**
+
+- **H1 — the admission gate and the badge filter disagree about who is attending.** `badges/route.ts:78-83`
+  re-implements "no money due" as `PAID || complimentary`, dropping **INCLUSIVE** (sponsor-paid) and
+  **UNASSIGNED** (pay-at-desk) — while `checkInGate` admits them (it blocks only UNPAID/PENDING). The
+  canonical set `NO_PAYMENT_DUE_STATUSES` already includes INCLUSIVE. A sponsored VIP scans in fine and
+  gets no badge; selecting only that sponsor block yields the 400 *"No paid or complimentary registrations
+  found"*, which blames them for not paying. Fix: use the canonical set; decide UNASSIGNED policy.
+- **H2 — THERE IS NO UNDO.** `checkedInAt: null` is never written anywhere in `src/`; the general
+  registration PUT references `checkedInAt` zero times. Flipping status back to CONFIRMED leaves the
+  timestamp set, so `checkInGate` refuses that person **forever** while the attendance tile says they're
+  not in. CLAUDE.md advertised "(+ undo)" — **corrected in this commit**. Fix: an audited `undoCheckIn()`
+  in `check-in.ts` that clears status + `checkedInAt` together.
+- **H3 — concurrent double-scan has no conditional claim.** `check-in.ts:76` reads `checkedInAt`, `:114`
+  commits with an unconditional `update` by id. Two stations (or two tabs — the 2s debounce is a per-tab
+  `useRef`) both pass the gate and both write: the true first-entry time is clobbered, and audit rows +
+  admin notifications duplicate. Schema has no unique/partial index on `checkedInAt`. Fix is one line:
+  `updateMany({ where: { id, checkedInAt: null } })`, `count === 0` → ALREADY_CHECKED_IN. **Also closes M7**
+  (two concurrent `allowCancelled` overrides double-increment seat AND promo counters).
+- **H4 — "Print All" is unbounded** in N with unbounded `bwip-js` fan-out (`Promise.all` over up to 2000
+  rows) and builds the whole PDF in-request, on the same swapless box that serves the live scanner and the
+  Stripe webhook. This is the concrete content of the readiness audit's "bulk badge Print All is fragile".
+  Fix: `take` cap + `p-limit` + ideally move the render to the worker tier.
+- **H5 — the unknown-barcode scan 404 logs nothing** (`check-in/route.ts:147`), nor does the **ONSITE
+  cross-event denial** (the exact adversarial case the July-7 isolation tests defend), nor the badges 400
+  or the DTCM import 400s. At a live door you cannot answer "why did that badge not scan?" from `/logs`.
+
+**Credential exposure (insider-scoped, same class as the July-10 sessions blockers):**
+
+- **H6 — `FINANCIAL_KEYS` omits `qrCode`/`dtcmBarcode`**, so `redactFinancialFields` — the only redaction
+  pass that runs on both registration GETs for non-finance roles — never strips the physical-access
+  credential. This is the amplifier; fixing it closes the payload half of H7 + H8 in one place.
+- **H7 — the registrations LIST GET has no `denyReviewer`** (the one at `:306` guards the POST) and uses
+  `include:`, so every attendee's `qrCode` + `dtcmBarcode` is returned to any org-attached caller —
+  including **MEMBER** (documented as sponsor-side stakeholders/auditors) and internal-domain
+  **REGISTRANT**s. One call yields enough to clone a badge and walk someone through the door.
+- **H8 — two IDOR paths.** The detail GET uses bare `auth()` with the row scoped `{ id, eventId }` (not
+  user-scoped), so an external REGISTRANT with a registration in the event can fetch any other
+  registration's barcode by id. And `registrant/registrations/[id]/barcode/route.ts:43-51` org-scopes its
+  staff branch instead of routing through `buildEventAccessWhere`, letting an **ONSITE** temp assigned to
+  Event A pull a scannable barcode for Event B — the July-7 class, on a route that fix didn't touch. Both
+  need an unguessable cuid; **H7 is what defeats that mitigation.** **L4**: that route also has no rate limit.
+
+**Gate policy + import integrity (MED/LOW):** M1 no desk override for a webhook-lagged `PENDING` attendee
+(the agent path has one; the physical door doesn't); M2 the gate admits `FAILED` and `REFUNDED` (it
+enumerates only UNPAID/PENDING) and the desk has no `allowCancelled` reinstate — the door policy is an
+accident of which statuses got enumerated, and deserves an explicit decision; M3 the DTCM import has **no
+per-row try/catch** (exactly one `try {` in the file — the `continue`s are validation skips), so a P2002
+aborts with a generic 500 and **discards the import report**, leaving a partially-applied import days
+before a Dubai-compliance deadline; M4 its email lookup picks an arbitrary registration when a person holds
+two; M5 the "live attendance counter" never invalidates the query cache (zero `invalidateQueries` in the
+scanner page) so it sits frozen up to 5 min; M6 a venue network drop mid-scan produces **no failure beep and
+no Recent-Scans row** — silence reads as "processed" and the attendee walks in un-checked-in; L1 the scan
+`OR`s across two independent unique domains with no `orderBy`; L2 the DTCM import silently overwrites a
+different existing barcode on the same row; L3 MCP `check_in_registration` short-circuits the shared gate.
+
+**Explicitly NOT a finding:** the desk check-in path has no rate limit, and that is **correct** — a hardware
+scanner legitimately fires many scans/sec, the endpoint is authenticated and desk-gated, and the in-memory
+limiter is per-container and resets on deploy. The exposure there is idempotency (H3), not volume.
+
+**Verified clean:** the June `check-in.ts` unification held (`checkedInAt` written in exactly one place;
+all three callers share `executeCheckIn`); audit + notification cannot 500 a committed check-in on any
+path; barcode rendering is centralized across all five callers; the scan lookup is event-scoped (a
+wrong-event badge 404s); sequential double-scan IS idempotent (only the concurrent case races); the July-7
+ONSITE fix holds on the five routes it touched; DTCM is never substituted for the entry barcode.
+
+
 ### Program / agenda / sessions review (July 10, 2026) — deferred findings
 
 A 4-angle production review of the program / agenda / sessions domain (scheduling lifecycle · RBAC &
