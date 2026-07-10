@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const {
   mockDb,
+  mockTxUpdateMany,
   mockApiLogger,
   mockComputeAggregates,
   mockReadRequiredCount,
@@ -16,9 +17,15 @@ const {
   mockNotifyAbstract,
   mockRefreshStats,
 } = vi.hoisted(() => {
+  const mockTxUpdateMany = vi.fn();
   return {
+    mockTxUpdateMany,
     mockDb: {
-      abstract: { findFirst: vi.fn(), update: vi.fn() },
+      // H4: the status write is now a conditional updateMany inside $transaction.
+      $transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
+        cb({ abstract: { updateMany: mockTxUpdateMany } }),
+      ),
+      abstract: { findFirst: vi.fn() },
       auditLog: { create: vi.fn() },
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -73,25 +80,21 @@ const ABSTRACT_FIXTURE = {
 };
 
 const SUFFICIENT_REVIEWS = {
-  aggregates: { count: 2, meanOverall: 82, medianOverall: 82, minOverall: 75, maxOverall: 89, perCriterion: {} },
+  aggregates: { count: 2, scoredCount: 2, meanOverall: 82, medianOverall: 82, minOverall: 75, maxOverall: 89, perCriterion: {} },
   submissions: [
     { id: "sub-1", reviewerUserId: "rev-1", reviewerName: "R1", overallScore: 75, reviewNotes: "Solid" },
     { id: "sub-2", reviewerUserId: "rev-2", reviewerName: "R2", overallScore: 89, reviewNotes: "Excellent" },
   ],
 };
 const ZERO_REVIEWS = {
-  aggregates: { count: 0, meanOverall: null, medianOverall: null, minOverall: null, maxOverall: null, perCriterion: {} },
+  aggregates: { count: 0, scoredCount: 0, meanOverall: null, medianOverall: null, minOverall: null, maxOverall: null, perCriterion: {} },
   submissions: [],
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.abstract.findFirst.mockResolvedValue(ABSTRACT_FIXTURE);
-  mockDb.abstract.update.mockResolvedValue({
-    id: "abs-1",
-    title: ABSTRACT_FIXTURE.title,
-    status: "ACCEPTED",
-  });
+  mockTxUpdateMany.mockResolvedValue({ count: 1 }); // claim wins by default
   mockDb.auditLog.create.mockResolvedValue({});
   mockComputeAggregates.mockResolvedValue(SUFFICIENT_REVIEWS);
   mockReadRequiredCount.mockReturnValue(1);
@@ -119,27 +122,26 @@ describe("changeAbstractStatus — happy path", () => {
 
   it("sets reviewedAt when transitioning into a review status", async () => {
     await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED" });
-    const updateCall = mockDb.abstract.update.mock.calls[0][0];
+    const updateCall = mockTxUpdateMany.mock.calls[0][0];
+    expect(updateCall.where).toEqual({ id: "abs-1", status: "SUBMITTED" }); // conditional claim (H4)
     expect(updateCall.data.status).toBe("ACCEPTED");
     expect(updateCall.data.reviewedAt).toBeInstanceOf(Date);
   });
 
   it("does NOT set reviewedAt on WITHDRAWN transition (not a review status)", async () => {
     await changeAbstractStatus({ ...BASE_INPUT, newStatus: "WITHDRAWN" });
-    const updateCall = mockDb.abstract.update.mock.calls[0][0];
+    const updateCall = mockTxUpdateMany.mock.calls[0][0];
     expect(updateCall.data.status).toBe("WITHDRAWN");
     expect(updateCall.data.reviewedAt).toBeUndefined();
   });
 
   it("writes audit log with action=UPDATE (not REVIEW) on WITHDRAWN transition", async () => {
-    mockDb.abstract.update.mockResolvedValue({ id: "abs-1", title: ABSTRACT_FIXTURE.title, status: "WITHDRAWN" });
     await changeAbstractStatus({ ...BASE_INPUT, newStatus: "WITHDRAWN" });
     const auditCall = mockDb.auditLog.create.mock.calls[0][0];
     expect(auditCall.data.action).toBe("UPDATE");
   });
 
   it("refreshes event stats on WITHDRAWN transition too (fire-and-forget)", async () => {
-    mockDb.abstract.update.mockResolvedValue({ id: "abs-1", title: ABSTRACT_FIXTURE.title, status: "WITHDRAWN" });
     await changeAbstractStatus({ ...BASE_INPUT, newStatus: "WITHDRAWN" });
     expect(mockRefreshStats).toHaveBeenCalledWith("evt-1");
   });
@@ -176,7 +178,6 @@ describe("changeAbstractStatus — happy path", () => {
   });
 
   it("skips notification on WITHDRAWN transition (speaker initiated, no email needed)", async () => {
-    mockDb.abstract.update.mockResolvedValue({ id: "abs-1", title: ABSTRACT_FIXTURE.title, status: "WITHDRAWN" });
     const result = await changeAbstractStatus({ ...BASE_INPUT, newStatus: "WITHDRAWN" });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.notificationStatus).toBe("skipped");
@@ -257,12 +258,11 @@ describe("changeAbstractStatus — domain errors", () => {
       expect(result.code).toBe("ABSTRACT_WITHDRAWN");
       expect(result.meta).toEqual({ currentStatus: "WITHDRAWN" });
     }
-    expect(mockDb.abstract.update).not.toHaveBeenCalled();
+    expect(mockTxUpdateMany).not.toHaveBeenCalled();
   });
 
   it("allows WITHDRAWN → WITHDRAWN no-op (idempotent)", async () => {
     mockDb.abstract.findFirst.mockResolvedValue({ ...ABSTRACT_FIXTURE, status: "WITHDRAWN" });
-    mockDb.abstract.update.mockResolvedValue({ id: "abs-1", title: ABSTRACT_FIXTURE.title, status: "WITHDRAWN" });
     const result = await changeAbstractStatus({ ...BASE_INPUT, newStatus: "WITHDRAWN" });
     expect(result.ok).toBe(true);
   });
@@ -276,7 +276,7 @@ describe("changeAbstractStatus — domain errors", () => {
       expect(result.code).toBe("INSUFFICIENT_REVIEWS");
       expect(result.meta).toEqual({ currentCount: 0, required: 2 });
     }
-    expect(mockDb.abstract.update).not.toHaveBeenCalled();
+    expect(mockTxUpdateMany).not.toHaveBeenCalled();
   });
 
   it("INSUFFICIENT_REVIEWS also blocks REJECTED transitions", async () => {
@@ -287,13 +287,42 @@ describe("changeAbstractStatus — domain errors", () => {
     if (!result.ok) expect(result.code).toBe("INSUFFICIENT_REVIEWS");
   });
 
+  it("H5: the gate counts SCORED submissions, not rows — 2 rows, 1 scored, required 2 → blocked", async () => {
+    mockComputeAggregates.mockResolvedValue({
+      // Two submission ROWS but only ONE carries a score — an all-null review
+      // must not satisfy the gate.
+      aggregates: { count: 2, scoredCount: 1, meanOverall: 80, medianOverall: 80, minOverall: 80, maxOverall: 80, perCriterion: {} },
+      submissions: [],
+    });
+    mockReadRequiredCount.mockReturnValue(2);
+    const result = await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("INSUFFICIENT_REVIEWS");
+      expect(result.meta).toEqual({ currentCount: 1, required: 2 }); // scoredCount, not the 2 rows
+    }
+    expect(mockTxUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it("H4: STATUS_CHANGED (409) when the conditional claim matches 0 rows — a concurrent decision won the race", async () => {
+    mockTxUpdateMany.mockResolvedValue({ count: 0 }); // someone moved status off previousStatus
+    const result = await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("STATUS_CHANGED");
+    // The claim ran with the previous-status predicate; no notification fired.
+    expect(mockTxUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "abs-1", status: "SUBMITTED" } }),
+    );
+    expect(mockNotifyAbstract).not.toHaveBeenCalled();
+  });
+
   it("forceStatus=true bypasses the review-count gate", async () => {
     mockComputeAggregates.mockResolvedValue(ZERO_REVIEWS);
     mockReadRequiredCount.mockReturnValue(2);
     const result = await changeAbstractStatus({ ...BASE_INPUT, newStatus: "ACCEPTED", forceStatus: true });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.forcedOverride).toBe(true);
-    expect(mockDb.abstract.update).toHaveBeenCalled();
+    expect(mockTxUpdateMany).toHaveBeenCalled();
   });
 
   it("UNDER_REVIEW / REVISION_REQUESTED transitions are NOT gated on reviewer count", async () => {
@@ -306,7 +335,7 @@ describe("changeAbstractStatus — domain errors", () => {
   });
 
   it("UNKNOWN when db.abstract.update throws unexpectedly", async () => {
-    mockDb.abstract.update.mockRejectedValue(new Error("Connection refused"));
+    mockTxUpdateMany.mockRejectedValue(new Error("Connection refused"));
     const result = await changeAbstractStatus({ ...BASE_INPUT, newStatus: "UNDER_REVIEW" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -330,7 +359,7 @@ describe("changeAbstractStatus — notification failure isolation", () => {
       expect(result.notificationError).toContain("Brevo API down");
     }
     // DB update still committed
-    expect(mockDb.abstract.update).toHaveBeenCalled();
+    expect(mockTxUpdateMany).toHaveBeenCalled();
   });
 
   it("audit-log failure is non-blocking (happy path still returns ok=true)", async () => {

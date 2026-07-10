@@ -70,6 +70,7 @@ export type ChangeAbstractStatusErrorCode =
   | "ABSTRACT_WITHDRAWN"
   | "INSUFFICIENT_REVIEWS"
   | "INVALID_STATUS"
+  | "STATUS_CHANGED"
   | "UNKNOWN";
 
 export type ChangeAbstractStatusResult =
@@ -146,45 +147,49 @@ export async function changeAbstractStatus(
     };
   }
 
-  // Gate ACCEPTED / REJECTED transitions on sufficient review submissions
-  // unless the caller passed forceStatus (which must be admin-authorized
-  // at the caller's boundary — service doesn't re-check authz here).
-  const gateRelevant = newStatus === "ACCEPTED" || newStatus === "REJECTED";
-  let aggregateResult: Awaited<ReturnType<typeof computeSubmissionAggregates>> | null = null;
-  if (gateRelevant) {
-    aggregateResult = await computeSubmissionAggregates(abstractId);
-    const requiredCount = readRequiredReviewCount(abstract.event.settings);
-    if (!forceStatus && aggregateResult.aggregates.count < requiredCount) {
-      apiLogger.warn(
-        { abstractId, currentCount: aggregateResult.aggregates.count, required: requiredCount, userId },
-        "abstract-status:insufficient-reviews",
-      );
-      return {
-        ok: false,
-        code: "INSUFFICIENT_REVIEWS",
-        message: `This event requires ${requiredCount} review submission(s) before ${newStatus}. Current: ${aggregateResult.aggregates.count}.`,
-        meta: { currentCount: aggregateResult.aggregates.count, required: requiredCount },
-      };
-    }
-  }
-
   const previousStatus = abstract.status;
+  const gateRelevant = newStatus === "ACCEPTED" || newStatus === "REJECTED";
+  const requiredCount = readRequiredReviewCount(abstract.event.settings);
   const isReview =
     newStatus === "UNDER_REVIEW" ||
     newStatus === "ACCEPTED" ||
     newStatus === "REJECTED" ||
     newStatus === "REVISION_REQUESTED";
 
-  // DB update is the authoritative state change. Fail loudly here.
-  let updated: { id: string; title: string; status: string };
+  // ── Atomic gate + write (review H4/H5/M4) ───────────────────────────────
+  // The gate read, and the status write, run in ONE transaction with a
+  // CONDITIONAL claim (`status: previousStatus`). This closes three races:
+  //   - H4: two concurrent decisions (ACCEPT vs WITHDRAW, or ACCEPT vs REJECT)
+  //     can no longer both commit — the loser's claim matches 0 rows because
+  //     the winner already moved status off `previousStatus`. Contradictory
+  //     speaker emails / resurrected terminal states are eliminated.
+  //   - M4: the review-count read is tx-consistent (a submission cascade-
+  //     deleted mid-decision can't let an under-gated ACCEPT slip through).
+  //   - H5 (gate half): the gate counts SCORED submissions, not rows, so an
+  //     all-null "review" never satisfies requiredReviewCount.
+  type TxOutcome =
+    | { kind: "ok"; scoredCount: number | null; aggregates: Awaited<ReturnType<typeof computeSubmissionAggregates>> | null }
+    | { kind: "insufficient"; currentCount: number; required: number }
+    | { kind: "lost-race" };
+
+  let outcome: TxOutcome;
   try {
-    updated = await db.abstract.update({
-      where: { id: abstractId },
-      data: {
-        status: newStatus,
-        ...(isReview && { reviewedAt: new Date() }),
-      },
-      select: { id: true, title: true, status: true },
+    outcome = await db.$transaction(async (tx): Promise<TxOutcome> => {
+      let aggregates: Awaited<ReturnType<typeof computeSubmissionAggregates>> | null = null;
+      let scoredCount: number | null = null;
+      if (gateRelevant) {
+        aggregates = await computeSubmissionAggregates(abstractId, tx);
+        scoredCount = aggregates.aggregates.scoredCount;
+        if (!forceStatus && scoredCount < requiredCount) {
+          return { kind: "insufficient", currentCount: scoredCount, required: requiredCount };
+        }
+      }
+      const claim = await tx.abstract.updateMany({
+        where: { id: abstractId, status: previousStatus },
+        data: { status: newStatus, ...(isReview && { reviewedAt: new Date() }) },
+      });
+      if (claim.count === 0) return { kind: "lost-race" };
+      return { kind: "ok", scoredCount, aggregates };
     });
   } catch (err) {
     apiLogger.error({ err, abstractId }, "abstract-service:update-failed");
@@ -194,6 +199,31 @@ export async function changeAbstractStatus(
       message: err instanceof Error ? err.message : "Failed to update abstract status",
     };
   }
+
+  if (outcome.kind === "insufficient") {
+    apiLogger.warn(
+      { abstractId, currentCount: outcome.currentCount, required: outcome.required, userId },
+      "abstract-status:insufficient-reviews",
+    );
+    return {
+      ok: false,
+      code: "INSUFFICIENT_REVIEWS",
+      message: `This event requires ${outcome.required} scored review(s) before ${newStatus}. Current: ${outcome.currentCount}.`,
+      meta: { currentCount: outcome.currentCount, required: outcome.required },
+    };
+  }
+  if (outcome.kind === "lost-race") {
+    // Someone else changed the status between our load and our claim.
+    apiLogger.warn({ abstractId, previousStatus, newStatus, userId }, "abstract-status:lost-race");
+    return {
+      ok: false,
+      code: "STATUS_CHANGED",
+      message: "This abstract's status was changed by someone else. Reload and try again.",
+    };
+  }
+
+  const aggregateResult = outcome.aggregates;
+  const updated = { id: abstract.id, title: abstract.title, status: newStatus };
 
   apiLogger.info(
     { abstractId, previousStatus, newStatus, forceStatus, reviewCount: aggregateResult?.aggregates.count ?? null },

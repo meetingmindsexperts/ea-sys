@@ -63,7 +63,12 @@ export function readRequiredReviewCount(settings: unknown): number {
 }
 
 export interface SubmissionAggregates {
+  /** Total submission rows (what the UI shows as "N reviews"). */
   count: number;
+  /** Submissions carrying an ACTUAL assessment — an overallScore or a
+   *  non-empty criteriaScores. The decision gate counts THESE (review H5):
+   *  an all-null row must not satisfy requiredReviewCount. */
+  scoredCount: number;
   meanOverall: number | null;
   medianOverall: number | null;
   minOverall: number | null;
@@ -156,10 +161,21 @@ export async function computeSubmissionAggregates(
     };
   }
 
+  // A submission "counts" toward the decision gate only if it carries a real
+  // assessment (review H5) — an overallScore, or at least one numeric
+  // per-criterion score. Notes/format/confidence alone are not a score.
+  const scoredCount = submissions.filter(
+    (s) =>
+      s.overallScore != null ||
+      (s.criteriaScores != null &&
+        Object.values(s.criteriaScores).some((v) => typeof v === "number" && Number.isFinite(v))),
+  ).length;
+
   return {
     submissions,
     aggregates: {
       count: submissions.length,
+      scoredCount,
       meanOverall: overalls.length ? roundHalf(mean(overalls)) : null,
       medianOverall: overalls.length ? roundHalf(median(overalls)) : null,
       minOverall: overalls.length ? Math.min(...overalls) : null,

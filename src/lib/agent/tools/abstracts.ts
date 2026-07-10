@@ -881,7 +881,9 @@ const getAbstractScores: ToolExecutor = async (input, ctx) => {
       submissions: aggregate.submissions,
       aggregates: aggregate.aggregates,
       requiredReviewCount: requiredCount,
-      meetsThreshold: aggregate.aggregates.count >= requiredCount,
+      // Match the real decision gate (review H5): SCORED submissions, not
+      // total rows — an all-null review no longer looks like it meets the bar.
+      meetsThreshold: aggregate.aggregates.scoredCount >= requiredCount,
     };
   } catch (err) {
     apiLogger.error({ err }, "agent:get_abstract_scores failed");
