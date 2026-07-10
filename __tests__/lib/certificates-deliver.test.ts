@@ -231,7 +231,11 @@ describe("issueCertificateBundle", () => {
 
   beforeEach(() => {
     primeTemplates([TPL_A, TPL_B, APP_TPL]);
-    mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
+    // Recipient holds BOTH attendance tags — the tag gate ("no tag, no
+    // certificate") lets both templates through in the happy paths.
+    mockDb.registration.findUnique.mockResolvedValue({
+      attendee: { email: "jane@x.com", tags: ["delegate", "committee"] },
+    });
     mockDb.issuedCertificate.findFirst.mockResolvedValue(null);
     let n = 0;
     mockDb.issuedCertificate.create.mockImplementation(() => Promise.resolve({ id: `cert-${++n}` }));
@@ -320,5 +324,51 @@ describe("issueCertificateBundle", () => {
   it("rejects an empty template list / bad recipient combos", async () => {
     expect(await issueCertificateBundle(CTX, { templateIds: [], registrationId: "reg-1" })).toMatchObject({ ok: false, code: "NO_TEMPLATES" });
     expect(await issueCertificateBundle(CTX, { templateIds: ["tpl-a"] })).toMatchObject({ ok: false, code: "INVALID_RECIPIENT" });
+  });
+
+  // ── Tag gate — "no tag, no certificate" (organizer decision 2026-07-10) ──
+
+  it("tag gate: a template whose tag the person lacks is refused; matching ones still go out", async () => {
+    mockDb.registration.findUnique.mockResolvedValue({
+      attendee: { email: "jane@x.com", tags: ["delegate"] }, // no "committee"
+    });
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.certs).toHaveLength(1);
+    expect(res.failures).toHaveLength(1);
+    expect(res.failures[0]).toMatchObject({ templateId: "tpl-b", templateName: "Committee" });
+    expect(res.failures[0].error).toContain('doesn\'t hold this template\'s tag ("committee")');
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][0].attachments).toHaveLength(1);
+  });
+
+  it("NO_MATCHING_TAG blocks the whole issue for an untagged person (nothing issued, no email)", async () => {
+    mockDb.registration.findUnique.mockResolvedValue({
+      attendee: { email: "jane@x.com", tags: [] },
+    });
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: false, code: "NO_MATCHING_TAG", status: 422 });
+    if (res.ok) throw new Error("unreachable");
+    expect(res.error).toContain("no tags");
+    expect(mockDb.issuedCertificate.create).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("a tagless template can never be issued (matches nobody)", async () => {
+    const TPL_NOTAG = { ...TPL_B, id: "tpl-n", name: "Tagless", autoIssueTag: null };
+    primeTemplates([TPL_A, TPL_NOTAG]);
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-n"], registrationId: "reg-1" });
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.certs).toHaveLength(1);
+    expect(res.failures[0]).toMatchObject({ templateId: "tpl-n" });
+    expect(res.failures[0].error).toContain("has no tag");
+  });
+
+  it("speaker facet: appreciation template matched against SPEAKER tags", async () => {
+    mockDb.speaker.findUnique.mockResolvedValue({ email: "spk@x.com", tags: ["speaker"] });
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-s"], speakerId: "spk-1" });
+    if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
+    expect(res.certs).toHaveLength(1);
+    expect(res.recipientEmail).toBe("spk@x.com");
   });
 });

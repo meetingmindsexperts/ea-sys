@@ -385,7 +385,15 @@ and to **issue on demand to one person**. Shared core:
   when exactly one cert materializes, else the bundle default. Per-template
   failures (revoked / render error) collect into `failures[]` (partial send);
   all-failed → `ALL_TEMPLATES_FAILED`. Audits only newly minted certs.
-  **Tag-independent** — an explicit operator selection outranks tag routing.
+  **Tags ENFORCED** (2026-07-10 correction, same day): a selected template is
+  issued only when the recipient holds its tag — same `selectAutoIssueTargets`
+  predicate as bulk email + survey auto-issue; non-matching selections land in
+  `failures[]`, zero matches blocks with `NO_MATCHING_TAG` (422). The card's
+  dialog mirrors the gate client-side via a `recipientTags` prop (non-matching
+  templates disabled with the reason; untagged person → amber "tag them
+  first" notice). The initial ship treated operator selection as a tag
+  override — reversed the same day per the organizer: "no tag, no
+  certificate" has NO exceptions.
 - `issueSingleCertificate(ctx, { templateId, registrationId|speakerId })` —
   issue ONE template to ONE recipient on demand (render → create cert → email).
   **Tag-independent** — a deliberate operator override; the tag gate only governs

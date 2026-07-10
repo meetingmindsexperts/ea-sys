@@ -1177,6 +1177,9 @@ export default function SpeakerDetailPage() {
             recipientLabel={
               `${[speaker.title, speaker.firstName, speaker.lastName].filter(Boolean).join(" ")} <${speaker.email}>`
             }
+            // Speaker tags drive the Issue dialog's "no tag, no certificate"
+            // gate (non-matching templates disabled).
+            recipientTags={speaker.tags ?? []}
           />
           {/* Unified activity timeline — subsumes the old email-history card
               (it includes emails) and adds AuditLog events, issued

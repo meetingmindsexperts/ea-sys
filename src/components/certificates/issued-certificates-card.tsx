@@ -61,6 +61,14 @@ interface IssuedCertificatesCardProps {
   speakerId?: string;
   /** Display name shown in the resend confirm dialog. Falls back to "the recipient". */
   recipientLabel?: string;
+  /**
+   * The person's tags (attendee tags on a registration card, speaker tags on
+   * a speaker card) — drive the Issue dialog's "no tag, no certificate" gate
+   * client-side (non-matching templates disabled with the reason). The
+   * server enforces the same rule regardless, so omitting this only costs
+   * the inline explanation, never correctness.
+   */
+  recipientTags?: string[];
 }
 
 export function IssuedCertificatesCard({
@@ -68,6 +76,7 @@ export function IssuedCertificatesCard({
   registrationId,
   speakerId,
   recipientLabel,
+  recipientTags,
 }: IssuedCertificatesCardProps) {
   const { data, isLoading, isError } = useIssuedCertificates({
     eventId,
@@ -410,7 +419,8 @@ export function IssuedCertificatesCard({
               Select the certificate templates to issue — they render and go out
               as <strong>one email</strong> to this{" "}
               {speakerId ? "speaker" : "registration"}, one PDF per certificate.
-              Tags are not checked — this is a direct, on-demand issue.
+              Tags decide who receives what: only templates whose tag this person
+              holds can be issued (&ldquo;no tag, no certificate&rdquo;).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -423,10 +433,21 @@ export function IssuedCertificatesCard({
               <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
                 {issuableTemplates.map((t) => {
                   const held = heldTemplateIds.has(t.id);
+                  const tag = t.autoIssueTag?.trim();
+                  // "No tag, no certificate" — mirror the server gate so the
+                  // operator sees WHY a template can't be issued instead of
+                  // hitting the 422. When the parent didn't pass tags, leave
+                  // enabled and let the server enforce.
+                  const tagBlocked =
+                    !tag || (recipientTags !== undefined && !recipientTags.includes(tag));
                   return (
-                    <label key={t.id} className="flex cursor-pointer items-start gap-2 text-sm">
+                    <label
+                      key={t.id}
+                      className={`flex items-start gap-2 text-sm ${tagBlocked ? "opacity-50" : "cursor-pointer"}`}
+                    >
                       <Checkbox
                         className="mt-0.5"
+                        disabled={tagBlocked}
                         checked={selectedTemplateIds.includes(t.id)}
                         onCheckedChange={(c) =>
                           setSelectedTemplateIds((prev) =>
@@ -436,7 +457,14 @@ export function IssuedCertificatesCard({
                       />
                       <span>
                         <span className="font-medium">{t.name}</span>
-                        {held && (
+                        <span className="block text-xs text-muted-foreground">
+                          {!tag
+                            ? "no tag — set a tag on the template first (the tag decides who receives it)"
+                            : tagBlocked
+                              ? `requires tag "${tag}" — this person doesn't have it`
+                              : `tag: ${tag}`}
+                        </span>
+                        {held && !tagBlocked && (
                           <span className="block text-xs text-amber-600">
                             Already issued — the existing certificate (same serial) will be re-attached, not duplicated.
                           </span>
@@ -446,6 +474,16 @@ export function IssuedCertificatesCard({
                   );
                 })}
               </div>
+            )}
+            {recipientTags !== undefined && recipientTags.length === 0 && issuableTemplates.length > 0 && (
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+                This person has <strong>no tags</strong>, so no certificate can be
+                issued to them — tag them first (
+                {facetCategory === "ATTENDANCE"
+                  ? "Registrations → select → Tags"
+                  : "Speakers → select → Tags"}
+                ).
+              </p>
             )}
           </div>
           <DialogFooter>

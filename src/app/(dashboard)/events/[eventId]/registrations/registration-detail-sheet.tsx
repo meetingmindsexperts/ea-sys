@@ -2756,6 +2756,9 @@ export function RegistrationDetailSheet({
                           .join(" ")} <${selectedRegistration.attendee.email}>`
                       : undefined
                   }
+                  // Attendee tags drive the Issue dialog's "no tag, no
+                  // certificate" gate (non-matching templates disabled).
+                  recipientTags={selectedRegistration.attendee?.tags ?? []}
                 />
                 {/* Unified activity timeline — subsumes the email-history card
                     (includes emails) and adds AuditLog events, issued

@@ -30,6 +30,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { SYSTEM_DEFAULT_SUBJECT, defaultBodyForCategory, defaultCoverEmailFor } from "./email-tokens";
 import { allocateSerial, loadRecipient } from "./cert-context";
+import { selectAutoIssueTargets } from "./auto-issue";
 import {
   loadCertTemplate,
   renderAndUpload,
@@ -360,11 +361,16 @@ export type BundleIssueResult =
  * email them as ONE bundle (one email, one PDF per cert) — the multi-select
  * "Issue certificate" flow on the registration/speaker detail cards.
  *
- * Semantics mirror the bulk-email path, NOT the strict single-issue one: an
- * already-held template is REUSED (re-attached with its existing serial,
- * same rule as `findOrIssueCertificate` everywhere else) instead of failing
- * the whole request with ALREADY_ISSUED. Tags are not checked — an explicit
- * operator selection outranks tag routing, like issueSingleCertificate.
+ * Semantics mirror the bulk-email path, NOT the strict single-issue one:
+ *   - An already-held template is REUSED (re-attached with its existing
+ *     serial, same rule as `findOrIssueCertificate` everywhere else)
+ *     instead of failing the whole request with ALREADY_ISSUED.
+ *   - **Tags are ENFORCED** ("no tag, no certificate" — organizer decision
+ *     2026-07-10, closing the tag-bypass the old single-issue flow had): a
+ *     selected template is issued only when the recipient holds its tag
+ *     (same `selectAutoIssueTargets` predicate as bulk email + survey
+ *     auto-issue). Non-matching selections land in `failures[]`; when NO
+ *     selection matches, the whole issue is blocked with NO_MATCHING_TAG.
  */
 export async function issueCertificateBundle(
   ctx: DeliverContext,
@@ -404,20 +410,76 @@ export async function issueCertificateBundle(
     };
   }
 
-  const [recipientEmail, recipient] = await Promise.all([
-    resolveRecipientEmail(registrationId, speakerId),
+  // Email + TAGS in one facet query (tags drive the gate below); name via
+  // the shared loadRecipient.
+  const [facetRow, recipient] = await Promise.all([
+    registrationId
+      ? db.registration
+          .findUnique({
+            where: { id: registrationId },
+            select: { attendee: { select: { email: true, tags: true } } },
+          })
+          .then((r) => (r ? { email: r.attendee.email, tags: r.attendee.tags ?? [] } : null))
+      : db.speaker
+          .findUnique({ where: { id: speakerId! }, select: { email: true, tags: true } })
+          .then((s) => (s ? { email: s.email, tags: s.tags ?? [] } : null)),
     loadRecipient(registrationId, speakerId),
   ]);
-  if (!recipient) {
+  if (!recipient || !facetRow) {
     return { ok: false, code: "RECIPIENT_NOT_FOUND", error: "Recipient no longer exists.", status: 404 };
   }
+  const recipientEmail = facetRow.email;
   if (!recipientEmail) {
     return { ok: false, code: "NO_RECIPIENT_EMAIL", error: "Recipient has no email address on file.", status: 409 };
   }
 
-  const bundled: Array<{ template: (typeof templates)[number]; cert: BundleCert }> = [];
+  // Tag gate — "no tag, no certificate", the same routing predicate as
+  // bulk email + survey auto-issue (ATTENDANCE ↔ attendee tags,
+  // APPRECIATION ↔ speaker tags; a tagless template matches nobody). An
+  // explicit operator selection does NOT bypass it (organizer decision
+  // 2026-07-10).
+  const matchedIds = new Set(
+    selectAutoIssueTargets(
+      templates,
+      registrationId ? facetRow.tags : [],
+      speakerId ? facetRow.tags : null,
+    ).map((t) => t.templateId),
+  );
   const failures: Array<{ templateId: string; templateName: string; error: string }> = [];
+  const eligible: typeof templates = [];
   for (const t of templates) {
+    if (matchedIds.has(t.id)) {
+      eligible.push(t);
+      continue;
+    }
+    const reason = t.autoIssueTag?.trim()
+      ? `recipient doesn't hold this template's tag ("${t.autoIssueTag.trim()}") — no tag, no certificate`
+      : "template has no tag — set a tag on the template first (the tag decides who receives it)";
+    apiLogger.warn({
+      msg: "cert-deliver:bundle-tag-mismatch",
+      eventId: ctx.eventId,
+      templateId: t.id,
+      templateName: t.name,
+      recipientTags: facetRow.tags,
+      registrationId,
+      speakerId,
+    });
+    failures.push({ templateId: t.id, templateName: t.name, error: reason });
+  }
+  if (eligible.length === 0) {
+    return {
+      ok: false,
+      code: "NO_MATCHING_TAG",
+      error:
+        facetRow.tags.length === 0
+          ? "This person has no tags — tag them first (the tag decides which certificates they receive)."
+          : `This person holds none of the selected templates' tags — ${failures.map((f) => f.templateName).join(", ")} not issued.`,
+      status: 422,
+    };
+  }
+
+  const bundled: Array<{ template: (typeof templates)[number]; cert: BundleCert }> = [];
+  for (const t of eligible) {
     const res = await findOrIssueCertificate({
       eventId: ctx.eventId,
       templateId: t.id,
