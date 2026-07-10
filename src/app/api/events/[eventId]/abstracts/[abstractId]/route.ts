@@ -240,11 +240,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const isReview = data.status && reviewStatuses.includes(data.status);
-    // A (re)submission = the submitter moving the abstract INTO SUBMITTED from
-    // any other editable state — DRAFT (first submit) OR REVISION_REQUESTED
-    // (resubmit after addressing feedback). Both must re-stamp submittedAt and
-    // re-notify reviewers/organizers; SUBMITTED→SUBMITTED re-saves are not.
-    const isSubmission = data.status === "SUBMITTED" && existingAbstract.status !== "SUBMITTED";
+    // A (re)submission = moving the abstract INTO SUBMITTED from one of its
+    // EDITABLE states — DRAFT (first submit) OR REVISION_REQUESTED (resubmit
+    // after addressing feedback). Both re-stamp submittedAt and re-notify.
+    // Crucially, →SUBMITTED from a DECIDED/terminal state (ACCEPTED / REJECTED /
+    // WITHDRAWN / UNDER_REVIEW) is NOT a submission — it's an un-decision, and
+    // must be refused by the H1 guard below rather than silently treated as a
+    // resubmission (which the old `!== "SUBMITTED"` definition did).
+    const isSubmission =
+      data.status === "SUBMITTED" &&
+      (existingAbstract.status === "DRAFT" || existingAbstract.status === "REVISION_REQUESTED");
     // Presentation type is mandatory to submit (a DRAFT can have it blank).
     if (isSubmission && !(data.presentationType ?? existingAbstract.presentationType)) {
       return NextResponse.json(
@@ -312,6 +317,30 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ? await db.abstract.update({ where: { id: abstractId }, data: fieldUpdates, include })
         : await db.abstract.findFirst({ where: { id: abstractId }, include });
       return NextResponse.json(abstract);
+    }
+
+    // H1: the field-only path must NEVER perform an arbitrary status
+    // transition. Review + terminal transitions already routed to the gated
+    // service above (which validates them + audits + notifies). The ONLY
+    // status write allowed on this blind path is a (re)submission INTO
+    // SUBMITTED, or a status equal to the current one (a no-op re-save). Any
+    // other value — e.g. a REVIEWER or a REGISTRANT PUTting {status:"DRAFT"}
+    // or {status:"SUBMITTED"} to un-decide an ACCEPTED/WITHDRAWN abstract —
+    // would slip past every gate and blindly write, reversing the decision
+    // and (for SUBMITTED) re-firing the submission email. Refuse it.
+    if (data.status && !isSubmission && data.status !== existingAbstract.status) {
+      apiLogger.warn({
+        msg: "abstract:invalid-status-transition-on-field-path",
+        abstractId, eventId, userId: session.user.id, role: session.user.role,
+        from: existingAbstract.status, to: data.status,
+      });
+      return NextResponse.json(
+        {
+          error: "That status change can't be made here — use the review decision or withdraw actions.",
+          code: "INVALID_STATUS_TRANSITION",
+        },
+        { status: 400 },
+      );
     }
 
     // Non-status-change path: field-only updates (optionally with a

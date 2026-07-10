@@ -34,7 +34,12 @@ const createAbstractSchema = z.object({
   trackId: z.string().max(100).optional(),
   themeId: z.string().max(100).optional(),
   coAuthors: coAuthorsSchema.optional(),
-  status: abstractStatusSchema.default("SUBMITTED"),
+  // H2: an abstract may only be BORN as DRAFT or SUBMITTED. Accepting the full
+  // enum let a self-service SUBMITTER POST { status: "ACCEPTED" } and mint a
+  // pre-accepted abstract with zero reviews, no submittedAt, and no
+  // chair-override audit — the review-count gate + notifications only guard
+  // TRANSITIONS, never birth status. (The GET filter keeps the full enum.)
+  status: z.enum(["DRAFT", "SUBMITTED"]).default("SUBMITTED"),
 }).superRefine((data, ctx) => {
   // Presentation type is mandatory to SUBMIT (a DRAFT save can leave it blank).
   if (data.status === "SUBMITTED" && !data.presentationType) {
