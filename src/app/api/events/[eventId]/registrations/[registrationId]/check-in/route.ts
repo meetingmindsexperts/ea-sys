@@ -5,12 +5,17 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { notifyEventAdmins } from "@/lib/notifications";
-import { refreshEventStats } from "@/lib/event-stats";
+import { checkInGate, executeCheckIn } from "@/lib/check-in";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
 }
+
+// The business gates (cancelled / payment-required / already-checked-in) and
+// the commit + audit + notify fan-out live in src/lib/check-in.ts — shared
+// with the QR handler below AND the MCP check_in_registration tool, so the
+// three check-in surfaces can't drift (review H9: the MCP copy used to skip
+// the payment gate and the audit row entirely).
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -53,69 +58,32 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    if (registration.status === "CANCELLED") {
-      return NextResponse.json(
-        { error: "Cannot check in a cancelled registration" },
-        { status: 400 }
-      );
-    }
-
-    // Block check-in for unpaid registrations (unless complimentary)
-    const isComplimentary = registration.paymentStatus === "COMPLIMENTARY" ||
-      Number(registration.ticketType?.price ?? 0) === 0 ||
-      (registration.pricingTier && Number(registration.pricingTier.price) === 0);
-    if (!isComplimentary && (registration.paymentStatus === "UNPAID" || registration.paymentStatus === "PENDING")) {
-      return NextResponse.json(
-        { error: "Cannot check in — payment required" },
-        { status: 400 }
-      );
-    }
-
-    if (registration.checkedInAt) {
-      return NextResponse.json(
-        { error: "Already checked in", checkedInAt: registration.checkedInAt },
-        { status: 400 }
-      );
-    }
-
-    const updatedRegistration = await db.registration.update({
-      where: { id: registrationId },
-      data: {
-        status: "CHECKED_IN",
-        checkedInAt: new Date(),
-      },
-      include: {
-        attendee: true,
-        ticketType: true,
-      },
+    const gate = checkInGate({
+      status: registration.status,
+      paymentStatus: registration.paymentStatus,
+      checkedInAt: registration.checkedInAt,
+      ticketTypePrice: registration.ticketType?.price,
+      pricingTierPrice: registration.pricingTier?.price,
     });
-
-    // Log the action
-    await db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "CHECK_IN",
-        entityType: "Registration",
-        entityId: registrationId,
-        changes: {
-          checkedInAt: updatedRegistration.checkedInAt,
-          attendeeName: `${registration.attendee.firstName} ${registration.attendee.lastName}`,
-          ip: getClientIp(req),
+    if (gate) {
+      apiLogger.warn({ msg: "check-in:rejected", eventId, registrationId, code: gate.code });
+      return NextResponse.json(
+        {
+          error: gate.code === "CANCELLED" ? "Cannot check in a cancelled registration" : gate.message,
+          ...(gate.checkedInAt && { checkedInAt: gate.checkedInAt }),
         },
-      },
+        { status: 400 }
+      );
+    }
+
+    const updatedRegistration = await executeCheckIn({
+      eventId,
+      registrationId,
+      actorUserId: session.user.id,
+      attendeeName: `${registration.attendee.firstName} ${registration.attendee.lastName}`,
+      source: "rest",
+      auditExtras: { ip: getClientIp(req) },
     });
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(eventId);
-
-    // Notify admins/organizers (non-blocking)
-    notifyEventAdmins(eventId, {
-      type: "CHECK_IN",
-      title: "Attendee Checked In",
-      message: `${registration.attendee.firstName} ${registration.attendee.lastName} checked in`,
-      link: `/events/${eventId}/check-in`,
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to send check-in notification" }));
 
     return NextResponse.json(updatedRegistration);
   } catch (error) {
@@ -180,74 +148,35 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid code — not found" }, { status: 404 });
     }
 
-    if (registration.status === "CANCELLED") {
-      return NextResponse.json(
-        { error: "Registration is cancelled" },
-        { status: 400 }
-      );
-    }
-
-    // Block check-in for unpaid registrations (unless complimentary)
-    const isComplimentary = registration.paymentStatus === "COMPLIMENTARY" ||
-      Number(registration.ticketType?.price ?? 0) === 0 ||
-      (registration.pricingTier && Number(registration.pricingTier.price) === 0);
-    if (!isComplimentary && (registration.paymentStatus === "UNPAID" || registration.paymentStatus === "PENDING")) {
-      return NextResponse.json(
-        { error: "Cannot check in — payment required" },
-        { status: 400 }
-      );
-    }
-
-    if (registration.checkedInAt) {
+    const gate = checkInGate({
+      status: registration.status,
+      paymentStatus: registration.paymentStatus,
+      checkedInAt: registration.checkedInAt,
+      ticketTypePrice: registration.ticketType?.price,
+      pricingTierPrice: registration.pricingTier?.price,
+    });
+    if (gate) {
+      apiLogger.warn({ msg: "check-in:qr-rejected", eventId, registrationId: registration.id, code: gate.code });
       return NextResponse.json(
         {
-          error: "Already checked in",
-          checkedInAt: registration.checkedInAt,
-          registration,
+          // The QR handler's historical wording for the cancelled case.
+          error: gate.code === "CANCELLED" ? "Registration is cancelled" : gate.message,
+          ...(gate.checkedInAt && { checkedInAt: gate.checkedInAt }),
+          // The scanner UI shows who the badge belongs to on a double scan.
+          ...(gate.code === "ALREADY_CHECKED_IN" && { registration }),
         },
         { status: 400 }
       );
     }
 
-    const updatedRegistration = await db.registration.update({
-      where: { id: registration.id },
-      data: {
-        status: "CHECKED_IN",
-        checkedInAt: new Date(),
-      },
-      include: {
-        attendee: true,
-        ticketType: true,
-      },
+    const updatedRegistration = await executeCheckIn({
+      eventId,
+      registrationId: registration.id,
+      actorUserId: session.user.id,
+      attendeeName: `${registration.attendee.firstName} ${registration.attendee.lastName}`,
+      source: "rest-qr",
+      auditExtras: { qrCode, ip: getClientIp(req) },
     });
-
-    // Log the action
-    await db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "CHECK_IN",
-        entityType: "Registration",
-        entityId: registration.id,
-        changes: {
-          checkedInAt: updatedRegistration.checkedInAt,
-          attendeeName: `${registration.attendee.firstName} ${registration.attendee.lastName}`,
-          qrCode,
-          ip: getClientIp(req),
-        },
-      },
-    });
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(eventId);
-
-    // Notify admins/organizers (non-blocking)
-    notifyEventAdmins(eventId, {
-      type: "CHECK_IN",
-      title: "Attendee Checked In",
-      message: `${registration.attendee.firstName} ${registration.attendee.lastName} checked in`,
-      link: `/events/${eventId}/check-in`,
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to send check-in notification" }));
 
     return NextResponse.json(updatedRegistration);
   } catch (error) {

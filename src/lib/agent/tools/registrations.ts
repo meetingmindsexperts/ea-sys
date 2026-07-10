@@ -9,6 +9,7 @@ import { releaseSeats, applyRegistrationTransition } from "@/lib/registration-se
 import { resolveRepricing } from "@/lib/registration-repricing";
 import { syncToContact } from "@/lib/contact-sync";
 import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
+import { checkInGate, executeCheckIn } from "@/lib/check-in";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { readSponsors } from "@/lib/webinar";
@@ -328,6 +329,10 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// Shares the SAME business gate + commit fan-out as the two REST check-in
+// handlers via src/lib/check-in.ts (review H9 — this executor used to skip
+// the payment gate, write no audit row, and its allowCancelled override
+// reactivated outside the seat/promo transition).
 const checkInRegistration: ToolExecutor = async (input, ctx) => {
   try {
     const registrationId = String(input.registrationId ?? "").trim();
@@ -336,12 +341,29 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
 
     const reg = await db.registration.findFirst({
       where: { id: registrationId, eventId: ctx.eventId },
-      select: { id: true, status: true, checkedInAt: true, attendee: { select: { firstName: true, lastName: true } } },
+      select: {
+        id: true, status: true, paymentStatus: true, checkedInAt: true,
+        attendanceMode: true, ticketTypeId: true, pricingTierId: true,
+        createdSource: true, promoCodeId: true,
+        ticketType: { select: { price: true } },
+        pricingTier: { select: { price: true } },
+        attendee: { select: { firstName: true, lastName: true } },
+      },
     });
     if (!reg) return { error: `Registration ${registrationId} not found` };
     if (reg.checkedInAt) return { alreadyCheckedIn: true, checkedInAt: reg.checkedInAt, attendee: reg.attendee };
 
-    if (reg.status === "CANCELLED" && !allowCancelled) {
+    const gate = checkInGate(
+      {
+        status: reg.status,
+        paymentStatus: reg.paymentStatus,
+        checkedInAt: reg.checkedInAt,
+        ticketTypePrice: reg.ticketType?.price,
+        pricingTierPrice: reg.pricingTier?.price,
+      },
+      { allowCancelled },
+    );
+    if (gate?.code === "CANCELLED") {
       return {
         error: `Registration ${registrationId} is CANCELLED. Reinstate it (set status to CONFIRMED) before checking in, or pass allowCancelled=true to override.`,
         code: "REGISTRATION_CANCELLED",
@@ -349,17 +371,52 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
         suggestion: "update_registration with status=CONFIRMED, then retry check_in_registration.",
       };
     }
+    if (gate?.code === "PAYMENT_REQUIRED") {
+      // Same gate the desk enforces — an agent bulk check-in must not admit
+      // unpaid attendees the desk would refuse.
+      apiLogger.warn({ msg: "agent:check-in-payment-required", registrationId, source: "mcp" });
+      return {
+        error: "Cannot check in — payment required (unpaid/pending registration). Settle or comp it first.",
+        code: "PAYMENT_REQUIRED",
+        paymentStatus: reg.paymentStatus,
+      };
+    }
 
-    await db.registration.update({
-      where: { id: registrationId },
-      data: { checkedInAt: new Date(), status: "CHECKED_IN" },
+    // The CANCELLED override is a REACTIVATION — it must move the seat +
+    // promo counters through the shared transition (atomic capacity guard),
+    // not flip status via a raw update.
+    const reactivating = reg.status === "CANCELLED";
+    const seatFields = {
+      attendanceMode: reg.attendanceMode,
+      ticketTypeId: reg.ticketTypeId,
+      pricingTierId: reg.pricingTierId,
+      createdSource: reg.createdSource,
+    };
+    const updated = await executeCheckIn({
+      eventId: ctx.eventId,
+      registrationId,
+      actorUserId: ctx.userId ?? null,
+      attendeeName: `${reg.attendee?.firstName ?? ""} ${reg.attendee?.lastName ?? ""}`.trim(),
+      source: "mcp",
+      auditExtras: reactivating ? { allowCancelledOverride: true } : undefined,
+      reactivation: reactivating
+        ? {
+            prev: { status: reg.status, ...seatFields },
+            next: { status: "CHECKED_IN", ...seatFields },
+            promoCodeId: reg.promoCodeId,
+          }
+        : undefined,
     });
 
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(ctx.eventId);
-
-    return { success: true, attendee: reg.attendee, checkedInAt: new Date() };
+    return { success: true, attendee: reg.attendee, checkedInAt: updated.checkedInAt };
   } catch (err) {
+    if (err instanceof Error && err.message === "CAPACITY_EXCEEDED") {
+      apiLogger.warn({ msg: "agent:check-in-reactivate-capacity-exceeded", source: "mcp" });
+      return {
+        error: "Cannot check in this cancelled registration — its registration type is sold out. Increase its quantity first.",
+        code: "CAPACITY_EXCEEDED",
+      };
+    }
     apiLogger.error({ err }, "agent:check_in_registration failed");
     return { error: "Failed to check in registration" };
   }
@@ -1331,7 +1388,7 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
   },
   {
     name: "check_in_registration",
-    description: "Mark a registration as checked in at the event. CANCELLED registrations are blocked by default (returns REGISTRATION_CANCELLED); pass allowCancelled=true to override if the cancellation was a mistake.",
+    description: "Mark a registration as checked in at the event. Enforces the same gates as the registration desk: UNPAID/PENDING registrations are refused with PAYMENT_REQUIRED unless complimentary/free — settle or comp them first. CANCELLED registrations are blocked by default (returns REGISTRATION_CANCELLED); pass allowCancelled=true to override if the cancellation was a mistake (the override reactivates the registration, re-claiming its seat — can fail with CAPACITY_EXCEEDED if the type is sold out).",
     input_schema: {
       type: "object" as const,
       properties: {

@@ -435,7 +435,7 @@ export function registerAllMcpTools(
         role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]).optional(),
       })),
     }},
-    { name: "check_in_registration", description: "Check in a registration.", params: { registrationId: z.string() }},
+    { name: "check_in_registration", description: "Check in a registration. Desk-parity gates: UNPAID/PENDING → PAYMENT_REQUIRED (unless complimentary/free); CANCELLED → REGISTRATION_CANCELLED unless allowCancelled=true (override reactivates + re-claims the seat; may return CAPACITY_EXCEEDED).", params: { registrationId: z.string(), allowCancelled: z.boolean().optional() }},
     { name: "create_contact", description: "Create a contact.", params: {
       email: z.string(), firstName: z.string(), lastName: z.string(),
       organization: z.string().optional(), jobTitle: z.string().optional(),

@@ -666,8 +666,8 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
     <tr><td>4</td><td>H5</td><td>MCP <code>update_speaker</code> / <code>update_registration</code> route tag writes through <code>person-tag-sync</code>.</td><td>✅ Fixed (Jul 10)</td></tr>
     <tr><td>5</td><td>H6</td><td>Promo <code>usedCount</code> made symmetric: guarded decrement on cancel, re-claim on reactivation, no double release via promo-remove on a cancelled reg.</td><td>✅ Fixed (Jul 10)</td></tr>
     <tr><td>6</td><td>H7</td><td>Attendee update moved inside the transaction after the optimistic-lock check; tag/contact syncs post-commit.</td><td>✅ Fixed (Jul 10)</td></tr>
-    <tr><td>7</td><td>H8</td><td>Bulk-type re-stamps <code>originalPrice</code> and enforces the unpaid / no-discount guards.</td><td>In progress</td></tr>
-    <tr><td>8</td><td>H9</td><td>Single check-in helper shared by both REST handlers and the MCP tool: payment gate, audit row, and the CANCELLED override routed through <code>applyRegistrationTransition</code>.</td><td>In progress</td></tr>
+    <tr><td>7</td><td>H8</td><td>Bulk-type re-stamps <code>originalPrice</code> for money-outstanding rows (exact parity with <code>resolveRepricing</code>'s bare-type-change policy — settled rows keep their paid price).</td><td>✅ Fixed (Jul 10)</td></tr>
+    <tr><td>8</td><td>H9</td><td>Single check-in core (<code>src/lib/check-in.ts</code>) shared by both REST handlers and the MCP tool: payment gate, audit row, and the CANCELLED override routed through <code>applyRegistrationTransition</code>.</td><td>✅ Fixed (Jul 10)</td></tr>
   </tbody>
 </table>
 </div>
@@ -812,6 +812,59 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
     parity with the MCP executor, which already did the attendee write in-tx. Tests pin: stale write →
     409 with zero attendee writes and no contact sync; happy path → in-tx ordering
     (<code>registration.updateMany</code> → <code>attendee.update</code>) with sync after commit.
+  </p>
+</div>
+
+<div class="finding high">
+  <h3>Phase 7 · H8 — bulk type-change repricing <span class="sev low">FIXED · commit 5cd8a1f</span></h3>
+  <p class="lbl">Files changed</p>
+  <ul>
+    <li><code>src/app/api/events/[eventId]/registrations/bulk-type/route.ts</code></li>
+    <li><code>__tests__/api/registration-oversell-guards.test.ts</code> (+2 tests)</li>
+  </ul>
+  <p class="lbl">What the fix does</p>
+  <p>
+    The bulk move now splits the batch: <strong>money-outstanding rows</strong>
+    (UNASSIGNED / UNPAID / PENDING) get <code>originalPrice</code> re-stamped to the NEW type's base
+    price alongside the type move; <strong>settled rows</strong> (PAID / COMPLIMENTARY / INCLUSIVE / …)
+    move type but keep their price — they already paid it. This is exact parity with
+    <code>resolveRepricing</code>'s bare-type-change policy on the single-row paths. The audit row gains
+    <code>repricedCount</code> + <code>repricedTo</code>.
+  </p>
+  <p>
+    <em>Finding correction recorded during the fix:</em> the original review claimed the single path
+    "blocks PAID regs with <code>TIER_CHANGE_REQUIRES_UNPAID</code>" — that guard only fires when
+    <strong>setting a tier</strong>; a bare type change on a PAID registration is allowed (without
+    repricing) on the single path too. Parity here is therefore reprice-vs-keep, not block.
+  </p>
+</div>
+
+<div class="finding high">
+  <h3>Phase 8 · H9 — check-in unification <span class="sev low">FIXED · Jul 10</span></h3>
+  <p class="lbl">Files changed</p>
+  <ul>
+    <li><code>src/lib/check-in.ts</code> (new shared core: <code>checkInGate()</code> + <code>executeCheckIn()</code>)</li>
+    <li><code>src/app/api/events/[eventId]/registrations/[registrationId]/check-in/route.ts</code> — both handlers rewired</li>
+    <li><code>src/lib/agent/tools/registrations.ts</code> — <code>check_in_registration</code> executor + tool description</li>
+    <li><code>src/lib/agent/register-mcp-tools.ts</code> — HTTP MCP registration (also gained the previously-missing <code>allowCancelled</code> param)</li>
+    <li><code>package.json</code> — 0.4.14 → 0.4.15 (MCP cache-invalidation hint)</li>
+    <li><code>__tests__/lib/check-in.test.ts</code> (new, 11) + <code>__tests__/lib/mcp-check-in-parity.test.ts</code> (new, 7)</li>
+  </ul>
+  <p class="lbl">What the fix does</p>
+  <p>
+    Check-in now has ONE home. <code>checkInGate()</code> is the pure business gate (cancelled →
+    payment-required → already-checked-in, in the exact order the desk enforced);
+    <code>executeCheckIn()</code> owns the row update, the CHECK_IN audit row (now
+    <strong>fire-and-forget with a logged catch</strong> — a transient audit-insert blip no longer turns a
+    committed check-in into a 500 at the desk, closing review M13 for these routes), the stats refresh and
+    the admin notification. Both REST handlers (~120 duplicated lines collapsed) and the MCP executor call
+    it. Three MCP divergences closed: the agent path now <strong>enforces the payment gate</strong>
+    (UNPAID/PENDING → <code>PAYMENT_REQUIRED</code> unless complimentary/free), <strong>writes the audit
+    row</strong> (<code>source: "mcp"</code>, override flagged), and the <code>allowCancelled</code>
+    override is a real <strong>reactivation through <code>applyRegistrationTransition</code></strong>
+    inside one transaction — re-claiming the seat (atomic capacity guard →
+    <code>CAPACITY_EXCEEDED</code>) and the promo <code>usedCount</code>, instead of a raw status flip
+    that fed the H6 double-release path.
   </p>
 </div>
 
