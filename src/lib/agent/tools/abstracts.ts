@@ -303,6 +303,11 @@ async function loadReviewerGuardAndCriteria(eventId: string) {
   });
 }
 
+// Abstract statuses that are open for review (H6 — shared across the assign +
+// both submit paths; a DRAFT/WITHDRAWN/decided abstract must not receive
+// reviewers or accumulate reviews that then satisfy the requiredReviewCount gate).
+const REVIEWABLE_ABSTRACT_STATUSES = new Set(["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"]);
+
 const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
   try {
     const abstractId = String(input.abstractId ?? "").trim();
@@ -320,12 +325,16 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
     const [abstract, user] = await Promise.all([
       db.abstract.findFirst({
         where: { id: abstractId, eventId: ctx.eventId },
-        select: { id: true, title: true, event: { select: { id: true, name: true, settings: true } } },
+        select: { id: true, title: true, status: true, event: { select: { id: true, name: true, settings: true } } },
       }),
       db.user.findUnique({ where: { id: userId }, select: { id: true, firstName: true, lastName: true, email: true } }),
     ]);
     if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
     if (!user) return { error: `User ${userId} not found`, code: "USER_NOT_FOUND" };
+    // H6: only a reviewable abstract can receive a reviewer (parity with REST).
+    if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) {
+      return { error: `Abstract ${abstractId} is ${abstract.status.toLowerCase()} and can't have reviewers assigned.`, code: "NOT_REVIEWABLE" };
+    }
 
     // Upsert role on an existing assignment (parity with the REST route) so
     // the agent can flip Primary↔Secondary without unassign+reassign.
@@ -478,11 +487,6 @@ const unassignReviewerFromAbstract: ToolExecutor = async (input, ctx) => {
     };
   }
 };
-
-// Abstract statuses that are open for review (H6 — shared across REST + both
-// MCP submit paths; a DRAFT/WITHDRAWN/decided abstract must not accumulate
-// reviews that then satisfy the requiredReviewCount gate).
-const REVIEWABLE_ABSTRACT_STATUSES = new Set(["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"]);
 
 const submitAbstractReview: ToolExecutor = async (input, ctx) => {
   try {

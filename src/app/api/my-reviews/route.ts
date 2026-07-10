@@ -33,9 +33,16 @@ export async function GET() {
     //      every event in the deployment.
     //   2. Abstracts with an explicit AbstractReviewer row for this user
     //      (per-abstract assignment, independent of the pool).
+    // Only abstracts that are actually up for review appear in the portal
+    // (review H6): a DRAFT is the author's private work-in-progress and a
+    // WITHDRAWN abstract is dead — neither should surface to reviewers as
+    // PENDING work (both list routes already filter drafts via
+    // abstractListStatusFilter; the portal feed forgot to).
+    const REVIEWABLE_ABSTRACT_STATUSES = ["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"] as const;
     const [abstractsFromPool, explicitAssignments] = await Promise.all([
       db.abstract.findMany({
         where: {
+          status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] },
           event: {
             status: { not: "CANCELLED" },
             settings: { path: ["reviewerUserIds"], array_contains: userId },
@@ -51,7 +58,7 @@ export async function GET() {
         },
       }),
       db.abstractReviewer.findMany({
-        where: { userId },
+        where: { userId, abstract: { status: { in: [...REVIEWABLE_ABSTRACT_STATUSES] } } },
         select: {
           abstractId: true,
           role: true,

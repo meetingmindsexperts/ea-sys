@@ -64,7 +64,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.abstract.findFirst({
         where: { id: abstractId, eventId },
-        select: { id: true, title: true },
+        select: { id: true, title: true, status: true },
       }),
       db.user.findUnique({
         where: { id: validated.data.userId },
@@ -72,9 +72,34 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
     ]);
 
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    if (!abstract) return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
-    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+    if (!event) {
+      apiLogger.warn({ msg: "abstract-reviewer-assign:event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+    if (!abstract) {
+      apiLogger.warn({ msg: "abstract-reviewer-assign:abstract-not-found", eventId, abstractId, userId: session.user.id });
+      return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
+    }
+    if (!user) {
+      apiLogger.warn({ msg: "abstract-reviewer-assign:target-user-not-found", eventId, abstractId, targetUserId: validated.data.userId });
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    // H6: don't assign a reviewer onto an abstract that isn't up for review —
+    // a DRAFT (author's private WIP), a WITHDRAWN, or an already-decided
+    // abstract. Assignment + its notification email only make sense while the
+    // abstract can actually be scored (parity with the scoring gate).
+    const REVIEWABLE_ABSTRACT_STATUSES = new Set(["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"]);
+    if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) {
+      apiLogger.warn({ msg: "abstract-reviewer-assign:not-reviewable-status", eventId, abstractId, status: abstract.status, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: `This abstract is ${abstract.status.toLowerCase()} and can't have reviewers assigned.`,
+          code: "NOT_REVIEWABLE",
+        },
+        { status: 409 },
+      );
+    }
 
     // Upsert: if already assigned, update role/conflictFlag when the caller
     // passed a changed value (lets the UI flip Primary↔Secondary or toggle
