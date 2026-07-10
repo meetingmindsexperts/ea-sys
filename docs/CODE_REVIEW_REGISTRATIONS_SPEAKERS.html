@@ -672,6 +672,83 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
 </table>
 </div>
 
+<h3 id="applied">Fixes applied — what changed, file by file</h3>
+
+<div class="finding high">
+  <h3>Phase 1 · H1 — activity-route IDOR <span class="sev low">FIXED · commit a1641fe</span></h3>
+  <p class="lbl">Files changed</p>
+  <ul>
+    <li><code>src/app/api/events/[eventId]/registrations/[registrationId]/activity/route.ts</code></li>
+    <li><code>src/app/api/events/[eventId]/speakers/[speakerId]/activity/route.ts</code></li>
+    <li><code>__tests__/api/activity-route-access.test.ts</code> (new, 9 tests)</li>
+  </ul>
+  <p class="lbl">What the fix does</p>
+  <p>
+    Both GETs now call <code>denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW })</code>
+    <em>before any DB read</em> — REVIEWER / SUBMITTER / REGISTRANT get a logged 403, while MEMBER
+    (read-only viewer) and ONSITE (desk staff) keep the feed. The event lookup was replaced with
+    <code>buildEventAccessWhere(session.user, eventId)</code>: org-scoped for team roles,
+    assignment-gated (<code>settings.onsiteUserIds</code>) for ONSITE. Both denial paths emit warn logs
+    (<code>registration-activity:role-denied</code> / <code>event-not-found</code> and the speaker twins).
+    Tests pin the gate with the <em>real</em> guards: org-null role → 403 with zero DB calls; MEMBER →
+    org-scoped 200; unassigned ONSITE → 404; ADMIN happy path.
+  </p>
+</div>
+
+<div class="finding high">
+  <h3>Phase 2 · H2 — CSV formula injection <span class="sev low">FIXED · commit c5e56cd</span></h3>
+  <p class="lbl">Files changed</p>
+  <ul>
+    <li><code>src/lib/csv-escape.ts</code> (new shared helper: <code>escapeCsvCell</code> / <code>toCsvRow</code> / <code>toCsv</code>)</li>
+    <li><code>src/app/(dashboard)/events/[eventId]/registrations/page.tsx</code> — list export</li>
+    <li><code>src/app/api/contacts/export/route.ts</code></li>
+    <li><code>src/app/api/events/[eventId]/analytics/route.ts</code></li>
+    <li><code>src/app/api/events/[eventId]/rsvp-invites/route.ts</code></li>
+    <li><code>src/app/api/events/[eventId]/webinar/attendance/route.ts</code></li>
+    <li><code>src/lib/survey/aggregate.ts</code> — survey responses CSV</li>
+    <li><code>__tests__/lib/csv-escape.test.ts</code> (new, 12 tests)</li>
+  </ul>
+  <p class="lbl">What the fix does</p>
+  <p>
+    One client-safe helper neutralizes formula prefixes (leading <code>=</code>, <code>@</code>, tab, CR
+    always get a <code>'</code> literal-text prefix; <code>+</code>/<code>-</code> only when the cell is
+    not purely phone/number-shaped, so <code>+971 4 555 0123</code> survives export→import round-trips
+    byte-identical), then applies RFC 4180 quoting. The six previously-unprotected export paths now route
+    every cell through it; each site's local <code>csvCell</code>/<code>csvField</code> was kept as a thin
+    delegate so call sites didn't churn. <strong>Not changed:</strong> <code>src/lib/invoice-export.ts</code>
+    and the invoices page export already carried their own guard (with a numeric carve-out for negative
+    credit-note amounts) — left as-is deliberately.
+  </p>
+</div>
+
+<div class="finding high">
+  <h3>Phase 3 · H3 + H4 — companion link &amp; email cascade <span class="sev low">FIXED · commit f910e41</span></h3>
+  <p class="lbl">Files changed</p>
+  <ul>
+    <li><code>src/lib/speaker-companion.ts</code> — H3</li>
+    <li><code>src/app/api/events/[eventId]/registrations/[registrationId]/email/route.ts</code> — H4</li>
+    <li><code>src/components/change-email-dialog.tsx</code> — toast now reports the cascade</li>
+    <li><code>__tests__/lib/speaker-companion.test.ts</code> (+1), <code>__tests__/api/change-email-routes.test.ts</code> (+3)</li>
+  </ul>
+  <p class="lbl">What the fix does</p>
+  <p>
+    <strong>H3:</strong> the companion email-match now filters <code>status: { not: "CANCELLED" }</code> —
+    a registered-then-cancelled person added as faculty no longer gets bound to a dead registration; the
+    lookup falls through to minting a fresh Faculty companion (badge/barcode/check-in work). The batch
+    ensure and the backfill script inherit the fix automatically (same function).
+  </p>
+  <p>
+    <strong>H4:</strong> the registration email PATCH now finds a Speaker pointing at this registration via
+    <code>sourceRegistrationId</code>. If its email is still in step with the old address, the speaker row is
+    updated <em>inside the same transaction</em> as the Attendee/User/Contact changes. Three guarded paths:
+    a deliberately-diverged speaker (email ≠ old address) is left alone with a warn log
+    (<code>linked-speaker-email-diverged</code>); a <code>Speaker.(eventId, email)</code> collision refuses
+    up-front with 409 <code>SPEAKER_EMAIL_TAKEN</code> before anything is written; the happy path returns
+    <code>speakerSynced: true</code>, which the audit row and the dialog toast now surface (the toast also
+    gained the speaker-side <code>companionSynced</code> flag it never showed).
+  </p>
+</div>
+
 <p>
   The 11 mediums and 4 lows are recorded in <code>docs/ROADMAP.md</code> under
   <em>"Registrations &amp; speakers review (July 10, 2026) — deferred findings"</em>, each with its file
