@@ -443,11 +443,11 @@ export function registerAllMcpTools(
       tags: z.array(z.string()).optional(),
     }},
     // ─── Actions / updates ───
-    { name: "update_registration", description: "Update a registration. Top-level: status, paymentStatus, ticketTypeId, pricingTierId, attendanceMode, badgeType, dtcmBarcode, notes. Nested attendee: title, names, org, jobTitle, phone, city, country, bio, specialty, tags, dietaryReqs. Changing ticketTypeId and/or pricingTierId reprices originalPrice (unpaid-only; blocked if a promo is applied). NOTE: paymentStatus=REFUNDED only flips the DB flag — does NOT trigger a Stripe refund. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
+    { name: "update_registration", description: "Update a registration. Top-level: status, paymentStatus, ticketTypeId, pricingTierId, attendanceMode, badgeType, dtcmBarcode, notes. Nested attendee: title, names, org, jobTitle, phone, city, country, bio, specialty, tags, dietaryReqs. Changing ticketTypeId and/or pricingTierId reprices originalPrice (unpaid-only; blocked if a promo is applied). paymentStatus accepts the admin-settable subset only (UNASSIGNED/UNPAID/PAID/COMPLIMENTARY/INCLUSIVE) — PENDING/REFUNDED/FAILED are owned by the payment webhook + the credit-note-gated refund flow and are rejected. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
       registrationId: z.string(),
       expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       status: z.nativeEnum(RegistrationStatus).optional(),
-      paymentStatus: z.nativeEnum(PaymentStatus).optional(),
+      paymentStatus: z.enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"]).optional().describe("Admin-settable subset — PENDING/REFUNDED/FAILED are webhook/refund-flow-owned and rejected (review H12)."),
       sponsorId: z.string().nullable().optional().describe("Sponsor attribution id from Event.settings.sponsors[]. Required when paymentStatus is INCLUSIVE. Pass null to clear an existing attribution. Use list_sponsors to discover ids."),
       billingAccountId: z.string().nullable().optional().describe("\"Charge to another account\" — id of an active org BillingAccount. Reassigns the payer; pass null to revert to self-pay (the fallback path). Orthogonal to paymentStatus. Managed in Settings → Billing."),
       payerReference: z.string().nullable().optional().describe("PO / grant reference printed on the invoice. Only meaningful with billingAccountId."),
@@ -505,10 +505,10 @@ export function registerAllMcpTools(
       trackId: z.string().nullable().optional(),
       status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
     }},
-    { name: "bulk_update_registration_status", description: "Bulk-update status and/or paymentStatus on up to 200 registrations in a single transaction. Returns count of rows updated.", params: {
+    { name: "bulk_update_registration_status", description: "Bulk-update status and/or paymentStatus on up to 200 registrations in a single transaction. Returns count of rows updated. paymentStatus accepts the admin-settable subset only (UNASSIGNED/UNPAID/PAID/COMPLIMENTARY/INCLUSIVE) — PENDING/REFUNDED/FAILED are owned by the payment webhook + the credit-note-gated refund flow and are rejected.", params: {
       registrationIds: z.array(z.string()).max(200),
       status: z.nativeEnum(RegistrationStatus).optional(),
-      paymentStatus: z.nativeEnum(PaymentStatus).optional(),
+      paymentStatus: z.enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"]).optional().describe("Admin-settable subset — PENDING/REFUNDED/FAILED are webhook/refund-flow-owned and rejected (review H12)."),
     }},
     // ─── Sponsor + promo + email writes ───
     { name: "upsert_sponsors", description: "Update the sponsor list for this event. mode='replace' (default — matches existing dashboard PUT behaviour) deletes anything not in the passed array; mode='merge' overlays incoming rows onto the existing list by id, or failing that by case-insensitive (name, tier) composite, and APPENDS unmatched rows without deleting anything. Use merge when you only have a few rows to add or change and don't want to accidentally wipe the rest. Each sponsor needs { name, tier?, logoUrl?, websiteUrl?, description? }. URL scheme whitelist rejects javascript: and data: URLs.", params: {
@@ -657,9 +657,9 @@ export function registerAllMcpTools(
     { name: "send_invoice", description: "Email an existing invoice PDF to the attendee. Status transitions handled internally.", params: {
       invoiceId: z.string(),
     }},
-    { name: "update_invoice_status", description: "Manually set invoice status. REFUNDED flips the DB flag for book-keeping only — does NOT call Stripe. Use the dashboard for actual money movement.", params: {
+    { name: "update_invoice_status", description: "Set invoice status — CANCELLED or OVERDUE only (parity with the dashboard). PAID is minted by the payment flows (Stripe webhook / desk Record Payment) and REFUNDED by the credit-note-gated refund flow; setting either as a bare flag is rejected because it would desync the invoice from the registration and Payment rows.", params: {
       invoiceId: z.string(),
-      status: z.enum(["DRAFT", "SENT", "PAID", "OVERDUE", "CANCELLED", "REFUNDED"]),
+      status: z.enum(["CANCELLED", "OVERDUE"]),
     }},
     // ─── Email template writes ───
     { name: "update_email_template", description: "Customize an event-level email template. slug examples: 'speaker-invitation', 'registration-confirmation', 'payment-reminder'. Creates an event-specific override if none exists yet. Pass any subset of subject / htmlContent / textContent.", params: {

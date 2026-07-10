@@ -31,7 +31,14 @@ import { resolveRepricing } from "@/lib/registration-repricing";
 const updateRegistrationSchema = z.object({
   ...optimisticLockField,
   status: z.nativeEnum(RegistrationStatus).optional(),
-  paymentStatus: z.nativeEnum(PaymentStatus).optional(),
+  // Admin-settable subset ONLY (review H12): PENDING / REFUNDED / FAILED are
+  // owned by the Stripe webhook + the gated refund flow — a bare REFUNDED
+  // flag here would cook the books (refundedAmount 0, no credit note, no
+  // Payment flip, no audit). The UI already offers only this subset
+  // (MANUAL_PAYMENT_STATUSES); this makes the server enforce it.
+  paymentStatus: z
+    .enum(["UNASSIGNED", "UNPAID", "PAID", "COMPLIMENTARY", "INCLUSIVE"])
+    .optional(),
   // Sponsor attribution. When paymentStatus is being set to INCLUSIVE,
   // sponsorId must accompany it (validated below). Setting to null clears
   // the existing attribution. Leaving undefined leaves the existing value

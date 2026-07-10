@@ -1,5 +1,4 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
-import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import type { ToolExecutor } from "./_shared";
@@ -29,8 +28,6 @@ const listInvoices: ToolExecutor = async (input, ctx) => {
 };
 
 // ─── Email Template Executor ──────────────────────────────────────────────────
-
-const INVOICE_STATUSES = new Set(["DRAFT", "SENT", "PAID", "OVERDUE", "CANCELLED", "REFUNDED"]);
 
 const createInvoiceExec: ToolExecutor = async (input, ctx) => {
   try {
@@ -103,13 +100,25 @@ const sendInvoiceExec: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// Transitions the agent may set directly — parity with the dashboard's REST
+// PUT (cancel / mark overdue). Everything else is minted by a money flow:
+// PAID by the Stripe webhook / desk Record Payment (which also creates the
+// Payment row, receipt, and email), REFUNDED by the credit-note-gated refund
+// flow, SENT by the send route (which actually emails it). Setting any of
+// those as a bare flag desyncs the invoice from the registration + Payment
+// rows (review M6).
+const AGENT_SETTABLE_INVOICE_STATUSES = new Set(["CANCELLED", "OVERDUE"]);
+
 const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
   try {
     const invoiceId = String(input.invoiceId ?? "").trim();
     const status = String(input.status ?? "").trim();
     if (!invoiceId) return { error: "invoiceId is required" };
-    if (!INVOICE_STATUSES.has(status)) {
-      return { error: `Invalid status. Must be one of: ${[...INVOICE_STATUSES].join(", ")}` };
+    if (!AGENT_SETTABLE_INVOICE_STATUSES.has(status)) {
+      return {
+        error: `Invalid status "${status}". This tool can set: ${[...AGENT_SETTABLE_INVOICE_STATUSES].join(", ")}. PAID is minted by the payment flows (Stripe webhook / desk Record Payment), REFUNDED by the credit-note-gated refund flow, and SENT by send_invoice — setting them as bare flags would desync the invoice from the registration and Payment rows.`,
+        code: "INVOICE_STATUS_NOT_SETTABLE",
+      };
     }
 
     const existing = await db.invoice.findFirst({
@@ -118,12 +127,9 @@ const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
     });
     if (!existing) return { error: `Invoice ${invoiceId} not found or access denied` };
 
-    const data: Prisma.InvoiceUpdateInput = { status: status as never };
-    if (status === "PAID") data.paidDate = new Date();
-
     const updated = await db.invoice.update({
       where: { id: invoiceId },
-      data,
+      data: { status: status as never },
       select: {
         id: true,
         invoiceNumber: true,
@@ -145,7 +151,6 @@ const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
           source: "mcp",
           before: existing.status,
           after: status,
-          note: status === "REFUNDED" ? "DB flag only — Stripe refund not triggered" : undefined,
         },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:update_invoice_status audit-log-failed"));
@@ -153,9 +158,6 @@ const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
     return {
       success: true,
       invoice: { ...updated, total: Number(updated.total) },
-      ...(status === "REFUNDED" && {
-        note: "Invoice marked REFUNDED in DB. This does NOT trigger a Stripe refund — use the dashboard for actual money movement.",
-      }),
     };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_invoice_status failed");

@@ -45,6 +45,21 @@ export const MANUAL_REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "WA
 export const ALL_PAYMENT_STATUSES = new Set<string>(
   Object.values(PaymentStatus),
 );
+// Admin-settable subset for WRITE paths (review H12). PENDING / REFUNDED /
+// FAILED are owned by the Stripe webhook + the gated refund flow — setting
+// them as bare flags cooks the books (REFUNDED with refundedAmount 0, no
+// credit note, no Payment flip, no audit). Reads/filters keep
+// ALL_PAYMENT_STATUSES. Mirrors MANUAL_PAYMENT_STATUSES in
+// registration-enums.ts (drift-guarded by a test).
+export const ADMIN_SETTABLE_PAYMENT_STATUSES = new Set<string>([
+  "UNASSIGNED",
+  "UNPAID",
+  "PAID",
+  "COMPLIMENTARY",
+  "INCLUSIVE",
+]);
+export const PAYMENT_STATUS_WRITE_REJECTION =
+  "Stripe-driven paymentStatus values (PENDING/REFUNDED/FAILED) cannot be set directly — PENDING/FAILED are owned by the payment webhook, and refunds must go through the credit-note-gated refund flow (registration Billing tab / POST …/refund) so the money actually moves.";
 export const TITLE_VALUES = new Set(["DR", "MR", "MRS", "MS", "PROF"]);
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const MAX_EMAIL_RECIPIENTS = 500;

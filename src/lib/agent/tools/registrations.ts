@@ -26,6 +26,8 @@ import {
   REGISTRATION_STATUSES,
   MANUAL_REGISTRATION_STATUSES,
   ALL_PAYMENT_STATUSES,
+  ADMIN_SETTABLE_PAYMENT_STATUSES,
+  PAYMENT_STATUS_WRITE_REJECTION,
   type ToolExecutor,
 } from "./_shared";
 const UNPAID_STATUSES = ["UNPAID", "PENDING", "FAILED"];
@@ -504,8 +506,11 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
       return { error: `Invalid status. Must be one of: ${[...REGISTRATION_STATUSES].join(", ")}` };
     }
     const paymentStatus = input.paymentStatus ? String(input.paymentStatus) : undefined;
-    if (paymentStatus && !ALL_PAYMENT_STATUSES.has(paymentStatus)) {
-      return { error: `Invalid paymentStatus. Must be one of: ${[...ALL_PAYMENT_STATUSES].join(", ")}` };
+    if (paymentStatus && !ADMIN_SETTABLE_PAYMENT_STATUSES.has(paymentStatus)) {
+      return {
+        error: `Invalid paymentStatus "${paymentStatus}". Settable values: ${[...ADMIN_SETTABLE_PAYMENT_STATUSES].join(", ")}. ${PAYMENT_STATUS_WRITE_REJECTION}`,
+        code: "PAYMENT_STATUS_NOT_SETTABLE",
+      };
     }
 
     // Sponsor attribution. Same rules as the REST PUT route:
@@ -903,8 +908,11 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
       return { error: `Invalid status. Must be one of: ${[...REGISTRATION_STATUSES].join(", ")}` };
     }
     const paymentStatus = input.paymentStatus ? String(input.paymentStatus) : undefined;
-    if (paymentStatus && !ALL_PAYMENT_STATUSES.has(paymentStatus)) {
-      return { error: `Invalid paymentStatus. Must be one of: ${[...ALL_PAYMENT_STATUSES].join(", ")}` };
+    if (paymentStatus && !ADMIN_SETTABLE_PAYMENT_STATUSES.has(paymentStatus)) {
+      return {
+        error: `Invalid paymentStatus "${paymentStatus}". Settable values: ${[...ADMIN_SETTABLE_PAYMENT_STATUSES].join(", ")}. ${PAYMENT_STATUS_WRITE_REJECTION}`,
+        code: "PAYMENT_STATUS_NOT_SETTABLE",
+      };
     }
     if (!status && !paymentStatus) {
       return { error: "At least one of status or paymentStatus must be provided" };
