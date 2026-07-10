@@ -5,16 +5,15 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { computeEventAnalytics, type EventAnalytics } from "@/lib/event-analytics";
+import { escapeCsvCell } from "@/lib/csv-escape";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
-/** RFC 4180 CSV field — quote + escape when needed. */
+/** RFC 4180 CSV field — quote/escape + formula-injection neutralization. */
 function csvField(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "";
-  const s = String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  return escapeCsvCell(value);
 }
 
 /**

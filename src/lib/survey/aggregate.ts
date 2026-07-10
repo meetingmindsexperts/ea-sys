@@ -28,6 +28,7 @@ import type {
   SingleSelectQuestion,
   TextQuestion,
 } from "./schema";
+import { escapeCsvCell } from "@/lib/csv-escape";
 
 /** Shape that callers pass in — narrowest useful slice of SurveyResponse. */
 export interface SurveyResponseLike {
@@ -185,21 +186,15 @@ export function aggregateSurvey(
 // ── CSV export ───────────────────────────────────────────────────────────
 
 /**
- * CSV-escape a single cell per RFC 4180:
- *   - if the value contains comma, quote, CR, or LF: wrap in double-
- *     quotes and double any internal quotes
- *   - otherwise return as-is
+ * CSV-escape a single cell per RFC 4180 + formula-injection neutralization
+ * (free-text survey answers are respondent-controlled). Delegates to the
+ * shared helper in src/lib/csv-escape.ts.
  *
  * Numbers, booleans, null, undefined all flatten to their string form;
  * `null`/`undefined` become empty.
  */
 export function csvCell(value: SurveyAnswerValue | null | undefined): string {
-  if (value === null || value === undefined) return "";
-  const s = String(value);
-  if (/[",\r\n]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
+  return escapeCsvCell(value);
 }
 
 export interface CsvResponseRow {

@@ -1,14 +1,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
-
-function escapeCSV(value: string | null | undefined): string {
-  const str = value ?? "";
-  if (str.includes(",") || str.includes('"') || str.includes("\n")) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
+import { escapeCsvCell as escapeCSV } from "@/lib/csv-escape";
 
 export async function GET(req: Request) {
   try {

@@ -26,10 +26,9 @@ import {
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
-function csvCell(v: unknown): string {
-  const s = v == null ? "" : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
+// Quote/escape + formula-injection neutralization (invitee names/dietary are
+// respondent-controlled).
+import { escapeCsvCell as csvCell } from "@/lib/csv-escape";
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {

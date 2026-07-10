@@ -7,6 +7,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { readWebinarSettings } from "@/lib/webinar";
 import { syncWebinarAttendance } from "@/lib/webinar-attendance";
+import { escapeCsvCell } from "@/lib/csv-escape";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -61,15 +62,11 @@ function computePeakConcurrent(
 }
 
 /**
- * Escape a field for CSV output per RFC 4180.
+ * Escape a field for CSV output per RFC 4180 + formula-injection
+ * neutralization (participant names/emails come from Zoom attendees).
  */
 function csvField(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "";
-  const str = String(value);
-  if (/[",\n\r]/.test(str)) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
+  return escapeCsvCell(value);
 }
 
 // ── GET — return KPIs + attendees + (optionally) CSV export ─────────

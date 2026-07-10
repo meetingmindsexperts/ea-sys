@@ -49,6 +49,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
+import { toCsvRow } from "@/lib/csv-escape";
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags } from "@/hooks/use-api";
 import { displayRegistrationType } from "@/lib/faculty-filter";
 import { formatAttendeeRole } from "@/lib/schemas";
@@ -230,12 +231,7 @@ export default function RegistrationsPage() {
       r.referrer || "",
     ]);
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
-      ),
-    ].join("\n");
+    const csvContent = [headers.join(","), ...rows.map((row) => toCsvRow(row))].join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
@@ -273,6 +269,14 @@ export default function RegistrationsPage() {
         : null;
     return registrations.filter((r) => {
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
+      // Mirror the backend rule: certificate + payment-reminder sends
+      // exclude CANCELLED registrations when no explicit status is set.
+      if (
+        (f.emailType === "certificate" || f.emailType === "payment-reminder") &&
+        (!f.status || f.status === "all") &&
+        r.status === "CANCELLED"
+      )
+        return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;
