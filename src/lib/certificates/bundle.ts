@@ -50,6 +50,8 @@ import {
   loadPosterAbstractTitle,
   type EventContext,
 } from "./cert-context";
+import { resolveLinkedRegistration, resolveLinkedSpeaker } from "@/lib/activity-feed";
+import type { Prisma as PrismaTypes } from "@prisma/client";
 import type { CertificateData, CertificateTemplate } from "./types";
 
 // SES rejects messages over 10MB raw; base64 inflates ~4/3, so cap the
@@ -434,6 +436,63 @@ function renderFailure(err: unknown, eventId: string, templateId: string): FindO
   }
   apiLogger.error({ err, msg: "cert-bundle:render-failed", eventId, templateId });
   return { ok: false, code: "RENDER_FAILED", error: `Could not render the certificate (${msg}).` };
+}
+
+// ── Person cert-set resolution ───────────────────────────────────────────────
+
+/**
+ * Where-clause covering EVERY cert the PERSON behind one facet holds —
+ * the anchored registration/speaker plus its linked counterpart (companion
+ * pointer, else email match). Shared by the issued-list GET and the
+ * resend-bundle route so both agree on "the same person's" cert set.
+ * Returns the resolved counterpart too so callers can log/anchor on it.
+ */
+export async function buildPersonCertificateWhere(
+  eventId: string,
+  registrationId: string | null,
+  speakerId: string | null,
+): Promise<{
+  where: PrismaTypes.IssuedCertificateWhereInput;
+  linkedRegistrationId: string | null;
+  linkedSpeakerId: string | null;
+}> {
+  if (registrationId) {
+    const reg = await db.registration.findFirst({
+      where: { id: registrationId, eventId },
+      select: { attendee: { select: { email: true } } },
+    });
+    const linkedSpeaker = await resolveLinkedSpeaker(eventId, {
+      id: registrationId,
+      attendeeEmail: reg?.attendee?.email ?? null,
+    });
+    return {
+      where: {
+        eventId,
+        OR: [
+          { registrationId },
+          ...(linkedSpeaker ? [{ speakerId: linkedSpeaker.id }] : []),
+        ],
+      },
+      linkedRegistrationId: registrationId,
+      linkedSpeakerId: linkedSpeaker?.id ?? null,
+    };
+  }
+  const spk = await db.speaker.findFirst({
+    where: { id: speakerId!, eventId },
+    select: { sourceRegistrationId: true, email: true },
+  });
+  const linkedReg = spk ? await resolveLinkedRegistration(eventId, spk) : null;
+  return {
+    where: {
+      eventId,
+      OR: [
+        { speakerId: speakerId! },
+        ...(linkedReg ? [{ registrationId: linkedReg.id }] : []),
+      ],
+    },
+    linkedRegistrationId: linkedReg?.id ?? null,
+    linkedSpeakerId: speakerId,
+  };
 }
 
 // ── Bundle email ─────────────────────────────────────────────────────────────

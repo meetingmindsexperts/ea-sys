@@ -54,6 +54,7 @@ import { Plus } from "lucide-react";
 import {
   useIssuedCertificates,
   useReissueCertificate,
+  useResendCertificateBundle,
   useIssueSingleCertificate,
   useCertificateTemplates,
   type IssuedCertificateRow,
@@ -87,12 +88,12 @@ export function IssuedCertificatesCard({
   // without re-fetching.
   const [confirmCert, setConfirmCert] = useState<IssuedCertificateRow | null>(null);
 
-  // "Resend all" flow — re-render + resend every resendable cert this person
-  // holds, one email each. Own busy/progress state (the per-row mutation's
-  // isPending only tracks the last single call).
+  // "Resend all" flow — re-sends every resendable cert this person holds as
+  // ONE email with one PDF per cert (frozen PDFs, resend semantics — the
+  // per-row Resend is the re-render-from-latest path).
   const [resendAllOpen, setResendAllOpen] = useState(false);
-  const [resendAllBusy, setResendAllBusy] = useState(false);
-  const [resendAllProgress, setResendAllProgress] = useState<{ done: number; total: number } | null>(null);
+  const resendBundleMutation = useResendCertificateBundle(eventId);
+  const resendAllBusy = resendBundleMutation.isPending;
 
   const certificates = data?.certificates ?? [];
   // Only non-revoked, rendered certs can be (re)sent.
@@ -124,31 +125,18 @@ export function IssuedCertificatesCard({
   }
 
   async function handleResendAll() {
-    // Snapshot the targets up front — the per-cert mutation invalidates the
-    // issued-list query on each success, so `resendableCerts` can change
-    // mid-loop; iterate the snapshot instead.
-    const targets = [...resendableCerts];
-    if (targets.length === 0) return;
-    setResendAllBusy(true);
-    setResendAllProgress({ done: 0, total: targets.length });
-    let ok = 0;
-    const failed: string[] = [];
-    for (const cert of targets) {
-      try {
-        await resendMutation.mutateAsync(cert.id);
-        ok++;
-      } catch {
-        failed.push(cert.certificateTemplate?.name ?? cert.serial);
-      }
-      setResendAllProgress({ done: ok + failed.length, total: targets.length });
-    }
-    setResendAllBusy(false);
-    setResendAllProgress(null);
-    setResendAllOpen(false);
-    if (failed.length === 0) {
-      toast.success(`Re-rendered and re-sent all ${ok} certificate${ok === 1 ? "" : "s"} from the latest templates`);
-    } else {
-      toast.error(`Sent ${ok} of ${targets.length} · ${failed.length} failed: ${failed.join(", ")}`);
+    if (resendableCerts.length === 0) return;
+    try {
+      const res = await resendBundleMutation.mutateAsync(
+        registrationId ? { registrationId } : { speakerId },
+      );
+      setResendAllOpen(false);
+      toast.success(
+        `Re-sent ${res.sentCount} certificate${res.sentCount === 1 ? "" : "s"} to ${res.recipientEmail} in one email`,
+      );
+    } catch (e) {
+      // Leave the dialog open so the operator can retry.
+      toast.error(e instanceof Error ? e.message : "Resend failed");
     }
   }
 
@@ -344,9 +332,11 @@ export function IssuedCertificatesCard({
               Resend all certificates
             </DialogTitle>
             <DialogDescription>
-              Each of the {resendableCerts.length} certificates below is re-rendered
-              from its <strong>current</strong> template and emailed separately — one
-              email + PDF per certificate.
+              All {resendableCerts.length} certificates below are re-sent in{" "}
+              <strong>one email</strong> — one PDF attachment per certificate,
+              replaying each cert&apos;s existing PDF (same serials, no re-render).
+              Use a row&apos;s <em>Resend</em> button instead to re-render a single
+              certificate from its latest template.
             </DialogDescription>
           </DialogHeader>
           <ul className="space-y-1.5 text-sm">
@@ -375,12 +365,12 @@ export function IssuedCertificatesCard({
               {resendAllBusy ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  Sending {resendAllProgress?.done ?? 0}/{resendAllProgress?.total ?? resendableCerts.length}…
+                  Sending…
                 </>
               ) : (
                 <>
                   <Send className="h-3.5 w-3.5 mr-1.5" />
-                  Resend all ({resendableCerts.length})
+                  Resend all in one email ({resendableCerts.length})
                 </>
               )}
             </Button>

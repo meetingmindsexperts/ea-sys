@@ -2275,6 +2275,29 @@ export function useResendCertificate(eventId: string) {
  * template / greeting edits), update its PDF, and email it again. Distinct
  * from useResendCertificate (which replays the frozen original).
  */
+/** Re-send EVERY cert the person holds as ONE email (frozen PDFs, no
+ *  re-render) — the "Resend all" action. Pass exactly one facet id. */
+export function useResendCertificateBundle(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { registrationId?: string; speakerId?: string }) =>
+      fetchApi<{ sentCount: number; serials: string[]; recipientEmail: string }>(
+        `/api/events/${eventId}/certificates/issued/resend-bundle`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["events", eventId, "certificates", "issued"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["email-logs"] });
+    },
+  });
+}
+
 export function useReissueCertificate(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
