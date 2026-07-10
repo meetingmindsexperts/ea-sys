@@ -421,11 +421,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid student ID expiry date" }, { status: 400 });
     }
 
-    // Update attendee if provided
-    if (attendee) {
-      await db.attendee.update({
-        where: { id: existingRegistration.attendeeId },
-        data: {
+    // Attendee patch, built up front but applied INSIDE the transaction after
+    // the optimistic-lock check (review H7): the old pre-transaction write
+    // meant a STALE_WRITE 409 or CAPACITY_EXCEEDED rollback had already
+    // persisted half the edit (name/tags/contact sync) while telling the
+    // operator nothing was saved — silently interleaving two editors' data.
+    const attendeeData = attendee
+      ? {
           ...(attendee.title !== undefined && { title: attendee.title || null }),
           ...(attendee.role !== undefined && { role: attendee.role || null }),
           ...(attendee.firstName && { firstName: attendee.firstName }),
@@ -452,52 +454,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(attendee.studentId !== undefined && { studentId: attendee.studentId || null }),
           ...(attendee.studentIdExpiry !== undefined && { studentIdExpiry: attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null }),
           ...(attendee.customFields && { customFields: attendee.customFields }),
-        },
-      });
-
-      // Mirror any tag change onto the person's Speaker facet (best-effort).
-      if (attendee.tags !== undefined) {
-        await syncRegistrationTagsToSpeakers(eventId, [
-          {
-            registrationId,
-            email: existingRegistration.attendee.email,
-            delta: computeTagDelta(existingRegistration.attendee.tags, attendee.tags),
-          },
-        ]);
-      }
-
-      // Sync updated attendee to org contact store (awaited — errors caught internally)
-      const a = existingRegistration.attendee;
-      await syncToContact({
-        organizationId: session.user.organizationId!,
-        eventId,
-        email: a.email,
-        // Mirror the secondary inbox so the org Contact row stays in
-        // step with the Attendee row. Trim+empty-to-null matches the
-        // attendee update above; `undefined` (field absent from payload)
-        // preserves whatever the Contact already had.
-        additionalEmail: attendee.additionalEmail !== undefined
-          ? (attendee.additionalEmail?.trim() || null)
-          : a.additionalEmail,
-        firstName: attendee.firstName || a.firstName,
-        lastName: attendee.lastName || a.lastName,
-        title: attendee.title !== undefined ? (attendee.title || null) : a.title,
-        role: attendee.role !== undefined ? (attendee.role || null) : a.role,
-        organization: attendee.organization !== undefined ? (attendee.organization || null) : a.organization,
-        jobTitle: attendee.jobTitle !== undefined ? (attendee.jobTitle || null) : a.jobTitle,
-        phone: attendee.phone !== undefined ? (attendee.phone || null) : a.phone,
-        photo: attendee.photo !== undefined ? (attendee.photo || null) : a.photo,
-        city: attendee.city !== undefined ? (attendee.city || null) : a.city,
-        country: attendee.country !== undefined ? (attendee.country || null) : a.country,
-        bio: attendee.bio !== undefined ? (attendee.bio || null) : a.bio,
-        specialty: attendee.specialty !== undefined ? (attendee.specialty || null) : a.specialty,
-        registrationType: a.registrationType,
-        associationName: attendee.associationName !== undefined ? (attendee.associationName || null) : a.associationName,
-        memberId: attendee.memberId !== undefined ? (attendee.memberId || null) : a.memberId,
-        studentId: attendee.studentId !== undefined ? (attendee.studentId || null) : a.studentId,
-        studentIdExpiry: attendee.studentIdExpiry !== undefined ? (attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null) : a.studentIdExpiry,
-      });
-    }
+        }
+      : null;
 
     const expectedUpdatedAt = validated.data.expectedUpdatedAt;
     if (!expectedUpdatedAt) {
@@ -659,6 +617,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
         throw new Error(expectedUpdatedAt ? "STALE_WRITE" : "REGISTRATION_DISAPPEARED");
       }
 
+      // Attendee edits commit atomically with the registration row — AFTER the
+      // optimistic lock held, so a STALE_WRITE rejection persists nothing
+      // (review H7; parity with the MCP executor, which already did this).
+      if (attendeeData) {
+        await tx.attendee.update({
+          where: { id: existingRegistration.attendeeId },
+          data: attendeeData,
+        });
+      }
+
       return tx.registration.findUniqueOrThrow({
         where: { id: registrationId },
         include: {
@@ -681,6 +649,53 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     if (!registration) {
       return NextResponse.json({ error: "Failed to update registration" }, { status: 500 });
+    }
+
+    // Post-commit best-effort syncs — only after the transaction held, so a
+    // rejected write can no longer leak into the Speaker facet / Contact store.
+    if (attendee) {
+      // Mirror any tag change onto the person's Speaker facet.
+      if (attendee.tags !== undefined) {
+        await syncRegistrationTagsToSpeakers(eventId, [
+          {
+            registrationId,
+            email: existingRegistration.attendee.email,
+            delta: computeTagDelta(existingRegistration.attendee.tags, attendee.tags),
+          },
+        ]);
+      }
+
+      // Sync updated attendee to org contact store (awaited — errors caught internally)
+      const a = existingRegistration.attendee;
+      await syncToContact({
+        organizationId: session.user.organizationId!,
+        eventId,
+        email: a.email,
+        // Mirror the secondary inbox so the org Contact row stays in
+        // step with the Attendee row. Trim+empty-to-null matches the
+        // attendee update above; `undefined` (field absent from payload)
+        // preserves whatever the Contact already had.
+        additionalEmail: attendee.additionalEmail !== undefined
+          ? (attendee.additionalEmail?.trim() || null)
+          : a.additionalEmail,
+        firstName: attendee.firstName || a.firstName,
+        lastName: attendee.lastName || a.lastName,
+        title: attendee.title !== undefined ? (attendee.title || null) : a.title,
+        role: attendee.role !== undefined ? (attendee.role || null) : a.role,
+        organization: attendee.organization !== undefined ? (attendee.organization || null) : a.organization,
+        jobTitle: attendee.jobTitle !== undefined ? (attendee.jobTitle || null) : a.jobTitle,
+        phone: attendee.phone !== undefined ? (attendee.phone || null) : a.phone,
+        photo: attendee.photo !== undefined ? (attendee.photo || null) : a.photo,
+        city: attendee.city !== undefined ? (attendee.city || null) : a.city,
+        country: attendee.country !== undefined ? (attendee.country || null) : a.country,
+        bio: attendee.bio !== undefined ? (attendee.bio || null) : a.bio,
+        specialty: attendee.specialty !== undefined ? (attendee.specialty || null) : a.specialty,
+        registrationType: a.registrationType,
+        associationName: attendee.associationName !== undefined ? (attendee.associationName || null) : a.associationName,
+        memberId: attendee.memberId !== undefined ? (attendee.memberId || null) : a.memberId,
+        studentId: attendee.studentId !== undefined ? (attendee.studentId || null) : a.studentId,
+        studentIdExpiry: attendee.studentIdExpiry !== undefined ? (attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null) : a.studentIdExpiry,
+      });
     }
 
     // Refresh denormalized event stats (fire-and-forget)
