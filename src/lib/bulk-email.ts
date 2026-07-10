@@ -220,6 +220,13 @@ export interface BulkEmailResult {
   total: number;
   successCount: number;
   failureCount: number;
+  /**
+   * Certificate sends only — recipients who matched the audience filters
+   * but hold NONE of the selected templates' tags. Per the tag rule ("no
+   * tag, no certificate") they are silently not emailed: expected routing,
+   * not a failure, so they appear in neither successCount nor failureCount.
+   */
+  skippedCount?: number;
   errors: Array<{ email: string; error: string }>;
 }
 
@@ -657,10 +664,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         eventId,
         ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
         ...(status && { status }),
-        // Never chase a CANCELLED registration for payment (it owes nothing).
-        // Only applied when no explicit status filter is set — an explicit
+        // Never chase a CANCELLED registration for payment (it owes nothing)
+        // and never issue a certificate to one (mirrors the Issue-tab
+        // eligibility rule in src/lib/certificates/eligibility.ts). Only
+        // applied when no explicit status filter is set — an explicit
         // status already scopes the send, and a non-CANCELLED one excludes them.
-        ...(emailType === "payment-reminder" && !status ? { status: { not: "CANCELLED" as const } } : {}),
+        ...((emailType === "payment-reminder" || emailType === "certificate") && !status
+          ? { status: { not: "CANCELLED" as const } }
+          : {}),
         ...(paymentStatuses.length === 1
           ? { paymentStatus: paymentStatuses[0] }
           : paymentStatuses.length > 1

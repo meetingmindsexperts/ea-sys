@@ -256,17 +256,19 @@ const REGISTRATION_TILES: RegistrationTile[] = [
     matches: (r) => r.status === "CHECKED_IN",
   },
   {
-    // Post-event certificate delivery. Pre-selects the CHECKED_IN audience
-    // (certs go to people who showed up); the dialog's certificate-template
-    // multi-select decides WHICH certs, and each recipient only receives
-    // the ones whose template tag they hold — all in one email.
+    // Post-event certificate delivery. Targets ALL registrations (any
+    // status except CANCELLED — check-in is NOT required; organizer
+    // decision 2026-07-10): the tag is the only gate. The dialog's
+    // certificate-template multi-select decides WHICH certs, and each
+    // recipient only receives the ones whose template tag they hold — all
+    // in one email. Untagged recipients are skipped, never emailed.
     id: "send-certificates",
     label: "Send Certificates",
-    description: "Issue & email certificate PDFs to checked-in attendees",
+    description: "Issue & email certificate PDFs to all registrants — each gets the certs matching their tags",
     icon: Award,
-    filters: { status: "CHECKED_IN" },
+    filters: {},
     defaultEmailType: "certificate",
-    matches: (r) => r.status === "CHECKED_IN",
+    matches: (r) => r.status !== "CANCELLED",
   },
 ];
 
@@ -395,6 +397,14 @@ export default function CommunicationsPage() {
         : null;
     return registrations.filter((r) => {
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
+      // Mirror the backend rule: certificate + payment-reminder sends
+      // exclude CANCELLED registrations when no explicit status is set.
+      if (
+        (f.emailType === "certificate" || f.emailType === "payment-reminder") &&
+        (!f.status || f.status === "all") &&
+        r.status === "CANCELLED"
+      )
+        return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
       if (f.badgeTypes && f.badgeTypes.length > 0 && !(r.badgeType && f.badgeTypes.includes(r.badgeType))) return false;

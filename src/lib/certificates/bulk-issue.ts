@@ -12,7 +12,9 @@
  *   2. TAG-FILTER the selected templates: a recipient only receives the
  *      certs whose template tag they hold (the template's stored tag is the
  *      single source of truth — same rule as survey auto-issue). Zero
- *      matches → per-recipient error.
+ *      matches → SKIPPED (counted in skippedCount, warn-logged, never a
+ *      failure) — the audience may legitimately be ALL registrations with
+ *      the tags deciding who receives what ("no tag, no certificate").
  *   3. findOrIssueCertificate per matching template — real IssuedCertificate
  *      records (serial, audit, resendable); an already-issued template
  *      reuses the existing cert/PDF instead of minting a duplicate.
@@ -146,6 +148,9 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
   total: number;
   successCount: number;
   failureCount: number;
+  /** Recipients holding NONE of the selected templates' tags — not emailed
+   *  by design ("no tag, no certificate"), so neither success nor failure. */
+  skippedCount: number;
   errors: Array<{ email: string; error: string }>;
 }> {
   const {
@@ -168,6 +173,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       total: recipients.length,
       successCount: 0,
       failureCount: recipients.length,
+      skippedCount: 0,
       errors: recipients.map((r) => ({ email: r.email, error: "Event not found" })),
     };
   }
@@ -175,6 +181,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
   const templatesById = new Map(templates.map((t) => [t.id, t]));
   let successCount = 0;
   let failureCount = 0;
+  let skippedCount = 0;
   const errors: Array<{ email: string; error: string }> = [];
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
@@ -205,9 +212,11 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       const outcome = r.status === "fulfilled" ? r.value : { ok: false as const, error: "Unexpected failure" };
       if (outcome.ok) {
         successCount++;
+      } else if (outcome.skipped) {
+        skippedCount++;
       } else {
         failureCount++;
-        errors.push({ email: batch[j].email, error: outcome.error });
+        errors.push({ email: batch[j].email, error: outcome.error ?? "Unexpected failure" });
       }
     }
   }
@@ -220,12 +229,13 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
     total: recipients.length,
     successCount,
     failureCount,
+    skippedCount,
   });
-  return { total: recipients.length, successCount, failureCount, errors };
+  return { total: recipients.length, successCount, failureCount, skippedCount, errors };
 
   async function processRecipient(
     recipient: CertificateBulkRecipient,
-  ): Promise<{ ok: true } | { ok: false; error: string }> {
+  ): Promise<{ ok: true } | { ok: false; skipped?: boolean; error?: string }> {
     if (!recipient.email) {
       return { ok: false, error: "Recipient has no email address" };
     }
@@ -239,6 +249,10 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
     // APPRECIATION ↔ linked speaker tags).
     const targets = selectAutoIssueTargets(templates, facets.attendeeTags, facets.speakerTags);
     if (targets.length === 0) {
+      // "No tag, no certificate" is the routing rule, not a delivery
+      // failure — the audience may legitimately be ALL registrations with
+      // the tags deciding who receives what. Count as skipped (still
+      // warn-logged per recipient so the routing is auditable in /logs).
       apiLogger.warn({
         msg: "cert-bulk:no-applicable-certs",
         eventId,
@@ -247,10 +261,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
         speakerTags: facets.speakerTags,
         templateIds: templates.map((t) => t.id),
       });
-      return {
-        ok: false,
-        error: "No selected certificate applies — the recipient holds none of the templates' tags",
-      };
+      return { ok: false, skipped: true };
     }
 
     const bundled: Array<{ template: LoadedCertTemplate; cert: BundleCert }> = [];

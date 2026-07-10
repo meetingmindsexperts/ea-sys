@@ -6,7 +6,7 @@
  *     across BOTH person facets — registration + linked speaker)
  *   - one email per recipient with all applicable certs
  *   - reuse (already-issued) attaches without a new audit row
- *   - per-recipient error isolation (zero-match, all-fail, send-fail)
+ *   - per-recipient isolation (zero-match → SKIP, all-fail / send-fail → error)
  *   - custom subject/message override vs per-template/multi defaults
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -146,13 +146,16 @@ describe("executeCertificateBulkSend", () => {
     expect(sent.emailSubjectTemplate).toBe("Att subject");
   });
 
-  it("reports a per-recipient error when no template tag matches (no email)", async () => {
+  it("SKIPS (not fails) a recipient when no template tag matches — no tag, no certificate", async () => {
     mockDb.registration.findUnique.mockResolvedValue({
       attendee: { tags: ["something-else"], email: "jane@x.com" },
     });
     const res = await executeCertificateBulkSend(BASE);
-    expect(res).toMatchObject({ total: 1, successCount: 0, failureCount: 1 });
-    expect(res.errors[0].error).toContain("No selected certificate applies");
+    // Tag routing is the rule, not a delivery failure — the audience may be
+    // ALL registrations with the tags deciding who receives what. The
+    // untagged recipient lands in skippedCount, never in errors.
+    expect(res).toMatchObject({ total: 1, successCount: 0, failureCount: 0, skippedCount: 1 });
+    expect(res.errors).toHaveLength(0);
     expect(mockBundleSend).not.toHaveBeenCalled();
   });
 

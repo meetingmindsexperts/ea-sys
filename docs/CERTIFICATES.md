@@ -427,6 +427,38 @@ The `CertificateIssueRunItem` uniqueness is enforced as **partial unique indexes
 facet cannot collide. Deferred MEDIUM/LOW → see
 [ROADMAP.md](ROADMAP.md) §"Certificate rework — deferred review findings (July 9, 2026)".
 
+## Bulk-email certificate send — audience is ALL registrations (July 10, 2026)
+
+The Communications → **Send Certificates** tile used to pre-filter the
+audience to `status = CHECKED_IN`, so CONFIRMED (never-scanned) registrants
+were invisible to the send — organizer-reported bug. Per the organizer's
+decision (2026-07-10): **check-in status does NOT gate certificates; the
+template tag is the only routing rule** ("no tag, no certificate").
+
+Behavior after the fix:
+
+- The **Send Certificates tile** ([communications/page.tsx](../src/app/(dashboard)/events/[eventId]/communications/page.tsx))
+  targets **all registrations** — no status pre-filter. The organizer can
+  still narrow via the dialog's "Filter recipients" section (an explicit
+  status filter is respected as-is).
+- **CANCELLED registrations are always excluded** when no explicit status
+  filter is set — enforced server-side in `executeBulkEmail`'s registration
+  `where` ([bulk-email.ts](../src/lib/bulk-email.ts)), mirroring the
+  Issue-tab eligibility rule above. The client-side recipient counters
+  (Communications page + registrations list) mirror the same rule via a new
+  `emailType` field on `BulkEmailEffectiveFilters`, so count == send.
+- **Recipients holding none of the selected templates' tags are SKIPPED,
+  not failed** ([bulk-issue.ts](../src/lib/certificates/bulk-issue.ts)):
+  they get no email, land in a new `skippedCount` (returned through
+  `BulkEmailResult`, surfaced in the worker's `scheduled-email:sent` log +
+  admin notification), and are warn-logged per recipient
+  (`cert-bulk:no-applicable-certs`) so the routing stays auditable. Before
+  this, an all-registrations send with 50 tagged people out of 300 would
+  have reported 250 "failures".
+
+The manual **Issue tab** flow was already correct (tag-scoped pool over all
+non-CANCELLED registrations, no check-in gate) and is unchanged.
+
 ## Deferred / not implemented
 
 - **Tag-scoped bulk reissue in the UI** — the certificates-page

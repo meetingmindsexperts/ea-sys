@@ -63,6 +63,13 @@ export interface BulkEmailEffectiveFilters {
   agreementSigned?: string;
   hasSession?: string;
   sessionRole?: string;
+  /**
+   * The currently selected email type — lets the page's counter mirror
+   * type-specific backend `where` rules (certificate + payment-reminder
+   * sends exclude CANCELLED registrations when no explicit status filter
+   * is set), keeping the shown count equal to the actual send.
+   */
+  emailType?: string;
 }
 
 /** Render a payment-filter value (single status, comma-list, or "all") as a label. */
@@ -420,6 +427,7 @@ export function BulkEmailDialog({
     agreementSigned: agreementSignedFilter,
     hasSession: hasSessionFilter,
     sessionRole: sessionRoleFilter,
+    emailType,
   };
   // Whether the *effective* send resolves to a filter-based ("matching")
   // audience rather than a fixed list of selected rows. Always true in "all"
@@ -730,8 +738,11 @@ export function BulkEmailDialog({
               )}
               <p className="text-xs text-muted-foreground">
                 Each recipient receives <strong>only</strong> the certificates whose tag they
-                hold — all in one email, with one PDF per certificate. Already-issued
-                certificates are re-attached (same serial), never duplicated.
+                hold — all in one email, with one PDF per certificate. Recipients holding
+                none of the selected tags are skipped (no email). Already-issued
+                certificates are re-attached (same serial), never duplicated. Any
+                registration status qualifies (check-in not required); cancelled
+                registrations are always excluded.
               </p>
             </div>
           )}

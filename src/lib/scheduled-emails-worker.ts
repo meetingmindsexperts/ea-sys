@@ -154,6 +154,9 @@ async function processRow(
             totalRecipients: result.total,
             successCount: result.successCount,
             failureCount: result.failureCount,
+            // Certificate sends only — recipients holding none of the
+            // selected templates' tags ("no tag, no certificate" routing).
+            ...(result.skippedCount ? { skippedCount: result.skippedCount } : {}),
           },
         },
       })
@@ -164,7 +167,9 @@ async function processRow(
     notifyEventAdmins(row.eventId, {
       type: "REGISTRATION",
       title: "Scheduled Email Sent",
-      message: `Email sent to ${result.successCount} recipients`,
+      message: `Email sent to ${result.successCount} recipients${
+        result.skippedCount ? ` (${result.skippedCount} skipped — no matching certificate tag)` : ""
+      }`,
       link: `/events/${row.eventId}/communications`,
     }).catch((err) =>
       apiLogger.error({ err, msg: "Failed to notify admins of scheduled email send", id: row.id }),
@@ -178,6 +183,7 @@ async function processRow(
       total: result.total,
       successCount: result.successCount,
       failureCount: result.failureCount,
+      ...(result.skippedCount ? { skippedCount: result.skippedCount } : {}),
     });
 
     return {
