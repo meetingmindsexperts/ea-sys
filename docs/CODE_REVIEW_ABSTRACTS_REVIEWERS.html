@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — Abstracts &amp; Reviewers (July 2026)</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1d21;
+    --muted: #5f6b7a;
+    --line: #e3e8ee;
+    --card: #f7f9fb;
+    --accent: #00aade;
+    --blocker: #b91c1c;
+    --high: #c2410c;
+    --medium: #a16207;
+    --low: #0f766e;
+    --code-bg: #f3f5f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 1rem 6rem;
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--fg); background: var(--bg);
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header { padding: 3rem 0 1.5rem; border-bottom: 3px solid var(--accent); margin-bottom: 2rem; }
+  h1 { font-size: 2rem; margin: 0 0 .4rem; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: .95rem; }
+  h2 {
+    font-size: 1.35rem; margin: 3rem 0 1rem; padding-bottom: .4rem;
+    border-bottom: 1px solid var(--line); letter-spacing: -.01em;
+  }
+  h3 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: .86em; }
+  code { background: var(--code-bg); padding: .12em .35em; border-radius: 3px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: .85rem 1rem; overflow-x: auto; line-height: 1.5; margin: .75rem 0;
+  }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .93rem; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  .tbl-wrap { overflow-x: auto; }
+  .sev { font-weight: 700; font-size: .74rem; letter-spacing: .05em; text-transform: uppercase;
+         padding: .16em .5em; border-radius: 3px; color: #fff; white-space: nowrap; }
+  .sev.blocker { background: var(--blocker); }
+  .sev.high { background: var(--high); }
+  .sev.medium { background: var(--medium); }
+  .sev.low { background: var(--low); }
+  .finding {
+    background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line);
+    border-radius: 6px; padding: 1.1rem 1.3rem; margin: 1.25rem 0;
+  }
+  .finding.blocker { border-left-color: var(--blocker); }
+  .finding.high { border-left-color: var(--high); }
+  .finding.medium { border-left-color: var(--medium); }
+  .finding.low { border-left-color: var(--low); }
+  .finding h3 { margin-top: 0; }
+  .loc { color: var(--muted); font-size: .87rem; margin: .1rem 0 .8rem; }
+  .lbl { font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em;
+         color: var(--muted); margin: .9rem 0 .2rem; }
+  .note { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 6px; padding: .9rem 1.1rem; margin: 1.25rem 0; }
+  .note.warn { background: #fffbeb; border-color: #fde68a; }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: .3rem 0; }
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #93a1b0; --line: #2b3138;
+      --card: #1b1f24; --code-bg: #22272d;
+      --blocker: #ef4444; --high: #fb923c; --medium: #fbbf24; --low: #2dd4bf;
+    }
+    .sev { color: #14171a; }
+    .note { background: #0c2b3a; border-color: #1e4a5f; }
+    .note.warn { background: #33290c; border-color: #66551a; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Abstracts &amp; Reviewers</h1>
+  <p class="sub">
+    Production-readiness audit · 10 July 2026 · EA-SYS <code>main</code> @ <code>101916e</code><br />
+    Four independent review passes: submission→decision lifecycle · RBAC / info-leaks ·
+    concurrency &amp; integrity · drift &amp; failure-visibility.
+  </p>
+</header>
+
+<div class="note">
+  <strong>How to read this.</strong> Findings are grouped by theme; where two independent passes hit
+  the same defect that is noted. Everything already tracked in <code>docs/ROADMAP.md</code>'s
+  "Reviewer/submitter lifecycle audit" (June 26) was excluded: REVISION_REQUESTED author lock,
+  COI-blocks-write-not-read, mean-score visibility to submitters. The <code>feedbackOnly</code>
+  dead-code suspicion was re-examined and is REPORTED here (M10) because the finding grew: the
+  entire "reviewer added feedback" notification path silently vanished, and CLAUDE.md still
+  advertises it. Top-severity findings (H1–H6, H8, H9) were independently re-verified in source by
+  the lead reviewer — quoted lines confirmed byte-for-byte.
+</div>
+
+<h2 id="summary">1. Executive summary</h2>
+
+<p>
+  The Sprint-B redesign (per-reviewer <code>AbstractReviewSubmission</code> rows, the
+  <code>requiredReviewCount</code> gate, chair override, the <code>/my-reviews</code> portal) is
+  structurally sound, and several hard things are done right: the review-submission upsert is
+  DB-native atomic; the pool-membership array goes through the row-locked
+  <code>updateEventSettings</code> helper everywhere; unassign genuinely preserves submissions
+  (SET&nbsp;NULL verified in schema); the 300-word and 20-co-author caps hold on every write path;
+  and the June 26 COI gates are intact on all three submit paths.
+</p>
+
+<p>Four structural patterns explain nearly every finding:</p>
+
+<ol>
+  <li>
+    <strong>Status is writable OUTSIDE the gated service.</strong>
+    <code>changeAbstractStatus</code> centralizes the review gate, terminal guard, audit, and
+    notifications — but the PUT's field-update branch writes <code>status</code> blindly
+    (<a href="#h1">H1</a>), the create POST accepts any birth status (<a href="#h2">H2</a>), and
+    even the service itself writes without a conditional claim (<a href="#h4">H4</a>).
+  </li>
+  <li>
+    <strong>The decision gate counts rows, not reviews.</strong> Empty submissions satisfy it
+    (<a href="#h5">H5</a>), pre-revision submissions satisfy it after a resubmit
+    (<a href="#m1">M1</a>), phantom submissions on DRAFTs count (<a href="#h6">H6</a>), and the
+    count is read outside any transaction (<a href="#m4">M4</a>).
+  </li>
+  <li>
+    <strong>The blind-review posture is one-sided.</strong> The submissions GET carefully strips
+    reviewer identity for authors — but the decision <em>email</em> names every reviewer next to
+    their notes (<a href="#h9">H9</a>), MEMBER gets the full who-said-what view
+    (<a href="#m7">M7</a>), and pool reviewers see each other's scores (<a href="#l2">L2</a>).
+  </li>
+  <li>
+    <strong>Review submission never got its service.</strong> The ~120-line pipeline is triplicated
+    across REST + two MCP executors with live drift — including an admin-auth difference and, on
+    the write side, a missing org bind that lets another org's admin inject scores
+    (<a href="#h7">H7</a>, <a href="#h3">H3</a>); MCP assignment silently drops the COI flag that
+    has been an enforcement input since June 26 (<a href="#h8">H8</a>).
+  </li>
+</ol>
+
+<h2 id="counts">2. Findings at a glance</h2>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>Severity</th><th>Count</th><th>IDs</th></tr>
+  <tr><td><span class="sev blocker">Blocker</span></td><td>0</td><td>—</td></tr>
+  <tr><td><span class="sev high">High</span></td><td>9</td><td><a href="#h1">H1</a>–<a href="#h9">H9</a></td></tr>
+  <tr><td><span class="sev medium">Medium</span></td><td>11</td><td><a href="#m1">M1</a>–<a href="#m11">M11</a></td></tr>
+  <tr><td><span class="sev low">Low</span></td><td>6</td><td><a href="#l1">L1</a>–<a href="#l6">L6</a></td></tr>
+</table>
+</div>
+
+<h2 id="status">3. Status integrity — writes outside the gated service</h2>
+
+<div class="finding high" id="h1">
+  <h3><span class="sev high">High</span> &nbsp; H1 — The PUT's field-update branch writes <code>status</code> with zero transition validation: an ACCEPTED or WITHDRAWN abstract can be flipped back to SUBMITTED or DRAFT — by roles as low as REVIEWER, or even a REGISTRANT with event access</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts:48, 345</code></p>
+<pre><code>status: z.enum(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED", "WITHDRAWN"]).optional(),
+...
+...(data.status &amp;&amp; { status: data.status }),   // field branch — no prior-state check</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    <code>SUBMITTED</code>/<code>DRAFT</code> targets are neither review statuses nor terminal, so
+    they skip <code>changeAbstractStatus</code> entirely (and its WITHDRAWN terminal guard) and land
+    in the blind field write. Role guards fence only review statuses and the SUBMITTER branch —
+    other roles with event access (REVIEWER; a REGISTRANT whose linked registration grants access
+    via <code>buildEventAccessWhere</code>) pass. A PUT of <code>{status:"SUBMITTED"}</code> on an
+    ACCEPTED/WITHDRAWN abstract reverses the decision, re-stamps <code>submittedAt</code>
+    (<code>isSubmission</code> fires), re-emails the speaker a fresh submission confirmation, and
+    re-notifies admins; <code>{status:"DRAFT"}</code> on an ACCEPTED abstract hides it from every
+    organizer/reviewer list (draft-visibility filter) while returning edit rights to the author.
+    Fix shape: the field branch must never write <code>status</code> — every status write routes
+    through the service.
+  </p>
+</div>
+
+<div class="finding high" id="h2">
+  <h3><span class="sev high">High</span> &nbsp; H2 — Abstract CREATE accepts any birth status: a submitter can mint a born-ACCEPTED abstract with one crafted request</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/abstracts/route.ts:20, 37, 158</code></p>
+<pre><code>const abstractStatusSchema = z.nativeEnum(AbstractStatus);
+...
+status: abstractStatusSchema.default("SUBMITTED"),
+...
+if (session.user.role === "REVIEWER") { return ... 403 }   // only REVIEWER blocked from POST</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    The PUT path's careful gates (review-status 403 for submitters, the review-count gate, the
+    chair-override audit, the speaker notification) apply only to <em>transitions</em>, never to
+    <em>birth status</em>. A self-service SUBMITTER POSTs <code>{ status: "ACCEPTED" }</code> —
+    the row is born accepted with zero reviews, no <code>submittedAt</code> (stamped only for
+    SUBMITTED), no chair-override audit, no email trail; organizer statistics count it as a
+    decision. Fix shape: restrict create status to <code>DRAFT | SUBMITTED</code>.
+  </p>
+</div>
+
+<div class="finding high" id="h4">
+  <h3><span class="sev high">High</span> &nbsp; H4 — <code>changeAbstractStatus</code> itself is check-then-act: racing decisions resurrect a WITHDRAWN abstract and send the author contradictory accepted+rejected emails</h3>
+  <p class="loc"><code>src/services/abstract-service.ts:140-147, 179-196</code></p>
+<pre><code>if (abstract.status === "WITHDRAWN" &amp;&amp; newStatus !== "WITHDRAWN") { ... return ABSTRACT_WITHDRAWN }
+...
+updated = await db.abstract.update({ where: { id: abstractId }, data: { status: newStatus, ... } });</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Both guards run on a snapshot; the write is unconditional on id. Organizer A PUTs WITHDRAWN
+    while organizer B PUTs ACCEPTED: both reads see UNDER_REVIEW, both pass the terminal guard
+    (the window spans B's aggregates query), A commits WITHDRAWN, B commits ACCEPTED — the
+    "terminal" state is exited and the author receives BOTH emails, each computed against its own
+    stale <code>previousStatus</code>. House fix: conditional claim
+    (<code>updateMany where { id, status: previousStatus }</code>, count 0 = lost race) inside one
+    transaction — which also fixes <a href="#m4">M4</a> for free, and the MCP path inherits it via
+    the shared service.
+  </p>
+</div>
+
+<h2 id="gate">4. The decision gate — counts rows, not reviews</h2>
+
+<div class="finding high" id="h5">
+  <h3><span class="sev high">High</span> &nbsp; H5 — The <code>requiredReviewCount</code> gate is satisfiable by completely EMPTY review submissions — including ones an admin mints for themself with no pool membership and no audit trail</h3>
+  <p class="loc"><code>…/submissions/route.ts:11-16, 173-174</code> · <code>src/services/abstract-service.ts:157</code></p>
+<pre><code>const submissionSchema = z.object({
+  criteriaScores: ...optional(), overallScore: ...optional(),
+  reviewNotes: ...optional(), recommendedFormat: ...optional(), confidence: ...optional(),
+});                                                    // EVERY field optional → POST {} inserts a row
+...
+if (!forceStatus &amp;&amp; aggregateResult.aggregates.count &lt; requiredCount) { ... }   // count = rows</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Event requires 2 reviews. A reviewer clicking through the form without scoring — or an
+    ADMIN/ORGANIZER (allowed to submit with no pool membership or assignment) posting
+    <code>{}</code> — creates an all-null submission; the count reaches 2 and ACCEPTED passes the
+    gate with zero actual scores and <strong>no chair-override record</strong> (unlike
+    <code>forceStatus</code>, the sanctioned + audited bypass). Fix shape: the gate counts only
+    submissions carrying at least an <code>overallScore</code> or non-empty
+    <code>criteriaScores</code>; the schema should reject fully-empty POSTs.
+  </p>
+</div>
+
+<div class="finding high" id="h6">
+  <h3><span class="sev high">High</span> &nbsp; H6 — DRAFT (and WITHDRAWN) abstracts leak into the reviewer portal, can be ASSIGNED, and can be SCORED — and those phantom submissions count toward the decision gate</h3>
+  <p class="loc"><code>src/app/api/my-reviews/route.ts:36-51</code> · <code>…/submissions/route.ts</code> POST (no abstract-status check) · <code>…/reviewers/route.ts</code> POST (assigns onto DRAFTs)</p>
+<pre><code>db.abstract.findMany({
+  where: { event: { status: { not: "CANCELLED" }, settings: { path: ["reviewerUserIds"], array_contains: userId } } },
+  // ← no abstract.status filter; DRAFTs + WITHDRAWNs render as PENDING work</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Both abstracts LIST routes deliberately route through <code>abstractListStatusFilter</code> so
+    drafts are never shown to reviewers — the portal query forgot the filter, so a pool reviewer
+    sees (title + status) and reviews an author's unfinished draft. The submissions POST never
+    checks abstract status, so DRAFT/WITHDRAWN/already-decided abstracts are all scoreable, and
+    those submissions satisfy <a href="#h5">H5</a>'s gate. Fix shape: status filter in the portal
+    feed; the submissions POST refuses unless status ∈ {SUBMITTED, UNDER_REVIEW,
+    REVISION_REQUESTED}; assignment POST refuses DRAFT/WITHDRAWN.
+  </p>
+</div>
+
+<div class="finding medium" id="m1">
+  <h3><span class="sev medium">Medium</span> &nbsp; M1 — Decisions can rest on reviews of pre-revision content, and NEEDS_UPDATE misses content-only edits</h3>
+  <p class="loc"><code>src/services/abstract-service.ts:152-169</code> · <code>src/app/api/my-reviews/route.ts:129</code></p>
+  <p>
+    After REVISION_REQUESTED → resubmit (which re-stamps <code>submittedAt</code>), the old
+    submissions still fully satisfy the ACCEPT/REJECT gate — nothing compares
+    <code>submission.updatedAt</code> to <code>abstract.submittedAt</code> at decision time.
+    Separately, the portal staleness flag keys on <code>submittedAt</code>, so an organizer editing
+    <code>content</code> via the field-only PUT (bumps only <code>updatedAt</code>) never flips
+    NEEDS_UPDATE — contradicting its documented intent.
+  </p>
+</div>
+
+<div class="finding medium" id="m4">
+  <h3><span class="sev medium">Medium</span> &nbsp; M4 — The review-count gate is a TOCTOU: count read outside any transaction, status written afterwards</h3>
+  <p class="loc"><code>src/services/abstract-service.ts:152-181</code></p>
+  <p>
+    <code>computeSubmissionAggregates</code> accepts a <code>tx</code> parameter precisely for
+    consistent reads — the service never passes one. A submission cascade-deleted between the count
+    and the write (e.g. the reviewer's User account deleted, <code>onDelete: Cascade</code>) lets
+    ACCEPTED commit below the gate with a stale <code>reviewCount</code> in the audit row. Folds
+    into <a href="#h4">H4</a>'s transaction fix.
+  </p>
+</div>
+
+<h2 id="blind">5. Blind review — one-sided anonymity</h2>
+
+<div class="finding high" id="h9">
+  <h3><span class="sev high">High</span> &nbsp; H9 — The status-change email NAMES each reviewer next to their notes — the API strips identities for authors; the email hands them over</h3>
+  <p class="loc"><code>src/lib/abstract-review.ts:182</code> → <code>src/lib/abstract-notifications.ts</code> (speaker email) · contrast <code>…/submissions/route.ts:83-102</code> (anonymized author view)</p>
+<pre><code>return withNotes.map((s) =&gt; `— ${s.reviewerName}:\n${s.reviewNotes}`).join("\n\n");   // consolidateReviewNotes
+// vs the submissions GET speaker view: reviewer identity deliberately stripped</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Every REJECTED / REVISION_REQUESTED email with 2+ notes tells the author exactly who wrote each
+    criticism (single-note panels leak by elimination). Real-world harm on a medical-conference
+    platform: reviewer harassment, damaged relationships, chilled honest reviews — the exact things
+    the GET's anonymization exists to prevent. One of the two intents is wrong; as shipped, the API
+    hides what the email reveals. Fix shape: strip attribution in the email (join notes without
+    names), or make attribution an explicit per-event choice.
+  </p>
+</div>
+
+<div class="finding medium" id="m7">
+  <h3><span class="sev medium">Medium</span> &nbsp; M7 — MEMBER (read-only, "sponsor-side stakeholders") receives the FULL per-reviewer view: identities, notes, per-criterion scores, confidence</h3>
+  <p class="loc"><code>…/submissions/route.ts:71-108</code> (GET — <code>isOrgMember</code> passes MEMBER; returns un-stripped <code>aggregate.submissions</code>)</p>
+  <p>
+    The author view is correctly stripped; the org-member view is not role-tiered. Restrict the
+    who-said-what view to ADMIN/ORGANIZER (and assigned reviewers per <a href="#l2">L2</a>'s
+    decision); MEMBER gets the anonymized aggregates.
+  </p>
+</div>
+
+<h2 id="crossorg">6. Cross-surface security &amp; drift</h2>
+
+<div class="finding high" id="h3">
+  <h3><span class="sev high">High</span> &nbsp; H3 — Cross-org review-score injection: the submissions POST authorizes admins by BARE ROLE with an unscoped event lookup</h3>
+  <p class="loc"><code>…/submissions/route.ts:149-182</code> (POST) — contrast the org-safe GET in the same file</p>
+<pre><code>db.event.findFirst({ where: { id: eventId }, ... })     // ← no organizationId / buildEventAccessWhere
+...
+const isAdmin = session.user.role === "ADMIN" || ... "ORGANIZER";
+if (!isEventReviewer &amp;&amp; !existingAssignment &amp;&amp; !isAdmin) { ... 403 }</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    An ORGANIZER of org B posts a score against any org A abstract id — passes <code>isAdmin</code>,
+    upserts a submission, and that score feeds the mean + the decision gate of another org's peer
+    review. The sibling GET binds <code>event.organizationId === session.user.organizationId</code>;
+    the write path forgot it. Same class as this week's activity-route and invoice-create IDORs.
+  </p>
+</div>
+
+<div class="finding high" id="h7">
+  <h3><span class="sev high">High</span> &nbsp; H7 — The review-submission pipeline is TRIPLICATED (REST + 2 MCP executors) with live behavioral drift — including an admin-auth difference</h3>
+  <p class="loc"><code>…/submissions/route.ts:200-295</code> vs <code>src/lib/agent/tools/abstracts.ts:539-655</code> (submit) vs <code>:711-816</code> (on-behalf)</p>
+  <p class="lbl">Verified drift</p>
+  <ul>
+    <li>REST lets admins score without pool/assignment; MCP <code>submit_abstract_review</code> has
+      no admin term — same organizer succeeds in the dashboard, gets <code>NOT_A_REVIEWER</code>
+      via MCP.</li>
+    <li>REST can clear notes with an empty string; MCP silently keeps the old notes.</li>
+    <li>REST Zod requires integer scores; the executors accept floats (currently re-guarded only by
+      the MCP transport's own Zod).</li>
+    <li>REST rejects <code>DUPLICATE_CRITERION_ID</code>; the executors have no such check.</li>
+  </ul>
+  <p>
+    ~120 lines × 3 copies of exactly the logic class <code>abstract-service.ts</code> was created to
+    centralize. Fix shape: extract <code>submitAbstractReview()</code> into the service (auth
+    matrix + COI + validation + weighted-score + upsert + audit), all three callers delegate — which
+    also closes <a href="#h3">H3</a> in one place.
+  </p>
+</div>
+
+<div class="finding high" id="h8">
+  <h3><span class="sev high">High</span> &nbsp; H8 — MCP <code>assign_reviewer_to_abstract</code> advertises <code>conflictFlag</code> but silently drops it — and COI has been ENFORCEMENT, not metadata, since June 26</h3>
+  <p class="loc"><code>src/lib/agent/register-mcp-tools.ts:368-372</code> (schema promises it) vs <code>src/lib/agent/tools/abstracts.ts:306-318</code> (executor never reads it)</p>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    An admin telling claude.ai/n8n "assign Dr X, flag the conflict of interest" gets
+    <code>success: true</code>, no flag is written, and the conflicted reviewer's score silently
+    counts toward ACCEPT/REJECT — the exact outcome the June 26 COI fix exists to prevent. The MCP
+    path also can't toggle COI on an existing assignment (REST can). CLAUDE.md's claim of REST↔MCP
+    parity here is false.
+  </p>
+</div>
+
+<div class="finding medium" id="m8">
+  <h3><span class="sev medium">Medium</span> &nbsp; M8 — Reviewer-assignment target <code>userId</code> is looked up GLOBALLY with no org/role bind — assigning the abstract's own author enables self-review; arbitrary users get emailed abstract details</h3>
+  <p class="loc"><code>…/reviewers/route.ts:69-77, 184-193</code> + MCP <code>abstracts.ts:325-328</code> (identical unbound lookup)</p>
+<pre><code>db.user.findUnique({ where: { id: validated.data.userId }, ... })   // any user, any org, any role</code></pre>
+  <p>
+    The assignment then grants that user reviewer-auth on the abstract (the
+    <code>existingAssignment</code> path in the submissions POST) — so assigning the abstract's own
+    <code>speaker.userId</code> launders a self-review into the gate. Also fires
+    <code>notifyReviewerAssigned</code> to arbitrary addresses with the abstract title + event name.
+    Fix shape: target must not be the abstract's author, and must be in the event reviewer pool or
+    an org team role.
+  </p>
+</div>
+
+<div class="finding medium" id="m9">
+  <h3><span class="sev medium">Medium</span> &nbsp; M9 — In-app agent: 5 abstract executors undiscoverable + the one status tool it has advertises <code>reviewNotes</code> the executor discards and omits <code>force</code></h3>
+  <p class="loc"><code>src/lib/agent/tools/abstracts.ts:903-999</code> (9 defs) vs <code>:1001-1016</code> (14 executors) · <code>update_abstract_status</code> def <code>:979-993</code></p>
+  <p>
+    <code>assign/unassign_reviewer_to_abstract</code>, <code>submit_abstract_review</code>,
+    <code>admin_submit_review_on_behalf</code>, <code>get_abstract_scores</code> are wired +
+    MCP-registered but absent from <code>ABSTRACT_TOOL_DEFINITIONS</code> — the in-app agent can't
+    call them (the June session-tools gap class, again). And the def's <code>reviewNotes</code>
+    param is never read by the executor — notes an agent believes went to the author vanish with
+    <code>success: true</code> — while <code>force</code> (supported + suggested by the
+    INSUFFICIENT_REVIEWS error) is missing from the schema, so schema-strict clients can't pass it.
+  </p>
+</div>
+
+<h2 id="integrity">7. Data-integrity &amp; workflow gaps</h2>
+
+<div class="finding medium" id="m2">
+  <h3><span class="sev medium">Medium</span> &nbsp; M2 — Criteria are mutable/deletable mid-round with no protection: orphaned score keys, mixed weight bases in the mean, and no sum-to-100 enforcement anywhere</h3>
+  <p class="loc"><code>…/review-criteria/[criterionId]/route.ts:50-88</code> · <code>src/lib/abstract-review.ts:31, 43-49</code> · <code>…/submissions/route.ts:210-229</code></p>
+<pre><code>const weightedOnTen = scores.reduce((sum, c) =&gt; sum + (c.score * c.weight) / 100, 0);  // assumes Σweight = 100
+weight: z.number().int().min(1).max(100),   // per-criterion bound only — the helper's "enforced by the route schema" comment is FALSE</code></pre>
+  <p>
+    Weights summing to 130 clamp all top scores to 100 (compression); summing to 50 cap everyone at
+    50. <code>overallScore</code> is computed with the weights current at submit time and never
+    recomputed, so reweighting mid-round averages incomparable bases into the mean that drives
+    decisions. Deleting a criterion leaves orphaned ids in <code>criteriaScores</code> JSON (still
+    surfaced in <code>perCriterion</code> with no name) and hard-rejects any reviewer mid-form with
+    <code>INVALID_CRITERION_ID</code> — losing everything they typed. Fix shape: warn/refuse
+    weight-sum ≠ 100; refuse delete when submissions reference the id (the certificates
+    template-delete 409 pattern).
+  </p>
+</div>
+
+<div class="finding medium" id="m3">
+  <h3><span class="sev medium">Medium</span> &nbsp; M3 — <code>allowAbstractSubmissions</code> and <code>abstractDeadline</code> gate only the PUBLIC REGISTRATION — not abstract creation, submission, or resubmission</h3>
+  <p class="loc"><code>src/app/api/public/events/[slug]/submitter/route.ts:98-116</code> (the only checks) — neither setting referenced in the abstracts POST/PUT</p>
+  <p>
+    Any submitter who registered before the CFP closed can keep creating and submitting abstracts
+    indefinitely; flipping the toggle off only stops new account creation. Fix shape: the same two
+    checks in the create POST + the DRAFT→SUBMITTED / resubmit branches (organizer/admin exempt).
+  </p>
+</div>
+
+<div class="finding medium" id="m5">
+  <h3><span class="sev medium">Medium</span> &nbsp; M5 — Abstract create has zero double-submit defense: duplicate abstracts + duplicate emails on a double-click</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/abstracts/route.ts:223-243</code></p>
+  <p>
+    No unique on (eventId, speakerId, title), no dedup check — unlike every other create surface
+    (registration, speaker). Double-click → two SUBMITTED twins, two confirmation emails, two admin
+    notifications, double reviewer effort. The PUT resubmit double-fires too when the client omits
+    <code>expectedUpdatedAt</code>.
+  </p>
+</div>
+
+<div class="finding medium" id="m6">
+  <h3><span class="sev medium">Medium</span> &nbsp; M6 — The PUT's status branch bypasses the optimistic lock and applies field updates in a second, non-atomic write</h3>
+  <p class="loc"><code>…/abstracts/[abstractId]/route.ts:264-314</code> vs the field-only branch's <code>STALE_WRITE</code> guard at <code>:332</code></p>
+  <p>
+    "Set track + ACCEPTED" clobbers a concurrent editor's changes with no 409, and if the follow-up
+    field write throws, the decision + speaker email have already fired while the caller sees a 500
+    claiming nothing succeeded. Fold into <a href="#h1">H1</a>'s restructure (single transaction,
+    lock honored on both branches).
+  </p>
+</div>
+
+<div class="finding medium" id="m10">
+  <h3><span class="sev medium">Medium</span> &nbsp; M10 — The "reviewer added feedback" notification path silently vanished in Sprint B; <code>feedbackOnly</code> is dead code and CLAUDE.md still advertises the feature</h3>
+  <p class="loc"><code>src/lib/abstract-notifications.ts:61, 85-90, 131-134</code> — zero callers pass <code>feedbackOnly</code>; no notification helper is called from the submissions POST or either MCP submit executor</p>
+  <p>
+    The speaker "Reviewer Feedback Received" email is unreachable, and admins are no longer notified
+    when a review lands (only on status transitions). CLAUDE.md's "Email sent when reviewer adds
+    notes/score without status change" claim is stale. Decide: re-wire the notification from the
+    (to-be-extracted, <a href="#h7">H7</a>) submission service, or delete the branch + correct the doc.
+  </p>
+</div>
+
+<div class="finding medium" id="m11">
+  <h3><span class="sev medium">Medium</span> &nbsp; M11 — Silent 4xx sweep: ~20 unlogged rejection paths across the domain</h3>
+  <p class="loc">PUT guards (<code>SUBMITTED_LOCKED</code>, <code>WITHDRAW_NOT_ALLOWED</code>, forceStatus/review-status 403s, Track/Theme 404s, <code>PRESENTATION_TYPE_REQUIRED</code>), the service-error passthrough (only INSUFFICIENT_REVIEWS logs), submissions 403/400s, reviewers + review-criteria 404s, abstracts POST 403/404s</p>
+  <p>
+    Same class fixed for payments this morning (M12 there): a submitter reporting "my save says
+    forbidden" leaves nothing in <code>/logs</code>. One logging pass at the boundaries + the
+    service.
+  </p>
+</div>
+
+<h2 id="lows">8. Lows</h2>
+
+<div class="finding low" id="l1">
+  <h3><span class="sev low">Low</span> &nbsp; L1 — <code>Abstract.managementToken</code> is generated, returned in create/detail responses, and NEVER consumed — a latent plaintext secret</h3>
+  <p class="loc"><code>abstracts/route.ts:235</code> (generate) · <code>[abstractId]/route.ts:108</code> (full-row return) — no route validates it</p>
+  <p>Good entropy, but exposed to every org member/reviewer and stored unhashed (unlike the reviewer-invite tokens). Strip it from serialized responses; hash it if a public route ever consumes it.</p>
+</div>
+
+<div class="finding low" id="l2">
+  <h3><span class="sev low">Low</span> &nbsp; L2 — Pool reviewers see co-reviewers' identities, emails, and scores on the per-abstract reviewers GET (anchoring/collusion risk)</h3>
+  <p class="loc"><code>…/reviewers/route.ts:222-275</code></p>
+  <p>Fine for organizers; consider gating the identity/score fields to ADMIN/ORGANIZER — a product call on the independent-review posture.</p>
+</div>
+
+<div class="finding low" id="l3">
+  <h3><span class="sev low">Low</span> &nbsp; L3 — Pool add: reviewer-User create races P2002 into a generic 500, and a settings-append failure strands a created account + live invite OUTSIDE the pool</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/reviewers/route.ts:235-241, 342-382</code></p>
+  <p>Data integrity holds (unique constraint); the mapping + the create→invite→append ordering degrade UX into the exact "stranded reviewer" state resend-invitation was built to fix.</p>
+</div>
+
+<div class="finding low" id="l4">
+  <h3><span class="sev low">Low</span> &nbsp; L4 — Submitter signup racing itself: P2002 surfaces as a 500 instead of the designed 409 "account exists, log in"</h3>
+  <p class="loc"><code>src/app/api/public/events/[slug]/submitter/route.ts:148-159, 183-247</code></p>
+</div>
+
+<div class="finding low" id="l5">
+  <h3><span class="sev low">Low</span> &nbsp; L5 — Reviewer-assign "upsert" is find-then-create on both surfaces: concurrent assigns P2002 → 500/<code>UNKNOWN</code>, contradicting the route's own "idempotent" comment</h3>
+  <p class="loc"><code>…/reviewers/route.ts:83-164</code> · MCP <code>abstracts.ts:332-379</code> — a real <code>db.abstractReviewer.upsert</code> on the compound unique fixes both</p>
+</div>
+
+<div class="finding low" id="l6">
+  <h3><span class="sev low">Low</span> &nbsp; L6 — Doc drift: CLAUDE.md's June 10 entry still says "the COI flag is advisory in v1 — does NOT auto-block", contradicting the June 26 enforcement (+ micro-gap: MCP <code>create_review_criterion</code> misses the 200-char name cap REST and the MCP update path enforce)</h3>
+  <p class="loc">CLAUDE.md June 10 abstracts entry · <code>src/lib/agent/tools/abstracts.ts:74</code> vs <code>:109</code></p>
+</div>
+
+<h2 id="plan">9. Suggested remediation phases</h2>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>Phase</th><th>Findings</th><th>Shape of the fix</th></tr>
+  <tr>
+    <td>1 — Status integrity</td>
+    <td><a href="#h1">H1</a>, <a href="#h2">H2</a>, <a href="#m6">M6</a></td>
+    <td>The field branch never writes <code>status</code>; every status write routes through the service; create restricted to DRAFT|SUBMITTED; status+field updates in one transaction honoring the optimistic lock.</td>
+  </tr>
+  <tr>
+    <td>2 — Decision-gate integrity</td>
+    <td><a href="#h4">H4</a>, <a href="#h5">H5</a>, <a href="#m4">M4</a></td>
+    <td>Conditional-claim status write inside a transaction (count read via the tx-ready aggregates helper); the gate counts only SCORED submissions; the submissions schema rejects fully-empty posts.</td>
+  </tr>
+  <tr>
+    <td>3 — Reviewer-portal + assignment hygiene</td>
+    <td><a href="#h6">H6</a>, <a href="#m8">M8</a></td>
+    <td>Status filter in <code>/my-reviews</code>; submissions POST refuses non-reviewable statuses; assignment refuses DRAFT/WITHDRAWN targets, the abstract's own author, and out-of-scope users.</td>
+  </tr>
+  <tr>
+    <td>4 — Submission service extraction</td>
+    <td><a href="#h3">H3</a>, <a href="#h7">H7</a>, <a href="#h8">H8</a>, <a href="#m9">M9</a></td>
+    <td>Extract <code>submitAbstractReview()</code> into abstract-service (org-bound auth matrix closes H3; one COI + validation + upsert + audit path); MCP assign persists <code>conflictFlag</code>; in-app defs completed + <code>update_abstract_status</code> def fixed; MCP version bump.</td>
+  </tr>
+  <tr>
+    <td>5 — Blind review</td>
+    <td><a href="#h9">H9</a>, <a href="#m7">M7</a></td>
+    <td>Author emails carry notes WITHOUT reviewer attribution; the full per-reviewer view restricted to ADMIN/ORGANIZER (MEMBER gets anonymized aggregates). L2 is the optional third step, pending a product call.</td>
+  </tr>
+  <tr>
+    <td>6 — Workflow + integrity mediums</td>
+    <td><a href="#m1">M1</a>, <a href="#m2">M2</a>, <a href="#m3">M3</a>, <a href="#m5">M5</a>, <a href="#m10">M10</a>, <a href="#m11">M11</a></td>
+    <td>Stale-review guard at decision time + content-aware NEEDS_UPDATE; criteria sum-warning + referenced-delete refusal; CFP deadline on create/submit; create dedup; feedback-notification decision; logging pass.</td>
+  </tr>
+  <tr>
+    <td>Deferred → ROADMAP</td>
+    <td><a href="#l1">L1</a>–<a href="#l6">L6</a></td>
+    <td>Tracked with fix shapes; L3–L5 are the find-then-create → P2002-mapping trio, L6 is doc-only.</td>
+  </tr>
+</table>
+</div>
+
+<h2 id="clean">10. What checked out clean</h2>
+
+<ul>
+  <li>The review-submission <strong>upsert is DB-native atomic</strong> (compound-unique where, scalar-only payload) — no first-submission race.</li>
+  <li><strong>Pool membership writes</strong> all go through the row-locked <code>updateEventSettings</code> helper with in-lock dedupe.</li>
+  <li><strong>FKs match the code's claims</strong>: unassign preserves submissions (SET NULL verified in schema); abstract delete cascades reviewers + submissions.</li>
+  <li><strong>Submitter ownership</strong> holds on the detail GET (404, non-enumerating), the PUT submitter branch (DRAFT-only, no review statuses, no force), <code>my-profile</code> (ownership by construction), and the LIST (own abstracts only, drafts hidden from non-owners).</li>
+  <li><strong>COI gates intact</strong> on all three submit paths; <strong>draft saves stay silent</strong> (no emails/notifications); the <strong>300-word + 20-co-author caps</strong> hold on every write path with no MCP bypass.</li>
+  <li><strong>resend-invitation</strong>'s token re-mint is transactional; the public submitter route enforces password proof on the REGISTRANT→SUBMITTER upgrade with layered rate limits.</li>
+  <li>Weight bounds harmonized 1–100 across REST + MCP criteria tools (June 10 fix held).</li>
+</ul>
+
+<footer>
+  Produced by four independent review passes (lifecycle · RBAC/info-leaks · concurrency ·
+  drift/failure-visibility) with lead-reviewer source verification of the top-severity findings.
+  Companion to
+  <a href="/admin/docs/CODE_REVIEW_REGISTRATIONS_SPEAKERS.html">CODE_REVIEW_REGISTRATIONS_SPEAKERS.html</a>
+  and <a href="/admin/docs/CODE_REVIEW_PAYMENTS_REFUNDS.html">CODE_REVIEW_PAYMENTS_REFUNDS.html</a>
+  (both July 10, 2026). Deferred items land in <code>docs/ROADMAP.md</code>; fixes will be appended
+  to this document phase-by-phase as they ship.
+</footer>
+
+</div>
+</body>
+</html>
