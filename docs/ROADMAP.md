@@ -230,49 +230,51 @@ Two new migrations (both additive/idempotent/blue-green-safe): `20260710120000_a
 
 Deferred (each independently shippable; report anchors in the HTML doc):
 
-- **M1 — post-payment document minting is check-then-act** (`invoice-service.ts` invoice
-  check in-tx but unlocked; receipt check outside its tx; manual recovery branch uses a
-  non-locking `payment.count`). Concurrent webhook / reconciliation-worker / manual paths
-  can double-mint PAID invoices+receipts and double-email. Fix shape: the same
-  `SELECT … FOR UPDATE` pattern `createCreditNote` uses, or a partial unique index on
-  `(registrationId, type)` for INVOICE/RECEIPT.
-- **M2 — `cancelRegistration` seat/promo transition uses a pre-refund snapshot**: a
-  type/tier change during the multi-second CN+refund phase releases the wrong counter.
-  Fix: re-read (or `FOR UPDATE`) inside the cancel transaction.
-- **M5 — PAID invoice totals come from CURRENT pricing, not the captured Payment**: the
-  promote-in-place path keeps fully stale amounts (pre-created SENT invoice at $500,
-  promo applied, attendee pays $400 → PAID doc still says $500); minted docs can diverge
-  from `session.amount_total` after a reprice. Fix: mint/reconcile PAID documents against
-  `Payment.amount`.
-- **M7 — refund + cancel endpoints have no rate limit, and refund omits `denyFinance`**
-  (guard asymmetry vs credit-notes; safe today only because `denyReviewer` blocks every
-  non-finance role).
-- **M8 — webhook doesn't compare `session.amount_total` to the amount currently owed**
-  (silent underpayment on a stale ~24h checkout session after a reprice). Log-and-flag,
-  not reject.
-- **M9 — `calcInvoicePricing` is a fourth, unrounded totals implementation + three
-  divergent `round2` copies** → cent-boundary artifacts between the CN cap and the refund
-  remaining. Fix: one totals function + one exported `round2`.
-- **M10 — invoice/CN PDFs recompute tax from `taxRate` instead of printing the stored,
-  reconciled `taxAmount`/`total`** (defeats the partial-CN reconciliation; also no
-  `isZeroDecimalCurrency` in CN math → fractional JPY).
+- ~~**M1 — post-payment document minting is check-then-act**~~ — **SHIPPED July 10
+  (`f6a9ff8`)**: createPaidInvoice + createPaidReceipt take the `SELECT … FOR UPDATE`
+  registration-row lock with the existence checks inside the locked tx. (The manual
+  recovery branch's non-locking `payment.count` remains a micro-edge — two concurrent
+  RECOVERY clicks on a hand-flipped PAID reg — tracked as L4 below.)
+- ~~**M2 — `cancelRegistration` seat/promo transition uses a pre-refund snapshot**~~ —
+  **SHIPPED July 10 (`a4d5141`)**: the cancel tx re-reads the seat-relevant fields inside
+  the transaction and transitions from those.
+- ~~**M5 — PAID invoice totals come from CURRENT pricing, not the captured Payment**~~ —
+  **SHIPPED July 10 (`f6a9ff8`)**: `capturedTotal` (the actual `Payment.amount`) threads
+  through `issuePaidRegistrationDocuments` into both creates; divergence >1¢ scales the
+  components + reconciles tax (CN pattern), warn-logged; the promote path re-totals stale
+  SENT figures.
+- ~~**M7 — refund + cancel endpoints have no rate limit, and refund omits `denyFinance`**~~ —
+  **SHIPPED July 10 (`a4d5141`)**: refund gains `denyFinance`; both gain 60/hr/user limits.
+- ~~**M8 — webhook doesn't compare `session.amount_total` to the amount currently owed**~~ —
+  **SHIPPED July 10 (`a4d5141`)**: `stripe-webhook:paid-amount-diverges-from-owed` warn.
+- ~~**M9 — `calcInvoicePricing` is a fourth, unrounded totals implementation + three
+  divergent `round2` copies**~~ — **SHIPPED July 10 (`c13c86a`)**: delegates to
+  `computeRegistrationFinancials`; `round2` exported from registration-financials, local
+  copies removed everywhere.
+- ~~**M10 — invoice/CN PDFs recompute tax from `taxRate` instead of printing the stored
+  figures**~~ — **SHIPPED July 10 (`c13c86a`)**: invoice/CN/receipt PDFs print the stored
+  `taxAmount`/`total` (quote keeps the recompute — no stored row). The zero-decimal-currency
+  nit in CN math remains open (L5 below).
 - ~~**M12 — silent 4xx sweep**~~ — **SHIPPED July 10 (`678cef5`)**: `denyReviewer`/`denyFinance`
   now log inside the guards (no call site can forget); all payment-service rejection codes,
   the refund/credit-notes/cancel route boundaries, and the invoice/quote 401/404 paths log
   at warn with user + role + code.
-- **L1 — public document route serves SENT over PAID**: `orderBy: { status: "asc" }`
-  sorts by Postgres enum DEFINITION order (comment claims the opposite); CANCELLED not
-  excluded. One-line fix + a case exclusion.
-- **L2 — registrant portal hand-rolls discount/tax/total client-side**
-  (`e/[slug]/my-registration/page.tsx`) instead of importing `computeRegistrationFinancials`
-  (pure, client-safe — drop-in swap).
-- **L3 — doc drift: MEMBER has been finance-capable since June 17** (`FINANCE_ROLES`
-  includes MEMBER + ONSITE) but CLAUDE.md's RBAC section and route comments still claim
-  MEMBER money is hidden/redacted. Align docs — or re-confirm the product decision if
-  MEMBER finance visibility was NOT intended to survive.
+- ~~**L1 — public document route serves SENT over PAID**~~ — **SHIPPED July 10
+  (`a4d5141`)**: picks PAID first (newest), else newest non-CANCELLED; CANCELLED-only falls
+  through to the quote.
+- ~~**L2 — registrant portal hand-rolls discount/tax/total client-side**~~ — **SHIPPED
+  July 10 (`a4d5141`)**: the portal renders from `computeRegistrationFinancials`.
+- ~~**L3 — doc drift: MEMBER finance-capable since June 17**~~ — **SHIPPED July 10
+  (`aedac06`)**: CLAUDE.md RBAC section corrected. (Product re-confirmation of MEMBER
+  finance visibility still worth a nod from the owner.)
 - **H2 sub-item — cancel should expire open Stripe checkout sessions** (needs the
   checkout session id stored at create; the webhook guard shipped in Phase 1 already
   flags+records a payment landing on a cancelled reg, so this is belt-and-braces).
+- **L4 (new)** — manual-capture RECOVERY branch (PAID-with-no-Payment-row) still guards
+  with a non-locking `tx.payment.count`; two concurrent recovery clicks can double-insert.
+  Micro-edge; fold the FOR UPDATE lock in when next touching the route.
+- **L5 (new)** — credit-note/refund math doesn't consult `isZeroDecimalCurrency` (a JPY
+  CN can carry fractional components). Cosmetic until a zero-decimal-currency event exists.
 
 ### Registrations & speakers review (July 10, 2026) — deferred findings
 
