@@ -256,9 +256,10 @@ Deferred (each independently shippable; report anchors in the HTML doc):
 - **M10 — invoice/CN PDFs recompute tax from `taxRate` instead of printing the stored,
   reconciled `taxAmount`/`total`** (defeats the partial-CN reconciliation; also no
   `isZeroDecimalCurrency` in CN math → fractional JPY).
-- **M12 — silent 4xx sweep**: five payment-service rejection codes (incl. LOST_LOCK) and
-  the refund/credit-notes/cancel routes' 401/404s log nothing; `denyReviewer`/`denyFinance`
-  never log a rejection. Cheapest durable fix: log inside the guards.
+- ~~**M12 — silent 4xx sweep**~~ — **SHIPPED July 10 (`678cef5`)**: `denyReviewer`/`denyFinance`
+  now log inside the guards (no call site can forget); all payment-service rejection codes,
+  the refund/credit-notes/cancel route boundaries, and the invoice/quote 401/404 paths log
+  at warn with user + role + code.
 - **L1 — public document route serves SENT over PAID**: `orderBy: { status: "asc" }`
   sorts by Postgres enum DEFINITION order (comment claims the opposite); CANCELLED not
   excluded. One-line fix + a case exclusion.

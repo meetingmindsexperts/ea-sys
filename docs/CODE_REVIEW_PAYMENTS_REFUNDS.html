@@ -996,10 +996,13 @@ const regTotal = netPrice + regTaxAmount;</code></pre>
 </ul>
 
 <div class="note">
-  <strong>Scoreboard after the fix round:</strong> B1 + all 11 HIGHs fixed, plus M3, M4, M6, M11 and
-  deferred-L2 along the way. Remaining (tracked in <code>docs/ROADMAP.md</code> §"Payments/refunds
-  review — deferred findings"): M1, M2, M5, M7, M8, M9, M10, M12, L1, L2, L3, and the H2 sub-item
-  "cancel should expire open Stripe checkout sessions".
+  <strong>Scoreboard after the fix round:</strong> B1 + all 11 HIGHs fixed, plus M3, M4, M6, M11,
+  deferred-L2, and <strong>M12</strong> (silent-4xx sweep — guards now log their own 403s, all
+  payment-service rejection codes + route boundaries + invoice/quote 401/404s log at warn;
+  <code>678cef5</code>, which also updated the user guide for the behavior changes). Remaining
+  (tracked in <code>docs/ROADMAP.md</code> §"Payments/refunds review — deferred findings"):
+  M1, M2, M5, M7, M8, M9, M10, L1, L2, L3, and the H2 sub-item "cancel should expire open Stripe
+  checkout sessions".
 </div>
 
 <footer>
