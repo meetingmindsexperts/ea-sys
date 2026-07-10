@@ -157,27 +157,58 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
       db.abstract.findFirst({
         where: { id: abstractId, eventId },
-        select: { id: true },
+        // status gates H6: a DRAFT / WITHDRAWN / already-decided abstract must
+        // not accumulate reviews that then satisfy the decision gate.
+        select: { id: true, status: true },
       }),
       db.abstractReviewer.findUnique({
         where: { abstractId_userId: { abstractId, userId: session.user.id } },
         select: { id: true, conflictFlag: true },
       }),
     ]);
-    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    if (!abstract) return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
+    if (!event) {
+      apiLogger.warn({ msg: "abstract-submission:event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+    if (!abstract) {
+      apiLogger.warn({ msg: "abstract-submission:abstract-not-found", eventId, abstractId, userId: session.user.id });
+      return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
+    }
 
-    // Reviewer auth: must be in event pool OR have explicit assignment
+    // Reviewer auth: must be in event pool OR have explicit assignment. An
+    // ADMIN/ORGANIZER can review too, but ONLY within their own org (review
+    // H3): the event lookup above is unscoped, so bind the admin branch to
+    // the caller's org here — otherwise an admin of org B could inject a
+    // score into org A's peer review. (The sibling GET already does this.)
     const reviewerUserIds = (event.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
     const isEventReviewer = reviewerUserIds.includes(session.user.id);
-    const isAdmin = session.user.role === "ADMIN" || session.user.role === "SUPER_ADMIN" || session.user.role === "ORGANIZER";
+    const isAdmin =
+      (session.user.role === "ADMIN" || session.user.role === "SUPER_ADMIN" || session.user.role === "ORGANIZER") &&
+      event.organizationId === session.user.organizationId;
     if (!isEventReviewer && !existingAssignment && !isAdmin) {
+      apiLogger.warn({ msg: "abstract-submission:not-a-reviewer", eventId, abstractId, userId: session.user.id, role: session.user.role });
       return NextResponse.json(
         {
           error: "You are not a reviewer for this event",
           code: "NOT_A_REVIEWER",
         },
         { status: 403 },
+      );
+    }
+
+    // H6: reviews only make sense on an abstract that is actually up for
+    // review. A DRAFT (author's unfinished work), a WITHDRAWN, or an
+    // already-decided abstract cannot be scored — otherwise a phantom
+    // submission counts toward the requiredReviewCount gate.
+    const REVIEWABLE_STATUSES = new Set(["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"]);
+    if (!REVIEWABLE_STATUSES.has(abstract.status)) {
+      apiLogger.warn({ msg: "abstract-submission:not-reviewable-status", eventId, abstractId, status: abstract.status, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: `This abstract is ${abstract.status.toLowerCase()} and is not open for review.`,
+          code: "NOT_REVIEWABLE",
+        },
+        { status: 409 },
       );
     }
 
@@ -198,6 +229,29 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const data = validated.data;
+
+    // H5 (route half): reject a completely empty payload. Fields are optional
+    // so a reviewer can update just their notes on an EXISTING scored
+    // submission, but a POST that carries nothing at all would mint an
+    // all-null row — and the decision gate counts submission rows. The
+    // gate-side half (count only SCORED submissions) lives in
+    // abstract-service; together they mean an empty "review" never counts.
+    const payloadIsEmpty =
+      data.overallScore === undefined &&
+      (data.criteriaScores === undefined || data.criteriaScores.length === 0) &&
+      data.reviewNotes === undefined &&
+      data.recommendedFormat === undefined &&
+      data.confidence === undefined;
+    if (payloadIsEmpty) {
+      apiLogger.warn({ msg: "abstract-submission:empty-payload", eventId, abstractId, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: "A review must include a score, notes, or a recommendation.",
+          code: "EMPTY_REVIEW",
+        },
+        { status: 400 },
+      );
+    }
 
     // Validate criteria IDs against the event's configured criteria
     const validCriteriaIds = new Set(event.reviewCriteria.map((c) => c.id));

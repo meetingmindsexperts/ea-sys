@@ -479,6 +479,11 @@ const unassignReviewerFromAbstract: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// Abstract statuses that are open for review (H6 — shared across REST + both
+// MCP submit paths; a DRAFT/WITHDRAWN/decided abstract must not accumulate
+// reviews that then satisfy the requiredReviewCount gate).
+const REVIEWABLE_ABSTRACT_STATUSES = new Set(["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"]);
+
 const submitAbstractReview: ToolExecutor = async (input, ctx) => {
   try {
     const abstractId = String(input.abstractId ?? "").trim();
@@ -504,9 +509,13 @@ const submitAbstractReview: ToolExecutor = async (input, ctx) => {
     // Abstract must exist + belong to this org scope
     const abstract = await db.abstract.findFirst({
       where: { id: abstractId, eventId: ctx.eventId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
+    // H6: only a reviewable abstract can be scored (parity with the REST path).
+    if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) {
+      return { error: `Abstract ${abstractId} is ${abstract.status.toLowerCase()} and not open for review.`, code: "NOT_REVIEWABLE" };
+    }
 
     // Reviewer auth: the submitting user (ctx.userId) must be EITHER in the
     // event's reviewer pool OR have an explicit AbstractReviewer row.
@@ -668,9 +677,13 @@ const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
     // Abstract must exist in this event scope.
     const abstract = await db.abstract.findFirst({
       where: { id: abstractId, eventId: ctx.eventId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
+    // H6: only a reviewable abstract can be scored (parity with the REST path).
+    if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) {
+      return { error: `Abstract ${abstractId} is ${abstract.status.toLowerCase()} and not open for review.`, code: "NOT_REVIEWABLE" };
+    }
 
     // The user we're recording the review for must (a) exist and (b) be
     // authorised as a reviewer for this event — same pool-or-assignment rule

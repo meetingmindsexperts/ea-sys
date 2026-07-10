@@ -36,7 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "REVIEWER", organizationId: null } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { reviewerUserIds: ["u1"] }, reviewCriteria: [] });
-  mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1" });
+  mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "UNDER_REVIEW" });
   const d = new Date(0);
   mockDb.abstractReviewSubmission.upsert.mockResolvedValue({
     id: "sub1", overallScore: 80, reviewNotes: null, recommendedFormat: null, confidence: null,
@@ -66,4 +66,65 @@ describe("abstract review — COI enforcement", () => {
     expect(res.status).toBeLessThan(400);
     expect(mockDb.abstractReviewSubmission.upsert).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("abstract review — H3 cross-org admin bind", () => {
+  it("rejects an ADMIN whose org differs from the event's org (no cross-org score injection)", async () => {
+    // Org-B admin, not in the pool, no assignment → must NOT be treated as admin.
+    mockAuth.mockResolvedValue({ user: { id: "adminB", role: "ADMIN", organizationId: "orgB" } });
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "orgA", settings: { reviewerUserIds: [] }, reviewCriteria: [] });
+    mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
+    const res = await POST(makeReq({ overallScore: 90 }), { params });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("NOT_A_REVIEWER");
+    expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it("allows a same-org ORGANIZER to submit", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "orgz", role: "ORGANIZER", organizationId: "org1" } });
+    mockDb.abstractReviewer.findUnique.mockResolvedValue(null);
+    const res = await POST(makeReq({ overallScore: 90 }), { params });
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstractReviewSubmission.upsert).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("abstract review — H5 empty payload + H6 reviewable status", () => {
+  beforeEach(() => {
+    mockDb.abstractReviewer.findUnique.mockResolvedValue(null); // pool reviewer
+  });
+
+  it("rejects a completely empty payload with 400 EMPTY_REVIEW (would mint an all-null row)", async () => {
+    const res = await POST(makeReq({}), { params });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("EMPTY_REVIEW");
+    expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+  });
+
+  it("allows a notes-only update (no score) — real flow, not empty", async () => {
+    const res = await POST(makeReq({ reviewNotes: "looks good" }), { params });
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstractReviewSubmission.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["DRAFT", "WITHDRAWN", "ACCEPTED", "REJECTED"])(
+    "refuses to score a %s abstract with 409 NOT_REVIEWABLE",
+    async (status) => {
+      mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status });
+      const res = await POST(makeReq({ overallScore: 80 }), { params });
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe("NOT_REVIEWABLE");
+      expect(mockDb.abstractReviewSubmission.upsert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"])(
+    "allows scoring a %s abstract",
+    async (status) => {
+      mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status });
+      const res = await POST(makeReq({ overallScore: 80 }), { params });
+      expect(res.status).toBeLessThan(400);
+      expect(mockDb.abstractReviewSubmission.upsert).toHaveBeenCalledTimes(1);
+    },
+  );
 });
