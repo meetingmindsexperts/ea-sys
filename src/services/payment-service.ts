@@ -717,6 +717,16 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
     // ── Cancel: claim the transition, then apply the shared seat+promo release ─
     await db.$transaction(async (tx) => {
       // Claim first so a concurrent cancel can't double-release the seat/promo.
+      // RE-READ the seat-relevant fields INSIDE the transaction (review M2):
+      // the pre-refund snapshot is seconds old by now — a concurrent type/tier
+      // change during the CN + Stripe phase would make us release the WRONG
+      // counter (double-release the old type, leak the new one).
+      const fresh = await tx.registration.findUnique({
+        where: { id: registrationId },
+        select: { status: true, attendanceMode: true, ticketTypeId: true, pricingTierId: true, createdSource: true, promoCodeId: true },
+      });
+      if (!fresh || fresh.status === "CANCELLED") return; // gone / already cancelled
+
       const claim = await tx.registration.updateMany({
         where: { id: registrationId, status: { not: "CANCELLED" } },
         data: { status: "CANCELLED" },
@@ -725,9 +735,9 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
       // Single source of truth for seat + promo release (shared with the REST PUT
       // + MCP update paths) — see src/services/README.md "THE RULE".
       await applyRegistrationTransition(tx, {
-        prev: { status: reg.status, attendanceMode: reg.attendanceMode, ticketTypeId: reg.ticketTypeId, pricingTierId: reg.pricingTierId, createdSource: reg.createdSource },
-        next: { status: "CANCELLED", attendanceMode: reg.attendanceMode, ticketTypeId: reg.ticketTypeId, pricingTierId: reg.pricingTierId, createdSource: reg.createdSource },
-        promoCodeId: reg.promoCodeId,
+        prev: { status: fresh.status, attendanceMode: fresh.attendanceMode, ticketTypeId: fresh.ticketTypeId, pricingTierId: fresh.pricingTierId, createdSource: fresh.createdSource },
+        next: { status: "CANCELLED", attendanceMode: fresh.attendanceMode, ticketTypeId: fresh.ticketTypeId, pricingTierId: fresh.pricingTierId, createdSource: fresh.createdSource },
+        promoCodeId: fresh.promoCodeId,
       });
     });
 

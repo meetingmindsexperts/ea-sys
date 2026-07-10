@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { checkRateLimit } from "@/lib/security";
 import { cancelRegistration, type CancelRegistrationErrorCode } from "@/services/payment-service";
 
 /**
@@ -45,6 +46,17 @@ export async function POST(req: Request, { params }: RouteParams) {
   if (denied) return denied;
   const financeDenied = denyFinance(session);
   if (financeDenied) return financeDenied;
+
+  // Cancel-with-refund fires stripe.refunds.create — cap a compromised
+  // session (review M7). 60/hr is far above any real cancellation pace.
+  const rl = checkRateLimit({ key: `cancel-registration:${session.user.id}`, limit: 60, windowMs: 60 * 60 * 1000 });
+  if (!rl.allowed) {
+    apiLogger.warn({ msg: "cancel:rate-limited", eventId, registrationId, userId: session.user.id });
+    return NextResponse.json(
+      { error: "Too many cancellations. Please wait before retrying.", retryAfterSeconds: rl.retryAfterSeconds },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+    );
+  }
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {

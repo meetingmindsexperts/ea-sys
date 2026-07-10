@@ -93,7 +93,9 @@ beforeEach(() => {
   // the refund claim (registration.updateMany) and assert the attempt row.
   mockDb.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) =>
     cb({
-      registration: { updateMany: mockDb.registration.updateMany },
+      // findUnique: the cancel tx re-reads seat fields INSIDE the transaction
+      // (review M2) — route it to the shared mock (same row as the pre-read).
+      registration: { updateMany: mockDb.registration.updateMany, findUnique: mockDb.registration.findUnique },
       refundAttempt: { create: mockDb.refundAttempt.create },
       promoCode: { update: mockDb.promoCode.update },
     }),

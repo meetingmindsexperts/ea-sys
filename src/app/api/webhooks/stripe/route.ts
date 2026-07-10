@@ -8,7 +8,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 import { issueCreditNoteForRegistration } from "@/services/payment-service";
 import { refreshEventStats } from "@/lib/event-stats";
-import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { captureStripeReceipt } from "@/lib/stripe-receipt";
 
 export async function POST(req: Request) {
@@ -108,6 +108,33 @@ export async function POST(req: Request) {
         ? fromStripeAmount(session.amount_total, sessionCurrency)
         : readRegistrationBasePrice(registration);
       const currency = sessionCurrency;
+
+      // Checkout sessions live ~24h at a FROZEN price. If the registration was
+      // repriced in that window (promo removed, bulk type change, tier applied)
+      // the attendee pays the stale session amount — flag the divergence so a
+      // silent under/over-payment is visible in /logs (review M8; log-and-flag,
+      // never reject: the money HAS been collected either way).
+      {
+        const owedNow = computeRegistrationFinancials({
+          subtotal: readRegistrationBasePrice(registration),
+          discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+          taxRate: registration.event.taxRate ? Number(registration.event.taxRate) : null,
+          taxLabel: registration.event.taxLabel,
+          currency,
+          totalPaid: 0,
+        }).total;
+        if (Math.abs(amount - owedNow) > 0.01) {
+          apiLogger.warn({
+            msg: "stripe-webhook:paid-amount-diverges-from-owed",
+            registrationId,
+            eventId: registration.event.id,
+            paidAmount: amount,
+            owedNow,
+            currency,
+            stripeSessionId: session.id,
+          });
+        }
+      }
 
       // Pull the latest charge off the PaymentIntent to capture:
       //   - Stripe's own receipt URL (we surface this in the portal)

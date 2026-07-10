@@ -56,6 +56,12 @@ vi.mock("@/lib/auth-guards", () => ({
     }
     return null;
   }),
+  // M7: the refund route is finance-gated too now.
+  denyFinance: vi.fn(() => null),
+}));
+vi.mock("@/lib/security", () => ({
+  checkRateLimit: vi.fn(() => ({ allowed: true })),
+  getClientIp: vi.fn(() => "127.0.0.1"),
 }));
 vi.mock("@/lib/event-access", () => ({
   buildEventAccessWhere: vi.fn(() => ({ organizationId: "org-1" })),

@@ -3,8 +3,9 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { checkRateLimit } from "@/lib/security";
 import { refundRegistration, type RefundErrorCode } from "@/services/payment-service";
 
 const bodySchema = z.object({
@@ -48,6 +49,23 @@ export async function POST(
 
   const denied = denyReviewer(session);
   if (denied) return denied;
+  // Guard parity with credit-notes + cancel (review M7): refunds move money
+  // through Stripe — explicitly finance-gated, not just write-gated, so a
+  // future `{ allow: … }` refactor on denyReviewer can't open Stripe refunds
+  // to desk staff by accident.
+  const noFinance = denyFinance(session);
+  if (noFinance) return noFinance;
+
+  // The endpoint fires stripe.refunds.create — cap a compromised session
+  // (review M7). 60/hr is far above any real refund pace.
+  const rl = checkRateLimit({ key: `refund:${session.user.id}`, limit: 60, windowMs: 60 * 60 * 1000 });
+  if (!rl.allowed) {
+    apiLogger.warn({ msg: "refund:rate-limited", eventId, registrationId, userId: session.user.id });
+    return NextResponse.json(
+      { error: "Too many refund attempts. Please wait before retrying.", retryAfterSeconds: rl.retryAfterSeconds },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+    );
+  }
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {

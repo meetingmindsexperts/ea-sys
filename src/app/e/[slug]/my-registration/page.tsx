@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
-import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { formatSerialId } from "@/lib/registration-serial";
 
 interface Event {
@@ -412,10 +412,20 @@ export default function EventMyRegistrationPage() {
               const isEditing = editingId === reg.id;
               const price = readRegistrationBasePrice(reg);
               const currency = reg.pricingTier?.currency ?? reg.ticketType?.currency ?? "USD";
-              // Promo discount is stored on the registration; the net (post-discount)
-              // amount is what checkout actually charges + taxes, so mirror that here.
-              const regDiscount = Math.min(Number(reg.discountAmount ?? 0), price);
-              const netPrice = Math.max(0, price - regDiscount);
+              // Review L2: the SAME shared money math the server uses
+              // (computeRegistrationFinancials — pure + client-safe), instead
+              // of a hand-rolled copy that could drift from what Stripe
+              // actually charges.
+              const regFin = computeRegistrationFinancials({
+                subtotal: price,
+                discount: Number(reg.discountAmount ?? 0),
+                taxRate: reg.event.taxRate != null ? Number(reg.event.taxRate) : null,
+                taxLabel: reg.event.taxLabel ?? null,
+                currency,
+                totalPaid: 0,
+              });
+              const netPrice = regFin.taxableBase;
+              const regDiscount = regFin.subtotal - regFin.taxableBase; // display cap: never exceeds the price
               const isPaid = reg.paymentStatus === "PAID";
               const isComplimentary = reg.paymentStatus === "COMPLIMENTARY" || netPrice === 0;
               // INCLUSIVE = sponsor paid offline; REFUNDED = re-payment needs the
@@ -426,11 +436,11 @@ export default function EventMyRegistrationPage() {
               const isConfirmed = reg.status === "CONFIRMED";
               const showPayment =
                 !isPaid && !isComplimentary && !isSponsored && !isRefunded && reg.status !== "CANCELLED";
-              const regTaxRate = Number(reg.event.taxRate ?? 0);
-              const regTaxAmount = regTaxRate > 0 ? netPrice * regTaxRate / 100 : 0;
-              const regTotal = netPrice + regTaxAmount;
-              const regHasTax = regTaxRate > 0;
-              const regTaxLabel = reg.event.taxLabel || "VAT";
+              const regTaxRate = regFin.taxRate;
+              const regTaxAmount = regFin.taxAmount;
+              const regTotal = regFin.total;
+              const regHasTax = regFin.taxRate > 0;
+              const regTaxLabel = regFin.taxLabel;
 
               return (
                 <Card key={reg.id} className="overflow-hidden">

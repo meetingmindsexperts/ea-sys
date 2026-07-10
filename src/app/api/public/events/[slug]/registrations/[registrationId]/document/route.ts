@@ -99,17 +99,23 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    // Prefer the post-payment Invoice when one exists. Ordered so a
-    // PAID row wins over a pending SENT row; CREDIT_NOTE rows are
-    // excluded because they represent refunds, not the primary doc.
-    const invoice = await db.invoice.findFirst({
+    // Prefer the post-payment Invoice when one exists. Review L1: the old
+    // `orderBy: { status: "asc" }` sorted by Postgres enum DEFINITION order
+    // (DRAFT, SENT, PAID, …) — the exact OPPOSITE of the intent, handing the
+    // payer an unpaid-looking SENT document when a PAID one existed. Pick in
+    // JS instead: PAID first (newest), else the newest non-CANCELLED row —
+    // a CANCELLED-only invoice falls through to the quote below.
+    const invoiceRows = await db.invoice.findMany({
       where: {
         registrationId,
         type: "INVOICE",
+        status: { not: "CANCELLED" },
       },
-      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      orderBy: { createdAt: "desc" },
       select: { id: true, invoiceNumber: true, status: true },
+      take: 10,
     });
+    const invoice = invoiceRows.find((r) => r.status === "PAID") ?? invoiceRows[0] ?? null;
 
     if (invoice) {
       const pdfBuffer = await generatePDFForInvoice(invoice.id);
