@@ -47,6 +47,16 @@ export function defaultBodyForCategory(category: CertificateType): string {
 // Used whenever ONE email carries 2+ certificates (Issue tab multi-select,
 // bulk-email certificate sends, survey auto-issue bundles). The singular
 // per-template cover email still applies when exactly one template is in play.
+//
+// Since 2026-07-10 the bundle cover email is a first-class, per-event
+// EDITABLE EmailTemplate (`certificate-bundle-delivery` under Communications
+// → Email Templates, seeded with content identical to the constants below).
+// Senders resolve the event's template first (loadBundleCoverEmailTemplate
+// in bundle.ts) and fall back to these constants only when the lookup fails.
+
+/** Slug of the editable per-event bundle cover-email template. Client-safe —
+ *  the certificates page uses it to pre-fill the Issue dialog. */
+export const CERT_BUNDLE_COVER_TEMPLATE_SLUG = "certificate-bundle-delivery";
 
 export const SYSTEM_DEFAULT_SUBJECT_MULTI = "Your certificates — {{eventName}}";
 

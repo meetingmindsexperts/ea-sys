@@ -33,6 +33,7 @@ import {
   findOrIssueCertificate,
   sendCertificateBundleEmail,
   loadBundleEmailEvent,
+  loadBundleCoverEmailTemplate,
   type BundleCert,
   type LoadedCertTemplate,
 } from "./bundle";
@@ -123,9 +124,11 @@ async function resolvePersonFacets(
 }
 
 /** Cover email for one recipient's bundle: custom override → single
- *  template's saved cover email → category/multi system default. */
+ *  template's saved cover email → the event's editable bundle template
+ *  (loaded once per batch by the caller) → category/multi system default. */
 function coverEmailFor(
   bundled: Array<{ template: LoadedCertTemplate }>,
+  bundleCover: { subject: string; body: string } | null,
   customSubject?: string,
   customMessage?: string,
 ): { subject: string; body: string } {
@@ -136,8 +139,8 @@ function coverEmailFor(
     subject = t.emailSubject?.trim().length ? t.emailSubject : SYSTEM_DEFAULT_SUBJECT;
     body = t.emailBody?.trim().length ? t.emailBody : defaultBodyForCategory(t.category);
   } else {
-    subject = SYSTEM_DEFAULT_SUBJECT_MULTI;
-    body = SYSTEM_DEFAULT_BODY_MULTI;
+    subject = bundleCover?.subject ?? SYSTEM_DEFAULT_SUBJECT_MULTI;
+    body = bundleCover?.body ?? SYSTEM_DEFAULT_BODY_MULTI;
   }
   if (customSubject?.trim().length) subject = customSubject;
   if (customMessage?.trim().length) body = customMessage;
@@ -165,6 +168,10 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
   } = input;
 
   const event = await loadBundleEmailEvent(eventId);
+  // The event's editable bundle cover email — loaded ONCE per batch (not per
+  // recipient); multi-cert bundles use it, single-cert emails keep the
+  // certificate template's own saved cover.
+  const bundleCover = await loadBundleCoverEmailTemplate(eventId);
   if (!event) {
     // The caller already verified the event exists — this is a mid-send
     // deletion race. Fail the whole batch rather than emailing per-recipient.
@@ -308,7 +315,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       return { ok: false, error: `Certificates could not be issued — ${templateFailures.join("; ")}` };
     }
 
-    const cover = coverEmailFor(bundled, customSubject, customMessage);
+    const cover = coverEmailFor(bundled, bundleCover, customSubject, customMessage);
     const send = await sendCertificateBundleEmail({
       eventId,
       organizationId: organizationId ?? null,

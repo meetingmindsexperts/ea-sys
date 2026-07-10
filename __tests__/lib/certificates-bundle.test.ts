@@ -21,6 +21,7 @@ const {
   mockLoadEvent,
   mockAllocSerial,
   mockLoadPdf,
+  mockGetEventTemplate,
 } = vi.hoisted(() => ({
   mockDb: {
     certificateTemplate: { findFirst: vi.fn() },
@@ -34,6 +35,8 @@ const {
   mockLoadEvent: vi.fn(),
   mockAllocSerial: vi.fn().mockResolvedValue("OMM-ATT-0042"),
   mockLoadPdf: vi.fn(),
+  // null → no per-event bundle cover template → hardcoded multi default.
+  mockGetEventTemplate: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -44,6 +47,7 @@ vi.mock("@/lib/email", () => ({
   wrapWithBranding: (html: string) => html,
   inlineCss: (html: string) => html,
   brandingFrom: () => ({ email: "from@x.com", name: "Org" }),
+  getEventTemplate: (e: string, slug: string) => mockGetEventTemplate(e, slug),
 }));
 vi.mock("@/lib/certificates/render", () => ({ renderCertificate: (d: unknown) => mockRender(d) }));
 vi.mock("@/lib/storage", () => ({ uploadCertificatePdf: (b: unknown, n: unknown, e: unknown) => mockUpload(b, n, e) }));
@@ -304,6 +308,7 @@ describe("buildCertCoverEmailPreview", () => {
 
   beforeEach(() => {
     mockDb.event.findUnique.mockResolvedValue(SEND_EVENT);
+    mockGetEventTemplate.mockResolvedValue(null);
   });
 
   it("single template with a saved cover email → uses it", async () => {
@@ -324,6 +329,22 @@ describe("buildCertCoverEmailPreview", () => {
     });
     expect(res?.subject).toContain("Your certificates");
     expect(res?.htmlContent).toContain("{{certificateList}}");
+  });
+
+  it("multi preview uses the event's editable bundle cover template when present", async () => {
+    mockGetEventTemplate.mockResolvedValue({
+      subject: "Org-edited certs subject",
+      htmlContent: "<p>Org-edited {{certificateList}}</p>",
+      textContent: "",
+      branding: {},
+    });
+    const res = await buildCertCoverEmailPreview({
+      eventId: "evt-1",
+      templates: [PREVIEW_ATT, PREVIEW_APP],
+    });
+    expect(mockGetEventTemplate).toHaveBeenCalledWith("evt-1", "certificate-bundle-delivery");
+    expect(res?.subject).toBe("Org-edited certs subject");
+    expect(res?.htmlContent).toContain("Org-edited");
   });
 
   it("operator custom subject/message override wins over everything", async () => {

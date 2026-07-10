@@ -34,6 +34,7 @@ import {
   wrapWithBranding,
   inlineCss,
   brandingFrom,
+  getEventTemplate,
   type EmailBranding,
 } from "@/lib/email";
 import { renderCertificate } from "./render";
@@ -47,6 +48,7 @@ import {
   SYSTEM_DEFAULT_SUBJECT,
   SYSTEM_DEFAULT_SUBJECT_MULTI,
   SYSTEM_DEFAULT_BODY_MULTI,
+  CERT_BUNDLE_COVER_TEMPLATE_SLUG,
   defaultBodyForCategory,
 } from "./email-tokens";
 import {
@@ -520,6 +522,33 @@ export interface BundleEmailEvent {
   organization: { name: string };
 }
 
+/**
+ * The event's EDITABLE bundle cover email — the `certificate-bundle-delivery`
+ * EmailTemplate (Communications → Email Templates). `getEventTemplate` falls
+ * back to the seeded system default (identical content to the
+ * SYSTEM_DEFAULT_*_MULTI constants), so this only returns null on a genuine
+ * lookup failure — callers then fall back to the hardcoded constants.
+ * Applies to sends carrying 2+ certs; single-cert sends keep the certificate
+ * template's own saved cover.
+ */
+export async function loadBundleCoverEmailTemplate(
+  eventId: string,
+): Promise<{ subject: string; body: string } | null> {
+  try {
+    const tpl = await getEventTemplate(eventId, CERT_BUNDLE_COVER_TEMPLATE_SLUG);
+    if (!tpl) return null;
+    return { subject: tpl.subject, body: tpl.htmlContent };
+  } catch (err) {
+    apiLogger.warn({
+      err,
+      msg: "cert-bundle:cover-template-load-failed",
+      eventId,
+      hint: "Falling back to the hardcoded bundle cover-email default.",
+    });
+    return null;
+  }
+}
+
 /** The event fields the bundle email needs — batch callers load this once
  *  per batch and pass it in; single-recipient callers let the sender load. */
 export async function loadBundleEmailEvent(eventId: string): Promise<BundleEmailEvent | null> {
@@ -721,8 +750,11 @@ export async function buildCertCoverEmailPreview(args: {
       ? primary.emailBody
       : defaultBodyForCategory(primary.category);
   } else {
-    subjectTemplate = SYSTEM_DEFAULT_SUBJECT_MULTI;
-    bodyTemplate = SYSTEM_DEFAULT_BODY_MULTI;
+    // 2+ certs → the event's editable bundle cover template (same source
+    // the real send uses), hardcoded default as the safety net.
+    const bundleCover = await loadBundleCoverEmailTemplate(args.eventId);
+    subjectTemplate = bundleCover?.subject ?? SYSTEM_DEFAULT_SUBJECT_MULTI;
+    bodyTemplate = bundleCover?.body ?? SYSTEM_DEFAULT_BODY_MULTI;
   }
   if (args.customSubject?.trim().length) subjectTemplate = args.customSubject;
   if (args.customMessage?.trim().length) bodyTemplate = args.customMessage;

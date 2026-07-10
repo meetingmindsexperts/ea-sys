@@ -13,6 +13,7 @@
  * Leaf module: no imports, safe for any bundle.
  */
 export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
+  "certificate-bundle-delivery",
   "registration-confirmation",
   "speaker-invitation",
   "speaker-agreement",

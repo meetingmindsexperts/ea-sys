@@ -16,6 +16,7 @@ const {
   mockFindOrIssue,
   mockBundleSend,
   mockLoadEvent,
+  mockLoadBundleCover,
   mockLinkedSpeaker,
   mockLinkedRegistration,
 } = vi.hoisted(() => ({
@@ -27,6 +28,8 @@ const {
   mockFindOrIssue: vi.fn(),
   mockBundleSend: vi.fn().mockResolvedValue({ success: true, messageId: "m1" }),
   mockLoadEvent: vi.fn().mockResolvedValue({ name: "OSH" }),
+  // null = no per-event bundle template → the hardcoded multi default applies.
+  mockLoadBundleCover: vi.fn().mockResolvedValue(null),
   mockLinkedSpeaker: vi.fn().mockResolvedValue(null),
   mockLinkedRegistration: vi.fn().mockResolvedValue(null),
 }));
@@ -37,6 +40,7 @@ vi.mock("@/lib/certificates/bundle", () => ({
   findOrIssueCertificate: (args: unknown) => mockFindOrIssue(args),
   sendCertificateBundleEmail: (args: unknown) => mockBundleSend(args),
   loadBundleEmailEvent: (e: string) => mockLoadEvent(e),
+  loadBundleCoverEmailTemplate: (e: string) => mockLoadBundleCover(e),
 }));
 vi.mock("@/lib/activity-feed", () => ({
   resolveLinkedSpeaker: (e: string, r: unknown) => mockLinkedSpeaker(e, r),
@@ -93,6 +97,7 @@ const BASE = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockLoadEvent.mockResolvedValue({ name: "OSH" });
+  mockLoadBundleCover.mockResolvedValue(null);
   mockBundleSend.mockResolvedValue({ success: true, messageId: "m1" });
   mockLinkedSpeaker.mockResolvedValue(null);
   mockLinkedRegistration.mockResolvedValue(null);
@@ -234,6 +239,17 @@ describe("executeCertificateBulkSend", () => {
     // Both facets resolved — both templates fire.
     expect(mockFindOrIssue).toHaveBeenCalledTimes(2);
     expect(mockFindOrIssue.mock.calls[0][0]).toMatchObject({ registrationId: "reg-9", speakerId: "spk-1" });
+  });
+
+  it("uses the event's editable bundle template for a 2-cert email (cover from Communications → Email Templates)", async () => {
+    mockLinkedSpeaker.mockResolvedValue({ id: "spk-1", linkedBy: "pointer" });
+    mockLoadBundleCover.mockResolvedValue({ subject: "Org-edited subject", body: "<p>Org-edited {{certificateList}}</p>" });
+    const res = await executeCertificateBulkSend(BASE);
+    expect(res.successCount).toBe(1);
+    const sent = mockBundleSend.mock.calls[0][0];
+    expect(sent.certs).toHaveLength(2);
+    expect(sent.emailSubjectTemplate).toBe("Org-edited subject");
+    expect(sent.emailBodyTemplate).toContain("Org-edited");
   });
 
   it("reports an error for a recipient whose row vanished", async () => {

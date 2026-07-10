@@ -85,8 +85,10 @@ import {
   SYSTEM_DEFAULT_SUBJECT,
   SYSTEM_DEFAULT_SUBJECT_MULTI,
   SYSTEM_DEFAULT_BODY_MULTI,
+  CERT_BUNDLE_COVER_TEMPLATE_SLUG,
   defaultBodyForCategory,
 } from "@/lib/certificates/email-tokens";
+import { useEmailTemplates } from "@/hooks/use-api";
 
 // Lazy-load the canvas editor — pdfjs-dist + react-rnd stay off the
 // dashboard's first-paint critical path until the operator opens the
@@ -359,6 +361,20 @@ export default function CertificatesPage() {
     ATTENDANCE: templates.filter((t) => t.category === "ATTENDANCE"),
     APPRECIATION: templates.filter((t) => t.category === "APPRECIATION"),
   };
+
+  // The event's editable bundle cover email (Communications → Email
+  // Templates) — pre-fills the Issue dialog for multi-template runs so the
+  // operator starts from the same content the other bundle senders use.
+  const { data: emailTemplatesData } = useEmailTemplates(eventId);
+  const bundleCoverTemplate =
+    (
+      (emailTemplatesData?.templates ?? []) as Array<{
+        slug: string;
+        subject: string;
+        htmlContent: string;
+        isActive: boolean;
+      }>
+    ).find((t) => t.slug === CERT_BUNDLE_COVER_TEMPLATE_SLUG && t.isActive) ?? null;
 
   const createTemplateMutation = useMutation({
     mutationFn: async (vars: { name: string; category: CertCategory }) => {
@@ -2211,16 +2227,20 @@ export default function CertificatesPage() {
         const selected = templates.filter((t) => issueTemplateIds.includes(t.id));
         if (selected.length === 0) return null;
         const single = selected.length === 1 ? selected[0] : null;
+        // Multi-template runs pre-fill from the event's EDITABLE bundle
+        // cover template (Communications → Email Templates) — same source
+        // the other bundle senders resolve — falling back to the hardcoded
+        // default while the templates list hasn't loaded.
         const initialSubject = single
           ? single.emailSubject?.trim().length
             ? single.emailSubject
             : SYSTEM_DEFAULT_SUBJECT
-          : SYSTEM_DEFAULT_SUBJECT_MULTI;
+          : (bundleCoverTemplate?.subject ?? SYSTEM_DEFAULT_SUBJECT_MULTI);
         const initialBody = single
           ? single.emailBody?.trim().length
             ? single.emailBody
             : defaultBodyForCategory(single.category)
-          : SYSTEM_DEFAULT_BODY_MULTI;
+          : (bundleCoverTemplate?.htmlContent ?? SYSTEM_DEFAULT_BODY_MULTI);
         const count = eligibilityQuery.data?.peopleCount ?? 0;
         return (
           <CertEmailEditorDialog

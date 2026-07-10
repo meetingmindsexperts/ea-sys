@@ -485,6 +485,13 @@ export function IssuedCertificatesCard({
                 ).
               </p>
             )}
+            <p className="text-xs text-slate-400">
+              The email uses the editable{" "}
+              <strong>&ldquo;Certificate Delivery (Multiple Certificates)&rdquo;</strong>{" "}
+              template (Communications → Email Templates) when several certificates
+              are selected; a single certificate uses that template&apos;s own saved
+              cover email.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIssueOpen(false)} disabled={issueMutation.isPending}>

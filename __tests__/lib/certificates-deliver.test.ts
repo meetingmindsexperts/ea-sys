@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockSend, mockRender, mockUpload, mockLoadRecipient, mockLoadEvent, mockAllocSerial } = vi.hoisted(() => ({
+const { mockDb, mockSend, mockRender, mockUpload, mockLoadRecipient, mockLoadEvent, mockAllocSerial, mockGetEventTemplate } = vi.hoisted(() => ({
   mockDb: {
     certificateTemplate: { findFirst: vi.fn() },
     issuedCertificate: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
@@ -25,6 +25,8 @@ const { mockDb, mockSend, mockRender, mockUpload, mockLoadRecipient, mockLoadEve
   mockLoadRecipient: vi.fn(),
   mockLoadEvent: vi.fn(),
   mockAllocSerial: vi.fn().mockResolvedValue("OMM-ATT-0009"),
+  // null → no per-event bundle cover template → hardcoded multi default.
+  mockGetEventTemplate: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
@@ -35,6 +37,7 @@ vi.mock("@/lib/email", () => ({
   wrapWithBranding: (html: string) => html,
   inlineCss: (html: string) => html,
   brandingFrom: () => ({ email: "from@x.com", name: "Org" }),
+  getEventTemplate: (e: string, slug: string) => mockGetEventTemplate(e, slug),
 }));
 vi.mock("@/lib/certificates/render", () => ({ renderCertificate: (d: unknown) => mockRender(d) }));
 vi.mock("@/lib/storage", () => ({ uploadCertificatePdf: (b: unknown, n: unknown, e: unknown) => mockUpload(b, n, e) }));
@@ -46,6 +49,7 @@ vi.mock("@/lib/certificates/email-tokens", () => ({
   SYSTEM_DEFAULT_SUBJECT: "Your {{certificateType}}",
   SYSTEM_DEFAULT_SUBJECT_MULTI: "Your certificates",
   SYSTEM_DEFAULT_BODY_MULTI: "<p>Multi {{certificateList}}</p>",
+  CERT_BUNDLE_COVER_TEMPLATE_SLUG: "certificate-bundle-delivery",
   defaultBodyForCategory: () => "<p>Body</p>",
   defaultCoverEmailFor: (n: number) =>
     n > 1
@@ -80,6 +84,7 @@ beforeEach(() => {
   mockAllocSerial.mockResolvedValue("OMM-ATT-0009");
   mockDb.event.findUnique.mockResolvedValue(SEND_EVENT);
   mockDb.auditLog.create.mockResolvedValue({});
+  mockGetEventTemplate.mockResolvedValue(null);
 });
 
 describe("issueSingleCertificate", () => {
@@ -254,6 +259,20 @@ describe("issueCertificateBundle", () => {
     expect(mockSend.mock.calls[0][0].subject).toBe("Your certificates");
     // One CERT_ISSUED audit per newly minted cert.
     expect(mockDb.auditLog.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("multi bundle uses the event's editable cover template when present", async () => {
+    mockGetEventTemplate.mockResolvedValue({
+      subject: "Org-edited certs subject",
+      htmlContent: "<p>Org-edited {{certificateList}}</p>",
+      textContent: "",
+      branding: {},
+    });
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: true });
+    expect(mockGetEventTemplate).toHaveBeenCalledWith("evt-1", "certificate-bundle-delivery");
+    expect(mockSend.mock.calls[0][0].subject).toBe("Org-edited certs subject");
+    expect(mockSend.mock.calls[0][0].htmlContent).toContain("Org-edited");
   });
 
   it("single template keeps its saved cover email", async () => {

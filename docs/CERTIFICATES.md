@@ -517,6 +517,34 @@ on the manual-Issue path, which snapshots only the full name) and
 **`{{eventDate}}`/`{{eventVenue}}`** aliases. Unknown tokens still render
 empty + warn (`cert-email-token:unknown`).
 
+## Bundle cover email is an editable template (July 10, 2026)
+
+The cover email for any send carrying **2+ certificate PDFs in one email**
+(per-person Issue multi-select, Communications certificate send, survey
+auto-issue bundles) used to be a hardcoded string
+(`SYSTEM_DEFAULT_*_MULTI`). It is now a first-class, per-event **editable
+EmailTemplate**: slug `certificate-bundle-delivery` ("Certificate Delivery
+(Multiple Certificates)") under **Communications → Email Templates**, seeded
+with content identical to the old hardcoded default — nothing changes until
+an organizer edits it.
+
+- Senders resolve it via `loadBundleCoverEmailTemplate(eventId)`
+  ([bundle.ts](../src/lib/certificates/bundle.ts) →
+  `getEventTemplate`, which itself falls back to the seeded default); the
+  hardcoded constants remain only as a lookup-failure safety net.
+- Wired into: `issueCertificateBundle` (deliver.ts), `coverEmailFor`
+  (bulk-issue.ts — loaded ONCE per batch), `buildCertCoverEmailPreview`
+  (bundle.ts), and the Issue-tab multi-run dialog pre-fill
+  (certificates page, via `useEmailTemplates` + the client-safe
+  `CERT_BUNDLE_COVER_TEMPLATE_SLUG` constant in email-tokens.ts).
+- Precedence is unchanged: an operator's custom subject/message override
+  still wins; a SINGLE-cert email still uses that certificate template's own
+  saved cover.
+- Tokens: the cert cover-email resolver set (recipientName, firstName,
+  lastName, eventName, eventDateRange, eventDate, eventVenue, venueLine,
+  organizationName, certificateList, certificateSerial, certificateType) —
+  documented in `TEMPLATE_VARIABLES["certificate-bundle-delivery"]`.
+
 ## Deferred / not implemented
 
 - **Tag-scoped bulk reissue in the UI** — the certificates-page

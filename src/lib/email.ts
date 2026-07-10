@@ -982,6 +982,20 @@ export function stripDocumentWrapper(html: string): string {
 // ── Available template variables per slug ──────────────────────────────────────
 
 export const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]> = {
+  "certificate-bundle-delivery": [
+    { key: "recipientName", description: "Recipient full name with title (e.g. Dr. Jane Doe)" },
+    { key: "firstName", description: "Recipient first name" },
+    { key: "lastName", description: "Recipient last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "eventDateRange", description: "Event date range (e.g. 17th - 19th June 2026)" },
+    { key: "eventDate", description: "Event start date (formatted)" },
+    { key: "eventVenue", description: "Event venue" },
+    { key: "venueLine", description: "\"at Venue, City, Country\" line (empty when no venue)" },
+    { key: "organizationName", description: "Organization name" },
+    { key: "certificateList", description: "One line per attached certificate: label + serial" },
+    { key: "certificateSerial", description: "Comma-joined serials of the attached certificates" },
+    { key: "certificateType", description: "Certificate type label(s), e.g. Certificate of Attendance" },
+  ],
   "registration-confirmation": [
     { key: "title", description: "Attendee title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Attendee first name" },
@@ -1965,6 +1979,33 @@ Dear {{firstName}},
 Thank you for completing the post-event survey for {{eventName}}. Your feedback has been recorded and will help us shape future events.
 
 — The {{eventName}} team`,
+  },
+
+  {
+    slug: "certificate-bundle-delivery",
+    name: "Certificate Delivery (Multiple Certificates)",
+    // The cover email for any send carrying 2+ certificate PDFs in ONE email
+    // (per-person Issue multi-select, Communications certificate send, survey
+    // auto-issue bundles; the Issue-tab multi-run dialog pre-fills from it).
+    // A SINGLE-certificate email uses that certificate template's own saved
+    // cover instead (edited in the cert template editor). Content below is
+    // byte-equal to the previous hardcoded bundle default, so nothing changes
+    // until an organizer edits this template. Cert tokens resolve per
+    // recipient at send time via the cert cover-email resolver.
+    subject: "Your certificates — {{eventName}}",
+    htmlContent: `<p>Dear {{recipientName}},</p>
+<p>Thank you for being part of {{eventName}} ({{eventDateRange}}). Please find your certificates attached:</p>
+{{certificateList}}
+<p>Best regards,<br/>{{organizationName}}</p>`,
+    textContent: `Your certificates — {{eventName}}
+
+Dear {{recipientName}},
+
+Thank you for being part of {{eventName}} ({{eventDateRange}}). Please find your certificates attached:
+{{certificateList}}
+
+Best regards,
+{{organizationName}}`,
   },
 
   {

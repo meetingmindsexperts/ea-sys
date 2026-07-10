@@ -37,6 +37,7 @@ import {
   resolveRecipientEmail,
   sendCertificateBundleEmail,
   findOrIssueCertificate,
+  loadBundleCoverEmailTemplate,
   type RenderAndUploadResult,
   type BundleCert,
 } from "./bundle";
@@ -515,14 +516,16 @@ export async function issueCertificateBundle(
 
   // Cover email — same precedence as every other send: exactly one cert →
   // that template's saved cover (or its category default); several → the
-  // bundle default with {{certificateList}}.
+  // event's EDITABLE bundle template (`certificate-bundle-delivery` under
+  // Communications → Email Templates), hardcoded default as the safety net.
   const single = bundled.length === 1 ? bundled[0].template : null;
   const cover = single
     ? {
         subject: single.emailSubject?.trim().length ? single.emailSubject : SYSTEM_DEFAULT_SUBJECT,
         body: single.emailBody?.trim().length ? single.emailBody : defaultBodyForCategory(single.category),
       }
-    : defaultCoverEmailFor(bundled.length, bundled[0].template.category);
+    : ((await loadBundleCoverEmailTemplate(ctx.eventId)) ??
+      defaultCoverEmailFor(bundled.length, bundled[0].template.category));
 
   const send = await sendCertificateBundleEmail({
     eventId: ctx.eventId,
