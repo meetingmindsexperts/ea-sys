@@ -18,6 +18,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, invoiceId }] = await Promise.all([auth(), params]);
     if (!session?.user) {
+      apiLogger.warn({ msg: "invoices:detail:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const noFinance = denyFinance(session);
@@ -44,6 +45,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     });
 
     if (!invoice) {
+      apiLogger.warn({ msg: "invoices:detail:not-found-or-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
 
@@ -66,6 +68,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, invoiceId }, body] = await Promise.all([auth(), params, req.json()]);
     if (!session?.user) {
+      apiLogger.warn({ msg: "invoices:detail:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const denied = denyReviewer(session);
@@ -88,6 +91,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       select: { id: true, status: true },
     });
     if (!invoice) {
+      apiLogger.warn({ msg: "invoices:detail:not-found-or-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
 

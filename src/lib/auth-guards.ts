@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { apiLogger } from "@/lib/logger";
 
 /**
  * Roles with no general write access. By default every POST/PUT/DELETE on a
@@ -49,11 +50,19 @@ export function isTeamRole(role: string | null | undefined): boolean {
  *   if (denied) return denied;
  */
 export function denyReviewer(
-  session: { user?: { role?: string } } | null,
+  session: { user?: { id?: string; role?: string } } | null,
   opts?: { allow?: readonly string[] },
 ) {
   const role = session?.user?.role;
   if (role && RESTRICTED_WRITE_ROLES.includes(role) && !opts?.allow?.includes(role)) {
+    // Logged HERE so no call site can forget (payments review M12): a
+    // restricted role probing write endpoints must be visible in /logs.
+    apiLogger.warn({
+      msg: "auth-guard:write-denied",
+      role,
+      userId: session?.user?.id ?? null,
+      allow: opts?.allow ?? null,
+    });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return null;
@@ -71,8 +80,14 @@ export function denyReviewer(
  *   const noFinance = denyFinance(session);
  *   if (noFinance) return noFinance;
  */
-export function denyFinance(session: { user?: { role?: string } } | null) {
+export function denyFinance(session: { user?: { id?: string; role?: string } } | null) {
   if (!canViewFinance(session?.user?.role)) {
+    // Logged HERE so no call site can forget (payments review M12).
+    apiLogger.warn({
+      msg: "auth-guard:finance-denied",
+      role: session?.user?.role ?? null,
+      userId: session?.user?.id ?? null,
+    });
     return NextResponse.json(
       { error: "Financial data is not available to your role", code: "FINANCE_FORBIDDEN" },
       { status: 403 },

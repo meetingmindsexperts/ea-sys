@@ -44,6 +44,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   const [session, { eventId, registrationId }] = await Promise.all([auth(), params]);
 
   if (!session?.user) {
+    apiLogger.warn({ msg: "credit-notes:unauthenticated" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyReviewer(session);
@@ -70,7 +71,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     where: { id: eventId, ...buildEventAccessWhere(session.user) },
     select: { id: true },
   });
-  if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+  if (!event) {
+    apiLogger.warn({ msg: "credit-notes:event-access-denied", eventId, userId: session.user.id, role: session.user.role });
+    return NextResponse.json({ error: "Event not found" }, { status: 404 });
+  }
 
   const result = await issueCreditNoteForRegistration({
     registrationId,
@@ -84,6 +88,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   });
 
   if (!result.ok) {
+    apiLogger.warn({ msg: "credit-notes:rejected", eventId, registrationId, code: result.code });
     return NextResponse.json(
       { error: result.message, code: result.code, ...(result.meta ?? {}) },
       { status: HTTP_STATUS_FOR_CODE[result.code] },

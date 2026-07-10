@@ -75,10 +75,12 @@ export async function issueCreditNoteForRegistration(input: IssueCreditNoteInput
       select: { id: true, eventId: true, paymentStatus: true },
     });
     if (!registration || registration.eventId !== eventId) {
+      apiLogger.warn({ msg: "credit-note:registration-not-found", registrationId, eventId });
       return { ok: false, code: "REGISTRATION_NOT_FOUND", message: "Registration not found" };
     }
     // A credit note only makes sense against money that was actually collected.
     if (registration.paymentStatus !== "PAID" && registration.paymentStatus !== "REFUNDED") {
+      apiLogger.warn({ msg: "credit-note:not-paid", registrationId, eventId, paymentStatus: registration.paymentStatus });
       return { ok: false, code: "NOT_PAID", message: "A credit note can only be issued for a paid registration." };
     }
 
@@ -229,9 +231,11 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
     });
 
     if (!registration || registration.eventId !== eventId) {
+      apiLogger.warn({ msg: "refund:registration-not-found", registrationId, eventId });
       return { ok: false, code: "REGISTRATION_NOT_FOUND", message: "Registration not found" };
     }
     if (registration.paymentStatus !== "PAID") {
+      apiLogger.warn({ msg: "refund:not-paid", registrationId, eventId, paymentStatus: registration.paymentStatus });
       return { ok: false, code: "NOT_PAID", message: "Registration is not in a paid state" };
     }
 
@@ -275,6 +279,7 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
     const refundedBefore = round2(Number(registration.refundedAmount));
     const remaining = round2(paidTotal - refundedBefore);
     if (remaining <= 0) {
+      apiLogger.warn({ msg: "refund:already-fully-refunded", registrationId, eventId });
       return { ok: false, code: "ALREADY_FULLY_REFUNDED", message: "This registration has already been fully refunded." };
     }
 
@@ -669,9 +674,11 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
       },
     });
     if (!reg || reg.eventId !== eventId) {
+      apiLogger.warn({ msg: "cancel:registration-not-found", registrationId, eventId });
       return { ok: false, code: "REGISTRATION_NOT_FOUND", message: "Registration not found" };
     }
     if (reg.status === "CANCELLED") {
+      apiLogger.warn({ msg: "cancel:already-cancelled", registrationId, eventId });
       return { ok: false, code: "ALREADY_CANCELLED", message: "Registration is already cancelled" };
     }
 

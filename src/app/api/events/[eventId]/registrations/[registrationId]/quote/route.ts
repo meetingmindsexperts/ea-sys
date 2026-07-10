@@ -20,6 +20,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const [session, { eventId, registrationId }] = await Promise.all([auth(), params]);
 
     if (!session?.user) {
+      apiLogger.warn({ msg: "quote:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const noFinance = denyFinance(session);
@@ -32,6 +33,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      apiLogger.warn({ msg: "quote:event-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -66,6 +68,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
+      apiLogger.warn({ msg: "quote:registration-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 

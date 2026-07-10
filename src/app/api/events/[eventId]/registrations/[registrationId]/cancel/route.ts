@@ -38,6 +38,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   const [session, { eventId, registrationId }] = await Promise.all([auth(), params]);
 
   if (!session?.user) {
+    apiLogger.warn({ msg: "cancel:unauthenticated" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const denied = denyReviewer(session);
@@ -55,7 +56,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     where: { id: eventId, ...buildEventAccessWhere(session.user) },
     select: { id: true },
   });
-  if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+  if (!event) {
+    apiLogger.warn({ msg: "cancel:event-access-denied", eventId, userId: session.user.id, role: session.user.role });
+    return NextResponse.json({ error: "Event not found" }, { status: 404 });
+  }
 
   apiLogger.info({ msg: "Cancel requested", registrationId, eventId, refund: parsed.data.refund, issuedBy: session.user.id });
 
@@ -69,6 +73,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   });
 
   if (!result.ok) {
+    apiLogger.warn({ msg: "cancel:rejected", eventId, registrationId, code: result.code });
     return NextResponse.json(
       { error: result.message, code: result.code, ...(result.meta ?? {}) },
       { status: HTTP_STATUS_FOR_CODE[result.code] },

@@ -18,6 +18,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, invoiceId }] = await Promise.all([auth(), params]);
     if (!session?.user) {
+      apiLogger.warn({ msg: "invoices:pdf:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const noFinance = denyFinance(session);
@@ -34,6 +35,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       select: { id: true, invoiceNumber: true },
     });
     if (!invoice) {
+      apiLogger.warn({ msg: "invoices:pdf:not-found-or-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
 

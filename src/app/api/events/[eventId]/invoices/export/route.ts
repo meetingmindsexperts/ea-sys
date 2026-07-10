@@ -33,6 +33,7 @@ export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId }] = await Promise.all([auth(), params]);
     if (!session?.user) {
+      apiLogger.warn({ msg: "invoices:export:unauthenticated" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const noFinance = denyFinance(session);
@@ -44,6 +45,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: { id: true, code: true },
     });
     if (!event) {
+      apiLogger.warn({ msg: "invoices:export:event-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -94,6 +96,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const count = await db.invoice.count({ where });
     if (count === 0) {
+      apiLogger.warn({ msg: "invoices:export:no-matches", eventId, userId: session.user.id });
       return NextResponse.json({ error: "No invoices match the current filter." }, { status: 404 });
     }
     if (count > MAX_EXPORT) {
