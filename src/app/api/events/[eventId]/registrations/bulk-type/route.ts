@@ -57,7 +57,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // Verify the target ticket type exists and belongs to this event
     const targetType = await db.ticketType.findFirst({
       where: { id: ticketTypeId, eventId },
-      select: { id: true, name: true, quantity: true },
+      select: { id: true, name: true, quantity: true, price: true },
     });
 
     if (!targetType) {
@@ -67,7 +67,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // Fetch all registrations being moved (only non-cancelled, and not already
     // this type). Need the seat-routing fields so we release the counter each
     // reg actually holds (tier vs ticket type) rather than blindly decrementing
-    // the old ticket type (ROADMAP P1.1 fix).
+    // the old ticket type (ROADMAP P1.1 fix), plus paymentStatus for the
+    // repricing split below.
     const registrations = await db.registration.findMany({
       where: {
         id: { in: registrationIds },
@@ -83,6 +84,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         createdSource: true,
         attendanceMode: true,
         status: true,
+        paymentStatus: true,
       },
     });
 
@@ -129,11 +131,33 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         }
       }
 
-      // Update all registrations — new type + drop the now-invalid tier.
-      await tx.registration.updateMany({
-        where: { id: { in: registrations.map((r) => r.id) } },
-        data: { ticketTypeId, pricingTierId: null },
-      });
+      // Update all registrations — new type + drop the now-invalid tier —
+      // and RE-STAMP originalPrice for money-outstanding rows (review H8).
+      // `readRegistrationBasePrice` prefers the stamped originalPrice, so
+      // without the restamp a $100-Student reg bulk-moved to $400-Physician
+      // kept charging $100 on every finance surface (quote PDF, pay-later
+      // checkout, refund math). Mirrors resolveRepricing's bare-type-change
+      // policy exactly: unpaid (UNASSIGNED/UNPAID/PENDING) → reprice to the
+      // NEW type's base; settled rows (PAID/COMPLIMENTARY/INCLUSIVE/…) move
+      // type but keep their price — they already paid it.
+      const unpaidIds = registrations
+        .filter((r) => ["UNASSIGNED", "UNPAID", "PENDING"].includes(r.paymentStatus))
+        .map((r) => r.id);
+      const settledIds = registrations
+        .filter((r) => !["UNASSIGNED", "UNPAID", "PENDING"].includes(r.paymentStatus))
+        .map((r) => r.id);
+      if (unpaidIds.length > 0) {
+        await tx.registration.updateMany({
+          where: { id: { in: unpaidIds } },
+          data: { ticketTypeId, pricingTierId: null, originalPrice: Number(targetType.price) },
+        });
+      }
+      if (settledIds.length > 0) {
+        await tx.registration.updateMany({
+          where: { id: { in: settledIds } },
+          data: { ticketTypeId, pricingTierId: null },
+        });
+      }
 
       // Sync attendee.registrationType
       await tx.attendee.updateMany({
@@ -159,6 +183,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
             toTicketTypeId: ticketTypeId,
             toName: targetType.name,
             count: registrations.length,
+            // Unpaid rows re-stamped to the new type's base price (H8);
+            // settled rows kept their paid price.
+            repricedCount: registrations.filter((r) =>
+              ["UNASSIGNED", "UNPAID", "PENDING"].includes(r.paymentStatus),
+            ).length,
+            repricedTo: Number(targetType.price),
           },
           ip: getClientIp(req),
         },

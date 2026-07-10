@@ -104,6 +104,51 @@ describe("bulk-type — soldCount oversell guard", () => {
     expect((await res.json()).code).toBe("CAPACITY_EXCEEDED");
     expect(mockDb._tx.registration.updateMany).not.toHaveBeenCalled();
   });
+
+  // ── H8 (July 10 review): the bulk move must re-stamp originalPrice for
+  //    money-outstanding rows — readRegistrationBasePrice PREFERS the stamped
+  //    value, so without this a $100-type reg moved to a $400 type kept
+  //    charging $100 everywhere. Settled rows keep their paid price (exact
+  //    parity with resolveRepricing's bare-type-change policy).
+  it("re-stamps originalPrice to the NEW type's base for unpaid rows; settled rows keep theirs", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100, price: 400 });
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "r1", ticketTypeId: "old", attendeeId: "a1", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNPAID" },
+      { id: "r2", ticketTypeId: "old", attendeeId: "a2", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "UNASSIGNED" },
+      { id: "r3", ticketTypeId: "old", attendeeId: "a3", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "PAID" },
+    ]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await bulkType(req({ registrationIds: ["r1", "r2", "r3"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+
+    // Unpaid group: moved + repriced to the new base.
+    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["r1", "r2"] } },
+      data: { ticketTypeId: "T", pricingTierId: null, originalPrice: 400 },
+    });
+    // Settled group: moved, price untouched (they already paid it).
+    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["r3"] } },
+      data: { ticketTypeId: "T", pricingTierId: null },
+    });
+  });
+
+  it("all-settled batch never writes originalPrice", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ id: "T", name: "Physician", quantity: 100, price: 400 });
+    mockDb.registration.findMany.mockResolvedValue([
+      { id: "r4", ticketTypeId: "old", attendeeId: "a4", status: "CONFIRMED", attendanceMode: "IN_PERSON", pricingTierId: null, createdSource: "ADMIN_DASHBOARD", paymentStatus: "COMPLIMENTARY" },
+    ]);
+    mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
+    mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await bulkType(req({ registrationIds: ["r4"], ticketTypeId: "T" }), { params });
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb._tx.registration.updateMany).toHaveBeenCalledTimes(1);
+    const data = mockDb._tx.registration.updateMany.mock.calls[0][0].data as Record<string, unknown>;
+    expect(data.originalPrice).toBeUndefined();
+  });
 });
 
 describe("import-contacts — soldCount oversell guard", () => {
