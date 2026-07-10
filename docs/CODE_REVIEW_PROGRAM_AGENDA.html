@@ -570,7 +570,107 @@ formatTimeInTz(new Date(session.startTime), timezone)                  // time =
 </table>
 </div>
 
-<h2 id="clean">9. What checked out clean</h2>
+<h2 id="fixes">9. Fixes applied — what changed, file by file</h2>
+
+<p>
+  Scope this round (owner decision): <strong>blockers first, then the HIGHs</strong>. Four gated
+  commits (tsc · eslint · full vitest · build). The MEDs/LOWs are tracked in
+  <code>docs/ROADMAP.md</code>.
+</p>
+
+<h3>Phase 1 — Credential leaks (B1 + B2 + M4) · commit <code>835c49d</code></h3>
+<ul>
+  <li><strong>New <code>src/lib/zoom-visibility.ts</code></strong> — <em>(B1)</em> the single source of
+    truth for who may see Zoom host credentials, mirroring <code>finance-visibility</code>:
+    <code>canViewZoomHostCredentials()</code> + <code>redactZoomHostFields()</code>. Host roles are
+    SUPER_ADMIN / ADMIN / ORGANIZER only — deliberately <strong>narrower</strong> than
+    <code>FINANCE_ROLES</code>, because MEMBER and ONSITE record payments but do not host webinars.
+    API keys are admin-equivalent. <code>joinUrl</code> stays visible (it's the attendee link).</li>
+  <li><strong><code>…/sessions/route.ts</code> (GET)</strong> — redacts
+    <code>startUrl</code>/<code>streamKey</code>/<code>passcode</code> for every non-host caller. A
+    registrant could previously take the Zoom <em>host</em> link and hijack the webinar.</li>
+  <li><strong>New <code>…/sessions/[sessionId]/recording/route.ts</code></strong> — <em>(B2)</em>
+    registration-gated replay access, mirroring <code>zoom-join</code>'s auth (org staff OR a
+    non-cancelled registration), session bound to the event, 60/hr per IP, <code>no-store</code>.</li>
+  <li><strong><code>…/sessions/[sessionId]/detail/route.ts</code></strong> — drops
+    <code>recordingUrl</code> + <code>recordingPassword</code> (keeps only the non-secret
+    <code>recordingStatus</code>), 404s DRAFT events for non-org-staff, and gains the 240/hr IP limit
+    it was the only public session route to lack <em>(M4)</em>.</li>
+  <li><strong>Public session page</strong> — fetches the credential on click, opening the tab
+    synchronously so popup blockers don't eat it, and surfaces 401 / 403 / failure instead of doing
+    nothing.</li>
+  <li><strong>Tests</strong>: +30 (host-role matrix incl. MEMBER/ONSITE denied and API-key allowed;
+    anonymous gets no recording fields; DRAFT 404 for anon <em>and</em> cross-org staff, 200 for own-org
+    staff; 429).</li>
+</ul>
+
+<h3>Phase 2 — <code>session-service</code> extraction (H1 + H4 + L2) · commit <code>12e01d1</code></h3>
+<p>
+  Done as an <strong>extraction rather than a route patch</strong>: H1, H4, L2 and the capacity
+  divergence all converge on one place, so patching the route would have meant writing the same
+  transaction twice. Per <code>src/services/README.md</code>: <em>"extract the inline logic into a
+  service first, then call it from both."</em>
+</p>
+<ul>
+  <li><strong>New <code>src/services/session-service.ts</code></strong> — owns validation, the
+    transaction, audit, notify and stats; never imports <code>next/server</code>. Both REST routes and
+    both MCP executors delegate.</li>
+  <li><em>(H1)</em> the update <strong>claims the optimistic lock FIRST</strong> inside a
+    <code>$transaction</code>; the parent update plus both child replaces commit atomically or not at
+    all. A lost claim aborts before a single row is touched — previously the 409 "nothing was saved,
+    reload" arrived <em>after</em> the other editor's roster had already been destroyed.</li>
+  <li><em>(H4)</em> MCP <code>create_session</code> now writes an audit row and notifies admins (it did
+    neither — every agent/n8n-created session was invisible in <code>AuditLog</code>), and honours
+    <code>status</code>, <code>abstractId</code> and topic <code>sortOrder</code>, which it silently
+    dropped. <em>(L2)</em> zero-duration sessions and <em>capacity 0</em> are now rejected on every
+    path.</li>
+  <li>Authorization stays at the boundary (the route does the org-scoped event lookup, 404 not 403).
+    <code>notifyEventAdmins</code>, <code>refreshEventStats</code> and the <code>event-time</code>
+    helpers all became <strong>unused imports in the routes</strong> — the extraction working.</li>
+  <li><strong>Tests</strong>: +17, incl. the H1 proof (lost claim → STALE_WRITE with
+    <code>deleteMany</code> never called) and the H4 parity set.</li>
+</ul>
+
+<h3>Phase 3 — Zoom ↔ session integrity (H2 + H3) · commit <code>ce1f635</code></h3>
+<ul>
+  <li><strong>New <code>src/lib/zoom/cleanup.ts</code></strong> — one teardown path
+    (<code>deleteRemoteZoomMeeting</code>) shared by all three call sites. <strong>Never throws</strong>:
+    a Zoom outage must not turn a successful local operation into a 500. An orphan costs capacity, not
+    correctness, so it logs loudly and returns a boolean.</li>
+  <li><em>(H2)</em> the create route's P2002 loser now <strong>tears down the meeting it just
+    created</strong> and returns the 409 the pre-flight check intended. Two concurrent POSTs used to
+    create two real, billable meetings on Zoom and orphan one forever. If the rollback itself fails we
+    log at <code>error</code> with the orphaned id for manual reconciliation.</li>
+  <li><em>(H3)</em> session DELETE now tears the remote meeting down <strong>before</strong> the cascade
+    removes the row that tells us it exists, and <strong>refuses to delete the webinar anchor
+    session</strong> (409 <code>WEBINAR_ANCHOR_SESSION</code>) — deleting it used to dangle
+    <code>settings.webinar.sessionId</code> so the producer could never open the room again.</li>
+  <li>The Zoom DELETE route converged onto the shared helper too. <strong>Tests</strong>: +10.</li>
+</ul>
+
+<h3>Phase 4 — Failure visibility (H5) · commit <code>1d61af6</code></h3>
+<ul>
+  <li>Swept every silent business rejection to zero across 9 files: session GET/PUT 404s; tracks event
+    404 / track 404 / Zod 400 / "cannot delete a track with sessions" 400; public <code>presence</code>
+    429 + 404 + <code>NOT_REGISTERED</code> 403; <code>zoom-join</code> 404s + "not currently joinable"
+    403; <code>lobby-status</code> 429 + 404; public <code>agenda</code> 404 + "not published yet" 404.</li>
+  <li>Rejections log at <code>warn</code> with identifying context (never bodies). Bare 401
+    "Unauthorized" is deliberately left unlogged, consistent with the payments (M12) and abstracts (M11)
+    sweeps — an expired cookie is not a business failure, and it is high-volume.</li>
+</ul>
+
+<div class="note">
+  <strong>Scoreboard after this round:</strong> <strong>both BLOCKERs and all 5 HIGHs fixed</strong>
+  (B1/B2/M4 → <code>835c49d</code>; H1/H4/L2 → <code>12e01d1</code>; H2/H3 → <code>ce1f635</code>;
+  H5 → <code>1d61af6</code>). Suite 2374 → 2401. Deferred to ROADMAP: <strong>M1</strong>
+  (<code>provisionWebinar</code>'s unlocked read→create window can still mint two anchors + two billable
+  webinars), <strong>M2</strong> (unstable topic ids), <strong>M6</strong> (retime doesn't re-sync Zoom),
+  <strong>M7/M8</strong> (day-bucketing and the dashboard grid bypass <code>event-time.ts</code>),
+  <strong>M9</strong> (narrowing event dates orphans sessions), <strong>M10</strong> (sortOrder races),
+  <strong>M11</strong> (no shared session-enums), and L1–L5.
+</div>
+
+<h2 id="clean">10. What checked out clean</h2>
 
 <ul>
   <li><strong>The June 10 consistency pass held.</strong> REST create + update both validate session times via

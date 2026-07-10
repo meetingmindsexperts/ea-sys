@@ -212,6 +212,64 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Current Release — July 10, 2026
 
+### Program / agenda / sessions review (July 10, 2026) — deferred findings
+
+A 4-angle production review of the program / agenda / sessions domain (scheduling lifecycle · RBAC &
+public exposure · concurrency & integrity · drift/failure-visibility): **2 BLOCKER / 5 HIGH / 9 MED /
+5 LOW**. Full report: [docs/CODE_REVIEW_PROGRAM_AGENDA.html](CODE_REVIEW_PROGRAM_AGENDA.html)
+(browseable at `/admin/docs/CODE_REVIEW_PROGRAM_AGENDA.html`). **Both BLOCKERs and all 5 HIGHs fixed
+the same day** (`835c49d` B1 Zoom host-URL leak to attendees + B2 recording-password leak to the
+internet + M4 rate limit; `12e01d1` **session-service extraction** closing H1 PUT data-loss + H4
+REST/MCP drift incl. the MCP audit gap + L2; `ce1f635` H2 orphaned billable Zoom meetings + H3 session
+DELETE tells Zoom and guards the webinar anchor; `1d61af6` H5 unlogged-4xx sweep). Deferred:
+
+- **M1 — `provisionWebinar` is not idempotent under concurrency.** The guard reads
+  `settings.webinar.sessionId` and, if unset, creates the anchor session + a real Zoom webinar, with no
+  lock over the read→create window. It's fired fire-and-forget from `POST /api/events` AND from a manual
+  "Re-run provisioner" control. Two concurrent invocations mint **two anchor sessions and two billable
+  Zoom webinars**; `updateEventSettings` is atomic but resolves last-write-wins on `sessionId`, so one
+  anchor + its remote webinar are orphaned. Fix: take the settings row lock around the whole
+  read→create, or claim a sentinel `webinar.provisioning` key first.
+- **M2 — session PUT regenerates every topic id.** `topicSchema` accepts `id` but the create never uses
+  it, so editing one topic's title deletes and recreates all topics with fresh cuids. Breaks any stable
+  reference (deep links, external sync) and makes partial topic edits impossible.
+- **M3 — public `stream-status` hands the live HLS URL + `streamKey` to anyone**, bypassing the
+  registration gate `zoom-join` enforces; and the public GET performs a DB write (`streamStatus`).
+- **M5 — DRAFT-event exposure is still systemic** on `lobby-status`, `stream-status`, `zoom-join`,
+  `presence` (`status: { in: ["DRAFT","PUBLISHED","LIVE"] }`). `detail` was gated in B2; the rest are
+  mitigated by auth/registration gates except `stream-status` (see M3).
+- **M6 — retiming a session never re-syncs its Zoom meeting.** Both PUT paths write
+  `startTime`/`endTime` and neither touches the `ZoomMeeting` row; Zoom keeps the original scheduled
+  start and a stale `duration` while the lobby + public agenda use the new times.
+- **M7 — the public agenda buckets days in the VIEWER's timezone while rendering times in the EVENT's.**
+  `event-time.ts` exports `localDateInTz`/`formatDateInTz` for exactly this and is bypassed for the date
+  half. An 11 PM event-TZ session is bucketed under the next calendar day for any viewer west of the
+  event. `speakers-agenda-preview.tsx` carries a now-false comment claiming the page renders in viewer TZ.
+- **M8 — the dashboard agenda ignores `event.timezone` entirely**: the list/tooltips render in hardcoded
+  **Asia/Dubai** (`utils.ts` `toDubai`) while the calendar grid positions cards in **browser-local**
+  (`start.getHours()`). Two clocks on one page, neither the event's — the admin builds the agenda against
+  a mis-drawn grid.
+- **M9 — narrowing an event's dates silently orphans out-of-range sessions.** `isSessionWithinEventDates`
+  then rejects any *new or edited* session on the dropped day, while the stale ones persist and still
+  render on the public agenda.
+- **M10 — `sortOrder` allocated read-then-insert with no unique constraint** (`tracks` `max+1`,
+  `add_topic_to_session` `count()`), so concurrent creates tie and the agenda renders
+  non-deterministically. Same class already fixed for certificate templates via a transactional
+  aggregate+create.
+- **M11 — no shared `session-enums.ts`.** `SessionRole`/`SessionStatus` labels + colours are
+  re-implemented four ways; the dashboard tooltip renders raw `MODERATOR:` where the public page renders
+  `Moderator`. A new enum value must be patched in 4+ spots and the build won't catch a miss.
+- **L1** removing/replacing a session's speakers orphans their per-topic `TopicSpeaker` rows (the speaker
+  keeps appearing under the topic on the public agenda). **L3** abstract→session uniqueness is
+  check-then-act; the race surfaces as an opaque 500 instead of the intended 400. **L4** session/track
+  writes org-scope by hand instead of `buildEventAccessWhere` (not exploitable — `denyReviewer` fires
+  first — but it's the pattern that produced three IDORs this month, and it 404s a SUPER_ADMIN with no
+  org); and **three** public "join opens at" countdowns still render viewer-local (CLAUDE.md says two,
+  and one of them formats the very same instant the header renders in event TZ). **L5** public slug
+  lookups are not org-scoped (multi-tenant pre-condition), and `isSessionWithinEventDates` relies on an
+  implicit lexical date-string contract worth documenting.
+
+
 ### Abstracts & reviewers review (July 10, 2026) — deferred findings
 
 A 4-angle production review of the abstracts + reviewers domain (lifecycle · RBAC/info-leaks ·
