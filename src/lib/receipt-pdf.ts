@@ -32,6 +32,9 @@ export interface ReceiptPDFData {
   registrationType: string;
   pricingTier: string | null;
   price: number;
+  /** STORED figures from the receipt row (review M10). */
+  taxAmount?: number | null;
+  total?: number | null;
   currency: string;
   taxRate: number | null;
   taxLabel: string;
@@ -146,8 +149,9 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       const subtotal = data.price;
       const discount = data.discountAmount || 0;
       const discountedSubtotal = Math.max(0, subtotal - discount);
-      const taxAmount = data.taxRate ? discountedSubtotal * (data.taxRate / 100) : 0;
-      const total = discountedSubtotal + taxAmount;
+      // Prefer the STORED figures from the receipt row (review M10).
+      const taxAmount = data.taxAmount ?? (data.taxRate ? discountedSubtotal * (data.taxRate / 100) : 0);
+      const total = data.total ?? discountedSubtotal + taxAmount;
 
       doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Subtotal", colRate, y);
       doc.fillColor("#1e293b").text(`${data.currency} ${subtotal.toFixed(2)}`, colAmount, y);

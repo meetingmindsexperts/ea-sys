@@ -43,6 +43,9 @@ export interface CreditNotePDFData {
   registrationType: string;
   pricingTier: string | null;
   price: number;
+  /** STORED, reconciled figures from the credit-note row (review M10). */
+  taxAmount?: number | null;
+  total?: number | null;
   currency: string;
   taxRate: number | null;
   taxLabel: string;
@@ -141,6 +144,8 @@ export async function generateCreditNotePDF(data: CreditNotePDFData): Promise<Bu
         taxRate: data.taxRate,
         taxLabel: data.taxLabel,
         totalLabel: "TOTAL CREDIT",
+        taxAmountOverride: data.taxAmount ?? null,
+        grandTotalOverride: data.total ?? null,
       });
 
       // ── 5. Reason ──

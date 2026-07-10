@@ -50,8 +50,12 @@ export interface RegistrationFinancials {
   hasOutstandingBalance: boolean;
 }
 
-/** Round to 2 dp without binary-float drift (e.g. 1.005 → 1.01). */
-function round2(n: number): number {
+/** Round to 2 dp without binary-float drift (e.g. 1.005 → 1.01).
+ *  THE one shared money-rounding helper (review M9) — invoice-service,
+ *  payment-service, and the Stripe webhook all import this instead of
+ *  carrying divergent local copies (the EPSILON matters at the 1.005
+ *  boundary, which is exactly where cap comparisons live). */
+export function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 

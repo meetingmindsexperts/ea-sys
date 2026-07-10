@@ -227,6 +227,24 @@ describe("createInvoice", () => {
     expect(captured.taxLabel).toBe("VAT");
   });
 
+  it("rounds tax + total with the SHARED round2 (M9 — was a 4th unrounded formula)", async () => {
+    let captured: Record<string, unknown> = {};
+    setupTxMock((data) => { captured = data; });
+    // 100.5 × 5% = 5.025 → the old unrounded copy stored 5.025 / 105.525;
+    // the shared EPSILON round2 stores 5.03 / 105.53 — the same numbers the
+    // refund remaining + CN cap compute from, so the "same" total can no
+    // longer disagree at the cent boundary.
+    mockFindUniqueOrThrow.mockResolvedValue({
+      ...fakeRegistration,
+      ticketType: { name: "Standard", price: "100.50", currency: "USD" },
+    });
+
+    await createInvoice({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1" });
+
+    expect(Number(captured.taxAmount)).toBe(5.03);
+    expect(Number(captured.total)).toBe(105.53);
+  });
+
   it("sets due date ~30 days from now by default", async () => {
     let captured: Record<string, unknown> = {};
     setupTxMock((data) => { captured = data; });

@@ -7,7 +7,7 @@ import { generateReceiptPDF, type ReceiptPDFData } from "@/lib/receipt-pdf";
 import { generateCreditNotePDF, type CreditNotePDFData } from "@/lib/credit-note-pdf";
 import { sendEmail } from "@/lib/email";
 import { getTitleLabel, deriveEventCode } from "@/lib/utils";
-import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import {
   sendPaymentConfirmationEmail,
   paymentConfirmationRegInclude,
@@ -118,13 +118,30 @@ function calcInvoicePricing(registration: {
 }) {
   const price = readRegistrationBasePrice(registration);
   const currency = registration.pricingTier?.currency ?? registration.ticketType?.currency ?? "USD";
-  const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
-  const discountedPrice = Math.max(0, price - discount);
   const discountCode = registration.promoCode?.code || null;
   const taxRate = registration.event.taxRate ? Number(registration.event.taxRate) : null;
-  const taxAmount = taxRate ? discountedPrice * (taxRate / 100) : 0;
-  const total = discountedPrice + taxAmount;
-  return { price, currency, discount, discountCode, discountedPrice, taxRate, taxAmount, total };
+  // Delegate the math to the ONE shared totals implementation (review M9) —
+  // this used to be a fourth, UNROUNDED copy of the formula, so the credit-
+  // note cap (fed from here) and the refund remaining (fed from
+  // computeRegistrationFinancials) could disagree at the cent boundary.
+  const fin = computeRegistrationFinancials({
+    subtotal: price,
+    discount: registration.discountAmount ? Number(registration.discountAmount) : 0,
+    taxRate,
+    taxLabel: registration.event.taxLabel,
+    currency,
+    totalPaid: 0,
+  });
+  return {
+    price,
+    currency,
+    discount: fin.discount,
+    discountCode,
+    discountedPrice: fin.taxableBase,
+    taxRate,
+    taxAmount: fin.taxAmount,
+    total: fin.total,
+  };
 }
 
 // ── Create Invoice ──────────────────────────────────────────────────────────
@@ -427,7 +444,7 @@ export class CreditNoteAmountError extends Error {
   }
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+// round2 comes from registration-financials (review M9 — one shared copy).
 
 /**
  * Issue a credit note for a registration — full OR partial. Multiple credit
@@ -607,6 +624,10 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
       registrationType: reg.ticketType?.name ?? "General",
       pricingTier: reg.pricingTier?.name || null,
       price: Number(invoice.subtotal),
+      // Stored, reconciled figures — the PDF prints these, never recomputes
+      // (review M10).
+      taxAmount: invoice.taxAmount != null ? Number(invoice.taxAmount) : null,
+      total: invoice.total != null ? Number(invoice.total) : null,
       currency: invoice.currency,
       taxRate: invoice.taxRate ? Number(invoice.taxRate) : null,
       taxLabel: invoice.taxLabel || "VAT",
@@ -643,6 +664,10 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
       registrationType: reg.ticketType?.name ?? "General",
       pricingTier: reg.pricingTier?.name || null,
       price: Number(invoice.subtotal),
+      // Stored, reconciled figures — the PDF prints these, never recomputes
+      // (review M10).
+      taxAmount: invoice.taxAmount != null ? Number(invoice.taxAmount) : null,
+      total: invoice.total != null ? Number(invoice.total) : null,
       currency: invoice.currency,
       taxRate: invoice.taxRate ? Number(invoice.taxRate) : null,
       taxLabel: invoice.taxLabel || "VAT",
@@ -719,6 +744,10 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
     registrationType: reg.ticketType?.name ?? "General",
     pricingTier: reg.pricingTier?.name || null,
     price: Number(invoice.subtotal),
+    // Stored, reconciled figures — the PDF prints these, never recomputes
+    // (review M10).
+    taxAmount: invoice.taxAmount != null ? Number(invoice.taxAmount) : null,
+    total: invoice.total != null ? Number(invoice.total) : null,
     currency: invoice.currency,
     taxRate: invoice.taxRate ? Number(invoice.taxRate) : null,
     taxLabel: invoice.taxLabel || "VAT",

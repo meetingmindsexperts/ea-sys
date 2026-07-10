@@ -402,6 +402,14 @@ export interface TotalsInput {
   taxLabel: string;
   /** Override the "TOTAL OUTSTANDING" label (e.g. "TOTAL PAID" for invoices marked paid) */
   totalLabel?: string;
+  /** STORED tax amount from the document row (review M10). A financial
+   *  document must print the frozen, reconciled figure — recomputing from
+   *  taxRate here defeated createCreditNote's cent-exact reconciliation on
+   *  partial credit notes. When null/undefined, falls back to recomputing
+   *  (quote PDFs have no stored row). */
+  taxAmountOverride?: number | null;
+  /** STORED grand total from the document row (review M10). */
+  grandTotalOverride?: number | null;
 }
 
 /**
@@ -429,8 +437,11 @@ export function drawTotals(
   const subtotal = input.subtotal;
   const discount = input.discountAmount || 0;
   const discountedSubtotal = Math.max(0, subtotal - discount);
-  const taxAmount = input.taxRate ? discountedSubtotal * (input.taxRate / 100) : 0;
-  const grandTotal = discountedSubtotal + taxAmount;
+  // Prefer the STORED figures (review M10); recompute only when the caller
+  // has no persisted row (quotes).
+  const taxAmount =
+    input.taxAmountOverride ?? (input.taxRate ? discountedSubtotal * (input.taxRate / 100) : 0);
+  const grandTotal = input.grandTotalOverride ?? discountedSubtotal + taxAmount;
 
   // Subtotal
   doc.fontSize(9).fillColor(COLOR_MUTED).font("Helvetica")

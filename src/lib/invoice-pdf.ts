@@ -78,6 +78,9 @@ export interface InvoicePDFData {
   registrationType: string;
   pricingTier: string | null;
   price: number;
+  /** STORED figures from the invoice row (review M10). */
+  taxAmount?: number | null;
+  total?: number | null;
   currency: string;
 
   // Tax
@@ -232,6 +235,8 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
         taxRate: data.taxRate,
         taxLabel: data.taxLabel,
         totalLabel: isPaid ? "TOTAL PAID" : "TOTAL OUTSTANDING",
+        taxAmountOverride: data.taxAmount ?? null,
+        grandTotalOverride: data.total ?? null,
       });
 
       // ── 5. Notes + VAT disclaimer ──

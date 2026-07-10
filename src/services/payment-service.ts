@@ -3,7 +3,7 @@ import { apiLogger } from "@/lib/logger";
 import { getStripe, toStripeAmount } from "@/lib/stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
-import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
+import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError } from "@/lib/invoice-service";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
 import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
@@ -18,7 +18,7 @@ import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
  * Never imports `next/server`.
  */
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
+// round2 comes from registration-financials (review M9 — one shared copy).
 
 const truncateError = (err: unknown) => String(err instanceof Error ? err.message : err).slice(0, 500);
 

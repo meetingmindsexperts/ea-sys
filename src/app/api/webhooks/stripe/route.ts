@@ -8,7 +8,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 import { issueCreditNoteForRegistration } from "@/services/payment-service";
 import { refreshEventStats } from "@/lib/event-stats";
-import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
+import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import { captureStripeReceipt } from "@/lib/stripe-receipt";
 
 export async function POST(req: Request) {
@@ -409,7 +409,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
-      const round2 = (n: number) => Math.round(n * 100) / 100;
       // Stripe's `amount_refunded` is the CUMULATIVE refunded total FOR THIS
       // CHARGE (minor units). Reconcile it against the PER-PAYMENT counter
       // (`Payment.refundedAmount`), NOT the registration's mixed total —
