@@ -363,6 +363,8 @@ describe("createPaidInvoice", () => {
     // Swap tx to route through update, not create
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
       return fn({
+        // M1: createPaidInvoice takes the FOR UPDATE registration row lock.
+        $queryRaw: vi.fn().mockResolvedValue([]),
         invoice: {
           findFirst: mockFindFirst,
           create: mockCreate,
@@ -386,6 +388,90 @@ describe("createPaidInvoice", () => {
   });
 });
 
+describe("createPaidInvoice — M1 row lock + M5 captured-amount reconciliation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindUniqueOrThrow.mockResolvedValue(fakeRegistration);
+  });
+
+  it("takes the FOR UPDATE registration row lock inside the mint transaction (M1)", async () => {
+    const lockSpy = vi.fn().mockResolvedValue([]);
+    mockFindFirst.mockResolvedValue(null);
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        $queryRaw: lockSpy,
+        invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 1 }) },
+        invoice: {
+          findFirst: mockFindFirst,
+          create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => ({ id: "inv-1", ...args.data })),
+          update: mockUpdate,
+          updateMany: mockUpdateMany,
+        },
+      }),
+    );
+
+    await createPaidInvoice({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", paymentId: "pay-1" });
+    // Serializes webhook / reconciliation-worker / manual-capture minters —
+    // without it, concurrent callers double-mint PAID invoices + emails.
+    expect(lockSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-totals a minted PAID invoice to the CAPTURED amount when it diverges (M5)", async () => {
+    // Computed pricing: 100 + 5% VAT = 105. Attendee actually paid 90 (stale
+    // discounted checkout session). The PAID document must say 90.
+    let captured: Record<string, unknown> = {};
+    setupTxMock((data) => { captured = data; });
+
+    await createPaidInvoice({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+      paymentId: "pay-1", capturedTotal: 90,
+    });
+
+    expect(Number(captured.total)).toBe(90);
+    // Components scaled by 90/105, tax reconciled to the remainder (the
+    // createCreditNote pattern) so the pieces sum exactly.
+    expect(Number(captured.subtotal)).toBe(85.71);
+    expect(Number(captured.taxAmount)).toBe(4.29);
+  });
+
+  it("promoting a stale SENT invoice re-totals the STORED figures to the captured amount (M5)", async () => {
+    mockFindFirst.mockResolvedValueOnce({
+      id: "inv-existing", invoiceNumber: "INV-2026-0001", status: "SENT", total: "105.00",
+    });
+    mockUpdate.mockResolvedValueOnce({ id: "inv-existing", invoiceNumber: "INV-2026-0001", status: "PAID" });
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        invoice: { findFirst: mockFindFirst, create: mockCreate, update: mockUpdate, updateMany: mockUpdateMany },
+      }),
+    );
+
+    await createPaidInvoice({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+      paymentId: "pay-1", capturedTotal: 90,
+    });
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "PAID", total: 90, subtotal: 85.71, taxAmount: 4.29 }),
+    }));
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("leaves figures untouched when the captured amount matches (no spurious re-total)", async () => {
+    let captured: Record<string, unknown> = {};
+    setupTxMock((data) => { captured = data; });
+
+    await createPaidInvoice({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+      paymentId: "pay-1", capturedTotal: 105,
+    });
+
+    expect(Number(captured.subtotal)).toBe(100);
+    expect(Number(captured.taxAmount)).toBe(5);
+    expect(Number(captured.total)).toBe(105);
+  });
+});
+
 describe("createPaidInvoice — idempotency for an already-PAID invoice", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -396,7 +482,10 @@ describe("createPaidInvoice — idempotency for an already-PAID invoice", () => 
     // Webhook retry / reconciliation re-run: an INVOICE is already PAID.
     mockFindFirst.mockResolvedValueOnce({ id: "inv-paid", invoiceNumber: "INV-2026-0001", status: "PAID" });
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
-      fn({ invoice: { findFirst: mockFindFirst, create: mockCreate, update: mockUpdate, updateMany: mockUpdateMany } }),
+      fn({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        invoice: { findFirst: mockFindFirst, create: mockCreate, update: mockUpdate, updateMany: mockUpdateMany },
+      }),
     );
 
     const result = await createPaidInvoice({
@@ -451,8 +540,10 @@ describe("createPaidReceipt", () => {
 
     expect(result.created).toBe(false);
     expect(result.receipt.id).toBe("rec-existing");
-    expect(created).toBe(false); // no transaction → no second RECEIPT row
-    expect(mockFindUniqueOrThrow).not.toHaveBeenCalled(); // short-circuits before loading the registration
+    expect(created).toBe(false); // no second RECEIPT row created
+    // NOTE (M1): the existence check moved INSIDE the row-locked transaction,
+    // so the registration is loaded up front now — the old "short-circuits
+    // before loading" behavior traded a query for a double-mint race.
   });
 });
 

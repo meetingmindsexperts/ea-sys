@@ -144,6 +144,44 @@ function calcInvoicePricing(registration: {
   };
 }
 
+// ── Captured-amount reconciliation (review M5) ─────────────────────────────
+/**
+ * A PAID document must state what was actually CHARGED, not today's computed
+ * pricing. Checkout sessions live ~24h at a frozen price and admin invoices
+ * can pre-date a reprice — so when the captured Payment.amount diverges from
+ * the computed total, scale the components to the captured amount and
+ * reconcile the last component (tax) so the pieces sum exactly (the same
+ * pattern createCreditNote uses). Within a cent → unchanged.
+ */
+function reconcileComponentsToCaptured(
+  components: { price: number; discount: number; taxAmount: number; total: number },
+  capturedTotal: number | null | undefined,
+  logCtx: { registrationId: string; flow: string },
+): { price: number; discount: number; taxAmount: number; total: number; reconciled: boolean } {
+  if (capturedTotal == null || Math.abs(capturedTotal - components.total) <= 0.005) {
+    return { ...components, reconciled: false };
+  }
+  let next: { price: number; discount: number; taxAmount: number; total: number };
+  if (components.total <= 0.005) {
+    // Computed total is zero (legacy/odd rows) — nothing to scale; the whole
+    // captured amount becomes the line.
+    next = { price: round2(capturedTotal), discount: 0, taxAmount: 0, total: round2(capturedTotal) };
+  } else {
+    const ratio = capturedTotal / components.total;
+    const price = round2(components.price * ratio);
+    const discount = round2(components.discount * ratio);
+    const taxAmount = round2(capturedTotal - (price - discount));
+    next = { price, discount, taxAmount, total: round2(capturedTotal) };
+  }
+  apiLogger.warn({
+    msg: "paid-doc:re-totaled-to-captured-amount",
+    ...logCtx,
+    computedTotal: components.total,
+    capturedTotal,
+  });
+  return { ...next, reconciled: true };
+}
+
 // ── Create Invoice ──────────────────────────────────────────────────────────
 
 export async function createInvoice(params: {
@@ -226,6 +264,10 @@ export async function createPaidInvoice(params: {
   paymentMethod?: string;
   paymentReference?: string;
   paidAt?: Date;
+  /** The amount actually CAPTURED (Payment.amount). When it diverges from the
+   *  computed pricing (stale checkout session, pre-reprice admin invoice) the
+   *  PAID document is re-totaled to it (review M5). */
+  capturedTotal?: number | null;
 }): Promise<Invoice> {
   const {
     registrationId,
@@ -235,6 +277,7 @@ export async function createPaidInvoice(params: {
     paymentMethod,
     paymentReference,
     paidAt,
+    capturedTotal,
   } = params;
 
   const registration = await db.registration.findUniqueOrThrow({
@@ -242,7 +285,11 @@ export async function createPaidInvoice(params: {
     include: registrationInclude,
   });
 
-  const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
+  const pricing = calcInvoicePricing(registration);
+  const { currency, discountCode, taxRate } = pricing;
+  const { price, discount, taxAmount, total } = reconcileComponentsToCaptured(
+    pricing, capturedTotal, { registrationId, flow: "INVOICE" },
+  );
   const eventCode = await resolveEventCode(
     { id: eventId, code: registration.event.code, name: registration.event.name },
     { registrationId, flow: "INVOICE" },
@@ -251,6 +298,14 @@ export async function createPaidInvoice(params: {
   const paid = paidAt ?? new Date();
 
   const invoice = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    // Serialize concurrent minters on the registration ROW (review M1): the
+    // Stripe webhook's detached block, the reconciliation worker, and manual
+    // capture can all reach here at once — without the lock both findFirst
+    // checks see nothing and two PAID invoices (+ two emails) mint. Same
+    // FOR UPDATE pattern createCreditNote uses; holds through pgbouncer
+    // inside an interactive transaction.
+    await tx.$queryRaw`SELECT id FROM "Registration" WHERE id = ${registrationId} FOR UPDATE`;
+
     // Reuse-or-promote (idempotent): a registration gets exactly ONE INVOICE.
     //   - already PAID (webhook retry / reconciliation re-run) → return as-is
     //     so we never mint a duplicate PAID invoice number.
@@ -267,6 +322,23 @@ export async function createPaidInvoice(params: {
 
     if (existing) {
       if (existing.status === "PAID") return existing;
+      // Promote in place — and re-total the STORED components when the
+      // captured amount diverges (review M5: a pre-created SENT invoice at
+      // $500 promoted after a $400 discounted payment used to keep saying
+      // $500 on the emailed PAID document).
+      const promoteFigures =
+        capturedTotal != null && Math.abs(Number(existing.total) - capturedTotal) > 0.005
+          ? { subtotal: price, discountAmount: discount, taxAmount, total }
+          : {};
+      if ("total" in promoteFigures) {
+        apiLogger.warn({
+          msg: "paid-doc:promoted-invoice-re-totaled",
+          registrationId,
+          invoiceId: existing.id,
+          storedTotal: Number(existing.total),
+          capturedTotal,
+        });
+      }
       return tx.invoice.update({
         where: { id: existing.id },
         data: {
@@ -275,6 +347,7 @@ export async function createPaidInvoice(params: {
           paymentId,
           paymentMethod: paymentMethod || "stripe",
           paymentReference,
+          ...promoteFigures,
         },
       });
     }
@@ -342,6 +415,8 @@ export async function createPaidReceipt(params: {
   paymentMethod?: string;
   paymentReference?: string;
   paidAt?: Date;
+  /** The amount actually CAPTURED (Payment.amount) — see createPaidInvoice. */
+  capturedTotal?: number | null;
 }): Promise<{ receipt: Invoice; created: boolean }> {
   const {
     registrationId,
@@ -351,27 +426,19 @@ export async function createPaidReceipt(params: {
     paymentMethod,
     paymentReference,
     paidAt,
+    capturedTotal,
   } = params;
-
-  const existing = await db.invoice.findFirst({
-    where: { registrationId, type: "RECEIPT" },
-    orderBy: { createdAt: "desc" },
-  });
-  if (existing) {
-    apiLogger.info({
-      msg: "Receipt already exists for registration; returning existing (idempotent)",
-      invoiceNumber: existing.invoiceNumber,
-      registrationId,
-    });
-    return { receipt: existing, created: false };
-  }
 
   const registration = await db.registration.findUniqueOrThrow({
     where: { id: registrationId },
     include: registrationInclude,
   });
 
-  const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
+  const pricing = calcInvoicePricing(registration);
+  const { currency, discountCode, taxRate } = pricing;
+  const { price, discount, taxAmount, total } = reconcileComponentsToCaptured(
+    pricing, capturedTotal, { registrationId, flow: "RECEIPT" },
+  );
   const eventCode = await resolveEventCode(
     { id: eventId, code: registration.event.code, name: registration.event.name },
     { registrationId, flow: "RECEIPT" },
@@ -379,7 +446,27 @@ export async function createPaidReceipt(params: {
 
   const paid = paidAt ?? new Date();
 
+  let created = true;
   const receipt = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+    // Row-lock + in-tx existence check (review M1): the check used to run
+    // OUTSIDE the transaction, so concurrent minters (webhook detached block
+    // vs reconciliation worker vs manual capture) could each see "no receipt"
+    // and double-mint + double-email.
+    await tx.$queryRaw`SELECT id FROM "Registration" WHERE id = ${registrationId} FOR UPDATE`;
+    const existing = await tx.invoice.findFirst({
+      where: { registrationId, type: "RECEIPT" },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existing) {
+      apiLogger.info({
+        msg: "Receipt already exists for registration; returning existing (idempotent)",
+        invoiceNumber: existing.invoiceNumber,
+        registrationId,
+      });
+      created = false;
+      return existing;
+    }
+
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
       tx, eventId, "RECEIPT", eventCode
     );
@@ -412,14 +499,16 @@ export async function createPaidReceipt(params: {
     });
   });
 
-  apiLogger.info({
-    msg: "Receipt created",
-    invoiceNumber: receipt.invoiceNumber,
-    registrationId,
-    total: Number(receipt.total),
-    currency,
-  });
-  return { receipt, created: true };
+  if (created) {
+    apiLogger.info({
+      msg: "Receipt created",
+      invoiceNumber: receipt.invoiceNumber,
+      registrationId,
+      total: Number(receipt.total),
+      currency,
+    });
+  }
+  return { receipt, created };
 }
 
 // ── Create Credit Note ──────────────────────────────────────────────────────
@@ -962,10 +1051,13 @@ export async function issuePaidRegistrationDocuments(params: {
 
   const invoice = await createPaidInvoice({
     registrationId, eventId, organizationId, paymentId, paymentMethod, paymentReference, paidAt,
+    // The PAID documents state what was actually captured (review M5).
+    capturedTotal: amount,
   });
   const { receipt } = await createPaidReceipt({
     registrationId, eventId, organizationId,
     parentInvoiceId: invoice.id, paymentMethod, paymentReference, paidAt,
+    capturedTotal: amount,
   });
 
   await sendPaymentDocumentsEmail({
