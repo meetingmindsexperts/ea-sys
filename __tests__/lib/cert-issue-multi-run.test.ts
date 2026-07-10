@@ -106,7 +106,7 @@ describe("processBundleRenderPhase", () => {
     expect(mockFindOrIssue.mock.calls[0][0]).toMatchObject({ templateId: "tpl-att" });
   });
 
-  it("marks the item render-failed (no renderedAt) on partial template failure", async () => {
+  it("MANUAL run: marks the item render-failed (no renderedAt) on partial template failure", async () => {
     mockDb.certificateIssueRunItem.findMany.mockResolvedValue([ITEM]);
     mockFindOrIssue.mockImplementation((args: { templateId: string }) =>
       args.templateId === "tpl-app"
@@ -121,6 +121,53 @@ describe("processBundleRenderPhase", () => {
     expect(failUpdate.data.errorPhase).toBe("render");
     expect(failUpdate.data.errorMessage).toContain("boom");
     expect(failUpdate.data.issuedCertificateId).toBeUndefined();
+  });
+
+  it("AUTO run: partial failure still DELIVERS the certs that rendered (no operator to retry)", async () => {
+    mockDb.certificateIssueRunItem.findMany.mockResolvedValue([ITEM]);
+    mockFindOrIssue.mockImplementation((args: { templateId: string }) =>
+      args.templateId === "tpl-app"
+        ? Promise.resolve({ ok: false as const, code: "RENDER_FAILED" as const, error: "boom" })
+        : okCert("cert-tpl-att"),
+    );
+    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att", "tpl-app"], true, null);
+    expect(res.renderedThisTick).toBe(1);
+    // Item marked rendered (email-eligible) WITHOUT errorPhase; the miss is
+    // recorded on the run (errors append + failedCount) instead.
+    const itemUpdate = mockDb.certificateIssueRunItem.update.mock.calls[0][0];
+    expect(itemUpdate.data.renderedAt).toBeInstanceOf(Date);
+    expect(itemUpdate.data.errorPhase).toBeUndefined();
+    const failBump = mockDb.certificateIssueRun.update.mock.calls.find(
+      (c) => c[0].data.failedCount,
+    );
+    expect(failBump).toBeTruthy();
+  });
+
+  it("falls back to renderedAt-only when the legacy @unique pointer is held by another item (P2002)", async () => {
+    mockDb.certificateIssueRunItem.findMany.mockResolvedValue([{ ...ITEM, templateIds: ["tpl-att"] }]);
+    const { Prisma } = await import("@prisma/client");
+    mockDb.certificateIssueRunItem.update
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError("Unique", { code: "P2002", clientVersion: "t" }),
+      )
+      .mockResolvedValueOnce({});
+    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att"], false, "user-1");
+    // Item still counts as rendered — the send phase recomputes the cert
+    // set from templateIds, so the missing legacy pointer is harmless.
+    expect(res.renderedThisTick).toBe(1);
+    const retry = mockDb.certificateIssueRunItem.update.mock.calls[1][0];
+    expect(retry.data.renderedAt).toBeInstanceOf(Date);
+    expect(retry.data.issuedCertificateId).toBeUndefined();
+  });
+
+  it("an unexpected throw is contained per-item via markItemFailed (run never wedges)", async () => {
+    mockDb.certificateIssueRunItem.findMany.mockResolvedValue([{ ...ITEM, templateIds: ["tpl-att"] }]);
+    mockFindOrIssue.mockRejectedValue(new Error("connection closed"));
+    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att"], false, "user-1");
+    expect(res.renderedThisTick).toBe(0);
+    const failUpdate = mockDb.certificateIssueRunItem.update.mock.calls[0][0];
+    expect(failUpdate.data.errorPhase).toBe("render");
+    expect(failUpdate.data.errorMessage).toContain("connection closed");
   });
 
   it("fails the run hard when a run template was deleted mid-run (H4)", async () => {

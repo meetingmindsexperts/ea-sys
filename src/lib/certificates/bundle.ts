@@ -227,10 +227,12 @@ export async function findOrIssueCertificate(args: {
   issuedByUserId: string | null;
   /** Pre-loaded template (batch callers) — skips the per-call lookup. */
   template?: LoadedCertTemplate | null;
-  /** Run item delivering this cert (worker path) — stamped on the cert's
-   *  issueRunItemId (bundleCertificates back-relation). A REUSED cert gets
-   *  re-pointed here too, so the run's send phase picks it up. Omit for
-   *  non-run callers (bulk email) — existing pointers are left untouched. */
+  /** Run item that PRODUCED this cert (worker path) — stamped on the cert's
+   *  issueRunItemId at CREATE only, as provenance. A REUSED cert keeps its
+   *  original pointer: the send phase recomputes each item's cert set
+   *  deterministically from (item.templateIds × item facets), so re-pointing
+   *  is unnecessary — and would steal the cert out of another in-flight
+   *  run's bundle (review finding, 2026-07-10). */
   issueRunItemId?: string | null;
 }): Promise<FindOrIssueResult> {
   const tmpl = args.template ?? (await loadCertTemplate(args.eventId, args.templateId));
@@ -259,7 +261,7 @@ export async function findOrIssueCertificate(args: {
     select: { id: true, serial: true, pdfUrl: true, revokedAt: true },
   });
   if (existing) {
-    return reuseExistingCert(args.eventId, tmpl, registrationId, speakerId, existing, args.issueRunItemId);
+    return reuseExistingCert(args.eventId, tmpl, registrationId, speakerId, existing);
   }
 
   const serial = await allocateSerial(args.eventId, tmpl.category);
@@ -320,21 +322,21 @@ export async function findOrIssueCertificate(args: {
       templateId: args.templateId,
       certificateId: winner.id,
     });
-    return reuseExistingCert(args.eventId, tmpl, registrationId, speakerId, winner, args.issueRunItemId);
+    return reuseExistingCert(args.eventId, tmpl, registrationId, speakerId, winner);
   }
 }
 
 /** Reuse an already-issued cert: load its PDF, or repair it by re-rendering
- *  with the SAME serial when the PDF is missing/unloadable. When a run item
- *  is delivering the reuse, the cert is re-pointed at it so the run's send
- *  phase finds it via the bundleCertificates relation. */
+ *  with the SAME serial when the PDF is missing/unloadable. The cert's
+ *  issueRunItemId provenance pointer is deliberately left untouched — the
+ *  worker's send phase recomputes delivery sets from item.templateIds, so
+ *  a reuse never steals the cert out of another run's bundle. */
 async function reuseExistingCert(
   eventId: string,
   tmpl: LoadedCertTemplate,
   registrationId: string | null,
   speakerId: string | null,
   existing: { id: string; serial: string; pdfUrl: string | null; revokedAt: Date | null },
-  issueRunItemId?: string | null,
 ): Promise<FindOrIssueResult> {
   if (existing.revokedAt) {
     apiLogger.warn({
@@ -356,12 +358,6 @@ async function reuseExistingCert(
         eventId,
         certificateId: existing.id,
       });
-      if (issueRunItemId) {
-        await db.issuedCertificate.update({
-          where: { id: existing.id },
-          data: { issueRunItemId },
-        });
-      }
       return {
         ok: true,
         cert: {
@@ -412,7 +408,6 @@ async function reuseExistingCert(
       recipientSnapshot: render.recipient as unknown as Prisma.InputJsonValue,
       reprintCount: { increment: 1 },
       lastReprintedAt: new Date(),
-      ...(issueRunItemId ? { issueRunItemId } : {}),
     },
   });
   return {
@@ -637,6 +632,13 @@ export async function sendCertificateBundleEmail(args: {
   };
   const wrappedHtml = inlineCss(wrapWithBranding(bodyHtml, branding));
 
+  // EmailLog anchor: prefer the SPEAKER facet whenever the bundle carries an
+  // APPRECIATION (speaker) cert — the speaker detail sheet's Email History
+  // queries strictly by SPEAKER, and pre-bundle sends attributed speaker
+  // certs there. Pure-attendance bundles anchor on the registration.
+  const speakerAnchored =
+    Boolean(args.speakerId) &&
+    (args.certs.some((c) => c.type === "APPRECIATION") || !args.registrationId);
   return sendEmail({
     to: [{ email: args.recipientEmail, name: args.recipientName }],
     subject,
@@ -651,8 +653,8 @@ export async function sendCertificateBundleEmail(args: {
     emailType: "certificate",
     logContext: {
       organizationId: args.organizationId,
-      entityType: args.registrationId ? "REGISTRATION" : "SPEAKER",
-      entityId: args.registrationId ?? args.speakerId ?? null,
+      entityType: speakerAnchored ? "SPEAKER" : "REGISTRATION",
+      entityId: speakerAnchored ? args.speakerId : args.registrationId ?? args.speakerId ?? null,
       eventId: args.eventId,
       // templateSlug doubles as a discriminator on the EmailLogCard — the
       // amber "Certificate" pill keys off this slug regardless of path.

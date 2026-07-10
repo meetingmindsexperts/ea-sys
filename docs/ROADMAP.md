@@ -210,7 +210,51 @@ The platform handles the entire event lifecycle — from public registration and
 
 ---
 
-## Current Release — July 8, 2026
+## Current Release — July 10, 2026
+
+### Multi-certificate-per-email (bundles) — deferred review findings
+
+The 6-phase cert-bundling feature (one email carries every cert a person earns —
+Issue tab multi-select, Communications bulk-email "certificate" type, survey
+auto-issue bundles, resend-all-in-one-email) shipped with an 8-angle independent
+review. Blockers + highs (run-wedge P2002, cross-run bundle theft, event-wide run
+guard, auto partial-failure stranding, resend email anchor, EmailLog attribution)
+were **fixed in-band**. Deferred (medium/low, each independently shippable):
+
+- **M7 — bulk cert "Email All" counts non-tag-holders as failures.** An unfiltered
+  send with one `committee` template on a 500-reg event reports 30 success / 470
+  "failures" ("No selected certificate applies") in the ScheduledEmail row + admin
+  notification, though everything worked as designed. Fix: count zero-tag-match
+  recipients as SKIPPED (new counter or excluded from `total`), keep the per-recipient
+  detail at debug/info. ([src/lib/certificates/bulk-issue.ts](../src/lib/certificates/bulk-issue.ts))
+- **M8 — legacy 1:1 `issueRunItem` readers miss bundle certs #2..N.** The auto-issue
+  analytics `certsAutoIssued` count, the issued-list card's "sent …" timestamp, and
+  the single-cert resend route's cover-email-snapshot lookup all read the legacy
+  `item.issuedCertificateId` 1:1 relation; non-primary bundle certs show as
+  never-sent / fall back to the default cover. Fix: read via `issueRunItemId`
+  (provenance) OR the deterministic (templateIds × facets) rule the worker send
+  phase now uses.
+- **M9 — cover-email semantics drift.** (a) The bulk dialog's "Message (optional)"
+  REPLACES the whole cover body (plain-text newlines not converted, `{{certificateList}}`
+  lost) though the label reads additive; (b) resend-bundle's 1-cert case uses the
+  system default instead of the template's saved cover email (bulk + issue paths keep
+  it); (c) the single-vs-multi default cascade is hand-copied in bulk-issue /
+  worker fallback / page dialog prefill instead of one `defaultCoverEmailFor` call —
+  and bulk keys on per-recipient cert count while the worker keys on run-level
+  template count.
+- **L — cleanup batch.** Person-linking email match is case-insensitive in
+  `eligibleForTemplates` but case-sensitive in `resolveLinked*` (same person merged
+  at issue, split at resend — extract one shared predicate); 4 near-identical
+  title-prefix name formatters (`formatRecipientName` / auto-issue + eligibility
+  `formatName` / `formatPersonName`); the worker's dead `templateIds` fallback + the
+  retained ~250-line legacy render pipeline duplicate `findOrIssueCertificate`'s
+  domain op (delete once pre-deploy in-flight runs drain); `{{certificateList}}`
+  resolves raw HTML in a SUBJECT if an operator puts it there (spec says body-only —
+  enforce or strip); per-recipient facet/tag queries in `bulk-issue.resolvePersonFacets`
+  and per-cert `loadRecipient`/`loadEventContext` in `renderAndUpload` could be batched
+  (perf headroom for 500+ recipient sends); `run.type` is a lossy "primary category"
+  for mixed bundles (derive display category from `templateIds` if analytics ever
+  group by type).
 
 ### Dinner RSVP (shipped) — backlog / deferred items
 

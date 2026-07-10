@@ -185,6 +185,22 @@ describe("findOrIssueCertificate", () => {
     expect(res).toMatchObject({ ok: false, code: "RECIPIENT_NOT_FOUND" });
   });
 
+  it("never re-points a reused cert's issueRunItemId (no bundle theft across runs)", async () => {
+    mockDb.issuedCertificate.findFirst.mockResolvedValue({ id: "cert-old", serial: "OMM-ATT-0001", pdfUrl: "/uploads/certificates/evt/old.pdf", revokedAt: null });
+    const res = await findOrIssueCertificate({ ...BASE_ARGS, issueRunItemId: "item-9" });
+    expect(res.ok).toBe(true);
+    // Reuse with a loadable PDF must not touch the cert row at all — the
+    // send phase recomputes delivery sets, so re-pointing would steal the
+    // cert out of another in-flight run's bundle (review fix, 2026-07-10).
+    expect(mockDb.issuedCertificate.update).not.toHaveBeenCalled();
+  });
+
+  it("stamps issueRunItemId on FRESH creates only", async () => {
+    const res = await findOrIssueCertificate({ ...BASE_ARGS, issueRunItemId: "item-9" });
+    expect(res.ok).toBe(true);
+    expect(mockDb.issuedCertificate.create.mock.calls[0][0].data.issueRunItemId).toBe("item-9");
+  });
+
   it("resolves a P2002 race to the winner row (reused, winner's serial)", async () => {
     mockDb.issuedCertificate.create.mockRejectedValue(p2002());
     // First findFirst (pre-check) → null; second (post-race) → winner.
@@ -217,7 +233,7 @@ describe("sendCertificateBundleEmail", () => {
     pdfBuffer: Buffer.from("%PDF"),
   });
 
-  it("sends ONE email with one attachment per cert, named by serial", async () => {
+  it("sends ONE email with one attachment per cert; a bundle carrying an APPRECIATION cert anchors the EmailLog on the SPEAKER", async () => {
     const res = await sendCertificateBundleEmail({
       ...SEND_ARGS,
       certs: [cert("ATT-1", "ATTENDANCE"), cert("APP-2", "APPRECIATION")],
@@ -226,15 +242,22 @@ describe("sendCertificateBundleEmail", () => {
     expect(mockSend).toHaveBeenCalledTimes(1);
     const sent = mockSend.mock.calls[0][0];
     expect(sent.attachments.map((a: { name: string }) => a.name)).toEqual(["ATT-1.pdf", "APP-2.pdf"]);
+    // Speaker-facet certs must stay visible on the speaker sheet's Email
+    // History (it queries strictly SPEAKER) — review fix, 2026-07-10.
     expect(sent.logContext).toMatchObject({
-      entityType: "REGISTRATION",
-      entityId: "reg-1",
+      entityType: "SPEAKER",
+      entityId: "spk-1",
       templateSlug: "certificate-delivery",
       organizationId: "org-1",
     });
   });
 
-  it("anchors the EmailLog on the speaker when there is no registration facet", async () => {
+  it("anchors a pure-attendance bundle on the registration", async () => {
+    await sendCertificateBundleEmail({ ...SEND_ARGS, certs: [cert("ATT-1", "ATTENDANCE")] });
+    expect(mockSend.mock.calls[0][0].logContext).toMatchObject({ entityType: "REGISTRATION", entityId: "reg-1" });
+  });
+
+  it("anchors on the speaker when there is no registration facet", async () => {
     await sendCertificateBundleEmail({ ...SEND_ARGS, registrationId: null, certs: [cert("APP-1", "APPRECIATION")] });
     expect(mockSend.mock.calls[0][0].logContext).toMatchObject({ entityType: "SPEAKER", entityId: "spk-1" });
   });

@@ -38,7 +38,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       },
       select: {
         id: true, eventId: true, type: true, status: true,
-        autoIssue: true,
+        autoIssue: true, templateIds: true,
         totalCount: true, renderedCount: true, emailedCount: true, failedCount: true,
         triggeredAt: true,
         rendererStartedAt: true, rendererFinishedAt: true,
@@ -67,41 +67,70 @@ export async function GET(_req: Request, { params }: RouteParams) {
       take: 20,
       select: {
         id: true, recipientName: true, recipientEmail: true,
+        registrationId: true, speakerId: true, templateIds: true,
         renderedAt: true, emailedAt: true,
         errorPhase: true, errorMessage: true,
         issuedCertificateId: true,
         issuedCertificate: { select: { pdfUrl: true, serial: true } },
-        // Bundle-model items carry EVERY cert the person earned (one per
-        // applicable template) — surfaced so the review gate can spot-check
-        // each PDF, not just the legacy first one.
-        bundleCertificates: {
-          select: { id: true, pdfUrl: true, serial: true, type: true },
-          orderBy: { issuedAt: "asc" },
-        },
       },
     });
-    const sampleItems = sampleItemsRaw.map((r) => ({
-      id: r.id,
-      recipientName: r.recipientName,
-      recipientEmail: r.recipientEmail,
-      renderedAt: r.renderedAt,
-      emailedAt: r.emailedAt,
-      errorPhase: r.errorPhase,
-      errorMessage: r.errorMessage,
-      issuedCertificateId: r.issuedCertificateId,
-      // Surface the rendered PDF URL + serial at the top level for the
-      // UI. Null until the item completes the RENDER phase.
-      pdfUrl: r.issuedCertificate?.pdfUrl ?? null,
-      serial: r.issuedCertificate?.serial ?? null,
-      // Full bundle (>=1 entries once rendered); legacy items fall back to
-      // the single primary cert above.
-      certificates: r.bundleCertificates.map((c) => ({
-        id: c.id,
-        pdfUrl: c.pdfUrl,
-        serial: c.serial,
-        type: c.type,
-      })),
-    }));
+
+    // Bundle-model items carry EVERY cert the person earned (one per
+    // applicable template). Recomputed from (item.templateIds × facets) —
+    // same rule as the worker's send phase — rather than the provenance
+    // pointer, so certs REUSED from another run still show at the review
+    // gate. One grouped query for the whole sample.
+    const runTemplateIds = run.templateIds;
+    const sampleRegIds = sampleItemsRaw.map((r) => r.registrationId).filter((x): x is string => !!x);
+    const sampleSpkIds = sampleItemsRaw.map((r) => r.speakerId).filter((x): x is string => !!x);
+    const bundleCertRows =
+      runTemplateIds.length > 0 && (sampleRegIds.length > 0 || sampleSpkIds.length > 0)
+        ? await db.issuedCertificate.findMany({
+            where: {
+              eventId: run.eventId,
+              certificateTemplateId: { in: runTemplateIds },
+              revokedAt: null,
+              OR: [
+                ...(sampleRegIds.length ? [{ registrationId: { in: sampleRegIds } }] : []),
+                ...(sampleSpkIds.length ? [{ speakerId: { in: sampleSpkIds } }] : []),
+              ],
+            },
+            select: {
+              id: true, pdfUrl: true, serial: true, type: true,
+              certificateTemplateId: true, registrationId: true, speakerId: true,
+            },
+            orderBy: { issuedAt: "asc" },
+          })
+        : [];
+
+    const sampleItems = sampleItemsRaw.map((r) => {
+      const itemTemplateIds = r.templateIds.length ? r.templateIds : runTemplateIds;
+      const certificates = bundleCertRows
+        .filter(
+          (c) =>
+            itemTemplateIds.includes(c.certificateTemplateId ?? "") &&
+            ((r.registrationId && c.registrationId === r.registrationId) ||
+              (r.speakerId && c.speakerId === r.speakerId)),
+        )
+        .map((c) => ({ id: c.id, pdfUrl: c.pdfUrl, serial: c.serial, type: c.type }));
+      return {
+        id: r.id,
+        recipientName: r.recipientName,
+        recipientEmail: r.recipientEmail,
+        renderedAt: r.renderedAt,
+        emailedAt: r.emailedAt,
+        errorPhase: r.errorPhase,
+        errorMessage: r.errorMessage,
+        issuedCertificateId: r.issuedCertificateId,
+        // Surface the rendered PDF URL + serial at the top level for the
+        // UI. Null until the item completes the RENDER phase.
+        pdfUrl: r.issuedCertificate?.pdfUrl ?? certificates[0]?.pdfUrl ?? null,
+        serial: r.issuedCertificate?.serial ?? certificates[0]?.serial ?? null,
+        // Full bundle (>=1 entries once rendered); legacy items fall back to
+        // the single primary cert above.
+        certificates,
+      };
+    });
 
     // ALL failed items (not just the sample). The operator needs the
     // full failures list to decide whether to retry or accept the

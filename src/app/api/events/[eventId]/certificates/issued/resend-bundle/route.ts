@@ -155,11 +155,28 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Address the email to the facet the OPERATOR anchored on (the page
+    // they clicked from), falling back to the linked counterpart. The two
+    // facets' emails can diverge (the speaker Change-Email flow doesn't
+    // cascade to the companion attendee), and the old per-cert loop used
+    // each cert's own facet — anchoring on the requested facet is the
+    // closest single-address equivalent.
+    const anchorRegistrationId = registrationId ?? null;
+    const anchorSpeakerId = speakerId ?? null;
     const [recipientEmail, recipient] = await Promise.all([
-      resolveRecipientEmail(linkedRegistrationId, linkedSpeakerId),
+      resolveRecipientEmail(anchorRegistrationId, anchorSpeakerId).then(
+        (email) => email ?? resolveRecipientEmail(linkedRegistrationId, linkedSpeakerId),
+      ),
       loadRecipient(linkedRegistrationId, linkedSpeakerId),
     ]);
     if (!recipientEmail) {
+      apiLogger.warn({
+        msg: "cert-resend-bundle:no-recipient-email",
+        eventId,
+        userId: session.user.id,
+        registrationId,
+        speakerId,
+      });
       return NextResponse.json(
         { error: "Recipient has no email address on file.", code: "NO_RECIPIENT_EMAIL" },
         { status: 409 },
@@ -195,6 +212,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
     if (bundle.length === 0) {
+      apiLogger.warn({
+        msg: "cert-resend-bundle:all-pdfs-unloadable",
+        eventId,
+        userId: session.user.id,
+        registrationId,
+        speakerId,
+        certCount: certs.length,
+      });
       return NextResponse.json(
         {
           error: "None of this person's certificate PDFs could be loaded — use “Resend latest version” to re-render them.",

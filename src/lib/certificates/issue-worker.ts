@@ -550,58 +550,125 @@ export async function processBundleRenderPhase(
 
   let rendered = 0;
   for (const item of items) {
-    // The item's stamped subset; legacy fallback covers items created
-    // before per-item stamping (only ever single-template runs).
-    const itemTemplateIds = item.templateIds.length ? item.templateIds : templateIds;
-    const failures: string[] = [];
-    let firstCertId: string | null = null;
-    for (const tid of itemTemplateIds) {
-      const tmpl = templateMap.get(tid);
-      if (!tmpl) {
-        failures.push(`${tid}: not in this run's template set`);
-        continue;
+    // Per-item try/catch (mirrors the legacy loop) — an unexpected throw
+    // (DB blip, unique-constraint edge) must markItemFailed, NOT escape to
+    // tickAllRuns: an escaped throw would leave renderedAt null so the item
+    // re-enters every tick while lastTickAt keeps refreshing, wedging the
+    // run in RENDERING forever (review finding, 2026-07-10).
+    try {
+      // The item's stamped subset; legacy fallback covers items created
+      // before per-item stamping (only ever single-template runs).
+      const itemTemplateIds = item.templateIds.length ? item.templateIds : templateIds;
+      const failures: string[] = [];
+      let firstCertId: string | null = null;
+      for (const tid of itemTemplateIds) {
+        const tmpl = templateMap.get(tid);
+        if (!tmpl) {
+          failures.push(`${tid}: not in this run's template set`);
+          continue;
+        }
+        const res = await findOrIssueCertificate({
+          eventId,
+          templateId: tid,
+          registrationId: item.registrationId,
+          speakerId: item.speakerId,
+          issuedByUserId: triggeredByUserId,
+          template: tmpl,
+          issueRunItemId: item.id,
+        });
+        if (!res.ok) {
+          failures.push(`${tmpl.name}: ${res.error}`);
+          continue;
+        }
+        if (!firstCertId) firstCertId = res.cert.certificateId;
       }
-      const res = await findOrIssueCertificate({
-        eventId,
-        templateId: tid,
-        registrationId: item.registrationId,
-        speakerId: item.speakerId,
-        issuedByUserId: triggeredByUserId,
-        template: tmpl,
-        issueRunItemId: item.id,
-      });
-      if (!res.ok) {
-        failures.push(`${tmpl.name}: ${res.error}`);
-        continue;
-      }
-      if (!firstCertId) firstCertId = res.cert.certificateId;
-    }
 
-    if (failures.length > 0 || !firstCertId) {
-      const message = failures.join("; ") || "No certificates produced for this recipient";
+      if (!firstCertId) {
+        // NOTHING materialized — the item is a genuine failure.
+        const message = failures.join("; ") || "No certificates produced for this recipient";
+        await markItemFailed(runId, item.id, "render", message);
+        apiLogger.warn({
+          msg: "cert-issue-worker:bundle-render-failed",
+          runId,
+          itemId: item.id,
+          recipientName: item.recipientName,
+          failures,
+        });
+        continue;
+      }
+
+      if (failures.length > 0) {
+        if (autoIssue) {
+          // PARTIAL success on an AUTO run: deliver what materialized. An
+          // auto run has no operator to click Retry-failed, and the sweep
+          // won't re-enqueue (the registration is terminally stamped) — so
+          // failing the whole item would strand the already-minted certs
+          // forever. Record the miss in run.errors (visible in the runs
+          // panel + /logs) and proceed to the send phase.
+          await appendRunError(runId, item.id, "render", failures.join("; "));
+          apiLogger.warn({
+            msg: "cert-issue-worker:bundle-partial-render",
+            runId,
+            itemId: item.id,
+            recipientName: item.recipientName,
+            failures,
+            hint: "Auto run — delivering the certs that DID render; the missed template needs a manual Issue.",
+          });
+        } else {
+          // MANUAL run: fail the item so the operator sees it at the review
+          // gate and can Retry-failed (find-or-issue dedupes the done ones).
+          const message = failures.join("; ");
+          await markItemFailed(runId, item.id, "render", message);
+          apiLogger.warn({
+            msg: "cert-issue-worker:bundle-render-failed",
+            runId,
+            itemId: item.id,
+            recipientName: item.recipientName,
+            failures,
+          });
+          continue;
+        }
+      }
+
+      // Legacy 1:1 pointer gets the FIRST cert so pre-bundle readers keep
+      // working — but the column is @unique, and a REUSED cert may already
+      // be another run item's primary. That's fine: the send phase
+      // recomputes delivery sets from item.templateIds, so on P2002 we
+      // just mark the item rendered without the legacy pointer.
+      try {
+        await db.certificateIssueRunItem.update({
+          where: { id: item.id },
+          data: { renderedAt: new Date(), issuedCertificateId: firstCertId },
+        });
+      } catch (e) {
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") throw e;
+        apiLogger.info({
+          msg: "cert-issue-worker:legacy-pointer-held-elsewhere",
+          runId,
+          itemId: item.id,
+          certificateId: firstCertId,
+        });
+        await db.certificateIssueRunItem.update({
+          where: { id: item.id },
+          data: { renderedAt: new Date() },
+        });
+      }
+      await db.certificateIssueRun.update({
+        where: { id: runId },
+        data: { renderedCount: { increment: 1 } },
+      });
+      rendered++;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
       await markItemFailed(runId, item.id, "render", message);
       apiLogger.warn({
+        err: e,
         msg: "cert-issue-worker:bundle-render-failed",
         runId,
         itemId: item.id,
         recipientName: item.recipientName,
-        failures,
       });
-      continue;
     }
-
-    await db.certificateIssueRunItem.update({
-      where: { id: item.id },
-      // Legacy 1:1 pointer gets the FIRST cert so pre-bundle readers keep
-      // working; every cert links back via issueRunItemId (set inside
-      // findOrIssueCertificate).
-      data: { renderedAt: new Date(), issuedCertificateId: firstCertId },
-    });
-    await db.certificateIssueRun.update({
-      where: { id: runId },
-      data: { renderedCount: { increment: 1 } },
-    });
-    rendered++;
   }
   return { renderedThisTick: rendered, emailedThisTick: 0, transitionedTo: null };
 }
@@ -651,11 +718,17 @@ async function processSendPhase(
   const emailBodyTemplate =
     runRow.emailBody?.trim().length ? runRow.emailBody : fallbackCover.body;
 
+  // Rendered-but-not-emailed items. Keyed on renderedAt + errorPhase (not
+  // the legacy issuedCertificateId pointer) because a bundle item whose
+  // first cert was REUSED may legitimately lack the @unique legacy pointer
+  // (held by another run's item). Render-failed items carry errorPhase
+  // "render" and are excluded; retry-failed clears it.
   const items = await db.certificateIssueRunItem.findMany({
     where: {
       runId,
-      issuedCertificateId: { not: null },
+      renderedAt: { not: null },
       emailedAt: null,
+      errorPhase: null,
     },
     take: EMAIL_BATCH_SIZE,
   });
@@ -693,29 +766,45 @@ async function processSendPhase(
       continue;
     }
     try {
-      // Collect the item's full cert set — bundle-model items link every
-      // cert via issueRunItemId; legacy items fall back to the single
-      // issuedCertificateId pointer. Then fetch each PDF's bytes (local fs
-      // OR Supabase URL — either path returns a Buffer).
-      let certRows = await db.issuedCertificate.findMany({
-        where: { issueRunItemId: item.id },
-        select: {
-          pdfUrl: true,
-          serial: true,
-          type: true,
-          certificateTemplate: { select: { name: true } },
-        },
-        orderBy: { issuedAt: "asc" },
-      });
+      // Collect the item's full cert set DETERMINISTICALLY: the certs for
+      // (item's stamped templateIds × item facets). Deliberately NOT keyed
+      // on the issueRunItemId provenance pointer — a cert reused across
+      // overlapping runs keeps its original pointer, and pointer-based
+      // collection would silently drop it from this run's bundle (review
+      // finding, 2026-07-10). Legacy items (no templateIds anywhere) fall
+      // back to the single issuedCertificateId pointer.
+      const certSelect = {
+        pdfUrl: true,
+        serial: true,
+        type: true,
+        certificateTemplate: { select: { name: true } },
+      } as const;
+      const itemTemplateIds = item.templateIds.length ? item.templateIds : runRow.templateIds;
+      let certRows: Array<{
+        pdfUrl: string | null;
+        serial: string;
+        type: CertificateType;
+        certificateTemplate: { name: string } | null;
+      }> = [];
+      if (itemTemplateIds.length > 0) {
+        certRows = await db.issuedCertificate.findMany({
+          where: {
+            eventId,
+            certificateTemplateId: { in: itemTemplateIds },
+            revokedAt: null,
+            OR: [
+              ...(item.registrationId ? [{ registrationId: item.registrationId }] : []),
+              ...(item.speakerId ? [{ speakerId: item.speakerId }] : []),
+            ],
+          },
+          select: certSelect,
+          orderBy: { issuedAt: "asc" },
+        });
+      }
       if (certRows.length === 0 && item.issuedCertificateId) {
         const single = await db.issuedCertificate.findUnique({
           where: { id: item.issuedCertificateId },
-          select: {
-            pdfUrl: true,
-            serial: true,
-            type: true,
-            certificateTemplate: { select: { name: true } },
-          },
+          select: certSelect,
         });
         if (single) certRows = [single];
       }
@@ -918,7 +1007,18 @@ async function markItemFailed(
     where: { id: itemId },
     data: itemUpdate,
   });
-  // Append to run.errors JSON capped at MAX_RECORDED_ERRORS entries.
+  await appendRunError(runId, itemId, phase, message);
+}
+
+/** Append one entry to run.errors (capped) + bump failedCount. Split from
+ *  markItemFailed so a PARTIALLY-delivered auto bundle can record the missed
+ *  template without excluding the item from the send phase. */
+async function appendRunError(
+  runId: string,
+  itemId: string,
+  phase: "render" | "email",
+  message: string,
+) {
   const run = await db.certificateIssueRun.findUnique({
     where: { id: runId }, select: { errors: true },
   });

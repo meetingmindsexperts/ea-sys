@@ -16,9 +16,11 @@
  * Guards:
  *   - Every template must belong to the (org-bound) event.
  *   - Bundle shape: every template must carry a tag (TEMPLATE_MISSING_TAG).
- *   - ONE non-terminal MANUAL run per event (was per-category — a
- *     mixed-category bundle would slip a category-scoped guard).
- *     Auto-issue + reissue runs are exempt, as before.
+ *   - No non-terminal MANUAL run may OVERLAP the requested template set
+ *     (same-template double-issue guard). Disjoint sets run concurrently —
+ *     manual runs park indefinitely at AWAITING_REVIEW, so an event-wide
+ *     guard would let one forgotten run block all issuance. Auto-issue +
+ *     reissue runs are exempt.
  *
  * Design-approval gate REMOVED on 2026-06-02. The PDF-overlay model
  * makes the design tangible (operator sees the canvas + Preview button)
@@ -205,19 +207,37 @@ export async function POST(req: Request, { params }: RouteParams) {
     const runType = templates.some((t) => t.category === "ATTENDANCE")
       ? ("ATTENDANCE" as const)
       : ("APPRECIATION" as const);
+    const requestedIdSet = new Set(templates.map((t) => t.id));
     const txResult = await db.$transaction(async (tx) => {
-      // ONE non-terminal MANUAL run per event (was per-category — a
-      // mixed-category bundle run would slip a category-scoped guard).
-      // Slight tightening; manual runs drain in minutes. Auto-issue +
-      // reissue runs stay outside the guard, as before.
-      const existing = await tx.certificateIssueRun.findFirst({
+      // Concurrent-run guard: block only when a non-terminal MANUAL run
+      // OVERLAPS this request's template set (same-template double-issue is
+      // the real hazard). Deliberately NOT one-run-per-event: manual runs
+      // park indefinitely at the AWAITING_REVIEW operator gate, so an
+      // event-wide guard would let one forgotten run block ALL cert
+      // issuance (review finding, 2026-07-10). Disjoint template sets run
+      // concurrently, matching the old per-category behavior's intent.
+      const nonTerminal = await tx.certificateIssueRun.findMany({
         where: {
           eventId: eventIdLocked,
           autoIssue: false,
           reissue: false,
           status: { in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"] },
         },
-        select: { id: true, status: true, certificateTemplate: { select: { name: true } } },
+        select: {
+          id: true,
+          status: true,
+          templateIds: true,
+          certificateTemplateId: true,
+          certificateTemplate: { select: { name: true } },
+        },
+      });
+      const existing = nonTerminal.find((r) => {
+        const runIds = r.templateIds.length
+          ? r.templateIds
+          : r.certificateTemplateId
+            ? [r.certificateTemplateId]
+            : [];
+        return runIds.some((id) => requestedIdSet.has(id));
       });
       if (existing) {
         return { kind: "exists" as const, existing };
@@ -269,7 +289,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
       return NextResponse.json(
         {
-          error: `A certificate issue run is already in progress for "${templateLabel}" (status: ${txResult.existing.status}). Wait for it to complete or cancel it first.`,
+          error: `An issue run covering one of the selected templates ("${templateLabel}") is already in progress (status: ${txResult.existing.status}). Wait for it to complete or cancel it first.`,
           code: "RUN_IN_PROGRESS",
           runId: txResult.existing.id,
         },
