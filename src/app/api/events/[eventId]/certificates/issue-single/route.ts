@@ -1,12 +1,15 @@
 /**
  * POST /api/events/[eventId]/certificates/issue-single
  *
- * Issue ONE certificate template to ONE registration or speaker on demand —
- * the on-the-spot alternative to the tag-driven bulk Issue flow. Renders +
- * emails synchronously (single recipient, ~1-2s). Delegates to
- * issueSingleCertificate() in the shared cert-delivery service.
+ * Issue one OR SEVERAL certificate templates to ONE registration or speaker
+ * on demand — the on-the-spot alternative to the tag-driven bulk Issue flow.
+ * Renders + emails synchronously (single recipient) as ONE bundle email with
+ * one PDF per cert. Delegates to issueCertificateBundle() in the shared
+ * cert-delivery service; an already-held template is re-attached (existing
+ * serial), never duplicated.
  *
- * Body: { templateId, registrationId? | speakerId? } (exactly one recipient).
+ * Body: { templateIds: string[] (1..10), registrationId? | speakerId? }
+ *       (legacy single shape `templateId` still accepted).
  * Auth: ADMIN / ORGANIZER (denyReviewer). Org-bound. 30/hr/user rate limit.
  */
 
@@ -17,7 +20,7 @@ import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
-import { issueSingleCertificate } from "@/lib/certificates/deliver";
+import { issueCertificateBundle } from "@/lib/certificates/deliver";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -25,12 +28,16 @@ interface RouteParams {
 
 const bodySchema = z
   .object({
-    templateId: z.string().min(1).max(64),
+    templateId: z.string().min(1).max(64).optional(),
+    templateIds: z.array(z.string().min(1).max(64)).min(1).max(10).optional(),
     registrationId: z.string().min(1).max(64).optional(),
     speakerId: z.string().min(1).max(64).optional(),
   })
   .refine((d) => Boolean(d.registrationId) !== Boolean(d.speakerId), {
     message: "Provide exactly one of registrationId or speakerId.",
+  })
+  .refine((d) => Boolean(d.templateId) || Boolean(d.templateIds?.length), {
+    message: "Provide templateIds (or the legacy templateId).",
   });
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -68,9 +75,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
 
-    const result = await issueSingleCertificate(
+    const templateIds = parsed.data.templateIds?.length
+      ? parsed.data.templateIds
+      : [parsed.data.templateId!];
+    const result = await issueCertificateBundle(
       { eventId, organizationId: session.user.organizationId, actorUserId: session.user.id, source: "rest" },
-      { templateId: parsed.data.templateId, registrationId: parsed.data.registrationId, speakerId: parsed.data.speakerId },
+      { templateIds, registrationId: parsed.data.registrationId, speakerId: parsed.data.speakerId },
     );
 
     if (!result.ok) {
@@ -88,9 +98,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     return NextResponse.json({
       ok: true,
-      certificateId: result.certificateId,
-      serial: result.serial,
       recipientEmail: result.recipientEmail,
+      certs: result.certs,
+      failures: result.failures,
+      // Legacy single-cert convenience fields (pre-multi clients during the
+      // deploy overlap read these).
+      certificateId: result.certs[0]?.certificateId,
+      serial: result.certs[0]?.serial,
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "cert-issue-single:failed", eventId });

@@ -376,11 +376,22 @@ and to **issue on demand to one person**. Shared core:
 `src/lib/certificates/deliver.ts`.
 
 ### Shared service — `deliver.ts`
+- `issueCertificateBundle(ctx, { templateIds[], registrationId|speakerId })` —
+  **(July 10, 2026 — the flow the card uses now)** issue SEVERAL templates to
+  ONE recipient as ONE bundle email (one PDF per cert). Issue-or-reuse per
+  template via `findOrIssueCertificate` (an already-held template is
+  **re-attached** with its existing serial, never duplicated — unlike the
+  strict single API below); cover email = the single template's saved cover
+  when exactly one cert materializes, else the bundle default. Per-template
+  failures (revoked / render error) collect into `failures[]` (partial send);
+  all-failed → `ALL_TEMPLATES_FAILED`. Audits only newly minted certs.
+  **Tag-independent** — an explicit operator selection outranks tag routing.
 - `issueSingleCertificate(ctx, { templateId, registrationId|speakerId })` —
   issue ONE template to ONE recipient on demand (render → create cert → email).
   **Tag-independent** — a deliberate operator override; the tag gate only governs
   auto/bulk *selection*. Returns 409 `ALREADY_ISSUED` when they already hold the
-  template's cert (per-template `@@unique`).
+  template's cert (per-template `@@unique`). No route caller since the
+  multi-select card switch — kept as a service API.
 - `reRenderAndResendCert(ctx, certificateId)` — re-render an EXISTING cert from
   the CURRENT template, update `pdfUrl`, resend with the **current** cover email.
   Bumps `reprintCount` (render attempts) + `resendCount` + the new
@@ -393,7 +404,11 @@ and to **issue on demand to one person**. Shared core:
   (worker → deliver → cert-context; deliver does **not** import the worker).
 
 ### Routes
-- `POST .../certificates/issue-single` — single issue (synchronous). 30/hr/user.
+- `POST .../certificates/issue-single` — on-demand issue (synchronous),
+  30/hr/user. Body `{ templateIds: string[] (1..10), registrationId|speakerId }`
+  (legacy `templateId` still accepted) → `issueCertificateBundle`. The card's
+  Issue dialog is a **multi-select checkbox list** of the facet's templates,
+  with already-held ones annotated "will be re-attached".
 - `POST .../issued/[certId]/reissue` — single re-render + resend (synchronous);
   shares the 30/hr `cert-resend` bucket. **The IssuedCertificatesCard "Resend"
   button now calls THIS** (re-render latest), not the frozen `/resend` route.

@@ -28,14 +28,16 @@ import { Prisma } from "@prisma/client";
 import type { CertificateType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { SYSTEM_DEFAULT_SUBJECT, defaultBodyForCategory } from "./email-tokens";
-import { allocateSerial } from "./cert-context";
+import { SYSTEM_DEFAULT_SUBJECT, defaultBodyForCategory, defaultCoverEmailFor } from "./email-tokens";
+import { allocateSerial, loadRecipient } from "./cert-context";
 import {
   loadCertTemplate,
   renderAndUpload,
   resolveRecipientEmail,
   sendCertificateBundleEmail,
+  findOrIssueCertificate,
   type RenderAndUploadResult,
+  type BundleCert,
 } from "./bundle";
 
 export interface DeliverContext {
@@ -335,4 +337,187 @@ export async function reRenderAndResendCert(ctx: DeliverContext, certificateId: 
 
   apiLogger.info({ msg: "cert-deliver:reissued", eventId: ctx.eventId, certificateId, recipientEmail, messageId: send.messageId });
   return { ok: true, certificateId, serial: cert.serial, recipientEmail, messageId: send.messageId, issued: false };
+}
+
+// ── Public: multi-template bundle issue to ONE person ────────────────────────
+
+export type BundleIssueResult =
+  | {
+      ok: true;
+      recipientEmail: string;
+      /** Every cert carried by the email — `reused: true` rows were already
+       *  held (per-template dedup) and re-attached rather than re-minted. */
+      certs: Array<{ certificateId: string; serial: string; templateName: string; reused: boolean }>;
+      /** Templates that could NOT be materialized (revoked / render failure).
+       *  Non-empty means a partial send — surfaced to the operator. */
+      failures: Array<{ templateId: string; templateName: string; error: string }>;
+      messageId?: string;
+    }
+  | DeliverFailure;
+
+/**
+ * Issue SEVERAL certificate templates to ONE registration or speaker and
+ * email them as ONE bundle (one email, one PDF per cert) — the multi-select
+ * "Issue certificate" flow on the registration/speaker detail cards.
+ *
+ * Semantics mirror the bulk-email path, NOT the strict single-issue one: an
+ * already-held template is REUSED (re-attached with its existing serial,
+ * same rule as `findOrIssueCertificate` everywhere else) instead of failing
+ * the whole request with ALREADY_ISSUED. Tags are not checked — an explicit
+ * operator selection outranks tag routing, like issueSingleCertificate.
+ */
+export async function issueCertificateBundle(
+  ctx: DeliverContext,
+  input: { templateIds: string[]; registrationId?: string | null; speakerId?: string | null },
+): Promise<BundleIssueResult> {
+  const registrationId = input.registrationId ?? null;
+  const speakerId = input.speakerId ?? null;
+  if ((registrationId && speakerId) || (!registrationId && !speakerId)) {
+    return { ok: false, code: "INVALID_RECIPIENT", error: "Provide exactly one of registrationId or speakerId.", status: 400 };
+  }
+
+  const templateIds = [...new Set(input.templateIds)];
+  if (templateIds.length === 0) {
+    return { ok: false, code: "NO_TEMPLATES", error: "Select at least one certificate template.", status: 400 };
+  }
+
+  const loaded = await Promise.all(templateIds.map((id) => loadCertTemplate(ctx.eventId, id)));
+  if (loaded.some((t) => t === null)) {
+    return { ok: false, code: "TEMPLATE_NOT_FOUND", error: "One or more certificate templates were not found.", status: 404 };
+  }
+  const templates = loaded as NonNullable<(typeof loaded)[number]>[];
+
+  // Facet check — the card is facet-bound (registration → ATTENDANCE,
+  // speaker → APPRECIATION), same rule as issueSingleCertificate.
+  const wrongFacet = templates.find((t) =>
+    t.category === "ATTENDANCE" ? !registrationId : !speakerId,
+  );
+  if (wrongFacet) {
+    return {
+      ok: false,
+      code: "WRONG_RECIPIENT_TYPE",
+      error:
+        wrongFacet.category === "ATTENDANCE"
+          ? `"${wrongFacet.name}" is an attendance certificate — it must go to a registration.`
+          : `"${wrongFacet.name}" is an appreciation certificate — it must go to a speaker.`,
+      status: 400,
+    };
+  }
+
+  const [recipientEmail, recipient] = await Promise.all([
+    resolveRecipientEmail(registrationId, speakerId),
+    loadRecipient(registrationId, speakerId),
+  ]);
+  if (!recipient) {
+    return { ok: false, code: "RECIPIENT_NOT_FOUND", error: "Recipient no longer exists.", status: 404 };
+  }
+  if (!recipientEmail) {
+    return { ok: false, code: "NO_RECIPIENT_EMAIL", error: "Recipient has no email address on file.", status: 409 };
+  }
+
+  const bundled: Array<{ template: (typeof templates)[number]; cert: BundleCert }> = [];
+  const failures: Array<{ templateId: string; templateName: string; error: string }> = [];
+  for (const t of templates) {
+    const res = await findOrIssueCertificate({
+      eventId: ctx.eventId,
+      templateId: t.id,
+      registrationId,
+      speakerId,
+      issuedByUserId: ctx.actorUserId,
+      template: t,
+    });
+    if (!res.ok) {
+      // Already logged inside findOrIssueCertificate; collect for the
+      // operator-facing partial-send summary.
+      failures.push({ templateId: t.id, templateName: t.name, error: res.error });
+      continue;
+    }
+    bundled.push({ template: t, cert: res.cert });
+    if (!res.cert.reused) {
+      await writeAudit(ctx, "CERT_ISSUED", res.cert.certificateId, {
+        serial: res.cert.serial,
+        templateId: t.id,
+        recipientEmail,
+      });
+    }
+  }
+
+  if (bundled.length === 0) {
+    return {
+      ok: false,
+      code: "ALL_TEMPLATES_FAILED",
+      error: `No certificate could be issued — ${failures.map((f) => `${f.templateName}: ${f.error}`).join("; ")}`,
+      status: 500,
+    };
+  }
+
+  // Cover email — same precedence as every other send: exactly one cert →
+  // that template's saved cover (or its category default); several → the
+  // bundle default with {{certificateList}}.
+  const single = bundled.length === 1 ? bundled[0].template : null;
+  const cover = single
+    ? {
+        subject: single.emailSubject?.trim().length ? single.emailSubject : SYSTEM_DEFAULT_SUBJECT,
+        body: single.emailBody?.trim().length ? single.emailBody : defaultBodyForCategory(single.category),
+      }
+    : defaultCoverEmailFor(bundled.length, bundled[0].template.category);
+
+  const send = await sendCertificateBundleEmail({
+    eventId: ctx.eventId,
+    organizationId: ctx.organizationId,
+    recipientEmail,
+    recipientName: recipient.fullName,
+    recipientFirstName: recipient.firstName,
+    recipientLastName: recipient.lastName,
+    registrationId,
+    speakerId,
+    certs: bundled.map((b) => ({
+      serial: b.cert.serial,
+      type: b.cert.type,
+      templateName: b.cert.templateName,
+      pdfBuffer: b.cert.pdfBuffer,
+    })),
+    emailSubjectTemplate: cover.subject,
+    emailBodyTemplate: cover.body,
+    triggeredByUserId: ctx.actorUserId,
+  });
+
+  if (!send.success) {
+    // The certs ARE issued (rendered + stored); only the email failed —
+    // "Resend all" on the card recovers without re-minting.
+    apiLogger.warn({
+      msg: "cert-deliver:bundle-issued-send-failed",
+      eventId: ctx.eventId,
+      certificateIds: bundled.map((b) => b.cert.certificateId),
+      err: send.error,
+    });
+    return {
+      ok: false,
+      code: "ISSUED_SEND_FAILED",
+      error: `Certificate${bundled.length > 1 ? "s" : ""} issued, but the email failed to send — use "Resend all".`,
+      status: 502,
+    };
+  }
+
+  apiLogger.info({
+    msg: "cert-deliver:bundle-issued",
+    eventId: ctx.eventId,
+    recipientEmail,
+    certCount: bundled.length,
+    reusedCount: bundled.filter((b) => b.cert.reused).length,
+    failureCount: failures.length,
+    messageId: send.messageId,
+  });
+  return {
+    ok: true,
+    recipientEmail,
+    certs: bundled.map((b) => ({
+      certificateId: b.cert.certificateId,
+      serial: b.cert.serial,
+      templateName: b.cert.templateName,
+      reused: b.cert.reused,
+    })),
+    failures,
+    messageId: send.messageId,
+  };
 }

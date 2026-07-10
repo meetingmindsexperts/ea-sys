@@ -44,7 +44,17 @@ vi.mock("@/lib/certificates/email-tokens-resolver", () => ({
 }));
 vi.mock("@/lib/certificates/email-tokens", () => ({
   SYSTEM_DEFAULT_SUBJECT: "Your {{certificateType}}",
+  SYSTEM_DEFAULT_SUBJECT_MULTI: "Your certificates",
+  SYSTEM_DEFAULT_BODY_MULTI: "<p>Multi {{certificateList}}</p>",
   defaultBodyForCategory: () => "<p>Body</p>",
+  defaultCoverEmailFor: (n: number) =>
+    n > 1
+      ? { subject: "Your certificates", body: "<p>Multi {{certificateList}}</p>" }
+      : { subject: "Your {{certificateType}}", body: "<p>Body</p>" },
+}));
+vi.mock("@/lib/certificates/pdf-loader", () => ({
+  // Reuse path — pretend every stored PDF loads fine.
+  loadCertificatePdfBytes: vi.fn().mockResolvedValue(Buffer.from("%PDF stored")),
 }));
 vi.mock("@/lib/certificates/cert-context", () => ({
   loadRecipient: (r: string | null, s: string | null) => mockLoadRecipient(r, s),
@@ -53,7 +63,7 @@ vi.mock("@/lib/certificates/cert-context", () => ({
   loadPosterAbstractTitle: vi.fn().mockResolvedValue(null),
 }));
 
-import { issueSingleCertificate, reRenderAndResendCert } from "@/lib/certificates/deliver";
+import { issueSingleCertificate, issueCertificateBundle, reRenderAndResendCert } from "@/lib/certificates/deliver";
 
 const CTX = { eventId: "evt-1", organizationId: "org-1", actorUserId: "user-1", source: "rest" as const };
 const RECIPIENT = { title: "Dr.", firstName: "Jane", lastName: "Doe", fullName: "Dr. Jane Doe", organization: null, jobTitle: null, city: null, country: null };
@@ -201,5 +211,114 @@ describe("reRenderAndResendCert", () => {
     // only the re-render update happened (pdfUrl+reprintCount), NOT the resendCount bump
     expect(mockDb.issuedCertificate.update).toHaveBeenCalledTimes(1);
     expect(mockDb.issuedCertificate.update.mock.calls[0][0].data.reprintCount).toEqual({ increment: 1 });
+  });
+});
+
+// ── issueCertificateBundle — multi-template issue to ONE person ──────────────
+// The card's multi-select "Issue certificate" flow: issue-or-reuse per
+// template, ONE bundle email with one PDF per cert.
+
+describe("issueCertificateBundle", () => {
+  const TPL_A = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", autoIssueTag: "delegate", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null, emailSubject: "Att Sub", emailBody: "<p>A</p>" };
+  const TPL_B = { id: "tpl-b", name: "Committee", category: "ATTENDANCE", autoIssueTag: "committee", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Committee", cmeHours: null, emailSubject: null, emailBody: null };
+  const APP_TPL = { id: "tpl-s", name: "Speaker", category: "APPRECIATION", autoIssueTag: "speaker", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: "Speaker", cmeHours: null, emailSubject: null, emailBody: null };
+
+  function primeTemplates(rows: Array<Record<string, unknown>>) {
+    mockDb.certificateTemplate.findFirst.mockImplementation(
+      (args: { where: { id: string } }) => Promise.resolve(rows.find((r) => r.id === args.where.id) ?? null),
+    );
+  }
+
+  beforeEach(() => {
+    primeTemplates([TPL_A, TPL_B, APP_TPL]);
+    mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com" } });
+    mockDb.issuedCertificate.findFirst.mockResolvedValue(null);
+    let n = 0;
+    mockDb.issuedCertificate.create.mockImplementation(() => Promise.resolve({ id: `cert-${++n}` }));
+    mockAllocSerial.mockImplementation(() => Promise.resolve(`OMM-ATT-${String(++n).padStart(4, "0")}`));
+  });
+
+  it("issues two templates and sends ONE email with two PDFs (multi cover)", async () => {
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: true, recipientEmail: "jane@x.com" });
+    if (!res.ok) throw new Error("unreachable");
+    expect(res.certs).toHaveLength(2);
+    expect(res.failures).toHaveLength(0);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][0].attachments).toHaveLength(2);
+    // Multi-template → bundle default cover, not tpl-a's saved cover.
+    expect(mockSend.mock.calls[0][0].subject).toBe("Your certificates");
+    // One CERT_ISSUED audit per newly minted cert.
+    expect(mockDb.auditLog.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("single template keeps its saved cover email", async () => {
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a"], registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: true });
+    expect(mockSend.mock.calls[0][0].subject).toBe("Att Sub");
+  });
+
+  it("re-attaches an already-held template (reused) without a new audit row", async () => {
+    mockDb.issuedCertificate.findFirst.mockImplementation(
+      (args: { where: { certificateTemplateId: string } }) =>
+        Promise.resolve(
+          args.where.certificateTemplateId === "tpl-a"
+            ? { id: "cert-old", serial: "OMM-ATT-0001", pdfUrl: "/uploads/certificates/old.pdf", revokedAt: null }
+            : null,
+        ),
+    );
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.certs).toHaveLength(2);
+    const reusedRow = res.certs.find((c) => c.certificateId === "cert-old");
+    expect(reusedRow).toMatchObject({ reused: true, serial: "OMM-ATT-0001" });
+    // Only the FRESH cert audits (mirrors the bulk-email path).
+    expect(mockDb.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][0].attachments).toHaveLength(2);
+  });
+
+  it("partial send: a revoked cert's template lands in failures, the rest still go out", async () => {
+    mockDb.issuedCertificate.findFirst.mockImplementation(
+      (args: { where: { certificateTemplateId: string } }) =>
+        Promise.resolve(
+          args.where.certificateTemplateId === "tpl-a"
+            ? { id: "cert-old", serial: "OMM-ATT-0001", pdfUrl: "/x.pdf", revokedAt: new Date() }
+            : null,
+        ),
+    );
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.certs).toHaveLength(1);
+    expect(res.failures).toHaveLength(1);
+    expect(res.failures[0]).toMatchObject({ templateId: "tpl-a", templateName: "Attendance" });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("ALL_TEMPLATES_FAILED when nothing materializes (no email sent)", async () => {
+    mockDb.issuedCertificate.findFirst.mockResolvedValue({
+      id: "cert-old", serial: "OMM-ATT-0001", pdfUrl: "/x.pdf", revokedAt: new Date(),
+    });
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a"], registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: false, code: "ALL_TEMPLATES_FAILED", status: 500 });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("WRONG_RECIPIENT_TYPE when an appreciation template targets a registration", async () => {
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-s"], registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: false, code: "WRONG_RECIPIENT_TYPE", status: 400 });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("ISSUED_SEND_FAILED when the bundle email fails (certs stay issued)", async () => {
+    mockSend.mockResolvedValue({ success: false, error: "SES down" });
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a", "tpl-b"], registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: false, code: "ISSUED_SEND_FAILED", status: 502 });
+    expect(mockDb.issuedCertificate.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an empty template list / bad recipient combos", async () => {
+    expect(await issueCertificateBundle(CTX, { templateIds: [], registrationId: "reg-1" })).toMatchObject({ ok: false, code: "NO_TEMPLATES" });
+    expect(await issueCertificateBundle(CTX, { templateIds: ["tpl-a"] })).toMatchObject({ ok: false, code: "INVALID_RECIPIENT" });
   });
 });

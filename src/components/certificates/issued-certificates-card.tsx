@@ -43,13 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Plus } from "lucide-react";
 import {
   useIssuedCertificates,
@@ -99,28 +93,46 @@ export function IssuedCertificatesCard({
   // Only non-revoked, rendered certs can be (re)sent.
   const resendableCerts = certificates.filter((c) => !c.revokedAt && c.pdfUrl);
 
-  // ── On-demand single issue ──
+  // ── On-demand issue (multi-select — one bundle email) ──
   const issueMutation = useIssueSingleCertificate(eventId);
   const [issueOpen, setIssueOpen] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   // A registration card issues ATTENDANCE templates; a speaker card issues
   // APPRECIATION ones (the facet the recipient can hold).
   const facetCategory = speakerId ? "APPRECIATION" : "ATTENDANCE";
   const { data: templatesData } = useCertificateTemplates(eventId, issueOpen);
   const issuableTemplates = (templatesData?.templates ?? []).filter((t) => t.category === facetCategory);
+  // Template ids this person already holds a (non-revoked) cert from —
+  // selecting one re-attaches the existing cert (same serial) instead of
+  // minting a duplicate, so annotate rather than disable.
+  const heldTemplateIds = new Set(
+    certificates.filter((c) => !c.revokedAt).map((c) => c.certificateTemplate?.id).filter(Boolean),
+  );
 
   async function handleIssue() {
-    if (!selectedTemplateId) return;
+    if (selectedTemplateIds.length === 0) return;
     try {
       const body = registrationId
-        ? { templateId: selectedTemplateId, registrationId }
-        : { templateId: selectedTemplateId, speakerId };
+        ? { templateIds: selectedTemplateIds, registrationId }
+        : { templateIds: selectedTemplateIds, speakerId };
       const res = await issueMutation.mutateAsync(body);
-      toast.success(`Issued & emailed certificate ${res.serial} to ${res.recipientEmail}`);
+      const reused = res.certs.filter((c) => c.reused).length;
+      const fresh = res.certs.length - reused;
+      toast.success(
+        `Emailed ${res.certs.length} certificate${res.certs.length === 1 ? "" : "s"} to ${res.recipientEmail}` +
+          (reused > 0 ? ` (${fresh} newly issued, ${reused} already held — re-attached)` : ""),
+      );
+      if (res.failures.length > 0) {
+        toast.error(
+          `${res.failures.length} certificate${res.failures.length === 1 ? "" : "s"} could not be issued: ${res.failures
+            .map((f) => f.templateName)
+            .join(", ")}`,
+        );
+      }
       setIssueOpen(false);
-      setSelectedTemplateId("");
+      setSelectedTemplateIds([]);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to issue certificate");
+      toast.error(e instanceof Error ? e.message : "Failed to issue certificates");
     }
   }
 
@@ -378,56 +390,69 @@ export function IssuedCertificatesCard({
         </DialogContent>
       </Dialog>
 
-      {/* Issue-certificate dialog — pick a template, render + email to this person. */}
+      {/* Issue-certificate dialog — multi-select templates, render + email
+          to this person as ONE bundle email (one PDF per certificate). */}
       <Dialog
         open={issueOpen}
         onOpenChange={(open) => {
           if (issueMutation.isPending) return;
           setIssueOpen(open);
-          if (!open) setSelectedTemplateId("");
+          if (!open) setSelectedTemplateIds([]);
         }}
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Plus className="h-4 w-4" />
-              Issue a certificate
+              Issue certificates
             </DialogTitle>
             <DialogDescription>
-              Render one certificate template and email it to this{" "}
-              {speakerId ? "speaker" : "registration"} now. Tags are not checked —
-              this is a direct, on-demand issue.
+              Select the certificate templates to issue — they render and go out
+              as <strong>one email</strong> to this{" "}
+              {speakerId ? "speaker" : "registration"}, one PDF per certificate.
+              Tags are not checked — this is a direct, on-demand issue.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700">Template</label>
-            <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Choose a certificate template…" />
-              </SelectTrigger>
-              <SelectContent>
-                {issuableTemplates.length === 0 ? (
-                  <div className="px-2 py-1.5 text-sm text-slate-400">
-                    No {facetCategory === "ATTENDANCE" ? "attendance" : "appreciation"} templates configured.
-                  </div>
-                ) : (
-                  issuableTemplates.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-slate-400">
-              Already-held templates will be rejected — use “Resend latest version” on the existing row instead.
-            </p>
+            <label className="text-sm font-medium text-slate-700">Templates</label>
+            {issuableTemplates.length === 0 ? (
+              <p className="rounded-md border p-3 text-sm text-slate-400">
+                No {facetCategory === "ATTENDANCE" ? "attendance" : "appreciation"} templates configured — create one under Certificates → Templates.
+              </p>
+            ) : (
+              <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-md border p-2.5">
+                {issuableTemplates.map((t) => {
+                  const held = heldTemplateIds.has(t.id);
+                  return (
+                    <label key={t.id} className="flex cursor-pointer items-start gap-2 text-sm">
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={selectedTemplateIds.includes(t.id)}
+                        onCheckedChange={(c) =>
+                          setSelectedTemplateIds((prev) =>
+                            c === true ? [...prev, t.id] : prev.filter((id) => id !== t.id),
+                          )
+                        }
+                      />
+                      <span>
+                        <span className="font-medium">{t.name}</span>
+                        {held && (
+                          <span className="block text-xs text-amber-600">
+                            Already issued — the existing certificate (same serial) will be re-attached, not duplicated.
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIssueOpen(false)} disabled={issueMutation.isPending}>
               Cancel
             </Button>
-            <Button onClick={handleIssue} disabled={issueMutation.isPending || !selectedTemplateId}>
+            <Button onClick={handleIssue} disabled={issueMutation.isPending || selectedTemplateIds.length === 0}>
               {issueMutation.isPending ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
@@ -436,7 +461,7 @@ export function IssuedCertificatesCard({
               ) : (
                 <>
                   <Plus className="h-3.5 w-3.5 mr-1.5" />
-                  Issue &amp; email
+                  Issue &amp; email{selectedTemplateIds.length > 0 ? ` (${selectedTemplateIds.length})` : ""}
                 </>
               )}
             </Button>

@@ -2355,8 +2355,15 @@ export function useCertificateTemplates(eventId: string, enabled = true) {
 export function useIssueSingleCertificate(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { templateId: string; registrationId?: string; speakerId?: string }) =>
-      fetchApi<{ ok: true; certificateId: string; serial: string; recipientEmail: string }>(
+    mutationFn: (body: { templateIds: string[]; registrationId?: string; speakerId?: string }) =>
+      fetchApi<{
+        ok: true;
+        recipientEmail: string;
+        /** One entry per cert in the bundle email; `reused` = already held, re-attached. */
+        certs: Array<{ certificateId: string; serial: string; templateName: string; reused: boolean }>;
+        /** Templates that couldn't be materialized (partial send when non-empty). */
+        failures: Array<{ templateId: string; templateName: string; error: string }>;
+      }>(
         `/api/events/${eventId}/certificates/issue-single`,
         {
           method: "POST",
