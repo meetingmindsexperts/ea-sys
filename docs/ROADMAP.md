@@ -212,6 +212,35 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Current Release — July 10, 2026
 
+### Registrations & speakers review (July 10, 2026) — deferred findings
+
+A 4-angle production review of the registrations + speakers + companion-registration
+domain (lifecycle · facets · security · duplication/logging). Full report with quoted
+code + failure scenarios: [docs/CODE_REVIEW_REGISTRATIONS_SPEAKERS.html](CODE_REVIEW_REGISTRATIONS_SPEAKERS.html)
+(browseable at `/admin/docs`). All 9 HIGHs were fixed in the same-day 8-phase remediation
+round; the mediums/lows below are deferred and independently shippable. Suggested order:
+M4 first (only one that moves real money), then the MCP-parity cluster (M7/M8/M9/L4),
+then logging hygiene (M12/M13), then the `updateRegistration()` service extraction (#5
+below in the cross-caller section) which stops the drift class from regenerating.
+
+- **M1 — MCP registration writes scope by org, not the tool's `eventId`** (`agent/tools/registrations.ts:419, 853, 954`). A mis-scoped agent call mutates a sibling event's registrations. Fix: add `eventId: ctx.eventId` to the `where` (REST PUT already event-scopes).
+- **M2 — companion create race** (`speaker-companion.ts:100-124`). Check-then-create, no uniqueness backstop; two racing calls mint an orphaned CONFIRMED faculty reg with a live entry barcode. Fix shape: partial unique index on `(eventId, attendee-email) WHERE createdSource='SPEAKER_COMPANION'` or advisory lock.
+- **M3 — deleting a companion registration silently strips the speaker's facet** (registration DELETE has no `SPEAKER_COMPANION` guard; `sourceRegistrationId` SetNulls; nothing recreates). Fix: warn/confirm on companion rows + log the detach.
+- **M4 — refund routes the whole balance through the newest PAID payment only** (`payment-service.ts:237-249`). Stripe+manual multi-payment regs either never reverse the Stripe charge (manual newest → "recorded" only) or become permanently unrefundable (Stripe newest → amount > charge → STRIPE_FAILED every time, and cancel-with-refund aborts). Fix: split the refund across payment instruments, or cap the Stripe leg at its own charge amount.
+- **M5 — seat/promo deltas computed from pre-transaction snapshots** (`payment-service.ts:421→484` — the gap contains the Stripe network call; also MCP bulk + bulk-type). Concurrent mode/type change in the window → double release. Fix: re-read the row inside the tx and compute `prev` from that. (Seats dormant; promo live.)
+- **M6 — CSV import claims a seat for rows imported as CANCELLED** (`import/registrations/route.ts:328-356`) → permanent `soldCount` inflation (dormant). Fix: skip the claim when the row status is CANCELLED (mirror `holdsSeat`).
+- **M7 — MCP sponsor-gate drift** (`agent/tools/registrations.ts:465-484`): the July-7 H2 "only validate when touching sponsor fields" fix landed on REST only; MCP still hard-blocks any edit to a legacy INCLUSIVE-without-sponsor row.
+- **M8 — MCP `create_registrations_bulk` drift (4 behaviours)**: free tickets land UNPAID (then chased by Chase-Unpaid emails) instead of COMPLIMENTARY; dup check doesn't exclude CANCELLED; `requiresApproval` ignored; no sales-window check / confirmation email.
+- **M9 — MCP `create_speakers_bulk` skips `syncToContact` and drops fields** (`role/country/city/state/zip/photo/additionalEmail/tags`) → blank badge country + "—" profession on companions (the class the July backfill cleaned up); speakers CSV import also skips contact sync.
+- **M10 — `bulk_update_registration_status` is a 4th hand-written cancel/reactivate copy** (~90 lines, two near-identical claim blocks) — same as pre-existing cross-caller #6.
+- **M11 — create-time seat claim hand-rolled in 3 places** instead of `claimSeat` (registration-service, MCP bulk create, public register).
+- **M12 — REST boundaries return service rejections as unlogged 4xxs** (`registrations/route.ts:351`, `speakers/route.ts:186`, public `register/route.ts:241-267`): SOLD_OUT / ALREADY_REGISTERED / SALES_ENDED etc. are dark end-to-end (MCP is covered by `runTool`; only REST is dark). Violates convention #10.
+- **M13 — five REST sites bare-`await` `db.auditLog.create()` after the commit** (PUT/DELETE/check-in ×2/speaker PUT): a transient audit blip (P2024 class) turns a committed check-in into a user-facing 500 → desk re-scans → "Already checked in" → operator thinks the scanner is broken. Fix: adopt the services' `.catch(log)` shape.
+- **L1 — speakers list GET returns full faculty PII (email/phone/bio) to SUBMITTER/REGISTRANT sessions** attached to the event — broader than the abstracts-only role needs; consider a reduced projection.
+- **L2 — speaker DELETE cleans up the companion outside the transaction** — a blip leaves an ownerless CONFIRMED faculty reg with a valid barcode; wrap the pair in one tx (failure-isolation is right for create, not delete).
+- **L3 — `cancelRegistration` lost-race returns success + writes an audit row for a cancel it didn't perform** (`payment-service.ts:475-506`); add a `claimed` flag + warn log.
+- **L4 — empty-string→null normalization drift**: REST/services collapse `""`→null; MCP updates persist `""` (contact-sync then skips it → Contact keeps the old value while the entity shows blank). Folds into the `updateRegistration`/`updateSpeaker` service extraction.
+
 ### Multi-certificate-per-email (bundles) — deferred review findings
 
 The 6-phase cert-bundling feature (one email carries every cert a person earns —

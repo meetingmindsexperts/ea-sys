@@ -10,6 +10,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildSpeakerActivity } from "@/lib/activity-feed";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 
 interface RouteParams {
   params: Promise<{ eventId: string; speakerId: string }>;
@@ -23,16 +25,34 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Org-scope the event (404 to avoid existence leak). Read-only — open to
-    // any authenticated org member who can already view the speaker page.
+    // The activity feed exposes the speaker's audit trail + email history —
+    // team-only (MEMBER/ONSITE included; REVIEWER/SUBMITTER/REGISTRANT are
+    // org-null, so an org ternary here would drop the org filter entirely
+    // and open a cross-tenant read).
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    if (denied) {
+      apiLogger.warn({
+        msg: "speaker-activity:role-denied",
+        eventId,
+        speakerId,
+        userId: session.user.id,
+        role: session.user.role,
+      });
+      return denied;
+    }
+
+    // Role-scoped event access (404 to avoid existence leak).
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        ...(session.user.organizationId ? { organizationId: session.user.organizationId } : {}),
-      },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {
+      apiLogger.warn({
+        msg: "speaker-activity:event-not-found",
+        eventId,
+        userId: session.user.id,
+        role: session.user.role,
+      });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 

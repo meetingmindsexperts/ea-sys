@@ -10,6 +10,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildRegistrationActivity } from "@/lib/activity-feed";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -23,14 +25,33 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // The activity feed exposes the person's audit trail + email history —
+    // team-only (MEMBER/ONSITE included; REVIEWER/SUBMITTER/REGISTRANT are
+    // org-null, so an org ternary here would drop the org filter entirely
+    // and open a cross-tenant read).
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    if (denied) {
+      apiLogger.warn({
+        msg: "registration-activity:role-denied",
+        eventId,
+        registrationId,
+        userId: session.user.id,
+        role: session.user.role,
+      });
+      return denied;
+    }
+
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        ...(session.user.organizationId ? { organizationId: session.user.organizationId } : {}),
-      },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {
+      apiLogger.warn({
+        msg: "registration-activity:event-not-found",
+        eventId,
+        userId: session.user.id,
+        role: session.user.role,
+      });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
