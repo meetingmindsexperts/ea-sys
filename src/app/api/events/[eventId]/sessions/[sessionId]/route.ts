@@ -4,6 +4,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { readWebinarSettings } from "@/lib/webinar";
+import { deleteRemoteZoomMeeting } from "@/lib/zoom/cleanup";
 import {
   updateSession,
   type SessionServiceErrorCode,
@@ -243,19 +245,61 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true },
+      // `settings` carries the webinar anchor pointer we must protect below.
+      select: { id: true, organizationId: true, settings: true },
     });
 
     if (!event) {
+      apiLogger.warn({ msg: "session-delete:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     const eventSession = await db.eventSession.findFirst({
       where: { id: sessionId, eventId },
+      include: {
+        zoomMeeting: { select: { zoomMeetingId: true, meetingType: true } },
+      },
     });
 
     if (!eventSession) {
+      apiLogger.warn({ msg: "session-delete:session-not-found", sessionId, eventId, userId: session.user.id });
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    // H3: refuse to delete a WEBINAR event's auto-provisioned anchor session.
+    // Deleting it cascades away the ZoomMeeting plus every attendance /
+    // presence / poll / Q&A row, while `settings.webinar.sessionId` keeps
+    // pointing at the dead id — the producer's "Open the room" then matches 0
+    // rows and 404s forever, and re-running the provisioner would mint a NEW
+    // anchor + NEW Zoom webinar, invalidating every join link already emailed.
+    const webinarSettings = readWebinarSettings(event.settings);
+    if (webinarSettings?.sessionId === sessionId) {
+      apiLogger.warn(
+        { msg: "session-delete:webinar-anchor-refused", sessionId, eventId, userId: session.user.id },
+        "Refused to delete the webinar anchor session",
+      );
+      return NextResponse.json(
+        {
+          error:
+            "This is the webinar's main session and can't be deleted. Delete the event, or change the event type, instead.",
+          code: "WEBINAR_ANCHOR_SESSION",
+        },
+        { status: 409 },
+      );
+    }
+
+    // H3: tear the meeting down on Zoom BEFORE the local cascade removes the
+    // row that tells us it exists. Otherwise the meeting stays live on Zoom —
+    // still joinable via any previously-shared joinUrl, still consuming the
+    // org's capacity — with nothing in the app pointing at it. The helper never
+    // throws: a Zoom outage must not block deleting a local session.
+    if (eventSession.zoomMeeting) {
+      await deleteRemoteZoomMeeting({
+        organizationId: event.organizationId,
+        meetingType: eventSession.zoomMeeting.meetingType,
+        zoomMeetingId: eventSession.zoomMeeting.zoomMeetingId,
+        reason: "session-delete",
+      });
     }
 
     await db.eventSession.delete({ where: { id: sessionId } });

@@ -13,12 +13,11 @@ import {
   getZoomWebinar,
   updateZoomMeeting,
   updateZoomWebinar,
-  deleteZoomMeeting,
-  deleteZoomWebinar,
   enableZoomLiveStreaming,
   enableWebinarLiveStreaming,
 } from "@/lib/zoom";
 import crypto from "crypto";
+import { deleteRemoteZoomMeeting } from "@/lib/zoom/cleanup";
 import type { ZoomRecurrence } from "@/lib/zoom";
 import { z } from "zod";
 
@@ -185,25 +184,63 @@ export async function POST(req: Request, { params }: RouteParams) {
     const liveStreamEnabled = validated.data.liveStreamEnabled;
     const streamKey = liveStreamEnabled ? crypto.randomUUID().replace(/-/g, "") : undefined;
 
-    // Store in database
-    const zoomMeeting = await db.zoomMeeting.create({
-      data: {
-        sessionId,
-        eventId,
-        zoomMeetingId: String(zoomResponse.id),
+    // Store in database.
+    //
+    // H2 (program/agenda review): the `existingZoom` check above is check-then-act.
+    // Two concurrent POSTs both pass it and both call Zoom's create API — the
+    // `ZoomMeeting.sessionId @unique` constraint then rejects only the second
+    // ROW, leaving the second REMOTE meeting orphaned on Zoom: still billable,
+    // still joinable via its joinUrl, with no local record to find it by.
+    // The loser now tears down the meeting it just created and reports the 409
+    // the pre-flight check intended.
+    let zoomMeeting;
+    try {
+      zoomMeeting = await db.zoomMeeting.create({
+        data: {
+          sessionId,
+          eventId,
+          zoomMeetingId: String(zoomResponse.id),
+          meetingType,
+          joinUrl: zoomResponse.join_url,
+          startUrl: zoomResponse.start_url,
+          passcode: zoomResponse.password || validated.data.passcode,
+          duration,
+          isRecurring: meetingType === "WEBINAR_SERIES",
+          recurrenceType: validated.data.recurrence?.type,
+          occurrences: "occurrences" in zoomResponse ? (zoomResponse.occurrences as Parameters<typeof db.zoomMeeting.create>[0]["data"]["occurrences"]) : undefined,
+          zoomResponse: JSON.parse(JSON.stringify(zoomResponse)),
+          liveStreamEnabled,
+          streamKey,
+        },
+      });
+    } catch (err) {
+      const isUniqueViolation =
+        typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002";
+      if (!isUniqueViolation) throw err;
+
+      apiLogger.warn(
+        { eventId, sessionId, zoomMeetingId: String(zoomResponse.id) },
+        "zoom:create-lost-race-rolling-back-remote-meeting",
+      );
+      const cleaned = await deleteRemoteZoomMeeting({
+        organizationId: event.organizationId,
         meetingType,
-        joinUrl: zoomResponse.join_url,
-        startUrl: zoomResponse.start_url,
-        passcode: zoomResponse.password || validated.data.passcode,
-        duration,
-        isRecurring: meetingType === "WEBINAR_SERIES",
-        recurrenceType: validated.data.recurrence?.type,
-        occurrences: "occurrences" in zoomResponse ? (zoomResponse.occurrences as Parameters<typeof db.zoomMeeting.create>[0]["data"]["occurrences"]) : undefined,
-        zoomResponse: JSON.parse(JSON.stringify(zoomResponse)),
-        liveStreamEnabled,
-        streamKey,
-      },
-    });
+        zoomMeetingId: String(zoomResponse.id),
+        reason: "create-conflict-rollback",
+      });
+      if (!cleaned) {
+        // Loud: an orphaned meeting is now consuming the org's Zoom capacity
+        // and nothing in the app points at it.
+        apiLogger.error(
+          { eventId, sessionId, zoomMeetingId: String(zoomResponse.id), meetingType },
+          "zoom:orphaned-remote-meeting-needs-manual-cleanup",
+        );
+      }
+      return NextResponse.json(
+        { error: "Session already has a Zoom meeting", code: "ZOOM_MEETING_EXISTS" },
+        { status: 409 },
+      );
+    }
 
     // Configure Zoom to push RTMP to MediaMTX
     if (liveStreamEnabled && streamKey) {
@@ -327,16 +364,13 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "No Zoom meeting linked to this session" }, { status: 404 });
     }
 
-    // Delete on Zoom (ignore errors — meeting may already be deleted)
-    try {
-      if (zoomMeeting.meetingType === "MEETING") {
-        await deleteZoomMeeting(event.organizationId, zoomMeeting.zoomMeetingId);
-      } else {
-        await deleteZoomWebinar(event.organizationId, zoomMeeting.zoomMeetingId);
-      }
-    } catch (err) {
-      apiLogger.warn({ err, zoomMeetingId: zoomMeeting.zoomMeetingId }, "zoom:delete-from-zoom-failed");
-    }
+    // Delete on Zoom (shared helper — never throws; meeting may already be gone).
+    await deleteRemoteZoomMeeting({
+      organizationId: event.organizationId,
+      meetingType: zoomMeeting.meetingType,
+      zoomMeetingId: zoomMeeting.zoomMeetingId,
+      reason: "zoom-route-delete",
+    });
 
     // Delete from DB
     await db.zoomMeeting.delete({ where: { id: zoomMeeting.id } });
