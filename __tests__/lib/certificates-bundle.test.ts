@@ -60,7 +60,7 @@ vi.mock("@/lib/certificates/cert-context", () => ({
   loadPosterAbstractTitle: vi.fn().mockResolvedValue(null),
 }));
 
-import { findOrIssueCertificate, sendCertificateBundleEmail } from "@/lib/certificates/bundle";
+import { findOrIssueCertificate, sendCertificateBundleEmail, buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
 
 const RECIPIENT = { title: "Dr.", firstName: "Jane", lastName: "Doe", fullName: "Dr. Jane Doe", organization: null, jobTitle: null, city: null, country: null };
 const EVENT_CTX = { name: "OSH", startDate: new Date("2026-06-17"), endDate: new Date("2026-06-17"), venue: null, city: null, country: null, organizationName: "MMG", organizationLogo: null, cmeHours: 4, accreditations: [], settings: {} };
@@ -280,5 +280,69 @@ describe("sendCertificateBundleEmail", () => {
     mockDb.event.findUnique.mockResolvedValue(null);
     const res = await sendCertificateBundleEmail({ ...SEND_ARGS, certs: [cert("ATT-1", "ATTENDANCE")] });
     expect(res).toEqual({ success: false, error: "Event not found" });
+  });
+});
+
+// ── buildCertCoverEmailPreview ───────────────────────────────────────────────
+// The token resolver is identity-mocked, so these pin the subject/body
+// PRECEDENCE (single saved cover → per-category default → multi default →
+// custom override) — the same rules coverEmailFor applies on the real send.
+
+describe("buildCertCoverEmailPreview", () => {
+  const PREVIEW_ATT = {
+    name: "Standard Attendance",
+    category: "ATTENDANCE" as const,
+    emailSubject: "Sub",
+    emailBody: "<p>Hi {{recipientName}}</p>",
+  };
+  const PREVIEW_APP = {
+    name: "Speaker",
+    category: "APPRECIATION" as const,
+    emailSubject: null,
+    emailBody: null,
+  };
+
+  beforeEach(() => {
+    mockDb.event.findUnique.mockResolvedValue(SEND_EVENT);
+  });
+
+  it("single template with a saved cover email → uses it", async () => {
+    const res = await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_ATT] });
+    expect(res).toEqual({ subject: "Sub", htmlContent: "<p>Hi {{recipientName}}</p>" });
+  });
+
+  it("single template without a saved cover → per-category system default", async () => {
+    const res = await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_APP] });
+    expect(res?.subject).toContain("Your {{certificateType}}");
+    expect(res?.htmlContent).toContain("{{abstractTitle}}"); // appreciation default body
+  });
+
+  it("multiple templates → multi (bundle) system default", async () => {
+    const res = await buildCertCoverEmailPreview({
+      eventId: "evt-1",
+      templates: [PREVIEW_ATT, PREVIEW_APP],
+    });
+    expect(res?.subject).toContain("Your certificates");
+    expect(res?.htmlContent).toContain("{{certificateList}}");
+  });
+
+  it("operator custom subject/message override wins over everything", async () => {
+    const res = await buildCertCoverEmailPreview({
+      eventId: "evt-1",
+      templates: [PREVIEW_ATT, PREVIEW_APP],
+      customSubject: "Here are your certs",
+      customMessage: "<p>Custom {{certificateList}}</p>",
+    });
+    expect(res).toEqual({
+      subject: "Here are your certs",
+      htmlContent: "<p>Custom {{certificateList}}</p>",
+    });
+  });
+
+  it("returns null when the event vanished or no templates passed", async () => {
+    mockDb.event.findUnique.mockResolvedValue(null);
+    expect(await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [PREVIEW_ATT] })).toBeNull();
+    mockDb.event.findUnique.mockResolvedValue(SEND_EVENT);
+    expect(await buildCertCoverEmailPreview({ eventId: "evt-1", templates: [] })).toBeNull();
   });
 });

@@ -1124,7 +1124,13 @@ export function usePreviewEmailTemplate(eventId: string) {
 
 export function usePreviewEmailBySlug(eventId: string) {
   return useMutation({
-    mutationFn: (params: { slug: string; customSubject?: string; customMessage?: string }) =>
+    mutationFn: (params: {
+      slug: string;
+      customSubject?: string;
+      customMessage?: string;
+      /** slug === "certificate" only — the selected CertificateTemplate ids. */
+      certificateTemplateIds?: string[];
+    }) =>
       fetchApi<{ subject: string; htmlContent: string }>(
         `/api/events/${eventId}/email-preview`,
         {

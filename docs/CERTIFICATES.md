@@ -459,6 +459,23 @@ Behavior after the fix:
 The manual **Issue tab** flow was already correct (tag-scoped pool over all
 non-CANCELLED registrations, no check-in gate) and is unchanged.
 
+**Preview from the send dialog (July 10, 2026 follow-up):** the bulk-email
+dialog's footer **Preview** button used to toast "Preview isn't available for
+this email type" for certificate sends (`emailTypeToSlug` returned null — the
+cert cover email isn't an `EmailTemplate` slug). Now:
+
+- **Cover email** — `POST /email-preview` accepts `slug: "certificate"` +
+  `certificateTemplateIds`, rendered by `buildCertCoverEmailPreview()`
+  ([bundle.ts](../src/lib/certificates/bundle.ts)): same subject/body
+  precedence as the real send (custom override → single template's saved
+  cover → category/multi system default), sample recipient "Dr. Sample
+  Attendee", PREVIEW-DRAFT serials, real event branding. No DB writes.
+- **Certificate PDF** — each template row in the dialog's picker has a
+  per-template **Preview** link opening the existing
+  `GET /certificates/preview?templateId=…` sample PDF in a new tab
+  (available for tagless templates too — design check is independent of
+  routing).
+
 ## Deferred / not implemented
 
 - **Tag-scoped bulk reissue in the UI** — the certificates-page

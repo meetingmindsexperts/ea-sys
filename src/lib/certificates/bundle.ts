@@ -44,6 +44,12 @@ import {
   type CoverEmailTokenContext,
 } from "./email-tokens-resolver";
 import {
+  SYSTEM_DEFAULT_SUBJECT,
+  SYSTEM_DEFAULT_SUBJECT_MULTI,
+  SYSTEM_DEFAULT_BODY_MULTI,
+  defaultBodyForCategory,
+} from "./email-tokens";
+import {
   loadEventContext,
   loadRecipient,
   allocateSerial,
@@ -662,4 +668,101 @@ export async function sendCertificateBundleEmail(args: {
       triggeredByUserId: args.triggeredByUserId,
     },
   });
+}
+
+/**
+ * Render the certificate COVER EMAIL as a preview — same subject/body
+ * precedence and token pipeline as the real send (`coverEmailFor` in
+ * bulk-issue.ts + `sendCertificateBundleEmail` above), against a synthetic
+ * recipient ("Dr. Sample Attendee") and PREVIEW-DRAFT serials. No DB
+ * writes, no email. Backs the Communications bulk-email dialog's Preview
+ * button for the "certificate" email type.
+ *
+ * Assumes the recipient earns EVERY passed template (the most informative
+ * preview of {{certificateList}}); a real recipient may get a subset per
+ * their tags. speakerId stays null so {{abstractTitle}} resolves empty —
+ * matching an ATTENDANCE-only recipient — rather than leaking a random
+ * speaker's abstract into the sample.
+ */
+export async function buildCertCoverEmailPreview(args: {
+  eventId: string;
+  templates: Array<{
+    name: string;
+    category: CertificateType;
+    emailSubject: string | null;
+    emailBody: string | null;
+  }>;
+  customSubject?: string;
+  customMessage?: string;
+}): Promise<{ subject: string; htmlContent: string } | null> {
+  if (args.templates.length === 0) return null;
+  const event = await loadBundleEmailEvent(args.eventId);
+  if (!event) return null;
+
+  // Subject/body precedence — mirror coverEmailFor (bulk-issue.ts): custom
+  // override → single template's saved cover → category/multi system default.
+  const primary = args.templates[0];
+  let subjectTemplate: string;
+  let bodyTemplate: string;
+  if (args.templates.length === 1) {
+    subjectTemplate = primary.emailSubject?.trim().length
+      ? primary.emailSubject
+      : SYSTEM_DEFAULT_SUBJECT;
+    bodyTemplate = primary.emailBody?.trim().length
+      ? primary.emailBody
+      : defaultBodyForCategory(primary.category);
+  } else {
+    subjectTemplate = SYSTEM_DEFAULT_SUBJECT_MULTI;
+    bodyTemplate = SYSTEM_DEFAULT_BODY_MULTI;
+  }
+  if (args.customSubject?.trim().length) subjectTemplate = args.customSubject;
+  if (args.customMessage?.trim().length) bodyTemplate = args.customMessage;
+
+  const bundle = {
+    certs: args.templates.map((t, i) => ({
+      serial: `PREVIEW-DRAFT-${i + 1}`,
+      type: t.category,
+      templateName: t.name,
+    })),
+  };
+  const tokenCtx: CoverEmailTokenContext = {
+    recipientName: "Dr. Sample Attendee",
+    eventName: event.name,
+    eventStartDate: event.startDate,
+    eventEndDate: event.endDate,
+    venue: event.venue,
+    city: event.city,
+    country: event.country,
+    organizationName: event.organization.name,
+    certificateType: primary.category,
+    certificateSerial: bundle.certs[0].serial,
+    speakerId: null,
+    eventId: args.eventId,
+    bundle,
+  };
+  const escapedTokenCtx: CoverEmailTokenContext = {
+    ...tokenCtx,
+    recipientName: escapeHtml(tokenCtx.recipientName),
+    eventName: escapeHtml(tokenCtx.eventName),
+    organizationName: escapeHtml(tokenCtx.organizationName),
+    venue: tokenCtx.venue ? escapeHtml(tokenCtx.venue) : tokenCtx.venue,
+    city: tokenCtx.city ? escapeHtml(tokenCtx.city) : tokenCtx.city,
+    country: tokenCtx.country ? escapeHtml(tokenCtx.country) : tokenCtx.country,
+    escapeDynamic: true,
+  };
+
+  const subject = (await resolveCoverEmailTokens(subjectTemplate, tokenCtx))
+    .replace(/\s+/g, " ")
+    .trim();
+  const bodyHtml = await resolveCoverEmailTokens(bodyTemplate, escapedTokenCtx);
+
+  const branding: EmailBranding = {
+    emailHeaderImage: event.emailHeaderImage,
+    emailFooterImage: event.emailFooterImage,
+    emailFooterHtml: event.emailFooterHtml,
+    emailFromAddress: event.emailFromAddress,
+    emailFromName: event.emailFromName ?? event.organization.name,
+    eventName: event.name,
+  };
+  return { subject, htmlContent: inlineCss(wrapWithBranding(bodyHtml, branding)) };
 }

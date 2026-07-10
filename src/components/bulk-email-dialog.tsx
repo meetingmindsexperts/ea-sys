@@ -487,6 +487,29 @@ export function BulkEmailDialog({
   };
 
   const handlePreview = async () => {
+    // Certificate sends preview the cert COVER email (per-template saved
+    // cover → system defaults, with sample tokens + real event branding).
+    // The certificate PDFs themselves preview per template via the links
+    // in the template picker above.
+    if (isCertificate) {
+      if (certTemplateIds.length === 0) {
+        toast.error("Select at least one certificate template to preview the email");
+        return;
+      }
+      try {
+        const result = await previewMutation.mutateAsync({
+          slug: "certificate",
+          certificateTemplateIds: certTemplateIds,
+          customSubject: customSubject.trim() || undefined,
+          customMessage: customMessage.trim() || undefined,
+        });
+        setPreviewData(result);
+        setPreviewOpen(true);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to generate preview");
+      }
+      return;
+    }
     const slug = emailTypeToSlug(emailType, recipientType);
     if (!slug) {
       // Surface rather than silently no-op, so an unmapped email type is
@@ -708,30 +731,46 @@ export function BulkEmailDialog({
                   {certTemplateOptions.map((t) => {
                     const tagless = !t.autoIssueTag?.trim();
                     return (
-                      <label
-                        key={t.id}
-                        className={`flex items-start gap-2 text-sm ${tagless ? "opacity-50" : "cursor-pointer"}`}
-                      >
-                        <Checkbox
-                          className="mt-0.5"
-                          disabled={tagless || (!certTemplateIds.includes(t.id) && certTemplateIds.length >= 5)}
-                          checked={certTemplateIds.includes(t.id)}
-                          onCheckedChange={(c) =>
-                            setCertTemplateIds((prev) =>
-                              c === true ? [...prev, t.id] : prev.filter((id) => id !== t.id),
-                            )
-                          }
-                        />
-                        <span>
-                          <span className="font-medium">{t.name}</span>
-                          <span className="block text-xs text-muted-foreground">
-                            {t.category === "ATTENDANCE" ? "Attendance" : "Appreciation"}
-                            {tagless
-                              ? " · no tag — set a tag on the template first"
-                              : ` · tag: ${t.autoIssueTag}`}
+                      <div key={t.id} className="flex items-start gap-2 text-sm">
+                        <label
+                          className={`flex flex-1 items-start gap-2 ${tagless ? "opacity-50" : "cursor-pointer"}`}
+                        >
+                          <Checkbox
+                            className="mt-0.5"
+                            disabled={tagless || (!certTemplateIds.includes(t.id) && certTemplateIds.length >= 5)}
+                            checked={certTemplateIds.includes(t.id)}
+                            onCheckedChange={(c) =>
+                              setCertTemplateIds((prev) =>
+                                c === true ? [...prev, t.id] : prev.filter((id) => id !== t.id),
+                              )
+                            }
+                          />
+                          <span>
+                            <span className="font-medium">{t.name}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {t.category === "ATTENDANCE" ? "Attendance" : "Appreciation"}
+                              {tagless
+                                ? " · no tag — set a tag on the template first"
+                                : ` · tag: ${t.autoIssueTag}`}
+                            </span>
                           </span>
-                        </span>
-                      </label>
+                        </label>
+                        {/* Sample-PDF preview (Dr. Sample Attendee, PREVIEW-DRAFT
+                            serial) via the existing certificates preview route.
+                            Sits OUTSIDE the label so clicking it never toggles
+                            the checkbox; available for tagless templates too —
+                            checking the design is independent of routing. */}
+                        <a
+                          href={`/api/events/${eventId}/certificates/preview?templateId=${t.id}#view=Fit`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-0.5 flex shrink-0 items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                          title={`Preview the "${t.name}" certificate PDF with sample data`}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Preview
+                        </a>
+                      </div>
                     );
                   })}
                 </div>
