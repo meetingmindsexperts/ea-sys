@@ -126,8 +126,8 @@ interface SessionDetail {
   topics: TopicInfo[];
   track?: { name: string; color: string } | null;
   zoomMeeting?: {
-    recordingUrl: string | null;
-    recordingPassword: string | null;
+    // B2: recordingUrl + recordingPassword are no longer served by the public
+    // detail route. They come from the registration-gated `../recording` route.
     recordingStatus:
       | "NOT_REQUESTED"
       | "PENDING"
@@ -181,6 +181,11 @@ export default function PublicSessionPage() {
   // We don't auto-mount the embed on page load because we don't want to
   // pull the ~3 MB Zoom bundle for users just looking at session details.
   const [isJoining, setIsJoining] = useState(false);
+  // B2: the recording URL + passcode are credentials. They're fetched on demand
+  // from the registration-gated route, never shipped with the public payload.
+  const [recording, setRecording] = useState<{ url: string; password: string | null } | null>(null);
+  const [recordingLoading, setRecordingLoading] = useState(false);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
   // Tracks whether the current viewer is allowed to pull an SDK signature.
   // The zoom-join endpoint is gated to logged-in registrants of the event,
   // so unauthenticated or unregistered visitors see a login / register CTA
@@ -383,9 +388,57 @@ export default function PublicSessionPage() {
     );
   }
 
-  const hasRecording =
-    session?.zoomMeeting?.recordingStatus === "AVAILABLE" &&
-    Boolean(session?.zoomMeeting?.recordingUrl);
+  /**
+   * Fetch the recording credential from the registration-gated route and open
+   * it. The tab is opened SYNCHRONOUSLY on the click so popup blockers don't
+   * swallow it, then pointed at the URL once the fetch resolves (and closed if
+   * the caller turns out not to be authorized).
+   */
+  async function handleWatchRecording() {
+    if (recordingLoading) return;
+    if (recording) {
+      window.open(recording.url, "_blank");
+      return;
+    }
+    const tab = window.open("", "_blank");
+    setRecordingLoading(true);
+    setRecordingError(null);
+    try {
+      const res = await fetch(
+        `/api/public/events/${slug}/sessions/${sessionId}/recording`,
+      );
+      if (!res.ok) {
+        tab?.close();
+        const data = await res.json().catch(() => ({}) as { code?: string });
+        if (res.status === 401) {
+          setRecordingError("Please sign in to watch the recording.");
+          window.location.href = `/e/${slug}/login?redirect=${encodeURIComponent(
+            `/e/${slug}/session/${sessionId}`,
+          )}`;
+          return;
+        }
+        setRecordingError(
+          data.code === "NOT_REGISTERED"
+            ? "You must be registered for this event to watch the recording."
+            : "Couldn't load the recording. Please try again.",
+        );
+        console.error("recording fetch failed", res.status, data);
+        return;
+      }
+      const data: { recordingUrl: string; recordingPassword: string | null } = await res.json();
+      setRecording({ url: data.recordingUrl, password: data.recordingPassword });
+      if (tab) tab.location.href = data.recordingUrl;
+      else window.open(data.recordingUrl, "_blank");
+    } catch (err) {
+      tab?.close();
+      console.error("recording fetch error", err);
+      setRecordingError("Couldn't load the recording. Please try again.");
+    } finally {
+      setRecordingLoading(false);
+    }
+  }
+
+  const hasRecording = session?.zoomMeeting?.recordingStatus === "AVAILABLE";
   const isRecordingProcessing =
     isPast &&
     !hasRecording &&
@@ -530,8 +583,9 @@ export default function PublicSessionPage() {
             joinInfo={joinInfo}
             authState={authState}
             hasRecording={hasRecording}
-            recordingUrl={session?.zoomMeeting?.recordingUrl ?? null}
-            recordingPassword={session?.zoomMeeting?.recordingPassword ?? null}
+            recordingPassword={recording?.password ?? null}
+            recordingLoading={recordingLoading}
+            onWatchRecording={handleWatchRecording}
             isJoining={isJoining}
             onJoin={() => setIsJoining(true)}
             onLeave={() => setIsJoining(false)}
@@ -631,11 +685,14 @@ export default function PublicSessionPage() {
                     <p className="text-sm text-muted-foreground">
                       Missed the live session? Watch the recording on Zoom.
                     </p>
-                    {session?.zoomMeeting?.recordingPassword && (
+                    {recordingError && (
+                      <p className="text-xs text-red-600 mt-1">{recordingError}</p>
+                    )}
+                    {recording?.password && (
                       <p className="text-xs text-muted-foreground mt-1">
                         Passcode:{" "}
                         <span className="font-mono">
-                          {session.zoomMeeting.recordingPassword}
+                          {recording.password}
                         </span>
                       </p>
                     )}
@@ -643,13 +700,11 @@ export default function PublicSessionPage() {
                   <Button
                     size="lg"
                     className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 shadow-md"
-                    onClick={() =>
-                      session?.zoomMeeting?.recordingUrl &&
-                      window.open(session.zoomMeeting.recordingUrl, "_blank")
-                    }
+                    onClick={handleWatchRecording}
+                    disabled={recordingLoading}
                   >
                     <PlayCircle className="h-5 w-5" />
-                    Watch Replay
+                    {recordingLoading ? "Loading…" : "Watch Replay"}
                     <ExternalLink className="h-4 w-4" />
                   </Button>
                 </CardContent>
@@ -866,8 +921,9 @@ function StickyCta({
   joinInfo,
   authState,
   hasRecording,
-  recordingUrl,
   recordingPassword,
+  recordingLoading,
+  onWatchRecording,
   isJoining,
   onJoin,
   onLeave,
@@ -881,14 +937,15 @@ function StickyCta({
   joinInfo: JoinInfo | null;
   authState: JoinAuthState;
   hasRecording: boolean;
-  recordingUrl: string | null;
   recordingPassword: string | null;
+  recordingLoading: boolean;
+  onWatchRecording: () => void;
   isJoining: boolean;
   onJoin: () => void;
   onLeave: () => void;
 }) {
   // Ended + recording → Watch Replay
-  if (isPast && hasRecording && recordingUrl) {
+  if (isPast && hasRecording) {
     return (
       <Card className="border-emerald-200 bg-emerald-50/70 shadow-sm">
         <CardContent className="flex flex-col sm:flex-row items-center gap-4 py-4">
@@ -905,10 +962,11 @@ function StickyCta({
           </div>
           <Button
             className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={() => window.open(recordingUrl, "_blank")}
+            onClick={onWatchRecording}
+            disabled={recordingLoading}
           >
             <PlayCircle className="h-4 w-4" />
-            Watch Replay
+            {recordingLoading ? "Loading…" : "Watch Replay"}
             <ExternalLink className="h-4 w-4" />
           </Button>
         </CardContent>

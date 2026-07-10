@@ -1,34 +1,89 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readSponsors } from "@/lib/webinar";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
-export async function GET(_req: Request, { params }: RouteParams) {
+const ORG_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+
+/**
+ * Public session detail — the program page's data source.
+ *
+ * BLOCKER B2 (program/agenda review, July 10 2026) hardened three things here:
+ *   1. It returned `recordingUrl` + `recordingPassword` — the credential that
+ *      gates the cloud recording of a paid/CME session — to ANY anonymous
+ *      caller. Those now live behind the registration-gated `../recording`
+ *      route. Only `recordingStatus` (a state, not a secret) stays public, so
+ *      the page can still render the "Watch replay" / "Processing" states.
+ *   2. It served DRAFT (unpublished, unannounced) events to the whole
+ *      internet. DRAFT is now visible only to authenticated org staff, which
+ *      preserves the organizer end-to-end testing this allowance existed for.
+ *   3. It was the only public session route with NO rate limit (M4), which is
+ *      what made the credential above freely enumerable across every session.
+ */
+export async function GET(req: Request, { params }: RouteParams) {
   try {
-    const { slug, sessionId } = await params;
+    const [{ slug, sessionId }, authSession] = await Promise.all([params, auth()]);
+
+    const ip = getClientIp(req);
+    const { allowed, retryAfterSeconds } = checkRateLimit({
+      key: `session-detail:${ip}`,
+      limit: 240,
+      windowMs: 3600_000,
+    });
+    if (!allowed) {
+      apiLogger.warn({ ip, sessionId }, "session-detail:rate-limited");
+      return NextResponse.json(
+        { error: "Too many requests" },
+        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+      );
+    }
 
     // Event + session fetched in parallel. Event settings are included
     // so we can surface the sponsor list on the public page.
     const event = await db.event.findFirst({
       where: {
         slug,
+        // DRAFT is filtered out below unless the caller is org staff; keep it
+        // in the query so we can distinguish "no such event" from "not yet
+        // published" and log the difference.
         status: { in: ["DRAFT", "PUBLISHED", "LIVE"] },
       },
       select: {
         id: true,
         name: true,
         slug: true,
+        status: true,
         eventType: true,
         bannerImage: true,
         timezone: true,
         settings: true,
+        organizationId: true,
         organization: { select: { name: true } },
       },
     });
 
     if (!event) {
+      apiLogger.warn({ slug, sessionId, ip }, "session-detail:event-not-found");
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // An unpublished event's program is not public. Org staff may preview it
+    // (this is the organizer end-to-end testing path); everyone else gets the
+    // same 404 as a nonexistent event — no existence leak.
+    const isOrgStaff =
+      !!authSession?.user &&
+      ORG_STAFF_ROLES.has(authSession.user.role ?? "") &&
+      authSession.user.organizationId === event.organizationId;
+
+    if (event.status === "DRAFT" && !isOrgStaff) {
+      apiLogger.warn(
+        { slug, sessionId, ip, userId: authSession?.user?.id ?? null },
+        "session-detail:draft-event-denied",
+      );
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -89,9 +144,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
           },
         },
         zoomMeeting: {
+          // NOTE: recordingUrl + recordingPassword are deliberately NOT selected
+          // (B2). `recordingStatus` alone tells the page whether to show the
+          // "Watch replay" button, which then fetches the credential from the
+          // registration-gated `../recording` route.
           select: {
-            recordingUrl: true,
-            recordingPassword: true,
             recordingStatus: true,
           },
         },
@@ -99,6 +156,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     });
 
     if (!session) {
+      apiLogger.warn({ slug, sessionId, eventId: event.id, ip }, "session-detail:session-not-found");
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 

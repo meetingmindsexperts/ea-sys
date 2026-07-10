@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { canViewZoomHostCredentials, redactZoomHostFieldsFromSessions } from "@/lib/zoom-visibility";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
@@ -150,11 +151,34 @@ export async function GET(req: Request, { params }: RouteParams) {
     ]);
 
     if (!event) {
+      apiLogger.warn({
+        msg: "events/sessions:event-not-found",
+        eventId,
+        userId: session?.user?.id ?? null,
+        role: session?.user?.role ?? null,
+        viaApiKey: !!orgCtx,
+      });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Add cache headers for better performance
-    const response = NextResponse.json(sessions);
+    // BLOCKER B1 (program/agenda review): this GET has no `denyReviewer`, and
+    // `buildEventAccessWhere` grants event access to the org-null attendee
+    // roles by linkage (a REGISTRANT reaches their own event via
+    // `registrations.some.userId`). The Zoom payload carries `startUrl` — the
+    // HOST start link — plus `streamKey` and `passcode`. Strip them for anyone
+    // who isn't actually running the event, otherwise a paying attendee can
+    // take host control of the webinar or hijack the RTMP stream.
+    const showHostCredentials = canViewZoomHostCredentials(
+      session?.user?.role,
+      !!orgCtx, // API keys are admin-equivalent + org-scoped
+    );
+    const payload = showHostCredentials
+      ? sessions
+      : redactZoomHostFieldsFromSessions(sessions);
+
+    // Add cache headers for better performance. `private` matters here: the
+    // payload now varies by role, so it must never land in a shared cache.
+    const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
   } catch (error) {
