@@ -137,8 +137,12 @@ export async function createInvoice(params: {
 }): Promise<Invoice> {
   const { registrationId, eventId, organizationId, dueDate } = params;
 
-  const registration = await db.registration.findUniqueOrThrow({
-    where: { id: registrationId },
+  // The registration is BOUND to the caller's event + org in the same query
+  // (review H9): a body-supplied registrationId from another event — or
+  // another org — must never mint an invoice under this event's numbering or
+  // leak its attendee into this org's invoice list.
+  const registration = await db.registration.findFirstOrThrow({
+    where: { id: registrationId, eventId, event: { organizationId } },
     include: registrationInclude,
   });
 

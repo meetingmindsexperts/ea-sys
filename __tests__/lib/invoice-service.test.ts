@@ -18,7 +18,8 @@ const {
 vi.mock("@/lib/db", () => ({
   db: {
     $transaction: mockTransaction,
-    registration: { findUniqueOrThrow: mockFindUniqueOrThrow },
+    // createInvoice binds the registration to event+org (review H9) via findFirstOrThrow.
+    registration: { findFirstOrThrow: mockFindUniqueOrThrow, findUniqueOrThrow: mockFindUniqueOrThrow },
     invoice: {
       findUniqueOrThrow: vi.fn(),
       findFirst: mockFindFirst,

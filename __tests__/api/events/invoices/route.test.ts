@@ -9,6 +9,7 @@ const { mockAuth, mockDenyReviewer, mockDenyFinance, mockDb, mockCreateInvoice }
   mockDb: {
     event: { findFirst: vi.fn() },
     invoice: { findMany: vi.fn() },
+    registration: { findFirst: vi.fn() },
   },
   mockCreateInvoice: vi.fn(),
 }));
@@ -119,6 +120,8 @@ describe("POST /api/events/[eventId]/invoices", () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDenyReviewer.mockReturnValue(null);
+    // H9: the route pre-binds the body registrationId to the event.
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1" });
     mockCreateInvoice.mockResolvedValue({
       id: "inv-1", type: "INVOICE", invoiceNumber: "INV-2026-0001", status: "SENT",
     });

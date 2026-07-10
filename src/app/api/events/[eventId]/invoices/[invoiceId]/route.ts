@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { cancelInvoice } from "@/lib/invoice-service";
@@ -23,7 +24,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (noFinance) return noFinance;
 
     const invoice = await db.invoice.findFirst({
-      where: { id: invoiceId, eventId, organizationId: session.user.organizationId! },
+      where: {
+        id: invoiceId,
+        eventId,
+        organizationId: session.user.organizationId!,
+        // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
+        event: buildEventAccessWhere(session.user),
+      },
       include: {
         registration: {
           select: {
@@ -71,7 +78,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const invoice = await db.invoice.findFirst({
-      where: { id: invoiceId, eventId, organizationId: session.user.organizationId! },
+      where: {
+        id: invoiceId,
+        eventId,
+        organizationId: session.user.organizationId!,
+        // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
+        event: buildEventAccessWhere(session.user),
+      },
       select: { id: true, status: true },
     });
     if (!invoice) {

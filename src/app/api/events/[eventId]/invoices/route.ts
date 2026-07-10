@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { createInvoice } from "@/lib/invoice-service";
@@ -21,15 +22,18 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Invoices are financial — MEMBER (read-only viewer) is barred.
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    // Assignment-gated, not just org-gated: ONSITE (and MEMBER) are
+    // finance-capable, so an ONSITE temp assigned to Event A must 404 on
+    // Event B's invoices — same rule as the desk routes (review H10).
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, ...buildEventAccessWhere(session.user) },
       select: { id: true },
     });
     if (!event) {
+      apiLogger.warn({ msg: "invoices:list:event-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -89,10 +93,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, ...buildEventAccessWhere(session.user) },
       select: { id: true },
     });
     if (!event) {
+      apiLogger.warn({ msg: "invoices:create:event-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -100,6 +105,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!validated.success) {
       apiLogger.warn({ msg: "events/invoices:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
+    }
+
+    // The body's registrationId must belong to THIS event (review H9) —
+    // createInvoice also binds it defensively, but checking here gives a
+    // truthful 404 instead of a generic 500.
+    const registration = await db.registration.findFirst({
+      where: { id: validated.data.registrationId, eventId },
+      select: { id: true },
+    });
+    if (!registration) {
+      apiLogger.warn({
+        msg: "invoices:create:registration-not-in-event",
+        eventId,
+        registrationId: validated.data.registrationId,
+        userId: session.user.id,
+      });
+      return NextResponse.json({ error: "Registration not found for this event" }, { status: 404 });
     }
 
     const invoice = await createInvoice({

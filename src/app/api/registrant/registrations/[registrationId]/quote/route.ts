@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { denyFinance } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
@@ -82,7 +83,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
         // Allow owner or org members
         ...(isRegistrant
           ? { userId: session.user.id }
-          : { event: { organizationId: session.user.organizationId! } }),
+          // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
+          : { event: buildEventAccessWhere(session.user) }),
       },
       include: {
         attendee: true,
