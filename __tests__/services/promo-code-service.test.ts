@@ -203,4 +203,22 @@ describe("removePromoCodeFromRegistration", () => {
     const r = await removePromoCodeFromRegistration({ registrationId: "reg-1", eventId: "evt-1", source: "rest" });
     expect(r).toMatchObject({ ok: false, code: "ALREADY_SETTLED" });
   });
+
+  it("on a CANCELLED registration: clears fields WITHOUT a second usedCount release (review H6)", async () => {
+    // The cancel transition already decremented usedCount; a remove afterwards
+    // must not double-release. Fields + redemption row still get cleared so a
+    // later reactivation won't re-claim.
+    mockDb.registration.findFirst.mockResolvedValue({
+      id: "reg-1", status: "CANCELLED", paymentStatus: "UNPAID", promoCodeId: "promo-1",
+    });
+    const r = await removePromoCodeFromRegistration({ registrationId: "reg-1", eventId: "evt-1", source: "rest" });
+    expect(r).toMatchObject({ ok: true, removed: true });
+    expect(mockDb.promoCodeRedemption.deleteMany).toHaveBeenCalled();
+    // No usedCount decrement in either shape.
+    expect(mockDb.promoCode.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.promoCode.update).not.toHaveBeenCalled();
+    expect(mockDb.registration.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { promoCodeId: null, discountAmount: null } }),
+    );
+  });
 });

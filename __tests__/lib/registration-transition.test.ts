@@ -2,6 +2,10 @@
  * applyRegistrationTransition — the single shared seat+promo transition applier
  * (replaces the "MUST mirror the REST route" copies). planSeatTransition/
  * releaseSeat/claimSeat are the REAL pure/guarded primitives; only `tx` is mocked.
+ *
+ * Promo `usedCount` moves symmetrically (review H6): cancel releases with a
+ * `usedCount > 0` guard; reactivation re-claims. Before the fix, cancel →
+ * reactivate → cancel double-decremented and could drive the counter negative.
  */
 import { describe, it, expect, vi } from "vitest";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
@@ -23,11 +27,18 @@ function makeTx(over: Partial<Record<string, unknown>> = {}) {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     promoCode: {
-      update: vi.fn().mockImplementation(() => { calls.push("promo-release"); return Promise.resolve({}); }),
+      updateMany: vi.fn().mockImplementation((a: { data: unknown }) => {
+        calls.push(JSON.stringify(a.data).includes("increment") ? "promo-claim" : "promo-release");
+        return Promise.resolve({ count: 1 } as Counter);
+      }),
     },
     ...over,
   };
-  return tx as unknown as Parameters<typeof applyRegistrationTransition>[0] & { calls: string[]; ticketType: { updateMany: ReturnType<typeof vi.fn> }; promoCode: { update: ReturnType<typeof vi.fn> } };
+  return tx as unknown as Parameters<typeof applyRegistrationTransition>[0] & {
+    calls: string[];
+    ticketType: { updateMany: ReturnType<typeof vi.fn> };
+    promoCode: { updateMany: ReturnType<typeof vi.fn> };
+  };
 }
 
 const state = (over: Record<string, unknown>) => ({
@@ -36,7 +47,7 @@ const state = (over: Record<string, unknown>) => ({
 }) as never;
 
 describe("applyRegistrationTransition", () => {
-  it("cancel (→CANCELLED) releases the seat + promo, no claim", async () => {
+  it("cancel (→CANCELLED) releases the seat + promo (guarded), no claim", async () => {
     const tx = makeTx();
     await applyRegistrationTransition(tx, {
       prev: state({ status: "CONFIRMED" }),
@@ -44,7 +55,11 @@ describe("applyRegistrationTransition", () => {
       promoCodeId: "promo1",
     });
     expect(tx.calls).toEqual(["tt-release", "promo-release"]);
-    expect(tx.promoCode.update).toHaveBeenCalledWith({ where: { id: "promo1" }, data: { usedCount: { decrement: 1 } } });
+    // The gt: 0 guard is the never-below-zero contract (review H6).
+    expect(tx.promoCode.updateMany).toHaveBeenCalledWith({
+      where: { id: "promo1", usedCount: { gt: 0 } },
+      data: { usedCount: { decrement: 1 } },
+    });
   });
 
   it("cancel without a promo → releases seat only", async () => {
@@ -53,11 +68,38 @@ describe("applyRegistrationTransition", () => {
     expect(tx.calls).toEqual(["tt-release"]);
   });
 
-  it("reactivate (CANCELLED→CONFIRMED) claims a seat, no promo release", async () => {
+  it("reactivate (CANCELLED→CONFIRMED) claims the seat AND re-claims the promo (review H6)", async () => {
     const tx = makeTx();
     await applyRegistrationTransition(tx, { prev: state({ status: "CANCELLED" }), next: state({ status: "CONFIRMED" }), promoCodeId: "promo1" });
-    expect(tx.calls).toEqual(["tt-claim"]);
-    expect(tx.promoCode.update).not.toHaveBeenCalled();
+    expect(tx.calls).toEqual(["tt-claim", "promo-claim"]);
+    expect(tx.promoCode.updateMany).toHaveBeenCalledWith({
+      where: { id: "promo1" },
+      data: { usedCount: { increment: 1 } },
+    });
+  });
+
+  it("cancel → reactivate → cancel nets to ZERO promo movement (the double-release bug)", async () => {
+    // Simulate the counter so the sequence is verifiable end-to-end.
+    let usedCount = 1;
+    const tx = makeTx({
+      promoCode: {
+        updateMany: vi.fn().mockImplementation((a: { where: { usedCount?: { gt: number } }; data: { usedCount: { decrement?: number; increment?: number } } }) => {
+          if (a.data.usedCount.decrement) {
+            if (usedCount <= (a.where.usedCount?.gt ?? -1)) return Promise.resolve({ count: 0 });
+            usedCount -= 1;
+          } else {
+            usedCount += 1;
+          }
+          return Promise.resolve({ count: 1 });
+        }),
+      },
+    });
+    const cancel = { prev: state({ status: "CONFIRMED" }), next: state({ status: "CANCELLED" }), promoCodeId: "promo1" };
+    const react = { prev: state({ status: "CANCELLED" }), next: state({ status: "CONFIRMED" }), promoCodeId: "promo1" };
+    await applyRegistrationTransition(tx, cancel); // 1 → 0
+    await applyRegistrationTransition(tx, react);  // 0 → 1
+    await applyRegistrationTransition(tx, cancel); // 1 → 0 (NOT −1)
+    expect(usedCount).toBe(0);
   });
 
   it("type change releases the old counter + claims the new", async () => {
@@ -85,6 +127,16 @@ describe("applyRegistrationTransition", () => {
     const tx = makeTx();
     await applyRegistrationTransition(tx, { prev: state({ status: "CONFIRMED" }), next: state({ status: "CONFIRMED" }), promoCodeId: "promo1" });
     expect(tx.calls).toEqual([]);
+  });
+
+  it("status-only change between active states never touches the promo", async () => {
+    const tx = makeTx();
+    await applyRegistrationTransition(tx, {
+      prev: state({ status: "CONFIRMED" }),
+      next: state({ status: "CHECKED_IN" }),
+      promoCodeId: "promo1",
+    });
+    expect(tx.promoCode.updateMany).not.toHaveBeenCalled();
   });
 
   it("virtual reg holds no seat → cancel releases nothing, still releases promo", async () => {

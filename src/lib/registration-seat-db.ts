@@ -85,7 +85,16 @@ export interface RegistrationTransitionInput {
  * - Releases the previous seat counter and/or claims the next (atomic oversell
  *   guard via `claimSeat`). Throws `Error("CAPACITY_EXCEEDED")` — the sentinel
  *   every caller already maps — when a claim can't be satisfied.
- * - Releases the promo `usedCount` when the registration is becoming CANCELLED.
+ * - Promo `usedCount` moves SYMMETRICALLY with the status (review H6):
+ *   becoming CANCELLED releases it (guarded — never below 0, matching
+ *   `releaseExistingRedemption` in promo-code-service); leaving CANCELLED
+ *   re-claims it, because the registration kept its `promoCodeId` +
+ *   `discountAmount` through the cancel, so its redemption goes live again on
+ *   reactivation. Without the re-claim, cancel → reactivate → cancel
+ *   double-decremented (a maxUses-capped code admitted extra redemptions and
+ *   the counter could go negative). The re-claim is deliberately NOT capacity-
+ *   gated on maxUses — it restores a redemption the registration already held,
+ *   same policy as bulk seat reactivation (proceed + visible counter).
  *
  * Does NOT sync `attendee.registrationType` (that stays with the type-change
  * path) and does NOT set the registration's own status/fields (the caller owns
@@ -102,8 +111,20 @@ export async function applyRegistrationTransition(
     const claimed = await claimSeat(tx, seat.claim);
     if (!claimed) throw new Error("CAPACITY_EXCEEDED");
   }
+  if (!input.promoCodeId) return;
   const becomingCancelled = input.next.status === "CANCELLED" && input.prev.status !== "CANCELLED";
-  if (becomingCancelled && input.promoCodeId) {
-    await tx.promoCode.update({ where: { id: input.promoCodeId }, data: { usedCount: { decrement: 1 } } });
+  const becomingActive = input.prev.status === "CANCELLED" && input.next.status !== "CANCELLED";
+  if (becomingCancelled) {
+    // Guarded — a counter already at 0 (double release, manual edit) stays 0.
+    await tx.promoCode.updateMany({
+      where: { id: input.promoCodeId, usedCount: { gt: 0 } },
+      data: { usedCount: { decrement: 1 } },
+    });
+  } else if (becomingActive) {
+    // updateMany (not update) so a hard-deleted promo row is a no-op, not a throw.
+    await tx.promoCode.updateMany({
+      where: { id: input.promoCodeId },
+      data: { usedCount: { increment: 1 } },
+    });
   }
 }

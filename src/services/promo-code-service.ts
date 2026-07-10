@@ -282,7 +282,7 @@ export async function removePromoCodeFromRegistration(input: {
     const removed = await db.$transaction(async (tx) => {
       const reg = await tx.registration.findFirst({
         where: { id: input.registrationId, eventId: input.eventId },
-        select: { id: true, paymentStatus: true, promoCodeId: true },
+        select: { id: true, status: true, paymentStatus: true, promoCodeId: true },
       });
       if (!reg) throw new PromoSentinel("REGISTRATION_NOT_FOUND", "Registration not found");
       if (!OUTSTANDING_PAYMENT_STATUSES.has(reg.paymentStatus)) {
@@ -290,7 +290,15 @@ export async function removePromoCodeFromRegistration(input: {
       }
       if (!reg.promoCodeId) return false; // nothing applied — idempotent success
 
-      await releaseExistingRedemption(tx, reg.id, reg.promoCodeId);
+      if (reg.status === "CANCELLED") {
+        // The cancel transition already released usedCount (review H6) — a
+        // second decrement here would double-release. Clear the redemption
+        // artifacts only; reactivation then sees promoCodeId null and won't
+        // re-claim.
+        await tx.promoCodeRedemption.deleteMany({ where: { registrationId: reg.id } });
+      } else {
+        await releaseExistingRedemption(tx, reg.id, reg.promoCodeId);
+      }
       await tx.registration.update({
         where: { id: reg.id },
         data: { promoCodeId: null, discountAmount: null },
