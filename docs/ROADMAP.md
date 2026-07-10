@@ -212,6 +212,64 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Current Release — July 10, 2026
 
+### Abstracts & reviewers review (July 10, 2026) — deferred findings
+
+A 4-angle production review of the abstracts + reviewers domain (lifecycle · RBAC/info-leaks ·
+concurrency · drift/failure-visibility): **0 BLOCKER / 9 HIGH / 11 MED / 6 LOW**. Full report with
+quoted code + failure scenarios: [docs/CODE_REVIEW_ABSTRACTS_REVIEWERS.html](CODE_REVIEW_ABSTRACTS_REVIEWERS.html)
+(browseable at `/admin/docs/CODE_REVIEW_ABSTRACTS_REVIEWERS.html`). **All 9 HIGHs fixed the same day**
+in a 4-phase round (`97b11d4` H3 cross-org score injection + H5 empty-review route guard + H6
+un-reviewable-status scoring; `fcd5932` H1 status-only-via-service + H2 create restricted to
+DRAFT|SUBMITTED; `0dcf750` H4 conditional-claim status write in a tx + H5 gate-half count-scored + M4;
+`314e45e` H6 remainder — DRAFT/WITHDRAWN out of the portal feed + unassignable). Deferred, each
+independently shippable (anchors in the HTML doc):
+
+- **H7 — review-submission pipeline triplicated** (REST + 2 MCP executors, ~120 lines each) with live
+  drift: REST lets admins score without pool/assignment (MCP self-submit doesn't), REST clears notes
+  with empty string (MCP keeps old), REST requires integer scores (executors accept floats). Fix:
+  extract `submitAbstractReview()` into abstract-service; all three delegate (also closes the H3
+  org-bind in one place instead of per-caller).
+- **H8 — MCP `assign_reviewer_to_abstract` silently drops `conflictFlag`**: the schema advertises it,
+  the executor never reads it, and COI has been an ENFORCEMENT input since June 26 — an admin telling
+  the agent "assign Dr X, flag the conflict" gets success with no flag, and the conflicted reviewer's
+  score counts. Also can't toggle COI on an existing assignment (REST can). CLAUDE.md's parity claim
+  is false.
+- **H9 + M7 — blind review is one-sided**: the status-change email names each reviewer next to their
+  notes (`consolidateReviewNotes` prefixes `— {name}:`) while the submissions GET deliberately strips
+  reviewer identity for authors; and MEMBER (read-only, sponsor-side per the docs) gets the full
+  per-reviewer view (identities/notes/per-criterion). Fix: strip attribution in the author email;
+  restrict the full view to ADMIN/ORGANIZER.
+- **M1 — decisions can rest on pre-revision reviews**: after REVISION_REQUESTED→resubmit the old
+  submissions still satisfy the gate (no `submission.updatedAt` vs `abstract.submittedAt` check), and
+  the portal's NEEDS_UPDATE keys on `submittedAt` so content-only edits don't flip it.
+- **M2 — criteria mutable/deletable mid-round**: no sum-to-100 enforcement (the helper divides by a
+  hardcoded 100), `overallScore` computed with then-current weights and never recomputed (mixed bases
+  averaged into the decision mean), delete leaves orphaned `criteriaScores` JSON keys + hard-rejects a
+  reviewer mid-form. Fix: warn/refuse weight-sum ≠ 100; refuse delete when submissions reference the id.
+- **M3 — CFP deadline gates only public registration**, not abstract create/submit/resubmit
+  (`allowAbstractSubmissions` + `abstractDeadline` never checked in the abstracts POST/PUT).
+- **M5 — abstract create has no double-submit defense** (no unique on (eventId, speakerId, title), no
+  dedup) → duplicate abstracts + duplicate confirmation/admin emails on a double-click.
+- **M6 — the PUT status-branch's second field write bypasses the optimistic lock** and is non-atomic
+  with the service call (a stale field write clobbers a concurrent edit with no 409; a field-write
+  failure returns a 500 claiming nothing succeeded when the decision + email already fired).
+- **M9 — in-app agent: 5 abstract executors undiscoverable** (wired + MCP-registered but absent from
+  `ABSTRACT_TOOL_DEFINITIONS`) + the `update_abstract_status` def advertises a `reviewNotes` param the
+  executor discards and omits `force`.
+- **M10 — feedback-notification path vanished in Sprint B**: `feedbackOnly` is dead (no caller), and
+  the "reviewer submitted notes/score" events call no notification helper — the speaker "Reviewer
+  Feedback Received" email is unreachable and admins are no longer pinged on a review. CLAUDE.md still
+  advertises the feature. Decide: re-wire from the (H7) submission service, or delete + correct the doc.
+- **M11 — silent 4xx sweep**: ~20 unlogged rejection paths (PUT guards, submissions 403/400s,
+  reviewers + review-criteria 404s, abstracts POST 403/404s). Same class fixed for payments (M12);
+  one logging pass.
+- **L1** managementToken generated + returned but never consumed (latent plaintext secret; strip from
+  responses). **L2** pool reviewers see co-reviewers' identities/emails/scores (anchoring risk).
+  **L3–L5** find-then-create → P2002-mapped-to-500 trio (reviewer-user create, submitter signup,
+  reviewer assign) + the pool-add stranding window. **L6** doc drift — CLAUDE.md June-10 entry still
+  says "the COI flag is advisory in v1" after June-26 enforcement (+ MCP create_review_criterion
+  misses the 200-char name cap).
+
 ### Payments / refunds / credit-notes review (July 10, 2026) — deferred findings
 
 A 4-angle production review of the money domain (money-flow lifecycle · concurrency &

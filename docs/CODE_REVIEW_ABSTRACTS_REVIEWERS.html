@@ -599,7 +599,50 @@ weight: z.number().int().min(1).max(100),   // per-criterion bound only — the 
     optimistic lock) folds into Phase 3's transaction restructure.</li>
 </ul>
 
-<p><em>Phases 3–4 will be appended here as they ship.</em></p>
+<h3>Phase 3 — Atomic decision gate (H4 + H5 gate-half + M4) · commit <code>0dcf750</code></h3>
+<ul>
+  <li><strong><code>src/services/abstract-service.ts</code></strong> — <em>(H4)</em> the gate read +
+    the status write now run in ONE <code>$transaction</code> with a <strong>conditional claim</strong>
+    (<code>updateMany where { id, status: previousStatus }</code>). Racing decisions can no longer
+    both commit — the loser matches 0 rows and returns the new <code>STATUS_CHANGED</code> (409); a
+    withdrawn abstract can't be resurrected and no contradictory second email fires. <em>(M4)</em> the
+    review-count read runs inside that transaction (tx passed to
+    <code>computeSubmissionAggregates</code>), so a submission deleted mid-decision can't let an
+    under-gated ACCEPT through.</li>
+  <li><strong><code>src/lib/abstract-review.ts</code></strong> — <em>(H5 gate half)</em>
+    <code>SubmissionAggregates</code> gains <code>scoredCount</code> (submissions carrying an
+    <code>overallScore</code> or a non-empty <code>criteriaScores</code>); the gate counts THAT, not
+    rows, so an all-null "review" never satisfies <code>requiredReviewCount</code>. MCP
+    <code>get_abstract_scores</code>'s <code>meetsThreshold</code> uses <code>scoredCount</code> too.</li>
+  <li><strong>Error code</strong>: new <code>STATUS_CHANGED</code> (→ 409 in the REST map; MCP passes
+    it through). <strong>Tests</strong>: +4 (scored-not-rows gate, lost-race 409 + no notify) and the
+    service suite rewired to the transaction shape.</li>
+  <li><strong>Deferred</strong>: M6 (the PUT status-branch's second, non-atomic field write bypassing
+    the optimistic lock) lives in the route, not this service transaction — tracked in ROADMAP.</li>
+</ul>
+
+<h3>Phase 4 — Reviewer-portal + assignment hygiene (H6 remainder) · commit <code>314e45e</code></h3>
+<ul>
+  <li><strong><code>src/app/api/my-reviews/route.ts</code></strong> — <em>(H6)</em> both the pool and
+    explicit-assignment queries now filter to reviewable statuses, so a reviewer no longer sees an
+    author's private DRAFTs (or dead WITHDRAWNs) as PENDING work.</li>
+  <li><strong><code>…/reviewers/route.ts</code> (POST) + MCP <code>assign_reviewer_to_abstract</code></strong>
+    — both refuse assigning a reviewer onto a non-reviewable abstract (409 <code>NOT_REVIEWABLE</code>
+    / MCP error) via the shared <code>REVIEWABLE_ABSTRACT_STATUSES</code> set — no pointless assignment
+    or notification on a DRAFT/decided abstract. Previously-silent event/abstract/target-user 404s on
+    the assign route now log.</li>
+  <li><strong>Tests</strong>: new <code>__tests__/api/abstract-reviewer-assign-status.test.ts</code>
+    (+7, the assign status matrix).</li>
+</ul>
+
+<div class="note">
+  <strong>Scoreboard after this round:</strong> B1 n/a; <strong>all 9 HIGHs fixed</strong>
+  (H3/H5/H6 → <code>97b11d4</code>; H1/H2 → <code>fcd5932</code>; H4 + H5-gate + M4 →
+  <code>0dcf750</code>; H6 remainder → <code>314e45e</code>). Deferred to later rounds + ROADMAP:
+  <strong>H7</strong> (submission-service extraction — the ~120-line triplication), <strong>H8</strong>
+  (MCP assign drops <code>conflictFlag</code>), <strong>H9</strong> + <strong>M7</strong> (blind-review:
+  email attribution + MEMBER full view), and the workflow MEDs (M1/M2/M3/M5/M6/M9/M10/M11) + L1–L6.
+</div>
 
 <h2 id="clean">11. What checked out clean</h2>
 
