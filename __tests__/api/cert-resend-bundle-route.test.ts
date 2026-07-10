@@ -44,6 +44,14 @@ vi.mock("@/lib/certificates/bundle", () => ({
   sendCertificateBundleEmail: (args: unknown) => mockBundleSend(args),
   resolveRecipientEmail: (...a: unknown[]) => mockResolveEmail(...a),
 }));
+vi.mock("@/lib/certificates/deliver", () => ({
+  // Template-aware cover resolution is unit-tested in certificates-deliver;
+  // here the route just needs A cover to hand to the (mocked) sender.
+  resolveResendBundleCover: vi.fn().mockResolvedValue({
+    subject: "Your certificates",
+    body: "<p>Multi {{certificateList}}</p>",
+  }),
+}));
 vi.mock("@/lib/certificates/pdf-loader", () => ({
   loadCertificatePdfBytes: (url: string) => mockLoadPdf(url),
 }));

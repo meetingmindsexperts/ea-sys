@@ -216,6 +216,7 @@ async function collect(
         status: r.status,
         templateSlug: r.templateSlug,
         errorMessage: r.errorMessage,
+        hasBody: r.hasBody,
       });
     }
   };

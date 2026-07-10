@@ -18,6 +18,7 @@ const { mockDb } = vi.hoisted(() => ({
   mockDb: {
     emailLog: {
       findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn().mockResolvedValue({}),
     },
   },
 }));
@@ -27,10 +28,11 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-import { getEmailLogsFor } from "@/lib/email-log";
+import { getEmailLogsFor, logEmail } from "@/lib/email-log";
 
 beforeEach(() => {
   mockDb.emailLog.findMany.mockClear();
+  mockDb.emailLog.create.mockClear();
 });
 
 describe("getEmailLogsFor — relaxed organizationId filter", () => {
@@ -84,5 +86,37 @@ describe("getEmailLogsFor — relaxed organizationId filter", () => {
       await getEmailLogsFor(type, `id-${type}`, "org-A");
     }
     expect(mockDb.emailLog.findMany).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe("logEmail — htmlBody audit copy (storeBody opt-in)", () => {
+  const BASE = {
+    to: "jane@x.com",
+    subject: "Your certificates",
+    provider: "ses",
+    status: "SENT" as const,
+    htmlBody: "<html><body>final rendered</body></html>",
+  };
+
+  it("persists htmlBody when context.storeBody is set", async () => {
+    await logEmail({ ...BASE, context: { organizationId: "org-1", storeBody: true } });
+    expect(mockDb.emailLog.create.mock.calls[0][0].data.htmlBody).toBe(BASE.htmlBody);
+  });
+
+  it("drops htmlBody when storeBody is NOT set (default lean rows)", async () => {
+    await logEmail({ ...BASE, context: { organizationId: "org-1" } });
+    expect(mockDb.emailLog.create.mock.calls[0][0].data.htmlBody).toBeNull();
+  });
+
+  it("maps rows to a hasBody flag and never returns the raw htmlBody in lists", async () => {
+    mockDb.emailLog.findMany.mockResolvedValue([
+      { id: "e1", htmlBody: "<html/>", subject: "A" },
+      { id: "e2", htmlBody: null, subject: "B" },
+    ]);
+    const rows = await getEmailLogsFor("REGISTRATION", "reg-1", "org-1");
+    expect(rows).toEqual([
+      { id: "e1", subject: "A", hasBody: true },
+      { id: "e2", subject: "B", hasBody: false },
+    ]);
   });
 });

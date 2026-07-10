@@ -36,6 +36,9 @@ export interface ActivityItem {
   status?: string;
   templateSlug?: string | null;
   errorMessage?: string | null;
+  /** True when the final rendered HTML was stored (certificate deliveries)
+   *  — unlocks the "View email" action (GET /api/email-logs/[id]/body). */
+  hasBody?: boolean;
   // certificate
   serial?: string;
   certType?: string;

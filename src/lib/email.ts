@@ -571,6 +571,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
       provider: providerName,
       providerMessageId: result.messageId ?? null,
       status: "SENT",
+      htmlBody: params.htmlContent,
       context: params.logContext,
     });
 
@@ -634,6 +635,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
       provider: providerName,
       status: "FAILED",
       errorMessage: errorMessageForLog,
+      htmlBody: params.htmlContent,
       context: params.logContext,
     });
     // Fire admin alert (dedup'd, fire-and-forget). Does NOT block the

@@ -572,51 +572,27 @@ export async function loadBundleEmailEvent(eventId: string): Promise<BundleEmail
 }
 
 /**
- * Send ONE cover email carrying 1..N certificate PDFs. The single-cert case
- * renders byte-identically to the historical per-cert email (the bundle
- * token context collapses to the old singular tokens).
+ * Render the cover email CONTENT for a bundle send — subject, branded
+ * wrapped HTML, and the plain-text body — WITHOUT sending anything. The
+ * exact pipeline the send below uses, factored out so the preview-before-
+ * resend endpoints show byte-identical content to what would go out
+ * (2026-07-10, "preview before resend" organizer request). PDFs are not
+ * needed here: only the certs' serial/type/templateName drive the tokens.
  */
-export async function sendCertificateBundleEmail(args: {
+export async function renderBundleEmailContent(args: {
   eventId: string;
-  organizationId: string | null;
-  recipientEmail: string;
   recipientName: string;
-  /** Split name parts — back the {{firstName}}/{{lastName}} cover-email
-   *  tokens (saved email templates reused as covers). Optional: the manual
-   *  Issue worker snapshots only the full recipientName. */
   recipientFirstName?: string | null;
   recipientLastName?: string | null;
-  registrationId: string | null;
+  /** Speaker id when the bundle carries an APPRECIATION cert — drives the
+   *  {{abstractTitle}} lookup. */
   speakerId: string | null;
-  certs: BundleEmailCert[];
+  certs: Array<{ serial: string; type: CertificateType; templateName?: string | null }>;
   emailSubjectTemplate: string;
   emailBodyTemplate: string;
-  triggeredByUserId: string | null;
-  /** Pre-loaded event (batch callers) — skips the per-recipient lookup. */
-  event?: BundleEmailEvent | null;
-}): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  if (args.certs.length === 0) {
-    apiLogger.warn({ msg: "cert-bundle:empty-send", eventId: args.eventId, recipientEmail: args.recipientEmail });
-    return { success: false, error: "No certificates to send." };
-  }
-  const totalBytes = args.certs.reduce((sum, c) => sum + c.pdfBuffer.length, 0);
-  if (totalBytes > MAX_BUNDLE_ATTACHMENT_BYTES) {
-    apiLogger.warn({
-      msg: "cert-bundle:attachments-too-large",
-      eventId: args.eventId,
-      recipientEmail: args.recipientEmail,
-      totalBytes,
-      certCount: args.certs.length,
-    });
-    return {
-      success: false,
-      error: `Combined certificate attachments are too large to email (${Math.round(totalBytes / 1024 / 1024)}MB).`,
-    };
-  }
-
-  const event = args.event ?? (await loadBundleEmailEvent(args.eventId));
-  if (!event) return { success: false, error: "Event not found" };
-
+  event: BundleEmailEvent;
+}): Promise<{ subject: string; wrappedHtml: string; bodyText: string; branding: EmailBranding }> {
+  const { event } = args;
   const primary = args.certs[0];
   const bundle = {
     certs: args.certs.map((c) => ({ serial: c.serial, type: c.type, templateName: c.templateName })),
@@ -675,6 +651,66 @@ export async function sendCertificateBundleEmail(args: {
     eventName: event.name,
   };
   const wrappedHtml = inlineCss(wrapWithBranding(bodyHtml, branding));
+  return { subject, wrappedHtml, bodyText, branding };
+}
+
+/**
+ * Send ONE cover email carrying 1..N certificate PDFs. The single-cert case
+ * renders byte-identically to the historical per-cert email (the bundle
+ * token context collapses to the old singular tokens).
+ */
+export async function sendCertificateBundleEmail(args: {
+  eventId: string;
+  organizationId: string | null;
+  recipientEmail: string;
+  recipientName: string;
+  /** Split name parts — back the {{firstName}}/{{lastName}} cover-email
+   *  tokens (saved email templates reused as covers). Optional: the manual
+   *  Issue worker snapshots only the full recipientName. */
+  recipientFirstName?: string | null;
+  recipientLastName?: string | null;
+  registrationId: string | null;
+  speakerId: string | null;
+  certs: BundleEmailCert[];
+  emailSubjectTemplate: string;
+  emailBodyTemplate: string;
+  triggeredByUserId: string | null;
+  /** Pre-loaded event (batch callers) — skips the per-recipient lookup. */
+  event?: BundleEmailEvent | null;
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (args.certs.length === 0) {
+    apiLogger.warn({ msg: "cert-bundle:empty-send", eventId: args.eventId, recipientEmail: args.recipientEmail });
+    return { success: false, error: "No certificates to send." };
+  }
+  const totalBytes = args.certs.reduce((sum, c) => sum + c.pdfBuffer.length, 0);
+  if (totalBytes > MAX_BUNDLE_ATTACHMENT_BYTES) {
+    apiLogger.warn({
+      msg: "cert-bundle:attachments-too-large",
+      eventId: args.eventId,
+      recipientEmail: args.recipientEmail,
+      totalBytes,
+      certCount: args.certs.length,
+    });
+    return {
+      success: false,
+      error: `Combined certificate attachments are too large to email (${Math.round(totalBytes / 1024 / 1024)}MB).`,
+    };
+  }
+
+  const event = args.event ?? (await loadBundleEmailEvent(args.eventId));
+  if (!event) return { success: false, error: "Event not found" };
+
+  const { subject, wrappedHtml, bodyText, branding } = await renderBundleEmailContent({
+    eventId: args.eventId,
+    recipientName: args.recipientName,
+    recipientFirstName: args.recipientFirstName,
+    recipientLastName: args.recipientLastName,
+    speakerId: args.speakerId,
+    certs: args.certs,
+    emailSubjectTemplate: args.emailSubjectTemplate,
+    emailBodyTemplate: args.emailBodyTemplate,
+    event,
+  });
 
   // EmailLog anchor: prefer the SPEAKER facet whenever the bundle carries an
   // APPRECIATION (speaker) cert — the speaker detail sheet's Email History
@@ -704,6 +740,9 @@ export async function sendCertificateBundleEmail(args: {
       // amber "Certificate" pill keys off this slug regardless of path.
       templateSlug: "certificate-delivery",
       triggeredByUserId: args.triggeredByUserId,
+      // Persist the final rendered HTML onto the EmailLog row — the audit
+      // copy behind "view exactly what was sent" (organizer request).
+      storeBody: true,
     },
   });
 }

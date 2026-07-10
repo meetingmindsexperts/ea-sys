@@ -15,9 +15,10 @@
  * unloadable PDF are skipped with a warn (the per-row reissue is the
  * repair path); revoked certs are never sent.
  *
- * Cover email: the bundle/system default ({{certificateList}} enumerates
- * the attached certs) — with multiple certs there is no single frozen
- * run snapshot that could apply.
+ * Cover email: the event's editable "Certificate Delivery (Multiple
+ * Certificates)" template for 2+ certs (system default as fallback);
+ * {{certificateList}} enumerates the attached certs — with multiple certs
+ * there is no single frozen run snapshot that could apply.
  *
  * Auth: ADMIN / ORGANIZER (denyReviewer), org-bound via the event.
  * Rate limit: 30/hr per user (shared abuse-floor with single resend).
@@ -38,7 +39,7 @@ import {
 } from "@/lib/certificates/bundle";
 import { loadCertificatePdfBytes } from "@/lib/certificates/pdf-loader";
 import { loadRecipient } from "@/lib/certificates/cert-context";
-import { defaultCoverEmailFor } from "@/lib/certificates/email-tokens";
+import { resolveResendBundleCover } from "@/lib/certificates/deliver";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -229,12 +230,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const cover = defaultCoverEmailFor(bundle.length, bundle[0].type);
+    // 2+ certs → the event's editable bundle cover template; the shared
+    // resolver keeps this send byte-identical to its preview.
+    const cover = await resolveResendBundleCover(eventId, bundle.length, bundle[0].type);
     const send = await sendCertificateBundleEmail({
       eventId,
       organizationId: event.organizationId,
       recipientEmail,
       recipientName: recipient?.fullName ?? "Certificate recipient",
+      recipientFirstName: recipient?.firstName ?? null,
+      recipientLastName: recipient?.lastName ?? null,
       registrationId: linkedRegistrationId,
       speakerId: linkedSpeakerId,
       certs: bundle,

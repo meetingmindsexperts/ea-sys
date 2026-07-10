@@ -2167,6 +2167,9 @@ model EmailLog {
   providerMessageId String?
   status            EmailLogStatus
   errorMessage      String?             @db.Text
+  // Final rendered HTML of the sent email — audit copy, populated only for
+  // opt-in senders (certificate deliveries; see EmailLogContext.storeBody).
+  htmlBody          String?             @db.Text
   triggeredByUserId String?
   createdAt         DateTime            @default(now())
 

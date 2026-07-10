@@ -2283,6 +2283,25 @@ export function useResendCertificate(eventId: string) {
  */
 /** Re-send EVERY cert the person holds as ONE email (frozen PDFs, no
  *  re-render) — the "Resend all" action. Pass exactly one facet id. */
+/**
+ * Read-only preview of what a resend would email — pass certificateId for a
+ * per-row reissue preview, or registrationId/speakerId for the "Resend all"
+ * bundle preview. No side effects.
+ */
+export function usePreviewResendEmail(eventId: string) {
+  return useMutation({
+    mutationFn: (body: { certificateId?: string; registrationId?: string; speakerId?: string }) =>
+      fetchApi<{ subject: string; htmlContent: string; recipientEmail: string; serials: string[] }>(
+        `/api/events/${eventId}/certificates/issued/resend-preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      ),
+  });
+}
+
 export function useResendCertificateBundle(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({

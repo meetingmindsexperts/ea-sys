@@ -50,6 +50,7 @@ import {
   useReissueCertificate,
   useResendCertificateBundle,
   useIssueSingleCertificate,
+  usePreviewResendEmail,
   useCertificateTemplates,
   type IssuedCertificateRow,
 } from "@/hooks/use-api";
@@ -97,6 +98,35 @@ export function IssuedCertificatesCard({
   const [resendAllOpen, setResendAllOpen] = useState(false);
   const resendBundleMutation = useResendCertificateBundle(eventId);
   const resendAllBusy = resendBundleMutation.isPending;
+
+  // Preview-before-resend (read-only): both confirm dialogs fetch a render
+  // of EXACTLY what the resend would email (same server pipeline) and show
+  // it above the confirm button. A preview failure never blocks the resend —
+  // it degrades to the old no-preview confirm with a warning line.
+  const previewMutation = usePreviewResendEmail(eventId);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string; recipientEmail: string } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  async function fetchResendPreview(body: { certificateId?: string; registrationId?: string; speakerId?: string }) {
+    setPreviewData(null);
+    setPreviewError(null);
+    try {
+      const res = await previewMutation.mutateAsync(body);
+      setPreviewData(res);
+    } catch (e) {
+      setPreviewError(e instanceof Error ? e.message : "Failed to build the email preview");
+    }
+  }
+
+  function openConfirmResend(cert: IssuedCertificateRow) {
+    setConfirmCert(cert);
+    void fetchResendPreview({ certificateId: cert.id });
+  }
+
+  function openResendAll() {
+    setResendAllOpen(true);
+    void fetchResendPreview(registrationId ? { registrationId } : { speakerId });
+  }
 
   const certificates = data?.certificates ?? [];
   // Only non-revoked, rendered certs can be (re)sent.
@@ -214,7 +244,7 @@ export function IssuedCertificatesCard({
               size="sm"
               variant="outline"
               className="h-7 px-2 text-xs"
-              onClick={() => setResendAllOpen(true)}
+              onClick={openResendAll}
               disabled={resendAllBusy}
               title="Re-render + resend every certificate this person holds"
             >
@@ -257,7 +287,7 @@ export function IssuedCertificatesCard({
                 resendMutation.isPending &&
                 resendMutation.variables === cert.id
               }
-              onResend={() => setConfirmCert(cert)}
+              onResend={() => openConfirmResend(cert)}
             />
           ))}
         </ul>
@@ -265,7 +295,7 @@ export function IssuedCertificatesCard({
 
       {/* Confirm dialog — single-instance, swap target via confirmCert. */}
       <Dialog open={!!confirmCert} onOpenChange={(open) => !open && setConfirmCert(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-4 w-4" />
@@ -314,6 +344,11 @@ export function IssuedCertificatesCard({
                   </p>
                 )}
               </div>
+              <ResendEmailPreviewPanel
+                loading={previewMutation.isPending}
+                error={previewError}
+                data={previewData}
+              />
             </div>
           )}
           <DialogFooter>
@@ -346,7 +381,7 @@ export function IssuedCertificatesCard({
 
       {/* Resend-all confirm dialog. */}
       <Dialog open={resendAllOpen} onOpenChange={(open) => !resendAllBusy && !open && setResendAllOpen(false)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-4 w-4" />
@@ -378,6 +413,11 @@ export function IssuedCertificatesCard({
               </li>
             ))}
           </ul>
+          <ResendEmailPreviewPanel
+            loading={previewMutation.isPending}
+            error={previewError}
+            data={previewData}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setResendAllOpen(false)} disabled={resendAllBusy}>
               Cancel
@@ -626,5 +666,54 @@ function CertRow({ cert, isResending, onResend }: CertRowProps) {
         </Button>
       </div>
     </li>
+  );
+}
+
+/** Read-only render of the email a resend would send — subject + branded
+ *  HTML in a sandboxed iframe. Shown inside both resend confirm dialogs. */
+function ResendEmailPreviewPanel({
+  loading,
+  error,
+  data,
+}: {
+  loading: boolean;
+  error: string | null;
+  data: { subject: string; htmlContent: string; recipientEmail: string } | null;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Building the email preview…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <p className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+        Couldn&apos;t build the email preview ({error}) — you can still resend; the
+        email is rendered independently at send time.
+      </p>
+    );
+  }
+  if (!data) return null;
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-200">
+      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <p className="text-xs text-slate-500">
+          To: <span className="text-slate-700">{data.recipientEmail}</span>
+        </p>
+        <p className="truncate text-xs font-medium text-slate-800" title={data.subject}>
+          Subject: {data.subject}
+        </p>
+      </div>
+      {/* sandbox with no allowances — the branded HTML renders, scripts don't. */}
+      <iframe
+        title="Email preview"
+        sandbox=""
+        srcDoc={data.htmlContent}
+        className="h-64 w-full bg-white"
+      />
+    </div>
   );
 }

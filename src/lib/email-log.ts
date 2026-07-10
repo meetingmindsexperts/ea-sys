@@ -15,6 +15,14 @@ export interface EmailLogContext {
   entityId?: string | null;
   templateSlug?: string | null;
   triggeredByUserId?: string | null;
+  /**
+   * When true, sendEmail persists the final rendered HTML body onto the
+   * EmailLog row (`htmlBody`) as an audit copy of exactly what was sent.
+   * Opt-in per caller — certificate deliveries set it (organizer request
+   * 2026-07-10: "save the html body"); most transactional mail doesn't,
+   * keeping the table lean.
+   */
+  storeBody?: boolean;
 }
 
 export interface EmailLogRecord {
@@ -26,6 +34,8 @@ export interface EmailLogRecord {
   providerMessageId?: string | null;
   status: "SENT" | "FAILED";
   errorMessage?: string | null;
+  /** Final rendered HTML — persisted only when context.storeBody is set. */
+  htmlBody?: string | null;
   context?: EmailLogContext;
 }
 
@@ -50,6 +60,7 @@ export async function logEmail(record: EmailLogRecord): Promise<void> {
         providerMessageId: record.providerMessageId ?? null,
         status: record.status,
         errorMessage: record.errorMessage ?? null,
+        htmlBody: record.context?.storeBody ? (record.htmlBody ?? null) : null,
         triggeredByUserId: record.context?.triggeredByUserId ?? null,
       },
     });
@@ -114,8 +125,18 @@ export async function getEmailLogsFor(
       providerMessageId: true,
       status: true,
       errorMessage: true,
+      // Presence flag only — mapped to `hasBody` below and stripped so the
+      // (potentially large) audit HTML never rides along in list payloads.
+      htmlBody: true,
       createdAt: true,
       triggeredBy: { select: { firstName: true, lastName: true, email: true } },
     },
-  });
+  }).then((rows) =>
+    rows.map(({ htmlBody, ...rest }) => ({
+      ...rest,
+      /** True when the final rendered HTML was stored (opt-in senders —
+       *  certificate deliveries). Fetch it via GET /api/email-logs/[id]/body. */
+      hasBody: htmlBody != null,
+    })),
+  );
 }

@@ -13,8 +13,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, mockSend, mockRender, mockUpload, mockLoadRecipient, mockLoadEvent, mockAllocSerial, mockGetEventTemplate } = vi.hoisted(() => ({
   mockDb: {
     certificateTemplate: { findFirst: vi.fn() },
-    issuedCertificate: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn() },
-    registration: { findUnique: vi.fn() },
+    issuedCertificate: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    registration: { findUnique: vi.fn(), findFirst: vi.fn() },
     speaker: { findUnique: vi.fn() },
     event: { findUnique: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -56,6 +56,10 @@ vi.mock("@/lib/certificates/email-tokens", () => ({
       ? { subject: "Your certificates", body: "<p>Multi {{certificateList}}</p>" }
       : { subject: "Your {{certificateType}}", body: "<p>Body</p>" },
 }));
+vi.mock("@/lib/activity-feed", () => ({
+  resolveLinkedSpeaker: vi.fn().mockResolvedValue(null),
+  resolveLinkedRegistration: vi.fn().mockResolvedValue(null),
+}));
 vi.mock("@/lib/certificates/pdf-loader", () => ({
   // Reuse path — pretend every stored PDF loads fine.
   loadCertificatePdfBytes: vi.fn().mockResolvedValue(Buffer.from("%PDF stored")),
@@ -67,7 +71,14 @@ vi.mock("@/lib/certificates/cert-context", () => ({
   loadPosterAbstractTitle: vi.fn().mockResolvedValue(null),
 }));
 
-import { issueSingleCertificate, issueCertificateBundle, reRenderAndResendCert } from "@/lib/certificates/deliver";
+import {
+  issueSingleCertificate,
+  issueCertificateBundle,
+  reRenderAndResendCert,
+  previewReissueEmail,
+  previewResendBundleEmail,
+  resolveResendBundleCover,
+} from "@/lib/certificates/deliver";
 
 const CTX = { eventId: "evt-1", organizationId: "org-1", actorUserId: "user-1", source: "rest" as const };
 const RECIPIENT = { title: "Dr.", firstName: "Jane", lastName: "Doe", fullName: "Dr. Jane Doe", organization: null, jobTitle: null, city: null, country: null };
@@ -389,5 +400,75 @@ describe("issueCertificateBundle", () => {
     if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
     expect(res.certs).toHaveLength(1);
     expect(res.recipientEmail).toBe("spk@x.com");
+  });
+});
+
+// ── Preview-before-resend ────────────────────────────────────────────────────
+
+describe("preview-before-resend", () => {
+  const ATT_TPL_ROW = { id: "tpl-a", name: "Attendance", category: "ATTENDANCE", autoIssueTag: "delegate", backgroundPdfUrl: "/bg.pdf", textBoxes: [], role: null, cmeHours: null, emailSubject: "Att Sub", emailBody: "<p>Att body</p>" };
+  const CERT_ROW = {
+    id: "cert-1",
+    type: "ATTENDANCE",
+    serial: "OMM-ATT-0002",
+    certificateTemplateId: "tpl-a",
+    registrationId: "reg-1",
+    speakerId: null,
+    revokedAt: null,
+    recipientSnapshot: { fullName: "Dr. Jane Doe" },
+  };
+
+  beforeEach(() => {
+    mockDb.certificateTemplate.findFirst.mockResolvedValue(ATT_TPL_ROW);
+    mockDb.registration.findUnique.mockResolvedValue({ attendee: { email: "jane@x.com", tags: ["delegate"] } });
+    mockDb.registration.findFirst.mockResolvedValue({ attendee: { email: "jane@x.com" } });
+  });
+
+  it("resolveResendBundleCover: 2+ certs prefer the editable bundle template, fall back to defaults", async () => {
+    mockGetEventTemplate.mockResolvedValue({ subject: "Tpl S", htmlContent: "<p>Tpl B</p>", textContent: "", branding: {} });
+    expect(await resolveResendBundleCover("evt-1", 2, "ATTENDANCE")).toEqual({ subject: "Tpl S", body: "<p>Tpl B</p>" });
+    mockGetEventTemplate.mockResolvedValue(null);
+    expect((await resolveResendBundleCover("evt-1", 2, "ATTENDANCE")).subject).toBe("Your certificates");
+    // Single cert → category default, template not consulted.
+    expect((await resolveResendBundleCover("evt-1", 1, "ATTENDANCE")).subject).toContain("{{certificateType}}");
+  });
+
+  it("previewReissueEmail renders the CURRENT template's cover for the real recipient (no writes)", async () => {
+    mockDb.issuedCertificate.findFirst.mockResolvedValue(CERT_ROW);
+    const res = await previewReissueEmail(CTX, "cert-1");
+    if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
+    expect(res.subject).toBe("Att Sub");
+    expect(res.htmlContent).toContain("Att body");
+    expect(res.recipientEmail).toBe("jane@x.com");
+    expect(res.serials).toEqual(["OMM-ATT-0002"]);
+    // Read-only: nothing rendered, updated, or sent.
+    expect(mockRender).not.toHaveBeenCalled();
+    expect(mockDb.issuedCertificate.update).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("previewReissueEmail refuses a revoked cert", async () => {
+    mockDb.issuedCertificate.findFirst.mockResolvedValue({ ...CERT_ROW, revokedAt: new Date() });
+    const res = await previewReissueEmail(CTX, "cert-1");
+    expect(res).toMatchObject({ ok: false, code: "CERT_REVOKED", status: 409 });
+  });
+
+  it("previewResendBundleEmail renders the bundle cover for every sendable cert", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([
+      { serial: "OMM-ATT-0002", type: "ATTENDANCE", certificateTemplate: { name: "Attendance" } },
+      { serial: "OMM-ATT-0003", type: "ATTENDANCE", certificateTemplate: { name: "Committee" } },
+    ]);
+    const res = await previewResendBundleEmail(CTX, { registrationId: "reg-1" });
+    if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
+    // Multi default via the mocked defaults (no event template).
+    expect(res.subject).toBe("Your certificates");
+    expect(res.serials).toEqual(["OMM-ATT-0002", "OMM-ATT-0003"]);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("previewResendBundleEmail 409s when the person holds no sendable certs", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([]);
+    const res = await previewResendBundleEmail(CTX, { registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: false, code: "NO_SENDABLE_CERTS", status: 409 });
   });
 });

@@ -545,6 +545,42 @@ an organizer edits it.
   organizationName, certificateList, certificateSerial, certificateType) —
   documented in `TEMPLATE_VARIABLES["certificate-bundle-delivery"]`.
 
+## Preview-before-resend + sent-email audit copy (July 10, 2026)
+
+Both resend actions on the per-person Certificates card now show a
+**read-only preview** of exactly what will be emailed before the operator
+confirms, and every certificate email's **final rendered HTML is stored**
+as an audit copy.
+
+- **Shared renderer** — `renderBundleEmailContent()`
+  ([bundle.ts](../src/lib/certificates/bundle.ts)) is the extracted
+  content step of `sendCertificateBundleEmail` (tokens → escape → branding
+  → inlineCss), so previews are byte-identical to sends by construction.
+- **Preview services** — `previewReissueEmail(ctx, certId)` (per-row
+  "Resend latest version") and `previewResendBundleEmail(ctx, facet)`
+  ("Resend all") in [deliver.ts](../src/lib/certificates/deliver.ts); both
+  are pure reads (no render/update/send). Route:
+  `POST .../certificates/issued/resend-preview` (60/hr/user), body
+  `{ certificateId }` or `{ registrationId|speakerId }`.
+- **Resend-bundle cover parity** — `resolveResendBundleCover()` is shared
+  by the resend-bundle route AND its preview: 2+ certs → the event's
+  editable `certificate-bundle-delivery` template (the route previously
+  used only the hardcoded default — fixed here); it also now threads
+  `recipientFirstName/LastName` for the template tokens.
+- **UI** — both confirm dialogs render the preview (To/Subject header +
+  sandboxed iframe) above the Resend button; a preview failure degrades to
+  the old no-preview confirm with a warning, never blocking the resend.
+- **Audit copy** — `EmailLog.htmlBody` (`@db.Text`, additive migration
+  `20260710160000`) stores the final rendered HTML for opt-in senders:
+  `EmailLogContext.storeBody`, set by `sendCertificateBundleEmail` (covers
+  ALL cert email paths — single, bundle, bulk, auto-issue, reissue).
+  `getEmailLogsFor` maps it to a `hasBody` flag (the text never rides in
+  list payloads); `GET /api/email-logs/[id]/body` (org-scoped,
+  denyReviewer) returns it; the activity timeline shows a **"View email"**
+  action on rows with a stored copy (sandboxed iframe dialog). Rows
+  written before the migration have no copy (the endpoint 404s with
+  NO_STORED_BODY).
+
 ## Deferred / not implemented
 
 - **Tag-scoped bulk reissue in the UI** — the certificates-page

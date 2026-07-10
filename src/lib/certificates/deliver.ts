@@ -38,6 +38,9 @@ import {
   sendCertificateBundleEmail,
   findOrIssueCertificate,
   loadBundleCoverEmailTemplate,
+  loadBundleEmailEvent,
+  renderBundleEmailContent,
+  buildPersonCertificateWhere,
   type RenderAndUploadResult,
   type BundleCert,
 } from "./bundle";
@@ -585,4 +588,147 @@ export async function issueCertificateBundle(
     failures,
     messageId: send.messageId,
   };
+}
+
+// ── Preview-before-resend (2026-07-10 organizer request) ─────────────────────
+// Read-only renders of EXACTLY what a resend would email — same
+// renderBundleEmailContent pipeline the senders use, no DB writes, no email.
+
+export type ResendPreviewResult =
+  | { ok: true; subject: string; htmlContent: string; recipientEmail: string; serials: string[] }
+  | DeliverFailure;
+
+/**
+ * The cover email a resend-bundle send uses: 2+ certs → the event's editable
+ * bundle template (fallback to the hardcoded multi default); a single cert →
+ * the category default (the route has no per-template cover in this replay
+ * path). Shared by the resend-bundle route AND its preview so they can't
+ * drift.
+ */
+export async function resolveResendBundleCover(
+  eventId: string,
+  certCount: number,
+  primaryType: CertificateType,
+): Promise<{ subject: string; body: string }> {
+  if (certCount > 1) {
+    return (await loadBundleCoverEmailTemplate(eventId)) ?? defaultCoverEmailFor(certCount, primaryType);
+  }
+  return defaultCoverEmailFor(certCount, primaryType);
+}
+
+/** Preview of the per-row "Resend latest version" (reissue) email. */
+export async function previewReissueEmail(
+  ctx: DeliverContext,
+  certificateId: string,
+): Promise<ResendPreviewResult> {
+  const cert = await db.issuedCertificate.findFirst({
+    where: { id: certificateId, eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
+    select: {
+      id: true,
+      type: true,
+      serial: true,
+      certificateTemplateId: true,
+      registrationId: true,
+      speakerId: true,
+      revokedAt: true,
+      recipientSnapshot: true,
+    },
+  });
+  if (!cert) return { ok: false, code: "NOT_FOUND", error: "Certificate not found.", status: 404 };
+  if (cert.revokedAt) return { ok: false, code: "CERT_REVOKED", error: "Cannot resend a revoked certificate.", status: 409 };
+  if (!cert.certificateTemplateId) {
+    return { ok: false, code: "NO_TEMPLATE", error: "This certificate isn’t linked to a template, so it can’t be re-rendered.", status: 409 };
+  }
+  const tmpl = await loadCertTemplate(ctx.eventId, cert.certificateTemplateId);
+  if (!tmpl) return { ok: false, code: "TEMPLATE_NOT_FOUND", error: "The certificate’s template no longer exists.", status: 409 };
+
+  const [recipientEmail, recipient, event] = await Promise.all([
+    resolveRecipientEmail(cert.registrationId, cert.speakerId),
+    loadRecipient(cert.registrationId, cert.speakerId),
+    loadBundleEmailEvent(ctx.eventId),
+  ]);
+  if (!recipientEmail) {
+    return { ok: false, code: "NO_RECIPIENT_EMAIL", error: "Recipient has no email address on file.", status: 409 };
+  }
+  if (!event) return { ok: false, code: "EVENT_NOT_FOUND", error: "Event not found.", status: 404 };
+
+  // Same cover precedence as reRenderAndResendCert.
+  const subjectTpl = tmpl.emailSubject?.trim().length ? tmpl.emailSubject : SYSTEM_DEFAULT_SUBJECT;
+  const bodyTpl = tmpl.emailBody?.trim().length ? tmpl.emailBody : defaultBodyForCategory(cert.type);
+
+  const { subject, wrappedHtml } = await renderBundleEmailContent({
+    eventId: ctx.eventId,
+    recipientName: recipient?.fullName || snapshotName(cert.recipientSnapshot),
+    recipientFirstName: recipient?.firstName ?? null,
+    recipientLastName: recipient?.lastName ?? null,
+    speakerId: cert.speakerId,
+    certs: [{ serial: cert.serial, type: cert.type, templateName: tmpl.name }],
+    emailSubjectTemplate: subjectTpl,
+    emailBodyTemplate: bodyTpl,
+    event,
+  });
+  return { ok: true, subject, htmlContent: wrappedHtml, recipientEmail, serials: [cert.serial] };
+}
+
+/** Preview of the "Resend all" bundle email for the person behind a facet. */
+export async function previewResendBundleEmail(
+  ctx: DeliverContext,
+  input: { registrationId?: string | null; speakerId?: string | null },
+): Promise<ResendPreviewResult> {
+  const registrationId = input.registrationId ?? null;
+  const speakerId = input.speakerId ?? null;
+  if ((registrationId && speakerId) || (!registrationId && !speakerId)) {
+    return { ok: false, code: "INVALID_RECIPIENT", error: "Provide exactly one of registrationId or speakerId.", status: 400 };
+  }
+
+  const { where, linkedRegistrationId, linkedSpeakerId } = await buildPersonCertificateWhere(
+    ctx.eventId,
+    registrationId,
+    speakerId,
+  );
+  const certs = await db.issuedCertificate.findMany({
+    where: { ...where, revokedAt: null, pdfUrl: { not: null } },
+    orderBy: { issuedAt: "asc" },
+    select: {
+      serial: true,
+      type: true,
+      certificateTemplate: { select: { name: true } },
+    },
+  });
+  if (certs.length === 0) {
+    return {
+      ok: false,
+      code: "NO_SENDABLE_CERTS",
+      error: "This person holds no sendable certificates (revoked or un-rendered ones can't be re-sent).",
+      status: 409,
+    };
+  }
+
+  // Same email/recipient resolution as the resend-bundle route: address the
+  // anchored facet, fall back to the linked counterpart.
+  const [recipientEmail, recipient, event] = await Promise.all([
+    resolveRecipientEmail(registrationId, speakerId).then(
+      (email) => email ?? resolveRecipientEmail(linkedRegistrationId, linkedSpeakerId),
+    ),
+    loadRecipient(linkedRegistrationId, linkedSpeakerId),
+    loadBundleEmailEvent(ctx.eventId),
+  ]);
+  if (!recipientEmail) {
+    return { ok: false, code: "NO_RECIPIENT_EMAIL", error: "Recipient has no email address on file.", status: 409 };
+  }
+  if (!event) return { ok: false, code: "EVENT_NOT_FOUND", error: "Event not found.", status: 404 };
+
+  const cover = await resolveResendBundleCover(ctx.eventId, certs.length, certs[0].type);
+  const { subject, wrappedHtml } = await renderBundleEmailContent({
+    eventId: ctx.eventId,
+    recipientName: recipient?.fullName ?? "Certificate recipient",
+    recipientFirstName: recipient?.firstName ?? null,
+    recipientLastName: recipient?.lastName ?? null,
+    speakerId: linkedSpeakerId,
+    certs: certs.map((c) => ({ serial: c.serial, type: c.type, templateName: c.certificateTemplate?.name ?? "" })),
+    emailSubjectTemplate: cover.subject,
+    emailBodyTemplate: cover.body,
+    event,
+  });
+  return { ok: true, subject, htmlContent: wrappedHtml, recipientEmail, serials: certs.map((c) => c.serial) };
 }
