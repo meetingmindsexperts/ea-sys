@@ -191,7 +191,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         id: registrationId,
         paymentStatus: { notIn: [...NO_PAYMENT_DUE_STATUSES] },
       },
-      data: { paymentStatus: "PENDING" },
+      // Session id stored so a later CANCEL can expire the open payment tab
+      // (review H2 sub-item); cleared on completion/expiry by the webhook.
+      data: { paymentStatus: "PENDING", stripeCheckoutSessionId: session.id },
     });
     if (claimed.count === 0) {
       // Settled while we were creating the session — void the just-created

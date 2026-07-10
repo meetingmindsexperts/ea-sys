@@ -194,7 +194,7 @@ export async function POST(req: Request) {
           if (!duplicateCharge) {
             await tx.registration.update({
               where: { id: registrationId },
-              data: { paymentStatus: "PAID" },
+              data: { paymentStatus: "PAID", stripeCheckoutSessionId: null },
             });
           }
           await tx.payment.create({
@@ -351,7 +351,7 @@ export async function POST(req: Request) {
     try {
       const updated = await db.registration.updateMany({
         where: { id: registrationId, paymentStatus: "PENDING" },
-        data: { paymentStatus: "UNPAID" },
+        data: { paymentStatus: "UNPAID", stripeCheckoutSessionId: null },
       });
       if (updated.count > 0) {
         apiLogger.info({ msg: "Checkout session expired — registration reset to UNPAID", registrationId, sessionId: session.id });

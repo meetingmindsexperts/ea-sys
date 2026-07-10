@@ -100,7 +100,8 @@ describe("POST checkout — conditional PENDING claim (H3)", () => {
         id: "reg-1",
         paymentStatus: { notIn: ["PAID", "COMPLIMENTARY", "INCLUSIVE", "REFUNDED"] },
       },
-      data: { paymentStatus: "PENDING" },
+      // Session id stored so a later cancel can expire the open payment tab (H2).
+      data: { paymentStatus: "PENDING", stripeCheckoutSessionId: "cs_1" },
     });
     expect(mockSessionsExpire).not.toHaveBeenCalled();
   });

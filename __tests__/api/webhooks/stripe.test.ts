@@ -155,7 +155,7 @@ describe("Webhook: checkout.session.expired", () => {
     expect(await res.json()).toMatchObject({ received: true });
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
       where: { id: "reg-1", paymentStatus: "PENDING" },
-      data: { paymentStatus: "UNPAID" },
+      data: { paymentStatus: "UNPAID", stripeCheckoutSessionId: null }, // pointer cleared (H2)
     });
   });
 
@@ -667,7 +667,7 @@ describe("Webhook: checkout.session.completed on a CANCELLED registration", () =
     // gated refund flow can reverse it.
     expect(tx.payment.create).toHaveBeenCalled();
     expect(tx.registration.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { paymentStatus: "PAID" } })
+      expect.objectContaining({ data: { paymentStatus: "PAID", stripeCheckoutSessionId: null } })
     );
 
     // Loud flag: error-level log + refund-required admin notification.

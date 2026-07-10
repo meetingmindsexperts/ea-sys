@@ -53,6 +53,10 @@ vi.mock("@/lib/registration-seat-db", () => ({ releaseSeat: releaseSeatSpy, appl
 // The inline Stripe verification (verify-before-rollback) is mocked so tests
 // control the three outcomes: found / provably-absent / unverifiable.
 vi.mock("@/lib/refund-reconciliation", () => ({ findStripeRefundForAttempt: verifyRefundSpy }));
+// H2 sub-item: cancel expires any still-open checkout session (post-commit,
+// fire-and-forget). Mocked so the service tests can assert the call.
+const expireSessionSpy = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock("@/lib/checkout-session-cleanup", () => ({ expireOpenCheckoutSessionOnCancel: expireSessionSpy }));
 // registration-financials is REAL (pure).
 
 import { refundRegistration, issueCreditNoteForRegistration, cancelRegistration } from "@/services/payment-service";
@@ -428,6 +432,8 @@ describe("cancelRegistration", () => {
     mockDb.registration.findUnique.mockResolvedValue(cancelReg());
     const r = await cancelRegistration({ registrationId: "reg1", eventId: "ev1", organizationId: "org1", refund: true, source: "rest" });
     expect(r.ok).toBe(true);
+    // H2 sub-item: the cancel kills any still-open Stripe payment tab.
+    expect(expireSessionSpy).toHaveBeenCalledWith("reg1", "cancel-service");
     if (r.ok) {
       expect(r.cancel.refunded).toBe(true);
       expect(r.cancel.refund).toMatchObject({ amount: 100, fullyRefunded: true });

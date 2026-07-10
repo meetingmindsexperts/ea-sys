@@ -6,6 +6,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError } from "@/lib/invoice-service";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
+import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
 
 /**
@@ -742,6 +743,10 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
     });
 
     refreshEventStats(eventId);
+
+    // Kill any still-open Stripe payment tab (review H2 sub-item). Fire-and-
+    // forget — the helper never throws.
+    void expireOpenCheckoutSessionOnCancel(registrationId, "cancel-service");
 
     db.auditLog
       .create({

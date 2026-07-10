@@ -857,6 +857,11 @@ model Registration {
   billingAccountId           String?
   // Optional PO / grant / authorization reference printed on the invoice.
   payerReference             String?
+  /// Open Stripe Checkout session for this registration, stored at session
+  /// create so a CANCEL can EXPIRE it (review H2 sub-item — sessions live
+  /// ~24h and a cancelled attendee's still-open payment tab could complete).
+  /// Cleared when the session completes or expires.
+  stripeCheckoutSessionId    String?
   // Per-registration fallback: when true, an unpaid third-party invoice
   // may be reassigned back to the attendee (finance action); also keeps
   // the attendee's Pay-Now path available as a guarantor.

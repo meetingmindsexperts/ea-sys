@@ -12,6 +12,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
+import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -707,6 +708,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);
+
+    // A cancel kills any still-open Stripe payment tab (review H2 sub-item).
+    // Fire-and-forget — the helper never throws.
+    if (status === "CANCELLED" && existingRegistration.status !== "CANCELLED") {
+      void expireOpenCheckoutSessionOnCancel(registrationId, "registration-put");
+    }
 
     // Log the action
     await db.auditLog.create({

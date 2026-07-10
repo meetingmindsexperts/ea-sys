@@ -11,6 +11,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
 import { checkInGate, executeCheckIn } from "@/lib/check-in";
 import { refreshEventStats } from "@/lib/event-stats";
+import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { readSponsors } from "@/lib/webinar";
 import {
@@ -885,6 +886,11 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(ctx.eventId);
 
+    // A cancel kills any still-open Stripe payment tab (review H2 sub-item).
+    if (status === "CANCELLED" && existing.status !== "CANCELLED") {
+      void expireOpenCheckoutSessionOnCancel(registrationId, "mcp-update");
+    }
+
     return { success: true, registration: result };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_registration failed");
@@ -929,6 +935,9 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
     // event falsely reported sold-out. paymentStatus-only bulk updates have
     // no soldCount impact and take the plain path.
     let updatedCount: number;
+    // Registrations that BECOME cancelled in this call — their open Stripe
+    // checkout sessions are expired post-commit (review H2 sub-item).
+    const cancelledIds: string[] = [];
     if (status) {
       const affected = await db.registration.findMany({
         where: {
@@ -959,6 +968,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
       for (const r of affected) {
         const becomingCancelled = status === "CANCELLED" && r.status !== "CANCELLED";
         const reactivating = status !== "CANCELLED" && r.status === "CANCELLED";
+        if (becomingCancelled) cancelledIds.push(r.id);
         // DATA-1: bulk cancel releases each consumed promo code's usage count.
         if (becomingCancelled && r.promoCodeId) {
           promoRelease.set(r.promoCodeId, (promoRelease.get(r.promoCodeId) ?? 0) + 1);
@@ -1069,6 +1079,13 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
 
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(ctx.eventId);
+
+    // Cancels kill any still-open Stripe payment tabs (review H2 sub-item).
+    // Fire-and-forget per row — the helper never throws and no-ops when the
+    // registration holds no open session.
+    for (const id of cancelledIds) {
+      void expireOpenCheckoutSessionOnCancel(id, "mcp-bulk");
+    }
 
     return {
       success: true,

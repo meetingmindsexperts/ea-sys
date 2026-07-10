@@ -267,9 +267,12 @@ Deferred (each independently shippable; report anchors in the HTML doc):
 - ~~**L3 — doc drift: MEMBER finance-capable since June 17**~~ — **SHIPPED July 10
   (`aedac06`)**: CLAUDE.md RBAC section corrected. (Product re-confirmation of MEMBER
   finance visibility still worth a nod from the owner.)
-- **H2 sub-item — cancel should expire open Stripe checkout sessions** (needs the
-  checkout session id stored at create; the webhook guard shipped in Phase 1 already
-  flags+records a payment landing on a cancelled reg, so this is belt-and-braces).
+- ~~**H2 sub-item — cancel should expire open Stripe checkout sessions**~~ — **SHIPPED
+  July 10**: new `Registration.stripeCheckoutSessionId` (additive migration
+  `20260710150000`) stored at checkout-create, cleared on completion/expiry; the
+  never-throwing `expireOpenCheckoutSessionOnCancel()` helper
+  ([src/lib/checkout-session-cleanup.ts](../src/lib/checkout-session-cleanup.ts)) is called
+  post-commit by ALL four cancel paths (cancel service, REST PUT flip, MCP single + bulk).
 - **L4 (new)** — manual-capture RECOVERY branch (PAID-with-no-Payment-row) still guards
   with a non-locking `tx.payment.count`; two concurrent recovery clicks can double-insert.
   Micro-edge; fold the FOR UPDATE lock in when next touching the route.

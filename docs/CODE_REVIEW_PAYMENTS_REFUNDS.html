@@ -1002,9 +1002,10 @@ const regTotal = netPrice + regTaxAmount;</code></pre>
   <strong>M2/M7/M8/L1/L2</strong> (Batch A, <code>a4d5141</code>),
   <strong>M9/M10</strong> (Batch B, <code>c13c86a</code>),
   <strong>M1/M5</strong> (Batch C, <code>f6a9ff8</code>), and <strong>L3</strong> (doc drift,
-  <code>aedac06</code>). The ONLY remaining item is the H2 sub-item "cancel should expire open
-  Stripe checkout sessions" (needs a stored session id — pending an owner schema decision), plus
-  two new micro-edges logged as L4/L5 in <code>docs/ROADMAP.md</code>.
+  <code>aedac06</code>). The H2 sub-item shipped too (owner-approved
+  <code>Registration.stripeCheckoutSessionId</code> + a never-throwing cleanup helper called by all
+  four cancel paths) — <strong>every finding in this review is now closed</strong>, with two new
+  micro-edges logged as L4/L5 in <code>docs/ROADMAP.md</code>.
 </div>
 
 <footer>
