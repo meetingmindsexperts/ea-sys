@@ -122,6 +122,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      apiLogger.warn({ msg: "session-get:event-not-found", eventId, sessionId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -131,6 +132,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!eventSession) {
+      apiLogger.warn({ msg: "session-get:session-not-found", eventId, sessionId, userId: session.user.id });
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
@@ -167,10 +169,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     ]);
 
     if (!event) {
+      apiLogger.warn({ msg: "session-put:event-not-found", eventId, sessionId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     if (!existingSession) {
+      apiLogger.warn({ msg: "session-put:session-not-found", eventId, sessionId, userId: session.user.id });
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 

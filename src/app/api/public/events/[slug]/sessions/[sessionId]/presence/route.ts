@@ -39,6 +39,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 3600_000,
     });
     if (!allowed) {
+      apiLogger.warn({ userId: authSession.user.id, sessionId }, "presence:rate-limited");
       return NextResponse.json(
         { error: "Too many requests" },
         { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
@@ -57,6 +58,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true, organizationId: true },
     });
     if (!event) {
+      apiLogger.warn({ slug, sessionId, userId: authSession.user.id }, "presence:event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -75,6 +77,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (!registration) {
+      apiLogger.warn(
+        { userId: authSession.user.id, eventId: event.id, sessionId },
+        "presence:denied:not-registered",
+      );
       return NextResponse.json({ error: "Not registered", code: "NOT_REGISTERED" }, { status: 403 });
     }
 
@@ -84,6 +90,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (!sessionRow) {
+      apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "presence:session-not-found");
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 

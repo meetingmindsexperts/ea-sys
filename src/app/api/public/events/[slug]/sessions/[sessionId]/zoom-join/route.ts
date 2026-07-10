@@ -51,6 +51,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      apiLogger.warn({ slug, sessionId, ip }, "zoom:join-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -122,10 +123,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!session) {
+      apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "zoom:join-session-not-found");
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     if (!session.zoomMeeting) {
+      apiLogger.warn({ sessionId, eventId: event.id, userId: authSession.user.id }, "zoom:join-no-meeting");
       return NextResponse.json({ error: "No Zoom meeting for this session" }, { status: 404 });
     }
 
@@ -139,6 +142,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     const isDraftEvent = event.status === "DRAFT";
 
     if (!isLive && !isUpcoming && !isDraftEvent) {
+      apiLogger.warn(
+        { sessionId, eventId: event.id, userId: authSession.user.id, startsAt: session.startTime.toISOString() },
+        "zoom:join-denied:not-joinable-yet",
+      );
       return NextResponse.json(
         {
           error: "Session is not currently joinable",

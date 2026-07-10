@@ -77,6 +77,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       windowMs: 3600_000,
     });
     if (!allowed) {
+      apiLogger.warn({ slug, sessionId }, "lobby-status:rate-limited");
       return NextResponse.json(
         { error: "Too many requests" },
         { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
@@ -95,6 +96,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const body = cachedBody ?? (await computeLobbyBody(slug, sessionId));
     if (body === "not-found") {
+      apiLogger.warn({ slug, sessionId }, "lobby-status:session-not-found");
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     if (!cachedBody) {

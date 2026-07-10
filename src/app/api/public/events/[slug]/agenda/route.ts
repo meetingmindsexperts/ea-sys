@@ -98,12 +98,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      apiLogger.warn({ slug }, "public-agenda:event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     // Check if the agenda has been published by the organizer
     const settings = (event.settings ?? {}) as Record<string, unknown>;
     if (!settings.agendaPublished && !settings.programmePublished) {
+      apiLogger.warn({ slug, eventId: event.id }, "public-agenda:not-published");
       return NextResponse.json({ error: "Agenda not published yet" }, { status: 404 });
     }
 

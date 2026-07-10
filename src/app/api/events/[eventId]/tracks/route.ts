@@ -51,6 +51,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     ]);
 
     if (!event) {
+      apiLogger.warn({ msg: "tracks-get:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -113,6 +114,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     ]);
 
     if (!event) {
+      apiLogger.warn({ msg: "tracks-post:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 

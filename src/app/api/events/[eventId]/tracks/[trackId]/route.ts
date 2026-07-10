@@ -41,6 +41,7 @@ async function validateEventAccess(eventId: string, organizationId: string) {
   });
 
   if (!event) {
+    apiLogger.warn({ msg: "track:event-not-found", eventId });
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
 
@@ -61,6 +62,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (!event) {
+      apiLogger.warn({ msg: "track:event-not-found", eventId });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -95,6 +97,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     if (!track) {
+      apiLogger.warn({ msg: "track:not-found", eventId, trackId });
       return NextResponse.json({ error: "Track not found" }, { status: 404 });
     }
 
@@ -133,6 +136,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     if (!existingTrack) {
+      apiLogger.warn({ msg: "track:not-found-on-update", eventId, trackId });
       return NextResponse.json({ error: "Track not found" }, { status: 404 });
     }
 
@@ -225,11 +229,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     if (!track) {
+      apiLogger.warn({ msg: "track:not-found", eventId, trackId });
       return NextResponse.json({ error: "Track not found" }, { status: 404 });
     }
 
     // Don't allow deletion if there are sessions
     if (track._count.eventSessions > 0) {
+      apiLogger.warn({ msg: "track:delete-blocked-has-sessions", eventId, trackId });
       return NextResponse.json(
         { error: "Cannot delete track with existing sessions" },
         { status: 400 }
