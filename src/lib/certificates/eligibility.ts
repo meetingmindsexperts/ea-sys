@@ -235,3 +235,151 @@ export async function eligibleForType(
       return eligibleForAppreciation(eventId, tag, templateId);
   }
 }
+
+// ── Multi-template, person-merged eligibility (bundle model) ─────────────────
+
+export interface EligibleTemplateMeta {
+  id: string;
+  name: string;
+  category: CertificateType;
+  /** The template's stored tag — the single source of truth for who
+   *  receives it (no per-action tag override in the bundle model). */
+  autoIssueTag: string | null;
+}
+
+/** One PERSON in a multi-template issue — both facets set when the person's
+ *  registration AND linked speaker each earn a cert in this run. */
+export interface EligiblePerson {
+  registrationId: string | null;
+  speakerId: string | null;
+  recipientName: string;
+  recipientEmail: string | null;
+  /** The subset of the run's templates this person qualifies for. */
+  templateIds: string[];
+}
+
+export interface MultiEligibilityResult {
+  people: EligiblePerson[];
+  perTemplate: Array<{
+    templateId: string;
+    templateName: string;
+    category: CertificateType;
+    tag: string | null;
+    count: number;
+  }>;
+}
+
+/**
+ * Eligibility for a multi-template issue: each template's pool is its STORED
+ * tag's pool (minus already-issued-for-that-template), then entries are
+ * merged per PERSON so one run item — and later ONE email — covers all the
+ * certs a person earns.
+ *
+ * Cross-facet linking (registration ↔ speaker) uses the same policy as
+ * `resolveLinkedSpeaker` (companion `sourceRegistrationId` pointer first,
+ * else email match), applied IN MEMORY over the eligible pools so a
+ * 500-person event doesn't fan out per-person link queries. A speaker only
+ * merges into a registration entry when that registration is itself in the
+ * merged set (and not already claimed by another speaker) — otherwise they
+ * stay a separate single-facet person, which is always safe.
+ */
+export async function eligibleForTemplates(
+  eventId: string,
+  templates: EligibleTemplateMeta[],
+): Promise<MultiEligibilityResult> {
+  // Speaker → companion registration pointers for the in-memory linking.
+  const speakerLinks = await db.speaker.findMany({
+    where: { eventId },
+    select: { id: true, email: true, sourceRegistrationId: true },
+  });
+  const linkBySpeakerId = new Map(speakerLinks.map((s) => [s.id, s]));
+
+  const perTemplate: MultiEligibilityResult["perTemplate"] = [];
+  const people = new Map<string, EligiblePerson>();
+  // registrationId → person key, so APPRECIATION entries can merge into
+  // an ATTENDANCE person; email → registration person key as fallback.
+  const personKeyByRegistrationId = new Map<string, string>();
+  const personKeyByRegistrationEmail = new Map<string, string>();
+
+  // Registration pools must be seeded BEFORE speaker entries try to link
+  // into them — otherwise selection order (APPRECIATION template listed
+  // first) would split one person into two items/emails.
+  const ordered = [...templates].sort((a, b) =>
+    a.category === b.category ? 0 : a.category === "ATTENDANCE" ? -1 : 1,
+  );
+
+  for (const t of ordered) {
+    const tag = t.autoIssueTag?.trim() || null;
+    // A tagless template matches nobody (universal rule) — surfaced by the
+    // route as TEMPLATE_MISSING_TAG before this runs; kept safe here too.
+    const elig = tag ? await eligibleForType(t.category, eventId, tag, t.id) : null;
+    const eligible = elig?.eligible ?? [];
+    perTemplate.push({
+      templateId: t.id,
+      templateName: t.name,
+      category: t.category,
+      tag,
+      count: eligible.length,
+    });
+
+    for (const r of eligible) {
+      if (r.kind === "registration" && r.registrationId) {
+        const key = `reg:${r.registrationId}`;
+        const existing = people.get(key);
+        if (existing) {
+          existing.templateIds.push(t.id);
+        } else {
+          people.set(key, {
+            registrationId: r.registrationId,
+            speakerId: null,
+            recipientName: r.recipientName,
+            recipientEmail: r.recipientEmail,
+            templateIds: [t.id],
+          });
+          personKeyByRegistrationId.set(r.registrationId, key);
+          if (r.recipientEmail) {
+            personKeyByRegistrationEmail.set(r.recipientEmail.toLowerCase(), key);
+          }
+        }
+        continue;
+      }
+      if (!r.speakerId) continue;
+
+      // Speaker entry — merge into the linked registration's person when
+      // that registration is in the set and hasn't been claimed by another
+      // speaker; else keep (or extend) a speaker-keyed person.
+      const spkKey = `spk:${r.speakerId}`;
+      const existingSpk = people.get(spkKey);
+      if (existingSpk) {
+        existingSpk.templateIds.push(t.id);
+        continue;
+      }
+      const link = linkBySpeakerId.get(r.speakerId);
+      const regKey =
+        (link?.sourceRegistrationId && personKeyByRegistrationId.get(link.sourceRegistrationId)) ||
+        (link?.email && personKeyByRegistrationEmail.get(link.email.toLowerCase())) ||
+        null;
+      const regPerson = regKey ? people.get(regKey) : null;
+      if (regPerson && regPerson.speakerId === null) {
+        regPerson.speakerId = r.speakerId;
+        regPerson.templateIds.push(t.id);
+        // Alias the speaker key to the merged person so a SECOND
+        // appreciation template for the same speaker extends it.
+        people.set(spkKey, regPerson);
+        continue;
+      }
+      people.set(spkKey, {
+        registrationId: null,
+        speakerId: r.speakerId,
+        recipientName: r.recipientName,
+        recipientEmail: r.recipientEmail,
+        templateIds: [t.id],
+      });
+    }
+  }
+
+  // The spk: alias trick above means merged persons appear under two keys —
+  // dedupe by object identity.
+  const distinct = Array.from(new Set(people.values()));
+  return { people: distinct, perTemplate };
+}

@@ -1,21 +1,20 @@
 /**
- * GET /api/events/[eventId]/certificates/eligible?templateId={id}[&tag={tag}]
+ * GET /api/events/[eventId]/certificates/eligible
  *
- * Tag-driven manual selection (2026-06-02 evening).
+ * Two modes:
  *
- *   - With templateId only: returns the available-tag overview for the
- *     template's category pool (each tag + count of people carrying it,
- *     plus untaggedCount). The UI uses this to populate the tag picker.
+ *   ?templateIds=a,b,c   (bundle model, 2026-07-09) — per-template pools come
+ *     from each template's STORED tag, merged per PERSON. Returns
+ *     { people, peopleCount, perTemplate, sample, truncated }. The Issue tab
+ *     multi-select preview.
  *
- *   - With templateId + tag: ALSO returns the filtered recipient list
- *     (first SAMPLE_CAP rows shown as a preview before the operator
- *     clicks Issue).
- *
- * Either way the response carries `availableTags` so the UI can keep
- * the picker populated as the operator switches tags.
+ *   ?templateId={id}[&tag={tag}]   (legacy single-template) —
+ *     - templateId only: the available-tag overview for the template's
+ *       category pool (tag picker).
+ *     - templateId + tag: also the filtered recipient list preview.
  *
  * Eligibility = category pool (ATTENDANCE → registrations; APPRECIATION
- * → speakers) MINUS recipients already holding a cert of this category.
+ * → speakers) MINUS recipients already holding a cert from that template.
  * No check-in / payment / session-role / poster gate.
  */
 
@@ -24,7 +23,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
-import { eligibleForType } from "@/lib/certificates/eligibility";
+import { eligibleForType, eligibleForTemplates } from "@/lib/certificates/eligibility";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -48,6 +47,49 @@ export async function GET(req: Request, { params }: RouteParams) {
     const url = new URL(req.url);
     const templateId = url.searchParams.get("templateId");
     const tag = url.searchParams.get("tag");
+    const templateIdsParam = url.searchParams.get("templateIds");
+
+    // ── Bundle mode: merged multi-template preview ──
+    if (templateIdsParam) {
+      const templateIds = templateIdsParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      if (templateIds.length === 0) {
+        apiLogger.warn({ msg: "cert-eligible:empty-template-ids", eventId, userId: session.user.id });
+        return NextResponse.json(
+          { error: "templateIds must contain at least one id", code: "MISSING_TEMPLATE_ID" },
+          { status: 400 },
+        );
+      }
+      const templates = await db.certificateTemplate.findMany({
+        where: {
+          id: { in: templateIds },
+          eventId,
+          event: { organizationId: session.user.organizationId },
+        },
+        select: { id: true, name: true, category: true, autoIssueTag: true },
+      });
+      if (templates.length !== new Set(templateIds).size) {
+        apiLogger.warn({
+          msg: "cert-eligible:template-not-found",
+          eventId,
+          userId: session.user.id,
+          templateIds,
+          foundCount: templates.length,
+        });
+        return NextResponse.json({ error: "Template not found" }, { status: 404 });
+      }
+      const merged = await eligibleForTemplates(eventId, templates);
+      return NextResponse.json({
+        peopleCount: merged.people.length,
+        perTemplate: merged.perTemplate,
+        sample: merged.people.slice(0, SAMPLE_CAP),
+        sampleCap: SAMPLE_CAP,
+        truncated: merged.people.length > SAMPLE_CAP,
+      });
+    }
 
     if (!templateId) {
       apiLogger.warn({

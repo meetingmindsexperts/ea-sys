@@ -40,11 +40,13 @@ import { apiLogger } from "@/lib/logger";
 import { renderCertificate } from "./render";
 import { uploadCertificatePdf } from "@/lib/storage";
 import { loadCertificatePdfBytes } from "./pdf-loader";
-import { sendCertificateBundleEmail, loadBundleEmailEvent } from "./bundle";
 import {
-  SYSTEM_DEFAULT_SUBJECT,
-  defaultBodyForCategory,
-} from "./email-tokens";
+  sendCertificateBundleEmail,
+  loadBundleEmailEvent,
+  loadCertTemplate,
+  findOrIssueCertificate,
+} from "./bundle";
+import { defaultCoverEmailFor } from "./email-tokens";
 import type { CertificateData, CertificateTemplate } from "./types";
 import {
   loadEventContext,
@@ -168,7 +170,7 @@ async function processRun(runId: string): Promise<RunTickResult> {
     where: { id: runId },
     select: {
       id: true, eventId: true, type: true, status: true,
-      certificateTemplateId: true, autoIssue: true, reissue: true,
+      certificateTemplateId: true, templateIds: true, autoIssue: true, reissue: true,
       triggeredByUserId: true,
       totalCount: true, renderedCount: true, emailedCount: true, failedCount: true,
       rendererStartedAt: true, errors: true,
@@ -183,6 +185,12 @@ async function processRun(runId: string): Promise<RunTickResult> {
   // fully separate from the issue path below so that path is byte-for-byte
   // unchanged.
   if (run.reissue) return processReissueRun(run);
+
+  const templateIds = run.templateIds.length
+    ? run.templateIds
+    : run.certificateTemplateId
+      ? [run.certificateTemplateId]
+      : [];
 
   // PENDING → RENDERING (atomic claim — only one cron can grab a
   // PENDING run; second cron loses the race + skips). Set lastTickAt
@@ -203,6 +211,13 @@ async function processRun(runId: string): Promise<RunTickResult> {
   }
 
   if (run.status === "RENDERING" || run.status === "PENDING") {
+    // Bundle-model runs (templateIds set — every run created post-2026-07-09)
+    // render via the shared find-or-issue core, one cert per applicable
+    // template per person-keyed item. Pre-bundle in-flight runs keep the
+    // legacy single-template path byte-for-byte.
+    if (run.templateIds.length > 0) {
+      return processBundleRenderPhase(runId, run.eventId, templateIds, run.autoIssue, run.triggeredByUserId);
+    }
     return processRenderPhase(runId, run.eventId, run.type, run.certificateTemplateId, run.autoIssue);
   }
   if (run.status === "SENDING") {
@@ -464,6 +479,133 @@ async function renderAndStoreItem(args: {
   return certId;
 }
 
+// ── RENDER phase (bundle model) ──────────────────────────────────────────────
+
+/**
+ * Render phase for bundle-model runs (run.templateIds set): each person-keyed
+ * item earns one cert per template in ITS `templateIds` subset (stamped at
+ * issue time from the tag-matched eligibility merge). All issuing goes
+ * through the shared `findOrIssueCertificate` — already-issued certs are
+ * reused (and re-pointed at this item so the send phase bundles them),
+ * so retry-failed re-runs are idempotent.
+ */
+export async function processBundleRenderPhase(
+  runId: string,
+  eventId: string,
+  templateIds: string[],
+  autoIssue: boolean,
+  triggeredByUserId: string | null,
+): Promise<RunTickResult> {
+  const items = await db.certificateIssueRunItem.findMany({
+    where: { runId, renderedAt: null },
+    take: RENDER_BATCH_SIZE,
+  });
+
+  if (items.length === 0) {
+    // Same phase-complete transition as the legacy path: manual runs stop
+    // at the operator review gate, auto runs go straight to SENDING.
+    const nextStatus = autoIssue ? "SENDING" : "AWAITING_REVIEW";
+    await db.certificateIssueRun.update({
+      where: { id: runId },
+      data: {
+        status: nextStatus,
+        rendererFinishedAt: new Date(),
+        ...(autoIssue ? { emailerStartedAt: new Date() } : {}),
+        lastTickAt: new Date(),
+      },
+    });
+    apiLogger.info({ msg: "cert-issue-worker:render-phase-complete", runId, autoIssue, nextStatus });
+    return {
+      renderedThisTick: 0,
+      emailedThisTick: 0,
+      transitionedTo: autoIssue ? null : "AWAITING_REVIEW",
+    };
+  }
+
+  await db.certificateIssueRun.update({
+    where: { id: runId },
+    data: { lastTickAt: new Date() },
+  });
+
+  // Load EVERY template the run issues. ANY missing → fail the run hard
+  // rather than shipping partial bundles (same H4 policy as the legacy
+  // template-deleted-mid-run case).
+  const loaded = await Promise.all(templateIds.map((id) => loadCertTemplate(eventId, id)));
+  const missing = templateIds.filter((_, i) => loaded[i] === null);
+  if (missing.length > 0) {
+    apiLogger.error({
+      msg: "cert-issue-worker:template-deleted-mid-run",
+      runId,
+      eventId,
+      missingTemplateIds: missing,
+      remainingItems: items.length,
+    });
+    await failRun(
+      runId,
+      `Template(s) ${missing.join(", ")} were deleted while this run was in progress. Re-create the template + start a new run.`,
+    );
+    return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "FAILED" };
+  }
+  const templateMap = new Map(loaded.map((t) => [t!.id, t!]));
+
+  let rendered = 0;
+  for (const item of items) {
+    // The item's stamped subset; legacy fallback covers items created
+    // before per-item stamping (only ever single-template runs).
+    const itemTemplateIds = item.templateIds.length ? item.templateIds : templateIds;
+    const failures: string[] = [];
+    let firstCertId: string | null = null;
+    for (const tid of itemTemplateIds) {
+      const tmpl = templateMap.get(tid);
+      if (!tmpl) {
+        failures.push(`${tid}: not in this run's template set`);
+        continue;
+      }
+      const res = await findOrIssueCertificate({
+        eventId,
+        templateId: tid,
+        registrationId: item.registrationId,
+        speakerId: item.speakerId,
+        issuedByUserId: triggeredByUserId,
+        template: tmpl,
+        issueRunItemId: item.id,
+      });
+      if (!res.ok) {
+        failures.push(`${tmpl.name}: ${res.error}`);
+        continue;
+      }
+      if (!firstCertId) firstCertId = res.cert.certificateId;
+    }
+
+    if (failures.length > 0 || !firstCertId) {
+      const message = failures.join("; ") || "No certificates produced for this recipient";
+      await markItemFailed(runId, item.id, "render", message);
+      apiLogger.warn({
+        msg: "cert-issue-worker:bundle-render-failed",
+        runId,
+        itemId: item.id,
+        recipientName: item.recipientName,
+        failures,
+      });
+      continue;
+    }
+
+    await db.certificateIssueRunItem.update({
+      where: { id: item.id },
+      // Legacy 1:1 pointer gets the FIRST cert so pre-bundle readers keep
+      // working; every cert links back via issueRunItemId (set inside
+      // findOrIssueCertificate).
+      data: { renderedAt: new Date(), issuedCertificateId: firstCertId },
+    });
+    await db.certificateIssueRun.update({
+      where: { id: runId },
+      data: { renderedCount: { increment: 1 } },
+    });
+    rendered++;
+  }
+  return { renderedThisTick: rendered, emailedThisTick: 0, transitionedTo: null };
+}
+
 // ── SEND phase ──────────────────────────────────────────────────────────────
 
 async function processSendPhase(
@@ -478,6 +620,7 @@ async function processSendPhase(
     where: { id: runId },
     select: {
       type: true,
+      templateIds: true,
       emailSubject: true,
       emailBody: true,
       triggeredByUserId: true,
@@ -499,10 +642,14 @@ async function processSendPhase(
     select: { organizationId: true },
   });
   const organizationIdForLog = eventForOrg?.organizationId ?? null;
+  // Cover-email fallback when the run carries no snapshot (legacy + auto
+  // runs): a multi-template bundle run gets the MULTI defaults so
+  // {{certificateList}} enumerates every attached cert.
+  const fallbackCover = defaultCoverEmailFor(runRow.templateIds.length || 1, runRow.type);
   const emailSubjectTemplate =
-    runRow.emailSubject?.trim().length ? runRow.emailSubject : SYSTEM_DEFAULT_SUBJECT;
+    runRow.emailSubject?.trim().length ? runRow.emailSubject : fallbackCover.subject;
   const emailBodyTemplate =
-    runRow.emailBody?.trim().length ? runRow.emailBody : defaultBodyForCategory(runRow.type);
+    runRow.emailBody?.trim().length ? runRow.emailBody : fallbackCover.body;
 
   const items = await db.certificateIssueRunItem.findMany({
     where: {
@@ -546,22 +693,51 @@ async function processSendPhase(
       continue;
     }
     try {
-      // Fetch the rendered PDF bytes (from local fs OR Supabase URL).
-      // For local: read directly from public/. For Supabase: fetch via
-      // the public URL. Either path returns a Buffer.
-      const cert = await db.issuedCertificate.findUnique({
-        where: { id: item.issuedCertificateId! },
-        select: { pdfUrl: true, serial: true },
+      // Collect the item's full cert set — bundle-model items link every
+      // cert via issueRunItemId; legacy items fall back to the single
+      // issuedCertificateId pointer. Then fetch each PDF's bytes (local fs
+      // OR Supabase URL — either path returns a Buffer).
+      let certRows = await db.issuedCertificate.findMany({
+        where: { issueRunItemId: item.id },
+        select: {
+          pdfUrl: true,
+          serial: true,
+          type: true,
+          certificateTemplate: { select: { name: true } },
+        },
+        orderBy: { issuedAt: "asc" },
       });
-      if (!cert?.pdfUrl) {
-        throw new Error("Cert pdfUrl missing — render phase didn't persist it");
+      if (certRows.length === 0 && item.issuedCertificateId) {
+        const single = await db.issuedCertificate.findUnique({
+          where: { id: item.issuedCertificateId },
+          select: {
+            pdfUrl: true,
+            serial: true,
+            type: true,
+            certificateTemplate: { select: { name: true } },
+          },
+        });
+        if (single) certRows = [single];
       }
-      const pdfBuffer = await loadCertificatePdfBytes(cert.pdfUrl, { eventId, runId });
+      if (certRows.length === 0) {
+        throw new Error("No certificates linked to this item — render phase didn't persist them");
+      }
+      const certs = [];
+      for (const cert of certRows) {
+        if (!cert.pdfUrl) {
+          throw new Error(`Cert ${cert.serial} pdfUrl missing — render phase didn't persist it`);
+        }
+        certs.push({
+          serial: cert.serial,
+          type: cert.type,
+          templateName: cert.certificateTemplate?.name ?? runRow.certificateTemplate?.name ?? "",
+          pdfBuffer: await loadCertificatePdfBytes(cert.pdfUrl, { eventId, runId }),
+        });
+      }
 
       // Shared bundle sender — owns per-recipient token resolution (the
       // run-row snapshotted subject/body), the escaped-HTML dual context,
       // the branding pipeline, and the certificate-delivery EmailLog slug.
-      // This run is single-template, so the bundle carries one cert.
       const result = await sendCertificateBundleEmail({
         eventId,
         organizationId: organizationIdForLog,
@@ -569,14 +745,7 @@ async function processSendPhase(
         recipientName: item.recipientName,
         registrationId: item.registrationId,
         speakerId: item.speakerId,
-        certs: [
-          {
-            serial: cert.serial,
-            type: runRow.type,
-            templateName: runRow.certificateTemplate?.name ?? "",
-            pdfBuffer,
-          },
-        ],
+        certs,
         emailSubjectTemplate,
         emailBodyTemplate,
         triggeredByUserId: runRow.triggeredByUserId,

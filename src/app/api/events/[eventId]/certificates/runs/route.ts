@@ -82,6 +82,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         emailerFinishedAt: true,
         lastTickAt: true,
         certificateTemplate: { select: { id: true, name: true } },
+        // Bundle-model runs (2+ templates) leave certificateTemplateId null
+        // and list their templates here — the UI joins names client-side.
+        templateIds: true,
       },
     });
 

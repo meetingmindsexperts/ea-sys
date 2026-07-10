@@ -225,6 +225,11 @@ export async function findOrIssueCertificate(args: {
   issuedByUserId: string | null;
   /** Pre-loaded template (batch callers) — skips the per-call lookup. */
   template?: LoadedCertTemplate | null;
+  /** Run item delivering this cert (worker path) — stamped on the cert's
+   *  issueRunItemId (bundleCertificates back-relation). A REUSED cert gets
+   *  re-pointed here too, so the run's send phase picks it up. Omit for
+   *  non-run callers (bulk email) — existing pointers are left untouched. */
+  issueRunItemId?: string | null;
 }): Promise<FindOrIssueResult> {
   const tmpl = args.template ?? (await loadCertTemplate(args.eventId, args.templateId));
   if (!tmpl) {
@@ -251,7 +256,9 @@ export async function findOrIssueCertificate(args: {
     where: { eventId: args.eventId, certificateTemplateId: args.templateId, ...recipientWhere },
     select: { id: true, serial: true, pdfUrl: true, revokedAt: true },
   });
-  if (existing) return reuseExistingCert(args.eventId, tmpl, registrationId, speakerId, existing);
+  if (existing) {
+    return reuseExistingCert(args.eventId, tmpl, registrationId, speakerId, existing, args.issueRunItemId);
+  }
 
   const serial = await allocateSerial(args.eventId, tmpl.category);
   let render: RenderAndUploadResult;
@@ -278,6 +285,7 @@ export async function findOrIssueCertificate(args: {
         certificateTemplateId: args.templateId,
         serial,
         issuedByUserId: args.issuedByUserId,
+        issueRunItemId: args.issueRunItemId ?? null,
         recipientSnapshot: render.recipient as unknown as Prisma.InputJsonValue,
         cmeHoursSnapshot: tmpl.template.cmeHours ?? render.event.cmeHours ?? null,
         pdfUrl: render.pdfUrl,
@@ -310,18 +318,21 @@ export async function findOrIssueCertificate(args: {
       templateId: args.templateId,
       certificateId: winner.id,
     });
-    return reuseExistingCert(args.eventId, tmpl, registrationId, speakerId, winner);
+    return reuseExistingCert(args.eventId, tmpl, registrationId, speakerId, winner, args.issueRunItemId);
   }
 }
 
 /** Reuse an already-issued cert: load its PDF, or repair it by re-rendering
- *  with the SAME serial when the PDF is missing/unloadable. */
+ *  with the SAME serial when the PDF is missing/unloadable. When a run item
+ *  is delivering the reuse, the cert is re-pointed at it so the run's send
+ *  phase finds it via the bundleCertificates relation. */
 async function reuseExistingCert(
   eventId: string,
   tmpl: LoadedCertTemplate,
   registrationId: string | null,
   speakerId: string | null,
   existing: { id: string; serial: string; pdfUrl: string | null; revokedAt: Date | null },
+  issueRunItemId?: string | null,
 ): Promise<FindOrIssueResult> {
   if (existing.revokedAt) {
     apiLogger.warn({
@@ -343,6 +354,12 @@ async function reuseExistingCert(
         eventId,
         certificateId: existing.id,
       });
+      if (issueRunItemId) {
+        await db.issuedCertificate.update({
+          where: { id: existing.id },
+          data: { issueRunItemId },
+        });
+      }
       return {
         ok: true,
         cert: {
@@ -393,6 +410,7 @@ async function reuseExistingCert(
       recipientSnapshot: render.recipient as unknown as Prisma.InputJsonValue,
       reprintCount: { increment: 1 },
       lastReprintedAt: new Date(),
+      ...(issueRunItemId ? { issueRunItemId } : {}),
     },
   });
   return {

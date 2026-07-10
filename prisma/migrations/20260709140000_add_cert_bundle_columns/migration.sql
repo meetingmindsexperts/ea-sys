@@ -8,6 +8,12 @@
 --     single-template run.
 ALTER TABLE "CertificateIssueRun" ADD COLUMN IF NOT EXISTS "templateIds" TEXT[] NOT NULL DEFAULT '{}';
 
+-- (1b) Per-item template subset: which of the run's templates THIS person
+--      earned at issue time (tag-matched per facet). Facet presence alone
+--      can't disambiguate two same-category templates. Empty = legacy item
+--      → run-level template list.
+ALTER TABLE "CertificateIssueRunItem" ADD COLUMN IF NOT EXISTS "templateIds" TEXT[] NOT NULL DEFAULT '{}';
+
 -- (2) Flip the item↔cert link to 1:N — one person-keyed run item can carry
 --     several certs (one per template). The legacy 1:1 column
 --     (CertificateIssueRunItem.issuedCertificateId) stays populated with the

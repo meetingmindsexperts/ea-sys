@@ -40,6 +40,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -82,6 +83,8 @@ import { CertEmailEditorDialog } from "@/components/certificates/cert-email-edit
 import { AutoIssueAnalyticsCard } from "@/components/certificates/auto-issue-analytics-card";
 import {
   SYSTEM_DEFAULT_SUBJECT,
+  SYSTEM_DEFAULT_SUBJECT_MULTI,
+  SYSTEM_DEFAULT_BODY_MULTI,
   defaultBodyForCategory,
 } from "@/lib/certificates/email-tokens";
 
@@ -154,23 +157,26 @@ interface SettingsResponse {
   accreditations: AccreditationRow[];
 }
 
-interface EligibilityResp {
-  type: CertCategory;
-  tag: string | null;
-  availableTags: Array<{ tag: string; count: number }>;
-  untaggedCount: number;
-  eligibleCount: number;
-  eligible: Array<{
-    kind: "registration" | "speaker";
+/** Merged multi-template eligibility (bundle model) — one row per PERSON
+ *  with the subset of selected templates they qualify for. */
+interface MultiEligibilityResp {
+  peopleCount: number;
+  perTemplate: Array<{
+    templateId: string;
+    templateName: string;
+    category: CertCategory;
+    tag: string | null;
+    count: number;
+  }>;
+  sample: Array<{
     registrationId: string | null;
     speakerId: string | null;
     recipientName: string;
     recipientEmail: string | null;
-    tags: string[];
+    templateIds: string[];
   }>;
-  sampleCap?: number;
-  truncated?: boolean;
-  exclusions: Array<{ reason: string; count?: number }>;
+  sampleCap: number;
+  truncated: boolean;
 }
 
 interface RunResp {
@@ -244,11 +250,11 @@ export default function CertificatesPage() {
   // after tweaking the template.
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
   const [previewBust, setPreviewBust] = useState(0);
-  const [issueTemplateId, setIssueTemplateId] = useState<string | null>(null);
-  // Tag-driven manual selection (2026-06-02 evening). Required at
-  // Issue time — operator picks from the availableTags overview that
-  // the eligibility endpoint returns for the picked template.
-  const [issueTag, setIssueTag] = useState<string>("");
+  // Bundle model (2026-07-09): multi-select 1..3 templates. Each template's
+  // STORED tag decides who receives it (no per-action tag picker), and
+  // per-template pools merge per PERSON so one email carries every cert a
+  // person earns.
+  const [issueTemplateIds, setIssueTemplateIds] = useState<string[]>([]);
   // Email-editor dialog state. The Issue button opens this; on Confirm
   // the issueMutation fires with the dialog-confirmed subject + body.
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
@@ -482,7 +488,7 @@ export default function CertificatesPage() {
     onSuccess: (templateId) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
       if (editingTemplateId === templateId) setEditingTemplateId(null);
-      if (issueTemplateId === templateId) setIssueTemplateId(null);
+      setIssueTemplateIds((cur) => cur.filter((id) => id !== templateId));
       toast.success("Template deleted");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -522,6 +528,9 @@ export default function CertificatesPage() {
       rendererFinishedAt: string | null;
       emailerFinishedAt: string | null;
       certificateTemplate: { id: string; name: string } | null;
+      /** Bundle-model runs (2+ templates) — certificateTemplate is null
+       *  and the templates are listed here. */
+      templateIds: string[];
     }>;
   }>({
     queryKey: ["cert-runs-all", eventId],
@@ -548,22 +557,24 @@ export default function CertificatesPage() {
     (r) => !(ACTIVE_STATUSES as readonly string[]).includes(r.status),
   );
 
-  const eligibilityQuery = useQuery<EligibilityResp>({
-    queryKey: ["cert-eligibility", eventId, issueTemplateId, issueTag],
+  const eligibilityQuery = useQuery<MultiEligibilityResp>({
+    queryKey: ["cert-eligibility", eventId, [...issueTemplateIds].sort().join(",")],
     queryFn: async () => {
-      const params = new URLSearchParams({ templateId: issueTemplateId! });
-      if (issueTag) params.set("tag", issueTag);
+      const params = new URLSearchParams({ templateIds: issueTemplateIds.join(",") });
       const res = await fetch(
         `/api/events/${eventId}/certificates/eligible?${params.toString()}`,
       );
       if (!res.ok) throw new Error(`Eligibility query failed (${res.status})`);
-      return (await res.json()) as EligibilityResp;
+      return (await res.json()) as MultiEligibilityResp;
     },
-    enabled: !!issueTemplateId,
+    enabled: issueTemplateIds.length > 0,
     staleTime: 30_000,
   });
 
-  const activeRunId = issueTemplateId ? activeRunIds[issueTemplateId] ?? null : null;
+  // The run panel anchors on the FIRST selected template (issue success
+  // seeds activeRunIds under every selected id, so any of them resolves).
+  const primaryIssueTemplateId = issueTemplateIds[0] ?? null;
+  const activeRunId = primaryIssueTemplateId ? activeRunIds[primaryIssueTemplateId] ?? null : null;
   const runQuery = useQuery<RunResp>({
     queryKey: ["cert-run", eventId, activeRunId],
     queryFn: async () => {
@@ -584,8 +595,7 @@ export default function CertificatesPage() {
 
   const issueMutation = useMutation({
     mutationFn: async (vars: {
-      templateId: string;
-      tag: string;
+      templateIds: string[];
       emailSubject: string;
       emailBody: string;
     }) => {
@@ -608,18 +618,25 @@ export default function CertificatesPage() {
       return json as { runId: string; totalCount: number };
     },
     onSuccess: (data) => {
-      if (issueTemplateId) {
-        setActiveRunIds((cur) => ({ ...cur, [issueTemplateId]: data.runId }));
-      }
+      // Seed the run id under EVERY selected template so the run panel +
+      // per-row highlighting resolve regardless of which id anchors.
+      setActiveRunIds((cur) => ({
+        ...cur,
+        ...Object.fromEntries(issueTemplateIds.map((id) => [id, data.runId])),
+      }));
       // Refresh the in-progress + history lists so the new run
       // appears immediately (otherwise the polling-on-active loop
       // hasn't started yet for a freshly-created run).
       queryClient.invalidateQueries({ queryKey: ["cert-runs-all", eventId] });
-      toast.success(`Issuing ${data.totalCount} certificates — cron will start within 60 seconds.`);
+      toast.success(`Issuing certificates to ${data.totalCount} people — cron will start within 60 seconds.`);
     },
     onError: (e: Error & { runId?: string }) => {
-      if (e.runId && issueTemplateId) {
-        setActiveRunIds((cur) => ({ ...cur, [issueTemplateId]: e.runId! }));
+      if (e.runId && issueTemplateIds.length > 0) {
+        const runId = e.runId;
+        setActiveRunIds((cur) => ({
+          ...cur,
+          ...Object.fromEntries(issueTemplateIds.map((id) => [id, runId])),
+        }));
         toast(e.message);
       } else {
         toast.error(e.message);
@@ -1005,12 +1022,33 @@ export default function CertificatesPage() {
                         />
                       </label>
                     </div>
-                    {/* Phase 2 — survey-gated auto-issue. When on + a tag is
-                        set, this template is rendered + emailed automatically
-                        to anyone who completes the survey and holds the tag
-                        (attendee tag for ATTENDANCE, speaker tag for
-                        APPRECIATION). No operator click. */}
+                    {/* The template's TAG decides who receives this cert on
+                        EVERY issue path — manual Issue, Communications bulk
+                        email, and survey auto-issue (attendee tag for
+                        ATTENDANCE, speaker tag for APPRECIATION). The
+                        auto-issue switch only controls whether survey
+                        completion triggers it automatically. */}
                     <div className="mt-2 flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        Tag
+                        <Input
+                          defaultValue={editingTemplate.autoIssueTag ?? ""}
+                          placeholder="e.g. speaker"
+                          onBlur={(e) => {
+                            const v = e.target.value.trim() || null;
+                            if (v !== (editingTemplate.autoIssueTag ?? null)) {
+                              updateTemplateMutation.mutate({
+                                templateId: editingTemplate.id,
+                                patch: { autoIssueTag: v },
+                              });
+                            }
+                          }}
+                          className="h-8 w-44"
+                        />
+                        {!editingTemplate.autoIssueTag && (
+                          <span className="text-amber-600">required — no one matches without a tag</span>
+                        )}
+                      </label>
                       <label className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Switch
                           checked={editingTemplate.autoIssueOnSurvey}
@@ -1023,28 +1061,6 @@ export default function CertificatesPage() {
                         />
                         Auto-issue on survey completion
                       </label>
-                      {editingTemplate.autoIssueOnSurvey && (
-                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          Tag
-                          <Input
-                            defaultValue={editingTemplate.autoIssueTag ?? ""}
-                            placeholder="e.g. speaker"
-                            onBlur={(e) => {
-                              const v = e.target.value.trim() || null;
-                              if (v !== (editingTemplate.autoIssueTag ?? null)) {
-                                updateTemplateMutation.mutate({
-                                  templateId: editingTemplate.id,
-                                  patch: { autoIssueTag: v },
-                                });
-                              }
-                            }}
-                            className="h-8 w-44"
-                          />
-                          {!editingTemplate.autoIssueTag && (
-                            <span className="text-amber-600">required — no one matches without a tag</span>
-                          )}
-                        </label>
-                      )}
                     </div>
                     {editingTemplate.autoIssueOnSurvey && (
                       <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
@@ -1455,7 +1471,7 @@ export default function CertificatesPage() {
               <CardContent className="space-y-2">
                 {activeRuns.map((r) => {
                   const isCurrent = Boolean(
-                    issueTemplateId && activeRunIds[issueTemplateId] === r.id,
+                    primaryIssueTemplateId && activeRunIds[primaryIssueTemplateId] === r.id,
                   );
                   return (
                     <div
@@ -1465,8 +1481,7 @@ export default function CertificatesPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-medium truncate">
-                            {r.certificateTemplate?.name ??
-                              `${r.type} (template deleted)`}
+                            {runDisplayName(r, templates)}
                           </span>
                           <RunStatusBadge status={r.status} />
                         </div>
@@ -1492,20 +1507,19 @@ export default function CertificatesPage() {
                         size="sm"
                         variant={isCurrent ? "secondary" : "outline"}
                         onClick={() => {
-                          // Pick the run's template so the panel below
-                          // renders for it. The activeRunIds entry
-                          // (keyed by templateId) drives the per-run
-                          // polling query.
-                          if (r.certificateTemplate) {
-                            setIssueTemplateId(r.certificateTemplate.id);
+                          // Pick the run's template set so the panel below
+                          // renders for it. The activeRunIds entries (keyed
+                          // by templateId) drive the per-run polling query.
+                          const ids = runTemplateIdSet(r);
+                          if (ids.length > 0) {
+                            setIssueTemplateIds(ids);
                             setActiveRunIds((cur) => ({
                               ...cur,
-                              [r.certificateTemplate!.id]: r.id,
+                              ...Object.fromEntries(ids.map((id) => [id, r.id])),
                             }));
-                            setIssueTag("");
                           }
                         }}
-                        disabled={!r.certificateTemplate || isCurrent}
+                        disabled={runTemplateIdSet(r).length === 0 || isCurrent}
                       >
                         {isCurrent ? "Showing below" : "Resume"}
                       </Button>
@@ -1544,7 +1558,7 @@ export default function CertificatesPage() {
               <CardContent className="space-y-2">
                 {historyRuns.map((r) => {
                   const isCurrent = Boolean(
-                    issueTemplateId && activeRunIds[issueTemplateId] === r.id,
+                    primaryIssueTemplateId && activeRunIds[primaryIssueTemplateId] === r.id,
                   );
                   const finishedAt = r.emailerFinishedAt ?? r.rendererFinishedAt;
                   return (
@@ -1555,8 +1569,7 @@ export default function CertificatesPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-medium truncate">
-                            {r.certificateTemplate?.name ??
-                              `${r.type} (template deleted)`}
+                            {runDisplayName(r, templates)}
                           </span>
                           <RunStatusBadge status={r.status} />
                         </div>
@@ -1601,16 +1614,16 @@ export default function CertificatesPage() {
                         size="sm"
                         variant={isCurrent ? "secondary" : "ghost"}
                         onClick={() => {
-                          if (r.certificateTemplate) {
-                            setIssueTemplateId(r.certificateTemplate.id);
+                          const ids = runTemplateIdSet(r);
+                          if (ids.length > 0) {
+                            setIssueTemplateIds(ids);
                             setActiveRunIds((cur) => ({
                               ...cur,
-                              [r.certificateTemplate!.id]: r.id,
+                              ...Object.fromEntries(ids.map((id) => [id, r.id])),
                             }));
-                            setIssueTag("");
                           }
                         }}
-                        disabled={!r.certificateTemplate || isCurrent}
+                        disabled={runTemplateIdSet(r).length === 0 || isCurrent}
                       >
                         {isCurrent ? "Showing below" : "View"}
                       </Button>
@@ -1639,93 +1652,68 @@ export default function CertificatesPage() {
                 </div>
               ) : (
                 <>
-                  <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
-                    <div className="grid gap-2">
-                      <Label>Template</Label>
-                      <Select
-                        value={issueTemplateId ?? ""}
-                        onValueChange={(v) => {
-                          setIssueTemplateId(v);
-                          // Tag pool changes per template (registration tags
-                          // for ATTENDANCE, speaker tags for APPRECIATION) —
-                          // reset the selection so the operator picks fresh.
-                          setIssueTag("");
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Pick a template" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CERT_CATEGORIES.map((cat) => {
-                            const tpls = templatesByCategory[cat.key];
-                            if (tpls.length === 0) return null;
-                            return tpls.map((t) => (
-                              <SelectItem key={t.id} value={t.id}>
-                                {cat.label} — {t.name}
-                              </SelectItem>
-                            ));
-                          })}
-                        </SelectContent>
-                      </Select>
+                  {/* Template multi-select (bundle model): pick up to 3.
+                      Each template's STORED tag decides who receives it —
+                      no per-action tag picker. A person qualifying for
+                      several selected templates gets them all in ONE email. */}
+                  <div className="grid gap-2 max-w-2xl">
+                    <Label>Templates (up to 3 — recipients get all their certs in one email)</Label>
+                    <div className="rounded-md border p-2.5 space-y-1.5 max-h-64 overflow-y-auto">
+                      {CERT_CATEGORIES.map((cat) => {
+                        const tpls = templatesByCategory[cat.key];
+                        if (tpls.length === 0) return null;
+                        return tpls.map((t) => {
+                          const tagless = !t.autoIssueTag?.trim();
+                          const checked = issueTemplateIds.includes(t.id);
+                          return (
+                            <label
+                              key={t.id}
+                              className={`flex items-start gap-2 text-sm ${tagless ? "opacity-50" : "cursor-pointer"}`}
+                            >
+                              <Checkbox
+                                className="mt-0.5"
+                                disabled={tagless || (!checked && issueTemplateIds.length >= 3)}
+                                checked={checked}
+                                onCheckedChange={(c) =>
+                                  setIssueTemplateIds((prev) =>
+                                    c === true ? [...prev, t.id] : prev.filter((id) => id !== t.id),
+                                  )
+                                }
+                              />
+                              <span>
+                                <span className="font-medium">{t.name}</span>
+                                <span className="block text-xs text-muted-foreground">
+                                  {cat.label}
+                                  {tagless
+                                    ? " · no tag — set a Tag on the template first (the tag decides who receives it)"
+                                    : ` · tag: ${t.autoIssueTag}`}
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        });
+                      })}
                     </div>
-                    <div className="grid gap-2">
-                      <Label>Tag</Label>
-                      <Select
-                        value={issueTag || "__none__"}
-                        onValueChange={(v) => setIssueTag(v === "__none__" ? "" : v)}
-                        disabled={!issueTemplateId || !eligibilityQuery.data}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Pick a tag" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">
-                            <span className="text-muted-foreground">Pick a tag…</span>
-                          </SelectItem>
-                          {eligibilityQuery.data?.availableTags.map((t) => (
-                            <SelectItem key={t.tag} value={t.tag}>
-                              {t.tag} ({t.count})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {eligibilityQuery.data &&
-                        eligibilityQuery.data.availableTags.length === 0 &&
-                        !eligibilityQuery.isLoading && (
-                          <p className="text-xs text-amber-700">
-                            <Info className="h-3.5 w-3.5 inline mr-1" />
-                            No tags found in this category&apos;s pool. Tag people
-                            from the {issueTemplateId &&
-                              templates.find((t) => t.id === issueTemplateId)?.category ===
-                                "ATTENDANCE"
-                              ? "Registrations"
-                              : "Speakers"}{" "}
-                            page first.
-                          </p>
-                        )}
-                      {eligibilityQuery.data &&
-                        eligibilityQuery.data.untaggedCount > 0 &&
-                        !issueTag && (
-                          <p className="text-xs text-muted-foreground">
-                            {eligibilityQuery.data.untaggedCount} {" "}
-                            {eligibilityQuery.data.untaggedCount === 1 ? "person has" : "people have"}{" "}
-                            no tags — they&apos;ll be skipped by every tag-based issue.
-                          </p>
-                        )}
-                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      <Info className="h-3.5 w-3.5 inline mr-1" />
+                      Each template goes to the people carrying its tag (set on the
+                      template in the Templates tab). Tag people from the
+                      Registrations / Speakers pages.
+                    </p>
                   </div>
 
-                  {issueTemplateId && (
+                  {issueTemplateIds.length > 0 && (
                     <>
                       {/* Bulk "resend the latest version to everyone" — re-render
                           each already-issued cert for this template from the
                           CURRENT template + re-email. Use after correcting a
                           template so everyone who already has it gets the fix.
                           Separate from Issue below (which mints NEW certs for the
-                          eligible, tag-scoped pool). */}
-                      {(() => {
+                          eligible, tag-scoped pool). Single-template selection
+                          only — a reissue run targets ONE template's holders. */}
+                      {issueTemplateIds.length === 1 && (() => {
                         const issuedN =
-                          templates.find((t) => t.id === issueTemplateId)?._count
+                          templates.find((t) => t.id === primaryIssueTemplateId)?._count
                             ?.issuedCertificates ?? 0;
                         return (
                           <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 flex items-start justify-between gap-3">
@@ -1772,17 +1760,17 @@ export default function CertificatesPage() {
                             <DialogDescription>
                               This re-renders{" "}
                               <strong>
-                                {templates.find((t) => t.id === issueTemplateId)?._count
+                                {templates.find((t) => t.id === primaryIssueTemplateId)?._count
                                   ?.issuedCertificates ?? 0}
                               </strong>{" "}
                               already-issued{" "}
-                              {(templates.find((t) => t.id === issueTemplateId)?._count
+                              {(templates.find((t) => t.id === primaryIssueTemplateId)?._count
                                 ?.issuedCertificates ?? 0) === 1
                                 ? "certificate"
                                 : "certificates"}{" "}
                               for{" "}
                               <strong>
-                                {templates.find((t) => t.id === issueTemplateId)?.name}
+                                {templates.find((t) => t.id === primaryIssueTemplateId)?.name}
                               </strong>{" "}
                               from the current template and <strong>re-emails</strong> each
                               recipient. Their existing certificate serial is kept; only the
@@ -1800,7 +1788,7 @@ export default function CertificatesPage() {
                             </Button>
                             <Button
                               onClick={() =>
-                                issueTemplateId && bulkReissueMutation.mutate(issueTemplateId)
+                                primaryIssueTemplateId && bulkReissueMutation.mutate(primaryIssueTemplateId)
                               }
                               disabled={bulkReissueMutation.isPending}
                             >
@@ -1819,50 +1807,66 @@ export default function CertificatesPage() {
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Loader2 className="h-4 w-4 animate-spin" /> Computing eligible recipients…
                         </div>
-                      ) : eligibilityQuery.data && issueTag ? (
+                      ) : eligibilityQuery.data ? (
                         <div className="space-y-3">
                           <div className="rounded-md border bg-primary/5 p-3">
                             <p className="font-medium">
-                              {eligibilityQuery.data.eligibleCount} eligible recipient
-                              {eligibilityQuery.data.eligibleCount === 1 ? "" : "s"}{" "}
-                              tagged <strong>&quot;{issueTag}&quot;</strong>
+                              {eligibilityQuery.data.peopleCount}{" "}
+                              {eligibilityQuery.data.peopleCount === 1 ? "person" : "people"} will
+                              receive certificates — one email each
                             </p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              People who already hold an{" "}
-                              {eligibilityQuery.data.type} cert for this event are excluded.
-                            </p>
+                            <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                              {eligibilityQuery.data.perTemplate.map((p) => (
+                                <p key={p.templateId}>
+                                  {p.templateName} (tag &quot;{p.tag}&quot;): {p.count}{" "}
+                                  {p.count === 1 ? "recipient" : "recipients"}
+                                </p>
+                              ))}
+                              <p>
+                                People who already hold a certificate from a selected template
+                                are excluded for that template.
+                              </p>
+                            </div>
                           </div>
-                          {eligibilityQuery.data.eligible.length > 0 && (
+                          {eligibilityQuery.data.sample.length > 0 && (
                             <div className="rounded-md border p-3 max-h-64 overflow-y-auto text-sm">
-                              {eligibilityQuery.data.eligible.slice(0, 30).map((r, i) => (
+                              {eligibilityQuery.data.sample.slice(0, 30).map((r, i) => (
                                 <div
                                   key={i}
                                   className="flex items-center justify-between py-1 border-b last:border-b-0"
                                 >
-                                  <span className="truncate">{r.recipientName}</span>
+                                  <span className="truncate">
+                                    {r.recipientName}
+                                    {issueTemplateIds.length > 1 && (
+                                      <span className="text-xs text-muted-foreground ml-1.5">
+                                        ({r.templateIds.length}{" "}
+                                        {r.templateIds.length === 1 ? "cert" : "certs"})
+                                      </span>
+                                    )}
+                                  </span>
                                   <span className="text-xs text-muted-foreground truncate ml-2">
                                     {r.recipientEmail}
                                   </span>
                                 </div>
                               ))}
-                              {eligibilityQuery.data.eligibleCount > 30 && (
+                              {eligibilityQuery.data.peopleCount > 30 && (
                                 <div className="text-xs text-muted-foreground pt-2 text-center">
-                                  + {eligibilityQuery.data.eligibleCount - 30} more…
+                                  + {eligibilityQuery.data.peopleCount - 30} more…
                                 </div>
                               )}
                             </div>
                           )}
                           <Button
                             onClick={() => {
-                              // Issue click opens a send confirmation showing the
-                              // cover email saved on the selected template (no
-                              // inline editing). The mutation fires from that
-                              // dialog's Send button.
-                              if (!issueTemplateId || !issueTag) return;
+                              // Issue click opens the cover-email confirmation
+                              // (editable subject/body, pre-filled from the single
+                              // template's saved cover email or the bundle default).
+                              // The mutation fires from that dialog's confirm.
+                              if (issueTemplateIds.length === 0) return;
                               setEmailDialogOpen(true);
                             }}
                             disabled={
-                              eligibilityQuery.data.eligibleCount === 0 ||
+                              eligibilityQuery.data.peopleCount === 0 ||
                               issueMutation.isPending ||
                               !!activeRunId
                             }
@@ -1872,7 +1876,8 @@ export default function CertificatesPage() {
                             ) : (
                               <Send className="h-4 w-4 mr-1" />
                             )}
-                            Issue {eligibilityQuery.data.eligibleCount} certificates
+                            Issue certificates to {eligibilityQuery.data.peopleCount}{" "}
+                            {eligibilityQuery.data.peopleCount === 1 ? "person" : "people"}
                           </Button>
                         </div>
                       ) : null}
@@ -2195,73 +2200,53 @@ export default function CertificatesPage() {
         />
       )}
 
-      {/* Issue confirmation — the cover email is NOT edited here. It's
-          whatever is saved on the selected cert template (set up once in the
-          Templates tab), falling back to the cert system default if blank. The
-          send snapshots subject + body onto the run row, so a later template
-          edit doesn't change in-flight emails. Mounted at page level so it's
+      {/* Issue confirmation — an EDITABLE cover email (bundle model). One
+          template selected → pre-filled from its saved cover email; several →
+          the bundle default ({{certificateList}} enumerates every attached
+          cert; per-template defaults are ignored). The confirmed subject +
+          body are snapshotted onto the run row, so a later template edit
+          doesn't change in-flight emails. Mounted at page level so it's
           anchored regardless of the active tab. */}
       {(() => {
-        const target = issueTemplateId
-          ? templates.find((t) => t.id === issueTemplateId) ?? null
-          : null;
-        if (!target) return null;
-        const subject = target.emailSubject?.trim().length
-          ? target.emailSubject
-          : SYSTEM_DEFAULT_SUBJECT;
-        const body = target.emailBody?.trim().length
-          ? target.emailBody
-          : defaultBodyForCategory(target.category);
-        const usingDefault = !target.emailSubject?.trim().length && !target.emailBody?.trim().length;
-        const count = eligibilityQuery.data?.eligibleCount ?? 0;
+        const selected = templates.filter((t) => issueTemplateIds.includes(t.id));
+        if (selected.length === 0) return null;
+        const single = selected.length === 1 ? selected[0] : null;
+        const initialSubject = single
+          ? single.emailSubject?.trim().length
+            ? single.emailSubject
+            : SYSTEM_DEFAULT_SUBJECT
+          : SYSTEM_DEFAULT_SUBJECT_MULTI;
+        const initialBody = single
+          ? single.emailBody?.trim().length
+            ? single.emailBody
+            : defaultBodyForCategory(single.category)
+          : SYSTEM_DEFAULT_BODY_MULTI;
+        const count = eligibilityQuery.data?.peopleCount ?? 0;
         return (
-          <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>
-                  Issue &amp; email {count} {count === 1 ? "certificate" : "certificates"}?
-                </DialogTitle>
-                <DialogDescription>
-                  The cover email saved on the <strong>{target.name}</strong>{" "}
-                  template is sent, with each certificate PDF attached. Tokens
-                  (e.g. <code>{`{{recipientName}}`}</code>) resolve per recipient.
-                  {usingDefault
-                    ? " This template has no custom cover email, so the system default is used."
-                    : " To change it, edit this template's cover email in the Templates tab."}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                <span className="text-xs font-medium text-muted-foreground">Subject</span>
-                <p className="mt-0.5 font-medium break-words">{subject}</p>
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setEmailDialogOpen(false)}
-                  disabled={issueMutation.isPending}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => {
-                    if (!issueTemplateId || !issueTag) return;
-                    issueMutation.mutate(
-                      { templateId: issueTemplateId, tag: issueTag, emailSubject: subject, emailBody: body },
-                      { onSuccess: () => setEmailDialogOpen(false) },
-                    );
-                  }}
-                  disabled={issueMutation.isPending || count === 0}
-                >
-                  {issueMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4 mr-1" />
-                  )}
-                  Send
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <CertEmailEditorDialog
+            open={emailDialogOpen}
+            onOpenChange={setEmailDialogOpen}
+            category={selected.some((t) => t.category === "APPRECIATION") ? "APPRECIATION" : "ATTENDANCE"}
+            initialSubject={initialSubject}
+            initialBody={initialBody}
+            submitLabel="Issue & send"
+            recipientCount={count}
+            helperText={
+              single
+                ? `Sent to everyone receiving "${single.name}", with the certificate PDF attached. Tokens resolve per recipient.`
+                : `Sent ONCE per person with every earned certificate attached (${selected
+                    .map((t) => t.name)
+                    .join(", ")}). {{certificateList}} lists each person's certs; recipients may get 1–${selected.length} PDFs depending on their tags.`
+            }
+            submitting={issueMutation.isPending}
+            onSubmit={({ emailSubject, emailBody }) => {
+              if (issueTemplateIds.length === 0) return;
+              issueMutation.mutate(
+                { templateIds: issueTemplateIds, emailSubject, emailBody },
+                { onSuccess: () => setEmailDialogOpen(false) },
+              );
+            }}
+          />
         );
       })()}
     </div>
@@ -2269,6 +2254,32 @@ export default function CertificatesPage() {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+interface RunListRowLike {
+  type: CertCategory;
+  certificateTemplate: { id: string; name: string } | null;
+  templateIds: string[];
+}
+
+/** The template ids a run issues — bundle list first, legacy pointer fallback. */
+function runTemplateIdSet(r: RunListRowLike): string[] {
+  if (r.templateIds?.length) return r.templateIds;
+  return r.certificateTemplate ? [r.certificateTemplate.id] : [];
+}
+
+/** Display name for a run row: single template's name, joined names for a
+ *  bundle (resolved client-side from the loaded template list), or the
+ *  category + deleted marker when nothing resolves. */
+function runDisplayName(r: RunListRowLike, templates: CertificateTemplate[]): string {
+  if (r.certificateTemplate) return r.certificateTemplate.name;
+  if (r.templateIds?.length) {
+    const names = r.templateIds.map(
+      (id) => templates.find((t) => t.id === id)?.name ?? "(deleted template)",
+    );
+    return names.join(" + ");
+  }
+  return `${r.type} (template deleted)`;
+}
 
 function RunStatusBadge({ status }: { status: RunResp["status"] }) {
   const config: Record<RunResp["status"], { label: string; cls: string; icon: React.ReactNode }> = {

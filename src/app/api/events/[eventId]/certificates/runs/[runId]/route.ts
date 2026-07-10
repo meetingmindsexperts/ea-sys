@@ -71,6 +71,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
         errorPhase: true, errorMessage: true,
         issuedCertificateId: true,
         issuedCertificate: { select: { pdfUrl: true, serial: true } },
+        // Bundle-model items carry EVERY cert the person earned (one per
+        // applicable template) — surfaced so the review gate can spot-check
+        // each PDF, not just the legacy first one.
+        bundleCertificates: {
+          select: { id: true, pdfUrl: true, serial: true, type: true },
+          orderBy: { issuedAt: "asc" },
+        },
       },
     });
     const sampleItems = sampleItemsRaw.map((r) => ({
@@ -86,6 +93,14 @@ export async function GET(_req: Request, { params }: RouteParams) {
       // UI. Null until the item completes the RENDER phase.
       pdfUrl: r.issuedCertificate?.pdfUrl ?? null,
       serial: r.issuedCertificate?.serial ?? null,
+      // Full bundle (>=1 entries once rendered); legacy items fall back to
+      // the single primary cert above.
+      certificates: r.bundleCertificates.map((c) => ({
+        id: c.id,
+        pdfUrl: c.pdfUrl,
+        serial: c.serial,
+        type: c.type,
+      })),
     }));
 
     // ALL failed items (not just the sample). The operator needs the

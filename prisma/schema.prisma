@@ -578,6 +578,11 @@ model CertificateIssueRunItem {
   // who was on the run).
   recipientName       String
   recipientEmail      String?
+  /// The subset of the run's templateIds THIS person earned at issue time
+  /// (tag-matched per facet). The render phase issues exactly these — facet
+  /// presence alone can't disambiguate two same-category templates. Empty =
+  /// legacy item → falls back to the run's template list.
+  templateIds         String[]  @default([])
   renderedAt          DateTime?
   issuedCertificateId String?   @unique
   emailedAt           DateTime?
