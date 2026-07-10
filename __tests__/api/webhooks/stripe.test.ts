@@ -79,6 +79,7 @@ vi.mock("@/lib/event-stats", () => ({
   refreshEventStats: vi.fn(),
 }));
 
+import { Prisma } from "@prisma/client";
 import { POST } from "@/app/api/webhooks/stripe/route";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
@@ -211,7 +212,7 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
   // amount_refunded is CUMULATIVE (minor units); currency lowercase.
   const makeChargeEvent = (
     paymentIntentId: string | null,
-    { amountRefunded = 10000, currency = "usd" }: { amountRefunded?: number; currency?: string } = {},
+    { amountRefunded = 10000, currency = "usd", created }: { amountRefunded?: number; currency?: string; created?: number } = {},
   ) =>
     makeStripeEvent("charge.refunded", {
       id: "ch_1",
@@ -219,6 +220,7 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
       refunded: true,
       amount_refunded: amountRefunded,
       currency,
+      ...(created !== undefined ? { created } : {}),
     });
 
   const paymentRow = (refundedAmount: number, amount = 100) => ({
@@ -313,13 +315,40 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     expect(mockDb.payment.update).not.toHaveBeenCalled();
   });
 
-  it("warns and skips when no Payment record found for paymentIntentId", async () => {
+  it("warns and skips when no Payment record found for paymentIntentId (unknown charge age)", async () => {
     mockConstructEvent.mockReturnValue(makeChargeEvent("pi_unknown"));
     mockDb.payment.findUnique.mockResolvedValue(null);
 
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(200);
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "charge.refunded: no Payment record found" })
+    );
+  });
+
+  it("returns 500 for a YOUNG charge with no Payment row so Stripe retries (out-of-order delivery, M3)", async () => {
+    mockConstructEvent.mockReturnValue(
+      makeChargeEvent("pi_racing", { created: Math.floor(Date.now() / 1000) - 60 }) // 1 min old
+    );
+    mockDb.payment.findUnique.mockResolvedValue(null);
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(500);
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: expect.stringContaining("500 so Stripe retries") })
+    );
+  });
+
+  it("acks an OLD charge with no Payment row (likely foreign to this system)", async () => {
+    mockConstructEvent.mockReturnValue(
+      makeChargeEvent("pi_ancient", { created: Math.floor(Date.now() / 1000) - 3 * 24 * 60 * 60 })
+    );
+    mockDb.payment.findUnique.mockResolvedValue(null);
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(200);
     expect(mockApiLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "charge.refunded: no Payment record found" })
     );
@@ -390,35 +419,100 @@ describe("Webhook: payment_intent.payment_failed", () => {
 // ── Tests: checkout.session.completed — idempotency ──────────────────────────
 
 describe("Webhook: checkout.session.completed idempotency", () => {
+  const paidRegistration = {
+    id: "reg-1",
+    paymentStatus: "PAID",
+    status: "CONFIRMED",
+    attendee: { firstName: "Alice", lastName: "Smith", email: "alice@test.com", additionalEmail: null, title: null },
+    ticketType: { name: "Standard", price: 150, currency: "USD" },
+    pricingTier: null,
+    event: { id: "evt-1", organizationId: "org-1", name: "Conference", slug: "conf", startDate: new Date(), venue: null, city: null, taxRate: 0, taxLabel: null },
+  };
+
+  const completedEvent = makeStripeEvent("checkout.session.completed", {
+    id: "cs_1",
+    metadata: { registrationId: "reg-1" },
+    currency: "usd",
+    amount_total: 15000,
+    payment_intent: "pi_1",
+    customer: null,
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    mockStripeInstance.paymentIntents.retrieve.mockResolvedValue({ latest_charge: null });
   });
 
-  it("skips processing when registration is already PAID", async () => {
-    const stripeEvent = makeStripeEvent("checkout.session.completed", {
-      id: "cs_1",
-      metadata: { registrationId: "reg-1" },
-      currency: "usd",
-      amount_total: 15000,
-      payment_intent: "pi_1",
-      customer: null,
-    });
-    mockConstructEvent.mockReturnValue(stripeEvent);
-    mockDb.registration.findUnique.mockResolvedValue({
-      id: "reg-1",
-      paymentStatus: "PAID",
-      attendee: { firstName: "Alice", lastName: "Smith", email: "alice@test.com" },
-      ticketType: { name: "Standard", price: 150, currency: "USD" },
-      pricingTier: null,
-      event: { id: "evt-1", name: "Conference", slug: "conf", startDate: new Date(), venue: null, city: null, taxRate: 0, taxLabel: null },
-    });
+  it("skips entirely when this payment intent was already recorded (true webhook retry)", async () => {
+    mockConstructEvent.mockReturnValue(completedEvent);
+    mockDb.registration.findUnique.mockResolvedValue(paidRegistration);
+    mockDb.payment.findUnique.mockResolvedValue({ id: "pay-existing" });
 
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(200);
     expect(mockDb.$transaction).not.toHaveBeenCalled();
+    expect(mockDb.payment.findUnique).toHaveBeenCalledWith({
+      where: { stripePaymentId: "pi_1" },
+      select: { id: true },
+    });
     expect(mockApiLogger.info).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: "Stripe webhook: registration already paid, skipping" })
+      expect.objectContaining({ msg: "Stripe webhook: payment intent already recorded, skipping" })
+    );
+  });
+
+  it("records a NEW charge on an already-PAID registration and raises a double-payment alert (H1)", async () => {
+    mockConstructEvent.mockReturnValue(completedEvent);
+    mockDb.registration.findUnique.mockResolvedValue(paidRegistration);
+    mockDb.payment.findUnique.mockResolvedValue(null); // this intent has no row
+
+    const tx = {
+      registration: {
+        findUnique: vi.fn().mockResolvedValue({ paymentStatus: "PAID" }),
+        update: vi.fn(),
+      },
+      payment: { create: vi.fn().mockResolvedValue({ id: "pay-dup" }) },
+    };
+    mockDb.$transaction.mockImplementation(async (fn: (t: typeof tx) => Promise<void>) => fn(tx));
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(200);
+
+    // The second real settlement is on the books…
+    expect(tx.payment.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ stripePaymentId: "pi_1", status: "PAID" }) })
+    );
+    // …but the registration (already PAID) is untouched.
+    expect(tx.registration.update).not.toHaveBeenCalled();
+
+    expect(mockApiLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "stripe-webhook:duplicate-charge-recorded", registrationId: "reg-1" })
+    );
+    expect(vi.mocked(notifyEventAdmins)).toHaveBeenCalledWith(
+      "evt-1",
+      expect.objectContaining({ title: expect.stringContaining("double payment") })
+    );
+    // No documents email for a charge that's about to be refunded.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(vi.mocked(issuePaidRegistrationDocuments)).not.toHaveBeenCalled();
+  });
+
+  it("treats an in-tx P2002 on stripePaymentId as an already-processed concurrent retry", async () => {
+    mockConstructEvent.mockReturnValue(completedEvent);
+    mockDb.registration.findUnique.mockResolvedValue({ ...paidRegistration, paymentStatus: "PENDING" });
+    mockDb.payment.findUnique.mockResolvedValue(null);
+    mockDb.$transaction.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      })
+    );
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true });
+    expect(mockApiLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "Stripe webhook: concurrent retry already recorded this intent, skipping" })
     );
   });
 
@@ -491,6 +585,8 @@ describe("Webhook: checkout.session.completed on a CANCELLED registration", () =
     mockConstructEvent.mockReturnValue(makeStripeEvent("checkout.session.completed", sessionData));
     mockHappyStripeReads();
     mockDb.payment.findFirst.mockResolvedValue({ id: "pay-1" });
+    // Charge-level idempotency pre-check: this intent has no row yet.
+    mockDb.payment.findUnique.mockResolvedValue(null);
   });
 
   it("records the payment truthfully but suppresses documents and raises a refund-required alert", async () => {

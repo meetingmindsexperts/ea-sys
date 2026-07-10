@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getStripe, fromStripeAmount } from "@/lib/stripe";
@@ -65,9 +66,30 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
-      // Idempotency: skip if already paid
-      if (registration.paymentStatus === "PAID") {
-        apiLogger.info({ msg: "Stripe webhook: registration already paid, skipping", registrationId });
+      const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
+      const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id || null;
+
+      // Idempotency is CHARGE-level, not registration-level. "Is this reg
+      // already PAID?" says nothing about whether THIS session's money was
+      // recorded — a registration can legitimately be charged twice (two open
+      // checkout tabs, or desk cash racing a Stripe checkout), and skipping on
+      // paymentStatus silently dropped the second real settlement from the
+      // books. `Payment.stripePaymentId` is unique, so an existing row for
+      // this intent means this event was already processed (webhook retry).
+      if (paymentIntentId) {
+        const existingPayment = await db.payment.findUnique({
+          where: { stripePaymentId: paymentIntentId },
+          select: { id: true },
+        });
+        if (existingPayment) {
+          apiLogger.info({ msg: "Stripe webhook: payment intent already recorded, skipping", registrationId, paymentIntentId });
+          return NextResponse.json({ received: true });
+        }
+      } else if (registration.paymentStatus === "PAID") {
+        // No payment intent to key on (shouldn't happen in payment mode) —
+        // fall back to the old registration-level skip rather than risk a
+        // duplicate row with a null unique key.
+        apiLogger.warn({ msg: "Stripe webhook: no payment_intent on session and registration already paid, skipping", registrationId, sessionId: session.id });
         return NextResponse.json({ received: true });
       }
 
@@ -85,8 +107,6 @@ export async function POST(req: Request) {
         ? fromStripeAmount(session.amount_total, sessionCurrency)
         : readRegistrationBasePrice(registration);
       const currency = sessionCurrency;
-      const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
-      const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id || null;
 
       // Pull the latest charge off the PaymentIntent to capture:
       //   - Stripe's own receipt URL (we surface this in the portal)
@@ -127,38 +147,79 @@ export async function POST(req: Request) {
         }
       }
 
-      // Interactive transaction with optimistic lock to prevent duplicate Payment records
-      // from concurrent webhook retries
-      await db.$transaction(async (tx) => {
-        // Re-check inside transaction to prevent race condition
-        const current = await tx.registration.findUnique({
-          where: { id: registrationId },
-          select: { paymentStatus: true },
-        });
-        if (current?.paymentStatus === "PAID") return;
+      // Record the money. The Payment row is created UNCONDITIONALLY — even
+      // when the registration is already PAID via another channel (a second
+      // checkout session, or a desk cash capture that won the race). Dropping
+      // the row was the old behavior and left a real Stripe charge invisible
+      // to paidTotal, refund caps, and finance exports. When the reg was
+      // already PAID we don't touch paymentStatus; we flag the over-collection
+      // to admins below instead.
+      let duplicateCharge = false;
+      try {
+        await db.$transaction(async (tx) => {
+          const current = await tx.registration.findUnique({
+            where: { id: registrationId },
+            select: { paymentStatus: true },
+          });
+          duplicateCharge = current?.paymentStatus === "PAID";
 
-        await tx.registration.update({
-          where: { id: registrationId },
-          data: { paymentStatus: "PAID" },
+          if (!duplicateCharge) {
+            await tx.registration.update({
+              where: { id: registrationId },
+              data: { paymentStatus: "PAID" },
+            });
+          }
+          await tx.payment.create({
+            data: {
+              registrationId,
+              amount,
+              currency,
+              stripePaymentId: paymentIntentId,
+              stripeCustomerId: customerId,
+              status: "PAID",
+              receiptUrl,
+              stripeReceiptUrl: receiptUrl,
+              cardBrand,
+              cardLast4,
+              paymentMethodType,
+              paidAt: paidAt ?? new Date(),
+              metadata: { checkoutSessionId: session.id },
+            },
+          });
         });
-        await tx.payment.create({
-          data: {
-            registrationId,
-            amount,
-            currency,
-            stripePaymentId: paymentIntentId,
-            stripeCustomerId: customerId,
-            status: "PAID",
-            receiptUrl,
-            stripeReceiptUrl: receiptUrl,
-            cardBrand,
-            cardLast4,
-            paymentMethodType,
-            paidAt: paidAt ?? new Date(),
-            metadata: { checkoutSessionId: session.id },
-          },
+      } catch (txErr) {
+        // A concurrent retry of the SAME event recorded the intent between our
+        // pre-check and this insert — the unique on stripePaymentId caught it.
+        // That's a completed processing, not a failure.
+        if (txErr instanceof Prisma.PrismaClientKnownRequestError && txErr.code === "P2002") {
+          apiLogger.info({ msg: "Stripe webhook: concurrent retry already recorded this intent, skipping", registrationId, paymentIntentId });
+          return NextResponse.json({ received: true });
+        }
+        throw txErr;
+      }
+
+      if (duplicateCharge) {
+        // Money collected twice — both rows are now on the books; a human
+        // decides which charge to refund.
+        apiLogger.error({
+          msg: "stripe-webhook:duplicate-charge-recorded",
+          registrationId,
+          eventId: registration.event.id,
+          amount,
+          currency,
+          stripeSessionId: session.id,
+          paymentIntentId,
         });
-      });
+        notifyEventAdmins(registration.event.id, {
+          type: "PAYMENT",
+          title: "⚠ Possible double payment",
+          message: `${registration.attendee.firstName} ${registration.attendee.lastName} paid ${currency} ${amount.toFixed(2)} but the registration was already paid — check the Billing tab and refund the duplicate charge if confirmed.`,
+          link: `/events/${registration.event.id}/registrations`,
+        }).catch((err) => apiLogger.error({ err, msg: "Failed to send duplicate-charge notification" }));
+        // No documents email — the attendee shouldn't receive a second PAID
+        // invoice for a charge that's about to be refunded.
+        return NextResponse.json({ received: true });
+      }
 
       apiLogger.info({
         msg: "Payment completed via Stripe",
@@ -296,6 +357,24 @@ export async function POST(req: Request) {
         },
       });
       if (!payment) {
+        // Stripe doesn't guarantee event ordering: charge.refunded can beat
+        // checkout.session.completed (the payment handler does two synchronous
+        // Stripe reads before its DB tx). Acking a young charge with 200 would
+        // lose the refund forever — Stripe never redelivers a 200. Return 500
+        // so Stripe retries until the Payment row exists. An OLD charge with
+        // no row is likely foreign to this system (or truly orphaned) — ack it
+        // so a shared Stripe account can't wedge the webhook endpoint.
+        const chargeAgeMs = charge.created
+          ? Date.now() - charge.created * 1000
+          : Number.MAX_SAFE_INTEGER;
+        if (chargeAgeMs < 24 * 60 * 60 * 1000) {
+          apiLogger.warn({
+            msg: "charge.refunded: no Payment record yet — 500 so Stripe retries (likely out-of-order delivery)",
+            paymentIntentId,
+            chargeAgeMs,
+          });
+          return NextResponse.json({ error: "Payment record not found yet" }, { status: 500 });
+        }
         apiLogger.warn({ msg: "charge.refunded: no Payment record found", paymentIntentId });
         return NextResponse.json({ received: true });
       }
