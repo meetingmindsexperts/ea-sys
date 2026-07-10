@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — Check-in &amp; Badges (July 2026)</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:960px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.75rem 0}
+  pre code{background:none;padding:0}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)}
+  .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.25rem 0}
+  .finding.blocker{border-left-color:var(--blocker)} .finding.high{border-left-color:var(--high)}
+  .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .finding h3{margin-top:0}
+  .loc{color:var(--muted);font-size:.87rem;margin:.1rem 0 .8rem}
+  .lbl{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.9rem 0 .2rem}
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1.25rem 0}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+  ul,ol{padding-left:1.4rem} li{margin:.3rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf}
+    .sev{color:#14171a}
+    .note{background:#0c2b3a;border-color:#1e4a5f}
+    .note.warn{background:#33290c;border-color:#66551a}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Check-in &amp; Badges</h1>
+  <p class="sub">
+    Production-readiness audit · 10 July 2026 · EA-SYS <code>main</code> @ <code>2d1fb56</code><br />
+    Four independent review passes: live-day correctness · RBAC &amp; credential exposure ·
+    concurrency under door load · drift &amp; failure-visibility.
+  </p>
+</header>
+
+<div class="note warn">
+  <strong>Severity is calibrated lower than the sessions review, deliberately.</strong> None of the
+  credential findings here are reachable by an <em>arbitrary, unauthenticated</em> caller the way
+  <code>B1</code>/<code>B2</code> were this morning. Every barcode leak requires either an
+  org-attached account or knowledge of an unguessable <code>cuid</code>. That is why this report has
+  <strong>0 BLOCKERs</strong> — not because entry barcodes are unimportant, but because the exposure
+  is insider-scoped. The <em>door-day</em> findings (<a href="#h1">H1</a>–<a href="#h4">H4</a>) are the
+  ones that will actually cost you on the morning of day one.
+</div>
+
+<div class="note">
+  <strong>Reviewer disagreements, resolved.</strong> Two passes contradicted each other twice; I
+  verified both in source. <em>(1) Double-scan:</em> one pass called it "correctly idempotent", another
+  called it a race. Both are right — <strong>sequential</strong> re-scans are caught by the gate,
+  <strong>concurrent</strong> ones are not (<a href="#h3">H3</a>). <em>(2) DTCM import:</em> one pass
+  called it "per-row fault-isolated". It is not — the file contains exactly <strong>one</strong>
+  <code>try {</code> (the outer handler); the <code>continue</code> statements are validation skips,
+  not exception handling (<a href="#m3">M3</a>).
+</div>
+
+<h2 id="summary">1. Executive summary</h2>
+
+<p>
+  The June unification genuinely held: <code>checkedInAt</code> is written in <strong>exactly one
+  place</strong> (<code>check-in.ts:106</code>) — no raw status flip, bulk update, or registration PUT
+  touches it — and both REST handlers plus the MCP tool commit through the same
+  <code>executeCheckIn</code>, so the audit/notification fan-out is fire-and-forget with a logged catch
+  on all three. Barcode rendering is properly centralized in <code>renderBarcodePng</code> across all
+  five callers. Five of the six CLAUDE.md claims about this domain check out.
+</p>
+
+<p>What the review found clusters into four themes:</p>
+
+<ol>
+  <li>
+    <strong>The admission gate and the badge filter disagree about who is attending.</strong> A
+    sponsor-paid (<code>INCLUSIVE</code>) delegate is admitted by <code>checkInGate</code> and silently
+    dropped from the badge PDF (<a href="#h1">H1</a>). The "no payment due" rule exists canonically as
+    <code>NO_PAYMENT_DUE_STATUSES</code> and the badge route re-implements it, wrong.
+  </li>
+  <li>
+    <strong>There is no undo.</strong> <code>checkedInAt: null</code> is never written anywhere in
+    <code>src/</code>. Flipping status back to CONFIRMED leaves the timestamp set, and the gate then
+    refuses that person <em>forever</em> (<a href="#h2">H2</a>). CLAUDE.md advertises "check attendees
+    in (+ undo)". That capability does not exist.
+  </li>
+  <li>
+    <strong>The door path has never met concurrency or scale.</strong> The check-in commit is an
+    unconditional <code>update</code> by id with no <code>where: { checkedInAt: null }</code> claim
+    (<a href="#h3">H3</a>), and "Print All" is unbounded in N with unbounded
+    <code>bwip-js</code> fan-out on the same box that serves the scanner (<a href="#h4">H4</a>). Both
+    are exactly what you would predict of code that has never had a load test — which the readiness
+    audit already says it hasn't.
+  </li>
+  <li>
+    <strong>The entry barcode is a physical-access credential travelling in ordinary read payloads.</strong>
+    <code>qrCode</code> and <code>dtcmBarcode</code> are returned via <code>include:</code> on both
+    registration GETs, and <strong>neither is in <code>FINANCIAL_KEYS</code></strong> — so
+    <code>redactFinancialFields</code>, the only redaction pass that runs for non-finance roles, never
+    strips them (<a href="#h6">H6</a>–<a href="#h8">H8</a>). Same class as this morning's Zoom-host-URL
+    leak; narrower blast radius.
+  </li>
+</ol>
+
+<h2 id="counts">2. Findings at a glance</h2>
+<div class="tbl-wrap">
+<table>
+  <tr><th>Severity</th><th>Count</th><th>IDs</th></tr>
+  <tr><td><span class="sev blocker">Blocker</span></td><td>0</td><td>—</td></tr>
+  <tr><td><span class="sev high">High</span></td><td>8</td><td><a href="#h1">H1</a>–<a href="#h8">H8</a></td></tr>
+  <tr><td><span class="sev medium">Medium</span></td><td>7</td><td><a href="#m1">M1</a>–<a href="#m7">M7</a></td></tr>
+  <tr><td><span class="sev low">Low</span></td><td>4</td><td><a href="#l1">L1</a>–<a href="#l4">L4</a></td></tr>
+</table>
+</div>
+
+<h2 id="door">3. Door-day failures (fix these before the next event)</h2>
+
+<div class="finding high" id="h1">
+  <h3><span class="sev high">High</span> &nbsp; H1 — Sponsor-paid (<code>INCLUSIVE</code>) and pay-at-desk (<code>UNASSIGNED</code>) attendees are admitted by check-in but get <strong>no badge</strong>, and the error message blames them for not paying</h3>
+  <p class="loc"><code>…/registrations/badges/route.ts:78-83, 86</code> vs <code>src/lib/check-in.ts:72</code> vs <code>registration-enums.ts:72-77</code></p>
+<pre><code>// badges route — re-implements "no money due", wrong:
+const isComplimentary = r.paymentStatus === "COMPLIMENTARY" ||
+  Number(r.ticketType?.price ?? 0) === 0 ||
+  (r.pricingTier &amp;&amp; Number(r.pricingTier.price) === 0);
+return r.paymentStatus === "PAID" || isComplimentary;   // INCLUSIVE, UNASSIGNED, REFUNDED all dropped
+
+// the canonical set it should have used:
+NO_PAYMENT_DUE_STATUSES = ["PAID", "COMPLIMENTARY", "INCLUSIVE", "REFUNDED"]
+
+// the gate that actually admits them — blocks ONLY these two:
+if (!isComplimentary &amp;&amp; (reg.paymentStatus === "UNPAID" || reg.paymentStatus === "PENDING")) …</code></pre>
+  <p class="lbl">Door scenario</p>
+  <p>
+    A pharma sponsor block (Abbott/Pfizer contract → <code>paymentStatus = INCLUSIVE</code>, real price
+    on the ticket) arrives. The scanner admits every one of them. "Print All" silently omits every one
+    of them. If the operator selects <em>only</em> that sponsor block, they get a 400 reading
+    <em>"No paid or complimentary registrations found"</em> — which tells the staff these VIPs haven't
+    paid, when in fact the sponsor paid months ago and the badge filter simply drifted from the gate.
+    This is the exact cross-caller-drift class the June unification was meant to kill, still live in the
+    badge path.
+  </p>
+</div>
+
+<div class="finding high" id="h2">
+  <h3><span class="sev high">High</span> &nbsp; H2 — There is no undo. Nothing in <code>src/</code> ever clears <code>checkedInAt</code>, so an "undone" check-in permanently locks the attendee out of the scanner — and CLAUDE.md advertises the feature</h3>
+  <p class="loc">Verified: <code>grep "checkedInAt: null" src/</code> → <strong>no matches</strong>. The general registration PUT references <code>checkedInAt</code> <strong>zero</strong> times. Both check-in handlers (<code>POST</code> by id, <code>PUT</code> by scanned code) <em>check in</em>; neither undoes.</p>
+  <p class="lbl">Door scenario</p>
+  <p>
+    Staff scan the wrong person. To "undo" they flip the registration back to CONFIRMED — the only
+    affordance that exists. <code>checkedInAt</code> stays set. When that person legitimately arrives
+    and is scanned, <code>checkInGate</code> hits <code>if (reg.checkedInAt) → ALREADY_CHECKED_IN</code>
+    and <strong>refuses them</strong>. Simultaneously the desk's attendance tile (keyed on
+    <code>status === "CHECKED_IN"</code>) shows them as <em>not</em> in. The staff see a flat
+    contradiction — "the counter says he's not in, the scanner says he already is" — with no way out
+    from any UI. CLAUDE.md's ONSITE description explicitly promises "check attendees in <strong>(+
+    undo)</strong>."
+  </p>
+  <p class="lbl">Fix shape</p>
+  <p>
+    An explicit undo action that clears <code>checkedInAt</code> <em>and</em> status together, audited —
+    not a bare status flip. It belongs in <code>check-in.ts</code> next to <code>executeCheckIn</code>,
+    so all callers share it.
+  </p>
+</div>
+
+<div class="finding high" id="h3">
+  <h3><span class="sev high">High</span> &nbsp; H3 — The check-in commit has no conditional claim, so two stations scanning the same badge concurrently both write: the true first-entry time is clobbered and audit + admin notifications duplicate</h3>
+  <p class="loc"><code>src/lib/check-in.ts:76</code> (gate read) → <code>:114</code> (unguarded write). Schema: <code>checkedInAt DateTime?</code> — <strong>no unique, no partial index</strong>; nothing at the DB level enforces "check in once".</p>
+<pre><code>// :76 — the "already?" test is an in-memory read
+if (reg.checkedInAt) { return { code: "ALREADY_CHECKED_IN", … }; }
+// :114 — the commit carries NO predicate
+: await db.registration.update({ where: { id: args.registrationId }, data, include });</code></pre>
+  <p class="lbl">Interleaving</p>
+  <p>
+    Station A reads <code>checkedInAt: null</code> → gate passes. Station B reads it before A commits →
+    gate passes. A writes <code>12:00:00.100</code>. B <em>unconditionally overwrites</em> with
+    <code>12:00:00.140</code>. Result: the real arrival time is lost, two <code>CHECK_IN</code> audit
+    rows are written, and two "Attendee Checked In" notifications fire. The scanner page's 2-second
+    debounce is a per-tab <code>useRef</code> — it does nothing across two desk stations, and nothing
+    across two tabs. Fix is one line: <code>updateMany({ where: { id, checkedInAt: null } })</code>,
+    treating <code>count === 0</code> as <code>ALREADY_CHECKED_IN</code>.
+  </p>
+</div>
+
+<div class="finding high" id="h4">
+  <h3><span class="sev high">High</span> &nbsp; H4 — "Print All" is unbounded in N with unbounded barcode-render fan-out, and it runs on the same box that serves the live scanner</h3>
+  <p class="loc"><code>…/registrations/badges/route.ts:57-59</code> (no <code>take</code>), <code>:161</code> (unbounded <code>Promise.all</code>), <code>:191</code> (sync draw loop), <code>Buffer.concat</code> in-request</p>
+<pre><code>const where = all ? { eventId, status: { not: "CANCELLED" }, attendanceMode: { not: "VIRTUAL" } } : …;
+const allRegistrations = await db.registration.findMany({ where, … });        // no take
+await Promise.all(registrations.map(async (reg) =&gt; { … await renderBarcodePng(barcodeText); … }));</code></pre>
+  <p class="lbl">Load scenario</p>
+  <p>
+    <code>renderBarcodePng</code> calls <code>bwip-js.toBuffer</code> — CPU-bound rasterization. At 2000
+    registrations this schedules 2000 simultaneous rasterizations, then draws 2000 A4 pages
+    synchronously and accumulates the whole multi-MB PDF in memory before responding. One HTTP request
+    pins the Node event loop on the swapless <code>t3.large</code> that <em>also</em> serves the
+    check-in POST/PUT and the Stripe webhook receiver. Someone in the office clicks "Print All (1800)"
+    during the arrival rush and the door scanner stalls; the operator retries, doubling the load. This
+    is the concrete content of the readiness audit's "bulk badge Print All is fragile", and it rhymes
+    with INC-001 (the on-box build that froze the box). Fix: a <code>take</code> cap, bounded
+    concurrency (<code>p-limit</code>), and ideally move the render off the request path.
+  </p>
+  <p class="lbl">Not a problem</p>
+  <p>Per-row robustness is fine — a null <code>qrCode</code> is guarded at <code>:166</code> and <code>:237</code>. The problem is scale, not bad rows.</p>
+</div>
+
+<div class="finding high" id="h5">
+  <h3><span class="sev high">High</span> &nbsp; H5 — The unknown-barcode scan — the single most valuable line to trace at a live door — leaves <strong>zero</strong> server trace</h3>
+  <p class="loc"><code>…/check-in/route.ts:147-149</code> (404, no log), <code>:42</code> &amp; <code>:121</code> (event-not-found 404 = the ONSITE cross-event denial), <code>badges/route.ts:86</code>, <code>import/barcodes</code> 400s at <code>:56, :63, :72, :76</code></p>
+<pre><code>if (!registration) {
+  return NextResponse.json({ error: "Invalid code — not found" }, { status: 404 });  // no apiLogger
+}</code></pre>
+  <p>
+    The gate <em>rejections</em> do log (<code>check-in:qr-rejected</code>), but the surrounding 4xx do
+    not. During a live check-in you cannot answer <em>"why did that badge not scan?"</em> from
+    <code>/logs</code>. Worse, an <strong>ONSITE cross-event denial</strong> — the precise adversarial
+    case the July-7 isolation tests defend — 404s silently, leaving no audit trail that someone tried.
+  </p>
+</div>
+
+<div class="finding high" id="h6">
+  <h3><span class="sev high">High</span> &nbsp; H6 — <code>FINANCIAL_KEYS</code> omits <code>qrCode</code>/<code>dtcmBarcode</code>, so the one redaction pass that runs on both registration GETs never strips the physical-access credential</h3>
+  <p class="loc"><code>src/lib/finance-visibility.ts</code> (verified: no <code>qrCode</code>, no <code>barcode</code>) · applied at <code>registrations/route.ts:276</code> and <code>…/[registrationId]/route.ts:229</code></p>
+  <p>
+    This is the <strong>amplifier</strong> that turns H7 and H8 from "an attendee list" into "a stack of
+    door credentials". <code>redactFinancialFields</code> already fires for non-finance roles on exactly
+    the two routes that return the barcodes. Adding them to a credential-redaction path — or switching
+    those GETs to an explicit <code>select</code> that omits them for non-desk roles — closes H7 and H8
+    together, in one place.
+  </p>
+</div>
+
+<div class="finding high" id="h7">
+  <h3><span class="sev high">High</span> &nbsp; H7 — The registrations LIST GET has no <code>denyReviewer</code> and returns every attendee's entry barcode + DTCM code to any org-attached caller — including <strong>MEMBER</strong> (the read-only "sponsor-side stakeholder" role) and internal-domain <strong>REGISTRANT</strong>s</h3>
+  <p class="loc"><code>…/registrations/route.ts</code> — GET authorizes via <code>getOrgContext</code> + <code>buildEventAccessWhere</code>; the <code>denyReviewer</code> at <code>:306</code> guards the <strong>POST</strong>. The registration query uses <code>include:</code> (not <code>select</code>), so all scalars — <code>qrCode</code>, <code>dtcmBarcode</code> — are returned.</p>
+  <p class="lbl">Exploit</p>
+  <p>
+    <code>getOrgContext</code> requires an <code>organizationId</code>, so an <em>external</em> attendee
+    gets 401 — this is <strong>insider-scoped</strong>, which is why it is HIGH and not a blocker. But
+    the org-attached set includes <strong>MEMBER</strong> (documented as "leadership / auditors /
+    sponsor-side stakeholders") and, per the internal-domain rule, any MM-Group staffer who registered
+    as an ordinary attendee. Either can call <code>GET /api/events/{id}/registrations</code> once and
+    receive every attendee's <code>qrCode</code> — enough to print or clone a badge and walk anyone
+    through the door of a paid CME conference — plus the full PII list and every DTCM compliance code.
+  </p>
+</div>
+
+<div class="finding high" id="h8">
+  <h3><span class="sev high">High</span> &nbsp; H8 — Two IDOR paths to another person's entry barcode: the detail GET is row-unscoped, and the registrant self-service barcode route lets an ONSITE temp cross events</h3>
+  <p class="loc"><code>…/registrations/[registrationId]/route.ts</code> (GET uses bare <code>auth()</code>; <code>denyReviewer</code> is on the PUT at <code>:256</code>; row lookup is <code>{ id, eventId }</code>, not user-scoped) · <code>src/app/api/registrant/registrations/[registrationId]/barcode/route.ts:43-51</code></p>
+<pre><code>// detail GET — any registration in an event you can reach
+db.registration.findFirst({ where: { id: registrationId, eventId }, include: { attendee: true, … } })
+
+// registrant barcode route — the non-registrant branch is ORG-wide, not per-event
+...(isRegistrant ? { userId: session.user.id }
+                 : { event: { organizationId: session.user.organizationId! } })</code></pre>
+  <p>
+    The detail GET is reachable by an <em>external</em> REGISTRANT (bare <code>auth()</code>;
+    <code>buildEventAccessWhere</code> admits them via <code>registrations.some.userId</code>), and the
+    row is bound only to the event — so any registration id in that event yields that person's
+    <code>qrCode</code>. The barcode route's <code>else</code> branch org-scopes instead of routing
+    through <code>buildEventAccessWhere</code>, so an <strong>ONSITE</strong> temp assigned to Event A
+    can pull a scannable entry-barcode PNG for Event B in the same org — the same class as the July-7
+    BLOCKER, on a route that fix didn't touch.
+  </p>
+  <p class="lbl">Honest mitigation</p>
+  <p>
+    Both need a target <code>registrationId</code>, which is an unguessable <code>cuid</code> — so
+    neither is a spray-and-pray attack. <a href="#h7">H7</a> is what defeats that mitigation: it hands
+    an insider the full id list. (The registrant branch itself is correctly <code>userId</code>-bound —
+    a registrant cannot fetch another registrant's barcode.)
+  </p>
+</div>
+
+<h2 id="policy">4. Gate policy &amp; operator friction</h2>
+
+<div class="finding medium" id="m1">
+  <h3><span class="sev medium">Medium</span> &nbsp; M1 — No desk override for the payment gate: a <code>PENDING</code> attendee (Stripe webhook lag) is refused at the scanner and the queue stalls</h3>
+  <p class="loc"><code>src/lib/check-in.ts:68-74</code> — <code>checkInGate</code> accepts only <code>allowCancelled</code>; there is no <code>allowUnpaid</code>.</p>
+  <p>
+    Someone paid online four minutes ago and the webhook hasn't landed; they are <code>PENDING</code>.
+    The scanner says <em>"Cannot check in — payment required."</em> The only remedy is to leave the
+    scanner flow, open the registration, record payment, and re-scan — with a queue behind them. The
+    <strong>agent</strong> path has an override; the <strong>physical door</strong> does not.
+  </p>
+</div>
+
+<div class="finding medium" id="m2">
+  <h3><span class="sev medium">Medium</span> &nbsp; M2 — The gate admits <code>FAILED</code> and <code>REFUNDED</code> registrations (it enumerates only <code>UNPAID</code>/<code>PENDING</code>) — and the desk has no reactivation for <code>CANCELLED</code></h3>
+  <p class="loc"><code>src/lib/check-in.ts:64-74</code></p>
+  <p>
+    The opposite failure mode to M1: a declined card (<code>FAILED</code>) or an already-refunded
+    attendee scans in with no friction. Meanwhile <code>allowCancelled</code> is passed only by the MCP
+    tool, so a cancelled-then-repaid attendee is refused at the door with no on-scanner reinstate. Worth
+    an explicit decision: <em>is "admit, sort the money later" the intended door policy?</em> If yes, say
+    so in the gate. If no, tighten it. Right now the policy is an accident of which statuses got
+    enumerated.
+  </p>
+</div>
+
+<div class="finding medium" id="m3">
+  <h3><span class="sev medium">Medium</span> &nbsp; M3 — DTCM import has no per-row <code>try/catch</code>: one <code>P2002</code> aborts the request with a generic 500 and <strong>discards the import report</strong>, leaving a partially-applied import</h3>
+  <p class="loc"><code>…/import/barcodes/route.ts:120-137</code> (TOCTOU dup-check + unguarded update), <code>:148</code> (outer catch). Verified: the file contains exactly <strong>one</strong> <code>try {</code>.</p>
+<pre><code>const existing = await db.registration.findFirst({ where: { dtcmBarcode: barcode, NOT: { id: registration.id } } });
+if (existing) { errors.push(…); continue; }
+await db.registration.update({ where: { id: registration.id }, data: { dtcmBarcode: barcode } }); // no try/catch</code></pre>
+  <p>
+    Each <code>update</code> auto-commits, so rows processed before the throw stay written. The operator
+    gets <code>{ error: "Import failed" }</code> and no idea which rows landed — they must re-diff by
+    hand, 1–2 days before a Dubai-compliance deadline. Re-running the same CSV <em>is</em> idempotent
+    (the dup-check excludes the row's own id), so recovery is safe — but only if they know to re-run.
+  </p>
+</div>
+
+<div class="finding medium" id="m4">
+  <h3><span class="sev medium">Medium</span> &nbsp; M4 — DTCM import's email lookup picks an <strong>arbitrary</strong> registration when a person holds two in the event</h3>
+  <p class="loc"><code>…/import/barcodes/route.ts:105-113</code> — <code>findFirst({ where: { eventId, attendee: { email } } })</code></p>
+  <p>
+    Attendee rows are shared across registrations in this codebase (the orphan-attendee reuse path), so
+    a compliance barcode can be stamped on the wrong registration. Prefer the <code>registrationId</code>
+    column; when only email is available and it matches more than one row, report the ambiguity rather
+    than silently choose.
+  </p>
+</div>
+
+<div class="finding medium" id="m5">
+  <h3><span class="sev medium">Medium</span> &nbsp; M5 — The "live attendance counter" is not live: a successful scan never invalidates the registrations cache</h3>
+  <p class="loc"><code>…/check-in/page.tsx:79-80</code> — verified: the page contains <strong>zero</strong> <code>useQueryClient</code> / <code>invalidateQueries</code> references</p>
+  <p>
+    The counter derives from the React Query cache (<code>staleTime: 5min</code>), and
+    <code>refetchOnWindowFocus</code> never fires because the operator stays in the same window
+    scanning. The one number the door supervisor watches to gauge arrival flow sits frozen for up to
+    five minutes. <code>barcode-import-dialog.tsx:67</code> correctly invalidates after import; the
+    scanner was missed.
+  </p>
+</div>
+
+<div class="finding medium" id="m6">
+  <h3><span class="sev medium">Medium</span> &nbsp; M6 — A venue network drop mid-scan is nearly invisible: no failure beep, no Recent-Scans row, and the input clears as if it worked</h3>
+  <p class="loc"><code>…/check-in/page.tsx:176-179</code></p>
+<pre><code>} catch (err) { console.error("[check-in] scan failed", err); toast.error("Network error"); }
+finally { setScanning(false); setManualInput(""); inputRef.current?.focus(); }   // dropped scan, no requeue</code></pre>
+  <p>
+    Every 4xx and success path pushes a coloured row into Recent Scans and plays a beep. A
+    <strong>fetch rejection</strong> — the #1 real venue failure — pushes nothing and plays nothing. In
+    a loud hall an operator scanning fast relies on the beep and the list; silence reads as "processed".
+    The attendee walks in un-checked-in, with no durable record to reconcile afterwards. This is the
+    "no onsite offline resilience" gap, concretely. Also: <code>if (…scanning) return</code> silently
+    drops any scan that arrives while a request is in flight — including a <em>different</em> person's.
+  </p>
+</div>
+
+<div class="finding medium" id="m7">
+  <h3><span class="sev medium">Medium</span> &nbsp; M7 — Concurrent <code>allowCancelled</code> overrides double-increment seat <em>and</em> promo counters</h3>
+  <p class="loc"><code>src/lib/agent/tools/registrations.ts:391-412</code> → <code>check-in.ts:109-114</code> → <code>registration-seat-db.ts:104-129</code></p>
+  <p>
+    <code>claimSeat</code> is correctly atomic and capacity-guarded, so two reactivations racing for the
+    <em>last</em> seat resolve to one <code>CAPACITY_EXCEEDED</code>. But because the row commit still
+    carries no <code>status</code>/<code>checkedInAt</code> predicate (<a href="#h3">H3</a>'s gap), two
+    concurrent overrides on the <em>same</em> cancelled registration — with capacity available — both
+    pass the in-memory gate, and each does <code>+1 soldCount</code> and <code>+1 promo.usedCount</code>.
+    One registration consumes two seats and two promo redemptions. H3's conditional claim closes this too.
+  </p>
+</div>
+
+<h2 id="lows">5. Lows</h2>
+
+<div class="finding low" id="l1">
+  <h3><span class="sev low">Low</span> &nbsp; L1 — The scan lookup <code>OR</code>s across two independent unique domains with no deterministic ordering</h3>
+  <p class="loc"><code>…/check-in/route.ts:132-139</code> — <code>where: { eventId, OR: [{ qrCode }, { dtcmBarcode: qrCode }] }</code></p>
+  <p>
+    <code>qrCode</code> and <code>dtcmBarcode</code> are each <code>@unique</code>, but independently —
+    a string could be reg A's <code>qrCode</code> and reg B's <code>dtcmBarcode</code>. With
+    <code>OR</code> and no <code>orderBy</code>, <code>findFirst</code> returns an arbitrary row, so the
+    scan could admit the wrong person. <code>qrCode</code> is a generated cuid and
+    <code>dtcmBarcode</code> is externally supplied, so a real collision is astronomically unlikely —
+    but an explicit two-step lookup (qrCode first, then DTCM) removes the hazard for free.
+  </p>
+</div>
+
+<div class="finding low" id="l2">
+  <h3><span class="sev low">Low</span> &nbsp; L2 — DTCM import silently overwrites an existing, different barcode on the same registration</h3>
+  <p class="loc"><code>…/import/barcodes/route.ts:120-134</code> — the dup guard checks <em>other</em> rows (<code>NOT: { id: registration.id }</code>) but never whether <em>this</em> row already holds a different code</p>
+  <p>A CSV with a wrong barcode replaces a good compliance barcode with no <code>errors[]</code> entry and no skip. Recoverable by re-running a corrected CSV, but invisible in the import summary.</p>
+</div>
+
+<div class="finding low" id="l3">
+  <h3><span class="sev low">Low</span> &nbsp; L3 — MCP <code>check_in_registration</code> short-circuits the shared gate, leaving its <code>ALREADY_CHECKED_IN</code> branch dead for that caller</h3>
+  <p class="loc"><code>src/lib/agent/tools/registrations.ts:357</code> — returns <code>{ alreadyCheckedIn: true, … }</code> before <code>checkInGate</code> runs</p>
+  <p>Minor, but it slightly overstates "all three surfaces share one gate": one of the gate's three rules is bypassed by one caller, and the response shape diverges from REST's <code>400 { error: "Already checked in" }</code>. If the double-check-in policy ever changes, <code>check-in.ts</code> alone won't cover the agent path — the drift shape the unification set out to prevent, in miniature.</p>
+</div>
+
+<div class="finding low" id="l4">
+  <h3><span class="sev low">Low</span> &nbsp; L4 — The registrant self-service barcode route has no rate limit</h3>
+  <p class="loc"><code>src/app/api/registrant/registrations/[registrationId]/barcode/route.ts</code></p>
+  <p>Bounded to self on the registrant branch. Combined with <a href="#h8">H8</a>'s org branch it permits unthrottled enumeration of barcode PNGs across the org. Worth a limit once H8 is fixed.</p>
+</div>
+
+<div class="note">
+  <strong>Explicitly NOT a finding: the desk check-in path has no rate limit, and that is correct.</strong>
+  A hardware scanner legitimately fires many scans per second; the endpoint is authenticated and
+  desk-gated; and the in-memory limiter is per-container and resets on deploy, so it could never provide
+  a real guarantee. Throttling here would stall a busy door and buy nothing. The exposure on this path is
+  <strong>idempotency (<a href="#h3">H3</a>), not request volume</strong> — a conditional claim is the
+  right control, not a limiter.
+</div>
+
+<h2 id="plan">6. Suggested remediation phases</h2>
+<div class="tbl-wrap">
+<table>
+  <tr><th>Phase</th><th>Findings</th><th>Shape of the fix</th></tr>
+  <tr>
+    <td>1 — Door correctness</td>
+    <td><a href="#h1">H1</a>, <a href="#h2">H2</a>, <a href="#h3">H3</a>, <a href="#m7">M7</a></td>
+    <td>Badge filter uses <code>NO_PAYMENT_DUE_STATUSES</code> (+ <code>UNASSIGNED</code> policy call); a real audited <code>undoCheckIn()</code> in <code>check-in.ts</code> that clears <code>checkedInAt</code>; conditional claim <code>updateMany where { id, checkedInAt: null }</code> — which also closes M7.</td>
+  </tr>
+  <tr>
+    <td>2 — Credential exposure</td>
+    <td><a href="#h6">H6</a>, <a href="#h7">H7</a>, <a href="#h8">H8</a>, <a href="#l4">L4</a></td>
+    <td>Add <code>qrCode</code>/<code>dtcmBarcode</code> to a credential-redaction path (H6 closes H7+H8's payload half); bind the detail GET's row to the caller for org-null roles; route the registrant barcode route's staff branch through <code>buildEventAccessWhere</code>; rate-limit it.</td>
+  </tr>
+  <tr>
+    <td>3 — Print All at scale</td>
+    <td><a href="#h4">H4</a></td>
+    <td><code>take</code> cap + bounded concurrency (<code>p-limit</code>) + ideally move the render off the request path (the worker tier already exists).</td>
+  </tr>
+  <tr>
+    <td>4 — Failure visibility &amp; operator truth</td>
+    <td><a href="#h5">H5</a>, <a href="#m5">M5</a>, <a href="#m6">M6</a></td>
+    <td>Log the unknown-barcode 404 + the ONSITE cross-event denial + the badge/import 400s; invalidate the registrations query after a scan; push a red Recent-Scans row + failure beep on network drop.</td>
+  </tr>
+  <tr>
+    <td>5 — Gate policy + import integrity</td>
+    <td><a href="#m1">M1</a>, <a href="#m2">M2</a>, <a href="#m3">M3</a>, <a href="#m4">M4</a>, <a href="#l1">L1</a>, <a href="#l2">L2</a>, <a href="#l3">L3</a></td>
+    <td>Decide the door policy for FAILED/REFUNDED/PENDING and encode it explicitly; desk override + reinstate; per-row try/catch in the DTCM import; ambiguous-email reporting; two-step scan lookup.</td>
+  </tr>
+</table>
+</div>
+
+<h2 id="clean">7. What checked out clean</h2>
+<ul>
+  <li><strong>The June unification held.</strong> <code>checkedInAt</code> is written in exactly one place (<code>check-in.ts:106</code>) — no raw status flip, bulk update, seed, or registration PUT writes it. Both REST handlers and the MCP tool commit through <code>executeCheckIn</code>.</li>
+  <li><strong>Audit + notification cannot 500 a committed check-in</strong>, on all three paths — fire-and-forget with a logged catch. Fixed once, for everyone. The badge route's analytics write is likewise wrapped and still returns the PDF.</li>
+  <li><strong>Barcode rendering is properly centralized</strong> in <code>renderBarcodePng</code>; all five callers (badges PDF, both barcode routes, email barcode) go through it. No duplication.</li>
+  <li><strong>The scan lookup is event-scoped</strong> — a badge from another event scans to a clean 404. No cross-event check-in.</li>
+  <li><strong>Sequential double-scan is idempotent</strong> (the gate returns <code>ALREADY_CHECKED_IN</code> with the original timestamp; it is <em>not</em> overwritten). Only the concurrent case races (<a href="#h3">H3</a>).</li>
+  <li><strong>The July-7 ONSITE desk fix holds</strong> on the five routes it touched: check-in POST/PUT, badges, and the registration create/edit all call <code>denyReviewer(…, REGISTRATION_DESK_ALLOW)</code> <em>and</em> route the event lookup through <code>buildEventAccessWhere</code>.</li>
+  <li><strong>DTCM is never substituted for the entry barcode</strong> on badges or any barcode endpoint; the import is admin-only (bare <code>denyReviewer</code>), org-bound, and gated on <code>Event.requiresDtcmBarcode</code>, which exists. Virtual registrations are excluded from badges at the DB <code>where</code>.</li>
+  <li><strong>Five of six CLAUDE.md claims verified true.</strong> The false one is "(+ undo)" — see <a href="#h2">H2</a>.</li>
+</ul>
+
+<footer>
+  Produced by four independent review passes (live-day correctness · RBAC &amp; credential exposure ·
+  concurrency under door load · drift &amp; failure-visibility), with lead-reviewer source verification of
+  every HIGH and of the two inter-agent contradictions. Companion to
+  <a href="/admin/docs/CODE_REVIEW_REGISTRATIONS_SPEAKERS.html">registrations/speakers</a>,
+  <a href="/admin/docs/CODE_REVIEW_PAYMENTS_REFUNDS.html">payments/refunds</a>,
+  <a href="/admin/docs/CODE_REVIEW_ABSTRACTS_REVIEWERS.html">abstracts/reviewers</a> and
+  <a href="/admin/docs/CODE_REVIEW_PROGRAM_AGENDA.html">program/agenda</a> (all July 10, 2026).
+  Deferred items land in <code>docs/ROADMAP.md</code>; fixes will be appended here phase-by-phase.
+</footer>
+
+</div>
+</body>
+</html>
