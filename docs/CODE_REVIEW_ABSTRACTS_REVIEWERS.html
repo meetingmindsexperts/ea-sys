@@ -578,7 +578,28 @@ weight: z.number().int().min(1).max(100),   // per-criterion bound only — the 
     refusal land in Phase 4.</li>
 </ul>
 
-<p><em>Phases 2–4 will be appended here as they ship.</em></p>
+<h3>Phase 2 — Status-write integrity (H1 + H2) · commit <code>fcd5932</code></h3>
+<ul>
+  <li><strong><code>…/abstracts/[abstractId]/route.ts</code> (PUT)</strong> — <em>(H1)</em> two
+    coordinated fixes: <code>isSubmission</code> is now a (re)submission ONLY from an editable source
+    (DRAFT or REVISION_REQUESTED) → SUBMITTED — the old <code>!== "SUBMITTED"</code> definition
+    wrongly counted ACCEPTED/REJECTED/WITHDRAWN/UNDER_REVIEW → SUBMITTED as a resubmission; and the
+    field-only path now REFUSES any status write that is neither that submission nor a no-op
+    (400 <code>INVALID_STATUS_TRANSITION</code>, logged). Every real transition already routes to the
+    gated <code>changeAbstractStatus</code>; the blind path can no longer un-decide an abstract.</li>
+  <li><strong><code>…/abstracts/route.ts</code> (POST)</strong> — <em>(H2)</em> the create
+    <code>status</code> field is now <code>z.enum(["DRAFT", "SUBMITTED"])</code> instead of the full
+    enum, so a submitter can't POST <code>{status:"ACCEPTED"}</code> to mint a born-accepted abstract
+    with no reviews, no <code>submittedAt</code>, and no chair-override audit. The GET status filter
+    keeps the full enum.</li>
+  <li><strong>Tests</strong>: new <code>__tests__/api/abstract-status-integrity.test.ts</code> (+9) —
+    un-decide rejected on both targets, genuine DRAFT→SUBMITTED + no-op allowed, real decisions still
+    reach the service, born-non-DRAFT/SUBMITTED rejected at Zod.</li>
+  <li><strong>Deferred</strong>: M6 (the status branch's second, non-atomic field write bypassing the
+    optimistic lock) folds into Phase 3's transaction restructure.</li>
+</ul>
+
+<p><em>Phases 3–4 will be appended here as they ship.</em></p>
 
 <h2 id="clean">11. What checked out clean</h2>
 
