@@ -4,17 +4,30 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import {
+  createSession,
+  type SessionServiceErrorCode,
+} from "@/services/session-service";
 import { canViewZoomHostCredentials, redactZoomHostFieldsFromSessions } from "@/lib/zoom-visibility";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
-import { notifyEventAdmins } from "@/lib/notifications";
-import { refreshEventStats } from "@/lib/event-stats";
-import {
-  isSessionWithinEventDates,
-  localDateInTz,
-  resolveTimezone,
-} from "@/lib/event-time";
+
+// Map the service's domain error codes to HTTP. Kept at the boundary — the
+// service never knows about HTTP (see src/services/README.md).
+const HTTP_STATUS_FOR_SESSION_ERROR: Record<SessionServiceErrorCode, number> = {
+  EVENT_NOT_FOUND: 404,
+  SESSION_NOT_FOUND: 404,
+  INVALID_TIME_RANGE: 400,
+  OUTSIDE_EVENT_DATES: 400,
+  TRACK_NOT_FOUND: 404,
+  ABSTRACT_NOT_FOUND: 404,
+  ABSTRACT_ALREADY_ASSIGNED: 400,
+  SPEAKERS_NOT_FOUND: 404,
+  INVALID_CAPACITY: 400,
+  STALE_WRITE: 409,
+  UNKNOWN: 500,
+};
 
 const topicSchema = z.object({
   title: z.string().min(1).max(255),
@@ -216,194 +229,54 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const {
-      name,
-      description,
-      trackId,
-      abstractId,
-      startTime,
-      endTime,
-      location,
-      capacity,
-      status,
-      speakerIds,
-      sessionRoles,
-      topics,
-    } = validated.data;
+    const data = validated.data;
 
-    // Collect all speaker IDs for validation
-    const allSpeakerIds = new Set<string>();
-    if (speakerIds) speakerIds.forEach((id) => allSpeakerIds.add(id));
-    if (sessionRoles) sessionRoles.forEach((r) => allSpeakerIds.add(r.speakerId));
-    if (topics) topics.forEach((t) => t.speakerIds?.forEach((id) => allSpeakerIds.add(id)));
-
-    // Parallelize all validation queries
-    const [event, track, abstract, existingAbstractSession, speakers] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true, startDate: true, endDate: true, timezone: true },
-      }),
-      trackId
-        ? db.track.findFirst({ where: { id: trackId, eventId } })
-        : Promise.resolve(null),
-      abstractId
-        ? db.abstract.findFirst({ where: { id: abstractId, eventId } })
-        : Promise.resolve(null),
-      abstractId
-        ? db.eventSession.findFirst({ where: { abstractId } })
-        : Promise.resolve(null),
-      allSpeakerIds.size > 0
-        ? db.speaker.findMany({ where: { id: { in: [...allSpeakerIds] }, eventId } })
-        : Promise.resolve([]),
-    ]);
-
+    // Authorization stays at the boundary: the service validates that the event
+    // EXISTS, not that this org owns it. 404 (not 403) to avoid enumeration.
+    const event = await db.event.findFirst({
+      where: { id: eventId, organizationId: session.user.organizationId! },
+      select: { id: true },
+    });
     if (!event) {
+      apiLogger.warn({
+        msg: "events/sessions:event-not-found-on-create",
+        eventId,
+        userId: session.user.id,
+      });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Validate session times fall within event dates — compared as LOCAL
-    // dates in the EVENT's timezone (not the server's), matching the MCP
-    // path. Without this, a late-evening / early-morning session on a
-    // boundary day was wrongly rejected because its UTC instant fell on
-    // the adjacent calendar day.
-    const sessionStart = new Date(startTime);
-    const sessionEnd = new Date(endTime);
-    if (sessionEnd <= sessionStart) {
-      return NextResponse.json({ error: "End time must be after start time" }, { status: 400 });
-    }
-    const tz = resolveTimezone(event.timezone);
-    if (!isSessionWithinEventDates(sessionStart, sessionEnd, event.startDate, event.endDate, tz)) {
-      return NextResponse.json(
-        {
-          error: `Session must fall within event dates (${localDateInTz(event.startDate, tz)} to ${localDateInTz(event.endDate, tz)} ${tz})`,
-        },
-        { status: 400 }
-      );
-    }
-
-    if (trackId && !track) {
-      return NextResponse.json({ error: "Track not found" }, { status: 404 });
-    }
-
-    if (abstractId && !abstract) {
-      return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
-    }
-
-    if (abstractId && existingAbstractSession) {
-      return NextResponse.json(
-        { error: "Abstract is already assigned to another session" },
-        { status: 400 }
-      );
-    }
-
-    if (allSpeakerIds.size > 0 && speakers.length !== allSpeakerIds.size) {
-      return NextResponse.json({ error: "One or more speakers not found" }, { status: 404 });
-    }
-
-    // Build session-level speaker records
-    const sessionSpeakerData: { speakerId: string; role: "SPEAKER" | "MODERATOR" | "CHAIRPERSON" | "PANELIST" }[] = [];
-    if (sessionRoles && sessionRoles.length > 0) {
-      sessionRoles.forEach((r) => sessionSpeakerData.push({ speakerId: r.speakerId, role: r.role }));
-    } else if (speakerIds && speakerIds.length > 0) {
-      // Legacy: flat speakerIds → all SPEAKER role
-      speakerIds.forEach((id) => sessionSpeakerData.push({ speakerId: id, role: "SPEAKER" }));
-    }
-
-    const eventSession = await db.eventSession.create({
-      data: {
-        eventId,
-        name,
-        description: description || null,
-        trackId: trackId || null,
-        abstractId: abstractId || null,
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
-        location: location || null,
-        capacity: capacity || null,
-        status,
-        speakers: sessionSpeakerData.length > 0
-          ? { create: sessionSpeakerData }
-          : undefined,
-        topics: topics && topics.length > 0
-          ? {
-              create: topics.map((t, i) => ({
-                title: t.title,
-                abstractId: t.abstractId || null,
-                duration: t.duration || null,
-                sortOrder: t.sortOrder ?? i,
-                speakers: t.speakerIds && t.speakerIds.length > 0
-                  ? { create: t.speakerIds.map((speakerId) => ({ speakerId })) }
-                  : undefined,
-              })),
-            }
-          : undefined,
-      },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        startTime: true,
-        endTime: true,
-        location: true,
-        capacity: true,
-        status: true,
-        track: { select: { id: true, name: true, color: true } },
-        abstract: { select: { id: true, title: true } },
-        speakers: {
-          select: {
-            role: true,
-            speaker: {
-              select: { id: true, title: true, firstName: true, lastName: true, status: true },
-            },
-          },
-        },
-        topics: {
-          select: {
-            id: true,
-            title: true,
-            sortOrder: true,
-            duration: true,
-            abstract: { select: { id: true, title: true } },
-            speakers: {
-              select: {
-                speaker: {
-                  select: { id: true, title: true, firstName: true, lastName: true, status: true },
-                },
-              },
-            },
-          },
-          orderBy: { sortOrder: "asc" },
-        },
-      },
+    // Validation, the write, the audit row, the admin notification and the
+    // stats refresh all live in the service (H4) so this route and the MCP
+    // `create_session` tool can't drift again.
+    const result = await createSession({
+      eventId,
+      userId: session.user.id,
+      source: "rest",
+      requestIp: getClientIp(req),
+      name: data.name,
+      startTime: new Date(data.startTime),
+      endTime: new Date(data.endTime),
+      ...(data.description !== undefined && { description: data.description }),
+      ...(data.trackId !== undefined && { trackId: data.trackId }),
+      ...(data.abstractId !== undefined && { abstractId: data.abstractId }),
+      ...(data.location !== undefined && { location: data.location }),
+      ...(data.capacity !== undefined && { capacity: data.capacity }),
+      ...(data.status !== undefined && { status: data.status }),
+      ...(data.speakerIds !== undefined && { speakerIds: data.speakerIds }),
+      ...(data.sessionRoles !== undefined && { sessionRoles: data.sessionRoles }),
+      ...(data.topics !== undefined && { topics: data.topics }),
     });
 
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(eventId);
+    if (!result.ok) {
+      const status = HTTP_STATUS_FOR_SESSION_ERROR[result.code] ?? 500;
+      return NextResponse.json(
+        { error: result.message, code: result.code, ...(result.meta ?? {}) },
+        { status },
+      );
+    }
 
-    // Log the action (non-blocking for better response time)
-    db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "CREATE",
-        entityType: "EventSession",
-        entityId: eventSession.id,
-        changes: { ...JSON.parse(JSON.stringify({ session: eventSession })), ip: getClientIp(req) },
-      },
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
-
-    // Notify admins of new session
-    notifyEventAdmins(eventId, {
-      type: "REGISTRATION",
-      title: "Session Created",
-      message: `New session: "${name}"`,
-      link: `/events/${eventId}/agenda`,
-    }).catch((err) => apiLogger.error({ err, msg: "Failed to send session notification" }));
-
-    return NextResponse.json(eventSession, { status: 201 });
+    return NextResponse.json(result.session, { status: 201 });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating session" });
     return NextResponse.json(

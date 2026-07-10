@@ -4,15 +4,14 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import {
+  updateSession,
+  type SessionServiceErrorCode,
+} from "@/services/session-service";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
-import {
-  isSessionWithinEventDates,
-  localDateInTz,
-  resolveTimezone,
-} from "@/lib/event-time";
 
 const topicSchema = z.object({
   id: z.string().max(100).optional(), // existing topic ID (for updates)
@@ -46,6 +45,22 @@ const updateSessionSchema = z.object({
   // New: topics with per-topic speakers
   topics: z.array(topicSchema).optional(),
 });
+
+// Map the service's domain error codes to HTTP. Kept at the boundary — the
+// service never knows about HTTP (see src/services/README.md).
+const HTTP_STATUS_FOR_SESSION_ERROR: Record<SessionServiceErrorCode, number> = {
+  EVENT_NOT_FOUND: 404,
+  SESSION_NOT_FOUND: 404,
+  INVALID_TIME_RANGE: 400,
+  OUTSIDE_EVENT_DATES: 400,
+  TRACK_NOT_FOUND: 404,
+  ABSTRACT_NOT_FOUND: 404,
+  ABSTRACT_ALREADY_ASSIGNED: 400,
+  SPEAKERS_NOT_FOUND: 404,
+  INVALID_CAPACITY: 400,
+  STALE_WRITE: 409,
+  UNKNOWN: 500,
+};
 
 const sessionSelect = {
   id: true,
@@ -170,182 +185,43 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    // Validate session times fall within event dates (if times are being
-    // updated) — compared as LOCAL dates in the EVENT's timezone, matching
-    // the create route + MCP. See src/lib/event-time.ts.
-    if (data.startTime || data.endTime) {
-      const sessionStart = new Date(data.startTime || existingSession.startTime);
-      const sessionEnd = new Date(data.endTime || existingSession.endTime);
-      if (sessionEnd <= sessionStart) {
-        return NextResponse.json({ error: "End time must be after start time" }, { status: 400 });
-      }
-      const tz = resolveTimezone(event.timezone);
-      if (!isSessionWithinEventDates(sessionStart, sessionEnd, event.startDate, event.endDate, tz)) {
-        return NextResponse.json(
-          {
-            error: `Session must fall within event dates (${localDateInTz(event.startDate, tz)} to ${localDateInTz(event.endDate, tz)} ${tz})`,
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Validate track if provided
-    if (data.trackId) {
-      const track = await db.track.findFirst({ where: { id: data.trackId, eventId } });
-      if (!track) {
-        return NextResponse.json({ error: "Track not found" }, { status: 404 });
-      }
-    }
-
-    // Validate abstract if provided
-    if (data.abstractId) {
-      const abstract = await db.abstract.findFirst({ where: { id: data.abstractId, eventId } });
-      if (!abstract) {
-        return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
-      }
-      const existingAbstractSession = await db.eventSession.findFirst({
-        where: { abstractId: data.abstractId, id: { not: sessionId } },
-      });
-      if (existingAbstractSession) {
-        return NextResponse.json(
-          { error: "Abstract is already assigned to another session" },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Collect all speaker IDs for validation
-    const allSpeakerIds = new Set<string>();
-    if (data.speakerIds) data.speakerIds.forEach((id) => allSpeakerIds.add(id));
-    if (data.sessionRoles) data.sessionRoles.forEach((r) => allSpeakerIds.add(r.speakerId));
-    if (data.topics) data.topics.forEach((t) => t.speakerIds?.forEach((id) => allSpeakerIds.add(id)));
-
-    if (allSpeakerIds.size > 0) {
-      const speakers = await db.speaker.findMany({
-        where: { id: { in: [...allSpeakerIds] }, eventId },
-      });
-      if (speakers.length !== allSpeakerIds.size) {
-        return NextResponse.json({ error: "One or more speakers not found" }, { status: 404 });
-      }
-    }
-
-    // Handle session-level speaker updates
-    if (data.sessionRoles !== undefined || data.speakerIds !== undefined) {
-      // Delete existing session speakers
-      await db.sessionSpeaker.deleteMany({ where: { sessionId } });
-
-      const sessionSpeakerData: { sessionId: string; speakerId: string; role: "SPEAKER" | "MODERATOR" | "CHAIRPERSON" | "PANELIST" }[] = [];
-      if (data.sessionRoles && data.sessionRoles.length > 0) {
-        data.sessionRoles.forEach((r) => sessionSpeakerData.push({ sessionId, speakerId: r.speakerId, role: r.role }));
-      } else if (data.speakerIds && data.speakerIds.length > 0) {
-        data.speakerIds.forEach((id) => sessionSpeakerData.push({ sessionId, speakerId: id, role: "SPEAKER" }));
-      }
-
-      if (sessionSpeakerData.length > 0) {
-        await db.sessionSpeaker.createMany({ data: sessionSpeakerData });
-      }
-    }
-
-    // Handle topics updates
-    if (data.topics !== undefined) {
-      // Delete existing topics (cascades to TopicSpeaker)
-      await db.sessionTopic.deleteMany({ where: { sessionId } });
-
-      // Create new topics with speakers
-      for (let i = 0; i < data.topics.length; i++) {
-        const t = data.topics[i];
-        await db.sessionTopic.create({
-          data: {
-            sessionId,
-            title: t.title,
-            abstractId: t.abstractId || null,
-            duration: t.duration || null,
-            sortOrder: t.sortOrder ?? i,
-            speakers: t.speakerIds && t.speakerIds.length > 0
-              ? { create: t.speakerIds.map((speakerId) => ({ speakerId })) }
-              : undefined,
-          },
-        });
-      }
-    }
-
-    // Optimistic lock (W2-F8). Conditional updateMany rejects stale
-    // writes — if zero rows updated and the row still exists, the
-    // caller's expectedUpdatedAt is stale.
-    const expectedUpdatedAt = data.expectedUpdatedAt;
-    if (!expectedUpdatedAt) {
-      apiLogger.warn({
-        msg: "optimistic-lock:missing-expectedUpdatedAt",
-        resource: "session",
-        resourceId: sessionId,
-      });
-    }
-
-    const updateRes = await db.eventSession.updateMany({
-      where: {
-        id: sessionId,
-        ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
-      },
-      data: {
-        ...(data.name && { name: data.name }),
-        ...(data.description !== undefined && { description: data.description || null }),
-        ...(data.trackId !== undefined && { trackId: data.trackId }),
-        ...(data.abstractId !== undefined && { abstractId: data.abstractId }),
-        ...(data.startTime && { startTime: new Date(data.startTime) }),
-        ...(data.endTime && { endTime: new Date(data.endTime) }),
-        ...(data.location !== undefined && { location: data.location || null }),
-        ...(data.capacity !== undefined && { capacity: data.capacity }),
-        ...(data.status && { status: data.status }),
-        updatedAt: new Date(),
-      },
+    // All validation, the lock-first transaction, the atomic child replaces,
+    // the audit row and the stats refresh live in the service (H1 + H4) so the
+    // REST route and the MCP `update_session` tool can't drift again.
+    const result = await updateSession({
+      eventId,
+      sessionId,
+      userId: session.user.id,
+      source: "rest",
+      requestIp: getClientIp(req),
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.description !== undefined && { description: data.description }),
+      ...(data.trackId !== undefined && { trackId: data.trackId }),
+      ...(data.abstractId !== undefined && { abstractId: data.abstractId }),
+      ...(data.startTime !== undefined && { startTime: new Date(data.startTime) }),
+      ...(data.endTime !== undefined && { endTime: new Date(data.endTime) }),
+      ...(data.location !== undefined && { location: data.location }),
+      ...(data.capacity !== undefined && { capacity: data.capacity }),
+      ...(data.status !== undefined && { status: data.status }),
+      ...(data.speakerIds !== undefined && { speakerIds: data.speakerIds }),
+      ...(data.sessionRoles !== undefined && { sessionRoles: data.sessionRoles }),
+      ...(data.topics !== undefined && { topics: data.topics }),
+      expectedUpdatedAt: data.expectedUpdatedAt ? new Date(data.expectedUpdatedAt) : null,
     });
 
-    if (updateRes.count === 0) {
-      const stillExists = await db.eventSession.findFirst({
-        where: { id: sessionId, eventId },
-        select: { id: true },
-      });
-      if (!stillExists) {
-        return NextResponse.json({ error: "Session not found" }, { status: 404 });
-      }
-      apiLogger.info({ msg: "session:stale-write-rejected", sessionId, eventId, userId: session.user.id });
+    if (!result.ok) {
+      const status = HTTP_STATUS_FOR_SESSION_ERROR[result.code] ?? 500;
+      // The service already logged the rejection with its code; the boundary
+      // just maps it to HTTP.
       return NextResponse.json(
-        {
-          error: "This session was modified by someone else after you opened it. Reload the latest version and try again.",
-          code: "STALE_WRITE",
-        },
-        { status: 409 }
+        { error: result.message, code: result.code, ...(result.meta ?? {}) },
+        { status },
       );
     }
 
-    const eventSession = await db.eventSession.findUniqueOrThrow({
-      where: { id: sessionId },
-      select: sessionSelect,
-    });
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(eventId);
-
-    // Log the action
-    await db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "UPDATE",
-        entityType: "EventSession",
-        entityId: eventSession.id,
-        changes: {
-          before: existingSession,
-          after: eventSession,
-          ip: getClientIp(req),
-        },
-      },
-    });
-
-    return NextResponse.json(eventSession);
+    return NextResponse.json(result.session);
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error updating session" });
+    apiLogger.error({ err: error, msg: "Error updating session" });    apiLogger.error({ err: error, msg: "Error updating session" });
     return NextResponse.json(
       { error: "Failed to update session" },
       { status: 500 }

@@ -1,12 +1,27 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
-import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { refreshEventStats } from "@/lib/event-stats";
-import { resolveTimezone, isSessionWithinEventDates, localDateInTz } from "@/lib/event-time";
 import type { ToolExecutor } from "./_shared";
+import {
+  createSession as createSessionService,
+  updateSession as updateSessionService,
+  type SessionRole,
+  type SessionStatus,
+} from "@/services/session-service";
 
-const SESSION_STATUSES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
+const VALID_SESSION_ROLES = new Set(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]);
+const VALID_SESSION_STATUSES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
+
+/** Agent input is untyped JSON — coerce to the service's unions, defaulting
+ *  the same way the pre-service executor did (unknown role → SPEAKER). */
+function normalizeRole(role: unknown): SessionRole {
+  const r = String(role ?? "").toUpperCase();
+  return (VALID_SESSION_ROLES.has(r) ? r : "SPEAKER") as SessionRole;
+}
+function normalizeStatus(status: unknown): SessionStatus {
+  const s = String(status ?? "").toUpperCase();
+  return (VALID_SESSION_STATUSES.has(s) ? s : "SCHEDULED") as SessionStatus;
+}
 
 const listSessions: ToolExecutor = async (input, ctx) => {
   try {
@@ -62,130 +77,62 @@ const listSessions: ToolExecutor = async (input, ctx) => {
 const createSession: ToolExecutor = async (input, ctx) => {
   try {
     const name = String(input.name ?? "").trim();
-    if (!name) return { error: "Session name is required" };
+    if (!name) return { error: "Session name is required", code: "MISSING_NAME" };
 
     const startTime = new Date(String(input.startTime));
     const endTime = new Date(String(input.endTime));
     if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-      return { error: "startTime and endTime must be valid ISO 8601 datetime strings" };
-    }
-    if (endTime <= startTime) {
-      return { error: "endTime must be after startTime" };
-    }
-
-    // Validate session falls within parent event's date range.
-    // Compare as LOCAL DATES in the event's timezone (default Asia/Dubai),
-    // not UTC timestamps — otherwise a session at 11pm Dubai on the last day
-    // of the event would be rejected because its UTC timestamp is already
-    // past midnight of day N+1.
-    const event = await db.event.findFirst({
-      where: { id: ctx.eventId },
-      select: { startDate: true, endDate: true, timezone: true },
-    });
-    if (!event) return { error: "Event not found" };
-    // Shared event-TZ date validation (single source of truth with the REST
-    // sessions route — was a hand-rolled Intl copy, see src/lib/event-time.ts).
-    const timezone = resolveTimezone(event.timezone);
-    if (!isSessionWithinEventDates(startTime, endTime, event.startDate, event.endDate, timezone)) {
       return {
-        error: `Session must fall within event dates (${localDateInTz(event.startDate, timezone)} to ${localDateInTz(event.endDate, timezone)} ${timezone})`,
+        error: "startTime and endTime must be valid ISO 8601 datetime strings",
+        code: "INVALID_DATETIME",
       };
     }
 
-    // Validate trackId belongs to this event if provided
-    if (input.trackId) {
-      const track = await db.track.findFirst({
-        where: { id: String(input.trackId), eventId: ctx.eventId },
-        select: { id: true },
-      });
-      if (!track) return { error: `Track with ID ${input.trackId} not found for this event` };
-    }
-
-    // Collect all speaker IDs from all sources for validation
-    const allSpeakerIds = new Set<string>();
-
     const rawSpeakerIds = Array.isArray(input.speakerIds)
       ? (input.speakerIds as string[]).slice(0, 50)
-      : [];
-    rawSpeakerIds.forEach((id) => allSpeakerIds.add(id));
-
-    const sessionRoles = Array.isArray(input.sessionRoles)
+      : undefined;
+    const rawRoles = Array.isArray(input.sessionRoles)
       ? (input.sessionRoles as { speakerId: string; role: string }[]).slice(0, 50)
-      : [];
-    sessionRoles.forEach((r) => allSpeakerIds.add(r.speakerId));
+      : undefined;
+    const rawTopics = Array.isArray(input.topics)
+      ? (input.topics as { title: string; duration?: number; abstractId?: string; sortOrder?: number; speakerIds?: string[] }[]).slice(0, 50)
+      : undefined;
 
-    const topics = Array.isArray(input.topics)
-      ? (input.topics as { title: string; duration?: number; abstractId?: string; speakerIds?: string[] }[]).slice(0, 50)
-      : [];
-    topics.forEach((t) => t.speakerIds?.forEach((id) => allSpeakerIds.add(id)));
-
-    // Validate all speaker IDs belong to this event
-    if (allSpeakerIds.size > 0) {
-      const validSpeakers = await db.speaker.findMany({
-        where: { id: { in: [...allSpeakerIds] }, eventId: ctx.eventId },
-        select: { id: true },
-      });
-      const validIds = new Set(validSpeakers.map((s) => s.id));
-      const invalid = [...allSpeakerIds].filter((id) => !validIds.has(id));
-      if (invalid.length > 0) {
-        return { error: `Speaker IDs not found in this event: ${invalid.join(", ")}` };
-      }
-    }
-
-    // Build session speaker data (sessionRoles take precedence over flat speakerIds)
-    const VALID_ROLES = new Set(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]);
-    const sessionSpeakerData = sessionRoles.length > 0
-      ? sessionRoles.map((r) => ({
-          speakerId: r.speakerId,
-          role: (VALID_ROLES.has(r.role) ? r.role : "SPEAKER") as "SPEAKER" | "MODERATOR" | "CHAIRPERSON" | "PANELIST",
-        }))
-      : rawSpeakerIds.map((sid) => ({ speakerId: sid, role: "SPEAKER" as const }));
-
-    const session = await db.eventSession.create({
-      data: {
-        eventId: ctx.eventId,
-        name,
-        startTime,
-        endTime,
-        trackId: input.trackId ? String(input.trackId) : null,
-        location: input.location ? String(input.location) : null,
-        description: input.description ? String(input.description) : null,
-        capacity: input.capacity != null ? Number(input.capacity) : null,
-        speakers: sessionSpeakerData.length > 0
-          ? { create: sessionSpeakerData }
-          : undefined,
-        topics: topics.length > 0
-          ? {
-              create: topics.map((t, i) => ({
-                title: t.title,
-                duration: t.duration || null,
-                abstractId: t.abstractId || null,
-                sortOrder: i,
-                speakers: t.speakerIds?.length
-                  ? { create: t.speakerIds.map((sid) => ({ speakerId: sid })) }
-                  : undefined,
-              })),
-            }
-          : undefined,
-      },
-      select: {
-        id: true,
-        name: true,
-        startTime: true,
-        endTime: true,
-        location: true,
-        track: { select: { name: true } },
-        topics: { select: { id: true, title: true, speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } } } },
-      },
+    // Validation, the write, the audit row, the admin notification and the
+    // stats refresh all live in the service (review H4) — this executor used to
+    // write NO audit row and send NO notification, and silently dropped
+    // `status`, `abstractId` and topic `sortOrder`.
+    const result = await createSessionService({
+      eventId: ctx.eventId,
+      userId: ctx.userId,
+      source: "mcp",
+      name,
+      startTime,
+      endTime,
+      ...(input.description != null && { description: String(input.description) }),
+      ...(input.trackId != null && { trackId: String(input.trackId) }),
+      ...(input.abstractId != null && { abstractId: String(input.abstractId) }),
+      ...(input.location != null && { location: String(input.location) }),
+      ...(input.capacity != null && { capacity: Number(input.capacity) }),
+      ...(input.status != null && { status: normalizeStatus(input.status) }),
+      ...(rawSpeakerIds && { speakerIds: rawSpeakerIds }),
+      ...(rawRoles && { sessionRoles: rawRoles.map((r) => ({ speakerId: r.speakerId, role: normalizeRole(r.role) })) }),
+      ...(rawTopics && {
+        topics: rawTopics.map((t) => ({
+          title: t.title,
+          abstractId: t.abstractId ?? null,
+          duration: t.duration ?? null,
+          ...(t.sortOrder != null && { sortOrder: t.sortOrder }),
+          speakerIds: t.speakerIds,
+        })),
+      }),
     });
 
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(ctx.eventId);
-
-    return { success: true, session };
+    if (!result.ok) return { error: result.message, code: result.code, ...(result.meta ?? {}) };
+    return { success: true, session: result.session };
   } catch (err) {
     apiLogger.error({ err }, "agent:create_session failed");
-    return { error: "Failed to create session" };
+    return { error: err instanceof Error ? err.message : "Failed to create session" };
   }
 };
 
@@ -307,139 +254,58 @@ const listLiveSessionsNow: ToolExecutor = async (input, ctx) => {
 const updateSession: ToolExecutor = async (input, ctx) => {
   try {
     const sessionId = String(input.sessionId ?? "").trim();
-    if (!sessionId) return { error: "sessionId is required" };
+    if (!sessionId) return { error: "sessionId is required", code: "MISSING_SESSION_ID" };
 
-    const existing = await db.eventSession.findFirst({
-      where: { id: sessionId, event: { organizationId: ctx.organizationId } },
-      select: {
-        id: true,
-        eventId: true,
-        name: true,
-        startTime: true,
-        endTime: true,
-        event: { select: { startDate: true, endDate: true, timezone: true } },
-      },
-    });
-    if (!existing) return { error: `Session ${sessionId} not found or access denied` };
+    const parseDate = (v: unknown, field: string) => {
+      const d = new Date(String(v));
+      if (isNaN(d.getTime())) throw new Error(`${field} must be a valid ISO 8601 datetime string`);
+      return d;
+    };
 
-    const status = input.status ? String(input.status) : undefined;
-    if (status && !SESSION_STATUSES.has(status)) {
-      return { error: `Invalid status. Must be one of: ${[...SESSION_STATUSES].join(", ")}` };
-    }
+    const rawSpeakerIds = Array.isArray(input.speakerIds)
+      ? (input.speakerIds as string[]).slice(0, 50)
+      : undefined;
+    const rawRoles = Array.isArray(input.sessionRoles)
+      ? (input.sessionRoles as { speakerId: string; role: string }[]).slice(0, 50)
+      : undefined;
+    const rawTopics = Array.isArray(input.topics)
+      ? (input.topics as { title: string; duration?: number; abstractId?: string; sortOrder?: number; speakerIds?: string[] }[]).slice(0, 50)
+      : undefined;
 
-    const updates: Prisma.EventSessionUpdateInput = {};
-    if (input.name != null) updates.name = String(input.name).slice(0, 255);
-    if (input.description != null) updates.description = String(input.description).slice(0, 5000);
-    if (input.location != null) updates.location = String(input.location).slice(0, 255);
-    if (input.capacity != null) updates.capacity = Math.max(0, Number(input.capacity));
-    if (status) updates.status = status as never;
-
-    let newStart = existing.startTime;
-    let newEnd = existing.endTime;
-    if (input.startTime != null) {
-      const s = new Date(String(input.startTime));
-      if (isNaN(s.getTime())) return { error: "startTime is not a valid ISO 8601 date" };
-      updates.startTime = s;
-      newStart = s;
-    }
-    if (input.endTime != null) {
-      const e = new Date(String(input.endTime));
-      if (isNaN(e.getTime())) return { error: "endTime is not a valid ISO 8601 date" };
-      updates.endTime = e;
-      newEnd = e;
-    }
-
-    if (newEnd < newStart) return { error: "endTime must be on or after startTime" };
-
-    // Session must fall within the parent event's date range, compared as LOCAL
-    // DATES in the event's timezone (default Asia/Dubai). UTC comparison would
-    // incorrectly reject late-evening sessions on the last event day.
-    const timezone = resolveTimezone(existing.event.timezone);
-    if (!isSessionWithinEventDates(newStart, newEnd, existing.event.startDate, existing.event.endDate, timezone)) {
-      return {
-        error: `Session must fall within event dates (${localDateInTz(existing.event.startDate, timezone)} to ${localDateInTz(existing.event.endDate, timezone)} ${timezone})`,
-      };
-    }
-
-    if (input.trackId !== undefined) {
-      if (input.trackId === null || input.trackId === "") {
-        updates.track = { disconnect: true };
-      } else {
-        const trackId = String(input.trackId);
-        const track = await db.track.findFirst({
-          where: { id: trackId, eventId: existing.eventId },
-          select: { id: true },
-        });
-        if (!track) return { error: `trackId ${trackId} not found in this event` };
-        updates.track = { connect: { id: trackId } };
-      }
-    }
-
-    if (Object.keys(updates).length === 0) {
-      return { error: "No fields provided to update" };
-    }
-
-    // Optimistic-lock token (W2-F8). Optional during rollout — missing
-    // token falls back to legacy unconditional path with a warn log.
-    const expectedUpdatedAt = typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : null;
-    if (!expectedUpdatedAt) {
-      apiLogger.warn({
-        msg: "optimistic-lock:missing-expectedUpdatedAt",
-        resource: "session",
-        resourceId: sessionId,
-        source: "mcp",
-      });
-    }
-
-    const updateRes = await db.eventSession.updateMany({
-      where: {
-        id: sessionId,
-        ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
-      },
-      data: { ...updates, updatedAt: new Date() } as never,
-    });
-    if (updateRes.count === 0) {
-      const stillExists = await db.eventSession.findFirst({
-        where: { id: sessionId, eventId: ctx.eventId },
-        select: { id: true },
-      });
-      if (!stillExists) return { error: `Session ${sessionId} not found or access denied` };
-      apiLogger.info({ msg: "session:stale-write-rejected", sessionId, source: "mcp" });
-      return {
-        error: "This session was modified after you fetched it. Re-read the row and retry with the new updatedAt.",
-        code: "STALE_WRITE",
-      };
-    }
-
-    const updated = await db.eventSession.findUniqueOrThrow({
-      where: { id: sessionId },
-      select: {
-        id: true,
-        name: true,
-        startTime: true,
-        endTime: true,
-        location: true,
-        capacity: true,
-        status: true,
-        trackId: true,
-      },
+    // Delegates to the shared service (review H4/H1): the lock-first atomic
+    // transaction, the event-timezone date validation, the `endTime <= startTime`
+    // rule (this path used to allow a zero-duration session) and the positive
+    // capacity rule (this path used to allow 0) are now identical to REST.
+    const result = await updateSessionService({
+      eventId: ctx.eventId,
+      sessionId,
+      userId: ctx.userId,
+      source: "mcp",
+      ...(input.name != null && { name: String(input.name).trim() }),
+      ...(input.description !== undefined && { description: input.description == null ? null : String(input.description) }),
+      ...(input.trackId !== undefined && { trackId: input.trackId == null ? null : String(input.trackId) }),
+      ...(input.abstractId !== undefined && { abstractId: input.abstractId == null ? null : String(input.abstractId) }),
+      ...(input.startTime != null && { startTime: parseDate(input.startTime, "startTime") }),
+      ...(input.endTime != null && { endTime: parseDate(input.endTime, "endTime") }),
+      ...(input.location !== undefined && { location: input.location == null ? null : String(input.location) }),
+      ...(input.capacity !== undefined && { capacity: input.capacity == null ? null : Number(input.capacity) }),
+      ...(input.status != null && { status: normalizeStatus(input.status) }),
+      ...(rawSpeakerIds && { speakerIds: rawSpeakerIds }),
+      ...(rawRoles && { sessionRoles: rawRoles.map((r) => ({ speakerId: r.speakerId, role: normalizeRole(r.role) })) }),
+      ...(rawTopics && {
+        topics: rawTopics.map((t) => ({
+          title: t.title,
+          abstractId: t.abstractId ?? null,
+          duration: t.duration ?? null,
+          ...(t.sortOrder != null && { sortOrder: t.sortOrder }),
+          speakerIds: t.speakerIds,
+        })),
+      }),
+      expectedUpdatedAt: input.expectedUpdatedAt != null ? parseDate(input.expectedUpdatedAt, "expectedUpdatedAt") : null,
     });
 
-    await db.auditLog.create({
-      data: {
-        eventId: existing.eventId,
-        userId: ctx.userId,
-        action: "UPDATE",
-        entityType: "EventSession",
-        entityId: sessionId,
-        changes: { source: "mcp", fieldsChanged: Object.keys(updates) },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:update_session audit-log-failed"));
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(ctx.eventId);
-
-    return { success: true, session: updated };
+    if (!result.ok) return { error: result.message, code: result.code, ...(result.meta ?? {}) };
+    return { success: true, session: result.session };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_session failed");
     return { error: err instanceof Error ? err.message : "Failed to update session" };
