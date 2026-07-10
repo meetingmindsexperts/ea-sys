@@ -418,8 +418,14 @@ export default function EventMyRegistrationPage() {
               const netPrice = Math.max(0, price - regDiscount);
               const isPaid = reg.paymentStatus === "PAID";
               const isComplimentary = reg.paymentStatus === "COMPLIMENTARY" || netPrice === 0;
+              // INCLUSIVE = sponsor paid offline; REFUNDED = re-payment needs the
+              // organizer. Neither may show a live Pay Now (mirrors the server-side
+              // NO_PAYMENT_DUE_STATUSES gate on the checkout route).
+              const isSponsored = reg.paymentStatus === "INCLUSIVE";
+              const isRefunded = reg.paymentStatus === "REFUNDED";
               const isConfirmed = reg.status === "CONFIRMED";
-              const showPayment = !isPaid && !isComplimentary && reg.status !== "CANCELLED";
+              const showPayment =
+                !isPaid && !isComplimentary && !isSponsored && !isRefunded && reg.status !== "CANCELLED";
               const regTaxRate = Number(reg.event.taxRate ?? 0);
               const regTaxAmount = regTaxRate > 0 ? netPrice * regTaxRate / 100 : 0;
               const regTotal = netPrice + regTaxAmount;
@@ -439,14 +445,20 @@ export default function EventMyRegistrationPage() {
 
                   <CardContent className="p-6 space-y-6">
                     {/* Confirmation / Payment */}
-                    {(isConfirmed || isPaid) && !showPayment && (
+                    {(isConfirmed || isPaid || isSponsored || isRefunded) && !showPayment && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
                           <div>
                             <p className="font-semibold text-green-800">Registration Confirmed</p>
                             <p className="text-sm text-green-700">
-                              {isComplimentary ? "Complimentary registration — no payment required." : "Payment received. You're all set!"}
+                              {isSponsored
+                                ? "Sponsored registration — no payment required."
+                                : isRefunded
+                                  ? "This registration's payment was refunded. Contact the organizer if you have questions."
+                                  : isComplimentary
+                                    ? "Complimentary registration — no payment required."
+                                    : "Payment received. You're all set!"}
                             </p>
                           </div>
                         </div>

@@ -5,6 +5,18 @@ import { apiLogger } from "@/lib/logger";
 import { getStripe, isZeroDecimalCurrency } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { NO_PAYMENT_DUE_STATUSES } from "@/app/(dashboard)/events/[eventId]/registrations/registration-enums";
+
+// Statuses where no money is due from the attendee (PAID / COMPLIMENTARY /
+// INCLUSIVE / REFUNDED). INCLUSIVE means a sponsor already paid offline —
+// charging the attendee here would collect the money twice; REFUNDED means
+// re-payment needs organizer involvement, not a self-service card charge.
+const NO_PAYMENT_DUE_MESSAGES: Partial<Record<string, string>> = {
+  PAID: "Payment already completed",
+  COMPLIMENTARY: "Payment already completed",
+  INCLUSIVE: "This registration is sponsor-paid — no payment is due.",
+  REFUNDED: "This registration was refunded. Please contact the organizer to arrange re-payment.",
+};
 
 const checkoutSchema = z.object({
   registrationId: z.string().min(1).max(100),
@@ -87,10 +99,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    if (registration.paymentStatus === "PAID" || registration.paymentStatus === "COMPLIMENTARY") {
-      apiLogger.warn({ msg: "Checkout attempted for already-paid registration", registrationId });
+    if (NO_PAYMENT_DUE_STATUSES.includes(registration.paymentStatus)) {
+      apiLogger.warn({
+        msg: "Checkout attempted for a no-payment-due registration",
+        registrationId,
+        paymentStatus: registration.paymentStatus,
+      });
       return NextResponse.json(
-        { error: "Payment already completed" },
+        { error: NO_PAYMENT_DUE_MESSAGES[registration.paymentStatus] ?? "Payment already completed" },
         { status: 400 }
       );
     }
@@ -164,11 +180,32 @@ export async function POST(req: Request, { params }: RouteParams) {
       cancel_url: cancelUrl,
     });
 
-    // Update payment status to PENDING
-    await db.registration.update({
-      where: { id: registrationId },
+    // Move to PENDING via a conditional claim, NOT an unconditional update.
+    // The no-payment-due guard above ran on a read taken BEFORE the slow
+    // Stripe call — a concurrent tab's payment can have settled this
+    // registration in the meantime, and a blind write here would demote a
+    // PAID row to PENDING (and later, via checkout.session.expired, to
+    // UNPAID — re-opening the pay path on a paid registration).
+    const claimed = await db.registration.updateMany({
+      where: {
+        id: registrationId,
+        paymentStatus: { notIn: [...NO_PAYMENT_DUE_STATUSES] },
+      },
       data: { paymentStatus: "PENDING" },
     });
+    if (claimed.count === 0) {
+      // Settled while we were creating the session — void the just-created
+      // session so the stale payment link can't be completed later.
+      await stripe.checkout.sessions
+        .expire(session.id)
+        .catch((err) => apiLogger.error({ err, msg: "Failed to expire stale checkout session", registrationId, sessionId: session.id }));
+      apiLogger.warn({
+        msg: "Checkout lost race to a concurrent settlement — session expired",
+        registrationId,
+        sessionId: session.id,
+      });
+      return NextResponse.json({ error: "Payment already completed" }, { status: 400 });
+    }
 
     apiLogger.info({
       msg: "Stripe checkout session created",

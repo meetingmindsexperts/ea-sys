@@ -24,6 +24,7 @@ const {
       payment: {
         create: vi.fn(),
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
         update: vi.fn(),
         aggregate: vi.fn(),
       },
@@ -74,8 +75,13 @@ vi.mock("@/lib/invoice-service", () => ({
 vi.mock("@/lib/stripe-receipt", () => ({
   captureStripeReceipt: vi.fn().mockResolvedValue("/uploads/stripe-receipts/x.html"),
 }));
+vi.mock("@/lib/event-stats", () => ({
+  refreshEventStats: vi.fn(),
+}));
 
 import { POST } from "@/app/api/webhooks/stripe/route";
+import { notifyEventAdmins } from "@/lib/notifications";
+import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -432,6 +438,106 @@ describe("Webhook: checkout.session.completed idempotency", () => {
     expect(mockDb.registration.findUnique).not.toHaveBeenCalled();
     expect(mockApiLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "Stripe checkout session missing registrationId metadata" })
+    );
+  });
+});
+
+// ── Tests: checkout.session.completed — CANCELLED registration (H2) ─────────
+
+describe("Webhook: checkout.session.completed on a CANCELLED registration", () => {
+  const sessionData = {
+    id: "cs_cancel_1",
+    metadata: { registrationId: "reg-c1" },
+    currency: "usd",
+    amount_total: 15000,
+    payment_intent: "pi_c1",
+    customer: null,
+  };
+
+  const baseRegistration = {
+    id: "reg-c1",
+    paymentStatus: "PENDING",
+    status: "CONFIRMED",
+    attendee: { firstName: "Alice", lastName: "Smith", email: "alice@test.com", additionalEmail: null, title: null },
+    ticketType: { name: "Standard", price: 150, currency: "USD" },
+    pricingTier: null,
+    event: { id: "evt-1", organizationId: "org-1", name: "Conference", slug: "conf", startDate: new Date(), venue: null, city: null, taxRate: 0, taxLabel: null },
+  };
+
+  function mockHappyStripeReads() {
+    mockStripeInstance.paymentIntents.retrieve.mockResolvedValue({ latest_charge: "ch_1" });
+    mockStripeInstance.charges.retrieve.mockResolvedValue({
+      receipt_url: null,
+      payment_method_details: { type: "card", card: { brand: "visa", last4: "4242" } },
+      created: 1_700_000_000,
+    });
+  }
+
+  function mockTransaction() {
+    const tx = {
+      registration: {
+        findUnique: vi.fn().mockResolvedValue({ paymentStatus: "PENDING" }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      payment: { create: vi.fn().mockResolvedValue({ id: "pay-1" }) },
+    };
+    mockDb.$transaction.mockImplementation(async (fn: (t: typeof tx) => Promise<void>) => fn(tx));
+    return tx;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    mockConstructEvent.mockReturnValue(makeStripeEvent("checkout.session.completed", sessionData));
+    mockHappyStripeReads();
+    mockDb.payment.findFirst.mockResolvedValue({ id: "pay-1" });
+  });
+
+  it("records the payment truthfully but suppresses documents and raises a refund-required alert", async () => {
+    mockDb.registration.findUnique.mockResolvedValue({ ...baseRegistration, status: "CANCELLED" });
+    const tx = mockTransaction();
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(200);
+
+    // Money truth: the Payment row is created and the reg flips PAID so the
+    // gated refund flow can reverse it.
+    expect(tx.payment.create).toHaveBeenCalled();
+    expect(tx.registration.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { paymentStatus: "PAID" } })
+    );
+
+    // Loud flag: error-level log + refund-required admin notification.
+    expect(mockApiLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "stripe-webhook:payment-on-cancelled-registration", registrationId: "reg-c1" })
+    );
+    expect(vi.mocked(notifyEventAdmins)).toHaveBeenCalledWith(
+      "evt-1",
+      expect.objectContaining({ title: expect.stringContaining("CANCELLED") })
+    );
+
+    // No attendee-facing documents email for a cancelled registration.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(vi.mocked(issuePaidRegistrationDocuments)).not.toHaveBeenCalled();
+  });
+
+  it("keeps the normal fan-out for a non-cancelled registration (regression)", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(baseRegistration);
+    mockTransaction();
+
+    const res = await POST(makeWebhookRequest());
+    expect(res.status).toBe(200);
+
+    expect(vi.mocked(notifyEventAdmins)).toHaveBeenCalledWith(
+      "evt-1",
+      expect.objectContaining({ title: "Payment Received" })
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(vi.mocked(issuePaidRegistrationDocuments)).toHaveBeenCalledWith(
+      expect.objectContaining({ registrationId: "reg-c1", eventId: "evt-1" })
+    );
+    expect(mockApiLogger.error).not.toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "stripe-webhook:payment-on-cancelled-registration" })
     );
   });
 });

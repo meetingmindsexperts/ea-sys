@@ -71,6 +71,15 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
+      // A payment can land on a CANCELLED registration: the checkout route
+      // excludes CANCELLED only at session-CREATE time, and Stripe sessions
+      // live ~24h — an admin cancel in that window doesn't close the open
+      // payment tab. Money truth wins: we still record the Payment row and
+      // flip PAID below (so the gated refund flow can reverse it), but we
+      // suppress the attendee-facing documents email and replace the routine
+      // "Payment Received" notification with a loud refund-required alert.
+      const paidOnCancelledRegistration = registration.status === "CANCELLED";
+
       const sessionCurrency = (session.currency || registration.pricingTier?.currency || registration.ticketType?.currency || "USD").toUpperCase();
       const amount = session.amount_total
         ? fromStripeAmount(session.amount_total, sessionCurrency)
@@ -162,6 +171,28 @@ export async function POST(req: Request) {
 
       // Refresh denormalized event stats (fire-and-forget)
       refreshEventStats(registration.event.id);
+
+      if (paidOnCancelledRegistration) {
+        // Money collected for a seat that was already released — needs a human.
+        apiLogger.error({
+          msg: "stripe-webhook:payment-on-cancelled-registration",
+          registrationId,
+          eventId: registration.event.id,
+          amount,
+          currency,
+          stripeSessionId: session.id,
+          paymentIntentId,
+        });
+        notifyEventAdmins(registration.event.id, {
+          type: "PAYMENT",
+          title: "⚠ Payment on a CANCELLED registration",
+          message: `${registration.attendee.firstName} ${registration.attendee.lastName} paid ${currency} ${amount.toFixed(2)} on a cancelled registration — issue a refund from the registration's Billing tab.`,
+          link: `/events/${registration.event.id}/registrations`,
+        }).catch((err) => apiLogger.error({ err, msg: "Failed to send cancelled-payment notification" }));
+        // No attendee documents email — the registration is cancelled; the
+        // organizer refunds and communicates manually.
+        return NextResponse.json({ received: true });
+      }
 
       // Notify admins/organizers (non-blocking)
       notifyEventAdmins(registration.event.id, {
