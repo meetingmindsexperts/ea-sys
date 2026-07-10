@@ -483,7 +483,10 @@ function FileViewer({
             <div className="bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground border-b flex items-center justify-between">
               <span>HTML rendered in sandboxed frame</span>
               <a
-                href={`/${file.path}`}
+                // Raw shareable URL — served admin-gated with a no-script CSP
+                // by src/app/admin/docs/[...path]/route.ts. (The old `/${path}`
+                // href 404'd — only public/ files resolve at the root.)
+                href={`/admin/docs/${file.path}`}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1 text-primary hover:underline"
