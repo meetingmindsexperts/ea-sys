@@ -29,6 +29,7 @@ const {
         updateMany: vi.fn(),
         aggregate: vi.fn(),
       },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
       $transaction: vi.fn(),
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -65,12 +66,14 @@ vi.mock("@/lib/email", () => ({
 vi.mock("@/lib/notifications", () => ({
   notifyEventAdmins: vi.fn().mockResolvedValue(undefined),
 }));
-const createCreditNoteMock = vi.fn().mockResolvedValue({ invoice: { id: "cn1" }, created: true });
-const sendInvoiceEmailMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/invoice-service", () => ({
-  createCreditNote: (...args: unknown[]) => createCreditNoteMock(...args),
-  sendInvoiceEmail: (...args: unknown[]) => sendInvoiceEmailMock(...args),
   issuePaidRegistrationDocuments: vi.fn().mockResolvedValue(undefined),
+}));
+// H11: Dashboard-refund credit notes now go through the payment SERVICE
+// (owns the CREDIT_NOTE_ISSUED audit + logs cap rejections), send:false.
+const issueCreditNoteSpy = vi.fn().mockResolvedValue({ ok: true, creditNote: { creditNoteId: "cn1" } });
+vi.mock("@/services/payment-service", () => ({
+  issueCreditNoteForRegistration: (...args: unknown[]) => issueCreditNoteSpy(...args),
 }));
 // Fire-and-forget Stripe-receipt snapshot — mock so no real fetch happens.
 vi.mock("@/lib/stripe-receipt", () => ({
@@ -211,7 +214,8 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     mockDb.registration.update.mockResolvedValue({ refundedAmount: 100 });
     // Default: the reg's only settled payment is this $100 Stripe charge.
     mockDb.payment.aggregate.mockResolvedValue({ _sum: { amount: 100 } });
-    createCreditNoteMock.mockResolvedValue({ invoice: { id: "cn1" }, created: true });
+    issueCreditNoteSpy.mockResolvedValue({ ok: true, creditNote: { creditNoteId: "cn1" } });
+    mockDb.auditLog.create.mockResolvedValue({});
   });
 
   // amount_refunded is CUMULATIVE (minor units); currency lowercase.
@@ -235,7 +239,12 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     amount,
     refundedAmount,
     registrationId: "reg-1",
-    registration: { eventId: "evt-1", refundedAmount, event: { organizationId: "org-1" } },
+    registration: {
+      eventId: "evt-1",
+      refundedAmount,
+      attendee: { firstName: "Alice", lastName: "Smith" },
+      event: { organizationId: "org-1" },
+    },
   });
 
   const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -262,8 +271,25 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
       where: { id: "reg-1", paymentStatus: "PAID" },
       data: { paymentStatus: "REFUNDED" },
     });
+    // H11: Dashboard refunds carry the service side-effect contract — audit
+    // row, admin notification, credit note via the SERVICE with send:false
+    // (no attendee email — same policy as route-initiated refunds).
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "REFUND_ISSUED",
+          changes: expect.objectContaining({ source: "stripe-webhook", amount: 100 }),
+        }),
+      }),
+    );
+    expect(vi.mocked(notifyEventAdmins)).toHaveBeenCalledWith(
+      "evt-1",
+      expect.objectContaining({ title: expect.stringContaining("reconciled from Stripe") }),
+    );
     await flush();
-    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 100 }));
+    expect(issueCreditNoteSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 100, send: false, source: "system" }),
+    );
   });
 
   it("M4: full refund of ONE charge on a mixed Stripe+manual reg keeps PAID and reconciles per-payment", async () => {
@@ -296,7 +322,7 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
       data: { paymentStatus: "REFUNDED" },
     });
     await flush();
-    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 100 }));
+    expect(issueCreditNoteSpy).toHaveBeenCalledWith(expect.objectContaining({ amount: 100 }));
   });
 
   it("reconciles a PARTIAL Dashboard refund → keeps PAID, credit note for the delta", async () => {
@@ -312,7 +338,7 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     });
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled(); // no REFUNDED flip on partial
     await flush();
-    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 30 }));
+    expect(issueCreditNoteSpy).toHaveBeenCalledWith(expect.objectContaining({ amount: 30 }));
   });
 
   it("only credits the incremental delta on a second (larger) refund", async () => {
@@ -329,7 +355,7 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
       expect.objectContaining({ data: { refundedAmount: { increment: 20 } } })
     );
     await flush();
-    expect(createCreditNoteMock).toHaveBeenCalledWith(expect.objectContaining({ amount: 20 })); // delta only
+    expect(issueCreditNoteSpy).toHaveBeenCalledWith(expect.objectContaining({ amount: 20 })); // delta only
   });
 
   it("is idempotent — a retry with an already-reconciled total skips (no CN, no writes)", async () => {
@@ -341,7 +367,7 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     expect(mockDb.payment.updateMany).not.toHaveBeenCalled();
     expect(mockDb.registration.update).not.toHaveBeenCalled();
     await flush();
-    expect(createCreditNoteMock).not.toHaveBeenCalled();
+    expect(issueCreditNoteSpy).not.toHaveBeenCalled();
   });
 
   it("500s (Stripe retries) when a concurrent delivery moved the payment counter", async () => {
@@ -352,7 +378,7 @@ describe("Webhook: charge.refunded (reconciliation)", () => {
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(500);
     await flush();
-    expect(createCreditNoteMock).not.toHaveBeenCalled();
+    expect(issueCreditNoteSpy).not.toHaveBeenCalled();
     expect(mockDb.registration.update).not.toHaveBeenCalled();
   });
 

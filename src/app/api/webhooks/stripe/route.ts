@@ -5,7 +5,8 @@ import { apiLogger } from "@/lib/logger";
 import { getStripe, fromStripeAmount } from "@/lib/stripe";
 import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { createCreditNote, sendInvoiceEmail, issuePaidRegistrationDocuments } from "@/lib/invoice-service";
+import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
+import { issueCreditNoteForRegistration } from "@/services/payment-service";
 import { refreshEventStats } from "@/lib/event-stats";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import { captureStripeReceipt } from "@/lib/stripe-receipt";
@@ -352,6 +353,7 @@ export async function POST(req: Request) {
             select: {
               eventId: true,
               refundedAmount: true,
+              attendee: { select: { firstName: true, lastName: true } },
               event: { select: { organizationId: true } },
             },
           },
@@ -452,19 +454,67 @@ export async function POST(req: Request) {
         partial: !isFull,
       });
 
-      // Auto-create a credit note for this refund delta (out-of-band Dashboard
-      // refund has no route-issued CN). Non-blocking; keyed off the claimed delta
-      // so retries — which no-op above — never duplicate it.
+      // Out-of-band (Stripe Dashboard) refunds now carry the SAME side-effect
+      // contract as route-initiated refunds (review H11): an AuditLog trail, an
+      // in-app admin notification, and NO automatic attendee email — the
+      // organizer communicates refunds manually, whichever button they clicked.
+      const attendeeName = `${payment.registration.attendee.firstName} ${payment.registration.attendee.lastName}`;
+      const deltaFormatted = `${charge.currency.toUpperCase()} ${delta.toFixed(2)}`;
+
+      db.auditLog
+        .create({
+          data: {
+            eventId: payment.registration.eventId,
+            userId: null,
+            action: isFull ? "REFUND_ISSUED" : "PARTIAL_REFUND_ISSUED",
+            entityType: "Registration",
+            entityId: payment.registrationId,
+            changes: {
+              source: "stripe-webhook",
+              amount: delta,
+              currency: charge.currency.toUpperCase(),
+              cumulativeRefundedForCharge: cumulativeRefunded,
+              refundedAmount: newRegTotal,
+              paidTotal,
+              fullyRefunded: isFull,
+              paymentIntentId,
+            },
+          },
+        })
+        .catch((err) => apiLogger.warn({ err, msg: "charge.refunded:audit-write-failed", registrationId: payment.registrationId }));
+
+      notifyEventAdmins(payment.registration.eventId, {
+        type: "PAYMENT",
+        title: isFull ? "Refund reconciled from Stripe" : "Partial refund reconciled from Stripe",
+        message: `A ${deltaFormatted} refund for ${attendeeName} was issued from the Stripe Dashboard — a credit note was recorded automatically. No email was sent to the attendee.`,
+        link: `/events/${payment.registration.eventId}/registrations`,
+      }).catch((err) => apiLogger.error({ err, msg: "charge.refunded:notify-failed", registrationId: payment.registrationId }));
+
+      // Auto-record a credit note for this refund delta via the SERVICE (owns
+      // the CREDIT_NOTE_ISSUED audit + logs cap rejections as warn instead of
+      // failing silently). send:false — no attendee email, per the policy
+      // above. Non-blocking; keyed off the claimed delta so retries — which
+      // no-op above — never duplicate it.
       (async () => {
         try {
-          const { invoice: cn } = await createCreditNote({
+          const result = await issueCreditNoteForRegistration({
             registrationId: payment.registrationId,
             eventId: payment.registration.eventId,
             organizationId: payment.registration.event.organizationId,
             amount: delta,
-            reason: isFull ? "Refund via Stripe" : `Partial refund via Stripe (${charge.currency.toUpperCase()} ${delta.toFixed(2)})`,
+            reason: isFull ? "Refund via Stripe" : `Partial refund via Stripe (${deltaFormatted})`,
+            send: false,
+            source: "system",
+            issuedByUserId: null,
           });
-          await sendInvoiceEmail(cn.id);
+          if (!result.ok) {
+            apiLogger.warn({
+              msg: "charge.refunded:credit-note-rejected",
+              registrationId: payment.registrationId,
+              code: result.code,
+              detail: result.message,
+            });
+          }
         } catch (err) {
           apiLogger.error({ err, msg: "Failed to auto-create credit note", registrationId: payment.registrationId });
         }
