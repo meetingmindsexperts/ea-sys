@@ -544,7 +544,43 @@ weight: z.number().int().min(1).max(100),   // per-criterion bound only — the 
 </table>
 </div>
 
-<h2 id="clean">10. What checked out clean</h2>
+<h2 id="fixes">10. Fixes applied — what changed, file by file</h2>
+
+<p>
+  Scope this round (owner decision): <strong>security + integrity first</strong> — H3, H1/H2, H4/H5,
+  H6, with M4/M6 folded in where they share a fix. The submission-service extraction (H7/H8/M9) and
+  blind-review (H9/M7) are a later round; MEDs/LOWs are tracked in
+  <code>docs/ROADMAP.md</code>. Each phase is one gated commit (tsc · eslint · full vitest · build).
+</p>
+
+<h3>Phase 1 — Review-submission security (H3 + H5 + H6) · commit <code>97b11d4</code></h3>
+<ul>
+  <li><strong><code>…/abstracts/[abstractId]/submissions/route.ts</code> (POST)</strong> —
+    <em>(H3)</em> the <code>isAdmin</code> gate now also requires
+    <code>event.organizationId === session.user.organizationId</code>, closing the cross-org
+    score-injection hole (the event lookup was unscoped; the sibling GET already bound org).
+    <em>(H5, route half)</em> a completely empty payload is rejected (400 <code>EMPTY_REVIEW</code>) so
+    it can't mint an all-null row that the row-counting decision gate would honor — a notes-only
+    update to an existing submission still works. <em>(H6)</em> the abstract's <code>status</code> is
+    now selected and scoring is refused unless it is SUBMITTED / UNDER_REVIEW / REVISION_REQUESTED
+    (409 <code>NOT_REVIEWABLE</code>). Previously-silent event/abstract 404 + not-a-reviewer 403 paths
+    now log.</li>
+  <li><strong><code>src/lib/agent/tools/abstracts.ts</code></strong> — <em>(H6)</em> both MCP submit
+    executors (<code>submit_abstract_review</code>, <code>admin_submit_review_on_behalf</code>) gained
+    the same reviewable-status gate via a shared <code>REVIEWABLE_ABSTRACT_STATUSES</code> set, so a
+    DRAFT/decided abstract can't be scored through the agent either. (MCP was already org-bound via
+    <code>ctx.eventId</code>, so H3 was REST-only.)</li>
+  <li><strong>Tests</strong>: +11 in <code>__tests__/api/abstract-review-coi.test.ts</code> —
+    cross-org admin reject / same-org allow, empty-payload reject, notes-only allowed, and the
+    reviewable-status matrix (DRAFT/WITHDRAWN/ACCEPTED/REJECTED → 409; the three open states → allowed).</li>
+  <li><strong>Deferred within these findings</strong>: H5's gate-side half (count only SCORED
+    submissions) lands with Phase 3's transaction restructure; H6's reviewer-portal feed + assignment
+    refusal land in Phase 4.</li>
+</ul>
+
+<p><em>Phases 2–4 will be appended here as they ship.</em></p>
+
+<h2 id="clean">11. What checked out clean</h2>
 
 <ul>
   <li>The review-submission <strong>upsert is DB-native atomic</strong> (compound-unique where, scalar-only payload) — no first-submission race.</li>
