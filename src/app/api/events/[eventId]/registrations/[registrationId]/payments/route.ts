@@ -5,8 +5,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { getClientIp } from "@/lib/security";
-import { createPaidInvoice, createPaidReceipt, sendPaymentDocumentsEmail } from "@/lib/invoice-service";
+import { getClientIp, checkRateLimit } from "@/lib/security";
+import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -23,21 +23,25 @@ import { refreshEventStats } from "@/lib/event-stats";
  *                    on a physical terminal at the desk
  *   - cash           organizer notes who received the cash
  *
- * Side effects (mirrors the Stripe webhook flow at
- * `src/app/api/webhooks/stripe/route.ts`):
+ * Side effects (review H7/M11, July 10 2026 — captures are now TRUTHFUL):
  *
  *   1. Insert a `Payment` row with `status: "PAID"` + the captured
  *      method-specific fields. `stripePaymentId` is left null.
- *   2. Flip `registration.paymentStatus` to `"PAID"`.
- *   3. `createPaidInvoice(...)` (promotes any existing admin INVOICE in
- *      place, else mints a new INVOICE/PAID row) + `createPaidReceipt(...)`,
- *      then fire-and-forget `sendPaymentDocumentsEmail(...)` so the registrant
- *      receives ONE email with both the Invoice and Receipt PDFs.
- *   4. Audit log (`MANUAL_PAYMENT_RECORDED`) + admin notification.
+ *   2. Flip `registration.paymentStatus` to `"PAID"` ONLY when the captured
+ *      total (this capture + prior settled payments, same currency) covers
+ *      the computed amount owed. A PARTIAL capture records the Payment row
+ *      and leaves the registration unpaid — the balance stays visible, the
+ *      reg stays in payment chases, and no false PAID documents go out.
+ *   3. When (and only when) the registration becomes fully paid:
+ *      `issuePaidRegistrationDocuments(...)` — the SAME post-payment fan-out
+ *      the Stripe webhook and the reconciliation worker use (PAID invoice +
+ *      receipt + one combined email).
+ *   4. Audit log (`MANUAL_PAYMENT_RECORDED`, flags amount/currency divergence
+ *      from the computed total) + admin notification.
  *
- * Returns 409 if the registration is already PAID — admins should never
- * record two manual payments for the same registration. To correct a
- * mistake, refund first, then re-record.
+ * Returns 409 if the registration is already PAID with a Payment row —
+ * admins should never double-record. To correct a mistake, refund first,
+ * then re-record. Rate-limited 60/hr per user.
  */
 
 const recordPaymentSchema = z
@@ -110,6 +114,21 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
+    // The widest money-write population of any endpoint (desk temps included)
+    // had no rate limit (review H7). 60/hr is far above any real desk pace.
+    const rateLimit = checkRateLimit({
+      key: `manual-payment:${session.user.id}`,
+      limit: 60,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!rateLimit.allowed) {
+      apiLogger.warn({ msg: "manual-payment:rate-limited", eventId, registrationId, userId: session.user.id });
+      return NextResponse.json(
+        { error: "Too many payment recordings. Please wait before recording more.", retryAfterSeconds: rateLimit.retryAfterSeconds },
+        { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } },
+      );
+    }
+
     const parsed = recordPaymentSchema.safeParse(body);
     if (!parsed.success) {
       apiLogger.warn({
@@ -154,6 +173,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         // duplicate. Admin-flipped-without-recording is a real recovery
         // case (status PAID but no Payment row yet) — let it through.
         _count: { select: { payments: true } },
+        // Prior settled money — a partial capture accumulates toward the
+        // computed total; PAID flips only when it's covered (review H7).
+        payments: {
+          where: { status: { in: ["PAID", "REFUNDED"] } },
+          select: { amount: true, currency: true },
+        },
       },
     });
     if (!registration) {
@@ -209,6 +234,38 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const amount = data.amount ?? fallbackAmount;
     const currency = (data.currency ?? fallbackCurrency).toUpperCase();
+
+    // ── Truthfulness guards (review H7) ─────────────────────────────────
+    // The amount + currency are operator-supplied. We accept them (real desks
+    // take partial deposits and odd amounts), but the CONSEQUENCES are now
+    // honest: PAID + documents only when the captured total actually covers
+    // the amount owed, and any divergence is logged + audited.
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const currencyMismatch = currency !== fallbackCurrency;
+    const amountDivergent = data.amount !== undefined && Math.abs(amount - fin.total) > 0.005;
+    if (currencyMismatch || amountDivergent) {
+      apiLogger.warn({
+        msg: "manual-payment:capture-diverges-from-computed-total",
+        eventId,
+        registrationId,
+        amount,
+        currency,
+        computedTotal: fin.total,
+        computedCurrency: fallbackCurrency,
+        userId: session.user.id,
+      });
+    }
+    // Prior settled money in the SAME currency. A foreign-currency capture
+    // can't be compared to the computed total, so it never counts toward
+    // "fully paid" — the operator settles those by hand.
+    const priorCaptured = round2(
+      registration.payments
+        .filter((p) => p.currency.toUpperCase() === fallbackCurrency)
+        .reduce((s, p) => s + Number(p.amount), 0),
+    );
+    const capturedAfter = round2(priorCaptured + (currencyMismatch ? 0 : amount));
+    const coversTotal = !currencyMismatch && capturedAfter >= fin.total - 0.005;
+
     if (amount <= 0) {
       apiLogger.warn({
         msg: "manual-payment:zero-amount",
@@ -241,17 +298,20 @@ export async function POST(req: Request, { params }: RouteParams) {
       ...(data.notes ? { notes: data.notes } : {}),
     };
 
-    // Atomic transaction: flip registration status (if needed) + insert
-    // Payment row. Two cases:
-    //   - status !== PAID: claim with `paymentStatus != PAID` predicate
-    //     to defend against a concurrent dropdown flip; the claim is
-    //     authoritative for "we won the race".
+    // Atomic transaction: flip registration status (only when the captured
+    // total covers the amount owed) + insert the Payment row. Three cases:
+    //   - not yet PAID + capture covers the total: claim with the
+    //     `paymentStatus != PAID` predicate (defends a concurrent flip).
+    //   - not yet PAID + PARTIAL capture: record the Payment row ONLY —
+    //     the registration stays unpaid, the balance stays visible, and no
+    //     PAID documents are issued (review H7 — an $80 capture on a $105
+    //     total used to flip PAID and email documents asserting $105).
     //   - status === PAID (admin previously hand-flipped + we already
     //     verified above that no Payment row exists): skip the update
     //     entirely, just insert the recovery Payment row.
     const wasAlreadyPaid = registration.paymentStatus === "PAID";
     const payment = await db.$transaction(async (tx) => {
-      if (!wasAlreadyPaid) {
+      if (!wasAlreadyPaid && coversTotal) {
         const claim = await tx.registration.updateMany({
           where: { id: registrationId, paymentStatus: { not: "PAID" } },
           data: { paymentStatus: "PAID" },
@@ -261,7 +321,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           // catch below.
           throw new ManualPaymentRaceError();
         }
-      } else {
+      } else if (wasAlreadyPaid) {
         // Recovery path: re-check that no Payment row landed between
         // our findFirst and now. If one slipped in via a concurrent
         // admin click, abort to avoid duplicating it.
@@ -302,6 +362,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       method: data.method,
       amount,
       currency,
+      computedTotal: fin.total,
+      capturedTotal: capturedAfter,
+      fullyPaid: coversTotal || wasAlreadyPaid,
+      partial: !coversTotal && !wasAlreadyPaid,
       userId: session.user.id,
     });
 
@@ -320,6 +384,11 @@ export async function POST(req: Request, { params }: RouteParams) {
             amount,
             currency,
             paymentId: payment.id,
+            computedTotal: fin.total,
+            capturedTotal: capturedAfter,
+            partial: !coversTotal && !wasAlreadyPaid,
+            ...(amountDivergent ? { amountDivergent: true } : {}),
+            ...(currencyMismatch ? { currencyMismatch: true, computedCurrency: fallbackCurrency } : {}),
             ip: getClientIp(req),
           },
         },
@@ -331,74 +400,55 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Refresh denormalized event stats (fire-and-forget).
     refreshEventStats(eventId);
 
-    // Notify event admins (non-blocking).
+    // Notify event admins (non-blocking). A partial capture says so.
+    const fullyPaidNow = coversTotal || wasAlreadyPaid;
     notifyEventAdmins(eventId, {
       type: "PAYMENT",
-      title: "Manual Payment Recorded",
-      message: `${registration.attendee.firstName} ${registration.attendee.lastName} — ${data.method.replace("_", " ")} — ${currency} ${amount.toFixed(2)}`,
+      title: fullyPaidNow ? "Manual Payment Recorded" : "Partial Payment Recorded",
+      message: `${registration.attendee.firstName} ${registration.attendee.lastName} — ${data.method.replace("_", " ")} — ${currency} ${amount.toFixed(2)}${fullyPaidNow ? "" : ` (partial: ${fallbackCurrency} ${capturedAfter.toFixed(2)} of ${fallbackCurrency} ${fin.total.toFixed(2)} captured — registration stays unpaid)`}`,
       link: `/events/${eventId}/registrations`,
     }).catch((err) =>
       apiLogger.warn({ err, msg: "manual-payment:notification-failed", paymentId: payment.id }),
     );
 
-    // Auto-create the post-payment INVOICE + RECEIPT (both status PAID) and
-    // email them together. Mirrors the Stripe webhook fan-out so the registrant
-    // receives the same combined packet regardless of payment channel. Offline
-    // payments have no Stripe hosted receipt — our RECEIPT PDF is the proof.
+    // Post-payment documents ONLY when the registration is fully paid — the
+    // PAID invoice + receipt assert the FULL computed total, so issuing them
+    // on a partial capture emailed the attendee false documents (review H7).
+    // Uses issuePaidRegistrationDocuments — the SAME fan-out as the Stripe
+    // webhook + reconciliation worker (review M11: this route used to carry a
+    // hand-mirrored copy of it).
     let invoiceId: string | null = null;
-    try {
-      const paymentReference =
-        data.bankReference ||
-        (data.method === "card_onsite" && data.cardLast4 ? `Card ending ${data.cardLast4}` : undefined) ||
-        (data.method === "cash" ? `Cash — received by ${data.cashReceivedBy ?? "organizer"}` : undefined);
-      const invoice = await createPaidInvoice({
-        registrationId: registrationId!,
-        eventId,
-        organizationId: event.organizationId,
-        paymentId: payment.id,
-        paymentMethod: data.method,
-        paymentReference,
-        paidAt: paidAtDate,
-      });
-      invoiceId = invoice.id;
-      const { receipt } = await createPaidReceipt({
-        registrationId: registrationId!,
-        eventId,
-        organizationId: event.organizationId,
-        parentInvoiceId: invoice.id,
-        paymentMethod: data.method,
-        paymentReference,
-        paidAt: paidAtDate,
-      });
-      // Fire-and-forget the combined email so the API responds quickly. Email
-      // failure is logged but doesn't fail the manual-payment recording —
-      // the admin can resend from the registration detail sheet.
-      sendPaymentDocumentsEmail({
-        registrationId: registrationId!,
-        invoice,
-        receipt,
-        amount: Number(payment.amount),
-        currency: payment.currency,
-        receiptUrl: null,
-        paymentReference,
-      }).catch((err) =>
+    if (fullyPaidNow) {
+      try {
+        const paymentReference =
+          data.bankReference ||
+          (data.method === "card_onsite" && data.cardLast4 ? `Card ending ${data.cardLast4}` : undefined) ||
+          (data.method === "cash" ? `Cash — received by ${data.cashReceivedBy ?? "organizer"}` : undefined);
+        const { invoice } = await issuePaidRegistrationDocuments({
+          registrationId: registrationId!,
+          eventId,
+          organizationId: event.organizationId,
+          paymentId: payment.id,
+          paymentMethod: data.method,
+          paymentReference,
+          paidAt: paidAtDate,
+          amount: Number(payment.amount),
+          currency: payment.currency,
+          receiptUrl: null,
+        });
+        invoiceId = invoice.id;
+      } catch (err) {
         apiLogger.error({
           err,
-          msg: "manual-payment:documents-email-failed",
+          msg: "manual-payment:invoice-create-failed",
           registrationId,
-          invoiceId: invoice.id,
-        }),
-      );
-    } catch (err) {
-      apiLogger.error({
-        err,
-        msg: "manual-payment:invoice-create-failed",
-        registrationId,
-        paymentId: payment.id,
-        prismaCode: (err as { code?: string })?.code ?? null,
-      });
-      // Don't fail the response — the Payment row + paymentStatus update
-      // already landed, the admin can retry the invoice manually.
+          paymentId: payment.id,
+          prismaCode: (err as { code?: string })?.code ?? null,
+        });
+        // Don't fail the response — the Payment row + paymentStatus update
+        // already landed; the invoice-reconciliation worker retries the
+        // documents within ~10 minutes.
+      }
     }
 
     return NextResponse.json({
@@ -414,6 +464,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         metadata: payment.metadata,
       },
       invoiceId,
+      fullyPaid: fullyPaidNow,
+      capturedTotal: capturedAfter,
+      totalDue: fin.total,
     });
   } catch (error) {
     if (error instanceof ManualPaymentRaceError) {

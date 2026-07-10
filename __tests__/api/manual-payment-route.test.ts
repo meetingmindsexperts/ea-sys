@@ -10,9 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockAuth,
   mockDb,
-  mockCreatePaidInvoice,
-  mockCreatePaidReceipt,
-  mockSendPaymentDocumentsEmail,
+  mockIssueDocs,
   mockNotifyEventAdmins,
   mockRefreshEventStats,
 } = vi.hoisted(() => ({
@@ -24,9 +22,7 @@ const {
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
     $transaction: vi.fn(),
   },
-  mockCreatePaidInvoice: vi.fn(),
-  mockCreatePaidReceipt: vi.fn(),
-  mockSendPaymentDocumentsEmail: vi.fn(),
+  mockIssueDocs: vi.fn(),
   mockNotifyEventAdmins: vi.fn().mockReturnValue({ catch: () => {} }),
   mockRefreshEventStats: vi.fn(),
 }));
@@ -48,6 +44,7 @@ vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/security", () => ({
   getClientIp: vi.fn(() => "127.0.0.1"),
+  checkRateLimit: vi.fn(() => ({ allowed: true })),
 }));
 vi.mock("@/lib/auth-guards", () => ({
   REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER"],
@@ -68,10 +65,10 @@ vi.mock("@/lib/event-access", () => ({
     organizationId: user.organizationId,
   }),
 }));
+// H7/M11: the route now uses the SAME post-payment fan-out as the Stripe
+// webhook + reconciliation worker.
 vi.mock("@/lib/invoice-service", () => ({
-  createPaidInvoice: (args: unknown) => mockCreatePaidInvoice(args),
-  createPaidReceipt: (args: unknown) => mockCreatePaidReceipt(args),
-  sendPaymentDocumentsEmail: (args: unknown) => mockSendPaymentDocumentsEmail(args),
+  issuePaidRegistrationDocuments: (args: unknown) => mockIssueDocs(args),
 }));
 vi.mock("@/lib/notifications", () => ({
   notifyEventAdmins: (...args: unknown[]) => mockNotifyEventAdmins(...args),
@@ -102,6 +99,8 @@ const baseRegistration = {
   // The route reads `_count.payments` to distinguish "PAID with no row
   // yet" (recovery case, allow) from "PAID with row" (block 409).
   _count: { payments: 0 },
+  // Prior settled payments (H7: partial captures accumulate toward the total).
+  payments: [],
 };
 
 beforeEach(() => {
@@ -121,9 +120,10 @@ beforeEach(() => {
   // Default: recovery path's race-check sees no existing payments.
   mockDb.payment.count.mockResolvedValue(0);
   // Default: invoice creation succeeds.
-  mockCreatePaidInvoice.mockResolvedValue({ id: "inv-1", invoiceNumber: "TEST-INV-001" });
-  mockCreatePaidReceipt.mockResolvedValue({ receipt: { id: "rec-1", invoiceNumber: "TEST-REC-001" }, created: true });
-  mockSendPaymentDocumentsEmail.mockResolvedValue(undefined);
+  mockIssueDocs.mockResolvedValue({
+    invoice: { id: "inv-1", invoiceNumber: "TEST-INV-001" },
+    receipt: { id: "rec-1", invoiceNumber: "TEST-REC-001" },
+  });
 });
 
 describe("POST manual-payment route — auth", () => {
@@ -356,38 +356,76 @@ describe("POST manual-payment route — happy paths", () => {
     });
   });
 
-  it("triggers createPaidInvoice + createPaidReceipt + combined documents email", async () => {
+  it("issues the post-payment documents via the SHARED fan-out (M11) on a full capture", async () => {
     await POST(makeReq({ method: "cash", cashReceivedBy: "Bob" }), params);
-    expect(mockCreatePaidInvoice).toHaveBeenCalledTimes(1);
-    expect(mockCreatePaidInvoice).toHaveBeenCalledWith(
+    expect(mockIssueDocs).toHaveBeenCalledTimes(1);
+    expect(mockIssueDocs).toHaveBeenCalledWith(
       expect.objectContaining({
         registrationId: "reg-1",
         eventId: "evt-1",
         organizationId: "org-1",
         paymentMethod: "cash",
-      }),
-    );
-    expect(mockCreatePaidReceipt).toHaveBeenCalledWith(
-      expect.objectContaining({ registrationId: "reg-1", parentInvoiceId: "inv-1", paymentMethod: "cash" }),
-    );
-    // One combined email with both the invoice + receipt; offline → no Stripe link.
-    expect(mockSendPaymentDocumentsEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        registrationId: "reg-1",
-        invoice: expect.objectContaining({ id: "inv-1" }),
-        receipt: expect.objectContaining({ id: "rec-1" }),
         receiptUrl: null,
       }),
     );
   });
 
   it("invoice creation failure does NOT fail the response (Payment row already landed)", async () => {
-    mockCreatePaidInvoice.mockRejectedValueOnce(new Error("invoice service down"));
+    mockIssueDocs.mockRejectedValueOnce(new Error("invoice service down"));
     const res = await POST(makeReq({ method: "cash", cashReceivedBy: "Bob" }), params);
     // Response is still 200 — the Payment was successfully recorded; the
-    // admin can resend the invoice manually if needed.
+    // reconciliation worker retries the documents within ~10 minutes.
     expect(res.status).toBe(200);
-    expect(mockSendPaymentDocumentsEmail).not.toHaveBeenCalled();
+  });
+
+  // ── H7: partial captures are truthful ─────────────────────────────────
+
+  it("PARTIAL capture records the Payment but does NOT flip PAID or issue documents", async () => {
+    const res = await POST(
+      makeReq({ method: "bank_transfer", bankReference: "TRF-1", amount: 80 }), // total due 250
+      params,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ fullyPaid: false, capturedTotal: 80, totalDue: 250 });
+    // Payment row recorded…
+    expect(mockDb.payment.create).toHaveBeenCalled();
+    // …but the registration was NOT flipped and no documents went out.
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(mockIssueDocs).not.toHaveBeenCalled();
+    expect(mockNotifyEventAdmins).toHaveBeenCalledWith(
+      "evt-1",
+      expect.objectContaining({ title: "Partial Payment Recorded" }),
+    );
+  });
+
+  it("a capture that completes prior partials flips PAID and issues documents", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({
+      ...baseRegistration,
+      payments: [{ amount: 200, currency: "USD" }], // 200 already captured of 250
+    });
+    const res = await POST(
+      makeReq({ method: "cash", cashReceivedBy: "Bob", amount: 50 }),
+      params,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ fullyPaid: true, capturedTotal: 250 });
+    expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
+      where: { id: "reg-1", paymentStatus: { not: "PAID" } },
+      data: { paymentStatus: "PAID" },
+    });
+    expect(mockIssueDocs).toHaveBeenCalledTimes(1);
+  });
+
+  it("a foreign-currency capture is recorded but never counts toward fully-paid", async () => {
+    const res = await POST(
+      makeReq({ method: "cash", cashReceivedBy: "Bob", amount: 999, currency: "AED" }),
+      params,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ fullyPaid: false });
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(mockIssueDocs).not.toHaveBeenCalled();
   });
 
   it("respects custom amount + currency override", async () => {
