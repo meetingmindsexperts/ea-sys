@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — Program / Agenda / Sessions (July 2026)</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5f6b7a; --line: #e3e8ee;
+    --card: #f7f9fb; --accent: #00aade;
+    --blocker: #b91c1c; --high: #c2410c; --medium: #a16207; --low: #0f766e;
+    --code-bg: #f3f5f7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0 1rem 6rem;
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--fg); background: var(--bg); }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header { padding: 3rem 0 1.5rem; border-bottom: 3px solid var(--accent); margin-bottom: 2rem; }
+  h1 { font-size: 2rem; margin: 0 0 .4rem; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: .95rem; }
+  h2 { font-size: 1.35rem; margin: 3rem 0 1rem; padding-bottom: .4rem;
+    border-bottom: 1px solid var(--line); letter-spacing: -.01em; }
+  h3 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: .86em; }
+  code { background: var(--code-bg); padding: .12em .35em; border-radius: 3px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: .85rem 1rem; overflow-x: auto; line-height: 1.5; margin: .75rem 0; }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .93rem; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  .tbl-wrap { overflow-x: auto; }
+  .sev { font-weight: 700; font-size: .74rem; letter-spacing: .05em; text-transform: uppercase;
+         padding: .16em .5em; border-radius: 3px; color: #fff; white-space: nowrap; }
+  .sev.blocker { background: var(--blocker); }
+  .sev.high { background: var(--high); }
+  .sev.medium { background: var(--medium); }
+  .sev.low { background: var(--low); }
+  .finding { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line);
+    border-radius: 6px; padding: 1.1rem 1.3rem; margin: 1.25rem 0; }
+  .finding.blocker { border-left-color: var(--blocker); }
+  .finding.high { border-left-color: var(--high); }
+  .finding.medium { border-left-color: var(--medium); }
+  .finding.low { border-left-color: var(--low); }
+  .finding h3 { margin-top: 0; }
+  .loc { color: var(--muted); font-size: .87rem; margin: .1rem 0 .8rem; }
+  .lbl { font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em;
+         color: var(--muted); margin: .9rem 0 .2rem; }
+  .note { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 6px; padding: .9rem 1.1rem; margin: 1.25rem 0; }
+  .note.warn { background: #fef2f2; border-color: #fecaca; }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: .3rem 0; }
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171a; --fg: #e6e9ec; --muted: #93a1b0; --line: #2b3138;
+      --card: #1b1f24; --code-bg: #22272d;
+      --blocker: #ef4444; --high: #fb923c; --medium: #fbbf24; --low: #2dd4bf; }
+    .sev { color: #14171a; }
+    .note { background: #0c2b3a; border-color: #1e4a5f; }
+    .note.warn { background: #3a1414; border-color: #7f1d1d; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Program / Agenda / Sessions</h1>
+  <p class="sub">
+    Production-readiness audit · 10 July 2026 · EA-SYS <code>main</code> @ <code>425f9b4</code><br />
+    Four independent review passes: scheduling lifecycle · RBAC &amp; public exposure ·
+    concurrency &amp; integrity · drift &amp; failure-visibility.
+  </p>
+</header>
+
+<div class="note warn">
+  <strong>Two credential leaks are live in production and directly exploitable today.</strong>
+  <a href="#b1">B1</a> lets <em>any registered attendee</em> retrieve the Zoom <strong>host start URL</strong>
+  (plus stream key and passcode) for every session, granting host control of your webinars.
+  <a href="#b2">B2</a> serves the Zoom <strong>recording password</strong> and unpublished DRAFT programs
+  to <em>anyone on the internet</em>, unauthenticated and unrate-limited. Both were re-verified in source by
+  the lead reviewer. These should be fixed before anything else in this document.
+</div>
+
+<div class="note">
+  <strong>How to read this.</strong> Findings are grouped by theme; where two independent passes hit the
+  same defect that is noted (H1 was found by both the lifecycle and concurrency passes — a strong signal).
+  Known-fixed items from the <strong>June 10 "Schedule/Agenda consistency pass"</strong> were excluded from
+  scope: REST create+update timezone validation via <code>isSessionWithinEventDates</code>, dashboard
+  honorifics, public agenda topics + session-speaker roles, public times in the event timezone, MCP
+  <code>create_session</code> capacity + topic <code>abstractId</code>, and the 5 restored session tool
+  definitions. Claims that pass verified <em>true</em> are recorded in §8.
+</div>
+
+<h2 id="summary">1. Executive summary</h2>
+
+<p>
+  The scheduling core is reasonable — the event-timezone validation added in June holds across REST and
+  MCP, the FK cascades match what the code assumes, all eight session tools really are exposed to both the
+  in-app agent and MCP, and every <code>Event.settings</code> write in this domain correctly routes through
+  the row-locked <code>updateEventSettings</code> helper. What the review found is concentrated in four
+  seams, and three of them are the <em>same seams that produced this month's other findings</em>:
+</p>
+
+<ol>
+  <li>
+    <strong>The public/attendee surface leaks operator credentials.</strong> The dashboard sessions list
+    hands the Zoom host <code>startUrl</code> to org-null attendee roles (<a href="#b1">B1</a>); the public
+    session detail route hands the recording password to anonymous callers and accepts DRAFT events with no
+    rate limit (<a href="#b2">B2</a>, <a href="#m3">M3</a>, <a href="#m4">M4</a>). The two viewing paths —
+    <code>zoom-join</code> (registration-gated) and <code>stream-status</code> (wide open) — enforce
+    contradictory access.
+  </li>
+  <li>
+    <strong>The session PUT destroys child data before it checks the optimistic lock</strong>
+    (<a href="#h1">H1</a>) — so the 409 that says "nothing was saved, reload" is a lie, and the replace
+    isn't transactional. Found independently by two passes.
+  </li>
+  <li>
+    <strong>Zoom is coupled to sessions by convention, not by code.</strong> Concurrent creates make two
+    billable remote meetings and orphan one (<a href="#h2">H2</a>); session DELETE never tells Zoom
+    (<a href="#h3">H3</a>); retiming a session never re-syncs Zoom (<a href="#m6">M6</a>); the webinar
+    anchor session is deletable with no guard (<a href="#h3">H3</a>); and
+    <code>provisionWebinar</code>'s documented idempotency doesn't hold under concurrency
+    (<a href="#m1">M1</a>).
+  </li>
+  <li>
+    <strong>Sessions never got their service.</strong> Create/update logic is hand-copied between REST and
+    the MCP executors and has already drifted — <strong>a session created via the agent or n8n writes no
+    audit row and pages no admin</strong> (<a href="#h4">H4</a>) — plus the domain's usual unlogged-4xx
+    debt (<a href="#h5">H5</a>).
+  </li>
+</ol>
+
+<h2 id="counts">2. Findings at a glance</h2>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>Severity</th><th>Count</th><th>IDs</th></tr>
+  <tr><td><span class="sev blocker">Blocker</span></td><td>2</td><td><a href="#b1">B1</a>, <a href="#b2">B2</a></td></tr>
+  <tr><td><span class="sev high">High</span></td><td>5</td><td><a href="#h1">H1</a>–<a href="#h5">H5</a></td></tr>
+  <tr><td><span class="sev medium">Medium</span></td><td>9</td><td><a href="#m1">M1</a>–<a href="#m9">M9</a></td></tr>
+  <tr><td><span class="sev low">Low</span></td><td>5</td><td><a href="#l1">L1</a>–<a href="#l5">L5</a></td></tr>
+</table>
+</div>
+
+<h2 id="creds">3. Credential exposure (fix first)</h2>
+
+<div class="finding blocker" id="b1">
+  <h3><span class="sev blocker">Blocker</span> &nbsp; B1 — The dashboard sessions LIST returns the Zoom <strong>host start URL</strong>, stream key, and passcode to REGISTRANT / SUBMITTER / REVIEWER / MEMBER / ONSITE</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/sessions/route.ts:133-146</code> (GET) · <code>src/lib/event-access.ts:24-35</code></p>
+<pre><code>zoomMeeting: {
+  select: { id: true, zoomMeetingId: true, meetingType: true, status: true,
+    joinUrl: true, startUrl: true, passcode: true,          // ← host link + passcode
+    liveStreamEnabled: true, streamKey: true, streamStatus: true },
+},</code></pre>
+  <p class="lbl">Why it's reachable</p>
+  <p>
+    The GET is guarded only by <code>auth()</code> + <code>buildEventAccessWhere</code>. <strong>There is no
+    <code>denyReviewer</code> on it</strong> — the <code>denyReviewer(session)</code> at line 182 guards the
+    POST. And <code>buildEventAccessWhere</code> deliberately grants event access to the org-null attendee
+    roles by linkage:
+  </p>
+<pre><code>if (user.role === "REGISTRANT") return { id: eventId, registrations: { some: { userId: user.id } } };
+if (user.role === "SUBMITTER")  return { id: eventId, speakers:      { some: { userId: user.id } } };</code></pre>
+  <p class="lbl">Exploit</p>
+  <p>
+    A registrant who paid for the event signs in and calls
+    <code>GET /api/events/{eventId}/sessions</code> directly. The event resolves through their own
+    registration, and the response contains every session's <code>zoomMeeting.startUrl</code> — the Zoom
+    <strong>host</strong> link, which grants host controls. They can start the webinar, claim host, remove
+    the real host, or lift the raw <code>streamKey</code> and hijack the RTMP stream. Route-level middleware
+    is navigation-only and never guards <code>/api/*</code>. Only ADMIN/ORGANIZER should ever see
+    <code>startUrl</code>/<code>streamKey</code>.
+    <em>(The single-session GET is safe — its select omits <code>zoomMeeting</code> entirely.)</em>
+  </p>
+  <p class="lbl">Fix shape</p>
+  <p>
+    Drop <code>startUrl</code> + <code>streamKey</code> (and likely <code>passcode</code>) from the list
+    select, or gate those three fields on <code>canWrite(role)</code> / an ADMIN-ORGANIZER check and strip
+    them for everyone else — a redaction helper mirroring <code>redactFinancialFields</code>.
+  </p>
+</div>
+
+<div class="finding blocker" id="b2">
+  <h3><span class="sev blocker">Blocker</span> &nbsp; B2 — The public session-detail route serves the Zoom <strong>recording password</strong> + unpublished DRAFT programs to anonymous callers, with no rate limit</h3>
+  <p class="loc"><code>src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts:17, 91-97, 128</code></p>
+<pre><code>const event = await db.event.findFirst({
+  where: { slug, status: { in: ["DRAFT", "PUBLISHED", "LIVE"] } },   // ← DRAFT served publicly
+...
+zoomMeeting: { select: { recordingUrl: true, recordingPassword: true, recordingStatus: true } },
+...
+zoomMeeting: session.zoomMeeting,   // returned verbatim</code></pre>
+  <p class="lbl">Verified</p>
+  <p>
+    The route imports <strong>no <code>auth</code> at all</strong> (imports are
+    <code>NextResponse</code>, <code>db</code>, <code>apiLogger</code>, <code>readSponsors</code>), and it is
+    the <strong>only</strong> public session route with <strong>zero</strong> <code>checkRateLimit</code>
+    calls — <code>zoom-join</code>, <code>lobby-status</code>, <code>stream-status</code> and
+    <code>presence</code> each have them.
+  </p>
+  <p class="lbl">Exploit</p>
+  <p>
+    Anyone on the internet GETs the endpoint and reads <code>recordingPassword</code> +
+    <code>recordingUrl</code> — the credential that gates the cloud recording of a paid, CME-accredited
+    session — and can watch it. The same call returns the full agenda, speaker bios/photos, topics and
+    sponsors of <strong>DRAFT (unannounced)</strong> events, and can be enumerated freely across sessions and
+    events. The contrast is stark: <code>zoom-join</code> requires a signed-in, non-cancelled registration to
+    admit a live viewer, while this route gives the recording away to strangers.
+  </p>
+  <p class="lbl">Fix shape</p>
+  <p>
+    Remove <code>recordingUrl</code>/<code>recordingPassword</code> from the public select (serve the replay
+    through a registration-gated route, as the live path already is); restrict the event filter to
+    <code>PUBLISHED</code>/<code>LIVE</code> (or gate DRAFT on an authenticated org-staff session); add the
+    per-IP rate limit its four siblings have.
+  </p>
+</div>
+
+<div class="finding medium" id="m3">
+  <h3><span class="sev medium">Medium</span> &nbsp; M3 — Public <code>stream-status</code> hands the live HLS URL + stream key to anyone, bypassing the registration gate the SDK path enforces (and an unauthenticated GET performs a DB write)</h3>
+  <p class="loc"><code>…/sessions/[sessionId]/stream-status/route.ts:50-104</code></p>
+<pre><code>return NextResponse.json({ status: ..., hlsUrl: isLive ? hlsPlaybackUrl : null,
+  hlsOriginUrl: ..., streamKey: zoomMeeting.streamKey });
+...
+db.zoomMeeting.updateMany({ ... data: { streamStatus } })   // ← public GET mutates state</code></pre>
+  <p>
+    The two viewing paths disagree on who may watch: <code>zoom-join</code> requires sign-in + a live
+    registration; <code>stream-status</code> is wide open and returns a playable HLS URL (and DRAFT is
+    accepted). Also flags an unauthenticated request mutating <code>streamStatus</code> — cache-throttled and
+    low impact, but it shouldn't be a side effect of a public read.
+  </p>
+</div>
+
+<div class="finding medium" id="m4">
+  <h3><span class="sev medium">Medium</span> &nbsp; M4 — Public session-detail has no rate limit at all (enumeration / scraping)</h3>
+  <p class="loc"><code>…/sessions/[sessionId]/detail/route.ts</code> (whole file)</p>
+  <p>
+    Siblings rate-limit by IP (agenda 120/min, zoom-join 60/hr, lobby-status 600/hr, stream-status 360/hr).
+    <code>detail</code> has none — which is what makes <a href="#b2">B2</a>'s credential-bearing endpoint
+    freely enumerable across every session and event. Fix alongside B2.
+  </p>
+</div>
+
+<div class="finding medium" id="m5">
+  <h3><span class="sev medium">Medium</span> &nbsp; M5 — DRAFT-event exposure is systemic across the public session surface</h3>
+  <p class="loc"><code>detail:16</code> · <code>lobby-status:30</code> · <code>stream-status:51</code> · <code>zoom-join:48</code> · <code>presence:56</code></p>
+  <p>
+    All five accept <code>status: { in: ["DRAFT","PUBLISHED","LIVE"] }</code>. Only the agenda route
+    correctly restricts to PUBLISHED/LIVE <em>and</em> honours <code>settings.agendaPublished</code>. The
+    DRAFT allowance exists for organizer end-to-end testing, and for <code>zoom-join</code>/<code>presence</code>
+    it's mitigated by their auth + registration gates — but for <code>detail</code> and
+    <code>stream-status</code> it means "unpublished content plus credentials, to the whole internet."
+    Gate DRAFT on an authenticated org-staff session.
+  </p>
+</div>
+
+<h2 id="lostupdate">4. The session PUT (data loss)</h2>
+
+<div class="finding high" id="h1">
+  <h3><span class="sev high">High</span> &nbsp; H1 — The session PUT wipes and rebuilds all speakers + topics <em>before</em> it checks the optimistic lock, so a rejected stale write still destroys another editor's data — and the replace isn't transactional</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/sessions/[sessionId]/route.ts:236, 253, 285, 316</code>
+    <em>— independently reported by the lifecycle and concurrency passes</em></p>
+<pre><code>236  await db.sessionSpeaker.deleteMany({ where: { sessionId } });   // destructive, no tx
+253  await db.sessionTopic.deleteMany({ where: { sessionId } });     // cascades TopicSpeaker
+256  for (let i = 0; i &lt; data.topics.length; i++) { await db.sessionTopic.create(...) }
+...
+285  const updateRes = await db.eventSession.updateMany({ where: { id, updatedAt: expected }, ... });
+316  if (updateRes.count === 0) { ... code: "STALE_WRITE" ... }      // ← too late, children already gone</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    Two organizers open the same session. A saves. B saves a topic tweak with a stale
+    <code>expectedUpdatedAt</code>. B's request <strong>deletes and recreates every SessionSpeaker and
+    SessionTopic</strong> — overwriting A's just-saved roster — and only <em>then</em> hits the lock, returning
+    409 "modified by someone else, reload and try again." B believes nothing was saved; A's work is gone. The
+    stale-write guard is exactly inverted.
+  </p>
+  <p>
+    Compounding it, lines 236-271 are bare statements with no <code>$transaction</code>: any mid-loop failure
+    (e.g. P2002 on <code>SessionTopic.abstractId @unique</code>) leaves the session with its old topics deleted
+    and only a prefix recreated — a truncated agenda plus a 500. Concurrent public readers can observe a
+    session with zero speakers/topics mid-replace. Note the MCP path for the same operation
+    (<code>replaceSessionSpeakers</code>) <em>is</em> wrapped in <code>$transaction</code> with the comment
+    "so the swap is atomic — never an in-between state"; the primary UI path is not.
+  </p>
+  <p class="lbl">Fix shape</p>
+  <p>
+    Claim the lock first (conditional <code>updateMany</code> on <code>updatedAt</code>; count 0 → 409 before
+    any mutation), then perform the parent update and both child replaces inside one
+    <code>$transaction</code>.
+  </p>
+</div>
+
+<h2 id="zoom">5. Zoom ↔ session coupling</h2>
+
+<div class="finding high" id="h2">
+  <h3><span class="sev high">High</span> &nbsp; H2 — Creating a session's Zoom meeting is check-then-act: two concurrent POSTs create <strong>two real billable meetings on Zoom</strong>, and the loser never deletes its orphan</h3>
+  <p class="loc"><code>…/sessions/[sessionId]/zoom/route.ts:127, 170, 189</code> · <code>prisma/schema.prisma</code> <code>ZoomMeeting.sessionId @unique</code></p>
+<pre><code>127  db.zoomMeeting.findUnique({ where: { sessionId } }),   // existence check
+136  if (existingZoom) return 409;
+170  zoomResponse = await createZoomMeeting(...);            // ← REAL remote meeting created
+189  const zoomMeeting = await db.zoomMeeting.create({ ... }); // @unique blocks the 2nd ROW only</code></pre>
+  <p>
+    The DB blocks the second <em>row</em>, but only after both requests already called Zoom's API. The loser's
+    <code>create</code> throws P2002 into the generic <code>catch → 500</code> with <strong>no compensating
+    <code>deleteZoomMeeting</code></strong> (that call exists only in the DELETE route, line 333). Result: an
+    orphaned, billable Zoom meeting/webinar on the account with no local row and no way to find it from the
+    app. Fix: claim the row first (insert a placeholder, then call Zoom), or catch P2002 and delete the
+    just-created remote meeting.
+  </p>
+</div>
+
+<div class="finding high" id="h3">
+  <h3><span class="sev high">High</span> &nbsp; H3 — Session DELETE never tells Zoom, leaves the webinar anchor pointer dangling, and has no guard against deleting the anchor session at all</h3>
+  <p class="loc"><code>…/sessions/[sessionId]/route.ts:385</code> — the file contains <strong>zero</strong> references to Zoom · <code>webinar/room/route.ts:73</code></p>
+<pre><code>await db.eventSession.delete({ where: { id: sessionId } });   // that's the whole DELETE</code></pre>
+  <p>Three consequences, all verified:</p>
+  <ul>
+    <li><strong>Orphaned remote meeting.</strong> The local <code>ZoomMeeting</code> row cascades away
+      (<code>onDelete: Cascade</code>), but the meeting keeps existing on Zoom — still joinable via any
+      previously-shared <code>joinUrl</code>, still consuming the org's Zoom capacity. The dedicated Zoom
+      DELETE route <em>does</em> call <code>deleteZoomMeeting</code>; session DELETE bypasses it entirely.</li>
+    <li><strong>Dangling anchor pointer.</strong> Deleting a WEBINAR event's auto-provisioned anchor session
+      cascades its ZoomMeeting + all attendance / presence / poll / Q&amp;A rows, while
+      <code>settings.webinar.sessionId</code> still points at the dead id. The producer's "Open the room" POST
+      then matches 0 rows → 404 "Webinar session not found". The webinar is dead with no self-heal, and
+      re-running the provisioner would mint a <em>new</em> anchor + <em>new</em> Zoom webinar, invalidating
+      every join link already emailed.</li>
+    <li><strong>No guard.</strong> Nothing in the route checks whether the session is
+      <code>settings.webinar.sessionId</code>.</li>
+  </ul>
+</div>
+
+<div class="finding medium" id="m1">
+  <h3><span class="sev medium">Medium</span> &nbsp; M1 — <code>provisionWebinar</code>'s documented idempotency doesn't hold under concurrency: duplicate anchor sessions + duplicate billable Zoom webinars</h3>
+  <p class="loc"><code>src/lib/webinar-provisioner.ts:68-99, 126, 194</code></p>
+  <p>
+    The guard reads <code>existingWebinar.sessionId</code> from settings and, if unset, creates the anchor
+    session and a real Zoom webinar — with no lock over the read→create window. It's fired fire-and-forget from
+    <code>POST /api/events</code> <em>and</em> from a manual "Re-run provisioner" control. Two concurrent
+    invocations both see <code>sessionId</code> unset, both create an anchor <code>EventSession</code>, both
+    create a billable Zoom webinar, then both call the (correctly atomic) <code>updateEventSettings</code> —
+    last-write-wins on <code>webinar.sessionId</code>. One anchor + its remote webinar are orphaned and
+    unreachable.
+  </p>
+</div>
+
+<div class="finding medium" id="m6">
+  <h3><span class="sev medium">Medium</span> &nbsp; M6 — Rescheduling a session never re-syncs its Zoom meeting; the two systems silently drift</h3>
+  <p class="loc"><code>…/sessions/[sessionId]/route.ts:285-302</code> · <code>src/lib/agent/tools/sessions.ts:394</code></p>
+  <p>
+    Both PUT paths write <code>startTime</code>/<code>endTime</code> and neither touches the
+    <code>ZoomMeeting</code> row or calls <code>updateZoomMeeting</code>/<code>updateZoomWebinar</code>. Move a
+    webinar from 2pm to 4pm and Zoom keeps the original scheduled start and the stored
+    <code>duration</code> goes stale, while lobby logic and the public agenda key off the new times. Nothing
+    reconciles them and the operator is never warned.
+  </p>
+</div>
+
+<h2 id="drift">6. Drift, duplication, and failure-visibility</h2>
+
+<div class="finding high" id="h4">
+  <h3><span class="sev high">High</span> &nbsp; H4 — There is no <code>session-service</code>: create/update logic is hand-copied REST↔MCP and has already drifted — <strong>a session created via the agent or n8n writes no audit row and notifies no admin</strong></h3>
+  <p class="loc"><code>…/sessions/route.ts:363, 375</code> (audits + notifies) vs <code>src/lib/agent/tools/sessions.ts</code> <code>createSession</code> (does neither)</p>
+  <p class="lbl">Verified</p>
+  <p>
+    The MCP file writes <code>auditLog</code> in <code>updateSession</code> (:428),
+    <code>addSpeakerToSession</code> (:678), <code>removeSpeakerFromSession</code> (:713) and
+    <code>replaceSessionSpeakers</code> (:808) — but <strong>not</strong> in <code>createSession</code>, which
+    ends at <code>refreshEventStats(ctx.eventId); return { success: true, session };</code>. On a platform where
+    the audit trail is load-bearing for RBAC accountability, every agent/n8n-created session is invisible in
+    <code>AuditLog</code>.
+  </p>
+  <p class="lbl">Field drift in the same duplication</p>
+  <ul>
+    <li>REST create accepts <code>status</code>, session-level <code>abstractId</code> (with an
+      "already assigned to another session" guard) and topic <code>sortOrder</code>; the MCP executor silently
+      drops all three — the agent can't create a DRAFT session, can't link an abstract at creation, can't order
+      topics.</li>
+    <li>Capacity: REST create is <code>z.number().min(1)</code>; MCP <code>updateSession</code> does
+      <code>Math.max(0, Number(input.capacity))</code>, so MCP can set a capacity of <code>0</code> that REST
+      rejects.</li>
+  </ul>
+  <p>
+    Every other multi-caller domain has a service (accommodation, abstract, speaker, registration, promo-code,
+    billing-account, payment). This is the exact "MUST mirror by hand" smell the services layer exists to kill.
+  </p>
+</div>
+
+<div class="finding high" id="h5">
+  <h3><span class="sev high">High</span> &nbsp; H5 — Silent 4xx across the session + public routes (violates the hard "every failure path must log" rule)</h3>
+  <p class="loc"><code>sessions/route.ts:240, 251, 259, 264, 268, 273, 279</code> · <code>[sessionId]/route.ts:153, 157, 180, 197, 205, 212, 229</code> · <code>presence:31, 42, 60, 78, 87</code> · <code>detail:32, 102</code> · <code>zoom-join</code> 404s</p>
+  <p>
+    Only the Zod-400 and the stale-409 log. Every other business rejection — event/track/abstract/speaker 404s,
+    "end time must be after start time", "session must fall within event dates", "abstract already assigned",
+    and on the public side 401/429/403 <code>NOT_REGISTERED</code>/404 — returns with no <code>apiLogger</code>
+    call. A run of failed agenda saves or failed webinar joins leaves no warn-level trail in
+    <code>/logs</code>. Same class swept for payments (M12) and flagged for abstracts (M11).
+  </p>
+</div>
+
+<div class="finding medium" id="m2">
+  <h3><span class="sev medium">Medium</span> &nbsp; M2 — Session PUT regenerates every topic id, so topic ids are unstable across saves</h3>
+  <p class="loc"><code>…/sessions/[sessionId]/route.ts:256-269</code> (<code>topicSchema</code> accepts <code>id</code> at :18 but the create never uses it)</p>
+  <p>
+    Editing one topic's title deletes and recreates all topics with fresh cuids. Any stable reference to a topic
+    id — deep links, a future external sync, per-topic abstract mapping — breaks on every session save, and
+    partial topic edits are impossible.
+  </p>
+</div>
+
+<div class="finding medium" id="m7">
+  <h3><span class="sev medium">Medium</span> &nbsp; M7 — Public agenda buckets days in the <em>viewer's</em> timezone while rendering times in the <em>event's</em> — a self-contradictory agenda</h3>
+  <p class="loc"><code>src/app/e/[slug]/agenda/page.tsx:85, 134, 448</code> · <code>src/components/public/speakers-agenda-preview.tsx:125-131, 254</code></p>
+<pre><code>const day = new Date(s.startTime).toLocaleDateString("sv-SE");        // grouping key = VIEWER tz
+return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", …); // heading = viewer-local midnight
+...
+formatTimeInTz(new Date(session.startTime), timezone)                  // time = EVENT tz</code></pre>
+  <p>
+    <code>event-time.ts</code> exports <code>localDateInTz</code>/<code>formatDateInTz</code> for exactly this
+    and is bypassed for the date half. An 11 PM event-TZ session (which
+    <code>isSessionWithinEventDates</code> deliberately keeps on the last day) is bucketed under the
+    <em>next</em> calendar day for any viewer west of the event, while its time reads correctly. The
+    preview component also carries a now-false comment claiming the page "renders in viewer tz."
+  </p>
+</div>
+
+<div class="finding medium" id="m8">
+  <h3><span class="sev medium">Medium</span> &nbsp; M8 — The dashboard agenda ignores <code>event.timezone</code> entirely: the list/tooltips render in hardcoded <strong>Asia/Dubai</strong> while the calendar grid positions cards in <strong>browser-local</strong></h3>
+  <p class="loc"><code>src/lib/utils.ts:23-24, 62-64</code> (<code>toDubai</code> fixed offset) · <code>(dashboard)/…/agenda/page.tsx:212</code> (<code>start.getHours()</code>)</p>
+  <p>
+    Two clocks on one page, neither the event's. For a non-Dubai event (or a travelling organizer) the grid
+    draws a session at one hour and the list labels it at another — the admin builds the agenda against a
+    mis-drawn grid. <code>formatTimeInTz(event.timezone)</code> exists and is unused here. The June-10 pass
+    moved the <em>public</em> rendering onto <code>event-time.ts</code> and left the dashboard behind.
+  </p>
+</div>
+
+<div class="finding medium" id="m9">
+  <h3><span class="sev medium">Medium</span> &nbsp; M9 — Narrowing an event's dates silently orphans out-of-range sessions</h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/route.ts:242-243</code></p>
+  <p>
+    Shortening an event from 3 days to 2 leaves day-3 sessions in place: <code>isSessionWithinEventDates</code>
+    now <em>rejects</em> any new or edited session on day 3, yet the stale ones persist and still render on the
+    public agenda (which filters on status, not on the event window). The agenda contradicts the event's own
+    dates, with no warning or reconciliation at save time.
+  </p>
+</div>
+
+<div class="finding medium" id="m10">
+  <h3><span class="sev medium">Medium</span> &nbsp; M10 — <code>sortOrder</code> is allocated read-then-insert with no unique constraint → duplicate order keys on concurrent creates</h3>
+  <p class="loc"><code>tracks/route.ts:119</code> (<code>max+1</code>) · <code>src/lib/agent/tools/sessions.ts:229</code> (<code>count()</code>)</p>
+  <p>
+    Neither <code>Track.sortOrder</code> nor <code>SessionTopic.sortOrder</code> is constrained. Two concurrent
+    track creates — or two <code>add_topic_to_session</code> calls from MCP/n8n on the same session — read the
+    same max/count and insert the same value; <code>orderBy: sortOrder asc</code> then ties and renders
+    non-deterministically. This is the class already fixed for certificate templates via a transactional
+    aggregate+create.
+  </p>
+</div>
+
+<div class="finding medium" id="m11">
+  <h3><span class="sev medium">Medium</span> &nbsp; M11 — <code>SessionRole</code> and <code>SessionStatus</code> have no shared label/colour map; four re-implementations exist and the dashboard tooltip renders raw <code>MODERATOR:</code></h3>
+  <p class="loc"><code>src/lib/speaker-agreement.ts:19</code> · <code>(dashboard)/…/agenda/page.tsx:181, 1600</code> · <code>e/[slug]/agenda/page.tsx:518</code> · <code>e/[slug]/session/[sessionId]/page.tsx:813</code></p>
+  <p>
+    The organizer sets "Chairperson" and sees <code>CHAIRPERSON:</code> in the console tooltip but
+    <code>Chairperson</code> on the public page. There is no <code>session-enums.ts</code> analogous to
+    <code>abstract-enums.ts</code>, so a future role/status value must be patched in 4+ hardcoded spots and the
+    build won't catch a miss (an exhaustive Prisma-enum-keyed <code>Record</code> would).
+  </p>
+</div>
+
+<h2 id="lows">7. Lows</h2>
+
+<div class="finding low" id="l1">
+  <h3><span class="sev low">Low</span> &nbsp; L1 — Removing/replacing a session's speakers orphans their per-topic <code>TopicSpeaker</code> rows</h3>
+  <p class="loc"><code>src/lib/agent/tools/sessions.ts:706-708, 794-806</code> + the REST PUT <code>sessionRoles</code> path</p>
+  <p>
+    Only <code>SessionSpeaker</code> is deleted. A speaker dropped from a session ("they cancelled") keeps their
+    <code>TopicSpeaker</code> row and still appears on the public agenda under the topic, contradicting the
+    removed state. The tool's own description ("Replace ALL speakers on a session") reinforces the wrong mental
+    model.
+  </p>
+</div>
+
+<div class="finding low" id="l2">
+  <h3><span class="sev low">Low</span> &nbsp; L2 — MCP <code>update_session</code> allows a zero-duration session that every REST path forbids</h3>
+  <p class="loc"><code>src/lib/agent/tools/sessions.ts:352</code> (<code>newEnd &lt; newStart</code>) vs REST <code>sessionEnd &lt;= sessionStart</code></p>
+  <p>
+    The agent can set <code>endTime === startTime</code>; <code>list_live_sessions_now</code> would mark it live
+    only at a single instant — an effectively never-live agenda entry the dashboard would have blocked.
+  </p>
+</div>
+
+<div class="finding low" id="l3">
+  <h3><span class="sev low">Low</span> &nbsp; L3 — Abstract→session uniqueness is check-then-act; the race surfaces as an opaque 500 instead of the intended 400</h3>
+  <p class="loc"><code>sessions/route.ts:232, 271, 291</code> (<code>EventSession.abstractId @unique</code>)</p>
+  <p>
+    The DB is the real guard, but two concurrent creates both pass the <code>findFirst</code> check and the
+    loser's P2002 falls into <code>catch → 500 "Failed to create session"</code> rather than the friendly
+    "already assigned" 400. Same latent pattern on <code>SessionTopic.abstractId @unique</code>.
+  </p>
+</div>
+
+<div class="finding low" id="l4">
+  <h3><span class="sev low">Low</span> &nbsp; L4 — Session/track writes org-scope by hand instead of <code>buildEventAccessWhere</code>; three public "join opens at" timestamps still render viewer-local (CLAUDE.md says two)</h3>
+  <p class="loc"><code>sessions/route.ts:220</code> · <code>tracks/[trackId]/route.ts:34-41</code> · <code>e/[slug]/session/[sessionId]/page.tsx:682, 683, 1002</code></p>
+  <p>
+    The hand-rolled <code>organizationId: session.user.organizationId!</code> isn't exploitable here
+    (<code>denyReviewer</code> fires first) but it's the pattern that produced three IDORs elsewhere this month,
+    and it 404s a SUPER_ADMIN with no org. Separately, line 683 formats the very same instant the header renders
+    in event TZ — so a Dubai 9:00 AM session tells a New York attendee "Join opens at 1:00 AM." CLAUDE.md calls
+    these "two secondary" timestamps; there are three, and one is not secondary.
+  </p>
+</div>
+
+<div class="finding low" id="l5">
+  <h3><span class="sev low">Low</span> &nbsp; L5 — Public slug lookups are not org-scoped (pre-multi-tenant), and <code>isSessionWithinEventDates</code> relies on an implicit lexical date-string contract</h3>
+  <p class="loc"><code>public/…/agenda/route.ts:30</code> · <code>src/lib/event-time.ts:44-51</code></p>
+  <p>
+    Correct under single-org today, but <code>Event.slug</code> is unique <em>per-org</em> — every public slug
+    lookup becomes a cross-tenant leak the moment multi-tenancy lands (consistent with
+    <code>MULTI_TENANCY_IMPACT.md</code>). And <code>sStart &gt;= evStart &amp;&amp; sEnd &lt;= evEnd</code> is a
+    lexical compare on <code>"YYYY-MM-DD"</code> strings — sound only because <code>localDateInTz</code> pins
+    <code>en-CA</code> zero-padded output. Worth documenting as a contract.
+  </p>
+</div>
+
+<h2 id="plan">8. Suggested remediation phases</h2>
+
+<div class="tbl-wrap">
+<table>
+  <tr><th>Phase</th><th>Findings</th><th>Shape of the fix</th></tr>
+  <tr>
+    <td>1 — Credentials (ship first)</td>
+    <td><a href="#b1">B1</a>, <a href="#b2">B2</a>, <a href="#m4">M4</a></td>
+    <td>Strip <code>startUrl</code>/<code>streamKey</code>/<code>passcode</code> from the sessions list for non-host roles; remove recording credentials from the public detail route, restrict it to PUBLISHED/LIVE, add the missing rate limit.</td>
+  </tr>
+  <tr>
+    <td>2 — Public-surface consistency</td>
+    <td><a href="#m3">M3</a>, <a href="#m5">M5</a></td>
+    <td>Gate <code>stream-status</code>'s HLS URL + stream key behind the same registration check <code>zoom-join</code> uses; stop the public GET writing <code>streamStatus</code>; gate DRAFT on org-staff auth.</td>
+  </tr>
+  <tr>
+    <td>3 — Session PUT data loss</td>
+    <td><a href="#h1">H1</a>, <a href="#m2">M2</a></td>
+    <td>Claim the optimistic lock FIRST (409 before any mutation), then parent update + both child replaces inside one <code>$transaction</code>. Optionally honour client-supplied topic ids for stable identity.</td>
+  </tr>
+  <tr>
+    <td>4 — Zoom coupling</td>
+    <td><a href="#h2">H2</a>, <a href="#h3">H3</a>, <a href="#m1">M1</a>, <a href="#m6">M6</a></td>
+    <td>Claim-then-call (or P2002 → delete the orphaned remote meeting); session DELETE calls <code>deleteZoomMeeting</code> and refuses the webinar anchor; lock <code>provisionWebinar</code>'s read→create window; re-sync Zoom on retime (or warn).</td>
+  </tr>
+  <tr>
+    <td>5 — Session service + logging</td>
+    <td><a href="#h4">H4</a>, <a href="#h5">H5</a>, <a href="#l2">L2</a>, <a href="#l3">L3</a></td>
+    <td>Extract <code>src/services/session-service.ts</code> (create/update owning validation + audit + notify); both callers delegate — closes the audit gap, the field drift, and the capacity/zero-duration divergence in one place. Sweep the unlogged 4xxs.</td>
+  </tr>
+  <tr>
+    <td>6 — Time + enum consistency</td>
+    <td><a href="#m7">M7</a>, <a href="#m8">M8</a>, <a href="#m9">M9</a>, <a href="#m10">M10</a>, <a href="#m11">M11</a>, <a href="#l1">L1</a></td>
+    <td>Route all day-bucketing + the dashboard grid through <code>event-time.ts</code>; warn on out-of-range sessions when narrowing event dates; transactional sortOrder; a shared <code>session-enums.ts</code>; cascade TopicSpeaker on speaker removal.</td>
+  </tr>
+  <tr>
+    <td>Deferred → ROADMAP</td>
+    <td><a href="#l4">L4</a>, <a href="#l5">L5</a></td>
+    <td>Hand-rolled org binds → <code>buildEventAccessWhere</code>; the third viewer-local countdown; org-scoped public slug lookups (multi-tenant pre-condition); document the date-string contract.</td>
+  </tr>
+</table>
+</div>
+
+<h2 id="clean">9. What checked out clean</h2>
+
+<ul>
+  <li><strong>The June 10 consistency pass held.</strong> REST create + update both validate session times via
+    <code>isSessionWithinEventDates</code> in the event timezone, matching MCP.</li>
+  <li><strong>All 8 session tools really are exposed to both surfaces</strong> — 8 in
+    <code>SESSION_TOOL_DEFINITIONS</code>, 8 in <code>SESSION_EXECUTORS</code>, all 8 registered in
+    <code>register-mcp-tools.ts</code>. (The identical CLAUDE.md claim for abstracts turned out false; this one
+    is true.)</li>
+  <li><strong>MCP cross-event injection is closed.</strong> <code>getOrgIdSecure(eventId, orgId)</code> binds
+    the event to the authenticated org before any executor runs, and every session tool re-filters
+    <code>speakerId</code>/<code>trackId</code>/<code>abstractId</code> by <code>eventId: ctx.eventId</code>.</li>
+  <li><strong>Every <code>Event.settings</code> write in this domain uses the row-locked
+    <code>updateEventSettings</code></strong> — webinar settings, sponsors, and the provisioner. No
+    read-spread-write bypass remains.</li>
+  <li><strong>FK cascades match the code's assumptions</strong>: deleting a Speaker cascades into both
+    <code>SessionSpeaker</code> and <code>TopicSpeaker</code>; <code>ZoomMeeting</code>,
+    <code>ZoomAttendance</code> and <code>WebinarPresence</code> cascade from the session.
+    <code>ZoomMeeting.sessionId</code> is genuinely <code>@unique</code> (1:1 holds).</li>
+  <li><strong>The public agenda's publish gate is server-enforced</strong> (<code>settings.agendaPublished</code>
+    + PUBLISHED/LIVE only), not UI-only — unlike the <code>registrationOpen</code> no-op fixed in June.</li>
+  <li><strong><code>list_live_sessions_now</code> is correct</strong> — compares absolute instants, excludes
+    CANCELLED.</li>
+  <li><strong>MCP <code>replace_session_speakers</code> is properly transactional</strong>, and the presence
+    heartbeat's deliberate no-transaction upsert is sound (the <code>@@unique([sessionId, registrationId])</code>
+    makes <code>INSERT … ON CONFLICT</code> collision-safe; the only race is a benign <code>joinCount</code>
+    off-by-one on a non-authoritative stat).</li>
+</ul>
+
+<footer>
+  Produced by four independent review passes (scheduling lifecycle · RBAC &amp; public exposure · concurrency
+  &amp; integrity · drift &amp; failure-visibility), with lead-reviewer source verification of B1, B2, H1, H2,
+  H3 and H4. Companion to
+  <a href="/admin/docs/CODE_REVIEW_REGISTRATIONS_SPEAKERS.html">CODE_REVIEW_REGISTRATIONS_SPEAKERS.html</a>,
+  <a href="/admin/docs/CODE_REVIEW_PAYMENTS_REFUNDS.html">CODE_REVIEW_PAYMENTS_REFUNDS.html</a> and
+  <a href="/admin/docs/CODE_REVIEW_ABSTRACTS_REVIEWERS.html">CODE_REVIEW_ABSTRACTS_REVIEWERS.html</a>
+  (all July 10, 2026). Deferred items land in <code>docs/ROADMAP.md</code>; fixes will be appended here
+  phase-by-phase as they ship.
+</footer>
+
+</div>
+</body>
+</html>
