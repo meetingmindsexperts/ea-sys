@@ -212,11 +212,11 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Current Release — July 10, 2026
 
-### Check-in & badges review (July 10, 2026) — Phase 1 SHIPPED (door correctness), rest deferred
+### Check-in & badges review (July 10, 2026) — Phases 1+2 SHIPPED (door correctness + credentials), rest deferred
 
 A 4-angle production review of the check-in + badges domain ahead of real conferences with 500–2000
 in-person attendees: **0 BLOCKER / 8 HIGH / 7 MED / 4 LOW**. Full report:
-[docs/CODE_REVIEW_CHECKIN_BADGES.html](CODE_REVIEW_CHECKIN_BADGES.html). **Phase 1 (door correctness — H1/H2/H3/M7) shipped `706ba17`;** the rest below is deferred. Severity is calibrated: 0 BLOCKERs because no barcode leak is
+[docs/CODE_REVIEW_CHECKIN_BADGES.html](CODE_REVIEW_CHECKIN_BADGES.html). **Phase 1 (door correctness — H1/H2/H3/M7) shipped `706ba17`; Phase 2 (credential exposure — H6/H7/H8/L4) shipped `aac727a`.** The rest below is deferred. Severity is calibrated: 0 BLOCKERs because no barcode leak is
 reachable by an arbitrary unauthenticated caller (all require an org-attached account or an unguessable
 cuid), unlike the same-day sessions blockers.
 
@@ -249,14 +249,14 @@ cuid), unlike the same-day sessions blockers.
 
 **Credential exposure (insider-scoped, same class as the July-10 sessions blockers):**
 
-- **H6 — `FINANCIAL_KEYS` omits `qrCode`/`dtcmBarcode`**, so `redactFinancialFields` — the only redaction
+- **✅ H6 (SHIPPED `aac727a`) — `FINANCIAL_KEYS` omits `qrCode`/`dtcmBarcode`**, so `redactFinancialFields` — the only redaction
   pass that runs on both registration GETs for non-finance roles — never strips the physical-access
   credential. This is the amplifier; fixing it closes the payload half of H7 + H8 in one place.
-- **H7 — the registrations LIST GET has no `denyReviewer`** (the one at `:306` guards the POST) and uses
+- **✅ H7 (SHIPPED `aac727a`) — the registrations LIST GET has no `denyReviewer`** (the one at `:306` guards the POST) and uses
   `include:`, so every attendee's `qrCode` + `dtcmBarcode` is returned to any org-attached caller —
   including **MEMBER** (documented as sponsor-side stakeholders/auditors) and internal-domain
   **REGISTRANT**s. One call yields enough to clone a badge and walk someone through the door.
-- **H8 — two IDOR paths.** The detail GET uses bare `auth()` with the row scoped `{ id, eventId }` (not
+- **✅ H8 + L4 (SHIPPED `aac727a`) — two IDOR paths.** The detail GET uses bare `auth()` with the row scoped `{ id, eventId }` (not
   user-scoped), so an external REGISTRANT with a registration in the event can fetch any other
   registration's barcode by id. And `registrant/registrations/[id]/barcode/route.ts:43-51` org-scopes its
   staff branch instead of routing through `buildEventAccessWhere`, letting an **ONSITE** temp assigned to

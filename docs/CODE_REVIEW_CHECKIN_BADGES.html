@@ -489,7 +489,32 @@ finally { setScanning(false); setManualInput(""); inputRef.current?.focus(); }  
     <code>check-in.ts</code>, so H3/M7 are fixed once for everyone. +12 tests. Suite 2401 → 2413.</li>
 </ul>
 
-<p><em>Phases 2–4 (credentials, Print All, logging/UX) will be appended here as they ship.</em></p>
+<h3>Phase 2 — Credential exposure (H6 + H7 + H8 + L4) · commit <code>aac727a</code></h3>
+<ul>
+  <li><strong>H6 — new <code>src/lib/barcode-visibility.ts</code></strong> is the single source of truth
+    (<code>canViewEntryBarcode()</code> + <code>redactBarcodeFields()</code>). Deliberately its OWN
+    boundary, NOT folded into finance: <code>FINANCE_ROLES</code> includes MEMBER + ONSITE, but MEMBER (a
+    sponsor-side observer) must NOT hold a door credential while ONSITE (desk staff who print badges) MUST
+    — so the barcode set is SUPER_ADMIN/ADMIN/ORGANIZER/ONSITE + API keys, matching neither
+    <code>FINANCE_ROLES</code> nor <code>canWrite</code>.</li>
+  <li><strong>H7 — the registrations LIST GET</strong> now strips barcodes unless
+    <code>canViewEntryBarcode</code>, composed with the existing finance redaction (a MEMBER keeps finance
+    but loses barcodes; an internal-domain REGISTRANT can no longer harvest every entry barcode).</li>
+  <li><strong>H8 — two IDOR paths closed.</strong> The detail GET bound the row only to
+    <code>{ id, eventId }</code>, so an external REGISTRANT (admitted via registration linkage) could
+    fetch any registration's full payload by id — org-null REGISTRANTs are now bound to their OWN row
+    (<code>userId</code>); barcodes are redacted for non-door roles here too. And the registrant barcode
+    PNG route's org-staff branch org-scoped event-wide (an ONSITE temp could pull a barcode for any event
+    in the org) — it now routes through <code>buildEventAccessWhere</code> (assignment-scoped for ONSITE).
+    <strong>L4</strong>: that route gained a 120/hr per-user rate limit and logs its 403/404/429.</li>
+  <li><strong>Note:</strong> MCP <code>list_registrations</code> still returns barcodes — that path is
+    org-API-key / ADMIN-equivalent, consistent with the documented "API key = admin" model.
+    <strong>Tests</strong>: +20 (helper matrix incl. MEMBER-denied / ONSITE-allowed / API-key-allowed;
+    list strips for MEMBER keeps for ONSITE; barcode route carries the ONSITE assignment predicate +
+    owner-scopes a REGISTRANT + 429). Suite 2413 → 2433.</li>
+</ul>
+
+<p><em>Phases 3–4 (Print All at scale, logging/UX) will be appended here as they ship.</em></p>
 
 <h2 id="clean">8. What checked out clean</h2>
 <ul>
