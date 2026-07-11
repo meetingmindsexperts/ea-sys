@@ -198,8 +198,13 @@ async function processRow(
     // failure: nothing to send, nobody to notify. Mark it terminally SENT with
     // zero counts and log at info — NOT FAILED + error (which trips the admin
     // alert). Common for auto-enqueued webinar sequences on events that have no
-    // registrations yet. The immediate "Send now" route still surfaces the same
-    // condition as a 400 so an operator gets feedback.
+    // registrations yet. NOTE: since the 2026-06-09 jobification the immediate
+    // "Send now" route ENQUEUES rather than sending inline, so an empty-audience
+    // send-now also lands here (SENT with 0 counts, info log) — the operator
+    // sees a "Sent to 0" row, not a synchronous 400. Config errors (untagged
+    // cert template, missing agreement template, unbuilt survey, deactivated
+    // custom slug) ARE still rejected synchronously: both the enqueue and
+    // schedule routes call precheckBulkEmailViability before creating the row.
     if (err instanceof BulkEmailError && err.code === NO_RECIPIENTS_CODE) {
       await db.scheduledEmail.update({
         where: { id: row.id },

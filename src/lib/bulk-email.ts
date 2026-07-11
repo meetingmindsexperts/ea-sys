@@ -1,4 +1,4 @@
-import { PaymentStatus, RegistrationStatus, SessionRole, SpeakerStatus } from "@prisma/client";
+import { PaymentStatus, Prisma, RegistrationStatus, SessionRole, SpeakerStatus } from "@prisma/client";
 import crypto from "crypto";
 import { z } from "zod";
 import { db } from "./db";
@@ -388,29 +388,62 @@ interface ResolvedRecipient {
   ticketTypePricing?: { price: unknown; currency: string } | null;
 }
 
+/** The subset of a bulk-email request needed to validate its config viability. */
+export type BulkEmailViabilityInput = Pick<
+  BulkEmailInput,
+  "eventId" | "recipientType" | "emailType" | "customSubject" | "customMessage" | "attachments" | "filters"
+>;
+
+// The event columns rendered into an email (sender/branding/tax + the survey +
+// agreement preconditions). Shared by the viability precheck and executeBulkEmail
+// so the send loads the event exactly once.
+const VIABILITY_EVENT_SELECT = {
+  id: true,
+  slug: true,
+  name: true,
+  startDate: true,
+  venue: true,
+  address: true,
+  settings: true,
+  emailFromAddress: true,
+  emailFromName: true,
+  emailCcAddresses: true,
+  emailHeaderImage: true,
+  emailFooterImage: true,
+  emailFooterHtml: true,
+  speakerAgreementTemplate: true,
+  speakerAgreementHtml: true,
+  surveyConfig: true,
+  taxRate: true,
+  taxLabel: true,
+} satisfies Prisma.EventSelect;
+
+export type BulkEmailViabilityEvent = Prisma.EventGetPayload<{ select: typeof VIABILITY_EVENT_SELECT }>;
+
+export interface BulkEmailViability {
+  event: BulkEmailViabilityEvent;
+  certTemplates: LoadedCertTemplate[] | null;
+  agreementMode: ReturnType<typeof pickAgreementAttachmentMode> | null;
+}
+
 /**
- * Resolves recipients, loads template, renders per-recipient, and dispatches in batches.
- * Used by both the immediate-send route and the cron worker for scheduled sends.
+ * Config-only viability checks — everything validatable WITHOUT resolving
+ * recipients: recipient-type/emailType compatibility, custom subject+message,
+ * attachment size, event existence, agreement-template presence, survey
+ * configuration, and certificate-template existence + tagging. Throws
+ * BulkEmailError (status + code) on the first failure; returns the loaded event
+ * + cert templates + agreement mode so the caller doesn't re-load them.
  *
- * Throws BulkEmailError on validation failures (e.g. event missing, no recipients).
- * Per-recipient send failures are captured in the result.errors array, not thrown.
+ * Called at the TOP of executeBulkEmail (the fire-time backstop) AND
+ * synchronously by the enqueue + schedule routes (review M2), so an operator
+ * gets an immediate 4xx for a misconfigured send instead of a green "queued"
+ * toast followed by a FAILED ScheduledEmail row a minute later. ONE
+ * implementation — the two call sites can't drift.
  */
-export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmailResult> {
-  const {
-    eventId,
-    recipientType,
-    recipientIds,
-    emailType,
-    customSubject,
-    customMessage,
-    attachments,
-    filters,
-    organizerName,
-    organizerEmail,
-    organizerSignature,
-    organizationId,
-    triggeredByUserId,
-  } = input;
+export async function precheckBulkEmailViability(
+  input: BulkEmailViabilityInput,
+): Promise<BulkEmailViability> {
+  const { eventId, recipientType, emailType, customSubject, customMessage, attachments, filters } = input;
 
   // Speaker-agreement bulk sends need either an uploaded .docx template OR
   // inline agreement HTML on the event — fail fast before resolving
@@ -426,8 +459,6 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
 
   // Survey invitations only make sense for `registrations` — speakers /
   // reviewers / abstracts have no Registration-bound survey to fill out.
-  // Hoist the check so a misconfigured tile fails fast rather than
-  // sending N broken emails with empty {{surveyLink}} placeholders.
   if (emailType === "survey-invitation" && recipientType !== "registrations") {
     throw new BulkEmailError(
       "Survey invitations can only be sent to registrations",
@@ -437,7 +468,6 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
 
   // Certificate sends: hoisted guards — recipient-type restriction + the
   // full template-set validation (exists, belongs to the event, tagged).
-  // Batch-wide misconfigurations, so fail fast before resolving recipients.
   let certTemplates: LoadedCertTemplate[] | null = null;
   if (emailType === "certificate") {
     if (recipientType !== "registrations" && recipientType !== "speakers") {
@@ -481,38 +511,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     }
   }
 
-  // Only fetch the columns we render into the email — avoids dragging back HTML
-  // template fields, banner image, terms HTML, etc.
-  // Include per-event sender fields + email branding so the `from` address
-  // respects the event's configured sender (not just provider defaults).
   const event = await db.event.findFirst({
     where: { id: eventId },
-    select: {
-      id: true,
-      slug: true,
-      name: true,
-      startDate: true,
-      venue: true,
-      address: true,
-      settings: true,
-      emailFromAddress: true,
-      emailFromName: true,
-      emailCcAddresses: true,
-      emailHeaderImage: true,
-      emailFooterImage: true,
-      emailFooterHtml: true,
-      speakerAgreementTemplate: true,
-      speakerAgreementHtml: true,
-      // surveyConfig — null if no survey is configured. Used by the
-      // "survey-invitation" branch as a precondition (we won't mint
-      // tokens for an event that has no survey for the recipient to
-      // fill out).
-      surveyConfig: true,
-      // Payment-reminder amount-due (tax-inclusive) for the {{amount}} +
-      // Pay Now link, via the shared buildPaymentReminderVars helper.
-      taxRate: true,
-      taxLabel: true,
-    },
+    select: VIABILITY_EVENT_SELECT,
   });
   if (!event) {
     throw new BulkEmailError("Event not found", 404);
@@ -532,10 +533,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     );
   }
 
-  // Second survey precondition: the event must actually have a survey
-  // built. We could let the per-recipient public link 404 instead, but
-  // failing the bulk send up-front is friendlier to the operator and
-  // doesn't waste a per-recipient SES quota slice.
+  // Second survey precondition: the event must actually have a survey built.
   if (emailType === "survey-invitation") {
     const sc = event.surveyConfig;
     if (!Array.isArray(sc) || sc.length === 0) {
@@ -545,6 +543,41 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       );
     }
   }
+
+  return { event, certTemplates, agreementMode };
+}
+
+/**
+ * Resolves recipients, loads template, renders per-recipient, and dispatches in batches.
+ * Used by both the immediate-send route and the cron worker for scheduled sends.
+ *
+ * Throws BulkEmailError on validation failures (e.g. event missing, no recipients).
+ * Per-recipient send failures are captured in the result.errors array, not thrown.
+ */
+export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmailResult> {
+  const {
+    eventId,
+    recipientType,
+    recipientIds,
+    emailType,
+    customSubject,
+    customMessage,
+    attachments,
+    filters,
+    organizerName,
+    organizerEmail,
+    organizerSignature,
+    organizationId,
+    triggeredByUserId,
+  } = input;
+
+  // Config viability — recipient-type/emailType compatibility, custom
+  // subject+message, attachment size, event existence, agreement template,
+  // survey configuration, certificate templates. Shared with the enqueue +
+  // schedule routes (review M2) so a misconfigured send is rejected there
+  // synchronously; this call is the fire-time backstop and also loads the
+  // event + cert templates + agreement mode for the send below.
+  const { event, certTemplates, agreementMode } = await precheckBulkEmailViability(input);
 
   // App URL for building public links — same fallback chain as the
   // send-completion-emails route so behavior is identical on EC2 +

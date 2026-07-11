@@ -8,18 +8,32 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockAuth, mockDb, mockCheckRateLimit, mockSafeParse } = vi.hoisted(() => ({
-  mockAuth: vi.fn(),
-  mockDb: {
-    event: { findFirst: vi.fn() },
-    scheduledEmail: { create: vi.fn() },
-    auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
-  },
-  mockCheckRateLimit: vi.fn(
-    (): { allowed: boolean; retryAfterSeconds?: number } => ({ allowed: true }),
-  ),
-  mockSafeParse: vi.fn(),
-}));
+const { mockAuth, mockDb, mockCheckRateLimit, mockSafeParse, mockPrecheck, BulkEmailError } =
+  vi.hoisted(() => {
+    class BulkEmailError extends Error {
+      status: number;
+      code?: string;
+      constructor(message: string, status = 400, code?: string) {
+        super(message);
+        this.status = status;
+        this.code = code;
+      }
+    }
+    return {
+      mockAuth: vi.fn(),
+      mockDb: {
+        event: { findFirst: vi.fn() },
+        scheduledEmail: { create: vi.fn(), findMany: vi.fn() },
+        auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
+      },
+      mockCheckRateLimit: vi.fn(
+        (): { allowed: boolean; retryAfterSeconds?: number } => ({ allowed: true }),
+      ),
+      mockSafeParse: vi.fn(),
+      mockPrecheck: vi.fn(),
+      BulkEmailError,
+    };
+  });
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -47,7 +61,11 @@ vi.mock("@/lib/auth-guards", () => ({
     return null;
   },
 }));
-vi.mock("@/lib/bulk-email", () => ({ bulkEmailSchema: { safeParse: mockSafeParse } }));
+vi.mock("@/lib/bulk-email", () => ({
+  bulkEmailSchema: { safeParse: mockSafeParse },
+  precheckBulkEmailViability: mockPrecheck,
+  BulkEmailError,
+}));
 
 import { POST } from "@/app/api/events/[eventId]/emails/bulk/route";
 
@@ -71,6 +89,8 @@ beforeEach(() => {
   mockSafeParse.mockReturnValue({ success: true, data: validBody });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev_1" });
   mockDb.scheduledEmail.create.mockResolvedValue({ id: "se_new", status: "PENDING" });
+  mockPrecheck.mockResolvedValue({ event: { id: "ev_1" }, certTemplates: null, agreementMode: null });
+  mockDb.scheduledEmail.findMany.mockResolvedValue([]);
 });
 
 describe("POST /emails/bulk — enqueue", () => {
@@ -132,5 +152,39 @@ describe("POST /emails/bulk — enqueue", () => {
     const res = await POST(makeReq(validBody), { params });
     expect(res.status).toBe(404);
     expect(mockDb.scheduledEmail.create).not.toHaveBeenCalled();
+  });
+
+  // ── M2: synchronous viability precheck ──
+  it("rejects a misconfigured send synchronously (precheck) with no row created", async () => {
+    mockPrecheck.mockRejectedValue(
+      new BulkEmailError('Certificate template "X" has no tag', 400, undefined),
+    );
+    const res = await POST(makeReq(validBody), { params });
+    const body = await res.json();
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("no tag");
+    expect(mockDb.scheduledEmail.create).not.toHaveBeenCalled();
+  });
+
+  // ── H2: enqueue idempotency (double-click / HTTP retry) ──
+  it("dedups a same-content send-now — returns the existing jobId, no new row", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      // recipientIds intentionally in a different order — dedup sorts first.
+      { id: "se_existing", customSubject: "Hi", customMessage: "Body", recipientIds: ["r2", "r1"], filters: null },
+    ]);
+    const res = await POST(makeReq(validBody), { params });
+    const body = await res.json();
+    expect(res.status).toBe(202);
+    expect(body).toMatchObject({ deduplicated: true, jobId: "se_existing" });
+    expect(mockDb.scheduledEmail.create).not.toHaveBeenCalled();
+  });
+
+  it("does NOT dedup when content differs (different message) — enqueues a new row", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      { id: "se_other", customSubject: "Hi", customMessage: "DIFFERENT BODY", recipientIds: ["r1", "r2"], filters: null },
+    ]);
+    const res = await POST(makeReq(validBody), { params });
+    expect(res.status).toBe(202);
+    expect(mockDb.scheduledEmail.create).toHaveBeenCalledTimes(1);
   });
 });

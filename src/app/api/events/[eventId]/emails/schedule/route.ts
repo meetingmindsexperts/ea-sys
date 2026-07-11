@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { bulkEmailSchema } from "@/lib/bulk-email";
+import { bulkEmailSchema, precheckBulkEmailViability, BulkEmailError } from "@/lib/bulk-email";
 
 const MIN_LEAD_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -79,6 +79,36 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // M2: validate send viability now, at schedule time, so a misconfigured
+    // send (untagged cert template, missing agreement template, deactivated
+    // custom slug, unbuilt survey) is rejected synchronously rather than
+    // failing silently when it fires. The worker re-checks at fire time as the
+    // backstop (config can change between now and the scheduled time).
+    try {
+      await precheckBulkEmailViability({
+        eventId,
+        recipientType: data.recipientType,
+        emailType: data.emailType,
+        customSubject: data.customSubject,
+        customMessage: data.customMessage,
+        attachments: data.attachments,
+        filters: data.filters,
+      });
+    } catch (err) {
+      if (err instanceof BulkEmailError) {
+        apiLogger.warn({
+          msg: "scheduled-email:precheck-failed",
+          eventId,
+          userId: session.user.id,
+          emailType: data.emailType,
+          code: err.code,
+          reason: err.message,
+        });
+        return NextResponse.json({ error: err.message }, { status: err.status });
+      }
+      throw err;
     }
 
     const created = await db.scheduledEmail.create({

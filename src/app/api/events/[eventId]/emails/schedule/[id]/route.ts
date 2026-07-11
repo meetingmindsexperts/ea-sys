@@ -8,17 +8,19 @@ import { getClientIp } from "@/lib/security";
 
 const MIN_LEAD_MS = 5 * 60 * 1000;
 
+// NOTE: `filters` is deliberately NOT editable here (review M3). This PATCH
+// REPLACES the whole filters JSON, and a partial `{status, ticketTypeId}`
+// schema would silently strip the send-critical keys that ride inside filters
+// (templateSlug / certificateTemplateIds / surveyExpiryDays / multi-value
+// paymentStatus / ticketTypeIds / badgeTypes / tagsInclude) — turning a
+// template/cert/survey send into a fire-time FAIL or a silent audience-widen.
+// The edit dialog only changes subject/message/time; to change the audience,
+// cancel and create a new scheduled send. Any `filters` in the body is ignored
+// (Zod strips unknown keys), so the persisted filters are left untouched.
 const updateSchema = z.object({
   customSubject: z.string().max(500).nullable().optional(),
   customMessage: z.string().max(10000).nullable().optional(),
   scheduledFor: z.coerce.date().optional(),
-  filters: z
-    .object({
-      status: z.string().max(50).optional(),
-      ticketTypeId: z.string().max(100).optional(),
-    })
-    .nullable()
-    .optional(),
   attachments: z
     .array(
       z.object({
@@ -87,7 +89,6 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         ...(data.customSubject !== undefined ? { customSubject: data.customSubject } : {}),
         ...(data.customMessage !== undefined ? { customMessage: data.customMessage } : {}),
         ...(data.scheduledFor ? { scheduledFor: data.scheduledFor } : {}),
-        ...(data.filters !== undefined ? { filters: data.filters ?? undefined } : {}),
         ...(data.attachments !== undefined ? { attachments: data.attachments ?? undefined } : {}),
       },
     });
