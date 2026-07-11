@@ -2032,6 +2032,11 @@ model ScheduledEmail {
   // immediate-send route queue selected-recipient sends without losing the
   // selection — the worker passes these through to executeBulkEmail.
   recipientIds  String[] @default([])
+  // Recipient ids already successfully emailed by a run of this send. Appended
+  // per-batch by the worker; on a re-run (retry after a crash) executeBulkEmail
+  // skips these so a partial send resumes instead of re-emailing everyone who
+  // already received it. Empty for a fresh send. (Review H1.)
+  emailedKeys   String[] @default([])
 
   scheduledFor DateTime
   status       ScheduledEmailStatus @default(PENDING)

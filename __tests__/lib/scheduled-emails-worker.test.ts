@@ -62,6 +62,7 @@ function dueRow(overrides: Record<string, unknown> = {}) {
     attachments: null,
     filters: null,
     recipientIds: [],
+    emailedKeys: [],
     retryCount: 0,
     ...overrides,
   };

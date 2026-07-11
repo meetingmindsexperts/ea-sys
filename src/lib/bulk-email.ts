@@ -214,6 +214,21 @@ export interface BulkEmailInput {
   /** Optional audit context threaded into EmailLog rows. */
   organizationId?: string | null;
   triggeredByUserId?: string | null;
+  /**
+   * Per-recipient send idempotency (review H1). Recipient ids already emailed
+   * by a prior run of this send — skipped here so a retry after a crash resumes
+   * instead of re-emailing everyone. Also means an already-emailed recipient's
+   * survey token is never re-minted (review M6). Non-cert paths only; the
+   * certificate send has its own issue-or-reuse idempotency.
+   */
+  alreadyEmailedKeys?: string[];
+  /**
+   * Called after each successfully-sent batch with that batch's recipient ids
+   * so the caller can persist idempotency progress (the worker appends them to
+   * ScheduledEmail.emailedKeys). Best-effort — a failure to record must not fail
+   * the send (worst case: a retry re-sends a batch).
+   */
+  onBatchEmailed?: (keys: string[]) => Promise<void>;
 }
 
 export interface BulkEmailResult {
@@ -569,6 +584,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     organizerSignature,
     organizationId,
     triggeredByUserId,
+    alreadyEmailedKeys,
+    onBatchEmailed,
   } = input;
 
   // Config viability — recipient-type/emailType compatibility, custom
@@ -1151,14 +1168,36 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     };
   };
 
+  // ── Per-recipient idempotency (review H1) ──
+  // On a re-run (retry after a crash, or a superseded duplicate) skip the
+  // recipients a prior run already emailed so we resume instead of re-emailing
+  // everyone. A fresh send has an empty set, so `toSend === recipients`. This
+  // also means an already-emailed recipient's survey token is never re-minted
+  // (review M6 — the mint lives inside generateEmailForRecipient, below the
+  // filter). Certificate sends returned early above and are unaffected (they
+  // have their own issue-or-reuse idempotency).
+  const alreadyEmailed = new Set(alreadyEmailedKeys ?? []);
+  const toSend = alreadyEmailed.size
+    ? recipients.filter((r) => !alreadyEmailed.has(r.id))
+    : recipients;
+  if (alreadyEmailed.size) {
+    apiLogger.info({
+      msg: "bulk-email:resume-skip",
+      eventId,
+      emailType,
+      alreadyEmailed: alreadyEmailed.size,
+      remaining: toSend.length,
+    });
+  }
+
   // ── Send in batches of 25 ──
   const BATCH_SIZE = 25;
   let successCount = 0;
   let failureCount = 0;
   const errors: Array<{ email: string; error: string }> = [];
 
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
-    const batch = recipients.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < toSend.length; i += BATCH_SIZE) {
+    const batch = toSend.slice(i, i + BATCH_SIZE);
 
     const batchResults = await Promise.allSettled(
       batch.map(async (recipient) => {
@@ -1265,11 +1304,16 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       })
     );
 
+    // Recipient ids successfully emailed in THIS batch — recorded to the
+    // caller's idempotency store (review H1) so a crash after this point resumes
+    // past them.
+    const batchEmailedKeys: string[] = [];
     for (const r of batchResults) {
       if (r.status === "fulfilled") {
         const { recipient, result: emailResult } = r.value;
         if (emailResult.success) {
           successCount++;
+          batchEmailedKeys.push(recipient.id);
         } else {
           failureCount++;
           errors.push({ email: recipient.email, error: emailResult.error || "Unknown error" });
@@ -1283,10 +1327,20 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         apiLogger.error({ err: r.reason, msg: "bulk-email:batch-promise-rejected" });
       }
     }
+
+    // Persist idempotency progress after each batch (best-effort — a record
+    // failure must never fail the send; worst case a retry re-sends this batch).
+    if (onBatchEmailed && batchEmailedKeys.length) {
+      await onBatchEmailed(batchEmailedKeys).catch((err) =>
+        apiLogger.warn({ err, msg: "bulk-email:record-emailed-failed", eventId, count: batchEmailedKeys.length }),
+      );
+    }
   }
 
   return {
-    total: recipients.length,
+    // The number this run attempted (a fresh send = all recipients; a resumed
+    // retry = the remaining, already-emailed excluded).
+    total: toSend.length,
     successCount,
     failureCount,
     errors,

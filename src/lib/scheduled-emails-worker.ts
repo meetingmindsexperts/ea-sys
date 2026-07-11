@@ -91,6 +91,7 @@ async function processRow(
     attachments: unknown;
     filters: unknown;
     recipientIds: string[];
+    emailedKeys: string[];
     retryCount: number;
   },
   organizer:
@@ -143,6 +144,16 @@ async function processRow(
       organizerSignature: organizer?.emailSignature ?? undefined,
       organizationId: row.organizationId,
       triggeredByUserId: row.createdById,
+      // Per-recipient idempotency (review H1): skip anyone a prior run already
+      // emailed, and append each batch's sent ids so a crash mid-send resumes
+      // instead of re-emailing. A fresh send starts with an empty list.
+      alreadyEmailedKeys: row.emailedKeys,
+      onBatchEmailed: async (keys) => {
+        await db.scheduledEmail.update({
+          where: { id: row.id },
+          data: { emailedKeys: { push: keys } },
+        });
+      },
     });
 
     // Conditional completion claim — only write SENT if we still OWN the row
@@ -333,6 +344,7 @@ export async function runScheduledEmailsTick(): Promise<ScheduledEmailsTickRepor
       attachments: true,
       filters: true,
       recipientIds: true,
+      emailedKeys: true,
       retryCount: true,
     },
   });
