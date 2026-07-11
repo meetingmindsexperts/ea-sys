@@ -212,29 +212,28 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Current Release — July 10, 2026
 
-### Check-in & badges review (July 10, 2026) — findings, NONE YET FIXED
+### Check-in & badges review (July 10, 2026) — Phase 1 SHIPPED (door correctness), rest deferred
 
 A 4-angle production review of the check-in + badges domain ahead of real conferences with 500–2000
 in-person attendees: **0 BLOCKER / 8 HIGH / 7 MED / 4 LOW**. Full report:
-[docs/CODE_REVIEW_CHECKIN_BADGES.html](CODE_REVIEW_CHECKIN_BADGES.html). **No code fixes shipped yet** —
-the review landed at the end of a session. Severity is calibrated: 0 BLOCKERs because no barcode leak is
+[docs/CODE_REVIEW_CHECKIN_BADGES.html](CODE_REVIEW_CHECKIN_BADGES.html). **Phase 1 (door correctness — H1/H2/H3/M7) shipped `706ba17`;** the rest below is deferred. Severity is calibrated: 0 BLOCKERs because no barcode leak is
 reachable by an arbitrary unauthenticated caller (all require an org-attached account or an unguessable
 cuid), unlike the same-day sessions blockers.
 
 **Fix these before the next live event (door-day):**
 
-- **H1 — the admission gate and the badge filter disagree about who is attending.** `badges/route.ts:78-83`
+- **✅ H1 (SHIPPED `706ba17`) — the admission gate and the badge filter disagree about who is attending.** `badges/route.ts:78-83`
   re-implements "no money due" as `PAID || complimentary`, dropping **INCLUSIVE** (sponsor-paid) and
   **UNASSIGNED** (pay-at-desk) — while `checkInGate` admits them (it blocks only UNPAID/PENDING). The
   canonical set `NO_PAYMENT_DUE_STATUSES` already includes INCLUSIVE. A sponsored VIP scans in fine and
   gets no badge; selecting only that sponsor block yields the 400 *"No paid or complimentary registrations
   found"*, which blames them for not paying. Fix: use the canonical set; decide UNASSIGNED policy.
-- **H2 — THERE IS NO UNDO.** `checkedInAt: null` is never written anywhere in `src/`; the general
+- **✅ H2 (SHIPPED `706ba17`) — THERE IS NO UNDO.** `checkedInAt: null` is never written anywhere in `src/`; the general
   registration PUT references `checkedInAt` zero times. Flipping status back to CONFIRMED leaves the
   timestamp set, so `checkInGate` refuses that person **forever** while the attendance tile says they're
   not in. CLAUDE.md advertised "(+ undo)" — **corrected in this commit**. Fix: an audited `undoCheckIn()`
   in `check-in.ts` that clears status + `checkedInAt` together.
-- **H3 — concurrent double-scan has no conditional claim.** `check-in.ts:76` reads `checkedInAt`, `:114`
+- **✅ H3 + M7 (SHIPPED `706ba17`) — concurrent double-scan has no conditional claim.** `check-in.ts:76` reads `checkedInAt`, `:114`
   commits with an unconditional `update` by id. Two stations (or two tabs — the 2s debounce is a per-tab
   `useRef`) both pass the gate and both write: the true first-entry time is clobbered, and audit rows +
   admin notifications duplicate. Schema has no unique/partial index on `checkedInAt`. Fix is one line:

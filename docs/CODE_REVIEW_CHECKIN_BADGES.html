@@ -458,7 +458,40 @@ finally { setScanning(false); setManualInput(""); inputRef.current?.focus(); }  
 </table>
 </div>
 
-<h2 id="clean">7. What checked out clean</h2>
+<h2 id="fixes">7. Fixes applied — what changed</h2>
+
+<p>
+  Scope this round (owner decision): <strong>door correctness first</strong> — H1, H2, H3 (+M7). One
+  gated commit (tsc · eslint · full vitest · build). The credential exposure (H6–H8), Print All at scale
+  (H4), and the logging/UX items are later phases; MEDs/LOWs are tracked in <code>docs/ROADMAP.md</code>.
+</p>
+
+<h3>Phase 1 — Door correctness (H1 + H2 + H3 + M7) · commit <code>706ba17</code></h3>
+<ul>
+  <li><strong>H1 — badge = door parity.</strong> Extracted <code>isPaymentAdmissible()</code> in
+    <code>src/lib/check-in.ts</code> as the single source of truth for "does payment block entry?". Both
+    <code>checkInGate</code> and the badge route now derive eligibility from it, so a sponsor-paid
+    (<code>INCLUSIVE</code>) or pay-at-desk (<code>UNASSIGNED</code>) delegate the gate admits also gets a
+    badge. The empty-result 400 is reworded ("still owe payment") and logged.</li>
+  <li><strong>H2 — a real undo.</strong> New <code>undoCheckIn()</code> clears <code>status</code> +
+    <code>checkedInAt</code> together via a conditional claim (idempotent), reverts to CONFIRMED, does
+    NOT touch the seat, audits <code>CHECK_IN_UNDO</code>, no notification. New <code>DELETE</code>
+    handler on the check-in route (desk-gated, assignment-scoped, 404s logged) + an "Undo Check-in"
+    button on the registration detail sheet. Previously nothing in <code>src/</code> ever wrote
+    <code>checkedInAt: null</code>.</li>
+  <li><strong>H3 + M7 — race-safe commit.</strong> <code>executeCheckIn</code> now commits with a
+    <code>updateMany where { checkedInAt: null }</code> conditional claim; a concurrent loser loads the
+    already-checked-in row and returns it idempotently with no duplicate audit row / notification / clobbered
+    timestamp. For the reactivation path the claim gates
+    <code>applyRegistrationTransition</code>, so two concurrent <code>allowCancelled</code> overrides can't
+    double-increment the seat + promo counters (M7).</li>
+  <li>All three callers (both REST handlers + MCP <code>check_in_registration</code>) already share
+    <code>check-in.ts</code>, so H3/M7 are fixed once for everyone. +12 tests. Suite 2401 → 2413.</li>
+</ul>
+
+<p><em>Phases 2–4 (credentials, Print All, logging/UX) will be appended here as they ship.</em></p>
+
+<h2 id="clean">8. What checked out clean</h2>
 <ul>
   <li><strong>The June unification held.</strong> <code>checkedInAt</code> is written in exactly one place (<code>check-in.ts:106</code>) — no raw status flip, bulk update, seed, or registration PUT writes it. Both REST handlers and the MCP tool commit through <code>executeCheckIn</code>.</li>
   <li><strong>Audit + notification cannot 500 a committed check-in</strong>, on all three paths — fire-and-forget with a logged catch. Fixed once, for everyone. The badge route's analytics write is likewise wrapped and still returns the PDF.</li>
