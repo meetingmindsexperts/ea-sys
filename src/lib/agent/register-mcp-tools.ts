@@ -474,10 +474,11 @@ export function registerAllMcpTools(
         dietaryReqs: z.string().optional(),
       }).optional(),
     }},
-    { name: "update_speaker", description: "Update a speaker's status + details. status: INVITED/CONFIRMED/DECLINED/CANCELLED. Other fields: title, names, bio, organization, jobTitle, phone, city, country, specialty, website, photo, tags. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
+    { name: "update_speaker", description: "Update a speaker's status + details. status: INVITED/CONFIRMED/DECLINED/CANCELLED. Other fields: title, names, bio, organization, jobTitle, phone, city, country, specialty, website, photo, tags. Setting status to DECLINED/CANCELLED KEEPS the speaker's companion registration (badge + entry barcode) by default — pass cancelCompanionRegistration: true to also cancel it; the response reports the outcome. Pass `expectedUpdatedAt` (ISO timestamp from the row's `updatedAt` when you read it) to enable optimistic-lock concurrent-write protection — server returns code STALE_WRITE if another agent wrote in between.", params: {
       speakerId: z.string(),
       expectedUpdatedAt: z.string().datetime().optional().describe("Row's updatedAt at read time. When supplied, server rejects the write with STALE_WRITE if the row has changed since."),
       status: z.enum(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]).optional(),
+      cancelCompanionRegistration: z.boolean().optional().describe("When status moves to DECLINED/CANCELLED: true also cancels the speaker's auto-created companion registration (revokes badge + entry barcode). Default false = keep it (they may still attend). Real self-registered registrations are never touched."),
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF", ""]).optional(),
       firstName: z.string().optional(),
       lastName: z.string().optional(),

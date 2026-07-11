@@ -17,7 +17,7 @@ const { mockDb, stripeRefundsCreate, verifyRefundSpy, createCreditNoteSpy, sendI
   return {
     mockDb: {
       registration: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
-      invoice: { findFirst: vi.fn() },
+      invoice: { findFirst: vi.fn(), findMany: vi.fn() },
       payment: { update: vi.fn() },
       promoCode: { update: vi.fn().mockResolvedValue({}) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -80,6 +80,8 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
+  // Amount gate default: ample credit so existing scenarios stay gate-open.
+  mockDb.invoice.findMany.mockResolvedValue([{ total: 100000 }]);
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
   mockDb.registration.update.mockResolvedValue({});
   mockDb.payment.update.mockResolvedValue({});
@@ -166,11 +168,47 @@ describe("refundRegistration", () => {
   });
 
   it("CREDIT_NOTE_REQUIRED when no credit note exists", async () => {
-    mockDb.invoice.findFirst.mockResolvedValue(null);
+    mockDb.invoice.findMany.mockResolvedValue([]);
     mockDb.registration.findUnique.mockResolvedValue(reg({ id: "p1", stripePaymentId: "pi_1", amount: 100, currency: "USD" }));
     const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
     expect(r).toMatchObject({ ok: false, code: "CREDIT_NOTE_REQUIRED" });
     expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("CREDIT_NOTE_INSUFFICIENT when the refund would exceed the credited total (July 7 M2, closed July 11)", async () => {
+    // A $1 credit note must NOT unlock a $100 refund.
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 1 }]);
+    mockDb.registration.findUnique.mockResolvedValue(reg({ id: "p1", stripePaymentId: "pi_1", amount: 100, currency: "USD" }));
+    const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
+    expect(r).toMatchObject({
+      ok: false,
+      code: "CREDIT_NOTE_INSUFFICIENT",
+      meta: { creditedTotal: 1, refundedBefore: 0, requested: 100, maxRefundable: 1 },
+    });
+    // Nothing booked, no Stripe call.
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+    expect(stripeRefundsCreate).not.toHaveBeenCalled();
+  });
+
+  it("credit gate is CUMULATIVE: prior refunds count against the credited total", async () => {
+    // Credited 50, already refunded 30 → only 20 more refundable.
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 30 }, { total: 20 }]);
+    mockDb.registration.findUnique.mockResolvedValue(
+      reg({ id: "p1", stripePaymentId: "pi_1", amount: 100, currency: "USD" }, { refundedAmount: 30 }),
+    );
+    const blocked = await refundRegistration({ registrationId: "reg1", eventId: "ev1", amount: 25, source: "rest" });
+    expect(blocked).toMatchObject({ ok: false, code: "CREDIT_NOTE_INSUFFICIENT", meta: { maxRefundable: 20 } });
+
+    const allowed = await refundRegistration({ registrationId: "reg1", eventId: "ev1", amount: 20, source: "rest" });
+    expect(allowed.ok).toBe(true);
+  });
+
+  it("a fully-credited registration refunds in full (gate exactly at the boundary)", async () => {
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 100 }]);
+    mockDb.registration.findUnique.mockResolvedValue(reg({ id: "p1", stripePaymentId: null, amount: 100, currency: "USD" }));
+    const r = await refundRegistration({ registrationId: "reg1", eventId: "ev1", source: "rest" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.refund.fullyRefunded).toBe(true);
   });
 
   it("NOT_PAID for a non-paid registration", async () => {

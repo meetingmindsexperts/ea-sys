@@ -20,7 +20,8 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { useEvent, useRegistrations } from "@/hooks/use-api";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEvent, useRegistrations, queryKeys } from "@/hooks/use-api";
 import { formatPersonName } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -64,6 +65,7 @@ function playBeep(success: boolean) {
 export default function CheckInPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  const queryClient = useQueryClient();
   const { data: event } = useEvent(eventId);
   const { data: registrations = [] } = useRegistrations(eventId);
 
@@ -144,6 +146,10 @@ export default function CheckInPage() {
         };
         setRecentScans((prev) => [result, ...prev.slice(0, 9)]);
         if (soundEnabled) playBeep(true);
+        // Keep the attendance counter live (review M5): the counter derives
+        // from the cached registrations query (staleTime 5 min), so without
+        // an invalidation it sat frozen through the arrival rush.
+        queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       } else if (res.status === 400 && data.error?.includes("Already checked in")) {
         const name = data.registration
           ? formatPersonName(
@@ -174,14 +180,29 @@ export default function CheckInPage() {
         if (soundEnabled) playBeep(false);
       }
     } catch (err) {
+      // A venue-WiFi drop mid-scan must NOT read as "processed" (review M6):
+      // beep the failure tone and put an explicit NOT-CHECKED-IN row in
+      // Recent Scans — a toast alone is easy to miss at a busy door.
       console.error("[check-in] scan failed", err);
-      toast.error("Network error");
+      // Clear the 2s same-code debounce so an immediate retry of the SAME
+      // badge isn't silently swallowed after a failed attempt.
+      lastScanRef.current = "";
+      const result: ScanResult = {
+        id: crypto.randomUUID(),
+        type: "error",
+        name: trimmed,
+        message: "Network error — NOT checked in. Re-scan when back online.",
+        timestamp: new Date(),
+      };
+      setRecentScans((prev) => [result, ...prev.slice(0, 9)]);
+      if (soundEnabled) playBeep(false);
+      toast.error("Network error — the scan was NOT recorded");
     } finally {
       setScanning(false);
       setManualInput("");
       inputRef.current?.focus();
     }
-  }, [eventId, scanning, soundEnabled]);
+  }, [eventId, scanning, soundEnabled, queryClient]);
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();

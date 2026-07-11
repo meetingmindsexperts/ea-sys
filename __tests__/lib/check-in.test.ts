@@ -55,6 +55,25 @@ describe("checkInGate — the desk truth table", () => {
     expect(checkInGate({ ...base, paymentStatus: "PENDING" })).toMatchObject({ code: "PAYMENT_REQUIRED" });
   });
 
+  it("allowPaymentDue (audited desk override, M1) skips ONLY the payment gate", () => {
+    // Owner decision July 11: the override covers any payment block.
+    expect(checkInGate({ ...base, paymentStatus: "UNPAID" }, { allowPaymentDue: true })).toBeNull();
+    expect(checkInGate({ ...base, paymentStatus: "PENDING" }, { allowPaymentDue: true })).toBeNull();
+    // It does NOT bypass the cancelled gate…
+    expect(
+      checkInGate({ ...base, status: "CANCELLED", paymentStatus: "UNPAID" }, { allowPaymentDue: true }),
+    ).toMatchObject({ code: "CANCELLED" });
+    // …nor the double-check-in gate.
+    expect(
+      checkInGate({ ...base, paymentStatus: "UNPAID", checkedInAt: new Date() }, { allowPaymentDue: true }),
+    ).toMatchObject({ code: "ALREADY_CHECKED_IN" });
+  });
+
+  it("FAILED and REFUNDED stay ADMITTED — explicit owner decision (July 11, closes review M2)", () => {
+    expect(checkInGate({ ...base, paymentStatus: "FAILED" })).toBeNull();
+    expect(checkInGate({ ...base, paymentStatus: "REFUNDED" })).toBeNull();
+  });
+
   it("UNPAID but COMPLIMENTARY status / free ticket / free tier → allowed", () => {
     expect(checkInGate({ ...base, paymentStatus: "COMPLIMENTARY" })).toBeNull();
     expect(checkInGate({ ...base, paymentStatus: "UNPAID", ticketTypePrice: 0 })).toBeNull();

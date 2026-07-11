@@ -263,18 +263,31 @@ cuid), unlike the same-day sessions blockers.
   Event A pull a scannable barcode for Event B — the July-7 class, on a route that fix didn't touch. Both
   need an unguessable cuid; **H7 is what defeats that mitigation.** **L4**: that route also has no rate limit.
 
-**Gate policy + import integrity (MED/LOW):** M1 no desk override for a webhook-lagged `PENDING` attendee
-(the agent path has one; the physical door doesn't); M2 the gate admits `FAILED` and `REFUNDED` (it
-enumerates only UNPAID/PENDING) and the desk has no `allowCancelled` reinstate — the door policy is an
-accident of which statuses got enumerated, and deserves an explicit decision; M3 the DTCM import has **no
-per-row try/catch** (exactly one `try {` in the file — the `continue`s are validation skips), so a P2002
-aborts with a generic 500 and **discards the import report**, leaving a partially-applied import days
-before a Dubai-compliance deadline; M4 its email lookup picks an arbitrary registration when a person holds
-two; M5 the "live attendance counter" never invalidates the query cache (zero `invalidateQueries` in the
-scanner page) so it sits frozen up to 5 min; M6 a venue network drop mid-scan produces **no failure beep and
-no Recent-Scans row** — silence reads as "processed" and the attendee walks in un-checked-in; L1 the scan
-`OR`s across two independent unique domains with no `orderBy`; L2 the DTCM import silently overwrites a
-different existing barcode on the same row; L3 MCP `check_in_registration` short-circuits the shared gate.
+**Gate policy + import integrity (MED/LOW) — door-day batch SHIPPED July 11, 2026:**
+
+- **✅ M1 (SHIPPED July 11)** — audited desk override for a payment-blocked attendee. Owner decision: the
+  override covers **any** payment block (webhook-lagged PENDING, UNPAID, …). `checkInGate` gained
+  `allowPaymentDue`; the check-in POST accepts `{ overridePayment: true }` (desk-gated), logs
+  `check-in:payment-override` at warn and audits `paymentOverride` + `paymentStatusAtOverride`; the
+  registration detail sheet offers "Admit anyway (override)" when a check-in is refused PAYMENT_REQUIRED.
+- **✅ M2 (DECIDED July 11 — no change, now explicit)** — owner call: `FAILED` and `REFUNDED` stay
+  **admitted** at the door (a failed charge attempt / goodwill refund doesn't bar the person from the
+  venue). Pinned in `isPaymentAdmissible`'s comment + a truth-table test so it can't be "fixed" without a
+  new product decision. The desk reinstate half remains via the detail sheet's normal flows.
+- **✅ M3 (SHIPPED July 11)** — DTCM import now runs **every row in its own try/catch**: a P2002
+  unique-collision (concurrent import) becomes a per-row error, anything else a generic per-row error with
+  a server-log pointer — the import report always survives.
+- **✅ M4 (SHIPPED July 11)** — the email lookup is deterministic: prefers a **non-cancelled** registration,
+  newest first (falls back to newest overall).
+- **✅ M5 (SHIPPED July 11)** — a successful scan invalidates the registrations query so the attendance
+  counter tracks the door live instead of freezing for up to 5 min.
+- **✅ M6 (SHIPPED July 11)** — a network drop mid-scan now produces the failure beep, an explicit
+  "Network error — NOT checked in" Recent-Scans row, and a toast; the 2s same-code debounce is cleared so
+  an immediate retry of the same badge isn't swallowed.
+- **L2 (partial July 11)** — replacing a *different* existing barcode on re-import is now warn-logged
+  (`barcode-import:overwriting-existing-barcode`); a visible per-row report entry remains open.
+- Still open: L1 the scan `OR`s across two independent unique domains with no `orderBy`; L3 MCP
+  `check_in_registration` short-circuits the shared gate.
 
 **Explicitly NOT a finding:** the desk check-in path has no rate limit, and that is **correct** — a hardware
 scanner legitimately fires many scans/sec, the endpoint is authenticated and desk-gated, and the in-memory
@@ -550,7 +563,7 @@ below in the cross-caller section) which stops the drift class from regenerating
 - **M1 — MCP registration writes scope by org, not the tool's `eventId`** (`agent/tools/registrations.ts:419, 853, 954`). A mis-scoped agent call mutates a sibling event's registrations. Fix: add `eventId: ctx.eventId` to the `where` (REST PUT already event-scopes).
 - **M2 — companion create race** (`speaker-companion.ts:100-124`). Check-then-create, no uniqueness backstop; two racing calls mint an orphaned CONFIRMED faculty reg with a live entry barcode. Fix shape: partial unique index on `(eventId, attendee-email) WHERE createdSource='SPEAKER_COMPANION'` or advisory lock.
 - **M3 — deleting a companion registration silently strips the speaker's facet** (registration DELETE has no `SPEAKER_COMPANION` guard; `sourceRegistrationId` SetNulls; nothing recreates). Fix: warn/confirm on companion rows + log the detach.
-- **M4 — refund routes the whole balance through the newest PAID payment only** (`payment-service.ts:237-249`). Stripe+manual multi-payment regs either never reverse the Stripe charge (manual newest → "recorded" only) or become permanently unrefundable (Stripe newest → amount > charge → STRIPE_FAILED every time, and cancel-with-refund aborts). Fix: split the refund across payment instruments, or cap the Stripe leg at its own charge amount.
+- ~~**M4 — refund routes the whole balance through the newest PAID payment only**~~ — **STALE FINDING (verified July 11)**: already fixed by the payments round's `1191b25` multi-payment allocation — `refundRegistration` now slices across ALL settled payments (Stripe charges first, each slice capped at its charge's own remaining via `Payment.refundedAmount`, manual remainder recorded). This row and the payments-review H6 described the same defect; the fix landed under H6.
 - **M5 — seat/promo deltas computed from pre-transaction snapshots** (`payment-service.ts:421→484` — the gap contains the Stripe network call; also MCP bulk + bulk-type). Concurrent mode/type change in the window → double release. Fix: re-read the row inside the tx and compute `prev` from that. (Seats dormant; promo live.)
 - **M6 — CSV import claims a seat for rows imported as CANCELLED** (`import/registrations/route.ts:328-356`) → permanent `soldCount` inflation (dormant). Fix: skip the claim when the row status is CANCELLED (mirror `holdsSeat`).
 - **M7 — MCP sponsor-gate drift** (`agent/tools/registrations.ts:465-484`): the July-7 H2 "only validate when touching sponsor fields" fix landed on REST only; MCP still hard-blocks any edit to a legacy INCLUSIVE-without-sponsor row.
@@ -788,7 +801,7 @@ Adversarial review of the gated-partial-refund feature (commits `b02c361`, `1e48
 
 | Finding | Sev | Effort | Notes |
 |---|---|---|---|
-| **Refund gate accepts *any-amount* credit note (M2)** | MED | S | [refund/route.ts](../src/app/api/events/%5BeventId%5D/registrations/%5BregistrationId%5D/refund/route.ts) only checks a non-cancelled CN *exists* — a $1 CN unlocks a $500 refund. Should gate on `Σ non-cancelled CN total ≥ refund amount` (or ≥ cumulative refundedAfter). **Partially mitigated in the UI July 7** (Issue Refund button disabled until `creditedAmount > 0`), but the **server** still gates on existence only — the amount-level server gate is the deferred piece. |
+| ~~**Refund gate accepts *any-amount* credit note (M2)**~~ ✅ **SHIPPED July 11, 2026** | MED | S | `refundRegistration` ([payment-service.ts](../src/services/payment-service.ts)) now enforces the amount gate server-side: cumulative `refundedAfter` may not exceed **Σ non-cancelled CN totals** — a $1 CN no longer unlocks a $500 refund. New `CREDIT_NOTE_INSUFFICIENT` (409) with `{creditedTotal, refundedBefore, requested, maxRefundable}` meta; the refund dialog caps its amount at `min(remaining, credited − refunded)` and routes a 409 to the credit-note dialog. Note: on rare captured-vs-computed divergent rows (payments-sum > computed total, see M1 below) a cancel-with-refund can now surface this gate instead of silently over-refunding — conservative by design. |
 | **`paidTotal` (payments-sum) vs CN `fullTotal` (computed pricing) divergence (M1)** | MED | M | Refund caps against Σ PAID payments; `createCreditNote` caps against `calcInvoicePricing` (current tier/ticket − discount + tax). If price/tier/discount changed post-payment they disagree. Pick one source of truth for "what was collected" and cap both against it, or document the split deliberately. |
 | **Stripe-error rollback can clobber a webhook-advanced `refundedAmount` (M3)** | MED | S | [refund/route.ts](../src/app/api/events/%5BeventId%5D/registrations/%5BregistrationId%5D/refund/route.ts) unconditionally resets `refundedAmount` on a Stripe error; if Stripe created the refund then errored on the response, the `charge.refunded` webhook advances it first and the rollback under-reports. Make the rollback conditional (`updateMany where refundedAmount = refundedAfter`). |
 | **`refundedAmount` never reset on re-payment (L1)** | LOW | S | Monotonic forever; a partial-refund-then-repay reg misstates the refundable balance. Reset/rebase on new payment or document as unsupported. |
@@ -877,7 +890,7 @@ complimentary, and the companion gives them badge/barcode/check-in/certs — see
 
 | Finding | Sev | Effort | Notes |
 |---|---|---|---|
-| **A DECLINED speaker keeps a CONFIRMED companion registration — badge + entry barcode stay valid** | MED | S–M | Setting `Speaker.status = DECLINED` (or `CANCELLED`) leaves `sourceRegistration.status = CONFIRMED`, so the person retains a **valid entry barcode, printable badge, and check-in eligibility**. Nothing revokes it; cancelling is a manual, easily-forgotten step. This is a **physical-access** gap at the door, not just a data one. **Wanted:** on a transition *into* `DECLINED`/`CANCELLED`, set the companion registration to `CANCELLED` — **behind a confirmation prompt**, because *declining to speak ≠ not attending* (a committee member may decline a speaking slot yet still attend as committee). The prompt should offer **"Also cancel their registration (revokes badge + entry barcode)"** vs **"Keep the registration"**. Consider the reverse too (`DECLINED → CONFIRMED` — reactivate the registration?). **Implementation:** the status write happens in **both** the REST speaker `PUT` ([speakers/[speakerId]/route.ts](../src/app/api/events/%5BeventId%5D/speakers/%5BspeakerId%5D/route.ts)) and MCP `update_speaker` ([tools/speakers.ts](../src/lib/agent/tools/speakers.ts)) — put the cascade in **one shared helper / `speaker-service`**, not mirrored in two callers (see the no-cross-caller-duplication rule). Route the registration transition through the shared `planSeatTransition`/`releaseSeat` applier (a faculty companion holds no seat — `createdSource: SPEAKER_COMPANION` is excluded by `seatCounter` — so the seat move is a no-op, but going through the applier prevents divergence). Audit-log the cascade. |
+| ~~**A DECLINED speaker keeps a CONFIRMED companion registration — badge + entry barcode stay valid**~~ ✅ **SHIPPED July 11, 2026** | MED | S–M | New `cascadeSpeakerDecline()` + `isSpeakerDeclineTransition()` in [speaker-service.ts](../src/services/speaker-service.ts) — ONE implementation for both status-write callers (REST speaker PUT + MCP `update_speaker`, per the no-cross-caller-duplication rule); the cancel itself delegates to `payment-service.cancelRegistration` (refund:false), so seat/promo release + audit + checkout-session cleanup ride the single cancel domain op. **Companion-only by owner decision** — a real linked registration is never touched (the UI/agent get a "review it separately" note). Both the speaker detail **page** and **sheet** intercept a save that transitions into DECLINED/CANCELLED with a live linked registration and prompt: **"Cancel registration too (revokes badge + entry barcode)"** vs **"Keep registration"**; MCP `update_speaker` gained `cancelCompanionRegistration` (keep-by-default; pkg 0.4.16→0.4.17 — MCP clients reconnect). Cascade audited (`SPEAKER_COMPANION_CANCELLED`) + logged; +7 service tests. The reverse (DECLINED→CONFIRMED reactivation) stays manual/deferred. |
 | **Speaker → companion profile edits don't sync** | LOW | S | Known Phase-0 follow-up: editing a speaker's name/profile doesn't propagate to the companion registration's attendee row (the two drift). Same shared-helper landing spot as the row above. |
 
 ### Backlog — prioritized pick list (June 24, 2026)

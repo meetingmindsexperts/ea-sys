@@ -20,7 +20,7 @@ const {
     event: { findFirst: vi.fn() },
     registration: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     payment: { update: vi.fn() },
-    invoice: { findFirst: vi.fn() },
+    invoice: { findFirst: vi.fn(), findMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     refundAttempt: { create: vi.fn(), update: vi.fn() },
     $transaction: vi.fn(),
@@ -91,6 +91,8 @@ beforeEach(() => {
   mockAuth.mockResolvedValue({ user: { id: "admin1", role: "ADMIN", organizationId: "org1" } });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
   mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
+  // Amount gate (July 11): ample credited total so existing scenarios stay gate-open.
+  mockDb.invoice.findMany.mockResolvedValue([{ total: 100000 }]);
   mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
   mockDb.registration.update.mockResolvedValue({});
   mockDb.payment.update.mockResolvedValue({});
@@ -110,7 +112,7 @@ beforeEach(() => {
 
 describe("refund — credit-note gate", () => {
   it("409 CREDIT_NOTE_REQUIRED when no credit note exists; Stripe + lock untouched", async () => {
-    mockDb.invoice.findFirst.mockResolvedValue(null);
+    mockDb.invoice.findMany.mockResolvedValue([]);
     mockDb.registration.findUnique.mockResolvedValue(
       registration({ id: "pay1", stripePaymentId: "pi_1", amount: 100, currency: "USD" }),
     );

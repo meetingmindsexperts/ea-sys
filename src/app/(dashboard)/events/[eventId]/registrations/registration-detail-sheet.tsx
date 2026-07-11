@@ -369,17 +369,33 @@ export function RegistrationDetailSheet({
   }
 
   const checkInRegistration = useMutation({
-    mutationFn: (id: string) =>
-      apiPostJson<Registration>(`/api/events/${eventId}/registrations/${id}/check-in`),
-    onSuccess: (data) => {
+    mutationFn: ({ id, overridePayment }: { id: string; overridePayment?: boolean }) =>
+      apiPostJson<Registration>(
+        `/api/events/${eventId}/registrations/${id}/check-in`,
+        overridePayment ? { overridePayment: true } : undefined,
+      ),
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
       setSelectedRegistration(data);
-      toast.success("Attendee checked in successfully");
+      setAdmitAnywayOpen(false);
+      toast.success(
+        variables.overridePayment
+          ? "Checked in via payment override — the outstanding balance is still owed"
+          : "Attendee checked in successfully",
+      );
     },
     onError: (error: Error) => {
+      // Payment-blocked (UNPAID / PENDING / webhook-lagged Stripe payment):
+      // offer the audited desk override instead of a dead-end toast (review M1).
+      if (error instanceof ApiError && error.code === "PAYMENT_REQUIRED") {
+        setAdmitAnywayOpen(true);
+        return;
+      }
       toast.error(error.message);
     },
   });
+  // "Admit anyway" confirm for a payment-blocked check-in (audited override).
+  const [admitAnywayOpen, setAdmitAnywayOpen] = useState(false);
 
   // Undo a mistaken check-in (review H2). This is the ONLY correct way to
   // reverse it — clearing status + checkedInAt together via DELETE. Flipping
@@ -491,6 +507,14 @@ export function RegistrationDetailSheet({
   const refundedSoFar = refundFin?.refundedAmount ?? 0;
   const refundRemaining = Math.max(0, Math.round((paidTotal - refundedSoFar) * 100) / 100);
   const refundCurrency = refundFin?.currency ?? "USD";
+  // Server gate (July 11): cumulative refunds may not exceed the total
+  // credited via credit notes — mirror the cap here so the dialog can't
+  // submit an amount the server will 409. Server stays authoritative.
+  const creditedSoFar = refundFin?.creditedAmount ?? 0;
+  const refundableNow = Math.max(
+    0,
+    Math.min(refundRemaining, Math.round((creditedSoFar - refundedSoFar) * 100) / 100),
+  );
   // A refund requires a credit note to exist first (server-enforced). Gate the
   // Issue Refund button on it so the ordering is obvious in the UI.
   const hasCreditNote = (refundFin?.creditedAmount ?? 0) > 0;
@@ -583,6 +607,19 @@ export function RegistrationDetailSheet({
       const code = (error as { code?: string })?.code;
       if (code === "CREDIT_NOTE_REQUIRED") {
         toast.error("Issue a credit note first, then refund.");
+        setRefundOpen(false);
+        setCreditNoteOpen(true);
+        return;
+      }
+      // Server-side amount gate (July 11): cumulative refunds may not exceed
+      // the total credited via credit notes. Route the operator to issue a
+      // bigger/second credit note.
+      if (code === "CREDIT_NOTE_INSUFFICIENT") {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "The refund exceeds the credited amount — issue a credit note for the difference first.",
+        );
         setRefundOpen(false);
         setCreditNoteOpen(true);
         return;
@@ -826,7 +863,7 @@ export function RegistrationDetailSheet({
                         selectedRegistration.status !== "CANCELLED" && (
                           <Button
                             size="sm"
-                            onClick={() => checkInRegistration.mutate(selectedRegistration.id)}
+                            onClick={() => checkInRegistration.mutate({ id: selectedRegistration.id })}
                             disabled={checkInRegistration.isPending}
                             className="bg-green-600 hover:bg-green-700 text-white"
                           >
@@ -2616,7 +2653,9 @@ export function RegistrationDetailSheet({
                               disabled={issueRefund.isPending || refundRemaining <= 0 || !hasCreditNote}
                               title={!hasCreditNote ? "Issue a credit note first" : undefined}
                               onClick={() => {
-                                setRefundAmount(refundRemaining > 0 ? String(refundRemaining) : "");
+                                // Pre-fill with the credited-capped refundable amount,
+                                // not the raw remaining (server rejects beyond the cap).
+                                setRefundAmount(refundableNow > 0 ? String(refundableNow) : "");
                                 setRefundOpen(true);
                               }}
                             >
@@ -3091,10 +3130,17 @@ export function RegistrationDetailSheet({
             <DialogHeader>
               <DialogTitle>Issue Refund</DialogTitle>
               <DialogDescription>
-                Refund up to {formatCurrency(refundRemaining, refundCurrency)} (of{" "}
+                Refund up to {formatCurrency(refundableNow, refundCurrency)} (of{" "}
                 {formatCurrency(paidTotal, refundCurrency)} paid). Stripe payments
                 are reversed automatically; offline payments must be returned to the
                 attendee manually. A partial refund keeps the registration paid.
+                {refundableNow < refundRemaining - 0.005 && (
+                  <>
+                    {" "}Refunds are capped by the credited total — issue another
+                    credit note to refund more than{" "}
+                    {formatCurrency(refundableNow, refundCurrency)}.
+                  </>
+                )}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
@@ -3105,7 +3151,7 @@ export function RegistrationDetailSheet({
                   type="number"
                   min="0.01"
                   step="0.01"
-                  max={refundRemaining}
+                  max={refundableNow}
                   value={refundAmount}
                   onChange={(e) => setRefundAmount(e.target.value)}
                 />
@@ -3127,7 +3173,7 @@ export function RegistrationDetailSheet({
                   issueRefund.isPending ||
                   !refundAmount ||
                   Number(refundAmount) <= 0 ||
-                  Number(refundAmount) > refundRemaining + 0.005
+                  Number(refundAmount) > refundableNow + 0.005
                 }
                 onClick={() =>
                   selectedRegistration &&
@@ -3138,6 +3184,44 @@ export function RegistrationDetailSheet({
                   <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Processing…</>
                 ) : (
                   "Issue Refund"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Audited desk override for a payment-blocked check-in (review M1).
+            Reached only when the normal Check In was refused PAYMENT_REQUIRED —
+            typically a webhook-lagged PENDING whose Stripe payment succeeded,
+            or an UNPAID attendee the desk decides to admit and settle later. */}
+        <Dialog open={admitAnywayOpen} onOpenChange={setAdmitAnywayOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Payment required</DialogTitle>
+              <DialogDescription>
+                This registration&apos;s payment status is{" "}
+                <strong>{selectedRegistration.paymentStatus}</strong>, which blocks
+                check-in. If their payment is still processing (or you want to admit
+                them and settle at the desk), you can override — the override is
+                recorded in the audit log and the balance stays owed.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setAdmitAnywayOpen(false)}>
+                Don&apos;t admit
+              </Button>
+              <Button
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                disabled={checkInRegistration.isPending}
+                onClick={() =>
+                  checkInRegistration.mutate({ id: selectedRegistration.id, overridePayment: true })
+                }
+              >
+                {checkInRegistration.isPending ? (
+                  <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Checking in…</>
+                ) : (
+                  "Admit anyway (override)"
                 )}
               </Button>
             </DialogFooter>

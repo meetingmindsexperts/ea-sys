@@ -158,6 +158,7 @@ export type RefundErrorCode =
   | "REGISTRATION_NOT_FOUND"
   | "NOT_PAID"
   | "CREDIT_NOTE_REQUIRED"
+  | "CREDIT_NOTE_INSUFFICIENT"
   | "ALREADY_FULLY_REFUNDED"
   | "INVALID_AMOUNT"
   | "LOST_LOCK"
@@ -240,12 +241,13 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
       return { ok: false, code: "NOT_PAID", message: "Registration is not in a paid state" };
     }
 
-    // Gate: a non-cancelled credit note must already exist.
-    const creditNote = await db.invoice.findFirst({
+    // Gate 1: a non-cancelled credit note must already exist. The totals feed
+    // gate 2 (the AMOUNT gate) further down, once the refund amount is known.
+    const creditNotes = await db.invoice.findMany({
       where: { registrationId, type: "CREDIT_NOTE", status: { not: "CANCELLED" } },
-      select: { id: true },
+      select: { total: true },
     });
-    if (!creditNote) {
+    if (creditNotes.length === 0) {
       apiLogger.warn({ msg: "refund:credit-note-required", registrationId, eventId });
       return {
         ok: false,
@@ -253,6 +255,7 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
         message: "Issue a credit note for this registration before refunding.",
       };
     }
+    const creditedTotal = round2(creditNotes.reduce((s, c) => s + Number(c.total), 0));
 
     const settledPayments = registration.payments;
 
@@ -296,6 +299,26 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
     }
 
     const refundedAfter = round2(refundedBefore + amount);
+
+    // Gate 2 — the AMOUNT gate (July 7 review M2, closed July 11): cumulative
+    // refunds may never exceed what was credited via credit notes. Before this,
+    // the gate only checked a CN *existed*, so a $1 credit note unlocked a
+    // full-balance refund — defeating the credit-note-first control. The UI
+    // mirrors the cap; this is the authoritative check.
+    if (refundedAfter > creditedTotal + 0.005) {
+      const maxRefundable = round2(Math.max(0, creditedTotal - refundedBefore));
+      apiLogger.warn({
+        msg: "refund:credit-note-insufficient",
+        registrationId, eventId, amount, refundedBefore, creditedTotal, maxRefundable,
+      });
+      return {
+        ok: false,
+        code: "CREDIT_NOTE_INSUFFICIENT",
+        message: `Refunds are capped by the credited total: ${currency} ${creditedTotal.toFixed(2)} credited, ${currency} ${refundedBefore.toFixed(2)} already refunded — at most ${currency} ${maxRefundable.toFixed(2)} can be refunded now. Issue a credit note for the difference first.`,
+        meta: { creditedTotal, refundedBefore, requested: amount, maxRefundable },
+      };
+    }
+
     const isFull = refundedAfter >= paidTotal - 0.005;
     const formattedAmount = `${currency} ${amount.toFixed(2)}`;
 

@@ -62,22 +62,48 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    const gate = checkInGate({
-      status: registration.status,
-      paymentStatus: registration.paymentStatus,
-      checkedInAt: registration.checkedInAt,
-      ticketTypePrice: registration.ticketType?.price,
-      pricingTierPrice: registration.pricingTier?.price,
-    });
+    // Optional body: `{ overridePayment: true }` is the audited desk override
+    // for a payment-blocked attendee (review M1 — e.g. a webhook-lagged PENDING
+    // whose Stripe payment actually succeeded). Owner decision July 11, 2026:
+    // the override applies to ANY payment block (PENDING/UNPAID/FAILED…), and
+    // is available to the same desk-gated population that can check people in.
+    // The body is absent on the sheet's normal one-click check-in.
+    const body = await req.json().catch(() => ({}));
+    const overridePayment = body?.overridePayment === true;
+
+    const gate = checkInGate(
+      {
+        status: registration.status,
+        paymentStatus: registration.paymentStatus,
+        checkedInAt: registration.checkedInAt,
+        ticketTypePrice: registration.ticketType?.price,
+        pricingTierPrice: registration.pricingTier?.price,
+      },
+      { allowPaymentDue: overridePayment },
+    );
     if (gate) {
       apiLogger.warn({ msg: "check-in:rejected", eventId, registrationId, code: gate.code });
       return NextResponse.json(
         {
           error: gate.code === "CANCELLED" ? "Cannot check in a cancelled registration" : gate.message,
+          // Machine-readable code so the sheet can offer the audited
+          // "Admit anyway" override on PAYMENT_REQUIRED.
+          code: gate.code,
           ...(gate.checkedInAt && { checkedInAt: gate.checkedInAt }),
         },
         { status: 400 }
       );
+    }
+
+    if (overridePayment) {
+      // The override is a deliberate operator action — always leave a trace.
+      apiLogger.warn({
+        msg: "check-in:payment-override",
+        eventId,
+        registrationId,
+        userId: session.user.id,
+        paymentStatus: registration.paymentStatus,
+      }, "Desk admitted a payment-blocked attendee via explicit override");
     }
 
     const updatedRegistration = await executeCheckIn({
@@ -86,7 +112,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       actorUserId: session.user.id,
       attendeeName: `${registration.attendee.firstName} ${registration.attendee.lastName}`,
       source: "rest",
-      auditExtras: { ip: getClientIp(req) },
+      auditExtras: {
+        ip: getClientIp(req),
+        ...(overridePayment && {
+          paymentOverride: true,
+          paymentStatusAtOverride: registration.paymentStatus,
+        }),
+      },
     });
 
     return NextResponse.json(updatedRegistration);
@@ -171,6 +203,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
         {
           // The QR handler's historical wording for the cancelled case.
           error: gate.code === "CANCELLED" ? "Registration is cancelled" : gate.message,
+          // Machine-readable code, mirroring the POST handler.
+          code: gate.code,
           ...(gate.checkedInAt && { checkedInAt: gate.checkedInAt }),
           // The scanner UI shows who the badge belongs to on a double scan.
           ...(gate.code === "ALREADY_CHECKED_IN" && { registration }),

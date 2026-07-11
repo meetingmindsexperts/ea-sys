@@ -11,6 +11,9 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { checkRateLimit } from "@/lib/security";
 import {
   createSpeaker,
+  cascadeSpeakerDecline,
+  isSpeakerDeclineTransition,
+  type SpeakerDeclineCascadeResult,
   type SpeakerAttendeeRole,
   type SpeakerStatus,
   type SpeakerTitle,
@@ -346,10 +349,44 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
       ]);
     }
 
+    // Speaker moved INTO declined/cancelled: handle the companion registration
+    // via the SAME shared helper as the REST PUT (door-day fix — a DECLINED
+    // speaker used to keep a valid badge + entry barcode forever). Keep-by-
+    // default: the agent must pass cancelCompanionRegistration: true to revoke.
+    let companionCascade: SpeakerDeclineCascadeResult | null = null;
+    if (isSpeakerDeclineTransition(existing.status, status)) {
+      companionCascade = await cascadeSpeakerDecline({
+        eventId: existing.eventId,
+        organizationId: ctx.organizationId,
+        speakerId,
+        sourceRegistrationId: existing.sourceRegistrationId,
+        cancelCompanion: input.cancelCompanionRegistration === true,
+        source: "mcp",
+        actorUserId: ctx.userId,
+      });
+    }
+
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(ctx.eventId);
 
-    return { success: true, speaker: updated };
+    return {
+      success: true,
+      speaker: updated,
+      ...(companionCascade && {
+        companionRegistration: {
+          outcome: companionCascade.companion,
+          registrationId: companionCascade.registrationId ?? null,
+          note:
+            companionCascade.companion === "kept"
+              ? "The speaker's companion registration (badge + entry barcode) was KEPT. Pass cancelCompanionRegistration: true to revoke it."
+              : companionCascade.companion === "real-registration"
+                ? "This speaker is linked to a REAL registration (not an auto companion) — review/cancel it separately if they are no longer attending."
+                : companionCascade.companion === "cancel-failed"
+                  ? "The companion registration could NOT be cancelled — it is still active; check the logs."
+                  : undefined,
+        },
+      }),
+    };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_speaker failed");
     return { error: err instanceof Error ? err.message : "Failed to update speaker" };

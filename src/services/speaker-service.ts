@@ -21,6 +21,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
+import { cancelRegistration } from "./payment-service";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -333,4 +334,145 @@ export async function createSpeaker(
   }).catch((err) => apiLogger.error({ err }, "speaker-service:notify-admins-failed"));
 
   return { ok: true, speaker };
+}
+
+// ── Speaker-status → companion-registration cascade ──────────────────────────
+//
+// A speaker set to DECLINED/CANCELLED used to keep a CONFIRMED companion
+// registration — i.e. a valid entry barcode, a printable badge, and check-in
+// eligibility — forever, unless someone remembered to cancel it by hand
+// (July 11 door-day fix; roadmap "Speaker ↔ companion lifecycle" MED).
+//
+// Owner decisions (July 11, 2026):
+//  - The cascade applies ONLY to the auto-minted SPEAKER_COMPANION registration
+//    (comp Faculty row, no money). A REAL linked registration is the person's
+//    own — declining to speak ≠ not attending — so the caller/UI surfaces a
+//    "review their registration" reminder instead of touching it.
+//  - The cascade is opt-in per call (`cancelCompanion`); the UI asks the
+//    operator ("Also cancel their registration?" vs "Keep it"), and the MCP
+//    tool exposes the flag with a keep-by-default.
+//
+// ONE implementation for both status-write callers (REST speaker PUT + MCP
+// update_speaker) per the no-cross-caller-duplication rule; the cancel itself
+// delegates to payment-service.cancelRegistration (the single cancel domain op
+// — claim + seat/promo transition + audit + checkout-session cleanup).
+
+/** Statuses that mean "this speaker is out". */
+export const SPEAKER_OUT_STATUSES = new Set<string>(["DECLINED", "CANCELLED"]);
+
+/** True when this status write is a transition INTO declined/cancelled. */
+export function isSpeakerDeclineTransition(prevStatus: string, nextStatus: string | undefined): boolean {
+  return (
+    !!nextStatus &&
+    SPEAKER_OUT_STATUSES.has(nextStatus) &&
+    !SPEAKER_OUT_STATUSES.has(prevStatus)
+  );
+}
+
+export type SpeakerDeclineCompanionOutcome =
+  /** Speaker has no linked registration at all. */
+  | "none"
+  /** Linked registration is a REAL one (not the auto companion) — untouched;
+   *  the operator should review it separately. */
+  | "real-registration"
+  /** Companion exists and was deliberately kept (operator chose, or MCP default). */
+  | "kept"
+  /** Companion was already cancelled — nothing to do. */
+  | "already-cancelled"
+  /** Companion was cancelled by this call (badge + entry barcode revoked). */
+  | "cancelled"
+  /** Cancel was requested but failed — companion still active; logged. */
+  | "cancel-failed";
+
+export interface SpeakerDeclineCascadeResult {
+  companion: SpeakerDeclineCompanionOutcome;
+  registrationId?: string;
+}
+
+/**
+ * Handle the companion-registration side of a speaker moving to
+ * DECLINED/CANCELLED. Never throws — a cascade hiccup must not fail the
+ * speaker-status write that already committed (the caller reports the
+ * outcome instead).
+ */
+export async function cascadeSpeakerDecline(input: {
+  eventId: string;
+  organizationId: string;
+  speakerId: string;
+  sourceRegistrationId: string | null;
+  /** Operator's choice: cancel the companion registration too? */
+  cancelCompanion: boolean;
+  source: "rest" | "mcp";
+  actorUserId?: string | null;
+}): Promise<SpeakerDeclineCascadeResult> {
+  const { eventId, organizationId, speakerId, sourceRegistrationId, cancelCompanion, source, actorUserId } = input;
+  try {
+    if (!sourceRegistrationId) return { companion: "none" };
+
+    const reg = await db.registration.findFirst({
+      where: { id: sourceRegistrationId, eventId },
+      select: { id: true, status: true, createdSource: true },
+    });
+    if (!reg) return { companion: "none" };
+
+    // A real (email-linked / self-registered, possibly paid) registration is
+    // never cascade-cancelled from a speaker-status change.
+    if (reg.createdSource !== "SPEAKER_COMPANION") {
+      return { companion: "real-registration", registrationId: reg.id };
+    }
+    if (reg.status === "CANCELLED") {
+      return { companion: "already-cancelled", registrationId: reg.id };
+    }
+
+    if (!cancelCompanion) {
+      // Deliberate keep — the person still attends (e.g. committee member who
+      // declined a speaking slot). Leave a trace for the door-day audit trail.
+      apiLogger.info({
+        msg: "speaker-decline:companion-kept",
+        eventId, speakerId, registrationId: reg.id, source, actorUserId: actorUserId ?? null,
+      });
+      return { companion: "kept", registrationId: reg.id };
+    }
+
+    const res = await cancelRegistration({
+      registrationId: reg.id,
+      eventId,
+      organizationId,
+      refund: false, // companion is comp — no money to move
+      source,
+      issuedByUserId: actorUserId ?? null,
+    });
+    if (!res.ok && res.code !== "ALREADY_CANCELLED") {
+      apiLogger.error({
+        msg: "speaker-decline:companion-cancel-failed",
+        eventId, speakerId, registrationId: reg.id, code: res.code, source,
+      });
+      return { companion: "cancel-failed", registrationId: reg.id };
+    }
+
+    apiLogger.info({
+      msg: "speaker-decline:companion-cancelled",
+      eventId, speakerId, registrationId: reg.id, source, actorUserId: actorUserId ?? null,
+    }, "Companion registration cancelled with speaker decline — badge + entry barcode revoked");
+
+    // Extra audit row tying the cancellation to the speaker decline (the
+    // cancel itself already wrote REGISTRATION_CANCELLED).
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: actorUserId ?? null,
+          action: "SPEAKER_COMPANION_CANCELLED",
+          entityType: "Registration",
+          entityId: reg.id,
+          changes: { source, speakerId, reason: "speaker-declined" },
+        },
+      })
+      .catch((err) => apiLogger.warn({ err, msg: "speaker-decline:audit-write-failed", speakerId }));
+
+    return { companion: "cancelled", registrationId: reg.id };
+  } catch (err) {
+    apiLogger.error({ err, msg: "speaker-decline:cascade-unknown-failure", eventId, speakerId });
+    return { companion: "cancel-failed", registrationId: sourceRegistrationId ?? undefined };
+  }
 }

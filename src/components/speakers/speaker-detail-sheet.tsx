@@ -31,6 +31,8 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -282,8 +284,30 @@ export function SpeakerDetailSheet({
     setIsEditing(true);
   };
 
-  const saveEdits = async () => {
+  // Decline-cascade prompt (door-day fix): moving a speaker to DECLINED/
+  // CANCELLED used to silently leave their companion registration CONFIRMED —
+  // a valid badge + entry barcode forever. When the save is such a transition
+  // and a non-cancelled linked registration exists, ask the operator first.
+  const [declineCascadeOpen, setDeclineCascadeOpen] = useState(false);
+  const isDecliningNow =
+    !!speaker &&
+    ["DECLINED", "CANCELLED"].includes(editData.status) &&
+    !["DECLINED", "CANCELLED"].includes(speaker.status);
+  const declineLinkedReg =
+    isDecliningNow && speaker?.sourceRegistration && speaker.sourceRegistration.status !== "CANCELLED"
+      ? speaker.sourceRegistration
+      : null;
+  const declineLinkedIsCompanion = declineLinkedReg?.createdSource === "SPEAKER_COMPANION";
+
+  const saveEdits = async (cancelCompanion?: boolean) => {
     if (!speaker) return;
+    // Intercept a decline transition with a live linked registration: the
+    // operator decides whether the companion is cancelled too.
+    if (cancelCompanion === undefined && declineLinkedReg) {
+      setDeclineCascadeOpen(true);
+      return;
+    }
+    setDeclineCascadeOpen(false);
     setSaving(true);
     try {
       // Strip email — it's immutable on this path. Use the Change Email
@@ -300,6 +324,7 @@ export function SpeakerDetailSheet({
           // member, unlike titleEnum) — send null when unset so an empty
           // picker doesn't 400.
           role: editData.role || null,
+          ...(cancelCompanion !== undefined && { cancelCompanionRegistration: cancelCompanion }),
           // Optimistic-lock token (W2-F8): server compares against the
           // row's current `updatedAt` and returns 409 STALE_WRITE if
           // someone else wrote since this sheet was opened.
@@ -310,7 +335,22 @@ export function SpeakerDetailSheet({
         const data = await res.json();
         setSpeaker({ ...speaker, ...data });
         setIsEditing(false);
-        toast.success("Speaker updated");
+        const cascade = (data as { companionCascade?: { companion?: string } })?.companionCascade?.companion;
+        if (cascade === "cancelled") {
+          toast.success("Speaker updated — their registration was cancelled too (badge + entry barcode revoked)");
+        } else if (cascade === "kept") {
+          toast.success("Speaker updated — their registration was kept (they can still attend)");
+        } else if (cascade === "real-registration") {
+          toast.success("Speaker updated");
+          toast.info("They also hold a real registration — review it separately if they're no longer attending.");
+        } else if (cascade === "cancel-failed") {
+          toast.error("Speaker updated, but their registration could NOT be cancelled — it is still active.");
+        } else {
+          toast.success("Speaker updated");
+        }
+        // The PUT response has no sourceRegistration include — refetch so the
+        // Registration block reflects a cascade-cancelled companion.
+        if (cascade === "cancelled") fetchSpeaker();
         queryClient.invalidateQueries({ queryKey: queryKeys.speakers(eventId) });
       } else {
         const data = await res.json();
@@ -511,7 +551,7 @@ export function SpeakerDetailSheet({
                     </>
                   ) : (
                     <>
-                      <Button size="sm" onClick={saveEdits} disabled={saving} className="bg-green-600 hover:bg-green-700 text-white">
+                      <Button size="sm" onClick={() => saveEdits()} disabled={saving} className="bg-green-600 hover:bg-green-700 text-white">
                         <Save className="mr-2 h-4 w-4" /> {saving ? "Saving..." : "Save"}
                       </Button>
                       <Button size="sm" variant="secondary" onClick={() => setIsEditing(false)} disabled={saving}>
@@ -982,6 +1022,60 @@ export function SpeakerDetailSheet({
           }}
         />
       )}
+
+      {/* Decline-cascade prompt: declining to speak ≠ not attending, so the
+          operator decides what happens to the linked registration. Only the
+          auto-minted companion can be cancelled from here; a real registration
+          is never touched (review it from the Registrations list). */}
+      <Dialog open={declineCascadeOpen} onOpenChange={setDeclineCascadeOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editData.status === "CANCELLED" ? "Cancelling" : "Declining"} this speaker
+            </DialogTitle>
+            <DialogDescription>
+              {declineLinkedIsCompanion ? (
+                <>
+                  They have an active companion registration backing their badge and
+                  entry barcode. Cancel it too, or keep it if they will still attend
+                  (e.g. as a committee member or delegate)?
+                </>
+              ) : (
+                <>
+                  They also hold a <strong>real registration</strong> (self-registered,
+                  possibly paid). It will <strong>not</strong> be changed by this — if
+                  they are no longer attending, review it from the Registrations list
+                  (cancelling a paid registration goes through the refund flow).
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="outline" size="sm" onClick={() => setDeclineCascadeOpen(false)} disabled={saving}>
+              Back
+            </Button>
+            {declineLinkedIsCompanion ? (
+              <>
+                <Button variant="outline" size="sm" onClick={() => saveEdits(false)} disabled={saving}>
+                  Keep registration
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  onClick={() => saveEdits(true)}
+                  disabled={saving}
+                >
+                  Cancel registration too
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" onClick={() => saveEdits(false)} disabled={saving}>
+                Save (keep registration)
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

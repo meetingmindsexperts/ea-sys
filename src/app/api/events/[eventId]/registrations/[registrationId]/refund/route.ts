@@ -18,6 +18,9 @@ const HTTP_STATUS_FOR_CODE: Record<RefundErrorCode, number> = {
   REGISTRATION_NOT_FOUND: 404,
   NOT_PAID: 400,
   CREDIT_NOTE_REQUIRED: 409,
+  // Amount gate (July 11): cumulative refunds may not exceed the credited
+  // total — issue a credit note for the difference first.
+  CREDIT_NOTE_INSUFFICIENT: 409,
   ALREADY_FULLY_REFUNDED: 400,
   INVALID_AMOUNT: 400,
   LOST_LOCK: 409,

@@ -85,6 +85,10 @@ export function isPaymentAdmissible(reg: {
   if (isComplimentaryRegistration(reg)) return true;
   // The gate blocks exactly these two; everything else (PAID, INCLUSIVE,
   // REFUNDED, FAILED, UNASSIGNED) is admitted, so it must be badge-able.
+  // FAILED + REFUNDED staying ADMITTED is an EXPLICIT owner decision
+  // (July 11, 2026 — closes review M2 as "decided, no change"): a failed
+  // charge attempt or a goodwill refund doesn't bar the person from the
+  // venue. Do not "fix" this without a new product call.
   return reg.paymentStatus !== "UNPAID" && reg.paymentStatus !== "PENDING";
 }
 
@@ -94,18 +98,23 @@ export function isPaymentAdmissible(reg: {
  *     overrides — the override must then reactivate via `executeCheckIn`'s
  *     `reactivation` so seat + promo counters move).
  *  2. Money-outstanding registrations can't check in — unless complimentary
- *     (COMPLIMENTARY status, or a genuinely free ticket/tier).
+ *     (COMPLIMENTARY status, or a genuinely free ticket/tier), or the caller
+ *     passes the explicit desk override (`allowPaymentDue` — review M1: a
+ *     registrant whose Stripe payment succeeded but whose webhook is lagging
+ *     shows PENDING and used to be un-admittable without recording a manual
+ *     payment that later doubled up with the webhook). The override is a
+ *     deliberate, audited operator action — callers must log + audit it.
  *  3. Double check-in is rejected with the original timestamp.
  */
 export function checkInGate(
   reg: CheckInGateInput,
-  opts?: { allowCancelled?: boolean },
+  opts?: { allowCancelled?: boolean; allowPaymentDue?: boolean },
 ): CheckInDenial | null {
   if (reg.status === "CANCELLED" && !opts?.allowCancelled) {
     return { code: "CANCELLED", message: "Cannot check in a cancelled registration" };
   }
 
-  if (!isPaymentAdmissible(reg)) {
+  if (!isPaymentAdmissible(reg) && !opts?.allowPaymentDue) {
     return { code: "PAYMENT_REQUIRED", message: "Cannot check in — payment required" };
   }
 

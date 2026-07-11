@@ -13,6 +13,11 @@ import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField, runOptimisticUpdate } from "@/lib/optimistic-lock";
 import { computeTagDelta, syncSpeakerTagsToRegistrations } from "@/lib/person-tag-sync";
+import {
+  cascadeSpeakerDecline,
+  isSpeakerDeclineTransition,
+  type SpeakerDeclineCascadeResult,
+} from "@/services/speaker-service";
 
 // NOTE: `email` is intentionally NOT in this schema. Email is immutable
 // at the general-purpose update path — use the dedicated
@@ -48,6 +53,11 @@ const updateSpeakerSchema = z.object({
     github: z.string().max(500).optional(),
   }).optional(),
   status: z.enum(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]).optional(),
+  // Operator's answer to the decline-cascade prompt: when the status moves
+  // INTO DECLINED/CANCELLED and the speaker has an auto-minted companion
+  // registration, `true` cancels it too (revoking badge + entry barcode).
+  // Ignored on any other write. See speaker-service.cascadeSpeakerDecline.
+  cancelCompanionRegistration: z.boolean().optional(),
 });
 
 interface RouteParams {
@@ -273,6 +283,23 @@ export async function PUT(req: Request, { params }: RouteParams) {
       ]);
     }
 
+    // Speaker moved INTO declined/cancelled: handle the companion registration
+    // (door-day fix — a DECLINED speaker used to keep a valid entry barcode +
+    // printable badge forever). Companion-only by owner decision; a real
+    // linked registration is reported for the operator to review, never touched.
+    let companionCascade: SpeakerDeclineCascadeResult | null = null;
+    if (isSpeakerDeclineTransition(existingSpeaker.status, data.status)) {
+      companionCascade = await cascadeSpeakerDecline({
+        eventId,
+        organizationId: session.user.organizationId!,
+        speakerId,
+        sourceRegistrationId: existingSpeaker.sourceRegistrationId,
+        cancelCompanion: data.cancelCompanionRegistration === true,
+        source: "rest",
+        actorUserId: session.user.id,
+      });
+    }
+
     // Fetch the freshly-updated row for the response.
     const speaker = await db.speaker.findUniqueOrThrow({
       where: { id: speakerId },
@@ -325,12 +352,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
         changes: {
           before: existingSpeaker,
           after: speaker,
+          ...(companionCascade && { companionCascade: companionCascade.companion }),
           ip: getClientIp(req),
         },
       },
     });
 
-    return NextResponse.json(speaker);
+    // `companionCascade` tells the UI what happened to the companion
+    // registration on a decline (cancelled / kept / real-registration / …).
+    return NextResponse.json(companionCascade ? { ...speaker, companionCascade } : speaker);
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating speaker" });
     return NextResponse.json(

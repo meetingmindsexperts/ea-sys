@@ -12,7 +12,7 @@ const { mockAuth, mockDb, mockApiLogger, mockStripeRefundsCreate, mockStripeRefu
       event: { findFirst: vi.fn() },
       registration: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
       payment: { update: vi.fn() },
-      invoice: { findFirst: vi.fn() },
+      invoice: { findFirst: vi.fn(), findMany: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       refundAttempt: { create: vi.fn(), update: vi.fn() },
       $transaction: vi.fn(),
@@ -145,6 +145,7 @@ describe("Refund: not found cases", () => {
   it("returns 404 when registration not found", async () => {
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 100000 }]); // amount gate open (July 11)
     mockDb.registration.findUnique.mockResolvedValue(null);
     const res = await POST(makeRequest(), makeParams());
     expect(res.status).toBe(404);
@@ -154,6 +155,7 @@ describe("Refund: not found cases", () => {
   it("returns 404 when registration belongs to different event", async () => {
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 100000 }]); // amount gate open (July 11)
     mockDb.registration.findUnique.mockResolvedValue({ ...sampleRegistration, eventId: "evt-other" });
     const res = await POST(makeRequest(), makeParams());
     expect(res.status).toBe(404);
@@ -166,6 +168,7 @@ describe("Refund: business rule validations", () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 100000 }]); // amount gate open (July 11)
   });
 
   it("returns 400 when registration is not PAID", async () => {
@@ -215,6 +218,7 @@ describe("Refund: optimistic lock", () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 100000 }]); // amount gate open (July 11)
     mockDb.registration.findUnique.mockResolvedValue(sampleRegistration);
   });
 
@@ -244,6 +248,7 @@ describe("Refund: Stripe error rollback", () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 100000 }]); // amount gate open (July 11)
     mockDb.registration.findUnique.mockResolvedValue(sampleRegistration);
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
     mockDb.registration.update.mockResolvedValue({});
@@ -283,6 +288,7 @@ describe("Refund: idempotency key", () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 100000 }]); // amount gate open (July 11)
     mockDb.registration.findUnique.mockResolvedValue(sampleRegistration);
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
     mockStripeRefundsCreate.mockResolvedValue({ id: "re_test123", status: "succeeded" });
@@ -307,6 +313,7 @@ describe("Refund: success path", () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.invoice.findFirst.mockResolvedValue({ id: "cn1" }); // credit note exists (gate open)
+    mockDb.invoice.findMany.mockResolvedValue([{ total: 100000 }]); // amount gate open (July 11)
     mockDb.registration.findUnique.mockResolvedValue(sampleRegistration);
     mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
     mockStripeRefundsCreate.mockResolvedValue({ id: "re_abc", status: "succeeded" });

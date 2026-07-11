@@ -6,17 +6,19 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockApiLogger, mockSyncToContact, mockRefreshStats, mockNotifyAdmins } = vi.hoisted(() => {
+const { mockDb, mockApiLogger, mockSyncToContact, mockRefreshStats, mockNotifyAdmins, mockCancelRegistration } = vi.hoisted(() => {
   return {
     mockDb: {
       event: { findFirst: vi.fn() },
       speaker: { findFirst: vi.fn(), create: vi.fn() },
+      registration: { findFirst: vi.fn() },
       auditLog: { create: vi.fn() },
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     mockSyncToContact: vi.fn(),
     mockRefreshStats: vi.fn(),
     mockNotifyAdmins: vi.fn(),
+    mockCancelRegistration: vi.fn(),
   };
 });
 
@@ -25,8 +27,12 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: mockSyncToContact }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: mockRefreshStats }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotifyAdmins }));
+// The decline cascade delegates the actual cancel to payment-service's
+// cancelRegistration (the single cancel domain op) — mocked here so these
+// stay pure speaker-service tests.
+vi.mock("@/services/payment-service", () => ({ cancelRegistration: mockCancelRegistration }));
 
-import { createSpeaker } from "@/services/speaker-service";
+import { createSpeaker, cascadeSpeakerDecline, isSpeakerDeclineTransition } from "@/services/speaker-service";
 
 const BASE_INPUT = {
   eventId: "evt-1",
@@ -340,5 +346,107 @@ describe("createSpeaker — side-effect isolation", () => {
     mockNotifyAdmins.mockRejectedValue(new Error("notify down"));
     const result = await createSpeaker(BASE_INPUT);
     expect(result.ok).toBe(true);
+  });
+});
+
+// ── Decline cascade (July 11 door-day fix) ────────────────────────────────────
+// A DECLINED/CANCELLED speaker used to keep a CONFIRMED companion registration
+// (valid badge + entry barcode) forever. cascadeSpeakerDecline is the ONE
+// shared implementation for the REST PUT + MCP update_speaker.
+
+describe("isSpeakerDeclineTransition", () => {
+  it("true only when moving INTO declined/cancelled from an active status", () => {
+    expect(isSpeakerDeclineTransition("CONFIRMED", "DECLINED")).toBe(true);
+    expect(isSpeakerDeclineTransition("INVITED", "CANCELLED")).toBe(true);
+    // Already out — not a fresh transition.
+    expect(isSpeakerDeclineTransition("DECLINED", "CANCELLED")).toBe(false);
+    // Not a decline.
+    expect(isSpeakerDeclineTransition("INVITED", "CONFIRMED")).toBe(false);
+    // No status write at all.
+    expect(isSpeakerDeclineTransition("CONFIRMED", undefined)).toBe(false);
+  });
+});
+
+describe("cascadeSpeakerDecline", () => {
+  const CASCADE_INPUT = {
+    eventId: "evt-1",
+    organizationId: "org-1",
+    speakerId: "spk-1",
+    sourceRegistrationId: "reg-1",
+    cancelCompanion: true,
+    source: "rest" as const,
+    actorUserId: "user-1",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.auditLog.create.mockResolvedValue({});
+    mockCancelRegistration.mockResolvedValue({ ok: true, cancel: { status: "CANCELLED", refunded: false } });
+  });
+
+  it("no linked registration → none, no cancel", async () => {
+    const res = await cascadeSpeakerDecline({ ...CASCADE_INPUT, sourceRegistrationId: null });
+    expect(res).toEqual({ companion: "none" });
+    expect(mockCancelRegistration).not.toHaveBeenCalled();
+  });
+
+  it("a REAL linked registration is NEVER touched (companion-only by owner decision)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", status: "CONFIRMED", createdSource: "PUBLIC_REGISTER" });
+    const res = await cascadeSpeakerDecline(CASCADE_INPUT);
+    expect(res).toEqual({ companion: "real-registration", registrationId: "reg-1" });
+    expect(mockCancelRegistration).not.toHaveBeenCalled();
+  });
+
+  it("companion + cancelCompanion=false → kept (logged), no cancel", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", status: "CONFIRMED", createdSource: "SPEAKER_COMPANION" });
+    const res = await cascadeSpeakerDecline({ ...CASCADE_INPUT, cancelCompanion: false });
+    expect(res).toEqual({ companion: "kept", registrationId: "reg-1" });
+    expect(mockCancelRegistration).not.toHaveBeenCalled();
+    expect(mockApiLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "speaker-decline:companion-kept" }),
+    );
+  });
+
+  it("companion + cancelCompanion=true → cancels via payment-service (refund:false) + audits", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", status: "CONFIRMED", createdSource: "SPEAKER_COMPANION" });
+    const res = await cascadeSpeakerDecline(CASCADE_INPUT);
+    expect(res).toEqual({ companion: "cancelled", registrationId: "reg-1" });
+    expect(mockCancelRegistration).toHaveBeenCalledWith({
+      registrationId: "reg-1",
+      eventId: "evt-1",
+      organizationId: "org-1",
+      refund: false,
+      source: "rest",
+      issuedByUserId: "user-1",
+    });
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "SPEAKER_COMPANION_CANCELLED", entityId: "reg-1" }),
+      }),
+    );
+  });
+
+  it("already-cancelled companion → already-cancelled, no cancel call", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", status: "CANCELLED", createdSource: "SPEAKER_COMPANION" });
+    const res = await cascadeSpeakerDecline(CASCADE_INPUT);
+    expect(res).toEqual({ companion: "already-cancelled", registrationId: "reg-1" });
+    expect(mockCancelRegistration).not.toHaveBeenCalled();
+  });
+
+  it("cancel failure → cancel-failed, logged, never throws", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", status: "CONFIRMED", createdSource: "SPEAKER_COMPANION" });
+    mockCancelRegistration.mockResolvedValue({ ok: false, code: "UNKNOWN", message: "boom" });
+    const res = await cascadeSpeakerDecline(CASCADE_INPUT);
+    expect(res).toEqual({ companion: "cancel-failed", registrationId: "reg-1" });
+    expect(mockApiLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "speaker-decline:companion-cancel-failed" }),
+    );
+  });
+
+  it("payment-service ALREADY_CANCELLED race is treated as cancelled (idempotent)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", status: "CONFIRMED", createdSource: "SPEAKER_COMPANION" });
+    mockCancelRegistration.mockResolvedValue({ ok: false, code: "ALREADY_CANCELLED", message: "already" });
+    const res = await cascadeSpeakerDecline(CASCADE_INPUT);
+    expect(res).toEqual({ companion: "cancelled", registrationId: "reg-1" });
   });
 });
