@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { checkInGate, executeCheckIn } from "@/lib/check-in";
+import { checkInGate, executeCheckIn, undoCheckIn } from "@/lib/check-in";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -185,5 +185,62 @@ export async function PUT(req: Request, { params }: RouteParams) {
       { error: "Failed to check in" },
       { status: 500 }
     );
+  }
+}
+
+// Undo a check-in (review H2) — clears status + checkedInAt together, so the
+// attendee can be re-admitted by the scanner. This is the ONLY correct way to
+// reverse a mistaken check-in; a bare status flip via the general registration
+// PUT leaves checkedInAt set and locks them out permanently.
+export async function DELETE(req: Request, { params }: RouteParams) {
+  try {
+    const { eventId, registrationId } = await params;
+    const session = await auth();
+
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // ONSITE (registration-desk staff) may undo a check-in they made.
+    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    if (denied) return denied;
+
+    const event = await db.event.findFirst({
+      // Assignment-scoped for ONSITE — an ONSITE user may only act on events
+      // they're assigned to. Org-scoped (unchanged) for admin/organizer.
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true },
+    });
+    if (!event) {
+      apiLogger.warn({ msg: "check-in-undo:event-not-found", eventId, registrationId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    const registration = await db.registration.findFirst({
+      where: { id: registrationId, eventId },
+      select: { id: true, attendee: { select: { firstName: true, lastName: true } } },
+    });
+    if (!registration) {
+      apiLogger.warn({ msg: "check-in-undo:registration-not-found", eventId, registrationId, userId: session.user.id });
+      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
+
+    const result = await undoCheckIn({
+      eventId,
+      registrationId,
+      actorUserId: session.user.id,
+      attendeeName: `${registration.attendee?.firstName ?? ""} ${registration.attendee?.lastName ?? ""}`.trim(),
+      source: "rest",
+      auditExtras: { ip: getClientIp(req) },
+    });
+
+    if (!result.ok) {
+      return NextResponse.json({ error: result.message, code: result.code }, { status: 409 });
+    }
+
+    return NextResponse.json(result.registration);
+  } catch (error) {
+    apiLogger.error({ err: error, msg: "Error undoing check-in" });
+    return NextResponse.json({ error: "Failed to undo check-in" }, { status: 500 });
   }
 }

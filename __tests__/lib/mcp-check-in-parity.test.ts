@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockApplyTransition } = vi.hoisted(() => ({
   mockDb: {
-    registration: { findFirst: vi.fn(), update: vi.fn() },
+    registration: { findFirst: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     $transaction: vi.fn(),
   },
@@ -47,11 +47,12 @@ function regRow(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDb.registration.update.mockResolvedValue({
+  mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.registration.findUniqueOrThrow.mockResolvedValue({
     id: "reg1", checkedInAt: new Date(), attendee: { firstName: "A", lastName: "B" }, ticketType: {},
   });
   mockDb.$transaction.mockImplementation(async (cb: (t: unknown) => unknown) =>
-    cb({ registration: { update: mockDb.registration.update } }),
+    cb({ registration: { updateMany: mockDb.registration.updateMany } }),
   );
 });
 
@@ -60,7 +61,7 @@ describe("MCP check_in_registration — desk parity (H9)", () => {
     mockDb.registration.findFirst.mockResolvedValue(regRow({ paymentStatus: "UNPAID" }));
     const res = await checkIn({ registrationId: "reg1" }, ctx);
     expect(res).toMatchObject({ code: "PAYMENT_REQUIRED" });
-    expect(mockDb.registration.update).not.toHaveBeenCalled();
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
     expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 
@@ -91,7 +92,7 @@ describe("MCP check_in_registration — desk parity (H9)", () => {
     mockDb.registration.findFirst.mockResolvedValue(regRow({ status: "CANCELLED" }));
     const res = await checkIn({ registrationId: "reg1" }, ctx);
     expect(res).toMatchObject({ code: "REGISTRATION_CANCELLED" });
-    expect(mockDb.registration.update).not.toHaveBeenCalled();
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
   });
 
   it("allowCancelled reactivates THROUGH the seat/promo transition inside a tx", async () => {

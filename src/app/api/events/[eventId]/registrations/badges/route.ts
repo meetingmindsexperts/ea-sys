@@ -7,6 +7,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { formatSerialId } from "@/lib/registration-serial";
 import { renderBarcodePng } from "@/lib/barcode";
+import { isPaymentAdmissible } from "@/lib/check-in";
 import PDFDocument from "pdfkit";
 
 interface RouteParams {
@@ -74,17 +75,29 @@ export async function POST(req: Request, { params }: RouteParams) {
       orderBy: [{ attendee: { lastName: "asc" } }, { attendee: { firstName: "asc" } }],
     });
 
-    // Filter to only paid or complimentary registrations
-    const registrations = allRegistrations.filter((r) => {
-      const isComplimentary = r.paymentStatus === "COMPLIMENTARY" ||
-        Number(r.ticketType?.price ?? 0) === 0 ||
-        (r.pricingTier && Number(r.pricingTier.price) === 0);
-      return r.paymentStatus === "PAID" || isComplimentary;
-    });
+    // Badge everyone the door would admit — the SAME predicate as the check-in
+    // gate (review H1). This route used to filter `PAID || complimentary`,
+    // silently dropping sponsor-paid (INCLUSIVE) and pay-at-desk (UNASSIGNED)
+    // delegates who scan in fine but then have no badge. `isPaymentAdmissible`
+    // is the shared source of truth so the two can't drift again.
+    const registrations = allRegistrations.filter((r) =>
+      isPaymentAdmissible({
+        paymentStatus: r.paymentStatus,
+        ticketTypePrice: r.ticketType?.price ?? null,
+        pricingTierPrice: r.pricingTier?.price ?? null,
+      }),
+    );
 
     if (registrations.length === 0) {
+      apiLogger.warn(
+        { msg: "badges:no-eligible-registrations", eventId, requested: all ? "all" : (registrationIds?.length ?? 0) },
+        "No badge-eligible registrations",
+      );
       return NextResponse.json(
-        { error: "No paid or complimentary registrations found for badge generation." },
+        {
+          error:
+            "No badge-eligible registrations found. Registrations that still owe payment (unpaid or pending) are excluded.",
+        },
         { status: 400 }
       );
     }

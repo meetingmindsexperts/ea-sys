@@ -381,6 +381,23 @@ export function RegistrationDetailSheet({
     },
   });
 
+  // Undo a mistaken check-in (review H2). This is the ONLY correct way to
+  // reverse it — clearing status + checkedInAt together via DELETE. Flipping
+  // status by hand would leave checkedInAt set and lock the attendee out of
+  // the scanner.
+  const undoCheckInRegistration = useMutation({
+    mutationFn: (id: string) =>
+      apiDelete<Registration>(`/api/events/${eventId}/registrations/${id}/check-in`),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.registrations(eventId) });
+      setSelectedRegistration(data);
+      toast.success("Check-in undone — the attendee can be scanned in again");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
   const [emailConfirmOpen, setEmailConfirmOpen] = useState(false);
   const [selectedEmailType, setSelectedEmailType] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -817,6 +834,17 @@ export function RegistrationDetailSheet({
                             Check In
                           </Button>
                         )}
+                      {selectedRegistration.status === "CHECKED_IN" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => undoCheckInRegistration.mutate(selectedRegistration.id)}
+                          disabled={undoCheckInRegistration.isPending}
+                        >
+                          <CheckCircle className="mr-2 h-4 w-4" />
+                          Undo Check-in
+                        </Button>
+                      )}
                       {!isDeskOperator && (
                         <Button
                           size="sm"
