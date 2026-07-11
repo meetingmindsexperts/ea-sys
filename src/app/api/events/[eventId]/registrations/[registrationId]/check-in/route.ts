@@ -39,6 +39,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      // H5: an ONSITE user hitting an event they're not assigned to lands here
+      // (buildEventAccessWhere returned nothing) — log the cross-event denial.
+      apiLogger.warn({ msg: "check-in:event-not-found", eventId, registrationId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -55,6 +58,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
+      apiLogger.warn({ msg: "check-in:registration-not-found", eventId, registrationId, userId: session.user.id });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
@@ -118,6 +122,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      apiLogger.warn({ msg: "check-in-qr:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -125,6 +130,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const { qrCode } = body;
 
     if (!qrCode) {
+      apiLogger.warn({ msg: "check-in-qr:missing-code", eventId, userId: session.user.id });
       return NextResponse.json({ error: "QR code or barcode required" }, { status: 400 });
     }
 
@@ -145,6 +151,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     if (!registration) {
+      // H5: the unknown-barcode scan is the single highest-value line to trace
+      // at a live door ("why didn't that badge scan?") — a wrong-event badge, a
+      // mis-print, or a probing/forged code. It logged nothing before.
+      apiLogger.warn({ msg: "check-in:qr-unknown-code", eventId, userId: session.user.id }, "Scanned code matched no registration");
       return NextResponse.json({ error: "Invalid code — not found" }, { status: 404 });
     }
 

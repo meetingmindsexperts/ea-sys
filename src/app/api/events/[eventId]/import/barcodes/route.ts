@@ -35,6 +35,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!event) {
+      apiLogger.warn({ msg: "barcode-import:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -53,6 +54,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const file = formData.get("file") as File | null;
 
     if (!file) {
+      apiLogger.warn({ msg: "barcode-import:no-file", eventId, userId: session.user.id });
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
@@ -60,6 +62,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { headers, rows, error: csvError } = parseCSV(text);
 
     if (csvError || rows.length === 0) {
+      apiLogger.warn({ msg: "barcode-import:csv-empty", eventId, userId: session.user.id, csvError });
       return NextResponse.json({ error: csvError || "CSV is empty" }, { status: 400 });
     }
 
@@ -69,10 +72,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     const emailCol = findCol(headers, ["email"]);
 
     if (barcodeCol < 0) {
+      apiLogger.warn({ msg: "barcode-import:missing-barcode-column", eventId, userId: session.user.id });
       return NextResponse.json({ error: "CSV must have a 'barcode' column" }, { status: 400 });
     }
 
     if (regIdCol < 0 && emailCol < 0) {
+      apiLogger.warn({ msg: "barcode-import:missing-id-column", eventId, userId: session.user.id });
       return NextResponse.json({ error: "CSV must have a 'registrationId' or 'email' column" }, { status: 400 });
     }
 

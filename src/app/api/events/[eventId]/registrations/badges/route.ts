@@ -8,6 +8,7 @@ import { getClientIp } from "@/lib/security";
 import { formatSerialId } from "@/lib/registration-serial";
 import { renderBarcodePng } from "@/lib/barcode";
 import { isPaymentAdmissible } from "@/lib/check-in";
+import { mapWithConcurrency } from "@/lib/concurrency";
 import PDFDocument from "pdfkit";
 
 interface RouteParams {
@@ -22,6 +23,14 @@ const MARGIN = 20;
 
 // A4 page width (in points)
 const A4_W = 595.28;
+
+// H4: a "Print All" larger than this is refused (batch instead) so one request
+// can't build a multi-thousand-page PDF on the box that serves the live
+// scanner. Well above a realistic single event (MM Group runs 500-2000).
+const MAX_BADGES_PER_REQUEST = 2500;
+// Max simultaneous CPU-bound barcode rasterizations — keeps the event loop
+// responsive for latency-critical requests (check-in, webhooks) during a print.
+const BARCODE_RENDER_CONCURRENCY = 8;
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -59,8 +68,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? { eventId, status: { not: "CANCELLED" as const }, attendanceMode: { not: "VIRTUAL" as const } }
       : { eventId, id: { in: registrationIds || [] }, attendanceMode: { not: "VIRTUAL" as const } };
 
+    // H4: guard against an unbounded "Print All" building a multi-thousand-page
+    // PDF in one request on the box that also serves the live scanner. `take`
+    // one past the cap so we can tell "at the cap" from "over it". Realistic
+    // events (≤ a couple thousand) pass; a runaway falls back to batching.
     const allRegistrations = await db.registration.findMany({
       where,
+      take: MAX_BADGES_PER_REQUEST + 1,
       select: {
         id: true,
         serialId: true,
@@ -97,6 +111,22 @@ export async function POST(req: Request, { params }: RouteParams) {
         {
           error:
             "No badge-eligible registrations found. Registrations that still owe payment (unpaid or pending) are excluded.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // H4: over the per-request cap. Refuse rather than freeze the box mid-render.
+    if (registrations.length > MAX_BADGES_PER_REQUEST) {
+      apiLogger.warn(
+        { msg: "badges:over-cap", eventId, cap: MAX_BADGES_PER_REQUEST, matched: registrations.length },
+        "Badge request exceeds the per-request cap",
+      );
+      return NextResponse.json(
+        {
+          error: `Too many badges for one request (limit ${MAX_BADGES_PER_REQUEST}). Filter by registration type or select a batch, then print again.`,
+          code: "BADGE_LIMIT_EXCEEDED",
+          limit: MAX_BADGES_PER_REQUEST,
         },
         { status: 400 }
       );
@@ -169,25 +199,23 @@ async function generateBadgePDF(
   registrations: BadgeRegistration[],
   verticalOffset: number,
 ): Promise<Buffer> {
-  // Pre-render all barcodes (async) before drawing
+  // Pre-render all barcodes (async) before drawing. H4: bounded concurrency,
+  // NOT `Promise.all` over every row — each render is a CPU-bound
+  // bwip-js.toBuffer, and firing thousands at once pins the event loop on the
+  // box that also serves the live scanner. Dedup first so shared codes render
+  // once. Entry barcode = qrCode only (the DTCM code is never on the badge).
   const barcodeBuffers = new Map<string, Buffer>();
-  await Promise.all(
-    registrations.map(async (reg) => {
-      // Entry barcode = qrCode only. The DTCM compliance barcode is a
-      // separate Dubai artifact and is never substituted onto the badge.
-      const barcodeText = reg.qrCode;
-      if (barcodeText && !barcodeBuffers.has(barcodeText)) {
-        try {
-          // Badge draws the registration number itself, so the bars carry
-          // no baked-in text (includetext defaults to false in the helper).
-          const png = await renderBarcodePng(barcodeText);
-          barcodeBuffers.set(barcodeText, png);
-        } catch (err) {
-          apiLogger.warn({ msg: "Barcode render failed", barcodeText, error: err instanceof Error ? err.message : "Unknown" });
-        }
-      }
-    })
-  );
+  const uniqueBarcodes = [...new Set(registrations.map((r) => r.qrCode).filter((c): c is string => !!c))];
+  await mapWithConcurrency(uniqueBarcodes, BARCODE_RENDER_CONCURRENCY, async (barcodeText) => {
+    try {
+      // Badge draws the registration number itself, so the bars carry no
+      // baked-in text (includetext defaults to false in the helper).
+      const png = await renderBarcodePng(barcodeText);
+      barcodeBuffers.set(barcodeText, png);
+    } catch (err) {
+      apiLogger.warn({ msg: "Barcode render failed", barcodeText, error: err instanceof Error ? err.message : "Unknown" });
+    }
+  });
 
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];
