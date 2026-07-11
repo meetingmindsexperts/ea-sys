@@ -19,6 +19,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { readSponsors } from "@/lib/webinar";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { resolveRepricing } from "@/lib/registration-repricing";
 
@@ -134,6 +135,13 @@ export async function GET(req: Request, { params }: RouteParams) {
         where: {
           id: registrationId,
           eventId,
+          // H8 (check-in review): a REGISTRANT reaches this route via bare
+          // auth() + buildEventAccessWhere's registration-linkage, but the row
+          // was bound only to the event — so any registration id in an event
+          // they hold a registration for leaked that person's full payload
+          // (incl. entry barcode). Bind org-null attendee roles to their OWN
+          // row; org staff (ADMIN/ORGANIZER/MEMBER/ONSITE) are unaffected.
+          ...(session.user.role === "REGISTRANT" && { userId: session.user.id }),
         },
         include: {
           attendee: true,
@@ -226,9 +234,18 @@ export async function GET(req: Request, { params }: RouteParams) {
     // the amounts — `redactFinancialFields` strips the whole `financials`
     // block plus payments / invoices / billing. Defense in depth: even a
     // crafted request can't pull money out of this endpoint.
-    const payload = canViewFinance(session.user.role)
+    let payload = canViewFinance(session.user.role)
       ? withFinancials
       : redactFinancialFields(withFinancials);
+
+    // H6/H8: the entry barcode + DTCM code are physical-access credentials, not
+    // financial fields — strip them for anyone who doesn't run the door/badges
+    // (a MEMBER on the detail sheet is finance-capable but must not hold a door
+    // credential; a REGISTRANT viewing their own row gets their barcode from the
+    // portal, not this admin endpoint).
+    if (!canViewEntryBarcode(session.user.role)) {
+      payload = redactBarcodeFields(payload);
+    }
 
     const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");

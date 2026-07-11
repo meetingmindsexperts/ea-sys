@@ -9,6 +9,7 @@ import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
@@ -272,10 +273,19 @@ export async function GET(req: Request, { params }: RouteParams) {
     // (role null) is org admin-equivalent and MEMBER cannot mint keys, so
     // it keeps full data (consistent with every other API-key path; the
     // MCP-transport finance story is tracked separately).
-    const shouldRedact = orgCtx.role !== null && !canViewFinance(orgCtx.role);
-    const payload = shouldRedact
-      ? redactFinancialFields(registrations)
-      : registrations;
+    let payload = registrations;
+    if (orgCtx.role !== null && !canViewFinance(orgCtx.role)) {
+      payload = redactFinancialFields(payload);
+    }
+    // H6/H7 (check-in review): the entry barcode + DTCM code are physical-access
+    // credentials, not financial fields — so redactFinancialFields leaves them.
+    // Strip them for anyone who doesn't run the door/badges (a MEMBER is
+    // finance-capable but must NOT hold a door credential; an internal-domain
+    // REGISTRANT reaching this org-scoped list must not harvest every barcode).
+    // API keys (role null) are admin-equivalent → keep.
+    if (!canViewEntryBarcode(orgCtx.role, orgCtx.role === null)) {
+      payload = redactBarcodeFields(payload);
+    }
 
     const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
