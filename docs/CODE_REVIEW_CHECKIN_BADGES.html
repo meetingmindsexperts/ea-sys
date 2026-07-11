@@ -514,7 +514,31 @@ finally { setScanning(false); setManualInput(""); inputRef.current?.focus(); }  
     owner-scopes a REGISTRANT + 429). Suite 2413 → 2433.</li>
 </ul>
 
-<p><em>Phases 3–4 (Print All at scale, logging/UX) will be appended here as they ship.</em></p>
+<h3>Phase 3 — Print All at scale + failure visibility (H4 + H5) · commit <code>935c1f7</code></h3>
+<ul>
+  <li><strong>H4 — new <code>src/lib/concurrency.ts</code> <code>mapWithConcurrency</code></strong> (no
+    new dependency) caps in-flight barcode renders at 8, so the event loop breathes between the CPU-bound
+    <code>bwip-js</code> rasterizations instead of being pinned by ~2000 at once (barcodes deduped first).
+    Plus a per-request cap of 2500 via <code>take: cap + 1</code> — over it returns 400
+    <code>BADGE_LIMIT_EXCEEDED</code> ("filter by type or select a batch"), logged, instead of freezing
+    mid-render. Moving the render to the worker tier (the deeper fix) stays deferred.</li>
+  <li><strong>H5 — the unknown-barcode scan</strong> (the highest-value line to trace at a live door)
+    now logs at <code>warn</code> (eventId + userId — never the raw scanned code, which is a credential).
+    Also logged: the check-in POST/PUT event-not-found (= the ONSITE cross-event denial), the POST
+    registration-not-found, the QR missing-code 400, and all four import/barcodes 400s.</li>
+  <li><strong>Tests</strong>: +5 concurrency (order preserved, peak in-flight ≤ limit, every item once,
+    empty, rejection propagates). Suite 2433 → 2438.</li>
+</ul>
+
+<div class="note">
+  <strong>Scoreboard after this round:</strong> <strong>all 8 HIGHs fixed</strong> across three phases —
+  H1/H2/H3/M7 (door correctness, <code>706ba17</code>); H6/H7/H8/L4 (credentials, <code>aac727a</code>);
+  H4/H5 (Print All + logging, <code>935c1f7</code>). Suite 2401 → 2438. Deferred to ROADMAP: the
+  gate-policy MEDs (M1 no desk override for a webhook-lagged PENDING; M2 FAILED/REFUNDED admitted +
+  no desk reactivation), the DTCM-import integrity MEDs (M3 no per-row try/catch; M4 arbitrary-email
+  match; L2 silent overwrite), the scanner-UX MEDs (M5 stale attendance counter; M6 silent network-drop),
+  and L1/L3.
+</div>
 
 <h2 id="clean">8. What checked out clean</h2>
 <ul>

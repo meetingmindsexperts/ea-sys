@@ -212,11 +212,11 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Current Release — July 10, 2026
 
-### Check-in & badges review (July 10, 2026) — Phases 1+2 SHIPPED (door correctness + credentials), rest deferred
+### Check-in & badges review (July 10, 2026) — ALL 8 HIGHs SHIPPED (Phases 1-3), MEDs/LOWs deferred
 
 A 4-angle production review of the check-in + badges domain ahead of real conferences with 500–2000
 in-person attendees: **0 BLOCKER / 8 HIGH / 7 MED / 4 LOW**. Full report:
-[docs/CODE_REVIEW_CHECKIN_BADGES.html](CODE_REVIEW_CHECKIN_BADGES.html). **Phase 1 (door correctness — H1/H2/H3/M7) shipped `706ba17`; Phase 2 (credential exposure — H6/H7/H8/L4) shipped `aac727a`.** The rest below is deferred. Severity is calibrated: 0 BLOCKERs because no barcode leak is
+[docs/CODE_REVIEW_CHECKIN_BADGES.html](CODE_REVIEW_CHECKIN_BADGES.html). **Phase 1 (door correctness — H1/H2/H3/M7) shipped `706ba17`; Phase 2 (credential exposure — H6/H7/H8/L4) shipped `aac727a`; Phase 3 (Print All + logging — H4/H5) shipped `935c1f7`.** All 8 HIGHs done; the MEDs/LOWs below are deferred. Severity is calibrated: 0 BLOCKERs because no barcode leak is
 reachable by an arbitrary unauthenticated caller (all require an org-attached account or an unguessable
 cuid), unlike the same-day sessions blockers.
 
@@ -239,11 +239,11 @@ cuid), unlike the same-day sessions blockers.
   admin notifications duplicate. Schema has no unique/partial index on `checkedInAt`. Fix is one line:
   `updateMany({ where: { id, checkedInAt: null } })`, `count === 0` → ALREADY_CHECKED_IN. **Also closes M7**
   (two concurrent `allowCancelled` overrides double-increment seat AND promo counters).
-- **H4 — "Print All" is unbounded** in N with unbounded `bwip-js` fan-out (`Promise.all` over up to 2000
+- **✅ H4 (SHIPPED `935c1f7`) — "Print All" is unbounded** in N with unbounded `bwip-js` fan-out (`Promise.all` over up to 2000
   rows) and builds the whole PDF in-request, on the same swapless box that serves the live scanner and the
   Stripe webhook. This is the concrete content of the readiness audit's "bulk badge Print All is fragile".
   Fix: `take` cap + `p-limit` + ideally move the render to the worker tier.
-- **H5 — the unknown-barcode scan 404 logs nothing** (`check-in/route.ts:147`), nor does the **ONSITE
+- **✅ H5 (SHIPPED `935c1f7`) — the unknown-barcode scan 404 logs nothing** (`check-in/route.ts:147`), nor does the **ONSITE
   cross-event denial** (the exact adversarial case the July-7 isolation tests defend), nor the badges 400
   or the DTCM import 400s. At a live door you cannot answer "why did that badge not scan?" from `/logs`.
 
