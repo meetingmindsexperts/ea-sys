@@ -102,16 +102,40 @@ describe("scheduled-emails worker — recipientIds passthrough", () => {
     expect(mockExecuteBulkEmail.mock.calls[0][0].recipientIds).toBeUndefined();
   });
 
-  it("marks the row SENT with the executeBulkEmail counts", async () => {
+  it("marks the row SENT via a conditional (status=PROCESSING) completion claim", async () => {
     mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ recipientIds: ["r1"] })]);
 
     await runScheduledEmailsTick();
 
-    expect(mockDb.scheduledEmail.update).toHaveBeenCalledWith(
+    // Completion is a conditional updateMany — only writes if we still own the
+    // row (review M1: a superseded zombie must not clobber a reclaimed row).
+    expect(mockDb.scheduledEmail.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "se_1" },
+        where: { id: "se_1", status: "PROCESSING" },
         data: expect.objectContaining({ status: "SENT", successCount: 2, totalCount: 2 }),
       }),
+    );
+  });
+
+  it("does NOT clobber or re-notify when the completion claim is superseded", async () => {
+    // sweep→0, claim→1 (we own it), completion→0 (row was swept + reclaimed).
+    mockDb.scheduledEmail.updateMany.mockReset();
+    mockDb.scheduledEmail.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValue({ count: 0 });
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ recipientIds: ["r1"] })]);
+
+    const report = await runScheduledEmailsTick();
+
+    // Emails still went out, so the row is reported sent…
+    expect(report.results[0]).toMatchObject({ id: "se_1", status: "sent" });
+    // …but we must NOT re-fire the admin notification / audit for a row we no
+    // longer own, and we log the supersede.
+    expect(mockNotify).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "scheduled-email:completion-superseded", id: "se_1" }),
     );
   });
 
@@ -142,10 +166,11 @@ describe("scheduled-emails worker — empty audience is a benign skip", () => {
     expect(report.failed).toBe(0);
     expect(report.results[0]).toMatchObject({ id: "se_1", status: "skipped", total: 0 });
 
-    // Row flipped to terminal SENT with zeroed counts and no error text.
-    expect(mockDb.scheduledEmail.update).toHaveBeenCalledWith(
+    // Row flipped to terminal SENT with zeroed counts and no error text, via
+    // the conditional (status=PROCESSING) write.
+    expect(mockDb.scheduledEmail.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "se_1" },
+        where: { id: "se_1", status: "PROCESSING" },
         data: expect.objectContaining({
           status: "SENT",
           totalCount: 0,
@@ -173,9 +198,9 @@ describe("scheduled-emails worker — empty audience is a benign skip", () => {
     const report = await runScheduledEmailsTick();
 
     expect(report.failed).toBe(1);
-    expect(mockDb.scheduledEmail.update).toHaveBeenCalledWith(
+    expect(mockDb.scheduledEmail.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "se_1" },
+        where: { id: "se_1", status: "PROCESSING" },
         data: expect.objectContaining({ status: "FAILED", lastError: "SES throttled" }),
       }),
     );
@@ -201,7 +226,7 @@ describe("scheduled-emails worker — partial-failure recipient list", () => {
 
     await runScheduledEmailsTick();
 
-    const sentCall = mockDb.scheduledEmail.update.mock.calls.find(
+    const sentCall = mockDb.scheduledEmail.updateMany.mock.calls.find(
       (c: unknown[]) => (c[0] as { data?: { status?: string } })?.data?.status === "SENT",
     );
     expect(sentCall).toBeTruthy();
@@ -219,7 +244,7 @@ describe("scheduled-emails worker — partial-failure recipient list", () => {
 
     await runScheduledEmailsTick();
 
-    const sentCall = mockDb.scheduledEmail.update.mock.calls.find(
+    const sentCall = mockDb.scheduledEmail.updateMany.mock.calls.find(
       (c: unknown[]) => (c[0] as { data?: { status?: string } })?.data?.status === "SENT",
     );
     expect((sentCall![0] as { data: { lastError: string | null } }).data.lastError).toBeNull();

@@ -55,6 +55,11 @@ export const MAX_PER_TICK = 10;
 // realistic single-row send time.
 export const STUCK_PROCESSING_MS = 10 * 60 * 1000;
 
+// How often a PROCESSING row's updatedAt is refreshed mid-send so the stuck
+// sweep doesn't false-positive on a legitimately long send. Must be
+// comfortably below STUCK_PROCESSING_MS.
+export const HEARTBEAT_MS = 2 * 60 * 1000;
+
 export interface TickResult {
   id: string;
   status: "sent" | "failed" | "skipped";
@@ -101,6 +106,23 @@ async function processRow(
     return { id: row.id, status: "skipped" };
   }
 
+  // Heartbeat: refresh the row's updatedAt periodically while the send runs so
+  // the 10-min stuck-sweep (runScheduledEmailsTick) doesn't flip a legitimately
+  // long send (thousands of recipients / per-recipient PDF generation) to FAILED
+  // MID-FLIGHT and let a retry start a second concurrent send (review M1). The
+  // no-op `retryCount` increment triggers Prisma's @updatedAt. Scoped to
+  // status=PROCESSING so it's a no-op once the row completes. unref'd so a
+  // lingering timer can't block worker shutdown.
+  const heartbeat = setInterval(() => {
+    db.scheduledEmail
+      .updateMany({
+        where: { id: row.id, status: "PROCESSING" },
+        data: { retryCount: { increment: 0 } },
+      })
+      .catch((err) => apiLogger.warn({ err, msg: "scheduled-email:heartbeat-failed", id: row.id }));
+  }, HEARTBEAT_MS);
+  heartbeat.unref?.();
+
   try {
     const result = await executeBulkEmail({
       eventId: row.eventId,
@@ -123,8 +145,14 @@ async function processRow(
       triggeredByUserId: row.createdById,
     });
 
-    await db.scheduledEmail.update({
-      where: { id: row.id },
+    // Conditional completion claim — only write SENT if we still OWN the row
+    // (status === PROCESSING). If a stuck-sweep flipped it to FAILED and a retry
+    // re-claimed it, count === 0: the emails still went out, but the row's state
+    // is owned by whoever holds it now, so we must NOT clobber it or re-fire the
+    // audit + admin notification (which would double-notify). Defense-in-depth
+    // behind the heartbeat above (review M1).
+    const committed = await db.scheduledEmail.updateMany({
+      where: { id: row.id, status: "PROCESSING" },
       data: {
         status: "SENT",
         sentAt: new Date(),
@@ -139,6 +167,21 @@ async function processRow(
           : null,
       },
     });
+    if (committed.count === 0) {
+      apiLogger.warn({
+        msg: "scheduled-email:completion-superseded",
+        id: row.id,
+        eventId: row.eventId,
+        successCount: result.successCount,
+      });
+      return {
+        id: row.id,
+        status: "sent",
+        total: result.total,
+        sent: result.successCount,
+        failed: result.failureCount,
+      };
+    }
 
     // Fire-and-forget — do not block the cron tick on audit / notification writes.
     db.auditLog
@@ -205,9 +248,11 @@ async function processRow(
     // cert template, missing agreement template, unbuilt survey, deactivated
     // custom slug) ARE still rejected synchronously: both the enqueue and
     // schedule routes call precheckBulkEmailViability before creating the row.
+    // Both terminal writes below are conditional (status=PROCESSING) so a
+    // superseded zombie can't clobber a reclaimed row (review M1).
     if (err instanceof BulkEmailError && err.code === NO_RECIPIENTS_CODE) {
-      await db.scheduledEmail.update({
-        where: { id: row.id },
+      await db.scheduledEmail.updateMany({
+        where: { id: row.id, status: "PROCESSING" },
         data: {
           status: "SENT",
           sentAt: new Date(),
@@ -227,8 +272,8 @@ async function processRow(
     }
 
     const message = err instanceof Error ? err.message : "Unknown error";
-    await db.scheduledEmail.update({
-      where: { id: row.id },
+    await db.scheduledEmail.updateMany({
+      where: { id: row.id, status: "PROCESSING" },
       data: {
         status: "FAILED",
         sentAt: new Date(),
@@ -243,6 +288,8 @@ async function processRow(
       retryCount: row.retryCount,
     });
     return { id: row.id, status: "failed", error: message };
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
