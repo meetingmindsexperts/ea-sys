@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — Communications / Bulk Email (July 2026)</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+    --ok:#15803d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:960px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.75rem 0}
+  pre code{background:none;padding:0}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)}
+  .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .pill{font-weight:700;font-size:.72rem;letter-spacing:.04em;padding:.14em .5em;border-radius:3px;white-space:nowrap}
+  .pill.shipped{background:var(--ok);color:#fff} .pill.deferred{background:var(--muted);color:#fff}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.25rem 0}
+  .finding.high{border-left-color:var(--high)} .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .finding h3{margin-top:0;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .loc{color:var(--muted);font-size:.87rem;margin:.1rem 0 .8rem}
+  .lbl{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.9rem 0 .2rem}
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1.25rem 0}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+  ul,ol{padding-left:1.4rem} li{margin:.3rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf;--ok:#22c55e}
+    .sev{color:#14171a} .pill.shipped{color:#14171a} .pill.deferred{color:#14171a}
+    .note{background:#0c2b3a;border-color:#1e4a5f}
+    .note.warn{background:#33290c;border-color:#66551a}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Communications / Bulk Email</h1>
+  <p class="sub">
+    4-angle production review · July 11, 2026 · <strong>0 BLOCKER / 2 HIGH / 7 MED / 6 LOW</strong><br>
+    Angles: send lifecycle &amp; correctness · RBAC &amp; info-exposure · concurrency &amp; idempotency ·
+    drift / duplication / logging. Scope: the bulk-email send pipeline
+    (<code>executeBulkEmail</code>, the scheduled-emails worker, the enqueue / schedule / edit / cancel /
+    retry routes, the single-send routes, email-preview + templates + email-logs). Certificate bundle
+    internals were out of scope (own review); only the cert bulk integration contract was checked.
+  </p>
+</header>
+
+<div class="note">
+  <strong>Verdict — no live blocker; the send core is well-built.</strong> <code>logContext</code> is
+  threaded everywhere (no orphan EmailLog rows), no send error is swallowed, row claims are atomic, and the
+  system-vs-custom slug classifier has a real drift test. The findings cluster around
+  <strong>duplicate / mis-targeted sends</strong>. The user chose the <strong>anti-double-send batch</strong>
+  (H1, H2, M1, M2, M3, M6), shipped in three gated phases. The remaining M/Ls are deferred to
+  <code>docs/ROADMAP.md</code> § "Communications / bulk-email review".
+</div>
+
+<h2>Remediation phases</h2>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Phase</th><th>Commit</th><th>Findings</th><th>Layer</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>fadfc44</code></td><td>H2 enqueue dedup · M2 viability precheck + stale comment · M3 lossy-filters-edit removal</td><td>routes (no schema)</td></tr>
+    <tr><td>2</td><td><code>1e7c45e</code></td><td>M1 worker heartbeat + conditional completion</td><td>worker (no schema)</td></tr>
+    <tr><td>3</td><td><code>5d03569</code></td><td>H1 per-recipient idempotency (also closes M6)</td><td>additive migration <code>20260711120000</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>HIGH</h2>
+
+<div class="finding high">
+  <h3>H1 — no per-recipient send idempotency <span class="pill shipped">SHIPPED 5d03569</span></h3>
+  <p class="loc"><code>src/lib/bulk-email.ts</code> (send loop) · <code>ScheduledEmail</code> (schema)</p>
+  <p><code>executeBulkEmail</code> re-resolves recipients and re-sends to <em>all</em> of them on any
+  re-run; the row stored only aggregate counts, no <code>emailedAt</code>/resume marker.</p>
+  <p class="lbl">Failure scenario</p>
+  <p>A 500-recipient send is claimed <code>PENDING→PROCESSING</code> and gets ~200 in before the worker
+  process is OOM-killed / the container restarts. The row sits <code>PROCESSING</code>; the 10-min sweep
+  flips it to <code>FAILED</code>; the operator clicks Retry → the worker re-runs the whole 500-recipient
+  audience with no dedup → the first ~200 delegates receive the email a second time.</p>
+  <p class="lbl">Fix</p>
+  <p>Additive <code>ScheduledEmail.emailedKeys String[] @default([])</code> (migration
+  <code>20260711120000</code>, <code>ADD COLUMN IF NOT EXISTS</code> → blue-green safe).
+  <code>executeBulkEmail</code> gains <code>alreadyEmailedKeys</code> (skip these) +
+  <code>onBatchEmailed(keys)</code> (report each sent batch); the worker passes <code>row.emailedKeys</code>
+  in and appends each batch via <code>{ push }</code>, so a retry resumes past everyone already delivered.
+  Record failure is best-effort. Certificate sends are unaffected (own issue-or-reuse idempotency).</p>
+</div>
+
+<div class="finding high">
+  <h3>H2 — "Send now" enqueue is non-idempotent <span class="pill shipped">SHIPPED fadfc44</span></h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/emails/bulk/route.ts:90</code></p>
+  <p><code>db.scheduledEmail.create</code> with no dedup. A double-click or an HTTP retry of the 202 creates
+  two identical rows and the worker drains both → the whole audience is emailed twice. The 20/hr limit is no
+  defense (both fit under it; in-memory per-container, so ~2× during a blue/green deploy).</p>
+  <p class="lbl">Fix</p>
+  <p>Best-effort guard: match a same-creator, same-content <code>PENDING</code> send-now row created in the
+  last 2 min and return its jobId instead of enqueueing again. Value-equality only (never merges two
+  genuinely-different sends); not bulletproof under true simultaneity — a unique idempotency key would be, at
+  the cost of a column.</p>
+</div>
+
+<h2>MEDIUM</h2>
+
+<div class="finding medium">
+  <h3>M1 — stall-sweep vs. a long send <span class="pill shipped">SHIPPED 1e7c45e</span></h3>
+  <p class="loc"><code>src/lib/scheduled-emails-worker.ts</code></p>
+  <p>The 10-min stuck-sweep keys on <code>updatedAt</code>, but nothing refreshed it during a send (the only
+  bump was the claim). A legitimately long send (&gt;10 min — thousands of recipients / per-recipient PDF
+  generation) was flipped to <code>FAILED</code> mid-flight; a retry then started a <em>second concurrent</em>
+  send, and <code>processRow</code>'s unconditional completion write clobbered the reclaimed row's state.</p>
+  <p class="lbl">Fix</p>
+  <p>A 2-min heartbeat touches the <code>PROCESSING</code> row (no-op <code>retryCount</code> increment →
+  <code>@updatedAt</code>) so the sweep only fires on a genuinely dead row; and the SENT / SENT-0 / FAILED
+  writes became conditional <code>updateMany(where:{id, status:PROCESSING})</code> — if we no longer own the
+  row, <code>count === 0</code> → log <code>completion-superseded</code>, skip the audit + admin notification
+  (no clobber, no double-notify).</p>
+</div>
+
+<div class="finding medium">
+  <h3>M2 — send-viability deferred to fire time <span class="pill shipped">SHIPPED fadfc44</span></h3>
+  <p class="loc"><code>emails/bulk/route.ts</code> · <code>emails/schedule/route.ts</code> · <code>scheduled-emails-worker.ts:200</code></p>
+  <p>"Send now" only shape-validated before enqueue, so every real check (untagged cert template, missing
+  agreement template, unbuilt survey, deactivated custom slug) fired only at worker time — a green "queued"
+  toast followed by a FAILED row a minute later. A worker comment still claimed the immediate route surfaces a
+  synchronous 400 (untrue since the June-9 jobification).</p>
+  <p class="lbl">Fix</p>
+  <p>Extracted the config checks from <code>executeBulkEmail</code> into a shared
+  <code>precheckBulkEmailViability()</code> (one implementation, no drift) that the enqueue + schedule routes
+  call synchronously → a real 4xx now. Stale comment corrected.</p>
+</div>
+
+<div class="finding medium">
+  <h3>M3 — schedule-edit drops send-critical filter keys <span class="pill shipped">SHIPPED fadfc44</span></h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/emails/schedule/[id]/route.ts:15</code></p>
+  <p>The PATCH <code>filters</code> schema knew only <code>{status, ticketTypeId}</code> and <em>replaced</em>
+  the whole JSON, so editing a template/cert/survey/multi-value send stripped <code>templateSlug</code> /
+  <code>certificateTemplateIds</code> / <code>surveyExpiryDays</code> / <code>paymentStatus</code> /
+  <code>ticketTypeIds</code> / … → a fire-time FAIL or a silent audience-widen. Latent (the dialog never edits
+  filters) but the route accepted it.</p>
+  <p class="lbl">Fix</p>
+  <p><code>filters</code> removed from the edit schema (Zod strips it → persisted filters untouched). Audience
+  changes = cancel + re-create, which the dialog already tells the operator.</p>
+</div>
+
+<div class="finding medium">
+  <h3>M4 — <code>email-preview</code> org-null collapse <span class="pill deferred">DEFERRED</span></h3>
+  <p class="loc"><code>src/app/api/events/[eventId]/email-preview/route.ts:51</code></p>
+  <p>The one communications route using <code>...(organizationId ? {organizationId} : {})</code> instead of the
+  explicit <code>organizationId!</code> its five siblings use; the response renders a real registration's
+  serialId + event name/venue. Not currently exploitable — <code>denyReviewer</code> blocks every org-null role
+  before the query — but the isolation depends on the guard's block-set ordering, not the query. Fix: bind org
+  explicitly for parity. Also: no rate limit (LOW).</p>
+</div>
+
+<div class="finding medium">
+  <h3>M5 — recipient-count predicate triplicated <span class="pill deferred">DEFERRED</span></h3>
+  <p class="loc">communications/page.tsx · registrations/page.tsx · speakers/page.tsx</p>
+  <p><code>countRegistrations</code>/<code>countSpeakers</code> are hand-copied across three host pages, each
+  independently mirroring <code>executeBulkEmail</code>'s <code>where</code>. The <strong>speakers-page copy
+  already omits the <code>sessionRole</code> filter</strong> the backend applies — count≠send, latent only
+  because that surface doesn't yet pass <code>sessionRoleFilter</code> to the dialog. Fix: a shared
+  <code>matchesBulkEmailFilters()</code> helper.</p>
+</div>
+
+<div class="finding medium">
+  <h3>M6 — survey token re-mint breaks the first email's link <span class="pill shipped">SHIPPED 5d03569</span></h3>
+  <p class="loc"><code>src/lib/bulk-email.ts:1082</code></p>
+  <p>The survey-invitation token mint (<code>deleteMany</code> + <code>create</code>) lives in the per-recipient
+  path; on a re-run it deleted the token the recipient already holds and issued a second, different link →
+  the first email's link 404s. <strong>Closed by H1:</strong> the skip filter sits above the mint, so an
+  already-emailed recipient's token is never touched on a re-run.</p>
+</div>
+
+<div class="finding medium">
+  <h3>M7 — a bad filter value silently widens the audience, unlogged <span class="pill deferred">DEFERRED</span></h3>
+  <p class="loc"><code>src/lib/bulk-email.ts</code> (<code>parsePaymentStatusFilter</code> / abstracts <code>status as never</code>)</p>
+  <p>A typo'd <code>paymentStatus</code>/<code>status</code> parses to empty → no predicate → the send goes to
+  <em>everyone</em> (and a reminder re-admits CANCELLED). Unreachable via the current dialog (valid enum values
+  only), reachable via MCP / API / a future tile; and it violates the every-failure-logs rule. Fix: reject +
+  log an unparsable filter value instead of dropping it.</p>
+</div>
+
+<h2>LOW <span class="pill deferred">DEFERRED</span></h2>
+<ul>
+  <li><strong>Unlogged post-auth rejection cluster</strong> — schedule lead-time 400 + several 404s (schedule
+    create/GET, retry not-found, bulk event-404). The silent-4xx class the owner wants surfaced.</li>
+  <li><strong>Abstracts <code>status as never</code> cast</strong> — passes an unchecked status straight to
+    Prisma → cryptic enum throw aborts the whole send, vs the reg/speaker <code>safeParse</code>.</li>
+  <li><strong><code>presentationDetails</code> raw HTML</strong> — session/topic/track names embedded raw in
+    agreement emails (same class as the <code>{{abstractTitle}}</code> fix; organizer-authored / trusted today).</li>
+  <li><strong><code>email-preview</code> no rate limit</strong> — an uncapped authenticated DB/CPU path that
+    renders real registrant data.</li>
+  <li><strong>Legacy cron route lacks the advisory-lock wrapper</strong> — <code>/api/cron/scheduled-emails</code>
+    calls the tick directly; double-processing is prevented only by the per-row atomic claim, not the lock
+    (safe today — informational).</li>
+  <li><strong>Advisory lock is a no-op under the transaction pooler</strong> — documented P3; matters only if a
+    2nd worker is ever run (Singapore DR failover), where the atomic claim remains the true guard.</li>
+</ul>
+
+<h2>Per-phase fix log</h2>
+
+<h3>Phase 1 — <code>fadfc44</code> (route layer, no schema)</h3>
+<ul>
+  <li><strong>H2</strong> — content+2min enqueue dedup in the send-now route; returns the existing jobId, no new row.</li>
+  <li><strong>M2</strong> — extracted <code>precheckBulkEmailViability</code>; both enqueue + schedule routes call it synchronously; fixed the stale worker comment.</li>
+  <li><strong>M3</strong> — removed <code>filters</code> from the schedule-edit PATCH schema.</li>
+  <li><strong>Tests</strong> — +13 (precheck contract; enqueue dedup hit/miss; precheck-reject). Suite 2438 → 2451.</li>
+</ul>
+
+<h3>Phase 2 — <code>1e7c45e</code> (worker layer, no schema)</h3>
+<ul>
+  <li><strong>M1</strong> — 2-min heartbeat refreshes <code>updatedAt</code> so a slow send isn't falsely swept; SENT/SENT-0/FAILED writes are conditional (<code>status=PROCESSING</code>); a superseded completion logs + skips audit/notify instead of clobbering.</li>
+  <li><strong>Tests</strong> — +2 (conditional completion claim; superseded-completion no-clobber/no-renotify). Suite 2451 → 2452.</li>
+</ul>
+
+<h3>Phase 3 — <code>5d03569</code> (additive migration <code>20260711120000</code>)</h3>
+<ul>
+  <li><strong>H1 + M6</strong> — <code>ScheduledEmail.emailedKeys</code>; the send skips already-emailed ids and records each batch's sent ids; a retry resumes; already-emailed recipients' survey tokens aren't re-minted.</li>
+  <li><strong>Tests</strong> — +4 (fresh send records all; re-run skips; completed-retry sends nothing; record-failure isolation). Suite 2452 → 2456.</li>
+</ul>
+
+<p>Every phase verified <code>tsc</code> + <code>eslint</code> + full <code>vitest</code> + <code>build</code> green before commit + push.</p>
+
+<footer>
+  Generated as part of the EA-SYS domain production-review programme
+  (registrations/speakers · payments · abstracts · program/agenda · check-in/badges · <strong>communications</strong>).
+  Deferred findings tracked in <code>docs/ROADMAP.md</code>.
+</footer>
+
+</div>
+</body>
+</html>

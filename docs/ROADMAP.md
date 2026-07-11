@@ -287,6 +287,67 @@ wrong-event badge 404s); sequential double-scan IS idempotent (only the concurre
 ONSITE fix holds on the five routes it touched; DTCM is never substituted for the entry barcode.
 
 
+### Communications / bulk-email review (July 11, 2026) — anti-double-send batch SHIPPED, rest deferred
+
+A 4-angle production review of the communications / bulk-email domain (send lifecycle · RBAC &
+info-exposure · concurrency & idempotency · drift/duplication/logging): **0 BLOCKER / 2 HIGH / 7 MED /
+6 LOW**. Full report: [docs/CODE_REVIEW_COMMUNICATIONS.html](CODE_REVIEW_COMMUNICATIONS.html). The send
+core is genuinely well-built (logContext threaded everywhere, no swallowed send errors, atomic row claims,
+a real slug-drift test). The user chose the **anti-double-send batch**; shipped in three gated phases:
+**Phase 1 (`fadfc44`)** — H2 enqueue dedup + M2 synchronous viability precheck + M3 lossy-filters-edit
+removal; **Phase 2 (`1e7c45e`)** — M1 worker heartbeat + conditional completion; **Phase 3 (`5d03569`,
+additive migration `20260711120000`)** — H1 per-recipient idempotency (`ScheduledEmail.emailedKeys`) which
+also closed M6.
+
+- **✅ H1 (SHIPPED `5d03569`)** — `executeBulkEmail` had no per-recipient idempotency; a retry after a
+  genuine crash re-emailed everyone already sent. New `emailedKeys String[]`; the send skips already-emailed
+  ids and appends each batch's sent ids, so a retry resumes.
+- **✅ H2 (SHIPPED `fadfc44`)** — non-idempotent "Send now" enqueue; a double-click / HTTP-retry made two
+  identical `ScheduledEmail` rows and the worker drained both (whole audience twice). Best-effort content+2min
+  dedup window returns the existing jobId.
+- **✅ M1 (SHIPPED `1e7c45e`)** — the 10-min stuck-sweep keyed on `updatedAt` with no heartbeat, so a
+  legitimately long send was falsely FAILED mid-flight and resurrectable into a concurrent second send; the
+  terminal write was unconditional-by-id. Now a 2-min heartbeat + conditional (`status=PROCESSING`) completion.
+- **✅ M2 (SHIPPED `fadfc44`)** — viability deferred to fire time → green "queued" toast then a FAILED row a
+  minute later. Extracted `precheckBulkEmailViability`; both the enqueue + schedule routes call it synchronously.
+- **✅ M3 (SHIPPED `fadfc44`)** — schedule-edit PATCH replaced the whole `filters` JSON with a
+  `{status,ticketTypeId}`-only schema, stripping send-critical keys. `filters` removed from the edit schema.
+- **✅ M6 (SHIPPED `5d03569`)** — survey-invitation token re-mint (`deleteMany`+`create`) broke the first
+  email's link on a re-run; now the skip filter means an already-emailed recipient's token is never touched.
+
+**Deferred (pick up when a related issue surfaces):**
+
+- **M4 — `email-preview` org-null collapse.** [email-preview/route.ts:51](../src/app/api/events/%5BeventId%5D/email-preview/route.ts)
+  uses `...(organizationId ? {organizationId} : {})` instead of the explicit `organizationId!` its five sibling
+  routes use. Not currently exploitable — `denyReviewer` blocks every org-null role before the query — but the
+  isolation depends on the guard's block-set ordering, not the query. Fix: bind org explicitly for parity, so a
+  future org-null role that passes the guard can't POST another org's eventId and read a real registrant's
+  confirmation number.
+- **M5 — recipient-count predicate triplicated.** `countRegistrations`/`countSpeakers` are hand-copied across
+  communications/registrations/speakers pages, each independently mirroring `executeBulkEmail`'s `where`. The
+  **speakers-page copy already omits the `sessionRole` filter** the backend applies — latent only because that
+  surface doesn't yet pass `sessionRoleFilter` to the dialog. Fix: a shared `matchesBulkEmailFilters()` client
+  helper so count == send can't drift.
+- **M7 — a bad filter value silently widens the audience, unlogged.** A typo'd `paymentStatus`/`status` parses
+  to empty ([bulk-email.ts](../src/lib/bulk-email.ts) `parsePaymentStatusFilter` / the abstracts `status as never`
+  cast) → no predicate → the send goes to **everyone** (and a reminder re-admits CANCELLED). Unreachable via the
+  current dialog (valid enum values only), reachable via MCP / API / a future tile. Violates the every-failure-logs
+  rule. Fix: reject/log an unparsable filter value instead of dropping it.
+- **LOWs:** unlogged post-auth rejection cluster (schedule lead-time 400 + several 404s — the silent-4xx class);
+  abstracts recipient path uses an unchecked `status as never` cast → cryptic Prisma throw aborts the whole send
+  (vs the reg/speaker `safeParse`); `presentationDetails` embeds session/topic/track names raw in agreement emails
+  (same class as the `{{abstractTitle}}` fix, trusted today); `email-preview` has no rate limit; the legacy
+  `/api/cron/scheduled-emails` route lacks the advisory-lock wrapper (safe today via the atomic per-row claim —
+  informational); the advisory lock is a no-op under the pgbouncer transaction pooler (documented P3 — matters only
+  if a 2nd worker is ever run, e.g. Singapore DR failover).
+
+**Verified clean:** every send outcome (per-recipient failure, whole-row failure, retry, benign 0-recipient
+skip, stuck-row sweep) produces a findable log line; `logContext` is threaded through both the bulk and
+cert-bundle send paths (no orphan EmailLog rows); the `email-template-slugs.ts` system-vs-custom classifier has
+a real drift test against `DEFAULT_TEMPLATES`; the atomic PENDING→PROCESSING claim + FAILED-only retry + org-bound
+edit/cancel/retry all hold; MCP `send_bulk_email` sending inline (not jobified) is intended.
+
+
 ### Program / agenda / sessions review (July 10, 2026) — deferred findings
 
 A 4-angle production review of the program / agenda / sessions domain (scheduling lifecycle · RBAC &
