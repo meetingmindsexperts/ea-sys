@@ -144,7 +144,7 @@ describe("renderCertificate", () => {
   for (const type of ["ATTENDANCE", "APPRECIATION"] as CertificateType[]) {
     it(`renders a valid PDF buffer for ${type}`, async () => {
       const data = buildPreviewCertificate({ type, event: SAMPLE_EVENT });
-      const pdf = await renderCertificate(data);
+      const pdf = await renderCertificate(data, { allowPlaceholder: true });
       expect(Buffer.isBuffer(pdf)).toBe(true);
       expect(pdf.byteLength).toBeGreaterThan(1000); // smallest possible cert is way more than this
       // PDF files start with the magic string "%PDF" per RFC 8118.
@@ -163,7 +163,7 @@ describe("renderCertificate", () => {
         settings: { cme: { accreditations: [] } },
       },
     });
-    const pdf = await renderCertificate(data);
+    const pdf = await renderCertificate(data, { allowPlaceholder: true });
     expect(pdf.slice(0, 4).toString("ascii")).toBe("%PDF");
   }, 35_000);
 
@@ -172,9 +172,17 @@ describe("renderCertificate", () => {
       type: "APPRECIATION",
       event: { ...SAMPLE_EVENT, cmeHours: null },
     });
-    const pdf = await renderCertificate(data);
+    const pdf = await renderCertificate(data, { allowPlaceholder: true });
     expect(pdf.slice(0, 4).toString("ascii")).toBe("%PDF");
   }, 35_000);
+
+  it("THROWS (does not ship the placeholder) when no background PDF is configured and allowPlaceholder is not set (H2)", async () => {
+    // The preview template carries no backgroundPdfUrl, so a real issue path
+    // (allowPlaceholder default false) must FAIL rather than silently issue
+    // the 'upload a background PDF' instructional page as someone's cert.
+    const data = buildPreviewCertificate({ type: "ATTENDANCE", event: SAMPLE_EVENT });
+    await expect(renderCertificate(data)).rejects.toThrow(/no background PDF configured/i);
+  });
 });
 
 describe("mergeBody — Phase 1b per-template cmeHours + role tokens", () => {

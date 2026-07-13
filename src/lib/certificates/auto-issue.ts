@@ -321,14 +321,24 @@ async function processRegistration(
       if (existingCert) continue;
       const existingItem = await tx.certificateIssueRunItem.findFirst({
         where: {
+          // Any NON-TERMINAL run — manual OR auto — that already covers this
+          // (template, recipient) will email the cert, so suppress the auto
+          // item to avoid a double-send (H3). The old filter matched only
+          // `autoIssue: true` runs, so a manual run started seconds earlier
+          // never suppressed the auto-sweep and BOTH runs emailed the same
+          // cert. Terminal runs are excluded on purpose: FAILED/CANCELLED
+          // won't email (auto must still proceed so nobody is stranded), and
+          // a COMPLETED run's cert is already caught by existingCert above.
+          // A render-failed item (errorPhase set) likewise won't email.
           run: {
             eventId: reg.eventId,
-            autoIssue: true,
+            status: { in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"] },
             OR: [
               { certificateTemplateId: target.templateId },
               { templateIds: { has: target.templateId } },
             ],
           },
+          errorPhase: null,
           ...recipientWhere,
         },
         select: { id: true },

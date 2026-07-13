@@ -62,6 +62,9 @@ function okCert(id: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockDb.certificateIssueRun.update.mockResolvedValue({});
+  // Conditional phase-complete transitions (H1) go through updateMany; default
+  // to "won the transition" (count 1) so the happy-path assertions hold.
+  mockDb.certificateIssueRun.updateMany.mockResolvedValue({ count: 1 });
   mockDb.certificateIssueRun.findUnique.mockResolvedValue({ errors: [] });
   mockDb.certificateIssueRunItem.update.mockResolvedValue({});
   mockLoadTemplate.mockImplementation((_e: string, id: string) =>
@@ -178,10 +181,15 @@ describe("processBundleRenderPhase", () => {
     const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att", "tpl-app"], false, "user-1");
     expect(res.transitionedTo).toBe("FAILED");
     expect(mockFindOrIssue).not.toHaveBeenCalled();
-    const runUpdate = mockDb.certificateIssueRun.update.mock.calls.find(
+    // failRun now goes through the conditional transition (updateMany, H1).
+    const runFail = mockDb.certificateIssueRun.updateMany.mock.calls.find(
       (c) => c[0].data.status === "FAILED",
     );
-    expect(runUpdate).toBeTruthy();
+    expect(runFail).toBeTruthy();
+    // ...guarded so it can't overwrite a terminal (CANCELLED/COMPLETED) run.
+    expect(runFail![0].where.status).toEqual({
+      in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"],
+    });
   });
 
   it("transitions manual runs to AWAITING_REVIEW and auto runs to SENDING when drained", async () => {
@@ -190,9 +198,20 @@ describe("processBundleRenderPhase", () => {
     expect(manual.transitionedTo).toBe("AWAITING_REVIEW");
     const auto = await processBundleRenderPhase("run-2", "evt-1", ["tpl-att"], true, null);
     expect(auto.transitionedTo).toBeNull(); // SENDING transition returns null (same as legacy)
-    const sendingUpdate = mockDb.certificateIssueRun.update.mock.calls.find(
+    // Phase-complete transitions are conditional on the prior RENDERING status (H1).
+    const sendingUpdate = mockDb.certificateIssueRun.updateMany.mock.calls.find(
       (c) => c[0].data.status === "SENDING",
     );
     expect(sendingUpdate).toBeTruthy();
+    expect(sendingUpdate![0].where.status).toBe("RENDERING");
+  });
+
+  it("skips the phase-complete transition when the run was cancelled mid-tick (H1)", async () => {
+    mockDb.certificateIssueRunItem.findMany.mockResolvedValue([]);
+    // Cancel won the race → the guarded updateMany matches 0 rows.
+    mockDb.certificateIssueRun.updateMany.mockResolvedValue({ count: 0 });
+    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att"], false, "user-1");
+    // Superseded → we do NOT report a transition (the cancel stands).
+    expect(res.transitionedTo).toBeNull();
   });
 });

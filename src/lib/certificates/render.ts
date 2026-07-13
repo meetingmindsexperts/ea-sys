@@ -72,22 +72,31 @@ function hexToRgb(hex: string) {
 
 /**
  * Render a single cert as PDF bytes. Pure function — no DB, no network
- * beyond the (cacheable) background PDF fetch. Same call signature as
- * v2 so the issue-worker, preview endpoint, and (eventual) reissue
- * path don't change.
+ * beyond the (cacheable) background PDF fetch.
  *
- * Empty-template handling: if no backgroundPdfUrl is configured, returns
- * a minimal placeholder PDF with an "Upload a background PDF" message
- * so the preview endpoint can show something useful during the editor
- * configuration phase.
+ * Placeholder handling (H2): a missing/unfetchable background PDF is a
+ * FATAL error on every REAL issue path — issuing a "No background PDF
+ * uploaded yet" instructional page as someone's certificate (with a real
+ * serial + audit row, and no review gate on auto/bulk sends) is silent
+ * data corruption, not a graceful degrade. Only the preview endpoint may
+ * opt into the placeholder (`allowPlaceholder: true`) — there it's the
+ * whole point, showing the organizer "upload a PDF" during editor setup.
  */
-export async function renderCertificate(data: CertificateData): Promise<Buffer> {
+export async function renderCertificate(
+  data: CertificateData,
+  opts: { allowPlaceholder?: boolean } = {},
+): Promise<Buffer> {
   const tmpl = effectiveTemplate(data.type, data.template);
 
-  // No background PDF configured → render a placeholder one-pager so
-  // the preview shows "you need to upload a PDF" instead of failing.
+  // No background PDF configured.
   if (!tmpl.backgroundPdfUrl) {
-    return renderPlaceholder(data);
+    if (opts.allowPlaceholder) return renderPlaceholder(data);
+    apiLogger.error({
+      msg: "cert-renderer:no-background-configured",
+      type: data.type,
+      hint: "Upload a background PDF for this template before issuing. Refusing to ship the placeholder as a real certificate.",
+    });
+    throw new Error("Certificate template has no background PDF configured");
   }
 
   // Load the background PDF.
@@ -95,13 +104,22 @@ export async function renderCertificate(data: CertificateData): Promise<Buffer> 
   try {
     bgBytes = await fetchBackgroundPdf(tmpl.backgroundPdfUrl);
   } catch (err) {
-    apiLogger.warn({
+    if (opts.allowPlaceholder) {
+      apiLogger.warn({
+        err,
+        msg: "cert-renderer:bg-pdf-fetch-failed-preview",
+        url: tmpl.backgroundPdfUrl,
+        hint: "Preview falling back to placeholder. Check storage provider config + URL validity.",
+      });
+      return renderPlaceholder(data);
+    }
+    apiLogger.error({
       err,
       msg: "cert-renderer:bg-pdf-fetch-failed",
       url: tmpl.backgroundPdfUrl,
-      hint: "Falling back to placeholder. Check storage provider config + URL validity.",
+      hint: "Refusing to ship the placeholder as a real certificate — failing the render so the run/send surfaces the error.",
     });
-    return renderPlaceholder(data);
+    throw err instanceof Error ? err : new Error(String(err));
   }
 
   // Open the bg PDF + grab page 1 (single-page support per v1 scope).

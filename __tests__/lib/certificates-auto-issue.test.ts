@@ -264,6 +264,32 @@ describe("runAutoIssueSweep", () => {
     expect(res.resolved).toBe(1);
   });
 
+  it("skips enqueue when a NON-TERMINAL run (manual OR auto) already has a pending item for the target (H3 double-send guard)", async () => {
+    registrationFindMany.mockResolvedValue([
+      {
+        id: "reg_h3", eventId: "evt_1", certAutoIssueAttempts: 0,
+        attendee: { title: null, firstName: "A", lastName: "B", email: "a@x.com", tags: ["delegate"] },
+      },
+    ]);
+    certificateTemplateFindMany.mockResolvedValue([attendanceTpl]);
+    txIssuedCertFindFirst.mockResolvedValue(null); // no cert yet — the item guard must catch it
+    txRunItemFindFirst.mockResolvedValue({ id: "item_from_manual_run" });
+
+    const res = await runAutoIssueSweep({ now: NOW });
+
+    expect(res.runsCreated).toBe(0);
+    expect(txRunCreate).not.toHaveBeenCalled();
+    // The guard must consider ANY non-terminal run (not just autoIssue) and
+    // scope to non-terminal statuses so a failed/cancelled run can't strand it.
+    const where = txRunItemFindFirst.mock.calls[0][0].where;
+    expect(where.run.status).toEqual({
+      in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"],
+    });
+    expect(where.run).not.toHaveProperty("autoIssue");
+    expect(where.errorPhase).toBeNull();
+    expect(res.resolved).toBe(1);
+  });
+
   it("terminally resolves + counts skippedNoTemplates when the event has no auto-issue templates", async () => {
     registrationFindMany.mockResolvedValue([
       { id: "reg_4", eventId: "evt_1", certAutoIssueAttempts: 0, attendee: { firstName: "X", lastName: "Y", email: "x@x.com", tags: [] } },

@@ -247,15 +247,13 @@ async function processRenderPhase(
     // go straight to SENDING so the cert lands in the inbox without a
     // human click (Phase 2 product decision).
     const nextStatus = autoIssue ? "SENDING" : "AWAITING_REVIEW";
-    await db.certificateIssueRun.update({
-      where: { id: runId },
-      data: {
-        status: nextStatus,
-        rendererFinishedAt: new Date(),
-        ...(autoIssue ? { emailerStartedAt: new Date() } : {}),
-        lastTickAt: new Date(),
-      },
+    const won = await transitionRunStatus(runId, "RENDERING", {
+      status: nextStatus,
+      rendererFinishedAt: new Date(),
+      ...(autoIssue ? { emailerStartedAt: new Date() } : {}),
+      lastTickAt: new Date(),
     });
+    if (!won) return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
     apiLogger.info({ msg: "cert-issue-worker:render-phase-complete", runId, autoIssue, nextStatus });
     return {
       renderedThisTick: 0,
@@ -505,15 +503,13 @@ export async function processBundleRenderPhase(
     // Same phase-complete transition as the legacy path: manual runs stop
     // at the operator review gate, auto runs go straight to SENDING.
     const nextStatus = autoIssue ? "SENDING" : "AWAITING_REVIEW";
-    await db.certificateIssueRun.update({
-      where: { id: runId },
-      data: {
-        status: nextStatus,
-        rendererFinishedAt: new Date(),
-        ...(autoIssue ? { emailerStartedAt: new Date() } : {}),
-        lastTickAt: new Date(),
-      },
+    const won = await transitionRunStatus(runId, "RENDERING", {
+      status: nextStatus,
+      rendererFinishedAt: new Date(),
+      ...(autoIssue ? { emailerStartedAt: new Date() } : {}),
+      lastTickAt: new Date(),
     });
+    if (!won) return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
     apiLogger.info({ msg: "cert-issue-worker:render-phase-complete", runId, autoIssue, nextStatus });
     return {
       renderedThisTick: 0,
@@ -734,14 +730,12 @@ async function processSendPhase(
   });
 
   if (items.length === 0) {
-    await db.certificateIssueRun.update({
-      where: { id: runId },
-      data: {
-        status: "COMPLETED",
-        emailerFinishedAt: new Date(),
-        lastTickAt: new Date(),
-      },
+    const won = await transitionRunStatus(runId, "SENDING", {
+      status: "COMPLETED",
+      emailerFinishedAt: new Date(),
+      lastTickAt: new Date(),
     });
+    if (!won) return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
     apiLogger.info({ msg: "cert-issue-worker:send-phase-complete", runId });
     return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "COMPLETED" };
   }
@@ -920,10 +914,12 @@ async function processReissuePhase(
   });
 
   if (items.length === 0) {
-    await db.certificateIssueRun.update({
-      where: { id: runId },
-      data: { status: "COMPLETED", emailerFinishedAt: new Date(), lastTickAt: new Date() },
+    const won = await transitionRunStatus(runId, "SENDING", {
+      status: "COMPLETED",
+      emailerFinishedAt: new Date(),
+      lastTickAt: new Date(),
     });
+    if (!won) return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
     apiLogger.info({ msg: "cert-issue-worker:reissue-phase-complete", runId });
     return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: "COMPLETED" };
   }
@@ -1034,13 +1030,43 @@ async function appendRunError(
   });
 }
 
+/**
+ * Conditional run-status transition (H1). A phase-complete write must only
+ * land if the run is still in its expected prior state — a concurrent Cancel
+ * (the cancel route flips to CANCELLED via a guarded updateMany) or a
+ * superseding tick must NEVER be clobbered by a plain update-by-id. Without
+ * this a Cancel that commits milliseconds before a phase-complete write is
+ * silently resurrected (manual → AWAITING_REVIEW, or worse auto → SENDING,
+ * which then emails the certs the operator just cancelled). Returns whether
+ * this writer won; a lost transition logs `transition-superseded` and the
+ * caller skips its follow-on side effects.
+ */
+async function transitionRunStatus(
+  runId: string,
+  fromStatus: CertIssueRunStatus | CertIssueRunStatus[],
+  data: Prisma.CertificateIssueRunUpdateManyMutationInput,
+): Promise<boolean> {
+  const res = await db.certificateIssueRun.updateMany({
+    where: { id: runId, status: Array.isArray(fromStatus) ? { in: fromStatus } : fromStatus },
+    data,
+  });
+  if (res.count === 0) {
+    apiLogger.warn({
+      msg: "cert-issue-worker:transition-superseded",
+      runId,
+      expected: fromStatus,
+      hint: "Run was cancelled or already advanced by another tick; skipping this transition.",
+    });
+  }
+  return res.count > 0;
+}
+
 async function failRun(runId: string, reason: string) {
-  await db.certificateIssueRun.update({
-    where: { id: runId },
-    data: {
-      status: "FAILED",
-      errors: { fatal: reason } as unknown as Prisma.InputJsonValue,
-      lastTickAt: new Date(),
-    },
+  // Only fail a still-non-terminal run — never overwrite a CANCELLED or
+  // already-COMPLETED run (which would also clobber its errors/audit history).
+  await transitionRunStatus(runId, ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"], {
+    status: "FAILED",
+    errors: { fatal: reason } as unknown as Prisma.InputJsonValue,
+    lastTickAt: new Date(),
   });
 }

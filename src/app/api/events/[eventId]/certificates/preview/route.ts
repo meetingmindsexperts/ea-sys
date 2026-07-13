@@ -142,7 +142,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       event: template.event,
       template: previewTemplate,
     });
-    const pdf = await renderCertificate(data);
+    // Preview is the ONLY caller allowed to render the "upload a background
+    // PDF" placeholder — here it's the intended affordance during editor
+    // setup, not a real certificate (see renderCertificate H2 note).
+    const pdf = await renderCertificate(data, { allowPlaceholder: true });
 
     apiLogger.info({
       msg: "cert-preview:rendered",
