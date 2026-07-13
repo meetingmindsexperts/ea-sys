@@ -434,11 +434,15 @@ DRAFT|SUBMITTED; `0dcf750` H4 conditional-claim status write in a tx + H5 gate-h
 `314e45e` H6 remainder — DRAFT/WITHDRAWN out of the portal feed + unassignable). Deferred, each
 independently shippable (anchors in the HTML doc):
 
-- **H7 — review-submission pipeline triplicated** (REST + 2 MCP executors, ~120 lines each) with live
-  drift: REST lets admins score without pool/assignment (MCP self-submit doesn't), REST clears notes
-  with empty string (MCP keeps old), REST requires integer scores (executors accept floats). Fix:
-  extract `submitAbstractReview()` into abstract-service; all three delegate (also closes the H3
-  org-bind in one place instead of per-caller).
+- ~~**H7 — review-submission pipeline triplicated**~~ ✅ **SHIPPED July 13, 2026** — new
+  `abstract-service.submitAbstractReview()` is the ONE implementation; the REST submissions POST and
+  both MCP executors (`submit_abstract_review`, `admin_submit_review_on_behalf`) are thin delegations.
+  The H3 org-bind now lives in the service (admin bypass computed against the event's org, self-submit
+  only — never on-behalf). Drift unified on REST semantics: integer scores everywhere (MCP floats now
+  rejected), `reviewNotes: ""` clears / `undefined` keeps on every path, empty payloads rejected on the
+  MCP paths too (they used to upsert an all-null row), >5000-char notes rejected (MCP silently
+  truncated). +16 service tests pin the contract; all 81 pre-existing route/COI/assign tests pass
+  unchanged through the delegation. M10's feedback-notification re-wire now has its landing spot.
 - ~~**H8 — MCP `assign_reviewer_to_abstract` silently drops `conflictFlag`**~~ ✅ **SHIPPED July 13,
   2026** — the executor now persists `conflictFlag` on create (default false) AND toggles it on the
   idempotent upsert (REST parity: role and/or COI can change independently; a same-role+same-flag

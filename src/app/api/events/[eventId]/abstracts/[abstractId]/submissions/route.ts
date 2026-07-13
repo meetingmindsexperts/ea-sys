@@ -4,11 +4,11 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
+import { computeSubmissionAggregates } from "@/lib/abstract-review";
 import {
-  computeSubmissionAggregates,
-  computeWeightedOverallScore,
-  type CriterionScore,
-} from "@/lib/abstract-review";
+  submitAbstractReview,
+  type SubmitAbstractReviewErrorCode,
+} from "@/services/abstract-service";
 
 /**
  * Per-reviewer abstract review submissions.
@@ -123,6 +123,25 @@ export async function GET(_req: Request, { params }: RouteParams) {
   }
 }
 
+/** Map submitAbstractReview error codes to HTTP statuses. */
+const HTTP_STATUS_FOR_SUBMIT_CODE: Record<SubmitAbstractReviewErrorCode, number> = {
+  EVENT_NOT_FOUND: 404,
+  ABSTRACT_NOT_FOUND: 404,
+  USER_NOT_FOUND: 404,
+  NOT_A_REVIEWER: 403,
+  NOT_REVIEWABLE: 409,
+  CONFLICT_OF_INTEREST: 403,
+  EMPTY_REVIEW: 400,
+  INVALID_OVERALL_SCORE: 400,
+  INVALID_CRITERION_ID: 400,
+  DUPLICATE_CRITERION_ID: 400,
+  INVALID_CRITERION_SCORE: 400,
+  INVALID_RECOMMENDED_FORMAT: 400,
+  INVALID_CONFIDENCE: 400,
+  INVALID_REVIEW_NOTES: 400,
+  UNKNOWN: 500,
+};
+
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const [{ eventId, abstractId }, session, body] = await Promise.all([
@@ -152,209 +171,43 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-
-    const [event, abstract, existingAssignment] = await Promise.all([
-      db.event.findFirst({
-        where: { id: eventId },
-        select: {
-          id: true,
-          organizationId: true,
-          settings: true,
-          reviewCriteria: { select: { id: true, weight: true } },
-        },
-      }),
-      db.abstract.findFirst({
-        where: { id: abstractId, eventId },
-        // status gates H6: a DRAFT / WITHDRAWN / already-decided abstract must
-        // not accumulate reviews that then satisfy the decision gate.
-        select: { id: true, status: true },
-      }),
-      db.abstractReviewer.findUnique({
-        where: { abstractId_userId: { abstractId, userId: session.user.id } },
-        select: { id: true, conflictFlag: true },
-      }),
-    ]);
-    if (!event) {
-      apiLogger.warn({ msg: "abstract-submission:event-not-found", eventId, userId: session.user.id });
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-    if (!abstract) {
-      apiLogger.warn({ msg: "abstract-submission:abstract-not-found", eventId, abstractId, userId: session.user.id });
-      return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
-    }
-
-    // Reviewer auth: must be in event pool OR have explicit assignment. An
-    // ADMIN/ORGANIZER can review too, but ONLY within their own org (review
-    // H3): the event lookup above is unscoped, so bind the admin branch to
-    // the caller's org here — otherwise an admin of org B could inject a
-    // score into org A's peer review. (The sibling GET already does this.)
-    const reviewerUserIds = (event.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
-    const isEventReviewer = reviewerUserIds.includes(session.user.id);
-    const isAdmin =
-      (session.user.role === "ADMIN" || session.user.role === "SUPER_ADMIN" || session.user.role === "ORGANIZER") &&
-      event.organizationId === session.user.organizationId;
-    if (!isEventReviewer && !existingAssignment && !isAdmin) {
-      apiLogger.warn({ msg: "abstract-submission:not-a-reviewer", eventId, abstractId, userId: session.user.id, role: session.user.role });
-      return NextResponse.json(
-        {
-          error: "You are not a reviewer for this event",
-          code: "NOT_A_REVIEWER",
-        },
-        { status: 403 },
-      );
-    }
-
-    // H6: reviews only make sense on an abstract that is actually up for
-    // review. A DRAFT (author's unfinished work), a WITHDRAWN, or an
-    // already-decided abstract cannot be scored — otherwise a phantom
-    // submission counts toward the requiredReviewCount gate.
-    const REVIEWABLE_STATUSES = new Set(["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"]);
-    if (!REVIEWABLE_STATUSES.has(abstract.status)) {
-      apiLogger.warn({ msg: "abstract-submission:not-reviewable-status", eventId, abstractId, status: abstract.status, userId: session.user.id });
-      return NextResponse.json(
-        {
-          error: `This abstract is ${abstract.status.toLowerCase()} and is not open for review.`,
-          code: "NOT_REVIEWABLE",
-        },
-        { status: 409 },
-      );
-    }
-
-    // Conflict-of-interest enforcement: if an organizer flagged this reviewer
-    // as conflicted on this abstract, block them from scoring it — their review
-    // must not count toward the decision. (Pool reviewers with no explicit
-    // assignment carry no COI flag; admins recording a review for someone else
-    // use the separate on-behalf path, which enforces the same rule.)
-    if (existingAssignment?.conflictFlag) {
-      apiLogger.warn({ msg: "abstract-submission:coi-blocked", eventId, abstractId, reviewerUserId: session.user.id });
-      return NextResponse.json(
-        {
-          error: "You have a declared conflict of interest on this abstract and cannot submit a review for it. Contact the event organizer if this is incorrect.",
-          code: "CONFLICT_OF_INTEREST",
-        },
-        { status: 403 },
-      );
-    }
-
     const data = validated.data;
 
-    // H5 (route half): reject a completely empty payload. Fields are optional
-    // so a reviewer can update just their notes on an EXISTING scored
-    // submission, but a POST that carries nothing at all would mint an
-    // all-null row — and the decision gate counts submission rows. The
-    // gate-side half (count only SCORED submissions) lives in
-    // abstract-service; together they mean an empty "review" never counts.
-    const payloadIsEmpty =
-      data.overallScore === undefined &&
-      (data.criteriaScores === undefined || data.criteriaScores.length === 0) &&
-      data.reviewNotes === undefined &&
-      data.recommendedFormat === undefined &&
-      data.confidence === undefined;
-    if (payloadIsEmpty) {
-      apiLogger.warn({ msg: "abstract-submission:empty-payload", eventId, abstractId, userId: session.user.id });
+    // Domain logic — auth matrix (pool / assignment / H3 org-bound admin),
+    // the H6 reviewable-status + COI + empty-payload gates, criteria
+    // validation, the upsert, and the audit row — lives in
+    // abstract-service.submitAbstractReview (review H7: this route + two MCP
+    // executors used to carry three drifting copies). This route keeps
+    // session auth, Zod shape validation, and HTTP mapping.
+    const result = await submitAbstractReview({
+      eventId,
+      abstractId,
+      reviewerUserId: session.user.id,
+      actor: {
+        userId: session.user.id,
+        role: session.user.role,
+        organizationId: session.user.organizationId,
+      },
+      overallScore: data.overallScore,
+      criteriaScores: data.criteriaScores,
+      reviewNotes: data.reviewNotes,
+      recommendedFormat: data.recommendedFormat,
+      confidence: data.confidence,
+      source: "rest",
+      requestIp: getClientIp(req),
+    });
+
+    if (!result.ok) {
       return NextResponse.json(
-        {
-          error: "A review must include a score, notes, or a recommendation.",
-          code: "EMPTY_REVIEW",
-        },
-        { status: 400 },
+        { error: result.message, code: result.code },
+        { status: HTTP_STATUS_FOR_SUBMIT_CODE[result.code] },
       );
     }
 
-    // Validate criteria IDs against the event's configured criteria
-    const validCriteriaIds = new Set(event.reviewCriteria.map((c) => c.id));
-    const weightMap = new Map(event.reviewCriteria.map((c) => [c.id, c.weight]));
-    let criteriaScoresJson: Record<string, number> | null = null;
-    let computedOverall: number | null = null;
-    if (data.criteriaScores && data.criteriaScores.length > 0) {
-      const cleaned: Record<string, number> = {};
-      for (const { criterionId, score } of data.criteriaScores) {
-        if (!validCriteriaIds.has(criterionId)) {
-          return NextResponse.json(
-            { error: `Unknown criterion ID: ${criterionId}`, code: "INVALID_CRITERION_ID" },
-            { status: 400 },
-          );
-        }
-        if (Object.prototype.hasOwnProperty.call(cleaned, criterionId)) {
-          return NextResponse.json(
-            { error: `Duplicate criterion ID: ${criterionId}`, code: "DUPLICATE_CRITERION_ID" },
-            { status: 400 },
-          );
-        }
-        cleaned[criterionId] = score;
-      }
-      criteriaScoresJson = cleaned;
-      if (data.overallScore === undefined) {
-        const items: CriterionScore[] = Object.entries(cleaned).map(([id, score]) => ({
-          criterionId: id,
-          score,
-          weight: weightMap.get(id) ?? 0,
-        }));
-        computedOverall = computeWeightedOverallScore(items);
-      }
-    }
-    const overallScore = data.overallScore ?? computedOverall;
-
-    const submission = await db.abstractReviewSubmission.upsert({
-      where: { abstractId_reviewerUserId: { abstractId, reviewerUserId: session.user.id } },
-      create: {
-        abstractId,
-        reviewerUserId: session.user.id,
-        abstractReviewerId: existingAssignment?.id ?? null,
-        criteriaScores: criteriaScoresJson ?? undefined,
-        overallScore,
-        reviewNotes: data.reviewNotes ?? null,
-        recommendedFormat: data.recommendedFormat ?? null,
-        confidence: data.confidence ?? null,
-      },
-      update: {
-        ...(criteriaScoresJson && { criteriaScores: criteriaScoresJson }),
-        ...(overallScore !== null && overallScore !== undefined && { overallScore }),
-        ...(data.reviewNotes !== undefined && { reviewNotes: data.reviewNotes || null }),
-        ...(data.recommendedFormat !== undefined && { recommendedFormat: data.recommendedFormat }),
-        ...(data.confidence !== undefined && { confidence: data.confidence }),
-        // Re-link to the current assignment row (or clear if pool-only now).
-        // Handles unassign → re-assign cycles that would otherwise leave
-        // abstractReviewerId pointing at the old (now-null via SET NULL)
-        // assignment indefinitely.
-        abstractReviewerId: existingAssignment?.id ?? null,
-      },
-      select: {
-        id: true,
-        overallScore: true,
-        reviewNotes: true,
-        recommendedFormat: true,
-        confidence: true,
-        submittedAt: true,
-        updatedAt: true,
-        criteriaScores: true,
-      },
-    });
-
-    const wasCreate = submission.submittedAt.getTime() === submission.updatedAt.getTime();
-    apiLogger.info(
-      { eventId, abstractId, reviewerUserId: session.user.id, overallScore },
-      wasCreate ? "abstract-submission:created" : "abstract-submission:updated",
+    return NextResponse.json(
+      { success: true, submission: result.submission },
+      { status: result.wasCreate ? 201 : 200 },
     );
-
-    db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: wasCreate ? "CREATE" : "UPDATE",
-        entityType: "AbstractReviewSubmission",
-        entityId: submission.id,
-        changes: {
-          source: "api",
-          abstractId,
-          overallScore,
-          hasCriteriaScores: !!criteriaScoresJson,
-          ip: getClientIp(req),
-        },
-      },
-    }).catch((err) => apiLogger.error({ err, eventId, abstractId }, "submit-review:audit-log-failed"));
-
-    return NextResponse.json({ success: true, submission }, { status: wasCreate ? 201 : 200 });
   } catch (err) {
     apiLogger.error({ err, msg: "submit-review:failed" });
     return NextResponse.json(

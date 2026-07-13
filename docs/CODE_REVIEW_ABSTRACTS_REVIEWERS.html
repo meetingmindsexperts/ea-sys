@@ -993,13 +993,31 @@ weight: z.number().int().min(1).max(100),   // per-criterion bound only — the 
     4 conflictFlag executor contracts). Suite 2469 → 2486 (with the comms M7 guard in the same commit).</li>
 </ul>
 
+<h3>Phase 6 — Submission-service extraction (H7) · July 13, 2026</h3>
+<ul>
+  <li><strong>H7 — one implementation.</strong> New
+    <code>abstract-service.submitAbstractReview()</code> owns the whole pipeline — the auth matrix
+    (pool / assignment / org-bound admin), the H6 reviewable-status gate, COI enforcement, the
+    empty-payload gate, criteria validation + weighted-overall computation, the upsert, the audit row,
+    and the structured logs. The REST submissions POST and both MCP executors
+    (<code>submit_abstract_review</code>, <code>admin_submit_review_on_behalf</code>) are now thin
+    delegations; the H3 org-bind is computed in the service against the event's
+    <code>organizationId</code> (self-submit only — the on-behalf path never gets the admin bypass).</li>
+  <li><strong>Drift unified on REST semantics:</strong> integer scores everywhere (the executors'
+    float acceptance is gone); <code>reviewNotes: ""</code> clears / <code>undefined</code> keeps on
+    every path (MCP used to silently keep); empty payloads rejected on the MCP paths too (they used to
+    upsert an all-null row); notes &gt;5000 chars rejected (MCP silently truncated).</li>
+  <li><strong>Tests</strong>: +16 service-contract cases (H3 bind matrix, on-behalf semantics, every
+    unification decision); all 81 pre-existing route/COI/assign tests pass unchanged through the
+    delegation. Suite 2486 → 2502.</li>
+</ul>
+
 <div class="note">
   <strong>Scoreboard after this round:</strong> B1 n/a; H3/H5/H6 → <code>97b11d4</code>; H1/H2 →
   <code>fcd5932</code>; H4 + H5-gate + M4 → <code>0dcf750</code>; H6 remainder → <code>314e45e</code>;
-  <strong>H8 + H9 + M7 → <code>46330af</code> (July 13)</strong>. Still deferred to ROADMAP:
-  <strong>H7</strong> (submission-service extraction — the ~120-line triplication; also the natural
-  landing spot for M10's feedback-notification re-wire), the workflow MEDs
-  (M1/M2/M3/M5/M6/M9/M10/M11) and L1–L6.
+  H8 + H9 + M7 → <code>46330af</code>; <strong>H7 → July 13 (submission-service extraction)</strong> —
+  <strong>every HIGH in this report is now closed.</strong> Still deferred to ROADMAP: the workflow MEDs
+  (M1/M2/M3/M5/M6/M9/M10/M11 — M10's re-wire now has its landing spot in the new service) and L1–L6.
 </div>
 
 <h2 id="clean">11. What checked out clean</h2>
