@@ -29,7 +29,7 @@ import type { CertificateType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { SYSTEM_DEFAULT_SUBJECT, defaultBodyForCategory, defaultCoverEmailFor } from "./email-tokens";
-import { allocateSerial, loadRecipient } from "./cert-context";
+import { allocateSerial, loadRecipient, isSerialCollision } from "./cert-context";
 import { selectAutoIssueTargets } from "./auto-issue";
 import {
   loadCertTemplate,
@@ -200,6 +200,23 @@ export async function issueSingleCertificate(
     });
     certificateId = cert.id;
   } catch (err) {
+    // M1: a P2002 on the GLOBAL serial index is a cross-event collision, not a
+    // recipient dup — returning ALREADY_ISSUED for a person who holds nothing
+    // is flatly wrong. Surface it as its own error.
+    if (isSerialCollision(err)) {
+      apiLogger.error({
+        msg: "cert-deliver:serial-collision",
+        eventId: ctx.eventId,
+        serial,
+        hint: "Certificate serial collided across events (global serial uniqueness + non-unique Event.code prefix). Give this event a distinct code and retry.",
+      });
+      return {
+        ok: false,
+        code: "SERIAL_COLLISION",
+        error: `Certificate serial ${serial} collided across events. Give this event a distinct code and retry.`,
+        status: 409,
+      };
+    }
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       return {
         ok: false,

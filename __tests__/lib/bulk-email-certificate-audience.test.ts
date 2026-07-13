@@ -150,6 +150,19 @@ describe("executeBulkEmail — certificate audience scoping", () => {
     expect(where.status).toBe("CHECKED_IN");
   });
 
+  it("REJECTS a certificate send that explicitly targets CANCELLED (M3)", async () => {
+    // A cert must never be minted for a cancelled registration — the invariant
+    // is unconditional, so an explicit CANCELLED filter is a 400, not a send.
+    await expect(
+      executeBulkEmail({
+        ...BASE_INPUT,
+        filters: { ...BASE_INPUT.filters, status: "CANCELLED" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+    // Rejected before resolving recipients.
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+
   it("passes the resolved recipients to the cert engine and returns its skippedCount", async () => {
     mockCertBulkSend.mockResolvedValue({
       total: 3,

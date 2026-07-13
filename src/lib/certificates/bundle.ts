@@ -56,6 +56,7 @@ import {
   loadRecipient,
   allocateSerial,
   loadPosterAbstractTitle,
+  isSerialCollision,
   type EventContext,
 } from "./cert-context";
 import { resolveLinkedRegistration, resolveLinkedSpeaker } from "@/lib/activity-feed";
@@ -317,6 +318,20 @@ export async function findOrIssueCertificate(args: {
     };
   } catch (err) {
     if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== "P2002") throw err;
+    // M1: a P2002 on the GLOBAL serial index is a cross-event collision, NOT a
+    // recipient dup — the winner lookup below would find nothing and rethrow a
+    // confusing raw P2002. Surface it distinctly so the run item fails with an
+    // actionable message. (Durable fix = @@unique([eventId, serial]), deferred.)
+    if (isSerialCollision(err)) {
+      apiLogger.error({
+        msg: "cert-bundle:serial-collision",
+        eventId: args.eventId,
+        templateId: args.templateId,
+        serial,
+        hint: "Certificate serial collided across events (global serial uniqueness + non-unique Event.code prefix). Give this event a distinct code and retry.",
+      });
+      throw new Error(`Certificate serial ${serial} collided across events`);
+    }
     // Concurrent issue from another path won the race — reuse the winner row
     // (its serial is the authoritative one; our fresh render is discarded).
     const winner = await db.issuedCertificate.findFirst({

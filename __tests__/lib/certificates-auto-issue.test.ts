@@ -142,6 +142,13 @@ describe("runAutoIssueSweep", () => {
     );
   });
 
+  it("excludes CANCELLED registrations from the candidate query (M2)", async () => {
+    registrationFindMany.mockResolvedValue([]);
+    await runAutoIssueSweep({ now: NOW });
+    const where = registrationFindMany.mock.calls[0][0].where;
+    expect(where.status).toEqual({ not: "CANCELLED" });
+  });
+
   it("routes APPRECIATION to the linked speaker (companion case)", async () => {
     registrationFindMany.mockResolvedValue([
       {

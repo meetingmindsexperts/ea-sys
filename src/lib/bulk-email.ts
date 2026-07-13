@@ -560,6 +560,24 @@ export async function precheckBulkEmailViability(
         400,
       );
     }
+    // M3: a certificate must never be minted + emailed to a CANCELLED
+    // registration — the invariant is unconditional. A non-CANCELLED explicit
+    // status already excludes them and the no-status path adds the guard in
+    // the where clause; the one hole is an explicit CANCELLED filter (freely
+    // passable via REST/MCP/n8n, and the dashboard's "Cancelled Re-engagement"
+    // tile), which is rejected here rather than silently minting certs.
+    if (
+      recipientType === "registrations" &&
+      filters?.status &&
+      !isAllSentinel(filters.status) &&
+      filters.status.toUpperCase() === "CANCELLED"
+    ) {
+      throw new BulkEmailError(
+        "Certificates cannot be sent to CANCELLED registrations. Remove the Cancelled status filter.",
+        400,
+        INVALID_FILTER_CODE,
+      );
+    }
     const certTemplateIds = filters?.certificateTemplateIds ?? [];
     if (certTemplateIds.length === 0) {
       // Schema superRefine guards this at both routes; kept for direct callers.

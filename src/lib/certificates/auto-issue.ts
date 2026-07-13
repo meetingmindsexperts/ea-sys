@@ -148,6 +148,13 @@ export async function runAutoIssueSweep(
     where: {
       surveyCompletedAt: { not: null },
       certAutoIssueCheckedAt: null,
+      // M2: never auto-issue a certificate for a CANCELLED registration. The
+      // survey token route excludes cancelled regs at submit time, but a
+      // cancel-AFTER-survey (refund cleanup, dedup, the DECLINED-speaker
+      // companion cascade) inside the sweep/backoff window — up to hours under
+      // retry backoff — otherwise still renders + emails a cert. Mirrors the
+      // eligibleForAttendance + bulk-email guards.
+      status: { not: "CANCELLED" },
       OR: [
         { certAutoIssueNextAttemptAt: null },
         { certAutoIssueNextAttemptAt: { lte: now } },

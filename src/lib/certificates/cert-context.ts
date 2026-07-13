@@ -8,9 +8,27 @@
  * No behavior change from the original worker definitions.
  */
 
-import type { CertificateType } from "@prisma/client";
+import { Prisma, type CertificateType } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { CertificateData, AccreditationEntry } from "./types";
+
+/**
+ * Did a P2002 fire on the GLOBAL `IssuedCertificate.serial` unique index
+ * (cross-event serial collision) rather than the per-template recipient
+ * uniqueness? `serial` is unique across ALL events while the serial prefix
+ * derives from the non-unique `Event.code`, so two same-code events can mint
+ * the same serial. The two catch blocks that recover from P2002 assume the
+ * recipient index; without this discriminator they misdiagnose a serial
+ * collision as a recipient dup — burning a serial per retry and returning a
+ * flatly wrong ALREADY_ISSUED. (The durable fix — @@unique([eventId, serial])
+ * — is a deferred schema change; this at least makes the failure legible.)
+ */
+export function isSerialCollision(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== "P2002") return false;
+  const target = err.meta?.target;
+  const fields = Array.isArray(target) ? target : typeof target === "string" ? [target] : [];
+  return fields.some((f) => String(f).toLowerCase().includes("serial"));
+}
 
 export interface EventContext {
   name: string;

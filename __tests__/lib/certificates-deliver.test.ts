@@ -69,6 +69,15 @@ vi.mock("@/lib/certificates/cert-context", () => ({
   loadEventContext: (e: string) => mockLoadEvent(e),
   allocateSerial: (e: string, t: string) => mockAllocSerial(e, t),
   loadPosterAbstractTitle: vi.fn().mockResolvedValue(null),
+  // Faithful copy of the real predicate (M1) — the recipient-dup P2002 the
+  // ALREADY_ISSUED test simulates carries no `serial` target → false.
+  isSerialCollision: (err: unknown) => {
+    const e = err as { code?: string; meta?: { target?: unknown } };
+    if (e?.code !== "P2002") return false;
+    const t = e.meta?.target;
+    const fields = Array.isArray(t) ? t : typeof t === "string" ? [t] : [];
+    return fields.some((f) => String(f).toLowerCase().includes("serial"));
+  },
 }));
 
 import {

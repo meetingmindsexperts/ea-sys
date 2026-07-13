@@ -62,6 +62,16 @@ vi.mock("@/lib/certificates/cert-context", () => ({
   loadEventContext: (e: string) => mockLoadEvent(e),
   allocateSerial: (e: string, t: string) => mockAllocSerial(e, t),
   loadPosterAbstractTitle: vi.fn().mockResolvedValue(null),
+  // Faithful copy of the real predicate (M1) — the recipient-dup P2002 the
+  // race tests simulate carries no `serial` target, so this returns false and
+  // the winner-reuse path runs unchanged.
+  isSerialCollision: (err: unknown) => {
+    const e = err as { code?: string; meta?: { target?: unknown } };
+    if (e?.code !== "P2002") return false;
+    const t = e.meta?.target;
+    const fields = Array.isArray(t) ? t : typeof t === "string" ? [t] : [];
+    return fields.some((f) => String(f).toLowerCase().includes("serial"));
+  },
 }));
 
 import { findOrIssueCertificate, sendCertificateBundleEmail, buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
@@ -215,6 +225,22 @@ describe("findOrIssueCertificate", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.cert).toMatchObject({ certificateId: "cert-winner", serial: "OMM-ATT-0007", reused: true });
+  });
+
+  it("throws a distinct serial-collision error (not the winner path) when P2002 fires on the GLOBAL serial index (M1)", async () => {
+    const serialP2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint", {
+      code: "P2002",
+      clientVersion: "test",
+      meta: { target: ["serial"] },
+    });
+    mockDb.issuedCertificate.create.mockRejectedValue(serialP2002);
+    // Pre-check returns null (no existing cert for this recipient) — the OLD
+    // code would then findFirst→null→rethrow raw P2002; now it must NOT even
+    // consult the winner lookup.
+    mockDb.issuedCertificate.findFirst.mockResolvedValue(null);
+    await expect(findOrIssueCertificate(BASE_ARGS)).rejects.toThrow(/collided across events/);
+    // Only the pre-check findFirst ran; no winner lookup.
+    expect(mockDb.issuedCertificate.findFirst).toHaveBeenCalledTimes(1);
   });
 });
 

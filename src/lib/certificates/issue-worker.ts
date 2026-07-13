@@ -45,6 +45,7 @@ import {
   loadBundleEmailEvent,
   loadCertTemplate,
   findOrIssueCertificate,
+  loadBundleCoverEmailTemplate,
 } from "./bundle";
 import { defaultCoverEmailFor } from "./email-tokens";
 import type { CertificateData, CertificateTemplate } from "./types";
@@ -706,9 +707,19 @@ async function processSendPhase(
   });
   const organizationIdForLog = eventForOrg?.organizationId ?? null;
   // Cover-email fallback when the run carries no snapshot (legacy + auto
-  // runs): a multi-template bundle run gets the MULTI defaults so
-  // {{certificateList}} enumerates every attached cert.
-  const fallbackCover = defaultCoverEmailFor(runRow.templateIds.length || 1, runRow.type);
+  // runs, e.g. a survey-gated multi-template auto bundle whose emailSubject/
+  // emailBody are null). M4: for a MULTI-template bundle, consult the
+  // organizer-editable `certificate-bundle-delivery` template FIRST — every
+  // other send path (deliver.resolveResendBundleCover, bulk-issue, preview)
+  // does; the worker send phase was the one path still hardcoding
+  // SYSTEM_DEFAULT_*_MULTI, so an edited bundle cover was silently ignored on
+  // auto-issued bundles. A single-template run keeps the category default
+  // (its own saved cover already rode in as the run snapshot when set).
+  const bundleCount = runRow.templateIds.length || 1;
+  const fallbackCover =
+    bundleCount > 1
+      ? (await loadBundleCoverEmailTemplate(eventId)) ?? defaultCoverEmailFor(bundleCount, runRow.type)
+      : defaultCoverEmailFor(bundleCount, runRow.type);
   const emailSubjectTemplate =
     runRow.emailSubject?.trim().length ? runRow.emailSubject : fallbackCover.subject;
   const emailBodyTemplate =
