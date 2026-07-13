@@ -48,7 +48,25 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.rsvpDinner.findMany({
         where: { eventId },
         orderBy: [{ sortOrder: "asc" }, { dinnerAt: "asc" }],
-        select: { id: true, name: true, dinnerAt: true },
+        // B2: this is the ONLY place the dinner console gets its dinners from —
+        // it never calls GET /dinners. The select used to be
+        // `{ id, name, dinnerAt }`, so location / description / rsvpDeadline
+        // arrived as `undefined`, the edit dialog rendered them blank, and
+        // saving PUT them back as ""/null — which the PUT reads as an explicit
+        // CLEAR. Editing a typo in a dinner's name therefore WIPED its venue,
+        // its description, and its RSVP deadline (so RSVP never closed again).
+        // The client's `Dinner` interface always claimed these fields existed;
+        // nothing checked that the API actually sent them.
+        select: {
+          id: true,
+          name: true,
+          dinnerAt: true,
+          location: true,
+          description: true,
+          rsvpDeadline: true,
+          sortOrder: true,
+          isActive: true,
+        },
       }),
       db.rsvpInvite.findMany({
         where: { eventId },

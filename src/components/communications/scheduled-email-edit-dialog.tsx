@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useUpdateScheduledEmail, type ScheduledEmailItem } from "@/hooks/use-api";
+import { toLocalDateTimeInput } from "@/lib/datetime-local";
 
 interface Props {
   eventId: string;
@@ -25,11 +26,10 @@ interface Props {
 
 const MIN_LEAD_MS = 5 * 60 * 1000;
 
-function toLocalDateTimeInput(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+// Moved to src/lib/datetime-local.ts (Survey/RSVP review B2) — this was the ONE
+// correct implementation of the UTC↔datetime-local round-trip in the codebase;
+// the dinner console had hand-rolled a broken `.slice(0, 16)` instead. Sharing it
+// so a third copy can't drift.
 
 function computeMinScheduledFor(): string {
   const d = new Date(Date.now() + MIN_LEAD_MS);

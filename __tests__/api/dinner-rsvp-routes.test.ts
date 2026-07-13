@@ -40,12 +40,38 @@ vi.mock("@/lib/security", () => ({
 vi.mock("@/lib/auth", () => ({ auth: vi.fn().mockResolvedValue({ user: { id: "u1", organizationId: "org1" } }) }));
 vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null }));
 
-import { POST as sendlessInvitesPost } from "@/app/api/events/[eventId]/rsvp-invites/route";
+import {
+  POST as sendlessInvitesPost,
+  GET as rosterGet,
+} from "@/app/api/events/[eventId]/rsvp-invites/route";
 import { POST as publicSubmit } from "@/app/api/public/events/[slug]/rsvp/[token]/route";
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+});
+
+describe("GET /rsvp-invites — the roster must return every dinner field the console edits (B2)", () => {
+  it("selects location / description / rsvpDeadline, not just { id, name, dinnerAt }", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
+    mockDb.rsvpDinner.findMany.mockResolvedValue([]);
+    mockDb.rsvpInvite.findMany.mockResolvedValue([]);
+
+    await rosterGet({ url: "http://x/api/events/ev1/rsvp-invites" } as unknown as Request, {
+      params: Promise.resolve({ eventId: "ev1" }),
+    });
+
+    const select = mockDb.rsvpDinner.findMany.mock.calls[0][0].select;
+
+    // This route is the ONLY source of dinners for the console. When these
+    // fields weren't selected they arrived as `undefined`, the edit dialog
+    // showed them blank, and Save wrote them back as ""/null — which the PUT
+    // reads as an explicit CLEAR. Editing a dinner's NAME wiped its venue,
+    // its description and its RSVP DEADLINE (so RSVP never closed again).
+    expect(select.location).toBe(true);
+    expect(select.description).toBe(true);
+    expect(select.rsvpDeadline).toBe(true);
+  });
 });
 
 // ── M2 ──────────────────────────────────────────────────────────────

@@ -41,6 +41,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ImportInviteesDialog } from "@/components/dinner/import-invitees-dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { usePreviewEmailBySlug } from "@/hooks/use-api";
+import { toLocalDateTimeInput, fromLocalDateTimeInput } from "@/lib/datetime-local";
 import { toast } from "sonner";
 
 interface Dinner {
@@ -149,10 +150,18 @@ export default function DinnerRsvpPage() {
     setEditingDinner(d);
     setDinnerForm({
       name: d.name,
-      dinnerAt: d.dinnerAt.slice(0, 16),
+      // B2/TZ: `dinnerAt` is a UTC ISO instant. The old code did
+      // `.slice(0, 16)`, which drops the UTC WALL-CLOCK into a datetime-local
+      // input — and the browser reads that input as LOCAL time. Saving then did
+      // `new Date(local).toISOString()`, shifting the instant backwards by the
+      // UTC offset on EVERY save (a 19:00 Dubai gala opened showing 15:00, and
+      // saving moved it to 15:00; save again → 11:00). Convert UTC → local
+      // wall-clock properly, so the round-trip is lossless and matches the
+      // create path (which already goes local → ISO correctly).
+      dinnerAt: toLocalDateTimeInput(d.dinnerAt),
       location: d.location ?? "",
       description: d.description ?? "",
-      rsvpDeadline: d.rsvpDeadline ? d.rsvpDeadline.slice(0, 16) : "",
+      rsvpDeadline: d.rsvpDeadline ? toLocalDateTimeInput(d.rsvpDeadline) : "",
     });
     setDinnerDialog(true);
   };
@@ -163,12 +172,15 @@ export default function DinnerRsvpPage() {
     }
     setSavingDinner(true);
     try {
+      // Both directions go through src/lib/datetime-local so the read-back
+      // (toLocalDateTimeInput) and the write (fromLocalDateTimeInput) are
+      // provably inverse — that pairing is what makes the round-trip lossless.
       const payload = {
         name: dinnerForm.name.trim(),
-        dinnerAt: new Date(dinnerForm.dinnerAt).toISOString(),
+        dinnerAt: fromLocalDateTimeInput(dinnerForm.dinnerAt),
         location: dinnerForm.location.trim(),
         description: dinnerForm.description.trim(),
-        rsvpDeadline: dinnerForm.rsvpDeadline ? new Date(dinnerForm.rsvpDeadline).toISOString() : null,
+        rsvpDeadline: fromLocalDateTimeInput(dinnerForm.rsvpDeadline),
       };
       const res = await fetch(
         editingDinner
