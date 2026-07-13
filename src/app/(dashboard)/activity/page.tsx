@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { Activity } from "lucide-react";
 import { GlobalActivityFeed } from "./global-activity-feed";
 
 export default async function ActivityPage() {
@@ -16,11 +17,16 @@ export default async function ActivityPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Activity</h1>
-        <p className="text-muted-foreground">
-          Recent activity across all events in your organization.
-        </p>
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+          <Activity className="h-5 w-5 text-primary" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Activity</h1>
+          <p className="text-muted-foreground">
+            Every change made across your events — who did it, what it was, and what it changed.
+          </p>
+        </div>
       </div>
 
       <GlobalActivityFeed />

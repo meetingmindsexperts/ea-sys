@@ -19,9 +19,14 @@ export async function GET(req: Request) {
     }
 
     const url = new URL(req.url);
+    // Ceiling raised 100 → 500 so the feed's "Load more" has somewhere to go.
+    // Deliberately a growing `take` rather than a cursor: the audit feed is
+    // admin-only, low-traffic, and a single ordered read of ≤500 rows on an
+    // indexed createdAt is cheaper than the complexity of keeping a cursor in
+    // sync with the 30s auto-refresh (which must always re-anchor at "now").
     const limit = Math.min(
       Math.max(Number(url.searchParams.get("limit")) || 50, 1),
-      100
+      500
     );
 
     // Filters

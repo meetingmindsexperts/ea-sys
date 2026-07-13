@@ -93,6 +93,39 @@ export function describeAuditAction(log: AuditLogLike): string {
   return `${log.action} ${log.entityType}`;
 }
 
+/**
+ * WHO the row is about (as opposed to who did it) — pulled out of the `changes`
+ * blob, which for the common `{ before, after }` update shape carries the full
+ * row including the person's name.
+ *
+ * Without this, an admin scanning the feed sees forty rows of "Registration
+ * updated" and cannot tell them apart. Returns null when the blob carries no
+ * name (bulk summaries, deletes, config rows) — the caller then just omits it
+ * rather than printing a placeholder.
+ */
+export function auditSubjectName(log: AuditLogLike): string | null {
+  const c = (log.changes || {}) as Record<string, unknown>;
+  // Prefer `after` (the state we moved to); fall back to `before` for deletes.
+  const candidates = [c.after, c.before, c.deleted, c].filter(
+    (x): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x),
+  );
+
+  for (const row of candidates) {
+    // A registration's name lives on its nested attendee; a speaker's is inline.
+    const holder =
+      row.attendee && typeof row.attendee === "object" && !Array.isArray(row.attendee)
+        ? (row.attendee as Record<string, unknown>)
+        : row;
+    const first = typeof holder.firstName === "string" ? holder.firstName : "";
+    const last = typeof holder.lastName === "string" ? holder.lastName : "";
+    const name = `${first} ${last}`.trim();
+    if (name) return name;
+    if (typeof holder.name === "string" && holder.name.trim()) return holder.name.trim();
+    if (typeof holder.email === "string" && holder.email.trim()) return holder.email.trim();
+  }
+  return null;
+}
+
 /** Who performed the action (user name/email, or a synthetic source label). */
 export function auditActorLabel(log: AuditLogLike): string {
   if (log.user) {

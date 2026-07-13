@@ -1,5 +1,7 @@
 # One-Time Server Setup for Blue-Green Deployment
 
+> **Scope note (July 13, 2026):** this doc covers ONLY the blue-green nginx/slot wiring on an already-provisioned box. For rebuilding a production server **from scratch** (instance, IAM role, swap, packages, secrets, crontab, fail2ban, CloudWatch, CI reattachment), start from **`docs/FROM_SCRATCH_REBUILD.md`** — this doc is its Phase 4.
+
 Run these commands **once** on the EC2 server before the first blue-green deploy.
 
 ## 1. Allow ubuntu to control nginx (sudoers)
@@ -33,6 +35,8 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ## 4. Migrate existing container to blue slot
+
+> **Historical step** — this migrated the pre-blue-green `ea-sys` container in 2026. On a from-scratch rebuild there is no old container; skip to step 5 (the first `scripts/deploy.sh` run starts the slot).
 
 ```bash
 cd /home/ubuntu/ea-sys
@@ -88,10 +92,13 @@ Deploy N+1: green running (port 3001) → nginx → users
 
 ## Expected deploy times after setup
 
-| Phase                  | Before  | After   |
-|------------------------|---------|---------|
-| docker system prune    | ~60s    | removed |
-| npm install (cached)   | ~90s    | ~10s    |
-| next build (cached)    | ~180s   | ~90s    |
-| container swap         | ~30s    | ~1s     |
-| **Total**              | **~5m** | **~2m** |
+> **Updated July 13, 2026** — the original table described the on-box `npm install` / `next build` era. Since the ECR cutover (and INC-001, which is exactly why builds moved off-box), CI builds + pushes the images and the box only pulls:
+
+| Phase                          | Time      |
+|--------------------------------|-----------|
+| ECR pull (web + worker images) | ~30–60s   |
+| migrations + health check      | ~30–45s   |
+| nginx switch                   | ~1s       |
+| **Total**                      | **~1–2m** |
+
+On-box building only happens as the ECR-unreachable fallback (~8 min — and requires the swap from `docs/FROM_SCRATCH_REBUILD.md` Phase 2 to be safe). `docker system prune` runs as a weekly Friday cron, not per-deploy.

@@ -20,7 +20,7 @@
  */
 import { db } from "@/lib/db";
 import { getEmailLogsFor } from "@/lib/email-log";
-import { redactFinancialFields } from "@/lib/finance-visibility";
+import { computeAuditDiffs } from "@/lib/activity-diff";
 
 // Activity types live in a client-safe module (no `db` import) so the client
 // card can share them. Re-exported here so existing `@/lib/activity-feed`
@@ -46,104 +46,6 @@ function actorLabel(user: { firstName: string | null; lastName: string | null } 
   if (!user) return null;
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
   return name || null;
-}
-
-// Keys that are noise in an edit history (identity/bookkeeping/internal blobs).
-// Applied at both the registration level and the nested attendee level.
-const DIFF_SKIP_KEYS = new Set<string>([
-  "id",
-  "createdAt",
-  "updatedAt",
-  "eventId",
-  "organizationId",
-  "userId",
-  "attendeeId",
-  "customFields",
-  "attempts",
-  "externalId",
-  "qrCode",
-  // Physical-access credential (July-11 barcode-visibility class): full-row
-  // audit snapshots now come from BOTH callers via the update service, so a
-  // dtcmBarcode correction must not render its before→after to a MEMBER
-  // viewer through the Activity diff.
-  "dtcmBarcode",
-  "serialId",
-]);
-
-/** camelCase → "Title case" label, e.g. paymentStatus → "Payment status". */
-function humanizeKey(key: string): string {
-  const spaced = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
-}
-
-/** Render a scalar/array value for the diff. Returns null to skip (objects). */
-function formatDiffValue(v: unknown): string | null {
-  if (v === null || v === undefined || v === "") return "—";
-  if (typeof v === "boolean") return v ? "Yes" : "No";
-  if (typeof v === "number") return String(v);
-  if (typeof v === "string") return v.length > 120 ? `${v.slice(0, 119)}…` : v;
-  if (Array.isArray(v)) {
-    if (v.every((x) => x === null || ["string", "number", "boolean"].includes(typeof x))) {
-      return v.length ? v.map((x) => String(x)).join(", ") : "—";
-    }
-    return null; // array of objects — too noisy
-  }
-  return null; // nested object — handled separately for `attendee`
-}
-
-const MAX_DIFFS = 15;
-
-/** Diff one flat object level, pushing changed scalar/array keys. */
-function diffLevel(
-  before: Record<string, unknown>,
-  after: Record<string, unknown>,
-  prefix: string,
-  out: ActivityFieldDiff[],
-): void {
-  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
-  for (const k of keys) {
-    if (DIFF_SKIP_KEYS.has(k)) continue;
-    if (out.length >= MAX_DIFFS) return;
-    const b = before[k];
-    const a = after[k];
-    if (JSON.stringify(b) === JSON.stringify(a)) continue;
-    const bf = formatDiffValue(b);
-    const af = formatDiffValue(a);
-    if (bf === null || af === null) continue; // skip object-valued fields here
-    out.push({ field: prefix ? `${prefix}: ${humanizeKey(k)}` : humanizeKey(k), before: bf, after: af });
-  }
-}
-
-/**
- * Build field-level diffs from an audit row's `changes` blob. Handles the
- * registration/speaker UPDATE shape `{ before, after }` (both full rows incl.
- * a nested `attendee`). Financial fields are stripped first for non-finance
- * viewers via `redactFinancialFields`. Returns [] for non-UPDATE shapes
- * (e.g. DELETE's `{ deleted }`, bulk summaries).
- */
-function computeDiffs(changes: unknown, canViewFinance: boolean): ActivityFieldDiff[] {
-  if (!changes || typeof changes !== "object") return [];
-  const c = changes as Record<string, unknown>;
-  if (!c.before || !c.after || typeof c.before !== "object" || typeof c.after !== "object") {
-    return [];
-  }
-  let before = c.before as Record<string, unknown>;
-  let after = c.after as Record<string, unknown>;
-  if (!canViewFinance) {
-    before = redactFinancialFields(before);
-    after = redactFinancialFields(after);
-  }
-
-  const out: ActivityFieldDiff[] = [];
-  // Top-level (registration/speaker) scalar fields.
-  diffLevel(before, after, "", out);
-  // One level into the nested attendee (phone, registrationType, etc.).
-  const ba = before.attendee;
-  const aa = after.attendee;
-  if (ba && aa && typeof ba === "object" && typeof aa === "object" && !Array.isArray(ba) && !Array.isArray(aa)) {
-    diffLevel(ba as Record<string, unknown>, aa as Record<string, unknown>, "Attendee", out);
-  }
-  return out;
 }
 
 /** Collect + map activity for whichever of the two entities are present. */
@@ -196,7 +98,7 @@ async function collect(
 
   const pushAudit = (rows: AuditRow[], source: ActivitySource) => {
     for (const r of rows) {
-      const diffs = computeDiffs(r.changes, canViewFinance);
+      const diffs = computeAuditDiffs(r.changes, canViewFinance);
       items.push({
         id: `audit:${r.id}`,
         source,

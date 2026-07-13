@@ -184,15 +184,18 @@ describe("GET /api/activity", () => {
     );
   });
 
-  it("caps limit at 100", async () => {
+  it("caps limit at 500", async () => {
+    // Raised from 100 when the feed gained "Load more" — a hard 100 meant an
+    // admin auditing a busy week simply could not see past it. The cap still
+    // exists: an unbounded `take` on an audit table is a memory hazard.
     mockAuth.mockResolvedValue(adminSession);
     mockDb.auditLog.findMany.mockResolvedValue([]);
 
-    await GET(makeRequest("limit=500"));
+    await GET(makeRequest("limit=5000"));
 
     expect(mockDb.auditLog.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        take: 100,
+        take: 500,
       })
     );
   });
