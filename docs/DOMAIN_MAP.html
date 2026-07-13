@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EA-SYS Domain Map — Interactive Tree</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+    --ok:#15803d; --branch:#c7d2dc; --hover:#eef6fa;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:1020px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:1.5rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  code{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.85em;background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  table{width:100%;border-collapse:collapse;margin:.75rem 0;font-size:.9rem}
+  th,td{text-align:left;padding:.5rem .65rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  ul{padding-left:1.3rem;margin:.4rem 0} li{margin:.28rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+
+  /* ---- chips ---- */
+  .chip{display:inline-block;font-weight:700;font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;padding:.16em .55em;border-radius:999px;white-space:nowrap;vertical-align:middle}
+  .chip.ok{background:var(--ok);color:#fff}
+  .chip.warn{background:var(--medium);color:#fff}
+  .chip.blocker{background:var(--blocker);color:#fff}
+  .chip.info{background:var(--accent);color:#fff}
+  .chip.muted{background:var(--muted);color:#fff}
+
+  /* ---- note boxes ---- */
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.94rem}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+
+  /* ---- the tree ---- */
+  .tree{margin:1.25rem 0}
+  .tree details{margin:0;position:relative}
+  .tree summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap;padding:.5rem .65rem;border-radius:6px;user-select:none}
+  .tree summary::-webkit-details-marker{display:none}
+  .tree summary:hover{background:var(--hover)}
+  .tree summary::before{content:"▸";flex:none;width:1em;color:var(--accent);font-size:.9em;transition:transform .15s ease;transform-origin:40% 50%;position:relative;top:-1px}
+  .tree details[open] > summary::before{transform:rotate(90deg)}
+  .tree .kids{margin-left:.95rem;padding-left:1rem;border-left:2px solid var(--branch)}
+
+  /* domain (level 1) */
+  details.domain{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;margin:.6rem 0;overflow:hidden}
+  details.domain.noreview{border-left-color:var(--medium)}
+  details.domain > summary{padding:.8rem 1rem;font-weight:600;font-size:1.04rem}
+  details.domain > summary .num{color:var(--accent);font-weight:800;font-variant-numeric:tabular-nums}
+  details.domain > summary .oneliner{display:block;flex-basis:100%;font-weight:400;font-size:.87rem;color:var(--muted);margin:.15rem 0 0 1.55em;line-height:1.45}
+  details.domain > .kids{margin:0 1rem 1rem 1.4rem;border-left-color:var(--accent)}
+  details.domain[open]{background:var(--bg)}
+
+  /* section (level 2) */
+  details.sec > summary{font-weight:600;font-size:.93rem}
+  details.sec > summary .ico{flex:none;width:1.25em;text-align:center}
+  details.sec > .kids{font-size:.93rem;padding-top:.15rem;padding-bottom:.35rem}
+  .leaf{padding:.28rem .65rem .28rem 1.55rem;line-height:1.55}
+  .leaf b.k{display:inline-block;min-width:5.2em;color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+  .gotcha{padding:.35rem .65rem .35rem 1.55rem;line-height:1.5;position:relative}
+  .gotcha::before{content:"⚠";position:absolute;left:.35rem;color:var(--medium)}
+
+  /* top-level group headings as details */
+  details.group > summary{font-weight:700;font-size:1.25rem;padding:.7rem .65rem;border-bottom:1px solid var(--line);border-radius:0}
+  details.group{margin:2rem 0 1rem}
+  details.group > .kids{border-left:none;margin-left:0;padding-left:0;padding-top:.5rem}
+
+  /* expand/collapse controls — only visible when JS runs (blocked in the /admin/docs iframe, works in a real tab) */
+  .controls{display:none;gap:.5rem;margin:1rem 0}
+  .controls.js{display:flex}
+  .controls button{font:inherit;font-size:.82rem;font-weight:600;padding:.35rem .8rem;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer}
+  .controls button:hover{border-color:var(--accent);color:var(--accent)}
+
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf;--ok:#22c55e;--branch:#39424c;--hover:#1e2830}
+    .chip.ok,.chip.warn,.chip.blocker,.chip.info,.chip.muted{color:#14171a}
+    .note{background:#0c2b3a;border-color:#1e4a5f}
+    .note.warn{background:#33290c;border-color:#66551a}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>EA-SYS Domain Map</h1>
+  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post certificates-review remediation, pkg 0.4.20). Markdown-free, self-contained, dark-mode aware.</div>
+</header>
+
+<div class="note">
+  <strong>How to use:</strong> jump to the domain you're about to touch → open <em>Core logic</em> first (those files are the single source of truth for the domain's rules) → check <em>Gotchas</em> and <em>Review &amp; deferred</em> before assuming a behavior is a bug — it may be a known, deliberately-deferred item.
+  When changing domain logic, walk <em>every</em> entry-point leaf (UI / REST / Public / MCP / Worker): the historical bug class here is two entry points drifting apart.
+</div>
+
+<div class="controls" id="controls">
+  <button type="button" onclick="document.querySelectorAll('details').forEach(d=>d.open=true)">Expand all</button>
+  <button type="button" onclick="document.querySelectorAll('details').forEach(d=>d.open=false)">Collapse all</button>
+  <button type="button" onclick="document.querySelectorAll('details.domain, details.group').forEach(d=>d.open=true);document.querySelectorAll('details.sec').forEach(d=>d.open=false)">Domains only</button>
+</div>
+
+<!-- ================= SYSTEM SHAPE ================= -->
+<div class="tree">
+<details class="group" open>
+<summary>System shape — read once</summary>
+<div class="kids">
+
+<details class="sec">
+<summary><span class="ico">🚪</span>The five entry-point types</summary>
+<div class="kids tbl-wrap">
+<table>
+<tr><th>Entry point</th><th>Where</th><th>Notes</th></tr>
+<tr><td><b>Dashboard UI</b></td><td><code>src/app/(dashboard)/events/[eventId]/*</code></td><td>React Query hooks in <code>src/hooks/use-api.ts</code></td></tr>
+<tr><td><b>REST API</b></td><td><code>src/app/api/events/[eventId]/*</code></td><td>Session or API-key auth; <code>denyReviewer</code> on writes</td></tr>
+<tr><td><b>Public API</b></td><td><code>src/app/api/public/events/[slug]/*</code> + pages <code>src/app/e/[slug]/*</code></td><td>No auth; rate-limited; slug-scoped</td></tr>
+<tr><td><b>MCP / AI agent</b></td><td><code>src/lib/agent/tools/*.ts</code> + <code>register-mcp-tools.ts</code></td><td>Serves claude.ai, Claude Desktop, n8n, in-app agent. <b>Bump <code>package.json</code> on any tool change</b></td></tr>
+<tr><td><b>Worker (cron)</b></td><td><code>worker/jobs/*.ts</code> → shared <code>runTick()</code> libs</td><td>Sole runner since June 9; advisory-locked; search <code>/logs</code> for <code>worker:</code></td></tr>
+</table>
+</div>
+</details>
+
+<details class="sec">
+<summary><span class="ico">🧩</span>The anti-drift rule (services layer)</summary>
+<div class="kids">
+<div class="leaf">Any operation called from more than one entry point must live in <b>ONE</b> service (<code>src/services/</code>) or shared lib — never mirrored. "MUST mirror" comments are the smell.</div>
+<div class="leaf"><b class="k">Services</b> <code>registration-service</code> · <code>speaker-service</code> · <code>abstract-service</code> · <code>session-service</code> · <code>accommodation-service</code> · <code>payment-service</code> · <code>promo-code-service</code> · <code>billing-account-service</code></div>
+<div class="leaf"><b class="k">Convention</b> errors-as-values, typed inputs, caller identity via <code>source: "rest"|"mcp"|"api"</code>, never imports <code>next/server</code> — see <code>src/services/README.md</code></div>
+</div>
+</details>
+
+<details class="sec">
+<summary><span class="ico">🛡️</span>Cross-cutting libs every domain flows through</summary>
+<div class="kids tbl-wrap">
+<table>
+<tr><th>Concern</th><th>File</th><th>Rule</th></tr>
+<tr><td>Write-guard RBAC</td><td><code>src/lib/auth-guards.ts</code></td><td><code>denyReviewer(session, {allow?})</code> on every non-abstract write; ONSITE opted back in per-route via <code>REGISTRATION_DESK_ALLOW</code></td></tr>
+<tr><td>Event visibility</td><td><code>src/lib/event-access.ts</code></td><td><code>buildEventAccessWhere()</code> — role-scoped event lookup; <b>every ONSITE-reachable route must use it</b> (assignment-gated, not just org)</td></tr>
+<tr><td>Money visibility</td><td><code>src/lib/finance-visibility.ts</code></td><td><code>FINANCE_ROLES</code> = SUPER_ADMIN / ADMIN / ORGANIZER / MEMBER / ONSITE; <code>redactFinancialFields()</code> for the rest</td></tr>
+<tr><td>Door credentials</td><td><code>src/lib/barcode-visibility.ts</code></td><td>qrCode / dtcmBarcode: staff + ONSITE yes, MEMBER <b>no</b> — deliberately narrower than finance</td></tr>
+<tr><td>Zoom host creds</td><td><code>src/lib/zoom-visibility.ts</code></td><td>startUrl / streamKey / passcode: ADMIN + ORGANIZER only</td></tr>
+<tr><td>Rate limits</td><td><code>checkRateLimit</code> (in-memory) + nginx per-IP + fail2ban</td><td>Table in CLAUDE.md §Rate Limits; in-memory resets on container restart</td></tr>
+<tr><td>Email send</td><td><code>src/lib/email.ts</code> + <code>EmailLog</code></td><td><code>renderAndWrap</code> branding + SES; every caller passes <code>logContext</code> → per-entity history</td></tr>
+<tr><td>Audit</td><td><code>AuditLog</code> writes</td><td>Fire-and-forget with logged catch; <code>changes.source</code> tags the entry point</td></tr>
+<tr><td>Logging</td><td><code>src/lib/logger.ts</code></td><td>Pino → stdout + files + <code>SystemLog</code> → <code>/logs</code> viewer + CloudWatch. <b>Every failure path logs</b></td></tr>
+</table>
+</div>
+</details>
+
+<details class="sec">
+<summary><span class="ico">⏱️</span>Worker job schedule</summary>
+<div class="kids">
+<div class="leaf"><code>cert-issue</code> every 3 min (auto-issue sweep + run state machine) · <code>scheduled-emails</code> every 1 min · <code>invoice-reconciliation</code> rides the 10-min tick (also hosts the refund-attempt sweep) · <code>webinar-recordings</code> every 5 min · <code>webinar-attendance</code> + engagement every 10 min · <code>oauth-cleanup</code> hourly · <code>log-archive</code> · <code>contacts-central-sync</code> / <code>-reconcile</code></div>
+<div class="leaf">Scheduler: <code>worker/index.ts</code> · singleton via Postgres advisory locks · health at <code>/worker/health</code></div>
+</div>
+</details>
+
+</div>
+</details>
+</div>
+
+<!-- ================= THE 11 DOMAINS ================= -->
+<div class="tree">
+<details class="group" open>
+<summary>The 11 active domains</summary>
+<div class="kids">
+
+<!-- 1. REGISTRATIONS + SPEAKERS -->
+<details class="domain">
+<summary><span class="num">1</span> Registrations + Speakers <span class="chip ok">reviewed jul 10</span> <span class="chip ok">9/9 highs shipped</span>
+<span class="oneliner">The two person-facets of an event. A Speaker is first-class and independent; attending faculty get a companion Registration (comp, hidden <code>isFaculty</code> ticket type) powering badge/barcode/check-in/survey. Committee = a tag, not a ticket type.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>registrations/</code> (list, detail sheet, full-page <code>new/</code>, CSV import) · <code>speakers/</code> (list, detail page + sheet, imports)</div>
+<div class="leaf"><b class="k">REST</b> <code>api/events/[eventId]/registrations/*</code> incl. <code>[id]/email</code>, <code>/promo</code>, <code>/cancel</code>, <code>/credit-notes</code>, <code>/refund</code>, <code>/payments</code>, <code>/activity</code>, <code>bulk-type</code>, <code>bulk-tags</code>, <code>import-contacts</code> · <code>speakers/*</code> incl. <code>[id]/email</code>, <code>/activity</code>, <code>import-registrations</code></div>
+<div class="leaf"><b class="k">Public</b> <code>e/[slug]/register/[category]</code> (2-step + Stripe) · <code>complete-registration</code> (CSV token) · <code>my-registration</code> portal · <code>api/public/.../register</code>, <code>check-email</code></div>
+<div class="leaf"><b class="k">MCP</b> <code>tools/registrations.ts</code> + <code>tools/speakers.ts</code> — create / update / bulk / check-in / list</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>services/registration-service.ts</code> — create + <code>updateRegistration</code> (sponsor invariant, repricing, seat/promo transition, optimistic lock)</div>
+<div class="leaf"><code>services/speaker-service.ts</code> — create + <code>cascadeSpeakerDecline</code> (companion cancel on DECLINED)</div>
+<div class="leaf"><code>lib/speaker-companion.ts</code> · <code>lib/registration-seat*.ts</code> (tier-aware seat counters) · <code>lib/registrant-account.ts</code> · <code>lib/registration-confirmation.ts</code> · <code>lib/faculty-filter.ts</code> · <code>lib/email-change.ts</code> (email immutable via general PUT — dedicated PATCH routes cascade)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>Registration</code> (status, paymentStatus, <code>refundedAmount</code>, <code>attendanceMode</code>, <code>createdSource</code>, sponsorId, billingAccountId) · <code>Attendee</code> · <code>Speaker</code> (<code>sourceRegistrationId</code> → companion) · <code>TicketType</code> (<code>isFaculty</code>, <code>virtualPrice</code>) · <code>PricingTier</code> · <code>RegistrationSerialCounter</code></div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">Seat accounting is tier-aware (<code>seatCounter</code>) — public+tier regs count on the tier, everything else on the ticket type; companions count nowhere.</div>
+<div class="gotcha">VIRTUAL regs hold no seat and mint no qrCode; switching virtual→in-person lazily mints one (capacity-guarded).</div>
+<div class="gotcha">Email edits ONLY via the dedicated <code>/email</code> PATCH routes — they cascade to User / Contact / Speaker facet; the general PUT 400s with <code>EMAIL_IMMUTABLE</code>.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_REGISTRATIONS_SPEAKERS.html</code> (July 10) — 0 blockers, 9 HIGHs all shipped</div>
+<div class="leaf"><b class="k">Deferred</b> ROADMAP §"Registrations &amp; speakers review" + §"Speaker ↔ companion-registration lifecycle"</div>
+<div class="leaf"><b class="k">Docs</b> <code>docs/IDENTITY_AND_ROLES.md</code> · <code>docs/COMMITTEE_MEMBERS.md</code> · <code>docs/SPEAKER_AS_ATTENDEE_PLAN.md</code></div>
+</div></details>
+</div>
+</details>
+
+<!-- 2. PAYMENTS -->
+<details class="domain">
+<summary><span class="num">2</span> Payments / Refunds / Credit-notes <span class="chip ok">reviewed jul 10</span> <span class="chip ok">1 blocker + 11/11 highs shipped</span>
+<span class="oneliner">Money movement: Stripe checkout for public, manual capture at the desk, gated partial refunds (credit note first, amount-capped), cancel-with-refund.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> Registration detail sheet → Billing &amp; Payments tab (record payment / issue CN / refund / cancel dialogs)</div>
+<div class="leaf"><b class="k">REST</b> <code>registrations/[id]/payments</code> (manual capture) · <code>/credit-notes</code> · <code>/refund</code> · <code>/cancel</code> · <code>api/webhooks/stripe</code> (<code>checkout.session.completed</code>, <code>charge.refunded</code>)</div>
+<div class="leaf"><b class="k">Public</b> <code>checkout</code> + <code>payment-status</code> routes; registrant portal Pay Now</div>
+<div class="leaf"><b class="k">MCP</b> none direct — paymentStatus writes limited to <code>ADMIN_SETTABLE_PAYMENT_STATUSES</code> via update tools</div>
+<div class="leaf"><b class="k">Worker</b> <code>invoice-reconciliation</code> (recovers dropped post-payment invoices; hosts the refund-attempt sweep)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>services/payment-service.ts</code> — <code>refundRegistration</code> (CN-gated + amount-capped, per-payment allocation, <code>RefundAttempt</code> crash-safety) · <code>issueCreditNoteForRegistration</code> · <code>cancelRegistration</code> (refund-BEFORE-cancel)</div>
+<div class="leaf"><code>lib/refund-reconciliation.ts</code> · <code>lib/stripe.ts</code> · <code>lib/stripe-receipt.ts</code> (durable receipt snapshot) · <code>lib/registration-financials.ts</code> (<code>readRegistrationBasePrice</code> — the canonical price resolution)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>Payment</code> (per-payment <code>refundedAmount</code>, card details, <code>stripeReceiptFile</code>) · <code>RefundAttempt</code> · <code>Registration.refundedAmount</code> (running total)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">Refund flow is credit-note-FIRST: 409 <code>CREDIT_NOTE_REQUIRED</code> / <code>CREDIT_NOTE_INSUFFICIENT</code> (cumulative refunds may not exceed Σ non-cancelled CN totals).</div>
+<div class="gotcha">Webhook idempotency keys on <code>Payment.stripePaymentId</code> (charge-level), NOT on "is the reg PAID" — a second real settlement is recorded + flagged, never dropped.</div>
+<div class="gotcha">No automatic attendee email on refunds — the organizer communicates manually (one policy across both refund entry points).</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_PAYMENTS_REFUNDS.html</code> (July 10) — 1 BLOCKER + 11 HIGHs all shipped in 8 phases</div>
+<div class="leaf"><b class="k">Deferred</b> ROADMAP §"Payments/refunds/credit-notes review" + §"Partial refunds + credit notes" + §"Cancel-with-refund"</div>
+<div class="leaf"><b class="k">Docs</b> <code>docs/PAYMENT_FLOW.md</code></div>
+</div></details>
+</div>
+</details>
+
+<!-- 3. INVOICES -->
+<details class="domain">
+<summary><span class="num">3</span> Invoices / Quotes <span class="chip info">covered in payments review</span>
+<span class="oneliner">The document layer — quote PDF at registration, INVOICE (status PAID) after payment, credit-note PDF, all sharing one branded layout.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>invoices/</code> page · download buttons on detail sheet + registrant portal</div>
+<div class="leaf"><b class="k">REST</b> <code>api/events/[eventId]/invoices/*</code> (list / create / detail / PDF / send / export) · registrant <code>/quote</code> + public <code>/document</code></div>
+<div class="leaf"><b class="k">MCP</b> <code>tools/invoices.ts</code> — list / create / send / update_invoice_status</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>lib/invoice-service.ts</code> — <code>createInvoice</code> · <code>createPaidInvoice</code> (promotes an existing admin invoice in place, never double-numbers) · <code>createCreditNote</code> (multi-CN, row-locked cap)</div>
+<div class="leaf"><code>lib/invoice-pdf.ts</code> · <code>lib/quote-pdf.ts</code> (<code>buildQuotePDFFromRegistration</code>) · <code>lib/credit-note-pdf.ts</code> · <code>lib/pdf/document-layout.ts</code> (shared layout for all four PDF types)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>Invoice</code> — types QUOTE / INVOICE / CREDIT_NOTE, shared numbering per event code</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">Bill-to renders the <code>BillingAccount</code> payer when set (attendee drops to a reference line).</div>
+<div class="gotcha">Paid invoices suppress bank details + render a "Payment Received" block.</div>
+<div class="gotcha">All invoice GETs are finance-role gated AND event-access scoped (the H10 fix — ONSITE/MEMBER are finance-capable, so scoping matters).</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> no standalone — covered inside the payments review (H9 invoice IDOR, H10 finance scoping via <code>buildEventAccessWhere</code>)</div>
+<div class="leaf"><b class="k">Deferred</b> inside ROADMAP payments section</div>
+</div></details>
+</div>
+</details>
+
+<!-- 4. ABSTRACTS -->
+<details class="domain">
+<summary><span class="num">4</span> Abstracts + Reviewers <span class="chip ok">reviewed jul 10</span> <span class="chip ok">9/9 highs shipped</span>
+<span class="oneliner">Submission → per-reviewer scoring → gated decision. Submitters are org-null accounts; reviewers score via /my-reviews; decisions gate on requiredReviewCount.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>abstracts/</code> (list, full-page new/edit, submitter profile landing) · <code>reviewers/</code> page · <code>/my-reviews</code> portal · reviewers card on abstract edit</div>
+<div class="leaf"><b class="k">REST</b> <code>api/.../abstracts/*</code> (+ <code>[id]/reviewers</code>, <code>[id]/submissions</code>) · <code>review-criteria</code> · <code>abstract-themes</code> · <code>reviewers/*</code> (+ resend-invitation) · <code>/api/my-reviews</code></div>
+<div class="leaf"><b class="k">Public</b> <code>e/[slug]/abstract/register</code> (submitter signup; <code>submitAbstract</code> is a legacy redirect)</div>
+<div class="leaf"><b class="k">MCP</b> <code>tools/abstracts.ts</code> — list / status / assign / unassign / submit_review / scores / criteria CRUD</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>services/abstract-service.ts</code> — <code>changeAbstractStatus</code> (tx-claimed, review-count gated) · <code>submitAbstractReview</code> (the ONE submission impl: auth matrix + COI + reviewable-status gates)</div>
+<div class="leaf"><code>lib/abstract-review.ts</code> (score aggregates) · <code>lib/abstract-notifications.ts</code> · <code>lib/abstract-presentation-types.ts</code> (per-event offering) · <code>lib/abstract-coauthors.ts</code></div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>Abstract</code> · <code>AbstractReviewer</code> (role + <code>conflictFlag</code> — <b>enforced</b>, blocks scoring) · <code>AbstractReviewSubmission</code> · <code>ReviewCriteria</code></div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">Submitters can edit only DRAFT (REVISION_REQUESTED self-edit is a known deferred item).</div>
+<div class="gotcha">Decision emails anonymize reviewers ("Reviewer N") — blind review; MEMBER gets the anonymized submissions view too.</div>
+<div class="gotcha">Body capped at 300 words; presentation type is mandatory to submit and per-event configurable.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_ABSTRACTS_REVIEWERS.html</code> (July 10) — 9 HIGHs shipped (H7 service extraction + H8/H9 blind-review closed July 13)</div>
+<div class="leaf"><b class="k">Deferred</b> ROADMAP §"Abstracts &amp; reviewers review" + §"Reviewer/submitter lifecycle audit"</div>
+</div></details>
+</div>
+</details>
+
+<!-- 5. PROGRAM -->
+<details class="domain">
+<summary><span class="num">5</span> Program / Agenda / Sessions <span class="chip ok">reviewed jul 10</span> <span class="chip ok">2 blockers + 5/5 highs shipped</span>
+<span class="oneliner">Tracks, sessions, topics, session-level roles, Zoom meetings per session, public agenda — all times in the event's timezone.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>agenda/</code> (dashboard) · session dialogs · <code>sponsors/</code> editor (session page renders sponsors)</div>
+<div class="leaf"><b class="k">REST</b> <code>api/.../sessions/*</code> (+ <code>[id]/zoom</code>, <code>/presence</code>) · <code>tracks</code> · <code>sponsors</code></div>
+<div class="leaf"><b class="k">Public</b> <code>e/[slug]/agenda</code> · <code>e/[slug]/session/[sessionId]</code> (tabs + Zoom embed / HLS) · <code>api/public/.../sessions/[id]/{detail, zoom-join, lobby-status, recording, stream-status, presence}</code></div>
+<div class="leaf"><b class="k">MCP</b> <code>tools/sessions.ts</code> — 8 tools, exposed to BOTH in-app agent and MCP (keep in sync)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>services/session-service.ts</code> — atomic lock-first update, roster replace in one tx</div>
+<div class="leaf"><code>lib/event-time.ts</code> — event-TZ validation + rendering, single source of truth · <code>lib/zoom/cleanup.ts</code> (the ONE remote-teardown path, never throws) · <code>lib/zoom/*</code> API clients</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>EventSession</code> · <code>SessionTopic</code> · <code>SessionSpeaker</code> (SessionRole enum) · <code>TopicSpeaker</code> · <code>Track</code> · <code>ZoomMeeting</code> (1:1 session)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">Session times validate in the <b>event's</b> timezone (<code>isSessionWithinEventDates</code>) — never server-local.</div>
+<div class="gotcha">Deleting the WEBINAR anchor session is refused (409 <code>WEBINAR_ANCHOR_SESSION</code>) — it would strand the webinar config.</div>
+<div class="gotcha"><code>zoom-visibility</code> strips host creds (startUrl / streamKey / passcode) for everyone below ORGANIZER — narrower than finance roles.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_PROGRAM_AGENDA.html</code> (July 10) — 2 BLOCKERs (Zoom host-cred + recording-passcode leaks) + 5 HIGHs all shipped</div>
+<div class="leaf"><b class="k">Deferred</b> ROADMAP §"Program / agenda / sessions review" (M1 provisionWebinar race, M6 retime no Zoom re-sync, M7/M8 TZ bucketing)</div>
+</div></details>
+</div>
+</details>
+
+<!-- 6. CHECK-IN -->
+<details class="domain">
+<summary><span class="num">6</span> Check-in + Badges <span class="chip ok">reviewed jul 11</span> <span class="chip ok">8/8 highs + door-day meds shipped</span>
+<span class="oneliner">The door: scanner page (camera + hardware), badge PDFs with Code128 barcodes, DTCM compliance barcodes, payment gate with audited override, undo.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>check-in/</code> scanner page · badge print from registrations list + detail sheet</div>
+<div class="leaf"><b class="k">REST</b> <code>check-in</code> POST / PUT / <b>DELETE (undo)</b> under registrations · badge routes · <code>import/barcodes</code> (DTCM CSV)</div>
+<div class="leaf"><b class="k">MCP</b> <code>check_in_registration</code> — same gate + audit as REST</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>lib/check-in.ts</code> — <code>checkInGate()</code> + <code>executeCheckIn()</code> (conditional claim, idempotent loser) + <code>undoCheckIn()</code> + <code>isPaymentAdmissible()</code> (badge = door parity; FAILED/REFUNDED admitted by owner decision)</div>
+<div class="leaf"><code>lib/barcode-visibility.ts</code> · <code>lib/concurrency.ts</code> (<code>mapWithConcurrency</code> — Print All capped at 8 in-flight, 2500/request)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>Registration.qrCode</code> (entry credential) · <code>.dtcmBarcode</code> · <code>.checkedInAt</code> · <code>badgeType</code></div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha"><b>NEVER "undo" a check-in by hand-flipping status</b> — leaves <code>checkedInAt</code> set → permanent ALREADY_CHECKED_IN. Use the DELETE/undo endpoint.</div>
+<div class="gotcha">ONSITE staff are per-event assigned (<code>settings.onsiteUserIds</code>) and 404 on other events' desk routes.</div>
+<div class="gotcha">Desk payment override = <code>{ overridePayment: true }</code> — covers ANY payment block, warn-logged + audited.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_CHECKIN_BADGES.html</code> (July 11) — all 8 HIGHs shipped in 3 phases; door-day MED batch closed M1–M6</div>
+<div class="leaf"><b class="k">Deferred</b> ROADMAP §"Check-in &amp; badges review" (remaining LOWs)</div>
+<div class="leaf"><b class="k">Docs</b> DTCM workflow in CLAUDE.md §Known gotchas + memory</div>
+</div></details>
+</div>
+</details>
+
+<!-- 7. COMMUNICATIONS -->
+<details class="domain">
+<summary><span class="num">7</span> Communications / Bulk-email <span class="chip ok">reviewed jul 11</span> <span class="chip ok">2/2 highs + anti-double-send shipped</span>
+<span class="oneliner">All outbound email — bulk sends with audience filters, scheduled sends, editable templates, per-event branding, workflow tiles.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>communications/</code> (tiles + audience cards) · <code>email-templates/</code> · shared <code>BulkEmailDialog</code> · scheduled-emails list</div>
+<div class="leaf"><b class="k">REST</b> <code>emails/bulk</code> (enqueue → 202 jobId) · <code>emails/schedule/*</code> · <code>email-templates/*</code> · <code>email-preview</code> · <code>email-logs</code></div>
+<div class="leaf"><b class="k">MCP</b> <code>tools/communications.ts</code> — <code>send_bulk_email</code> (routes through <code>executeBulkEmail</code> since July 13) · template CRUD · scheduled list/cancel</div>
+<div class="leaf"><b class="k">Worker</b> <code>scheduled-emails</code> (1 min — drains PENDING rows, heartbeats, conditional completion)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>lib/bulk-email.ts</code> — <code>executeBulkEmail</code>, THE one send pipeline: filters, per-recipient idempotency via <code>emailedKeys</code>, cert/agreement/survey attachments, <code>precheckBulkEmailViability</code>, <code>assertValidBulkEmailFilters</code> (bad filter = 400, never audience-widening)</div>
+<div class="leaf"><code>lib/scheduled-emails-worker.ts</code> · <code>lib/email.ts</code> (branding + SES + <code>EmailLog</code>) · <code>lib/email-template-slugs.ts</code></div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>ScheduledEmail</code> (+ <code>recipientIds</code>, <code>emailedKeys</code>) · <code>EmailTemplate</code> (per-event, <code>@@unique([eventId, slug])</code>) · <code>EmailLog</code> (+ <code>htmlBody</code> audit copy for cert sends)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">"Send now" = queued, delivered within ~60s (a job, not inline) — appears in the Scheduled Emails list.</div>
+<div class="gotcha">Re-runs resume via <code>emailedKeys</code> — a retry never re-emails the already-delivered portion.</div>
+<div class="gotcha">No explicit status filter ⇒ CANCELLED is auto-excluded for payment-reminder + certificate sends.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_COMMUNICATIONS.html</code> (July 11) — 2 HIGHs + anti-double-send batch shipped</div>
+<div class="leaf"><b class="k">Deferred</b> ROADMAP §"Communications / bulk-email review" (M4 preview org-collapse, M5 count-predicate triplication, LOWs)</div>
+<div class="leaf"><b class="k">Docs</b> <code>docs/SCHEDULED_EMAILS.md</code></div>
+</div></details>
+</div>
+</details>
+
+<!-- 8. ACCOMMODATION -->
+<details class="domain">
+<summary><span class="num">8</span> Accommodation <span class="chip info">hardened via audits</span>
+<span class="oneliner">Hotels, room types, bookings for registrations OR speakers, atomic overbooking guard, status flow PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>accommodation/</code> — hotels + bookings tabs, assign dialog</div>
+<div class="leaf"><b class="k">REST</b> <code>api/.../accommodations/*</code> · <code>hotels/*</code></div>
+<div class="leaf"><b class="k">MCP</b> <code>tools/accommodations.ts</code> — hotels / room-types / accommodations CRUD + status</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>services/accommodation-service.ts</code> — <code>createAccommodation()</code> with the atomic <code>bookedRooms &lt; totalRooms</code> updateMany guard; 11 error codes</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>Hotel</code> · <code>RoomType</code> (<code>bookedRooms</code> counter) · <code>Accommodation</code> (<code>registrationId</code> XOR <code>speakerId</code>, both <code>@unique</code>)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">Price auto-computed nights × <code>pricePerNight</code>; one accommodation per registration/speaker (unique FKs).</div>
+<div class="gotcha">MCP re-book is atomic — rollback on failure, no partial release.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> no standalone — hardened via the May 18 multi-agent audit + June 23 Round 2 (atomic guards) + Phase 1 service extraction</div>
+<div class="leaf"><b class="k">Deferred</b> none domain-specific open</div>
+</div></details>
+</div>
+</details>
+
+<!-- 9. CERTIFICATES -->
+<details class="domain">
+<summary><span class="num">9</span> Certificates <span class="chip ok">reviewed jul 13</span> <span class="chip ok">1 blocker + 5 highs + m1–m5 shipped</span>
+<span class="oneliner">PDF-overlay cert system — designer PDF + drag-drop text boxes, per-template covers, tag-driven manual Issue runs, survey-gated auto-issue, bundles, resend with preview.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>certificates/</code> (Templates / Issue / analytics tabs, canvas editor with undo) · per-person <code>IssuedCertificatesCard</code> on registration sheet + speaker page</div>
+<div class="leaf"><b class="k">REST</b> <code>api/.../certificates/*</code> (templates CRUD + duplicate, eligible, issue, issue-single, issued list / resend / resend-preview, settings, preview) · <code>upload/pdf</code></div>
+<div class="leaf"><b class="k">MCP</b> <code>tools/certificates.ts</code> — template CRUD + <code>update_cme_settings</code> (Issue flow deliberately NOT exposed)</div>
+<div class="leaf"><b class="k">Worker</b> <code>cert-issue</code> (every 3 min — auto-issue sweep + run state machine render → review → send)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic (all under <code>lib/certificates/</code>)</summary><div class="kids">
+<div class="leaf"><code>issue-worker.ts</code> — run lifecycle, <code>transitionRunStatus</code> conditional claims (never resurrects a cancelled run)</div>
+<div class="leaf"><code>auto-issue.ts</code> — survey sweep, backoff, tag routing (attendee tags → ATTENDANCE, speaker tags → APPRECIATION)</div>
+<div class="leaf"><code>render.ts</code> (pdf-lib overlay; placeholder THROWS on real issue paths) · <code>pdf-loader.ts</code> (<code>validateBackgroundPdfUrl</code> — the B1 SSRF/traversal guard) · <code>bulk-issue.ts</code> · <code>bundle.ts</code> (cover-email resolution) · <code>deliver.ts</code> (single/bundle issue + resend) · <code>eligibility.ts</code> ("no tag, no cert") · <code>email-tokens-resolver.ts</code></div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>CertificateTemplate</code> (role, cmeHours, autoIssueOnSurvey/Tag, cover email) · <code>IssuedCertificate</code> (per-template uniqueness, global serial) · <code>CertificateIssueRun</code> · <code>CertificateSerialCounter</code></div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">The TAG is the only issuance gate — check-in does NOT gate certificates; CANCELLED regs never receive one.</div>
+<div class="gotcha">A person can hold several role-specific certs (per-template uniqueness, not per-category).</div>
+<div class="gotcha">Auto-issue runs skip the AWAITING_REVIEW gate (no operator); a reg is swept ONCE — flag templates auto-issue BEFORE surveys go out.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_CERTIFICATES.html</code> (<b>July 13</b>) — 1 BLOCKER (backgroundPdfUrl file-read/SSRF exfil chain) + 5 HIGHs + M1–M5 all shipped same-day</div>
+<div class="leaf"><b class="k">Deferred</b> ROADMAP §"Certificates review — deferred findings" (M6 send-crash windows, M9 duplicate MCP tool, <code>@@unique([eventId,serial])</code>, L1–L7)</div>
+<div class="leaf"><b class="k">Docs</b> <code>docs/CERTIFICATES.md</code></div>
+</div></details>
+</div>
+</details>
+
+<!-- 10. SURVEY + RSVP -->
+<details class="domain noreview">
+<summary><span class="num">10</span> Survey + Dinner RSVP <span class="chip warn">rsvp not independently reviewed</span>
+<span class="oneliner">Post-event survey (per-registration token invites + reusable share link + builder) and dinner RSVP (per-dinner headcounts via one personalized token link).</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>survey/</code> builder (+ share-link card, preview) · <code>dinner/</code> console (dinners, invitees, headcount tiles, CSV, send/remind)</div>
+<div class="leaf"><b class="k">REST</b> <code>survey/*</code> · <code>survey/share-link</code> · <code>dinners/*</code> · <code>rsvp-invites/*</code> (+ <code>/send</code>)</div>
+<div class="leaf"><b class="k">Public</b> <code>e/[slug]/survey</code> (<code>?token=</code> / <code>?share=</code> / <code>?preview=1</code>) · <code>e/[slug]/rsvp/[token]</code></div>
+<div class="leaf"><b class="k">MCP</b> <code>list_dinner_rsvps</code> (<code>tools/dinner.ts</code>, read-only)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>lib/survey/share-link.ts</code> (timing-safe token) · <code>lib/rsvp/rsvp.ts</code> (tokens, schemas, headcounts)</div>
+<div class="leaf">Survey completion stamps <code>Registration.surveyCompletedAt</code> → <b>feeds cert auto-issue</b></div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>SurveyResponse</code> · <code>Event.surveyConfig</code> / <code>surveyShareLink</code> · <code>RsvpDinner</code> · <code>RsvpInvite</code> (unique token per person per event) · <code>RsvpDinnerResponse</code></div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">One response per registration; the share-link path resolves email → registration (event-scoped).</div>
+<div class="gotcha">Survey completion is the cert auto-issue trigger — a survey bug has certificate blast radius.</div>
+<div class="gotcha">No auto-reminder cron for RSVP by owner decision — "Remind pending" is manual.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> Dinner RSVP <b>NOT independently reviewed yet</b> (flagged in CLAUDE.md); survey share-link is unit-tested</div>
+<div class="leaf"><b class="k">Deferred</b> ROADMAP §"Dinner RSVP — backlog"</div>
+<div class="leaf"><b class="k">Docs</b> <code>docs/DINNER_RSVP.md</code></div>
+</div></details>
+</div>
+</details>
+
+<!-- 11. MEDIA -->
+<details class="domain">
+<summary><span class="num">11</span> Media Library <span class="chip info">upload class hardened in certs review</span>
+<span class="oneliner">Org-wide + per-event image store feeding email templates, banners, sponsor logos. Local filesystem storage, mirrored hourly to Singapore S3.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>media/</code> per-event page · org media via the Tiptap picker (<code>media-picker-dialog</code>)</div>
+<div class="leaf"><b class="k">REST</b> <code>/api/media</code> (org) · <code>api/events/[eventId]/media</code> (event-scoped)</div>
+<div class="leaf"><b class="k">MCP</b> <code>list_media</code></div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>lib/storage.ts</code> — <code>uploadMedia</code> / <code>deleteMedia</code>, <b>magic-byte validation</b>, 2MB cap, <code>STORAGE_PROVIDER</code> local/Supabase (prod = local)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>MediaFile</code> (optional <code>eventId</code>)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">Files under <code>public/uploads/</code> are served by the catch-all <code>app/uploads/[...path]/route.ts</code> — standalone output doesn't serve <code>public/</code> natively.</div>
+<div class="gotcha">Local storage ⇒ prod uploads don't exist in dev — "re-upload on prod" is the answer to a file 404.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Report</b> no standalone; the upload-hardening class (path traversal / cross-tenant upload) was closed in the certificates review (B1/H7 class)</div>
+</div></details>
+</div>
+</details>
+
+</div>
+</details>
+</div>
+
+<!-- ================= SUPPORTING ================= -->
+<div class="tree">
+<details class="group">
+<summary>Supporting domains — not in the active-11 but load-bearing</summary>
+<div class="kids">
+
+<details class="domain">
+<summary>Webinar / Zoom / Streaming
+<span class="oneliner">WEBINAR eventType auto-provisions anchor session + Zoom webinar + email sequence; producer-gated waiting room; post-event recording/attendance/engagement sync; MediaMTX HLS for broadcast-scale viewing.</span></summary>
+<div class="kids">
+<div class="leaf"><b class="k">Entry</b> <code>webinar/</code> console · <code>api/.../webinar/*</code> · public session page · 2 worker jobs (<code>webinar-recordings</code> 5m, <code>webinar-attendance</code> 10m)</div>
+<div class="leaf"><b class="k">Core</b> <code>lib/webinar*.ts</code> · <code>lib/zoom/*</code> · <code>components/zoom/zoom-web-embed.tsx</code> (CDN loader — React 19 workaround, see memory) · MediaMTX container for HLS</div>
+<div class="leaf"><b class="k">Docs</b> <code>docs/WEBINAR_EVENTS.md</code> · <code>docs/LIVE_STREAMING.md</code> · <code>docs/ZOOM_INTEGRATION.html</code></div>
+</div>
+</details>
+
+<details class="domain">
+<summary>Contacts (org CRM store)
+<span class="oneliner">Org-wide contact records auto-synced from every registrant/speaker/reviewer interaction. Enrich-only: the sync fills fields, never clears them.</span></summary>
+<div class="kids">
+<div class="leaf"><b class="k">Entry</b> contacts pages · <code>/api/contacts/*</code> · MCP <code>tools/contacts.ts</code> · worker <code>contacts-central-sync</code>/<code>-reconcile</code></div>
+<div class="leaf"><b class="k">Core</b> <code>lib/contact-sync.ts</code> (enrich-only) · <code>lib/email-change.ts</code> (email immutable via PUT; Contact PATCH is deliberately CRM-only, no cascade)</div>
+</div>
+</details>
+
+<details class="domain">
+<summary>Promo codes
+<span class="oneliner">Discount codes with usage caps, applied at public register or onto existing unpaid registrations (organizer + registrant self-service).</span></summary>
+<div class="kids">
+<div class="leaf"><b class="k">Entry</b> <code>promo-codes/</code> page · <code>api/.../promo-codes/*</code> · registration apply/remove routes · MCP CRUD (soft-delete via <code>isActive</code>)</div>
+<div class="leaf"><b class="k">Core</b> <code>services/promo-code-service.ts</code> — row-locked per-email cap, replace-not-stack, sentinel rollback; <code>usedCount</code> symmetric on cancel/reactivate</div>
+</div>
+</details>
+
+<details class="domain">
+<summary>Billing accounts (third-party payers)
+<span class="oneliner">"Charge to another account" — hospital/pharma pays for the doctor. Redirects the invoice bill-to only; orthogonal to paymentStatus by design.</span></summary>
+<div class="kids">
+<div class="leaf"><b class="k">Entry</b> Settings → Billing · <code>api/billing-accounts/*</code> · per-event junction (<code>EventBillingAccount</code>) · inline add from the registration form</div>
+<div class="leaf"><b class="k">Core</b> <code>services/billing-account-service.ts</code> (find-or-create, fuzzy-dup <code>needsReview</code> flag)</div>
+</div>
+</details>
+
+<details class="domain">
+<summary>MCP / AI-agent platform
+<span class="oneliner">~90 tools serving claude.ai (OAuth 2.1 + DCR), Claude Desktop, n8n (API keys), the in-app agent, and the read-only help chatbot.</span></summary>
+<div class="kids">
+<div class="leaf"><b class="k">Entry</b> <code>/api/mcp</code> (Streamable HTTP) · <code>/mcp-authorize</code> consent UI · in-app agent at <code>events/[id]/agent</code></div>
+<div class="leaf"><b class="k">Core</b> <code>lib/agent/*</code> (executors + <code>mcp-server-builder.ts</code>) · <code>lib/mcp-oauth.ts</code> · <code>lib/api-key.ts</code></div>
+<div class="leaf"><b class="k">Gotcha</b> clients cache the tool list — disconnect/reconnect after any tool-changing deploy; pkg version bump is the invalidation hint</div>
+<div class="leaf"><b class="k">Docs</b> <code>docs/MCP_REFERENCE.md</code> · <code>docs/MCP_OAUTH.html</code></div>
+</div>
+</details>
+
+<details class="domain">
+<summary>Identity / RBAC
+<span class="oneliner">8 roles across two tiers: org-bound team (ADMIN/ORGANIZER/MEMBER/ONSITE) and org-independent (REVIEWER/SUBMITTER/REGISTRANT). One person, many hats — facets stack; the single User.role is the only seam that collides.</span></summary>
+<div class="kids">
+<div class="leaf"><b class="k">Core</b> <code>lib/auth.ts</code> · <code>auth-guards.ts</code> · <code>event-access.ts</code> · <code>internal-domains.ts</code> (two trust tiers) · <code>email-verification.ts</code> · <code>src/proxy.ts</code> (middleware redirects)</div>
+<div class="leaf"><b class="k">Docs</b> full matrix in CLAUDE.md §RBAC · <code>docs/IDENTITY_AND_ROLES.md</code></div>
+</div>
+</details>
+
+<details class="domain">
+<summary>Infra / ops
+<span class="oneliner">Blue-green Docker on EC2 Mumbai (t3.large) + worker container + MediaMTX; Supabase Postgres; SES email; Singapore DR (S3 mirrors + pg_dump); nginx rate limits + fail2ban; CloudWatch + Sentry + /logs.</span></summary>
+<div class="kids">
+<div class="leaf"><b class="k">Deploy</b> <code>scripts/deploy.sh</code> (blue-green; NEVER raw <code>docker compose</code> on the box) · rollback = <code>IMAGE_TAG=&lt;sha&gt; bash scripts/deploy.sh</code></div>
+<div class="leaf"><b class="k">Docs</b> <code>docs/AWS_OPERATIONS.md</code> (master runbook) · <code>docs/ROLLBACK.md</code> · <code>docs/INCIDENTS.md</code> · <code>infra/dr/README.md</code> · <code>infra/cloudwatch/README.md</code></div>
+</div>
+</details>
+
+</div>
+</details>
+</div>
+
+<!-- ================= SCOREBOARD ================= -->
+<div class="tree">
+<details class="group" open>
+<summary>Review-status scoreboard (July 13, 2026)</summary>
+<div class="kids tbl-wrap">
+<table>
+<tr><th>Domain</th><th>Report</th><th>Blockers</th><th>Highs</th><th>Deferred M/L</th></tr>
+<tr><td>Registrations + speakers</td><td>July 10</td><td>0</td><td><span class="chip ok">9/9</span></td><td>ROADMAP ✅</td></tr>
+<tr><td>Payments / refunds / CNs</td><td>July 10</td><td><span class="chip ok">1/1</span></td><td><span class="chip ok">11/11</span></td><td>ROADMAP ✅</td></tr>
+<tr><td>Invoices / quotes</td><td>(inside payments)</td><td>—</td><td><span class="chip ok">H9/H10</span></td><td>✅</td></tr>
+<tr><td>Abstracts + reviewers</td><td>July 10</td><td>0</td><td><span class="chip ok">9/9</span></td><td>ROADMAP ✅</td></tr>
+<tr><td>Program / agenda / sessions</td><td>July 10</td><td><span class="chip ok">2/2</span></td><td><span class="chip ok">5/5</span></td><td>ROADMAP ✅</td></tr>
+<tr><td>Check-in + badges</td><td>July 11</td><td>0</td><td><span class="chip ok">8/8 + MED batch</span></td><td>ROADMAP ✅</td></tr>
+<tr><td>Communications / bulk-email</td><td>July 11</td><td>0</td><td><span class="chip ok">2/2 + anti-double-send</span></td><td>ROADMAP ✅</td></tr>
+<tr><td>Accommodation</td><td>(audits, no report)</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>Certificates</td><td><b>July 13</b></td><td><span class="chip ok">1/1</span></td><td><span class="chip ok">5/5 + M1–M5</span></td><td>ROADMAP ✅</td></tr>
+<tr><td>Survey + Dinner RSVP</td><td><span class="chip warn">none yet</span></td><td>—</td><td>—</td><td>RSVP review pending</td></tr>
+<tr><td>Media library</td><td>(inside certs review)</td><td>—</td><td>—</td><td>—</td></tr>
+</table>
+<div class="note warn" style="margin-top:1rem"><strong>The one domain with no independent review:</strong> Dinner RSVP (and the survey builder's newer share-link surface). If a review slot opens before the next conference, that's the candidate.</div>
+</div>
+</details>
+</div>
+
+<footer>
+  EA-SYS Domain Map · maintained in <code>docs/DOMAIN_MAP.html</code> · refresh the "Last updated" stamp after each domain review lands.<br>
+  Viewing note: inside <code>/admin/docs</code> the tree works via native <code>&lt;details&gt;</code> (no JS needed); the Expand/Collapse-all buttons appear only when opened in a full browser tab.
+</footer>
+
+</div>
+<script>
+  // Progressive enhancement only — the /admin/docs iframe blocks scripts, so the tree
+  // must (and does) work without this. In a real tab, reveal the bulk controls.
+  document.getElementById('controls').classList.add('js');
+</script>
+</body>
+</html>
