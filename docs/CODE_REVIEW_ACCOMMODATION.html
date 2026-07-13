@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — Accommodation &amp; Hotels (July 2026)</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+    --ok:#15803d; --bad:#b91c1c; --lesson-bg:#f5f3ff; --lesson-line:#c4b5fd;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:980px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.6rem 0}
+  pre code{background:none;padding:0}
+  pre.bad{border-left:4px solid var(--bad)}
+  pre.good{border-left:4px solid var(--ok)}
+  .tag{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin:.6rem 0 .1rem}
+  .tag.bad{color:var(--bad)} .tag.good{color:var(--ok)}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)}
+  .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.5rem 0}
+  .finding.high{border-left-color:var(--high)} .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .finding h3{margin-top:0;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .loc{color:var(--muted);font-size:.87rem;margin:.1rem 0 .8rem;font-family:ui-monospace,monospace}
+  .lbl{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.9rem 0 .2rem}
+  .lesson{background:var(--lesson-bg);border:1px solid var(--lesson-line);border-left:4px solid #8b5cf6;border-radius:6px;padding:.85rem 1.1rem;margin:1rem 0 .2rem}
+  .lesson .lbl{color:#6d28d9;margin-top:0}
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1.25rem 0}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+  ul,ol{padding-left:1.4rem} li{margin:.35rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf;--ok:#22c55e;--bad:#ef4444;
+      --lesson-bg:#1e1b31;--lesson-line:#4c3d7a}
+    .sev{color:#14171a}
+    .lesson .lbl{color:#c4b5fd}
+    .note{background:#0c2b3a;border-color:#1e4a5f}
+    .note.warn{background:#33290c;border-color:#66551a}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Accommodation &amp; Hotels</h1>
+  <p class="sub">
+    4-angle production review · July 13, 2026 · <strong>0 BLOCKER / 8 HIGH / 10 MED / 5 LOW</strong><br>
+    Angles: booking lifecycle &amp; correctness · RBAC &amp; info-exposure · concurrency &amp; counter integrity ·
+    drift / duplication / logging.<br>
+    Scope: <code>accommodation-service.ts</code>, <code>accommodation-rooms.ts</code>, the 6 REST route files
+    (accommodations + hotels + room types), the MCP tools, the dashboard page and the assign dialog.
+  </p>
+</header>
+
+<div class="note">
+  <strong>Written to be learned from.</strong> Every finding below has the same five parts: the <em>actual code</em>,
+  <em>why it's wrong</em>, a <em>concrete failure</em>, the <em>fix</em>, and a <em>lesson</em> box. Almost every bug in this
+  domain is one of <strong>three mistakes repeated</strong> — learn the three and you can find the rest yourself.
+</div>
+
+<h2>The three mistakes (read this first)</h2>
+
+<p>This domain has one job: keep <code>RoomType.bookedRooms</code> equal to the number of accommodations that
+actually hold a room. That's an <strong>invariant</strong> — a statement that must be true before and after every
+operation. Almost every HIGH finding is the same invariant broken a different way.</p>
+
+<h3>Mistake 1 — Deciding from a stale read ("check-then-act")</h3>
+<p>You read a row, make a decision in JavaScript, then write. Between the read and the write, <em>someone else
+changed the row</em>. Your decision was based on a fact that is no longer true.</p>
+<pre class="bad"><code>// ❌ check-then-act
+const acc = await db.accommodation.findFirst({ where: { id } });   // reads status = CONFIRMED
+if (acc.status !== "CANCELLED") {                                   // ...but another tab just cancelled it
+  await tx.roomType.update({ data: { bookedRooms: { decrement: 1 } } }); // releases a room already released
+}</code></pre>
+<pre class="good"><code>// ✅ decide INSIDE the write — let the database check the precondition
+const claimed = await tx.accommodation.updateMany({
+  where: { id, status: { not: "CANCELLED" } },   // the condition is part of the write
+  data:  { status: "CANCELLED" },
+});
+if (claimed.count === 0) return; // someone else got here first — do NOT touch the counter</code></pre>
+<p>The database evaluates <code>where</code> and applies <code>data</code> as a single atomic step. Nobody can
+sneak in between. <code>count === 0</code> is how you learn you lost the race.</p>
+
+<h3>Mistake 2 — Moving a counter without a floor</h3>
+<p>Every release in this domain is a bare <code>{ decrement: 1 }</code>. If a bug (or a race) releases twice,
+the counter goes <strong>negative</strong>. And negative is worse than wrong — <code>available = totalRooms − bookedRooms</code>
+now reports <em>more</em> rooms than exist, and the booking guard <code>bookedRooms &lt; totalRooms</code> happily
+admits them. A counting bug silently becomes <strong>physical overbooking</strong>.</p>
+<pre class="good"><code>// ✅ guarded release — can never go below zero (this codebase already does this for seats:
+//    see releaseSeat() in src/lib/registration-seat-db.ts)
+await tx.roomType.updateMany({
+  where: { id: roomTypeId, bookedRooms: { gt: 0 } },
+  data:  { bookedRooms: { decrement: 1 } },
+});</code></pre>
+
+<h3>Mistake 3 — Trusting an id from the URL</h3>
+<p>A URL like <code>/api/events/:eventId/hotels/:hotelId/rooms/:roomId</code> has <strong>three</strong> ids and the user
+controls all of them. Checking that <em>one</em> of them belongs to you is not enough — you must check the whole
+chain: <em>event belongs to my org → hotel belongs to that event → room belongs to that hotel.</em>
+Break any link and an attacker swaps in an id from someone else's data.</p>
+
+<div class="note warn">
+  <strong>Why this domain is worse than the others:</strong> the hotels/rooms routes predate the logging + IDOR
+  sweeps that were applied elsewhere. The <em>same directory</em> contains a route that gets the security check
+  right and one that doesn't — see H1. When you fix a class of bug, fix it in <em>every</em> file, not just the one
+  in the ticket.
+</div>
+
+<h2>HIGH</h2>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H1 — Cross-tenant IDOR: the hotel is never bound to the event</h3>
+  <p class="loc">src/app/api/events/[eventId]/hotels/[hotelId]/rooms/[roomId]/route.ts — GET :46, PUT :106, DELETE :208</p>
+
+  <p>All three handlers verify the <em>event</em> belongs to your org, then look up the room type like this:</p>
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>const event = await db.event.findFirst({
+  where: { id: eventId, organizationId: session.user.organizationId! },  // ✅ event is org-checked
+});
+if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+
+const roomType = await db.roomType.findFirst({
+  where: { id: roomId, hotelId },   // ❌ hotelId comes from the URL and is NEVER tied to `event`
+});</code></pre>
+
+  <p><strong>Why it's wrong:</strong> the chain is broken in the middle. We proved <em>your</em> event is yours, then
+  looked up a room using a <code>hotelId</code> nobody validated. The query happily matches a hotel belonging to a
+  completely different organization.</p>
+
+  <p>The proof that this is drift and not a decision: the <strong>sibling file in the same folder</strong> does it correctly.</p>
+  <span class="tag good">The correct pattern — already in the codebase, one file away</span>
+  <pre class="good"><code>// hotels/[hotelId]/rooms/route.ts  (the list/create route)
+const hotel = await db.hotel.findFirst({
+  where: { id: hotelId, eventId },   // ✅ hotel is bound to the event, which is bound to the org
+});
+if (!hotel) return NextResponse.json({ error: "Hotel not found" }, { status: 404 });</code></pre>
+
+  <p class="lbl">Failure scenario</p>
+  <p>An admin of org B calls <code>/api/events/{their-own-event}/hotels/{orgA-hotel}/rooms/{orgA-room}</code>.
+  The event check passes (it <em>is</em> their event). The room lookup matches org A's row.
+  <strong>GET</strong> dumps org A's room type <em>including every booking with the full registration and attendee</em> (guest
+  names, emails, entry barcodes). <strong>PUT</strong> lets them rewrite org A's prices and capacity.
+  <strong>DELETE</strong> removes the room type.</p>
+
+  <p class="lbl">Fix</p>
+  <pre class="good"><code>const roomType = await db.roomType.findFirst({
+  where: { id: roomId, hotel: { id: hotelId, eventId } },   // full chain in one query
+});</code></pre>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>Authorization is a chain, and it's only as strong as its weakest link.</strong> When a URL nests ids
+    (<code>/events/:a/hotels/:b/rooms/:c</code>), every id must be provably reachable from the one you authorized.
+    A useful habit: for each id in the route, ask out loud <em>"what stops the user from putting someone else's id
+    here?"</em> If the answer is "nothing", you have an IDOR (Insecure Direct Object Reference).</p>
+    <p>Also: this is rated HIGH, not BLOCKER, only because the platform runs a single organization today. The bug is
+    already written — it becomes exploitable the day a second org exists. <strong>Latent security bugs are still
+    security bugs;</strong> they're just waiting for a config change to go live.</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H2 — Entry barcodes leak through the booking endpoints</h3>
+  <p class="loc">accommodations/[accommodationId]/route.ts GET :41 &amp; PUT response :249 · hotels/[hotelId]/rooms/[roomId]/route.ts GET :53</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>const accommodation = await db.accommodation.findFirst({
+  where: { id: accommodationId, eventId },
+  include: {
+    registration: { include: { attendee: true, ticketType: true } },  // ❌ the ENTIRE Registration row
+    ...
+  },
+});
+return NextResponse.json(accommodation);   // ❌ no redaction of any kind</code></pre>
+
+  <p><strong>Why it's wrong:</strong> <code>include: { registration: true }</code> returns <em>every column</em> of that row —
+  including <code>qrCode</code> (the entry barcode) and <code>dtcmBarcode</code> (the Dubai compliance credential).
+  Those are <strong>physical-access credentials</strong>: whoever holds one can print a badge and walk through the door.</p>
+
+  <p>On July 11 we shipped <code>barcode-visibility.ts</code> precisely to stop this, and applied it to the registration
+  list + detail endpoints. <strong>MEMBER</strong> — a read-only, sponsor-side observer role — is deliberately
+  <em>excluded</em> from the roles allowed to see barcodes. But the accommodation endpoints were never updated, so they
+  hand the same credentials straight back.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>A MEMBER opens any booking's detail (or walks <code>rooms/[roomId]</code> once per room type) and harvests every
+  booked guest's entry barcode. The registrations page carefully strips these for them; the accommodation page gives
+  them away.</p>
+
+  <p class="lbl">Fix</p>
+  <pre class="good"><code>import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
+
+const payload = canViewEntryBarcode(session.user.role, isApiKey)
+  ? accommodation
+  : redactBarcodeFields(accommodation);
+return NextResponse.json(payload);</code></pre>
+  <p>Better still: stop using <code>include: { registration: true }</code> and <code>select</code> only the fields the booking
+  UI actually renders (name, email, ticket type).</p>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong><code>include</code> is a security decision, not a convenience.</strong> <code>include: { registration: true }</code>
+    means "ship every column of that table to the client, forever, including columns that don't exist yet." The safe
+    default is <code>select</code> — an explicit allow-list. When someone later adds a sensitive column (a barcode, a
+    password reset token, a salary), <code>select</code> keeps it private automatically; <code>include</code> leaks it
+    automatically.</p>
+    <p>Second lesson: <strong>when you build a protection, grep for every place it should apply.</strong> The barcode fix
+    was correct — it just wasn't applied everywhere the data flows. A protection with a hole is only as good as the
+    hole is small.</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H3 — One request, two corrupted counters (room change + cancel)</h3>
+  <p class="loc">accommodations/[accommodationId]/route.ts :188-222</p>
+
+  <p>The PUT handles a room-type change and a status change in the same transaction. Both touch
+  <code>bookedRooms</code>. They don't know about each other.</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>// A) room-type change — runs whenever roomTypeId differs. No status check!
+if (data.roomTypeId && data.roomTypeId !== existing.roomTypeId) {
+  await tx.roomType.update({                       // release the OLD type
+    where: { id: existing.roomTypeId },
+    data: { bookedRooms: { decrement: 1 } },
+  });
+  await tx.roomType.updateMany({ ... });           // claim the NEW type
+}
+
+// B) status change — always passed the OLD roomTypeId
+await applyRoomStatusTransition(tx, {
+  prevStatus: existing.status,
+  nextStatus: data.status ?? existing.status,
+  roomTypeId: existing.roomTypeId,                 // ❌ the OLD type, even though (A) just moved the booking
+});</code></pre>
+
+  <p><strong>Why it's wrong — two independent defects:</strong></p>
+  <ol>
+    <li><strong>Block (A) ignores status.</strong> A <code>CANCELLED</code> booking already gave its room back. Changing its
+      room type releases the old type <em>again</em> (a room it doesn't hold) and claims a new one (a room a cancelled
+      booking shouldn't have).</li>
+    <li><strong>Block (B) uses the stale room id.</strong> If you change the room type <em>and</em> cancel in one save,
+      (A) releases the old type and claims the new one, then (B) releases the <strong>old</strong> type a second time.</li>
+  </ol>
+
+  <p class="lbl">Failure scenario (no race needed — one click)</p>
+  <p>Operator opens a booking, picks a different room type, sets status to <em>Cancelled</em>, hits Save <strong>once</strong>.
+  Result: old room type <code>bookedRooms −2</code> (for a single room it held), new room type <code>+1</code> that
+  nothing will ever release. The old type now under-counts (→ oversell) and the new type over-counts (→ falsely
+  reports "no rooms available").</p>
+
+  <p class="lbl">Fix</p>
+  <p>Compute the counter movement <strong>once</strong>, from the (before → after) pair, instead of letting two blocks each
+  move it. That is exactly the shape of <code>planSeatTransition()</code> that already exists for registrations:</p>
+  <pre class="good"><code>// one function, one decision, one move
+const plan = planRoomTransition({
+  prev: { status: existing.status,          roomTypeId: existing.roomTypeId },
+  next: { status: data.status ?? existing.status,
+          roomTypeId: data.roomTypeId ?? existing.roomTypeId },
+});
+// plan = { release?: roomTypeId, claim?: roomTypeId }  — at most one of each
+if (plan.release) await releaseRoom(tx, plan.release);  // guarded, never below 0
+if (plan.claim)   await claimRoom(tx, plan.claim);      // atomic capacity guard</code></pre>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>Two pieces of code that both move the same counter will eventually disagree.</strong> The fix is not "add a
+    status check to block (A)" — that's patching a symptom and leaves the next edge case (room change + reinstate) to
+    be discovered in production. The fix is to make it <em>structurally impossible</em>: one function takes the whole
+    before-state and after-state, and returns the single net movement.</p>
+    <p>Notice the codebase already learned this lesson once — <code>planSeatTransition()</code> was written after
+    the exact same class of bug leaked ticket <code>soldCount</code>. <strong>When you fix a bug, look for its siblings.</strong></p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H4 — Deleting a guest silently loses their room forever</h3>
+  <p class="loc">prisma/schema.prisma :1390 · registrations/[registrationId]/route.ts :566 · speakers/[speakerId]/route.ts :423</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>// schema.prisma
+model Accommodation {
+  registration   Registration? @relation(..., onDelete: Cascade)   // ❌
+  speaker        Speaker?      @relation(..., onDelete: Cascade)   // ❌
+}</code></pre>
+  <p>The registration DELETE route carefully releases the ticket seat, releases the promo-code usage, and cleans up
+  the attendee. It says <strong>nothing</strong> about accommodation — because it doesn't have to: Postgres deletes the
+  booking row automatically via the cascade.</p>
+
+  <p><strong>Why it's wrong:</strong> the database can delete the <em>row</em>, but it has no idea a <em>counter</em> in another
+  table was tracking it. The booking vanishes; <code>bookedRooms</code> stays incremented. Forever.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>A room type has 10 rooms, all booked. An admin deletes one registrant (duplicate signup, test data, a
+  no-show being cleaned up). The <code>Accommodation</code> row disappears; <code>bookedRooms</code> stays at 10.
+  The room type now reports <strong>sold out with 9 real bookings and an empty room</strong>, and every future booking
+  attempt fails with <code>NO_ROOMS_AVAILABLE</code>. Repeat during event cleanup and the whole hotel block silently
+  jams. There is no recovery path except hand-written SQL — no reconciliation script exists for
+  <code>bookedRooms</code>.</p>
+
+  <p class="lbl">Fix</p>
+  <p>Two options, and the right answer is probably both:</p>
+  <ol>
+    <li>Release the room <em>explicitly</em> in the delete transaction (before the cascade fires), the same way the seat
+      and promo counters already are.</li>
+    <li>Write a <code>reconcile-bookedrooms.ts</code> script (dry-run by default, like
+      <code>reconcile-soldcounts.ts</code>) that recomputes every counter from row-truth, so drift that already
+      happened can be repaired.</li>
+  </ol>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong><code>onDelete: Cascade</code> deletes rows, not side effects.</strong> A cascade is invisible — it happens in
+    the database, so nothing in your TypeScript runs. Any counter, aggregate, external booking, or file on disk that
+    the deleted row was responsible for is silently orphaned.</p>
+    <p>Rule of thumb: <em>if a row's existence is counted somewhere else, it must not be cascade-deleted</em> — either
+    delete it explicitly in application code, or use <code>onDelete: Restrict</code> so the database forces you to deal
+    with it. Denormalized counters are fast, but you own their correctness by hand — the DB won't help you.</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H5 — Two cancels release two rooms (check-then-act on status)</h3>
+  <p class="loc">accommodations/[accommodationId]/route.ts :96-106 &amp; :218-244 · MCP tools/accommodations.ts :468</p>
+
+  <p>The route reads the booking <em>before</em> the transaction, and passes that snapshot's status into the counter
+  logic. Inside the transaction, the row is written with a bare <code>{ id }</code> predicate:</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>const existing = await db.accommodation.findFirst({ where: { id, eventId } }); // status: CONFIRMED
+
+await db.$transaction(async (tx) => {
+  await applyRoomStatusTransition(tx, {
+    prevStatus: existing.status,          // ❌ a snapshot from before the tx — may already be stale
+    nextStatus: data.status,
+    roomTypeId: existing.roomTypeId,
+  });
+  await tx.accommodation.updateMany({
+    where: { id: accommodationId,
+             ...(data.expectedUpdatedAt && { updatedAt: ... }) },  // ❌ the guard is OPTIONAL
+    data:  { status: data.status, ... },
+  });
+});</code></pre>
+
+  <p>There <em>is</em> an optimistic-lock token (<code>expectedUpdatedAt</code>) — but it's optional ("during rollout"),
+  and omitting it only logs a warning. With no token, the write has no precondition at all.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>Two browser tabs both show the booking as CONFIRMED. Both click Cancel. Both read
+  <code>prevStatus = CONFIRMED</code>, both take the "active → cancelled" branch, and <strong>both decrement
+  <code>bookedRooms</code></strong>. One booking, two rooms released. The mirror case (two reinstates) claims two rooms
+  for one booking. The June-29 atomic claim protects <em>capacity</em> — it does not protect <em>idempotency</em>.</p>
+
+  <p class="lbl">Fix</p>
+  <pre class="good"><code>// make the status itself the precondition — the DB decides who wins
+const claimed = await tx.accommodation.updateMany({
+  where: { id: accommodationId, status: existing.status },  // ✅ "only if it's still what I read"
+  data:  { status: nextStatus, ... },
+});
+if (claimed.count === 0) throw new Error("STALE_WRITE");    // someone beat us — counter untouched
+// only NOW move the counter</code></pre>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>An optional safety check is not a safety check.</strong> If a guard only works when the caller remembers to
+    pass a token, then every caller who forgets (or every attacker who omits it) bypasses it. Make the precondition
+    part of the write itself so it can't be skipped.</p>
+    <p>And note the ordering: <em>claim the row first, then move the counter.</em> If you move the counter first and the
+    row-claim then fails, you've already corrupted the count (the transaction rolls it back here — but only because
+    it's inside one; get that wrong and you leak).</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H6 — DELETE releases a room that was already released</h3>
+  <p class="loc">accommodations/[accommodationId]/route.ts :321-350</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>const accommodation = await db.accommodation.findFirst({ where: { id, eventId } }); // pre-tx read
+
+await db.$transaction(async (tx) => {
+  if (accommodation.status !== "CANCELLED") {          // ❌ decision from the stale snapshot
+    await tx.roomType.update({ data: { bookedRooms: { decrement: 1 } } });
+  }
+  await tx.accommodation.delete({ where: { id } });    // ❌ no status precondition
+});</code></pre>
+
+  <p class="lbl">Failure scenario</p>
+  <p>Tab A cancels the booking (room released, <code>bookedRooms −1</code>). Tab B — opened earlier, still showing
+  CONFIRMED — deletes it. B's snapshot says "not cancelled", so the transaction decrements <strong>again</strong>. One
+  held room, two releases. Combined with the missing floor (M1), the counter goes negative and the room type starts
+  advertising more rooms than the hotel has.</p>
+
+  <p class="lbl">Fix</p>
+  <pre class="good"><code>await db.$transaction(async (tx) => {
+  // delete conditionally on the status we believe, and learn whether we were right
+  const gone = await tx.accommodation.deleteMany({
+    where: { id, status: { not: "CANCELLED" } },
+  });
+  if (gone.count === 1) {
+    await releaseRoom(tx, accommodation.roomTypeId);   // guarded release
+  } else {
+    await tx.accommodation.deleteMany({ where: { id } }); // it was cancelled — delete, don't release
+  }
+});</code></pre>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p>Same lesson as H5, in a different costume — which is the point. <strong>"Read a row, branch on it, then write" is
+    a bug pattern, not a code pattern.</strong> Once you can see it, you'll spot it everywhere: it's the same shape as the
+    overbooking bug this domain already fixed, the same shape as the ticket-seat leak, and the same shape as the
+    double-send bug fixed in the email worker last week.</p>
+    <p>The generic cure has a name: make the write <em>conditional on the state you assumed</em>, and treat
+    <code>count === 0</code> as "my assumption was wrong — undo nothing, change nothing."</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H7 — ~30 failure paths log nothing</h3>
+  <p class="loc">all 6 route files · src/services/accommodation-service.ts :109-199</p>
+
+  <p>EA-SYS has a hard rule: <em>every failure path must log</em>. This domain predates the sweeps that enforced it
+  elsewhere. Verified silent returns include the business rejections that operators actually hit:</p>
+  <ul>
+    <li><code>"Cannot delete hotel with existing bookings"</code> (400) — <code>hotels/[hotelId]/route.ts:218</code></li>
+    <li><code>"Cannot delete room type with existing bookings"</code> (400) — <code>rooms/[roomId]/route.ts:225</code></li>
+    <li><code>"Total rooms cannot be less than booked rooms"</code> (400) — <code>rooms/[roomId]/route.ts:131</code></li>
+    <li><code>"No rooms available"</code> (400) and <code>"Event not found"</code> (404, the cross-org denial) — throughout</li>
+  </ul>
+  <p>Worse, the <strong>REST create path logs none of the service's ten rejection codes</strong> — the route maps
+  <code>result.code</code> to an HTTP status and returns, with no <code>apiLogger</code> call. The MCP twin of the same
+  operation <em>is</em> logged (<code>runTool</code> auto-warns on error results), so the same failure is visible when an
+  agent causes it and invisible when a human does.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>During a live event, room assignments start failing. Ops checks <code>/logs</code> and finds… nothing. Was it
+  sold out? A duplicate assignment? A cross-org 404? The exact signal you need is the one that was never written.
+  (An attacker probing hotel/room ids for the H1 IDOR is likewise invisible.)</p>
+
+  <p class="lbl">Fix</p>
+  <pre class="good"><code>if (!result.ok) {
+  apiLogger.warn({ msg: "accommodation:create-rejected", code: result.code,
+                   eventId, userId: session.user.id });
+  return NextResponse.json({ error: result.message, code: result.code },
+                           { status: HTTP_STATUS_FOR[result.code] });
+}</code></pre>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>A 4xx is a conversation with the user; a log line is a conversation with the person debugging at 2am.</strong>
+    Returning the right status code is <em>not</em> the same as handling the failure. If the only record of a rejection is
+    an HTTP response that has already been thrown away by the browser, then the failure effectively never happened —
+    and you will not be able to answer "why did this break?" the next morning.</p>
+    <p>Cheap rule: <em>every <code>return … status: 4xx</code> gets a <code>warn</code>; every <code>500</code> gets an
+    <code>error</code>.</em> It takes 10 seconds to write and saves hours.</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H8 — The UI silently swallows errors (the button just… does nothing)</h3>
+  <p class="loc">(dashboard)/events/[eventId]/accommodation/page.tsx :189, :219, :236</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>const res = await fetch(url, { method: "POST", body: ... });
+if (res.ok) {                       // ❌ no else
+  toast.success("Hotel saved");
+  refresh();
+}
+// a 400 / 403 / 500 falls off the end of the function. Nothing is shown. Nothing is logged.</code></pre>
+
+  <p class="lbl">Failure scenario</p>
+  <p>The operator clicks <em>Delete hotel</em> and confirms. The server correctly refuses with
+  <code>400 "Cannot delete hotel with existing bookings"</code> — a message that would have told them exactly what to do.
+  The UI shows <strong>nothing at all</strong>. The hotel simply doesn't disappear. The operator clicks again, then reports
+  "the delete button is broken."</p>
+  <p>Same in the assign-room dialog: a failed registrations fetch is mapped to <code>[]</code>
+  (<code>res.ok ? res.json() : []</code>), so the picker cheerfully says <em>"No registrations for this event yet"</em>
+  for an event with 800 registrants.</p>
+
+  <p class="lbl">Fix</p>
+  <pre class="good"><code>const res = await fetch(url, { method: "POST", body: ... });
+if (!res.ok) {
+  const data = await res.json().catch(() => ({}));
+  toast.error(data.error ?? "Failed to save hotel");   // show the server's actual reason
+  console.error("hotel-save-failed", res.status, data);
+  return;
+}
+toast.success("Hotel saved");
+refresh();</code></pre>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong><code>fetch()</code> does not throw on 400 or 500.</strong> This is the single most common misunderstanding in
+    frontend code. <code>await fetch()</code> resolves <em>successfully</em> for an HTTP error — only a network failure
+    rejects. So <code>try/catch</code> around a fetch catches almost nothing, and <code>if (res.ok) { … }</code> with no
+    <code>else</code> silently discards every server-side error.</p>
+    <p>The tell-tale symptom is a user saying <em>"the button does nothing"</em>. That sentence almost always means: the
+    server said no, and the frontend didn't listen. Note the same file handles this <em>correctly</em> in
+    <code>handleStatusUpdate</code> — so one developer knew, and the pattern didn't spread.</p>
+  </div>
+</div>
+
+<h2>MEDIUM</h2>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M1 — Every release is unguarded: the counter can go negative</h3>
+  <p class="loc">accommodation-rooms.ts :29 · accommodations/[accommodationId]/route.ts :200, :342</p>
+  <p>All three release sites use a bare <code>{ decrement: 1 }</code> with no <code>bookedRooms &gt; 0</code> floor —
+  unlike <code>releaseSeat()</code> in <code>registration-seat-db.ts</code>, which guards exactly this.
+  <strong>This is the amplifier</strong>: it's what turns every double-release above from "off by one" into
+  <code>bookedRooms = −1</code>, which makes <code>available</code> exceed <code>totalRooms</code> and lets the
+  <code>bookedRooms &lt; totalRooms</code> guard admit more bookings than there are rooms. Fix: guarded
+  <code>updateMany({ where: { id, bookedRooms: { gt: 0 } } })</code>.</p>
+  <div class="lesson">
+    <p class="lbl">💡 Lesson</p>
+    <p><strong>Clamp your invariants at the boundary.</strong> A counter that represents a physical quantity (rooms, seats,
+    stock) can never be negative in the real world, so it must never be negative in the database. Guarding the
+    decrement means a counting bug stays a <em>reporting</em> bug instead of escalating into a <em>double-booking</em> bug.</p>
+  </div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M2 — Guest count is validated on create, never on edit</h3>
+  <p class="loc">accommodations/[accommodationId]/route.ts :16</p>
+  <p><code>createAccommodation()</code> enforces <code>GUEST_COUNT_EXCEEDS_CAPACITY</code>. The PUT's Zod schema only
+  checks <code>min(1)</code> — so you can edit a booking to 6 guests in a 2-person double, or move a 4-guest booking
+  into a single-occupancy room. Price is recomputed; capacity is not re-checked. The hotel receives a rooming list
+  that doesn't fit in the rooms.</p>
+  <div class="lesson">
+    <p class="lbl">💡 Lesson</p>
+    <p><strong>An invariant enforced only at create is not an invariant.</strong> Rows don't stop existing after they're
+    created — they get edited. Every rule that makes a row valid must be re-checked on every path that can change it
+    (REST PUT, MCP, bulk import, admin script). Put the rule in one shared function and call it from all of them.</p>
+  </div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M3 — There is no status state machine on the server</h3>
+  <p class="loc">accommodations/[accommodationId]/route.ts :18 · tools/accommodations.ts :430</p>
+  <p>Both the REST enum and the MCP set accept <strong>any → any</strong> transition. Only the dashboard's buttons
+  constrain the flow, and buttons are not security. An agent told "mark all bookings checked out" can push a
+  <code>CANCELLED</code> booking to <code>CHECKED_OUT</code> — and because the applier sees "was cancelled, will be
+  active", it <em>re-claims a room</em> for a booking nobody is coming to. <code>CHECKED_OUT → PENDING</code> resurrects a
+  completed stay.</p>
+  <div class="lesson">
+    <p class="lbl">💡 Lesson</p>
+    <p><strong>If your status has arrows in the design doc, it needs a table in the code.</strong> A Zod enum validates that a
+    value is <em>a</em> status; it says nothing about whether it's a <em>legal next</em> status. Model the allowed transitions
+    explicitly (<code>const NEXT: Record&lt;Status, Status[]&gt;</code>) and reject the rest — otherwise the UI is your only
+    enforcement, and the API is a way around the UI.</p>
+  </div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M4 — Lowering <code>totalRooms</code> is check-then-act</h3>
+  <p class="loc">rooms/[roomId]/route.ts :106→:138 · MCP tools/accommodations.ts :243</p>
+  <p>Read <code>bookedRooms</code> (line 106), compare in JS (line 131), write unconditionally (line 138) — no
+  transaction, no predicate. Admin trims a block from 50 → 10 while bookings stream in; <code>bookedRooms</code> moves
+  8 → 12 in the gap. Committed state: <code>totalRooms = 10 &lt; bookedRooms = 12</code>. The invariant every capacity
+  guard depends on is now false, and the audit log shows a perfectly valid edit.
+  Fix: <code>updateMany({ where: { id, bookedRooms: { lte: newTotal } } })</code> and 409 on
+  <code>count === 0</code>.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M5 — A lost create race returns an opaque 500 instead of a clear 409</h3>
+  <p class="loc">accommodation-service.ts :174 (check) → :212 (create) → :260 (catch)</p>
+  <p>The "already has a room" check is a pre-transaction read, so two concurrent creates for the same person both
+  pass it. The <code>@unique</code> on <code>registrationId</code> correctly stops the loser (data stays clean, the
+  counter rolls back) — but the catch block doesn't recognise Prisma's <code>P2002</code>, so it falls through to
+  <code>code: "UNKNOWN"</code> with a raw <em>"Unique constraint failed…"</em> string. The caller can't tell
+  "already booked" from "server exploded", and the MCP auto-pivot hint never fires.
+  Fix: map <code>P2002</code> to <code>REGISTRATION_HAS_ACCOMMODATION</code> / <code>SPEAKER_HAS_ACCOMMODATION</code>.</p>
+  <div class="lesson">
+    <p class="lbl">💡 Lesson</p>
+    <p><strong>A unique constraint is a feature, not just a safety net — catch it and translate it.</strong> The DB is the only
+    thing that can truly enforce "one booking per guest" under concurrency, so let it. But a raw constraint error is a
+    leaky implementation detail; convert it into the domain error you'd have returned if the check had caught it. The
+    happy path and the race path should be indistinguishable to the caller.</p>
+  </div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M6 — Finance redaction applied to the list routes, not the detail routes</h3>
+  <p class="loc">accommodation detail GET/PUT · hotel detail GET · rooms list + detail GET</p>
+  <p>The list endpoints run <code>redactFinancialFields</code>; five sibling read paths return
+  <code>totalPrice</code> / <code>pricePerNight</code> / the registration's financial scalars unredacted. No live leak
+  today (every org-bound role is currently finance-capable) — but the boundary the list routes deliberately maintain
+  is already broken next door, and the day a non-finance org role ships, the list will look right while the detail
+  leaks.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M7 — Hotel/room CRUD <code>await</code>s the audit write with no catch</h3>
+  <p class="loc">hotels/[hotelId]/route.ts :147, :230 · rooms/route.ts :156 · rooms/[roomId]/route.ts :159, :237</p>
+  <p>A transient failure on the <em>audit log insert</em> — which happens <em>after</em> the hotel was already deleted —
+  returns <code>500 "Failed to delete hotel"</code> to a client whose hotel <strong>is</strong> deleted. The UI (which
+  swallows errors, see H8) then shows stale data and a retry 404s. The accommodation routes do this correctly
+  (fire-and-forget with a logged <code>.catch</code>); the hotels half of the same domain doesn't.</p>
+  <div class="lesson">
+    <p class="lbl">💡 Lesson</p>
+    <p><strong>Don't let a bookkeeping failure undo a completed operation.</strong> Ask of every <code>await</code> after the
+    main mutation: <em>"if this throws, is the user's request still done?"</em> If yes, it must not be able to turn a
+    success into a 500 — make it fire-and-forget with a logged catch.</p>
+  </div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M8 — Status enum is hardcoded in four places</h3>
+  <p class="loc">tools/accommodations.ts :8 &amp; :423 (two Sets in one file!) · REST PUT <code>z.enum([...])</code> vs list GET <code>z.nativeEnum()</code> · page.tsx <code>statusColors</code></p>
+  <p>Add a new <code>AccommodationStatus</code> (say <code>NO_SHOW</code>) and: the list GET accepts it, the PUT rejects
+  it as invalid, both MCP tools reject it, and the UI renders it with an undefined CSS class — with
+  <strong>no build error anywhere</strong>. Compare <code>registration-enums.ts</code>, where an exhaustive
+  <code>Record&lt;Status, …&gt;</code> makes TypeScript fail the build until every surface is updated.</p>
+  <div class="lesson">
+    <p class="lbl">💡 Lesson</p>
+    <p><strong>Derive from one source, and make the compiler your reviewer.</strong> <code>z.nativeEnum(PrismaEnum)</code> and an
+    exhaustive <code>Record&lt;PrismaEnum, T&gt;</code> cost the same to write as a hardcoded string list — but they turn
+    "someone will forget to update the other three places" from a production bug into a red squiggle.</p>
+  </div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M9 — MCP <code>create_hotel</code> writes no audit row</h3>
+  <p class="loc">tools/accommodations.ts :27</p>
+  <p>The REST hotel POST audits; the MCP twin doesn't (though its own sibling room-type tools all do). An agent-created
+  hotel is invisible in the audit trail — "where did this duplicate hotel with the wrong rates come from?" has no
+  answer. Same class as the session review's H4.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M10 — Assign dialog turns a failed fetch into an empty list</h3>
+  <p class="loc">components/accommodation/assign-accommodation-dialog.tsx :118</p>
+  <p><code>res.ok ? res.json() : []</code> — a 500 on the registrations fetch renders
+  <em>"No registrations for this event yet"</em> with no toast and no log. (Covered by H8's lesson;
+  listed separately because it's a different file and a different fix.)</p>
+</div>
+
+<h2>LOW</h2>
+<ul>
+  <li><strong>L1 — "at least one" assignee, not "exactly one".</strong> REST, MCP and the service all accept
+    <code>registrationId</code> <em>and</em> <code>speakerId</code> on the same booking, consuming two people's
+    one-room-each <code>@unique</code> slots with a single room; cancelling "A's booking" silently cancels B's.
+    The EITHER/OR domain model is never actually enforced. <em>Lesson: if the model says XOR, the validator must say
+    XOR — <code>.refine(d =&gt; !!d.a !== !!d.b)</code>, not <code>!!d.a || !!d.b</code>.</em></li>
+  <li><strong>L2 — no rate limit anywhere in the domain</strong> (hotels, room types, accommodations — all writes).
+    Every comparable authenticated write in the codebase has one (30/hr).</li>
+  <li><strong>L3 — room-type DELETE races its own guard.</strong> The <code>_count.accommodations &gt; 0</code> check is a
+    stale pre-read; a booking created in the window turns the intended 400 into a raw FK 500. Also a REST/MCP parity
+    gap: REST refuses, MCP soft-deletes.</li>
+  <li><strong>L4 — security-relevant rejections are unlogged</strong> (the cross-org 404, the not-found 404s), so
+    id-enumeration probing for H1 produces zero signal.</li>
+  <li><strong>L5 — copy-paste comments from other domains</strong> in the MCP file: <code>─── Media Executor ───</code>
+    above <code>listRoomTypes</code>, <code>─── A4: Invoice CREATE / SEND flow ───</code> above the accommodation tool
+    definitions. Harmless today; actively misleading to the next reader.</li>
+</ul>
+
+<h2>Suggested remediation order</h2>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Phase</th><th>Findings</th><th>Why this order</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>1 — Security</strong></td>
+      <td>H1 (IDOR chain) · H2 (barcode leak) · L4 (log the denials)</td>
+      <td>Smallest diff, highest severity, zero behaviour change for legitimate users. Ship first.</td>
+    </tr>
+    <tr>
+      <td><strong>2 — Counter integrity</strong></td>
+      <td>H3 · H5 · H6 · M1 · M4 — via one shared <code>planRoomTransition()</code> + guarded <code>releaseRoom()</code>/<code>claimRoom()</code></td>
+      <td>These are one bug family. Fixing them together (as a transition planner, like <code>planSeatTransition</code>) makes the whole class structurally impossible instead of patching five call sites.</td>
+    </tr>
+    <tr>
+      <td><strong>3 — Data repair + cascade</strong></td>
+      <td>H4 (explicit release on delete) + a dry-run <code>reconcile-bookedrooms.ts</code></td>
+      <td>Phase 2 stops <em>new</em> drift; this repairs drift that already happened and closes the cascade hole.</td>
+    </tr>
+    <tr>
+      <td><strong>4 — Visibility</strong></td>
+      <td>H7 (log every rejection) · H8 + M10 (surface errors in the UI) · M7 (audit fire-and-forget)</td>
+      <td>Makes the next incident debuggable — and stops the "button does nothing" support tickets.</td>
+    </tr>
+    <tr>
+      <td><strong>5 — Rules &amp; hygiene</strong></td>
+      <td>M2 (guest capacity on edit) · M3 (state machine) · M5 (P2002 mapping) · M6 · M8 · M9 · L1–L3, L5</td>
+      <td>Correctness polish; each independently shippable.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note">
+  <strong>What this domain got right</strong> (worth knowing, so the fixes don't regress it): both create callers genuinely
+  delegate to <code>accommodation-service</code> — no duplicated create logic; status transitions genuinely share
+  <code>applyRoomStatusTransition()</code> across REST and MCP; the create-path capacity claim <em>is</em> atomic
+  (June 23) and so is the MCP re-book (June 29); every write handler has <code>denyReviewer</code>; and every route
+  binds the event to the caller's org — which is why the IDOR in H1 needs a <em>second</em> id to exploit rather than
+  being wide open. The bones are good; the joints leak.
+</div>
+
+<footer>
+  Part of the EA-SYS domain production-review programme
+  (registrations/speakers · payments · abstracts · program/agenda · check-in/badges · communications ·
+  <strong>accommodation/hotels</strong>). Deferred findings are tracked in <code>docs/ROADMAP.md</code>.
+</footer>
+
+</div>
+</body>
+</html>
