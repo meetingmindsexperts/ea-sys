@@ -1,4 +1,4 @@
-import { PaymentStatus, Prisma, RegistrationStatus, SessionRole, SpeakerStatus } from "@prisma/client";
+import { AbstractStatus, PaymentStatus, Prisma, RegistrationStatus, SessionRole, SpeakerStatus } from "@prisma/client";
 import crypto from "crypto";
 import { z } from "zod";
 import { db } from "./db";
@@ -345,6 +345,7 @@ export const bulkEmailSchema = z.object({
 const speakerStatusSchema = z.nativeEnum(SpeakerStatus);
 const registrationStatusSchema = z.nativeEnum(RegistrationStatus);
 const paymentStatusSchema = z.nativeEnum(PaymentStatus);
+const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
 /**
  * Parse a `filters.paymentStatus` value into a list of valid PaymentStatus
@@ -352,6 +353,10 @@ const paymentStatusSchema = z.nativeEnum(PaymentStatus);
  * ("PAID,COMPLIMENTARY,INCLUSIVE", e.g. the Welcome-Paid tile). Whitespace is
  * trimmed and anything that isn't a real PaymentStatus (incl. "all") is
  * dropped — so an empty result means "no payment filter".
+ *
+ * NOTE: silent dropping is safe ONLY because `assertValidBulkEmailFilters`
+ * has already rejected any unknown value (review M7) — by the time this
+ * runs, the only droppable token is the "all" sentinel.
  */
 export function parsePaymentStatusFilter(value: string | undefined): PaymentStatus[] {
   return (value ?? "")
@@ -360,6 +365,66 @@ export function parsePaymentStatusFilter(value: string | undefined): PaymentStat
     .filter(Boolean)
     .map((v) => paymentStatusSchema.safeParse(v))
     .flatMap((r) => (r.success ? [r.data] : []));
+}
+
+/** Error code set on BulkEmailError for an unparsable filter value (review M7). */
+export const INVALID_FILTER_CODE = "INVALID_FILTER";
+
+/** The no-filter sentinel some UI surfaces pass through ("All …" dropdowns). */
+const isAllSentinel = (v: string) => v.trim().toLowerCase() === "all";
+
+/**
+ * Reject unparsable `filters.status` / `filters.paymentStatus` values instead
+ * of silently dropping them (review M7, July 13 2026).
+ *
+ * Before this, a typo'd value ("CONFIRMD", "COMPLIMENTRY") failed its
+ * safeParse, the predicate was silently omitted, and the send went to
+ * **everyone** — and a payment-reminder with a bad status filter re-admitted
+ * CANCELLED registrations. Unreachable from the dialog (valid enum values
+ * only) but fully reachable via MCP / the REST API / a future tile, and it
+ * violated the every-failure-logs rule.
+ *
+ * Pure + synchronous: called from `precheckBulkEmailViability`, so both the
+ * enqueue and schedule routes 400 immediately, and `executeBulkEmail` (via
+ * the precheck) fails a legacy persisted row loudly at fire time instead of
+ * over-sending. The "all" sentinel passes through as "no filter".
+ */
+export function assertValidBulkEmailFilters(
+  recipientType: string,
+  filters: BulkEmailFilters | undefined,
+): void {
+  if (!filters) return;
+
+  const invalid = (field: string, value: string, allowed: readonly string[]) => {
+    throw new BulkEmailError(
+      `Invalid ${field} filter value "${value}" — the send was rejected instead of silently widening the audience. Allowed: ${allowed.join(", ")}.`,
+      400,
+      INVALID_FILTER_CODE,
+    );
+  };
+
+  if (filters.status && !isAllSentinel(filters.status)) {
+    if (recipientType === "speakers" && !speakerStatusSchema.safeParse(filters.status).success) {
+      invalid("status", filters.status, Object.values(SpeakerStatus));
+    }
+    if (recipientType === "registrations" && !registrationStatusSchema.safeParse(filters.status).success) {
+      invalid("status", filters.status, Object.values(RegistrationStatus));
+    }
+    if (recipientType === "abstracts" && !abstractStatusSchema.safeParse(filters.status).success) {
+      invalid("status", filters.status, Object.values(AbstractStatus));
+    }
+  }
+
+  if (filters.paymentStatus) {
+    const tokens = filters.paymentStatus.split(",").map((s) => s.trim()).filter(Boolean);
+    for (const token of tokens) {
+      // ANY invalid token rejects — "PAID,COMPLIMENTRY" must not silently
+      // narrow to PAID any more than a fully-bad value may widen to everyone.
+      if (!isAllSentinel(token) && !paymentStatusSchema.safeParse(token).success) {
+        invalid("paymentStatus", token, Object.values(PaymentStatus));
+      }
+    }
+  }
 }
 
 // Max total attachment size: 10MB
@@ -459,6 +524,10 @@ export async function precheckBulkEmailViability(
   input: BulkEmailViabilityInput,
 ): Promise<BulkEmailViability> {
   const { eventId, recipientType, emailType, customSubject, customMessage, attachments, filters } = input;
+
+  // Unparsable status/paymentStatus values are rejected up-front (review M7)
+  // — dropping them silently widened the audience to everyone.
+  assertValidBulkEmailFilters(recipientType, filters);
 
   // Speaker-agreement bulk sends need either an uploaded .docx template OR
   // inline agreement HTML on the event — fail fast before resolving
@@ -678,11 +747,16 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       title: s.title,
     }));
   } else if (recipientType === "abstracts") {
+    // Validated by assertValidBulkEmailFilters (via the precheck) — the old
+    // unchecked `as never` cast let a bad value reach Prisma and abort the
+    // whole send with a cryptic throw. "all" parses false → no filter.
+    const parsedAbstractStatus = filters?.status ? abstractStatusSchema.safeParse(filters.status) : null;
+    const abstractStatus = parsedAbstractStatus?.success ? parsedAbstractStatus.data : undefined;
     const abstracts = await db.abstract.findMany({
       where: {
         eventId,
         ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
-        ...(filters?.status ? { status: filters.status as never } : {}),
+        ...(abstractStatus && { status: abstractStatus }),
       },
       select: {
         id: true,

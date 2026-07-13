@@ -7,7 +7,13 @@
  * ever written (by either the immediate or the schedule route).
  */
 import { describe, it, expect } from "vitest";
-import { bulkEmailSchema, parsePaymentStatusFilter } from "@/lib/bulk-email";
+import {
+  bulkEmailSchema,
+  parsePaymentStatusFilter,
+  assertValidBulkEmailFilters,
+  BulkEmailError,
+  INVALID_FILTER_CODE,
+} from "@/lib/bulk-email";
 
 const base = {
   recipientType: "registrations" as const,
@@ -142,5 +148,57 @@ describe("parsePaymentStatusFilter", () => {
     expect(parsePaymentStatusFilter(undefined)).toEqual([]);
     expect(parsePaymentStatusFilter("")).toEqual([]);
     expect(parsePaymentStatusFilter("all")).toEqual([]);
+  });
+});
+
+// ── assertValidBulkEmailFilters (review M7, July 13 2026) ────────────────────
+// A typo'd status/paymentStatus used to silently drop its predicate and send
+// to EVERYONE. Now it's rejected with INVALID_FILTER before anything sends.
+
+describe("assertValidBulkEmailFilters — reject, don't widen", () => {
+  const expectRejected = (recipientType: string, filters: Record<string, unknown>) => {
+    let thrown: unknown;
+    try {
+      assertValidBulkEmailFilters(recipientType, filters as never);
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(BulkEmailError);
+    expect((thrown as BulkEmailError).code).toBe(INVALID_FILTER_CODE);
+    expect((thrown as BulkEmailError).status).toBe(400);
+  };
+
+  it("rejects a typo'd registration status instead of sending to everyone", () => {
+    expectRejected("registrations", { status: "CONFIRMD" });
+  });
+
+  it("rejects a typo'd speaker status", () => {
+    expectRejected("speakers", { status: "CONFIRMD" });
+  });
+
+  it("rejects a bad abstract status (was an unchecked `as never` Prisma throw)", () => {
+    expectRejected("abstracts", { status: "ACCPETED" });
+  });
+
+  it("rejects ANY invalid paymentStatus token in a multi-value list", () => {
+    // "PAID,COMPLIMENTRY" must not silently narrow to PAID.
+    expectRejected("registrations", { paymentStatus: "PAID,COMPLIMENTRY" });
+    expectRejected("registrations", { paymentStatus: "PAYED" });
+  });
+
+  it("accepts valid values, the 'all' sentinel, and absent filters", () => {
+    expect(() => assertValidBulkEmailFilters("registrations", undefined)).not.toThrow();
+    expect(() => assertValidBulkEmailFilters("registrations", {})).not.toThrow();
+    expect(() => assertValidBulkEmailFilters("registrations", { status: "CONFIRMED" })).not.toThrow();
+    expect(() => assertValidBulkEmailFilters("registrations", { status: "all" })).not.toThrow();
+    expect(() =>
+      assertValidBulkEmailFilters("registrations", { paymentStatus: "PAID,COMPLIMENTARY,INCLUSIVE" }),
+    ).not.toThrow();
+    expect(() => assertValidBulkEmailFilters("speakers", { status: "CONFIRMED" })).not.toThrow();
+    expect(() => assertValidBulkEmailFilters("abstracts", { status: "ACCEPTED" })).not.toThrow();
+  });
+
+  it("does not validate status for reviewers (that path never filters on it)", () => {
+    expect(() => assertValidBulkEmailFilters("reviewers", { status: "whatever" })).not.toThrow();
   });
 });

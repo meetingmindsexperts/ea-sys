@@ -61,16 +61,23 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
     if (!abstract) return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
 
-    // Access matrix for reading reviewer feedback:
-    //   - org members (ADMIN/ORGANIZER) → full per-reviewer view
+    // Access matrix for reading reviewer feedback (tightened July 13 — review H9):
+    //   - org STAFF (ADMIN/SUPER_ADMIN/ORGANIZER) → full per-reviewer view
     //   - event-pool reviewers (REVIEWER role, org-independent) → full view
-    //   - the abstract's submitter → speaker-safe view: notes + overall
+    //   - the abstract's submitter → anonymized view: notes + overall
     //     aggregates only, no per-reviewer identity (the "Reviewer Feedback"
     //     card on /abstracts/[id]/edit is the one place a SUBMITTER sees this)
+    //   - other org-attached roles (MEMBER — read-only, documented as
+    //     sponsor-side stakeholders — and ONSITE) → the SAME anonymized view.
+    //     They used to get the full per-reviewer identities/notes/criteria via
+    //     the bare isOrgMember check, which broke blind review sideways.
     //   - everyone else → 403
     const reviewerUserIds = (event.settings as { reviewerUserIds?: string[] } | null)?.reviewerUserIds ?? [];
     const isEventReviewer = reviewerUserIds.includes(session.user.id);
     const isOrgMember = event.organizationId === session.user.organizationId;
+    const isOrgStaff =
+      isOrgMember &&
+      (session.user.role === "ADMIN" || session.user.role === "SUPER_ADMIN" || session.user.role === "ORGANIZER");
     const isAbstractSpeaker = abstract.speaker?.userId === session.user.id;
     if (!isOrgMember && !isEventReviewer && !isAbstractSpeaker) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -78,9 +85,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const aggregate = await computeSubmissionAggregates(abstractId);
 
-    // Speaker-only view: strip reviewer identity + per-criterion detail so the
-    // submitter sees consolidated feedback without learning who-said-what.
-    if (isAbstractSpeaker && !isOrgMember && !isEventReviewer) {
+    // Anonymized view (submitter + non-staff org roles): strip reviewer
+    // identity + per-criterion detail so the reader sees consolidated feedback
+    // without learning who-said-what.
+    if (!isOrgStaff && !isEventReviewer) {
       return NextResponse.json({
         submissions: aggregate.submissions.map((s) => ({
           id: s.id,

@@ -25,7 +25,7 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4" }));
 
-import { POST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/submissions/route";
+import { GET, POST } from "@/app/api/events/[eventId]/abstracts/[abstractId]/submissions/route";
 
 const params = Promise.resolve({ eventId: "ev1", abstractId: "ab1" });
 function makeReq(body: Record<string, unknown>) {
@@ -127,4 +127,70 @@ describe("abstract review — H5 empty payload + H6 reviewable status", () => {
       expect(mockDb.abstractReviewSubmission.upsert).toHaveBeenCalledTimes(1);
     },
   );
+});
+
+// ── H9b (July 13, 2026): the submissions GET view matrix ─────────────────────
+// The full per-reviewer view (identities + notes + per-criterion) is for org
+// STAFF (ADMIN/SUPER_ADMIN/ORGANIZER) and pool reviewers only. MEMBER — a
+// read-only, documented-as-sponsor-side role — used to receive it via the bare
+// org-membership check, breaking blind review sideways. MEMBER (and the
+// submitter) now get the anonymized shape.
+
+
+describe("submissions GET — per-reviewer visibility (H9b)", () => {
+  const getReq = new Request("http://localhost/sub");
+
+  beforeEach(() => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1", status: "UNDER_REVIEW", speaker: { userId: "speaker-user" } });
+    (mockDb as unknown as { abstractReviewSubmission: { findMany: ReturnType<typeof vi.fn> } }).abstractReviewSubmission.findMany = vi
+      .fn()
+      .mockResolvedValue([
+        {
+          id: "sub1", reviewerUserId: "rev1", overallScore: 80, reviewNotes: "Solid work",
+          recommendedFormat: "ORAL", confidence: 4, criteriaScores: { c1: 8 },
+          submittedAt: new Date(0), updatedAt: new Date(0),
+          reviewer: { firstName: "Alice", lastName: "Chen" },
+        },
+      ]);
+  });
+
+  it("MEMBER gets the ANONYMIZED view — no reviewer identity, no per-criterion", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "member1", role: "MEMBER", organizationId: "org1" } });
+    const res = await GET(getReq, { params });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(JSON.stringify(body)).not.toContain("Alice");
+    expect(body.submissions[0].reviewerName).toBeUndefined();
+    expect(body.submissions[0].reviewNotes).toBe("Solid work"); // feedback itself stays visible
+    expect(body.aggregates.perCriterion).toBeUndefined();
+  });
+
+  it("org ADMIN keeps the full per-reviewer view", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "admin1", role: "ADMIN", organizationId: "org1" } });
+    const res = await GET(getReq, { params });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(JSON.stringify(body)).toContain("Alice");
+  });
+
+  it("pool REVIEWER keeps the full view; unrelated outsider still 403s", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role: "REVIEWER", organizationId: null } });
+    const reviewerRes = await GET(getReq, { params });
+    expect(reviewerRes.status).toBe(200);
+    expect(JSON.stringify(await reviewerRes.json())).toContain("Alice");
+
+    mockAuth.mockResolvedValue({ user: { id: "stranger", role: "REVIEWER", organizationId: null } });
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", settings: { reviewerUserIds: ["u1"] }, reviewCriteria: [] });
+    const strangerRes = await GET(getReq, { params });
+    expect(strangerRes.status).toBe(403);
+  });
+
+  it("the abstract's submitter gets the anonymized view (unchanged contract)", async () => {
+    mockAuth.mockResolvedValue({ user: { id: "speaker-user", role: "SUBMITTER", organizationId: null } });
+    const res = await GET(getReq, { params });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(JSON.stringify(body)).not.toContain("Alice");
+    expect(body.submissions[0].reviewNotes).toBe("Solid work");
+  });
 });

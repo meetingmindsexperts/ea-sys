@@ -187,15 +187,21 @@ export async function computeSubmissionAggregates(
 
 /**
  * Collapse multiple reviewer notes into a single human-readable block for the
- * `{{reviewNotes}}` email template variable. Preserves attribution so the
- * speaker can see whose feedback is whose.
+ * `{{reviewNotes}}` email template variable — the AUTHOR-facing decision email.
+ *
+ * Attribution is deliberately ANONYMIZED (review H9, July 13 2026): this block
+ * lands in the speaker's inbox, and the submissions GET already strips reviewer
+ * identity from the author's view — naming each reviewer next to their notes
+ * here broke blind review in the one place it mattered most. Reviewers are
+ * numbered so multi-reviewer structure survives without identity; the full
+ * attributed view stays in the dashboard for ADMIN/ORGANIZER.
  */
 export function consolidateReviewNotes(submissions: SubmissionSummary[]): string | null {
   const withNotes = submissions.filter((s) => s.reviewNotes?.trim());
   if (!withNotes.length) return null;
   if (withNotes.length === 1) return withNotes[0].reviewNotes;
   return withNotes
-    .map((s) => `— ${s.reviewerName}:\n${s.reviewNotes}`)
+    .map((s, i) => `— Reviewer ${i + 1}:\n${s.reviewNotes}`)
     .join("\n\n");
 }
 

@@ -341,14 +341,17 @@ also closed M6.
   **speakers-page copy already omits the `sessionRole` filter** the backend applies — latent only because that
   surface doesn't yet pass `sessionRoleFilter` to the dialog. Fix: a shared `matchesBulkEmailFilters()` client
   helper so count == send can't drift.
-- **M7 — a bad filter value silently widens the audience, unlogged.** A typo'd `paymentStatus`/`status` parses
-  to empty ([bulk-email.ts](../src/lib/bulk-email.ts) `parsePaymentStatusFilter` / the abstracts `status as never`
-  cast) → no predicate → the send goes to **everyone** (and a reminder re-admits CANCELLED). Unreachable via the
-  current dialog (valid enum values only), reachable via MCP / API / a future tile. Violates the every-failure-logs
-  rule. Fix: reject/log an unparsable filter value instead of dropping it.
+- ~~**M7 — a bad filter value silently widens the audience, unlogged.**~~ ✅ **SHIPPED July 13, 2026** —
+  new `assertValidBulkEmailFilters()` ([bulk-email.ts](../src/lib/bulk-email.ts)) rejects any unparsable
+  `status` (per recipient type: Speaker/Registration/Abstract enums) or `paymentStatus` token (ANY invalid
+  token in a comma list rejects — "PAID,COMPLIMENTRY" must not silently narrow either) with a 400
+  `INVALID_FILTER` BulkEmailError; the "all" sentinel passes as no-filter. Called from
+  `precheckBulkEmailViability`, so the enqueue + schedule routes 400 synchronously AND a legacy persisted
+  row fails loudly (FAILED + admin notify) at fire time instead of over-sending. Also closed the LOW
+  abstracts `status as never` cast (now a validated safeParse — no more cryptic Prisma throw). +9 tests.
 - **LOWs:** unlogged post-auth rejection cluster (schedule lead-time 400 + several 404s — the silent-4xx class);
-  abstracts recipient path uses an unchecked `status as never` cast → cryptic Prisma throw aborts the whole send
-  (vs the reg/speaker `safeParse`); `presentationDetails` embeds session/topic/track names raw in agreement emails
+  ~~abstracts recipient path uses an unchecked `status as never` cast~~ (✅ closed with M7, July 13);
+  `presentationDetails` embeds session/topic/track names raw in agreement emails
   (same class as the `{{abstractTitle}}` fix, trusted today); `email-preview` has no rate limit; the legacy
   `/api/cron/scheduled-emails` route lacks the advisory-lock wrapper (safe today via the atomic per-row claim —
   informational); the advisory lock is a no-op under the pgbouncer transaction pooler (documented P3 — matters only
@@ -436,16 +439,17 @@ independently shippable (anchors in the HTML doc):
   with empty string (MCP keeps old), REST requires integer scores (executors accept floats). Fix:
   extract `submitAbstractReview()` into abstract-service; all three delegate (also closes the H3
   org-bind in one place instead of per-caller).
-- **H8 — MCP `assign_reviewer_to_abstract` silently drops `conflictFlag`**: the schema advertises it,
-  the executor never reads it, and COI has been an ENFORCEMENT input since June 26 — an admin telling
-  the agent "assign Dr X, flag the conflict" gets success with no flag, and the conflicted reviewer's
-  score counts. Also can't toggle COI on an existing assignment (REST can). CLAUDE.md's parity claim
-  is false.
-- **H9 + M7 — blind review is one-sided**: the status-change email names each reviewer next to their
-  notes (`consolidateReviewNotes` prefixes `— {name}:`) while the submissions GET deliberately strips
-  reviewer identity for authors; and MEMBER (read-only, sponsor-side per the docs) gets the full
-  per-reviewer view (identities/notes/per-criterion). Fix: strip attribution in the author email;
-  restrict the full view to ADMIN/ORGANIZER.
+- ~~**H8 — MCP `assign_reviewer_to_abstract` silently drops `conflictFlag`**~~ ✅ **SHIPPED July 13,
+  2026** — the executor now persists `conflictFlag` on create (default false) AND toggles it on the
+  idempotent upsert (REST parity: role and/or COI can change independently; a same-role+same-flag
+  re-call is a no-op reporting the current flag). Audited with `previousConflictFlag`; tool description
+  now states the flag is enforced. pkg 0.4.17→0.4.18 (MCP clients reconnect). +4 executor tests.
+- ~~**H9 + M7 — blind review is one-sided**~~ ✅ **SHIPPED July 13, 2026** — both halves: (a)
+  `consolidateReviewNotes` anonymizes attribution in the author decision email (`— Reviewer N:` instead
+  of names; single note stays bare); (b) the submissions GET's full per-reviewer view (identities /
+  notes / per-criterion) is restricted to org STAFF (ADMIN/SUPER_ADMIN/ORGANIZER) + pool reviewers —
+  MEMBER/ONSITE org-attached roles now receive the SAME anonymized shape the submitter gets (notes +
+  overall aggregates, no identities, no per-criterion). +7 tests (view matrix + note format pinned).
 - **M1 — decisions can rest on pre-revision reviews**: after REVISION_REQUESTED→resubmit the old
   submissions still satisfy the gate (no `submission.updatedAt` vs `abstract.submittedAt` check), and
   the portal's NEEDS_UPDATE keys on `submittedAt` so content-only edits don't flip it.

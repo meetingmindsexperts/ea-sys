@@ -336,27 +336,45 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
       return { error: `Abstract ${abstractId} is ${abstract.status.toLowerCase()} and can't have reviewers assigned.`, code: "NOT_REVIEWABLE" };
     }
 
-    // Upsert role on an existing assignment (parity with the REST route) so
-    // the agent can flip Primary↔Secondary without unassign+reassign.
+    // COI flag (review H8, July 13): the tool schema always advertised
+    // `conflictFlag` but the executor silently dropped it — an admin telling
+    // the agent "assign Dr X, flag the conflict" got success with NO flag,
+    // and since June 26 the flag is an ENFORCEMENT input (a conflicted
+    // reviewer is blocked from scoring), so the dropped flag let their score
+    // count. Now persisted on create AND toggleable on the upsert (REST parity).
+    const conflictFlag = input.conflictFlag === undefined ? undefined : input.conflictFlag === true;
+
+    // Upsert role/COI on an existing assignment (parity with the REST route) so
+    // the agent can flip Primary↔Secondary or toggle the conflict flag without
+    // unassign+reassign.
     const existing = await db.abstractReviewer.findUnique({
       where: { abstractId_userId: { abstractId, userId } },
-      select: { id: true, role: true },
+      select: { id: true, role: true, conflictFlag: true },
     });
     if (existing) {
-      if (existing.role === role) {
+      const roleChanged = input.role !== undefined && role !== existing.role;
+      const conflictChanged = conflictFlag !== undefined && conflictFlag !== existing.conflictFlag;
+      if (!roleChanged && !conflictChanged) {
         return {
           alreadyAssigned: true,
           existingAssignmentId: existing.id,
           currentRole: existing.role,
-          message: `${user.firstName} ${user.lastName} is already assigned to this abstract as ${existing.role}`,
+          conflictFlag: existing.conflictFlag,
+          message: `${user.firstName} ${user.lastName} is already assigned to this abstract as ${existing.role}${existing.conflictFlag ? " (conflict flagged)" : ""}`,
         };
       }
       const updated = await db.abstractReviewer.update({
         where: { abstractId_userId: { abstractId, userId } },
-        data: { role: role as never },
-        select: { id: true, role: true, assignedAt: true },
+        data: {
+          ...(roleChanged && { role: role as never }),
+          ...(conflictChanged && { conflictFlag }),
+        },
+        select: { id: true, role: true, conflictFlag: true, assignedAt: true },
       });
-      apiLogger.info({ abstractId, userId, role, previousRole: existing.role }, "abstract-reviewer:updated");
+      apiLogger.info(
+        { abstractId, userId, role: updated.role, previousRole: existing.role, conflictFlag: updated.conflictFlag },
+        "abstract-reviewer:updated",
+      );
       db.auditLog.create({
         data: {
           eventId: ctx.eventId,
@@ -364,7 +382,11 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
           action: "UPDATE",
           entityType: "AbstractReviewer",
           entityId: updated.id,
-          changes: { source: "mcp", abstractId, reviewerUserId: userId, role, previousRole: existing.role },
+          changes: {
+            source: "mcp", abstractId, reviewerUserId: userId,
+            role: updated.role, previousRole: existing.role,
+            conflictFlag: updated.conflictFlag, previousConflictFlag: existing.conflictFlag,
+          },
         },
       }).catch((err) => apiLogger.error({ err }, "agent:assign_reviewer_to_abstract audit-log-failed"));
       return {
@@ -383,11 +405,12 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
         userId,
         assignedById: ctx.userId,
         role: role as never,
+        conflictFlag: conflictFlag ?? false,
       },
-      select: { id: true, role: true, assignedAt: true },
+      select: { id: true, role: true, conflictFlag: true, assignedAt: true },
     });
 
-    apiLogger.info({ abstractId, userId, role }, "abstract-reviewer:assigned");
+    apiLogger.info({ abstractId, userId, role, conflictFlag: assignment.conflictFlag }, "abstract-reviewer:assigned");
 
     db.auditLog.create({
       data: {
@@ -396,7 +419,7 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
         action: "ASSIGN",
         entityType: "AbstractReviewer",
         entityId: assignment.id,
-        changes: { source: "mcp", abstractId, reviewerUserId: userId, role },
+        changes: { source: "mcp", abstractId, reviewerUserId: userId, role, conflictFlag: assignment.conflictFlag },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:assign_reviewer_to_abstract audit-log-failed"));
 
