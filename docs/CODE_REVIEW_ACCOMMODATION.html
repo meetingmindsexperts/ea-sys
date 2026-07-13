@@ -278,18 +278,34 @@ await applyRoomStatusTransition(tx, {
   nothing will ever release. The old type now under-counts (→ oversell) and the new type over-counts (→ falsely
   reports "no rooms available").</p>
 
-  <p class="lbl">Fix</p>
+  <p class="lbl">Fix — shipped in <code>71ce307</code></p>
   <p>Compute the counter movement <strong>once</strong>, from the (before → after) pair, instead of letting two blocks each
-  move it. That is exactly the shape of <code>planSeatTransition()</code> that already exists for registrations:</p>
-  <pre class="good"><code>// one function, one decision, one move
-const plan = planRoomTransition({
-  prev: { status: existing.status,          roomTypeId: existing.roomTypeId },
-  next: { status: data.status ?? existing.status,
-          roomTypeId: data.roomTypeId ?? existing.roomTypeId },
-});
-// plan = { release?: roomTypeId, claim?: roomTypeId }  — at most one of each
-if (plan.release) await releaseRoom(tx, plan.release);  // guarded, never below 0
-if (plan.claim)   await claimRoom(tx, plan.claim);      // atomic capacity guard</code></pre>
+  move it. That is exactly the shape of <code>planSeatTransition()</code> that already exists for ticket seats. The
+  whole thing is <em>seven lines of pure function</em> — no database, no transaction, trivially testable:</p>
+  <pre class="good"><code>// src/lib/accommodation-rooms.ts
+
+/** A booking holds a room iff it isn't cancelled. */
+export function holdsRoom(status: string): boolean {
+  return status !== "CANCELLED";
+}
+
+export function planRoomTransition(prev: RoomHolding, next: RoomHolding): RoomTransitionPlan {
+  const held   = holdsRoom(prev.status) ? prev.roomTypeId : null;   // what it HAS
+  const wanted = holdsRoom(next.status) ? next.roomTypeId : null;   // what it SHOULD have
+
+  if (held === wanted) return { release: null, claim: null };       // nothing to do
+  return { release: held, claim: wanted };                          // at most one of each
+}</code></pre>
+  <p>Read it as a sentence: <em>"what room does it hold now, what room should it hold after — move the difference."</em>
+  Every case falls out of that one rule, including the two that were broken:</p>
+  <pre class="good"><code>// cancelled booking, room A → B:  held=null, wanted=null  → { release: null, claim: null }  ✅ nothing
+// active A → cancelled + room B:  held=A,    wanted=null  → { release: A,    claim: null }  ✅ A released ONCE</code></pre>
+  <p>The route then just executes the plan inside its transaction:</p>
+  <pre class="good"><code>const plan = planRoomTransition(
+  { status: existing.status,                        roomTypeId: existing.roomTypeId },
+  { status: data.status ?? existing.status,         roomTypeId: newRoomTypeId },
+);
+await applyRoomTransition(tx, plan);   // release (guarded) then claim (atomic)</code></pre>
 
   <div class="lesson">
     <p class="lbl">💡 What a junior dev should learn</p>
@@ -751,6 +767,117 @@ refresh();</code></pre>
   (June 23) and so is the MCP re-book (June 29); every write handler has <code>denyReviewer</code>; and every route
   binds the event to the caller's org — which is why the IDOR in H1 needs a <em>second</em> id to exploit rather than
   being wide open. The bones are good; the joints leak.
+</div>
+
+<h2>Before → after: the primitives that shipped</h2>
+
+<p>Six one-line habits replaced six bug classes. This table <em>is</em> the review, compressed — if you remember nothing
+else, remember the right-hand column.</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Concern</th><th>❌ Before</th><th>✅ After</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Nested-id authorization</td>
+      <td><code>where: { id: roomId, hotelId }</code></td>
+      <td><code>where: { id: roomId, hotel: { id: hotelId, eventId } }</code><br><em>bind the whole chain</em></td>
+    </tr>
+    <tr>
+      <td>Sensitive columns</td>
+      <td><code>include: { registration: true }</code><br><em>ships every column, forever</em></td>
+      <td><code>select: { attendee: { select: { … } } }</code><br><em>an allow-list; new columns stay private</em></td>
+    </tr>
+    <tr>
+      <td>Deciding on a counter move</td>
+      <td>two blocks each moving <code>bookedRooms</code></td>
+      <td><code>planRoomTransition(prev, next)</code><br><em>one pure function, one net move</em></td>
+    </tr>
+    <tr>
+      <td>Acting on a read</td>
+      <td><code>if (row.status !== "X") { …write… }</code></td>
+      <td><code>updateMany({ where: { id, status: "X" }, … })</code><br><em>then check <code>count === 0</code></em></td>
+    </tr>
+    <tr>
+      <td>Releasing a counter</td>
+      <td><code>{ decrement: 1 }</code></td>
+      <td><code>updateMany({ where: { id, bookedRooms: { gt: 0 } }, … })</code><br><em>floored at zero</em></td>
+    </tr>
+    <tr>
+      <td>Cascade deletes</td>
+      <td><code>onDelete: Cascade</code> and hope</td>
+      <td><code>releaseRoomForDeletedPerson(tx, …)</code> before the delete<br><em>a cascade deletes rows, not side effects</em></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>The reviewer's checklist</h2>
+
+<p>These are the questions that would have caught all eight HIGHs. They're not specific to this codebase — take them
+to any code you review, including your own, before you open a PR.</p>
+
+<h3>When you see a database read followed by a write</h3>
+<ul>
+  <li><strong>"What happens if this row changes between the read and the write?"</strong> If the answer is anything worse
+    than "nothing", the condition belongs <em>inside</em> the write (<code>updateMany</code> + <code>count === 0</code>),
+    not in an <code>if</code>.</li>
+  <li><strong>"Am I deciding a side effect from a snapshot?"</strong> Moving a counter, sending an email, charging a card —
+    based on a status you read a moment ago — is the same bug in six costumes. (It's the same shape as the
+    double-send bug fixed in the email worker two days earlier, and the ticket-seat leak before that.)</li>
+</ul>
+
+<h3>When you see a nested route (<code>/a/:x/b/:y/c/:z</code>)</h3>
+<ul>
+  <li><strong>"For each id in this URL — what stops the user putting someone else's id here?"</strong> Ask it out loud, once
+    per id. If any answer is "nothing", you have an IDOR. Authorizing <em>one</em> link doesn't authorize the chain.</li>
+  <li><strong>"Does the sibling route do it the same way?"</strong> Two files in one folder disagreeing is the loudest
+    possible signal that one of them is wrong.</li>
+</ul>
+
+<h3>When you see <code>include:</code> in an ORM query</h3>
+<ul>
+  <li><strong>"Which columns does this actually ship to the client?"</strong> <code>include</code> means <em>all of them,
+    including ones that don't exist yet</em>. Default to <code>select</code>.</li>
+  <li><strong>"Would I be comfortable if this row gained a `password_reset_token` column tomorrow?"</strong> With
+    <code>include</code>, you just leaked it. With <code>select</code>, you didn't.</li>
+</ul>
+
+<h3>When you see a denormalized counter (<code>bookedRooms</code>, <code>soldCount</code>, <code>usedCount</code>…)</h3>
+<ul>
+  <li><strong>"List every path that creates or destroys the thing being counted."</strong> Then check each one moves the
+    counter. Cascades and bulk operations are where they hide.</li>
+  <li><strong>"Can this go negative?"</strong> If it represents a physical quantity, negative must be impossible — because
+    negative doesn't just report wrong, it <em>defeats the guard built on top of it</em>.</li>
+  <li><strong>"Is there a way to recompute it from truth?"</strong> If not, a single bug is permanent. Write the reconciler
+    <em>before</em> you need it — and have it reuse the same predicate the runtime uses, so the two can't disagree.</li>
+</ul>
+
+<h3>When you see <code>if (res.ok) { … }</code> in the frontend</h3>
+<ul>
+  <li><strong>"Where's the else?"</strong> <code>fetch()</code> does not throw on 400 or 500 — it resolves happily. No
+    <code>else</code> means every server-side error is discarded in silence.</li>
+  <li><strong>"If the server refuses, what does the user see?"</strong> If the honest answer is "nothing", you've built the
+    <em>"the button does nothing"</em> bug, and someone will file it as a ticket.</li>
+</ul>
+
+<h3>When you're about to fix a bug</h3>
+<ul>
+  <li><strong>"Am I patching the symptom or removing the class?"</strong> Adding a status check to the room-change block
+    would have fixed the reported bug and left <em>room-change + reinstate</em> waiting in production. The planner made
+    the whole class unrepresentable.</li>
+  <li><strong>"Where are this bug's siblings?"</strong> Every bug here had one: the same mistake in the MCP twin, in the
+    sibling route, in the other delete path. Fix the class in every file, not just the one in the ticket.</li>
+  <li><strong>"Has this codebase already solved this?"</strong> <code>planSeatTransition</code>, <code>releaseSeat</code> and
+    <code>barcode-visibility</code> all already existed. Four of the eight HIGHs were <em>solved problems that hadn't been
+    applied here.</em> Grep before you invent.</li>
+</ul>
+
+<div class="note warn">
+  <strong>The meta-lesson.</strong> Not one of these bugs came from a hard algorithm or an exotic edge case. They came from
+  ordinary code written slightly too quickly: a lookup missing one clause, an <code>include</code> instead of a
+  <code>select</code>, an <code>if</code> where a <code>where</code> belonged. That's what real production bugs look
+  like — and it's why the checklist above is worth more than any amount of cleverness.
 </div>
 
 <footer>

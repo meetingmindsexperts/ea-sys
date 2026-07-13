@@ -89,7 +89,7 @@
 
 <header>
   <h1>EA-SYS Domain Map</h1>
-  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post certificates-review remediation, pkg 0.4.20). Markdown-free, self-contained, dark-mode aware.</div>
+  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post accommodation-review remediation; certificates review, pkg 0.4.20). Markdown-free, self-contained, dark-mode aware.</div>
 </header>
 
 <div class="note">
@@ -384,8 +384,8 @@
 
 <!-- 8. ACCOMMODATION -->
 <details class="domain">
-<summary><span class="num">8</span> Accommodation <span class="chip info">hardened via audits</span>
-<span class="oneliner">Hotels, room types, bookings for registrations OR speakers, atomic overbooking guard, status flow PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT.</span></summary>
+<summary><span class="num">8</span> Accommodation <span class="chip ok">reviewed jul 13</span> <span class="chip ok">8/8 highs shipped</span>
+<span class="oneliner">Hotels, room types, bookings for registrations OR speakers, room-counter conservation, status flow PENDING → CONFIRMED → CHECKED_IN → CHECKED_OUT.</span></summary>
 <div class="kids">
 <details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
 <div class="leaf"><b class="k">UI</b> <code>accommodation/</code> — hotels + bookings tabs, assign dialog</div>
@@ -394,17 +394,22 @@
 </div></details>
 <details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
 <div class="leaf"><code>services/accommodation-service.ts</code> — <code>createAccommodation()</code> with the atomic <code>bookedRooms &lt; totalRooms</code> updateMany guard; 11 error codes</div>
+<div class="leaf"><code>lib/accommodation-rooms.ts</code> — <b>the room-counter model</b>: <code>holdsRoom()</code> · pure <code>planRoomTransition(prev,next)</code> (the ONE net move; makes double-counting unrepresentable) · guarded <code>releaseRoom()</code> · atomic <code>claimRoom()</code> · <code>releaseRoomForDeletedPerson()</code></div>
+<div class="leaf"><code>scripts/reconcile-bookedrooms.ts</code> — recompute counters from row-truth (dry-run default); reuses <code>holdsRoom()</code> so script + runtime can't disagree</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
 <div class="leaf"><code>Hotel</code> · <code>RoomType</code> (<code>bookedRooms</code> counter) · <code>Accommodation</code> (<code>registrationId</code> XOR <code>speakerId</code>, both <code>@unique</code>)</div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
-<div class="gotcha">Price auto-computed nights × <code>pricePerNight</code>; one accommodation per registration/speaker (unique FKs).</div>
-<div class="gotcha">MCP re-book is atomic — rollback on failure, no partial release.</div>
+<div class="gotcha"><b>THE INVARIANT:</b> <code>bookedRooms</code> == count of accommodations on that room type that aren't CANCELLED. Never move it by hand — go through <code>planRoomTransition()</code>. Two blocks each moving the counter is exactly the bug that shipped (H3).</div>
+<div class="gotcha"><b>Cascade hazard:</b> <code>Accommodation</code> <code>onDelete: Cascade</code>s from Registration AND Speaker. A DB cascade fires NO application code — any new person-delete path MUST call <code>releaseRoomForDeletedPerson()</code> inside its tx or the room is lost forever.</div>
+<div class="gotcha">Releases are floored (<code>bookedRooms &gt; 0</code>): negative would make <code>available</code> exceed <code>totalRooms</code> and turn a counting bug into physical overbooking.</div>
+<div class="gotcha">Price auto-computed nights × <code>pricePerNight</code>; one accommodation per registration/speaker (unique FKs — though the create refine is "at least one", not "exactly one" — LOW L1).</div>
+<div class="gotcha">Guest count is validated on CREATE only — the PUT never re-checks it against room capacity (deferred M2).</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
-<div class="leaf"><b class="k">Report</b> no standalone — hardened via the May 18 multi-agent audit + June 23 Round 2 (atomic guards) + Phase 1 service extraction</div>
-<div class="leaf"><b class="k">Deferred</b> none domain-specific open</div>
+<div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_ACCOMMODATION.html</code> (<b>July 13</b>) — 8 HIGHs / 10 MED / 5 LOW; all 8 HIGHs shipped in 3 phases (<code>7fcb256</code> IDOR + barcode leak · <code>71ce307</code> counter family · <code>ce7ae60</code> cascade + reconciler). Written as a <b>teaching doc</b> (per-finding "what a junior dev should learn" + a reviewer's checklist).</div>
+<div class="leaf"><b class="k">Deferred</b> ROADMAP §"Accommodation / hotels review" — H7 (~30 unlogged failure paths), H8/M10 (UI swallows <code>!res.ok</code> — "the button does nothing"), M2 (guest count on edit), M3 (no status state machine), M5–M9, LOWs</div>
 </div></details>
 </div>
 </details>
@@ -592,12 +597,12 @@
 <tr><td>Program / agenda / sessions</td><td>July 10</td><td><span class="chip ok">2/2</span></td><td><span class="chip ok">5/5</span></td><td>ROADMAP ✅</td></tr>
 <tr><td>Check-in + badges</td><td>July 11</td><td>0</td><td><span class="chip ok">8/8 + MED batch</span></td><td>ROADMAP ✅</td></tr>
 <tr><td>Communications / bulk-email</td><td>July 11</td><td>0</td><td><span class="chip ok">2/2 + anti-double-send</span></td><td>ROADMAP ✅</td></tr>
-<tr><td>Accommodation</td><td>(audits, no report)</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>Accommodation + hotels</td><td><b>July 13</b></td><td>0</td><td><span class="chip ok">8/8</span></td><td>ROADMAP ✅</td></tr>
 <tr><td>Certificates</td><td><b>July 13</b></td><td><span class="chip ok">1/1</span></td><td><span class="chip ok">5/5 + M1–M5</span></td><td>ROADMAP ✅</td></tr>
 <tr><td>Survey + Dinner RSVP</td><td><span class="chip warn">none yet</span></td><td>—</td><td>—</td><td>RSVP review pending</td></tr>
 <tr><td>Media library</td><td>(inside certs review)</td><td>—</td><td>—</td><td>—</td></tr>
 </table>
-<div class="note warn" style="margin-top:1rem"><strong>The one domain with no independent review:</strong> Dinner RSVP (and the survey builder's newer share-link surface). If a review slot opens before the next conference, that's the candidate.</div>
+<div class="note warn" style="margin-top:1rem"><strong>The one domain with no independent review:</strong> Dinner RSVP (and the survey builder's newer share-link surface) — the last un-reviewed surface now that accommodation has landed. If a review slot opens before the next conference, that's the candidate.</div>
 </div>
 </details>
 </div>
