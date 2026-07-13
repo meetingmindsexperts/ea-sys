@@ -254,9 +254,31 @@ const updateRoomType: ToolExecutor = async (input, ctx) => {
       return { error: "No fields provided to update", code: "NO_FIELDS" };
     }
 
-    const updated = await db.roomType.update({
-      where: { id: roomTypeId },
+    // (review M4) The `t < existing.bookedRooms` check above is check-then-act:
+    // a booking can atomically claim a room between that read and this write,
+    // committing totalRooms < bookedRooms. Make the condition part of the write.
+    const applied = await db.roomType.updateMany({
+      where: {
+        id: roomTypeId,
+        ...(updates.totalRooms !== undefined && {
+          bookedRooms: { lte: updates.totalRooms as number },
+        }),
+      },
       data: updates,
+    });
+    if (applied.count === 0) {
+      const fresh = await db.roomType.findUnique({
+        where: { id: roomTypeId },
+        select: { bookedRooms: true },
+      });
+      return {
+        error: `totalRooms (${updates.totalRooms}) cannot be less than bookedRooms (${fresh?.bookedRooms ?? "unknown"}) — a booking was made while updating. Re-read and retry.`,
+        code: "TOTAL_BELOW_BOOKED",
+      };
+    }
+
+    const updated = await db.roomType.findFirstOrThrow({
+      where: { id: roomTypeId },
       select: {
         id: true,
         name: true,
@@ -454,27 +476,37 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
     }
 
     const updated = await db.$transaction(async (tx) => {
-      // Room-counter accounting for the status transition (release-on-cancel /
-      // atomic reclaim-on-reactivate) — the SHARED applier, single source of
-      // truth with the REST accommodation status route.
-      await applyRoomStatusTransition(tx, {
-        prevStatus: existing.status,
-        nextStatus: status,
-        roomTypeId: existing.roomTypeId,
-      });
-
-      // Optimistic lock fires inside the tx so a stale-write rejection
-      // rolls back the room-counter delta we just applied.
+      // (review H5) Claim the row FIRST, conditional on the status we read.
+      // The counter move below is planned from `existing.status`, which was read
+      // BEFORE this transaction — if a concurrent cancel (another agent call, or
+      // the REST route) already moved it, that plan would release the same room
+      // twice. The status predicate makes the DB the arbiter; the loser touches
+      // no counter. `expectedUpdatedAt` is optional, so it cannot be the guard
+      // the counter depends on.
       const lockedUpdate = await tx.accommodation.updateMany({
         where: {
           id: accommodationId,
+          status: existing.status as never,
           ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
         },
         data: { status: status as never, updatedAt: new Date() },
       });
       if (lockedUpdate.count === 0) {
-        throw new Error(expectedUpdatedAt ? "STALE_WRITE" : "ACCOMMODATION_DISAPPEARED");
+        const stillThere = await tx.accommodation.findUnique({
+          where: { id: accommodationId },
+          select: { id: true },
+        });
+        throw new Error(stillThere ? "STALE_WRITE" : "ACCOMMODATION_DISAPPEARED");
       }
+
+      // Only now move the counter — the SHARED applier, single source of truth
+      // with the REST route (release-on-cancel / atomic reclaim-on-reactivate,
+      // with a guarded decrement that can never go below zero).
+      await applyRoomStatusTransition(tx, {
+        prevStatus: existing.status,
+        nextStatus: status,
+        roomTypeId: existing.roomTypeId,
+      });
 
       return tx.accommodation.findUniqueOrThrow({
         where: { id: accommodationId },

@@ -164,27 +164,73 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    // Ensure totalRooms is not less than bookedRooms
+    // Fast, friendly rejection for the common case (nobody is racing us).
     if (data.totalRooms !== undefined && data.totalRooms < existingRoomType.bookedRooms) {
+      apiLogger.warn({
+        msg: "room-type:total-below-booked",
+        eventId,
+        roomId,
+        requested: data.totalRooms,
+        bookedRooms: existingRoomType.bookedRooms,
+        userId: session.user.id,
+      });
       return NextResponse.json(
         { error: `Total rooms cannot be less than booked rooms (${existingRoomType.bookedRooms})` },
         { status: 400 }
       );
     }
 
-    const roomType = await db.roomType.update({
-      where: { id: roomId },
-      data: {
-        ...(data.name && { name: data.name }),
-        ...(data.description !== undefined && { description: data.description || null }),
-        ...(data.pricePerNight !== undefined && { pricePerNight: data.pricePerNight }),
-        ...(data.currency && { currency: data.currency }),
-        ...(data.capacity !== undefined && { capacity: data.capacity }),
-        ...(data.totalRooms !== undefined && { totalRooms: data.totalRooms }),
-        ...(data.amenities && { amenities: data.amenities }),
-        ...(data.images && { images: data.images }),
-        ...(data.isActive !== undefined && { isActive: data.isActive }),
+    const updateData = {
+      ...(data.name && { name: data.name }),
+      ...(data.description !== undefined && { description: data.description || null }),
+      ...(data.pricePerNight !== undefined && { pricePerNight: data.pricePerNight }),
+      ...(data.currency && { currency: data.currency }),
+      ...(data.capacity !== undefined && { capacity: data.capacity }),
+      ...(data.totalRooms !== undefined && { totalRooms: data.totalRooms }),
+      ...(data.amenities && { amenities: data.amenities }),
+      ...(data.images && { images: data.images }),
+      ...(data.isActive !== undefined && { isActive: data.isActive }),
+    };
+
+    // (review M4) The check above reads `bookedRooms`, compares in JS, then
+    // writes — classic check-then-act. Bookings claim rooms concurrently (via an
+    // atomic increment), so `bookedRooms` can grow between the read and the
+    // write, committing `totalRooms < bookedRooms` and breaking the very
+    // invariant every capacity guard depends on. Make the condition part of the
+    // write: only shrink the room type if the CURRENT bookedRooms still fits.
+    const applied = await db.roomType.updateMany({
+      where: {
+        id: roomId,
+        ...(data.totalRooms !== undefined && { bookedRooms: { lte: data.totalRooms } }),
       },
+      data: updateData,
+    });
+
+    if (applied.count === 0) {
+      // We lost the race: a booking landed between our check and our write.
+      const fresh = await db.roomType.findUnique({
+        where: { id: roomId },
+        select: { bookedRooms: true },
+      });
+      apiLogger.warn({
+        msg: "room-type:shrink-lost-race",
+        eventId,
+        roomId,
+        requested: data.totalRooms,
+        bookedRooms: fresh?.bookedRooms,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        {
+          error: `Total rooms cannot be less than booked rooms (${fresh?.bookedRooms ?? "unknown"}) — a booking was made while you were editing. Reload and try again.`,
+          code: "TOTAL_BELOW_BOOKED",
+        },
+        { status: 409 },
+      );
+    }
+
+    const roomType = await db.roomType.findFirstOrThrow({
+      where: { id: roomId },
       include: {
         _count: {
           select: { accommodations: true },

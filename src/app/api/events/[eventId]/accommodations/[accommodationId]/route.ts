@@ -6,7 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { optimisticLockField } from "@/lib/optimistic-lock";
-import { applyRoomStatusTransition } from "@/lib/accommodation-rooms";
+import { planRoomTransition, applyRoomTransition, releaseRoom } from "@/lib/accommodation-rooms";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
 
@@ -218,50 +218,21 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Atomic transaction: update accommodation + adjust room counts together
     const accommodation = await db.$transaction(async (tx) => {
-      // Handle room type change
-      if (data.roomTypeId && data.roomTypeId !== existingAccommodation.roomTypeId) {
-        // Bind the in-transaction re-read to this event (defense-in-depth — the
-        // pre-transaction validation above already rejects a foreign-event room
-        // type, but keeping the tx self-contained prevents a future refactor
-        // from reintroducing a cross-event/org write to bookedRooms).
-        const freshRoom = await tx.roomType.findFirst({
-          where: { id: data.roomTypeId, hotel: { eventId } },
-          select: { totalRooms: true },
-        });
-        if (!freshRoom) {
-          throw new Error("NO_ROOMS_AVAILABLE");
-        }
-        await tx.roomType.update({
-          where: { id: existingAccommodation.roomTypeId },
-          data: { bookedRooms: { decrement: 1 } },
-        });
-        // Atomic claim — the `bookedRooms < totalRooms` predicate is the guard
-        // (not the pre-read), so concurrent room-changes can't oversell.
-        const claimed = await tx.roomType.updateMany({
-          where: { id: data.roomTypeId, bookedRooms: { lt: freshRoom.totalRooms } },
-          data: { bookedRooms: { increment: 1 } },
-        });
-        if (claimed.count === 0) {
-          throw new Error("NO_ROOMS_AVAILABLE");
-        }
-      }
-
-      // Room-counter accounting for a status transition (release-on-cancel /
-      // atomic reclaim-on-reactivate) — the SHARED applier, single source of
-      // truth with the MCP update_accommodation_status tool.
-      await applyRoomStatusTransition(tx, {
-        prevStatus: existingAccommodation.status,
-        nextStatus: data.status ?? existingAccommodation.status,
-        roomTypeId: existingAccommodation.roomTypeId,
-      });
-
-      // Optimistic lock (W2-F8). If supplied, the conditional updateMany
-      // rejects stale writes — and because we're inside the transaction,
-      // the room-counter changes above roll back too. The sentinel-throw
-      // pattern matches the registration PUT route.
+      // ── Claim the row FIRST, conditional on the state we planned from ──
+      // (review H5) The counter plan below is derived from `existingAccommodation`,
+      // which was read BEFORE the transaction. If someone else changed the status
+      // in the meantime (a second tab cancelling, or MCP), that plan is garbage —
+      // applying it would release a room twice or claim one twice. So the write
+      // is conditional on the status still being what we read: the DB decides who
+      // wins, and the loser touches no counter at all.
+      //
+      // `expectedUpdatedAt` (the optimistic-lock token) is an ADDITIONAL guard,
+      // but it is optional — so it cannot be the thing that protects the counter.
+      // The status predicate is not optional.
       const lockedUpdate = await tx.accommodation.updateMany({
         where: {
           id: accommodationId,
+          status: existingAccommodation.status,
           ...(data.expectedUpdatedAt && { updatedAt: new Date(data.expectedUpdatedAt) }),
         },
         data: {
@@ -277,8 +248,26 @@ export async function PUT(req: Request, { params }: RouteParams) {
         },
       });
       if (lockedUpdate.count === 0) {
-        throw new Error(data.expectedUpdatedAt ? "STALE_WRITE" : "ACCOMMODATION_DISAPPEARED");
+        // Distinguish "gone" from "changed under us" so the caller gets the
+        // right status code (404 vs 409).
+        const stillThere = await tx.accommodation.findUnique({
+          where: { id: accommodationId },
+          select: { id: true },
+        });
+        throw new Error(stillThere ? "STALE_WRITE" : "ACCOMMODATION_DISAPPEARED");
       }
+
+      // ── Now move the counters, ONCE, from the whole before→after pair ──
+      // (review H3) There used to be two independent blocks here — one for a
+      // room-type change, one for a status change — and they double-counted:
+      // changing the room type AND cancelling in one request released the OLD
+      // room type twice. `planRoomTransition` computes the single net movement,
+      // so that class of bug is now structurally impossible.
+      const plan = planRoomTransition(
+        { status: existingAccommodation.status, roomTypeId: existingAccommodation.roomTypeId },
+        { status: data.status ?? existingAccommodation.status, roomTypeId: newRoomTypeId },
+      );
+      await applyRoomTransition(tx, plan);
 
       return tx.accommodation.findUniqueOrThrow({
         where: { id: accommodationId },
@@ -361,17 +350,31 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Accommodation not found" }, { status: 404 });
     }
 
-    // Atomic transaction: release room + delete accommodation
+    // Atomic transaction: release room + delete accommodation.
+    //
+    // (review H6) This used to decide whether to release from the PRE-transaction
+    // read — `if (accommodation.status !== "CANCELLED")`. If a concurrent cancel
+    // committed between that read and this transaction, the room had ALREADY been
+    // released and we released it a second time (one held room, two releases →
+    // with the old unguarded decrement, a negative counter).
+    //
+    // Now the DELETE itself carries the precondition: we delete the row *only if
+    // it still holds a room*, and release exactly when that delete matched. The
+    // database, not a stale snapshot, decides which branch we're in.
     await db.$transaction(async (tx) => {
-      if (accommodation.status !== "CANCELLED") {
-        await tx.roomType.update({
-          where: { id: accommodation.roomTypeId },
-          data: { bookedRooms: { decrement: 1 } },
-        });
-      }
-      await tx.accommodation.delete({
-        where: { id: accommodationId },
+      const deletedHolding = await tx.accommodation.deleteMany({
+        where: { id: accommodationId, status: { not: "CANCELLED" } },
       });
+
+      if (deletedHolding.count === 1) {
+        // We deleted a booking that was holding a room → release it (guarded).
+        await releaseRoom(tx, accommodation.roomTypeId);
+        return;
+      }
+
+      // Either it was already CANCELLED (holds no room — nothing to release) or
+      // it's already gone. Delete idempotently, touch no counter.
+      await tx.accommodation.deleteMany({ where: { id: accommodationId } });
     });
 
     // Non-blocking audit log

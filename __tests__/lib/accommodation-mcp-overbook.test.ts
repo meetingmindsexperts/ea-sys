@@ -9,7 +9,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb } = vi.hoisted(() => {
   const tx = {
     roomType: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn().mockResolvedValue({}) },
-    accommodation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUniqueOrThrow: vi.fn() },
+    accommodation: {
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      findUnique: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+    },
   };
   return {
     mockDb: {
@@ -52,10 +56,35 @@ describe("MCP update_accommodation_status — atomic re-book on reactivate", () 
     expect(mockDb._tx.roomType.update).not.toHaveBeenCalled();
   });
 
-  it("on a full room type, fails NO_ROOMS_AVAILABLE and does NOT change the booking status", async () => {
+  it("on a full room type, fails NO_ROOMS_AVAILABLE and the whole transaction rolls back", async () => {
     mockDb._tx.roomType.updateMany.mockResolvedValue({ count: 0 }); // full — predicate matched nothing
     const res = (await update({ accommodationId: "a1", status: "CONFIRMED" }, ctx)) as { error?: string };
     expect(res.error).toMatch(/no rooms available/i);
-    expect(mockDb._tx.accommodation.updateMany).not.toHaveBeenCalled(); // threw before the status write
+    // NOTE: the status write now happens BEFORE the counter claim (review H5 —
+    // the row must be claimed conditionally on its current status so a concurrent
+    // cancel can't make us double-move the counter). The booking's status is
+    // therefore still protected, but by the TRANSACTION rolling back rather than
+    // by ordering: the claim throws, so nothing here commits.
+    expect(mockDb.$transaction).toHaveBeenCalled();
+  });
+
+  it("claims the row conditionally on its current status (H5 — a concurrent cancel must lose)", async () => {
+    mockDb._tx.roomType.updateMany.mockResolvedValue({ count: 1 });
+    await update({ accommodationId: "a1", status: "CONFIRMED" }, ctx);
+    // The row write carries the status we planned the counter move from, so a
+    // racing writer that already changed it makes this match zero rows.
+    expect(mockDb._tx.accommodation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: "a1", status: "CANCELLED" }),
+      }),
+    );
+  });
+
+  it("a lost status race rejects as STALE_WRITE and never touches the counter", async () => {
+    mockDb._tx.accommodation.updateMany.mockResolvedValue({ count: 0 }); // someone changed it first
+    mockDb._tx.accommodation.findUnique.mockResolvedValue({ id: "a1" }); // row still exists
+    const res = (await update({ accommodationId: "a1", status: "CONFIRMED" }, ctx)) as { error?: string };
+    expect(res.error).toBeTruthy();
+    expect(mockDb._tx.roomType.updateMany).not.toHaveBeenCalled(); // counter untouched
   });
 });
