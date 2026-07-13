@@ -7,6 +7,55 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { applyRoomStatusTransition } from "@/lib/accommodation-rooms";
+import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
+
+/**
+ * H2: the booking payloads used to embed the FULL Registration row via
+ * `include: { registration: { include: { attendee: true } } }` — which carries
+ * `qrCode` + `dtcmBarcode` (physical-access credentials) and every financial
+ * scalar, with no redaction. That handed a MEMBER (read-only, sponsor-side —
+ * deliberately excluded from BARCODE_ROLES) every booked guest's door
+ * credential, straight past the July-11 barcode-visibility boundary.
+ *
+ * Fix = an explicit allow-list. `select` is the safe default: when a sensitive
+ * column is added to Registration later, `select` keeps it private by
+ * construction whereas `include` would leak it automatically.
+ */
+const BOOKING_PERSON_INCLUDE = {
+  registration: {
+    select: {
+      id: true,
+      serialId: true,
+      status: true,
+      attendee: {
+        select: { firstName: true, lastName: true, email: true, phone: true },
+      },
+      ticketType: { select: { id: true, name: true } },
+    },
+  },
+  speaker: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      title: true,
+      organization: true,
+    },
+  },
+  roomType: { include: { hotel: true } },
+} as const;
+
+/** Compose the two independent visibility boundaries (mirrors the registrations
+ *  list GET): barcodes are a door credential (MEMBER excluded), prices are
+ *  finance (MEMBER included). Defence-in-depth behind the select above. */
+function redactBooking<T>(value: T, role: string | null | undefined): T {
+  let out = value;
+  if (!canViewEntryBarcode(role)) out = redactBarcodeFields(out);
+  if (!canViewFinance(role)) out = redactFinancialFields(out);
+  return out;
+}
 
 const updateAccommodationSchema = z.object({
   ...optimisticLockField,
@@ -38,41 +87,21 @@ export async function GET(_req: Request, { params }: RouteParams) {
       }),
       db.accommodation.findFirst({
         where: { id: accommodationId, eventId },
-        include: {
-          registration: {
-            include: {
-              attendee: true,
-              ticketType: true,
-            },
-          },
-          speaker: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-              title: true,
-              organization: true,
-            },
-          },
-          roomType: {
-            include: {
-              hotel: true,
-            },
-          },
-        },
+        include: BOOKING_PERSON_INCLUDE,
       }),
     ]);
 
     if (!event) {
+      apiLogger.warn({ msg: "accommodation:event-not-found", eventId, accommodationId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     if (!accommodation) {
+      apiLogger.warn({ msg: "accommodation:not-found", eventId, accommodationId, userId: session.user.id });
       return NextResponse.json({ error: "Accommodation not found" }, { status: 404 });
     }
 
-    return NextResponse.json(accommodation);
+    return NextResponse.json(redactBooking(accommodation, session.user.role));
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching accommodation" });
     return NextResponse.json(
@@ -83,8 +112,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
 }
 
 export async function PUT(req: Request, { params }: RouteParams) {
+  // Hoisted so the catch below can name WHICH booking failed — the error paths
+  // used to log with no context at all (e.g. a bare "stale-write-rejected").
+  const { eventId, accommodationId } = await params;
   try {
-    const [{ eventId, accommodationId }, session] = await Promise.all([params, auth()]);
+    const session = await auth();
 
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -106,10 +138,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     ]);
 
     if (!event) {
+      apiLogger.warn({ msg: "accommodation:event-not-found", op: "update", eventId, accommodationId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     if (!existingAccommodation) {
+      apiLogger.warn({ msg: "accommodation:not-found", op: "update", eventId, accommodationId, userId: session.user.id });
       return NextResponse.json({ error: "Accommodation not found" }, { status: 404 });
     }
 
@@ -248,20 +282,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
       return tx.accommodation.findUniqueOrThrow({
         where: { id: accommodationId },
-        include: {
-          registration: { include: { attendee: true } },
-          speaker: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-              title: true,
-              organization: true,
-            },
-          },
-          roomType: { include: { hotel: true } },
-        },
+        include: BOOKING_PERSON_INCLUDE,
       });
     });
 
@@ -281,13 +302,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
       },
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log for accommodation update" }));
 
-    return NextResponse.json(accommodation);
+    return NextResponse.json(redactBooking(accommodation, session.user.role));
   } catch (error) {
     if (error instanceof Error && error.message === "NO_ROOMS_AVAILABLE") {
+      apiLogger.warn({ msg: "accommodation:no-rooms-available", eventId, accommodationId });
       return NextResponse.json({ error: "No rooms available" }, { status: 400 });
     }
     if (error instanceof Error && error.message === "STALE_WRITE") {
-      apiLogger.info({ msg: "accommodation:stale-write-rejected" });
+      apiLogger.warn({ msg: "accommodation:stale-write-rejected", eventId, accommodationId });
       return NextResponse.json(
         {
           error: "This booking was modified by someone else after you opened it. Reload the latest version and try again.",
@@ -297,9 +319,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
     if (error instanceof Error && error.message === "ACCOMMODATION_DISAPPEARED") {
+      apiLogger.warn({ msg: "accommodation:disappeared-mid-update", eventId, accommodationId });
       return NextResponse.json({ error: "Accommodation not found" }, { status: 404 });
     }
-    apiLogger.error({ err: error, msg: "Error updating accommodation" });
+    apiLogger.error({ err: error, msg: "Error updating accommodation", eventId, accommodationId });
     return NextResponse.json(
       { error: "Failed to update accommodation" },
       { status: 500 }
@@ -329,10 +352,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     ]);
 
     if (!event) {
+      apiLogger.warn({ msg: "accommodation:event-not-found", op: "delete", eventId, accommodationId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     if (!accommodation) {
+      apiLogger.warn({ msg: "accommodation:not-found", op: "delete", eventId, accommodationId, userId: session.user.id });
       return NextResponse.json({ error: "Accommodation not found" }, { status: 404 });
     }
 
