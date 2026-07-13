@@ -119,9 +119,45 @@ export async function runSurveyThankYouSweep(
   const now = opts.now ?? new Date();
   const windowStart = new Date(now.getTime() - SCAN_WINDOW_MS);
 
+  // ── Idempotency, applied IN THE QUERY (review H3) ──
+  //
+  // This used to fetch `take: 100` ordered `surveyCompletedAt: desc` and only
+  // THEN filter out already-thanked rows in memory. Once more than 100
+  // completions existed in the window, the batch was permanently occupied by the
+  // newest 100 — all of them already thanked after the first pass — so every
+  // subsequent tick did ZERO work while the older, un-thanked registrations sat
+  // below the slice, were never fetched again, and aged out of the window
+  // unprocessed. On a 400-completion conference roughly 300 people silently
+  // never received the thank-you (which is the vehicle carrying their
+  // certificate).
+  //
+  // Two changes make progress guaranteed:
+  //   1. exclude the already-thanked in the WHERE, so `take` only ever consumes
+  //      rows that still need work;
+  //   2. order OLDEST-first, so the queue drains FIFO and nobody starves.
+  //
+  // A SENT survey-thankyou EmailLog row is the "already thanked" marker. The
+  // window bounds the list (thanks land minutes after completion, and completions
+  // are themselves inside the window).
+  const thankedRows = await db.emailLog.findMany({
+    where: {
+      entityType: "REGISTRATION",
+      templateSlug: THANKYOU_SLUG,
+      status: "SENT",
+      createdAt: { gte: windowStart },
+    },
+    select: { entityId: true },
+  });
+  const thanked = new Set(
+    thankedRows.map((r) => r.entityId).filter((id): id is string => !!id),
+  );
+
   const candidates = await db.registration.findMany({
-    where: { surveyCompletedAt: { not: null, gte: windowStart } },
-    orderBy: { surveyCompletedAt: "desc" },
+    where: {
+      surveyCompletedAt: { not: null, gte: windowStart },
+      ...(thanked.size ? { id: { notIn: [...thanked] } } : {}),
+    },
+    orderBy: { surveyCompletedAt: "asc" },
     take: opts.batchSize ?? SWEEP_BATCH_SIZE,
     select: CANDIDATE_SELECT,
   });
@@ -135,18 +171,6 @@ export async function runSurveyThankYouSweep(
     skippedNoEmail: 0,
   };
   if (candidates.length === 0) return result;
-
-  // Idempotency: a SENT survey-thankyou EmailLog row means "already thanked".
-  const thankedRows = await db.emailLog.findMany({
-    where: {
-      entityType: "REGISTRATION",
-      entityId: { in: candidates.map((c) => c.id) },
-      templateSlug: THANKYOU_SLUG,
-      status: "SENT",
-    },
-    select: { entityId: true },
-  });
-  const thanked = new Set(thankedRows.map((r) => r.entityId));
 
   for (const reg of candidates) {
     if (thanked.has(reg.id)) continue;

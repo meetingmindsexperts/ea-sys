@@ -22,12 +22,37 @@ const listDinnerRsvps: ToolExecutor = async (input, ctx) => {
     });
     if (!event) return { error: "Event not found or access denied" };
 
-    const [dinners, invites] = await Promise.all([
+    // (review H4) The headcounts and the summary MUST be computed over EVERY
+    // invite — not over the truncated, status-filtered page.
+    //
+    // They used to share one query: `invites` was fetched with `take: limit`
+    // (default 200) AND the optional status filter, and that same array was fed
+    // to computeDinnerHeadcounts and to `summary.totalInvited`. Two ways the
+    // agent then handed the operator a confidently wrong number:
+    //   (1) 260 invitees → seats reported for only the oldest 200, so the
+    //       caterer is under-ordered by ~25%, with no truncation flag;
+    //   (2) status:"PENDING" → headcounts computed over people who by definition
+    //       have no responses → every dinner reports 0 attendees / 0 seats,
+    //       still presented as the authoritative headcount.
+    // The dashboard roster computes over ALL invites, so the two surfaces
+    // disagreed — and the agent is the one briefing the caterer.
+    //
+    // So: aggregate over the full set; paginate only the `invitees[]` we return.
+    const [dinners, allInvites, pagedInvites] = await Promise.all([
       db.rsvpDinner.findMany({
         where: { eventId: ctx.eventId },
         orderBy: [{ sortOrder: "asc" }, { dinnerAt: "asc" }],
         select: { id: true, name: true, dinnerAt: true, location: true },
       }),
+      // Aggregate set — no take, no status filter.
+      db.rsvpInvite.findMany({
+        where: { eventId: ctx.eventId },
+        select: {
+          status: true,
+          responses: { select: { dinnerId: true, attending: true, guestCount: true } },
+        },
+      }),
+      // Display set — paged + filtered as the caller asked.
       db.rsvpInvite.findMany({
         where: { eventId: ctx.eventId, ...(statusFilter ? { status: statusFilter as "PENDING" | "RESPONDED" } : {}) },
         orderBy: { createdAt: "asc" },
@@ -44,14 +69,15 @@ const listDinnerRsvps: ToolExecutor = async (input, ctx) => {
     ]);
 
     const dinnerName = new Map(dinners.map((d) => [d.id, d.name]));
-    const headcounts = computeDinnerHeadcounts(dinners, invites).map((h) => ({
+    const headcounts = computeDinnerHeadcounts(dinners, allInvites).map((h) => ({
       dinner: dinnerName.get(h.dinnerId) ?? h.dinnerId,
       attendees: h.attendees,
       guests: h.guests,
       totalSeats: h.total,
     }));
 
-    const responded = invites.filter((i) => i.status === "RESPONDED").length;
+    const responded = allInvites.filter((i) => i.status === "RESPONDED").length;
+    const invites = pagedInvites;
 
     return {
       event: event.name,
@@ -62,10 +88,15 @@ const listDinnerRsvps: ToolExecutor = async (input, ctx) => {
       })),
       headcountsByDinner: headcounts,
       summary: {
-        totalInvited: invites.length,
+        // Over the WHOLE event, never the page.
+        totalInvited: allInvites.length,
         responded,
-        pending: invites.length - responded,
+        pending: allInvites.length - responded,
       },
+      // So the agent can say "showing 200 of 260" instead of implying it has
+      // the full list.
+      inviteesTruncated: pagedInvites.length < allInvites.length && !statusFilter,
+      inviteesShown: pagedInvites.length,
       invitees: invites.map((i) => ({
         name: i.inviteeName,
         email: i.inviteeEmail,
