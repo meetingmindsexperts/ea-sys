@@ -75,6 +75,18 @@
   domain is one of <strong>three mistakes repeated</strong> — learn the three and you can find the rest yourself.
 </div>
 
+<div class="note warn">
+  <strong>Status — the security + counter-integrity batch is SHIPPED</strong> (July 13, 2026), in three gated phases:
+  <code>7fcb256</code> (H1 · H2 · L4), <code>71ce307</code> (H3 · H5 · H6 · M1 · M4),
+  <code>ce7ae60</code> (H4 + reconciler). Everything that leaked a credential or corrupted a counter is fixed.
+  The visibility findings (H7 logging, H8 UI swallowing errors) and the rules/hygiene MEDs are deferred to
+  <code>docs/ROADMAP.md</code>.
+  <br><br>
+  <strong>Prod dry-run of the reconciler found ZERO drift</strong> across all 6 room types — the counters are currently
+  clean because accommodation is lightly used so far. That is <em>why these bugs hadn't bitten yet</em>, not evidence
+  they were harmless: every one of them was reachable, and H3 needed no race at all.
+</div>
+
 <h2>The three mistakes (read this first)</h2>
 
 <p>This domain has one job: keep <code>RoomType.bookedRooms</code> equal to the number of accommodations that
@@ -126,7 +138,7 @@ Break any link and an attacker swaps in an id from someone else's data.</p>
 <h2>HIGH</h2>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> H1 — Cross-tenant IDOR: the hotel is never bound to the event</h3>
+  <h3><span class="sev high">High</span> H1 — Cross-tenant IDOR: the hotel is never bound to the event <span class="pill shipped">SHIPPED 7fcb256</span></h3>
   <p class="loc">src/app/api/events/[eventId]/hotels/[hotelId]/rooms/[roomId]/route.ts — GET :46, PUT :106, DELETE :208</p>
 
   <p>All three handlers verify the <em>event</em> belongs to your org, then look up the room type like this:</p>
@@ -177,7 +189,7 @@ if (!hotel) return NextResponse.json({ error: "Hotel not found" }, { status: 404
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> H2 — Entry barcodes leak through the booking endpoints</h3>
+  <h3><span class="sev high">High</span> H2 — Entry barcodes leak through the booking endpoints <span class="pill shipped">SHIPPED 7fcb256</span></h3>
   <p class="loc">accommodations/[accommodationId]/route.ts GET :41 &amp; PUT response :249 · hotels/[hotelId]/rooms/[roomId]/route.ts GET :53</p>
 
   <span class="tag bad">The bug</span>
@@ -228,7 +240,7 @@ return NextResponse.json(payload);</code></pre>
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> H3 — One request, two corrupted counters (room change + cancel)</h3>
+  <h3><span class="sev high">High</span> H3 — One request, two corrupted counters (room change + cancel) <span class="pill shipped">SHIPPED 71ce307</span></h3>
   <p class="loc">accommodations/[accommodationId]/route.ts :188-222</p>
 
   <p>The PUT handles a room-type change and a status change in the same transaction. Both touch
@@ -291,7 +303,7 @@ if (plan.claim)   await claimRoom(tx, plan.claim);      // atomic capacity guard
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> H4 — Deleting a guest silently loses their room forever</h3>
+  <h3><span class="sev high">High</span> H4 — Deleting a guest silently loses their room forever <span class="pill shipped">SHIPPED ce7ae60</span></h3>
   <p class="loc">prisma/schema.prisma :1390 · registrations/[registrationId]/route.ts :566 · speakers/[speakerId]/route.ts :423</p>
 
   <span class="tag bad">The bug</span>
@@ -337,7 +349,7 @@ model Accommodation {
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> H5 — Two cancels release two rooms (check-then-act on status)</h3>
+  <h3><span class="sev high">High</span> H5 — Two cancels release two rooms (check-then-act on status) <span class="pill shipped">SHIPPED 71ce307</span></h3>
   <p class="loc">accommodations/[accommodationId]/route.ts :96-106 &amp; :218-244 · MCP tools/accommodations.ts :468</p>
 
   <p>The route reads the booking <em>before</em> the transaction, and passes that snapshot's status into the counter
@@ -389,7 +401,7 @@ if (claimed.count === 0) throw new Error("STALE_WRITE");    // someone beat us �
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> H6 — DELETE releases a room that was already released</h3>
+  <h3><span class="sev high">High</span> H6 — DELETE releases a room that was already released <span class="pill shipped">SHIPPED 71ce307</span></h3>
   <p class="loc">accommodations/[accommodationId]/route.ts :321-350</p>
 
   <span class="tag bad">The bug</span>
@@ -433,7 +445,7 @@ await db.$transaction(async (tx) => {
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> H7 — ~30 failure paths log nothing</h3>
+  <h3><span class="sev high">High</span> H7 — ~30 failure paths log nothing <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">all 6 route files · src/services/accommodation-service.ts :109-199</p>
 
   <p>EA-SYS has a hard rule: <em>every failure path must log</em>. This domain predates the sweeps that enforced it
@@ -474,7 +486,7 @@ await db.$transaction(async (tx) => {
 </div>
 
 <div class="finding high">
-  <h3><span class="sev high">High</span> H8 — The UI silently swallows errors (the button just… does nothing)</h3>
+  <h3><span class="sev high">High</span> H8 — The UI silently swallows errors (the button just… does nothing) <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">(dashboard)/events/[eventId]/accommodation/page.tsx :189, :219, :236</p>
 
   <span class="tag bad">The bug</span>
@@ -520,7 +532,7 @@ refresh();</code></pre>
 <h2>MEDIUM</h2>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M1 — Every release is unguarded: the counter can go negative</h3>
+  <h3><span class="sev medium">Med</span> M1 — Every release is unguarded: the counter can go negative <span class="pill shipped">SHIPPED 71ce307</span></h3>
   <p class="loc">accommodation-rooms.ts :29 · accommodations/[accommodationId]/route.ts :200, :342</p>
   <p>All three release sites use a bare <code>{ decrement: 1 }</code> with no <code>bookedRooms &gt; 0</code> floor —
   unlike <code>releaseSeat()</code> in <code>registration-seat-db.ts</code>, which guards exactly this.
@@ -537,7 +549,7 @@ refresh();</code></pre>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M2 — Guest count is validated on create, never on edit</h3>
+  <h3><span class="sev medium">Med</span> M2 — Guest count is validated on create, never on edit <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">accommodations/[accommodationId]/route.ts :16</p>
   <p><code>createAccommodation()</code> enforces <code>GUEST_COUNT_EXCEEDS_CAPACITY</code>. The PUT's Zod schema only
   checks <code>min(1)</code> — so you can edit a booking to 6 guests in a 2-person double, or move a 4-guest booking
@@ -552,7 +564,7 @@ refresh();</code></pre>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M3 — There is no status state machine on the server</h3>
+  <h3><span class="sev medium">Med</span> M3 — There is no status state machine on the server <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">accommodations/[accommodationId]/route.ts :18 · tools/accommodations.ts :430</p>
   <p>Both the REST enum and the MCP set accept <strong>any → any</strong> transition. Only the dashboard's buttons
   constrain the flow, and buttons are not security. An agent told "mark all bookings checked out" can push a
@@ -569,7 +581,7 @@ refresh();</code></pre>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M4 — Lowering <code>totalRooms</code> is check-then-act</h3>
+  <h3><span class="sev medium">Med</span> M4 — Lowering <code>totalRooms</code> is check-then-act <span class="pill shipped">SHIPPED 71ce307</span></h3>
   <p class="loc">rooms/[roomId]/route.ts :106→:138 · MCP tools/accommodations.ts :243</p>
   <p>Read <code>bookedRooms</code> (line 106), compare in JS (line 131), write unconditionally (line 138) — no
   transaction, no predicate. Admin trims a block from 50 → 10 while bookings stream in; <code>bookedRooms</code> moves
@@ -580,7 +592,7 @@ refresh();</code></pre>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M5 — A lost create race returns an opaque 500 instead of a clear 409</h3>
+  <h3><span class="sev medium">Med</span> M5 — A lost create race returns an opaque 500 instead of a clear 409 <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">accommodation-service.ts :174 (check) → :212 (create) → :260 (catch)</p>
   <p>The "already has a room" check is a pre-transaction read, so two concurrent creates for the same person both
   pass it. The <code>@unique</code> on <code>registrationId</code> correctly stops the loser (data stays clean, the
@@ -598,7 +610,7 @@ refresh();</code></pre>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M6 — Finance redaction applied to the list routes, not the detail routes</h3>
+  <h3><span class="sev medium">Med</span> M6 — Finance redaction applied to the list routes, not the detail routes <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">accommodation detail GET/PUT · hotel detail GET · rooms list + detail GET</p>
   <p>The list endpoints run <code>redactFinancialFields</code>; five sibling read paths return
   <code>totalPrice</code> / <code>pricePerNight</code> / the registration's financial scalars unredacted. No live leak
@@ -608,7 +620,7 @@ refresh();</code></pre>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M7 — Hotel/room CRUD <code>await</code>s the audit write with no catch</h3>
+  <h3><span class="sev medium">Med</span> M7 — Hotel/room CRUD <code>await</code>s the audit write with no catch <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">hotels/[hotelId]/route.ts :147, :230 · rooms/route.ts :156 · rooms/[roomId]/route.ts :159, :237</p>
   <p>A transient failure on the <em>audit log insert</em> — which happens <em>after</em> the hotel was already deleted —
   returns <code>500 "Failed to delete hotel"</code> to a client whose hotel <strong>is</strong> deleted. The UI (which
@@ -623,7 +635,7 @@ refresh();</code></pre>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M8 — Status enum is hardcoded in four places</h3>
+  <h3><span class="sev medium">Med</span> M8 — Status enum is hardcoded in four places <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">tools/accommodations.ts :8 &amp; :423 (two Sets in one file!) · REST PUT <code>z.enum([...])</code> vs list GET <code>z.nativeEnum()</code> · page.tsx <code>statusColors</code></p>
   <p>Add a new <code>AccommodationStatus</code> (say <code>NO_SHOW</code>) and: the list GET accepts it, the PUT rejects
   it as invalid, both MCP tools reject it, and the UI renders it with an undefined CSS class — with
@@ -638,7 +650,7 @@ refresh();</code></pre>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M9 — MCP <code>create_hotel</code> writes no audit row</h3>
+  <h3><span class="sev medium">Med</span> M9 — MCP <code>create_hotel</code> writes no audit row <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">tools/accommodations.ts :27</p>
   <p>The REST hotel POST audits; the MCP twin doesn't (though its own sibling room-type tools all do). An agent-created
   hotel is invisible in the audit trail — "where did this duplicate hotel with the wrong rates come from?" has no
@@ -646,7 +658,7 @@ refresh();</code></pre>
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Med</span> M10 — Assign dialog turns a failed fetch into an empty list</h3>
+  <h3><span class="sev medium">Med</span> M10 — Assign dialog turns a failed fetch into an empty list <span class="pill deferred">DEFERRED</span></h3>
   <p class="loc">components/accommodation/assign-accommodation-dialog.tsx :118</p>
   <p><code>res.ok ? res.json() : []</code> — a 500 on the registrations fetch renders
   <em>"No registrations for this event yet"</em> with no toast and no log. (Covered by H8's lesson;
@@ -672,39 +684,65 @@ refresh();</code></pre>
     definitions. Harmless today; actively misleading to the next reader.</li>
 </ul>
 
-<h2>Suggested remediation order</h2>
+<h2>Remediation — what shipped</h2>
 <div class="tbl-wrap">
 <table>
-  <thead><tr><th>Phase</th><th>Findings</th><th>Why this order</th></tr></thead>
+  <thead><tr><th>Phase</th><th>Commit</th><th>Findings</th><th>Status</th></tr></thead>
   <tbody>
     <tr>
       <td><strong>1 — Security</strong></td>
-      <td>H1 (IDOR chain) · H2 (barcode leak) · L4 (log the denials)</td>
-      <td>Smallest diff, highest severity, zero behaviour change for legitimate users. Ship first.</td>
+      <td><code>7fcb256</code></td>
+      <td>H1 (IDOR chain) · H2 (barcode + finance leak) · L4 (log the denials)</td>
+      <td><span class="pill shipped">Shipped</span></td>
     </tr>
     <tr>
       <td><strong>2 — Counter integrity</strong></td>
-      <td>H3 · H5 · H6 · M1 · M4 — via one shared <code>planRoomTransition()</code> + guarded <code>releaseRoom()</code>/<code>claimRoom()</code></td>
-      <td>These are one bug family. Fixing them together (as a transition planner, like <code>planSeatTransition</code>) makes the whole class structurally impossible instead of patching five call sites.</td>
+      <td><code>71ce307</code></td>
+      <td>H3 · H5 · H6 · M1 · M4 — via one shared <code>planRoomTransition()</code> + guarded <code>releaseRoom()</code> / atomic <code>claimRoom()</code></td>
+      <td><span class="pill shipped">Shipped</span></td>
     </tr>
     <tr>
-      <td><strong>3 — Data repair + cascade</strong></td>
-      <td>H4 (explicit release on delete) + a dry-run <code>reconcile-bookedrooms.ts</code></td>
-      <td>Phase 2 stops <em>new</em> drift; this repairs drift that already happened and closes the cascade hole.</td>
+      <td><strong>3 — Cascade + data repair</strong></td>
+      <td><code>ce7ae60</code></td>
+      <td>H4 (<code>releaseRoomForDeletedPerson</code> on all 3 cascade paths) + <code>scripts/reconcile-bookedrooms.ts</code></td>
+      <td><span class="pill shipped">Shipped</span></td>
     </tr>
     <tr>
       <td><strong>4 — Visibility</strong></td>
+      <td>—</td>
       <td>H7 (log every rejection) · H8 + M10 (surface errors in the UI) · M7 (audit fire-and-forget)</td>
-      <td>Makes the next incident debuggable — and stops the "button does nothing" support tickets.</td>
+      <td><span class="pill deferred">Deferred</span></td>
     </tr>
     <tr>
       <td><strong>5 — Rules &amp; hygiene</strong></td>
+      <td>—</td>
       <td>M2 (guest capacity on edit) · M3 (state machine) · M5 (P2002 mapping) · M6 · M8 · M9 · L1–L3, L5</td>
-      <td>Correctness polish; each independently shippable.</td>
+      <td><span class="pill deferred">Deferred</span></td>
     </tr>
   </tbody>
 </table>
 </div>
+
+<h3>Fix log</h3>
+<ul>
+  <li><strong>Phase 1 (<code>7fcb256</code>)</strong> — every room-type lookup now binds the full chain
+    (<code>hotel: { id: hotelId, eventId }</code>); the booking payloads swapped
+    <code>include: { registration: true }</code> for an explicit allow-list <code>select</code> (so a sensitive column
+    added to <code>Registration</code> later can't leak by default), plus a composed barcode + finance redaction as
+    defence-in-depth; the cross-org denial now logs. <em>+5 tests.</em></li>
+  <li><strong>Phase 2 (<code>71ce307</code>)</strong> — the two competing counter blocks became one pure
+    <code>planRoomTransition(prev, next)</code> (exhaustive truth-table tests, including both H3 cases); the row is now
+    claimed <em>before</em> the counter moves, conditional on the status the plan was derived from (so a racing writer
+    loses and touches nothing); DELETE carries its own precondition; every release is floored at zero; shrinking
+    <code>totalRooms</code> is a conditional write in both REST and MCP. <em>+15 tests.</em></li>
+  <li><strong>Phase 3 (<code>ce7ae60</code>)</strong> — <code>releaseRoomForDeletedPerson()</code> called inside the
+    delete transaction on all three cascade paths (registration delete, speaker delete — which wasn't even in a
+    transaction — and the speaker's companion registration); <code>reconcile-bookedrooms.ts</code> recomputes counters
+    from row-truth, reusing the same <code>holdsRoom()</code> predicate the runtime uses so the two can't disagree.
+    <strong>Prod dry-run: 6 room types scanned, 0 drift.</strong> <em>+4 tests.</em></li>
+</ul>
+<p>Suite 2535 → 2559. Every phase verified <code>tsc</code> + <code>eslint</code> + full <code>vitest</code> +
+<code>build</code> green before commit.</p>
 
 <div class="note">
   <strong>What this domain got right</strong> (worth knowing, so the fixes don't regress it): both create callers genuinely

@@ -300,6 +300,70 @@ wrong-event badge 404s); sequential double-scan IS idempotent (only the concurre
 ONSITE fix holds on the five routes it touched; DTCM is never substituted for the entry barcode.
 
 
+### Accommodation / hotels review (July 13, 2026) — security + counter batch SHIPPED, visibility/hygiene deferred
+
+First full 4-angle review of the accommodation + hotels domain (booking lifecycle · RBAC/info-exposure ·
+concurrency/counter integrity · drift/duplication/logging): **0 BLOCKER / 8 HIGH / 10 MED / 5 LOW** — the worst
+of any domain so far, because these routes predate the IDOR + logging sweeps applied everywhere else. Full report
+(written as a teaching document — every finding has the buggy code, the failure, the fix, and a
+"what a junior dev should learn" box): [docs/CODE_REVIEW_ACCOMMODATION.html](CODE_REVIEW_ACCOMMODATION.html).
+
+**Shipped** — everything that leaked a credential or corrupted a counter:
+- **✅ H1 (`7fcb256`)** — cross-tenant IDOR: all three `rooms/[roomId]` handlers resolved the room by
+  `{ id: roomId, hotelId }` and never bound the hotel to the org-verified event (the sibling `rooms/route.ts` did).
+  Now binds the full chain.
+- **✅ H2 (`7fcb256`)** — the booking GETs/PUT returned the full `Registration` row via `include`, leaking `qrCode` +
+  `dtcmBarcode` (door credentials) past the July-11 barcode-visibility boundary. Now an allow-list `select` +
+  composed redaction.
+- **✅ H3/H5/H6/M1/M4 (`71ce307`)** — the counter family, fixed as ONE shared `planRoomTransition()` + guarded
+  `releaseRoom()` / atomic `claimRoom()` rather than five patches.
+- **✅ H4 (`ce7ae60`)** — `Accommodation` cascade-deletes from Registration/Speaker, so deleting a person silently
+  lost their room forever. `releaseRoomForDeletedPerson()` on all three cascade paths +
+  `scripts/reconcile-bookedrooms.ts`. **Prod dry-run: 6 room types, 0 drift** (accommodation is lightly used — which
+  is why these hadn't bitten yet, not evidence they were harmless).
+
+**Deferred:**
+
+- **H7 — ~30 unlogged failure paths.** Includes three *business* 400s operators actually hit
+  ("Cannot delete hotel with existing bookings", "Cannot delete room type with existing bookings",
+  "Total rooms cannot be less than booked"). Worse: the **REST create path logs none of the service's ten rejection
+  codes** — while the MCP twin auto-logs via `runTool`, so the same failure is visible when an agent causes it and
+  invisible when a human does. During a live event, room assignments failing produces nothing in `/logs`.
+  (Phase 1 logged the security-relevant denials on the routes it touched; the rest of the sweep is open.)
+- **H8 + M10 — the UI silently swallows errors.** `handleHotelSubmit` / `handleRoomSubmit` / `handleDeleteHotel` in
+  [accommodation/page.tsx](../src/app/%28dashboard%29/events/%5BeventId%5D/accommodation/page.tsx) are
+  `if (res.ok) { … }` with **no else** — the operator confirms a hotel delete, the server refuses with
+  "has existing bookings", and *nothing appears on screen*. The assign dialog maps a failed fetch to `[]` →
+  "No registrations for this event yet" on an event with 800 registrants. (`fetch` doesn't throw on 4xx/5xx —
+  the classic mistake. Note `handleStatusUpdate` in the same file does it correctly.)
+- **M2 — guest count validated on create, never on edit.** The PUT's Zod only checks `min(1)`, so a booking can be
+  edited to 6 guests in a 2-person double, or moved into a single-occupancy room. The hotel gets a rooming list that
+  doesn't fit in the rooms.
+- **M3 — no server-side status state machine.** REST + MCP accept **any → any**; only the UI's buttons constrain the
+  flow. An agent told "mark everything checked out" can push a CANCELLED booking to CHECKED_OUT — and the applier
+  then *re-claims a room* for it.
+- **M5 — a lost create race returns an opaque 500.** The duplicate-assignee check is a pre-tx read; the `@unique`
+  correctly stops the loser but `P2002` isn't recognised, so it surfaces as `UNKNOWN` with a raw Prisma string
+  instead of `REGISTRATION_HAS_ACCOMMODATION` (and the MCP auto-pivot hint never fires).
+- **M6 — finance redaction on the list routes but not the detail routes** (5 sibling read paths). No live leak today
+  (every org-bound role is finance-capable) but the boundary is already broken next door.
+- **M7 — hotel/room CRUD `await`s the audit write with no catch** → an audit blip 500s a request whose mutation
+  already committed. The accommodation routes do it correctly (fire-and-forget with logged catch).
+- **M8 — `AccommodationStatus` hardcoded in four places** (two duplicate Sets in the MCP file alone; `z.enum` vs
+  `nativeEnum`; a non-exhaustive UI colour map). Adding a status value breaks three surfaces with **no build error**
+  — unlike `registration-enums.ts`, where TS fails the build.
+- **M9 — MCP `create_hotel` writes no AuditLog row** (its sibling room-type tools all do).
+- **LOWs:** L1 the assignee refine is "at least one", not "exactly one" — one booking can consume BOTH a
+  registration's and a speaker's `@unique` slot; L2 no rate limit anywhere in the domain; L3 room-type DELETE races
+  its own `_count` guard (raw FK 500 instead of 400) + a REST/MCP parity gap (REST refuses, MCP soft-deletes);
+  L5 copy-paste comments from other domains in the MCP file ("Media Executor", "A4: Invoice CREATE / SEND flow").
+
+**Verified clean:** both create callers genuinely delegate to `accommodation-service` (no duplicated create logic);
+status transitions genuinely share the applier across REST + MCP; the create-path capacity claim and the MCP re-book
+are atomic; every write handler has `denyReviewer`; every route binds the event to the caller's org — which is why
+H1 needed a *second* id to exploit rather than being wide open.
+
+
 ### Communications / bulk-email review (July 11, 2026) — anti-double-send batch SHIPPED, rest deferred
 
 A 4-angle production review of the communications / bulk-email domain (send lifecycle · RBAC &
