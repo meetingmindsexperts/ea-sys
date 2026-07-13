@@ -21,6 +21,7 @@ import {
   Receipt,
 } from "lucide-react";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { EventCountdownBadge } from "@/components/events/event-countdown-badge";
 import { EventActions } from "./event-actions";
 import { ActivityFeed } from "@/components/activity-feed";
 import { formatDateRange } from "@/lib/utils";
@@ -60,6 +61,7 @@ export default async function EventPage({ params }: EventPageProps) {
         status: true,
         startDate: true,
         endDate: true,
+        timezone: true,
         venue: true,
         city: true,
         country: true,
@@ -195,9 +197,23 @@ export default async function EventPage({ params }: EventPageProps) {
         <div className="relative p-6 md:p-7">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-2 flex-1 min-w-0">
-              <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${sc.cls}`}>
-                {sc.label}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${sc.cls}`}>
+                  {sc.label}
+                </span>
+                {/* "12 days to go" / "Day 2 of 3" — sized as a headline fact, not
+                    a footnote: the countdown is the first thing an organizer
+                    checks when they open an event. Hidden once the event is
+                    over (the Completed pill already says so). */}
+                <EventCountdownBadge
+                  startDate={event.startDate}
+                  endDate={event.endDate}
+                  timezone={event.timezone}
+                  now={new Date()}
+                  onDark
+                  size="lg"
+                />
+              </div>
               <h1 className="text-2xl md:text-3xl font-bold text-white leading-tight">
                 {event.name}
               </h1>

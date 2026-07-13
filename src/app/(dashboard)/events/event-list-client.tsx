@@ -19,6 +19,7 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import { formatDateRange } from "@/lib/utils";
+import { EventCountdownBadge } from "@/components/events/event-countdown-badge";
 import type { EventSortField, EventSortOrder } from "@/lib/event-sort";
 
 const ITEMS_PER_PAGE = 10;
@@ -30,6 +31,7 @@ interface EventListItem {
   status: string;
   startDate: string | Date;
   endDate: string | Date;
+  timezone?: string | null;
   venue: string | null;
   _count: { registrations: number; speakers: number };
 }
@@ -151,6 +153,10 @@ export function EventListClient({
   // Computed once at mount (lazy state) — keeps the useMemo pure (no Date.now()
   // during render, which react-hooks/purity forbids).
   const [now] = useState(() => Date.now());
+  // One clock for every row's countdown — two rows must never disagree about
+  // what day it is, and re-reading the clock per row would reintroduce the
+  // impurity the lazy state above exists to avoid.
+  const nowDate = useMemo(() => new Date(now), [now]);
   const orderedEvents = useMemo(() => {
     if (sortField !== "createdAt") return events;
     const isUpcoming = (e: EventListItem) =>
@@ -327,14 +333,20 @@ export function EventListClient({
                           {event.name}
                         </span>
                         {/* Show date + venue inline on mobile */}
-                        <span className="md:hidden text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                        <span className="md:hidden text-xs text-muted-foreground mt-0.5 flex flex-wrap items-center gap-1.5">
                           <Calendar className="h-3 w-3 shrink-0" />
                           {formatDateRange(event.startDate, event.endDate)}
+                          <EventCountdownBadge
+                            startDate={event.startDate}
+                            endDate={event.endDate}
+                            timezone={event.timezone}
+                            now={nowDate}
+                          />
                         </span>
                       </Link>
                     </td>
 
-                    {/* Date */}
+                    {/* Date + how long until it starts */}
                     <td className="px-4 py-3.5 hidden md:table-cell">
                       <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                         <Calendar className="h-3.5 w-3.5 shrink-0 text-primary/60" />
@@ -342,6 +354,13 @@ export function EventListClient({
                           {formatDateRange(event.startDate, event.endDate)}
                         </span>
                       </div>
+                      <EventCountdownBadge
+                        startDate={event.startDate}
+                        endDate={event.endDate}
+                        timezone={event.timezone}
+                        now={nowDate}
+                        className="mt-1 ml-5"
+                      />
                     </td>
 
                     {/* Venue */}
