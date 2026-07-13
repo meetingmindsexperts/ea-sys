@@ -12,6 +12,10 @@ const { mockDb, mockAuth } = vi.hoisted(() => {
     registration: { delete: vi.fn().mockResolvedValue({}), count: vi.fn().mockResolvedValue(0) },
     promoCode: { update: vi.fn().mockResolvedValue({}) },
     attendee: { delete: vi.fn().mockResolvedValue({}) },
+    // H4: the delete tx now releases any room the person held before the DB
+    // cascade removes their Accommodation row. Default: no booking.
+    accommodation: { findFirst: vi.fn().mockResolvedValue(null) },
+    roomType: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
   };
   return {
     mockDb: {

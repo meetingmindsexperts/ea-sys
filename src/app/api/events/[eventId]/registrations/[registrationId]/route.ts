@@ -3,6 +3,7 @@ import { z } from "zod";
 import { RegistrationStatus, AttendanceMode } from "@prisma/client";
 import { holdsSeat, seatCounter } from "@/lib/registration-seat";
 import { releaseSeat } from "@/lib/registration-seat-db";
+import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -564,6 +565,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
           data: { usedCount: { decrement: 1 } },
         });
       }
+      // H4 (accommodation review): Accommodation cascade-deletes from
+      // Registration, and a DB cascade fires no application code — so the
+      // booking row would vanish while RoomType.bookedRooms kept counting it,
+      // permanently. Release the room here, the same way the seat and the promo
+      // usage are released above. No-ops when there's no booking or it's
+      // already cancelled.
+      await releaseRoomForDeletedPerson(tx, { registrationId });
+
       await tx.registration.delete({
         where: { id: registrationId },
       });

@@ -122,6 +122,42 @@ export async function applyRoomTransition(
 }
 
 /**
+ * Release the room held by a person's booking, BEFORE that person is deleted.
+ *
+ * WHY THIS IS NEEDED (review H4): `Accommodation` cascade-deletes from both
+ * `Registration` and `Speaker` (`onDelete: Cascade`). A cascade runs *inside the
+ * database* — no application code fires — so deleting a registrant made their
+ * booking row vanish while `RoomType.bookedRooms` kept counting it. Forever.
+ * The room type then reports sold-out with an empty room, and every subsequent
+ * booking fails NO_ROOMS_AVAILABLE.
+ *
+ * The general lesson: a cascade deletes ROWS, not SIDE EFFECTS. If a row's
+ * existence is counted somewhere else, you must release that count in
+ * application code (or use onDelete: Restrict and force the caller to deal with
+ * it). The delete transactions already do exactly this for the ticket seat and
+ * the promo-code usage — accommodation was simply missed.
+ *
+ * Idempotent + safe: a cancelled booking holds no room, so nothing is released.
+ * Call INSIDE the delete transaction, BEFORE deleting the person.
+ */
+export async function releaseRoomForDeletedPerson(
+  tx: Prisma.TransactionClient,
+  who: { registrationId: string } | { speakerId: string },
+): Promise<void> {
+  const booking = await tx.accommodation.findFirst({
+    where: "registrationId" in who
+      ? { registrationId: who.registrationId }
+      : { speakerId: who.speakerId },
+    select: { status: true, roomTypeId: true },
+  });
+
+  if (!booking) return;
+  if (!holdsRoom(booking.status)) return; // already cancelled → holds no room
+
+  await releaseRoom(tx, booking.roomTypeId);
+}
+
+/**
  * Status-only transition (the room type doesn't change). Thin wrapper over the
  * planner, kept because the MCP `update_accommodation_status` tool only ever
  * moves status — it has no room-change surface.

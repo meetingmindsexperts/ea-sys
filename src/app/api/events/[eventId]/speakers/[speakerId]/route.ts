@@ -11,6 +11,7 @@ import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
+import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { optimisticLockField, runOptimisticUpdate } from "@/lib/optimistic-lock";
 import { computeTagDelta, syncSpeakerTagsToRegistrations } from "@/lib/person-tag-sync";
 import {
@@ -420,8 +421,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    await db.speaker.delete({
-      where: { id: speakerId },
+    // H4 (accommodation review): Accommodation cascade-deletes from Speaker, and
+    // a DB cascade fires no application code — the booking row would vanish
+    // while RoomType.bookedRooms kept counting it forever. Release the room in
+    // the same transaction as the delete. No-op when the speaker has no booking
+    // (or it's already cancelled).
+    await db.$transaction(async (tx) => {
+      await releaseRoomForDeletedPerson(tx, { speakerId });
+      await tx.speaker.delete({ where: { id: speakerId } });
     });
 
     // Companion cleanup (speaker-as-attendee Fix A) — if this speaker had an
@@ -438,6 +445,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         });
         if (companion) {
           await db.$transaction(async (tx) => {
+            // Same cascade hazard as above — the companion registration can hold
+            // its own booking (faculty are given rooms too).
+            await releaseRoomForDeletedPerson(tx, { registrationId: companion.id });
             await tx.registration.delete({ where: { id: companion.id } });
             const remaining = await tx.registration.count({ where: { attendeeId: companion.attendeeId } });
             if (remaining === 0) {
