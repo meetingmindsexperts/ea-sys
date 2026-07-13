@@ -2246,43 +2246,6 @@ export function useIssuedCertificates({
   });
 }
 
-export function useResendCertificate(eventId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (certificateId: string) =>
-      fetchApi<{
-        ok: true;
-        emailMessageId: string;
-        resendCount: number;
-        lastResentAt: string;
-      }>(
-        `/api/events/${eventId}/certificates/issued/${certificateId}/resend`,
-        { method: "POST" },
-      ),
-    onSuccess: () => {
-      // Invalidate everything that touches certs for this event — the
-      // card's row needs new lastResentAt + count, and the EmailLogCard
-      // on the same sheet gets a new row from the email send. The
-      // queryKey prefix invalidation catches both registration- and
-      // speaker-scoped variants without us having to remember which
-      // surface fired the mutation.
-      queryClient.invalidateQueries({
-        queryKey: ["events", eventId, "certificates", "issued"],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["email-logs"],
-      });
-    },
-  });
-}
-
-/**
- * Re-render an already-issued cert from the CURRENT template (picks up
- * template / greeting edits), update its PDF, and email it again. Distinct
- * from useResendCertificate (which replays the frozen original).
- */
-/** Re-send EVERY cert the person holds as ONE email (frozen PDFs, no
- *  re-render) — the "Resend all" action. Pass exactly one facet id. */
 /**
  * Read-only preview of what a resend would email — pass certificateId for a
  * per-row reissue preview, or registrationId/speakerId for the "Resend all"

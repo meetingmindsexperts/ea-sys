@@ -146,9 +146,25 @@ export async function POST(_req: Request, { params }: RouteParams) {
           sortOrder: nextOrder,
           emailSubject: source.emailSubject,
           emailBody: source.emailBody,
+          // H4: copy the CME/role + auto-issue config too — a hand-listed
+          // clone silently dropped these, so duplicating a CME cert produced
+          // a clone whose {{cmeHours}} rendered blank and duplicating an
+          // auto-issue template produced one that silently never auto-issued.
+          role: source.role,
+          cmeHours: source.cmeHours,
+          autoIssueTag: source.autoIssueTag,
+          // Deliberately NOT copying autoIssueOnSurvey — a live auto-issuing
+          // clone would instantly double-issue the source's tag audience on
+          // the next survey sweep. The copy starts paused; the organizer
+          // re-enables it when the variant is ready (surfaced in the response).
+          autoIssueOnSurvey: false,
         },
       });
     });
+
+    // The source's auto-issue was left OFF on the clone by design (H4) —
+    // tell the caller so the UI can prompt "re-enable auto-issue when ready".
+    const autoIssuePaused = source.autoIssueOnSurvey === true;
 
     apiLogger.info({
       msg: "cert-templates:duplicated",
@@ -158,9 +174,10 @@ export async function POST(_req: Request, { params }: RouteParams) {
       newTemplateId: clone.id,
       category: clone.category,
       backgroundCopied: source.backgroundPdfUrl !== null,
+      autoIssuePaused,
     });
 
-    return NextResponse.json({ template: clone }, { status: 201 });
+    return NextResponse.json({ template: clone, autoIssuePaused }, { status: 201 });
   } catch (error) {
     apiLogger.error({
       err: error,
