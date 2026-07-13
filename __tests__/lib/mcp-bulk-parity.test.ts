@@ -227,10 +227,17 @@ describe("send_bulk_email — routed through executeBulkEmail", () => {
 
 import { REGISTRATION_EXECUTORS } from "@/lib/agent/tools/registrations";
 
+// Loosely-typed view of the Prisma mock so this block can attach models
+// (ticketType, $transaction, _regTx) and reach `.mock.calls[…].data` on
+// dynamically-added mocks. Test-only plumbing — a single justified escape
+// hatch instead of ten inline `any` casts.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MockDb = Record<string, any>;
+
 describe("create_registrations_bulk — M8 parity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (mockDb as Record<string, any>).ticketType = {
+    (mockDb as MockDb).ticketType = {
       findMany: vi.fn().mockResolvedValue([
         {
           id: "tt-paid", name: "Physician", quantity: 100, price: 250, currency: "USD",
@@ -250,8 +257,8 @@ describe("create_registrations_bulk — M8 parity", () => {
         },
       ]),
     };
-    (mockDb as Record<string, any>).event.findFirst = vi.fn().mockResolvedValue({ id: "ev1", slug: "ev", name: "Ev", organization: {} });
-    (mockDb as Record<string, any>).registration.findFirst = vi.fn().mockResolvedValue(null);
+    (mockDb as MockDb).event.findFirst = vi.fn().mockResolvedValue({ id: "ev1", slug: "ev", name: "Ev", organization: {} });
+    (mockDb as MockDb).registration.findFirst = vi.fn().mockResolvedValue(null);
     const tx = {
       attendee: { create: vi.fn().mockResolvedValue({ id: "att1", email: "a@b.com" }) },
       ticketType: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
@@ -261,8 +268,8 @@ describe("create_registrations_bulk — M8 parity", () => {
         })),
       },
     };
-    (mockDb as Record<string, any>).$transaction = vi.fn(async (cb: (t: unknown) => unknown) => cb(tx));
-    (mockDb as Record<string, any>)._regTx = tx;
+    (mockDb as MockDb).$transaction = vi.fn(async (cb: (t: unknown) => unknown) => cb(tx));
+    (mockDb as MockDb)._regTx = tx;
   });
 
   const row = (over: Record<string, unknown> = {}) => ({
@@ -271,25 +278,25 @@ describe("create_registrations_bulk — M8 parity", () => {
 
   it("paid tickets start UNASSIGNED + email the quote; free start COMPLIMENTARY with no email (drift #1 + #4)", async () => {
     await REGISTRATION_EXECUTORS.create_registrations_bulk({ registrations: [row()] }, ctx);
-    let data = (mockDb as Record<string, any>)._regTx.registration.create.mock.calls[0][0].data;
+    let data = (mockDb as MockDb)._regTx.registration.create.mock.calls[0][0].data;
     expect(data.paymentStatus).toBe("UNASSIGNED");
     expect(sendConfirmSpy).toHaveBeenCalledTimes(1);
     expect(sendConfirmSpy.mock.calls[0][0]).toMatchObject({ price: 250, ticketTypeName: "Physician" });
 
     sendConfirmSpy.mockClear();
-    (mockDb as Record<string, any>)._regTx.registration.create.mockClear();
+    (mockDb as MockDb)._regTx.registration.create.mockClear();
     await REGISTRATION_EXECUTORS.create_registrations_bulk(
       { registrations: [row({ email: "free@b.com", ticketTypeId: "tt-free" })] },
       ctx,
     );
-    data = (mockDb as Record<string, any>)._regTx.registration.create.mock.calls[0][0].data;
+    data = (mockDb as MockDb)._regTx.registration.create.mock.calls[0][0].data;
     expect(data.paymentStatus).toBe("COMPLIMENTARY");
     expect(sendConfirmSpy).not.toHaveBeenCalled();
   });
 
   it("the duplicate check excludes CANCELLED rows (drift #2)", async () => {
     await REGISTRATION_EXECUTORS.create_registrations_bulk({ registrations: [row()] }, ctx);
-    expect((mockDb as Record<string, any>).registration.findFirst).toHaveBeenCalledWith(
+    expect((mockDb as MockDb).registration.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ status: { not: "CANCELLED" } }),
       }),
@@ -301,7 +308,7 @@ describe("create_registrations_bulk — M8 parity", () => {
       { registrations: [row({ ticketTypeId: "tt-approval", status: "CONFIRMED" })] },
       ctx,
     );
-    const data = (mockDb as Record<string, any>)._regTx.registration.create.mock.calls[0][0].data;
+    const data = (mockDb as MockDb)._regTx.registration.create.mock.calls[0][0].data;
     expect(data.status).toBe("PENDING");
   });
 
