@@ -182,6 +182,30 @@ describe("executeBulkEmail — certificate audience scoping", () => {
     expect(res).toMatchObject({ successCount: 1, failureCount: 0, skippedCount: 2 });
   });
 
+  it("excludes CANCELLED from a SURVEY invitation too (2026-07-13)", async () => {
+    // The survey tile no longer pre-filters to CHECKED_IN: completing the
+    // survey is what stamps `surveyCompletedAt`, which triggers certificate
+    // auto-issue — so gating the invitation on check-in re-imposed, one step
+    // upstream, the exact gate that was removed from certificates. Everyone
+    // except CANCELLED now gets the invitation. (Cancelled stays out: the
+    // auto-issue sweep refuses them, so the survey would dangle a certificate
+    // they can never receive.)
+    mockDb.event.findFirst.mockResolvedValue({
+      ...EVENT,
+      surveyConfig: [{ id: "q1", type: "rating", label: "How was it?" }],
+    });
+    // Aborts downstream (template loaders are mocked empty) — the `where`
+    // clause is what this test pins.
+    await executeBulkEmail({
+      ...BASE_INPUT,
+      emailType: "survey-invitation",
+      filters: {},
+    }).catch(() => null);
+
+    const where = mockDb.registration.findMany.mock.calls[0][0].where;
+    expect(where.status).toEqual({ not: "CANCELLED" });
+  });
+
   it("does NOT apply the CANCELLED guard to non-certificate email types", async () => {
     // A custom send with no status filter keeps the historical behavior
     // (no implicit status scoping). The mocked template loaders return

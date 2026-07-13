@@ -60,6 +60,7 @@ import {
 } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
+import { excludesCancelledByDefault } from "@/lib/bulk-email-audience";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
@@ -240,20 +241,29 @@ const REGISTRATION_TILES: RegistrationTile[] = [
     matches: (r) => r.status === "CANCELLED",
   },
   {
-    // Per-event post-event feedback survey invitation. Pre-selects
-    // CHECKED_IN audience because the survey is for people who
-    // actually showed up; backend mints a per-recipient
-    // `survey:{regId}` token + injects {{surveyLink}}. Organizer
-    // overrides the body via the per-event "Survey Invitation"
-    // template entry (esp. CME events that want to mention cert
-    // delivery — the default body is cert-neutral).
+    // Post-event feedback survey invitation. Targets ALL registrations except
+    // CANCELLED — check-in is NOT required (organizer decision 2026-07-13,
+    // mirroring the same call made for certificates on 2026-07-10).
+    //
+    // The CHECKED_IN pre-filter this used to carry was not merely a narrower
+    // default: completing the survey is what stamps `surveyCompletedAt`, which
+    // is the trigger for certificate auto-issue. Gating the invitation on
+    // check-in therefore re-imposed, one step upstream, exactly the check-in
+    // gate that was deliberately removed from certificate issuance — so an
+    // attendee who was never scanned in could never earn their CME certificate,
+    // no matter how they were tagged. The tag is the gate; check-in is not.
+    //
+    // Backend mints a per-recipient `survey:{regId}` token + injects
+    // {{surveyLink}}. Organizer narrows the audience per-send via the dialog's
+    // "Filter recipients" section, and overrides the body via the per-event
+    // "Survey Invitation" template.
     id: "send-survey",
     label: "Send Survey Invitations",
-    description: "Post-event feedback link to checked-in attendees",
+    description: "Post-event feedback link to all registrants",
     icon: ClipboardList,
-    filters: { status: "CHECKED_IN" },
+    filters: {},
     defaultEmailType: "survey-invitation",
-    matches: (r) => r.status === "CHECKED_IN",
+    matches: (r) => r.status !== "CANCELLED",
   },
   {
     // Post-event certificate delivery. Targets ALL registrations (any
@@ -397,13 +407,9 @@ export default function CommunicationsPage() {
         : null;
     return registrations.filter((r) => {
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
-      // Mirror the backend rule: certificate + payment-reminder sends
-      // exclude CANCELLED registrations when no explicit status is set.
-      if (
-        (f.emailType === "certificate" || f.emailType === "payment-reminder") &&
-        (!f.status || f.status === "all") &&
-        r.status === "CANCELLED"
-      )
+      // Same rule the server applies to build the audience — imported, not
+      // restated, so this count cannot drift from the actual send.
+      if (excludesCancelledByDefault(f.emailType, f.status) && r.status === "CANCELLED")
         return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;

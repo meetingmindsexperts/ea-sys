@@ -31,6 +31,10 @@ import {
   surveyExpiryDaysSchema,
   type SurveyExpiryDays,
 } from "./survey/share-link";
+import {
+  CANCELLED_EXCLUDED_EMAIL_TYPES,
+  excludesCancelledByDefault,
+} from "./bulk-email-audience";
 import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle";
 import { executeCertificateBulkSend } from "./certificates/bulk-issue";
 
@@ -85,6 +89,16 @@ export type BulkEmailType =
    * executeCertificateBulkSend (src/lib/certificates/bulk-issue.ts).
    */
   | "certificate";
+
+/**
+ * The client-safe audience module stores its list as plain strings (it must not
+ * import anything from this Prisma-bound file). This assignment is the compile-
+ * time tether: a typo, or a send type that is later renamed, fails the build
+ * here rather than silently ceasing to exclude CANCELLED registrations.
+ */
+const _cancelledExcludedAreRealEmailTypes: readonly BulkEmailType[] =
+  CANCELLED_EXCLUDED_EMAIL_TYPES;
+void _cancelledExcludedAreRealEmailTypes;
 
 export const WEBINAR_EMAIL_TYPES = [
   "webinar-confirmation",
@@ -806,12 +820,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         eventId,
         ...(recipientIds?.length ? { id: { in: recipientIds } } : {}),
         ...(status && { status }),
-        // Never chase a CANCELLED registration for payment (it owes nothing)
-        // and never issue a certificate to one (mirrors the Issue-tab
-        // eligibility rule in src/lib/certificates/eligibility.ts). Only
-        // applied when no explicit status filter is set — an explicit
-        // status already scopes the send, and a non-CANCELLED one excludes them.
-        ...((emailType === "payment-reminder" || emailType === "certificate") && !status
+        // Default-safe audience for the send types that must never reach a
+        // CANCELLED registration. The rule (and the reasoning per type) lives in
+        // bulk-email-audience.ts, shared with the dashboard's recipient-count
+        // predicates so the number the organizer reads is the number we mail.
+        ...(excludesCancelledByDefault(emailType, status)
           ? { status: { not: "CANCELLED" as const } }
           : {}),
         ...(paymentStatuses.length === 1

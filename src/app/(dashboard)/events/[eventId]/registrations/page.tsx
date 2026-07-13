@@ -72,6 +72,7 @@ import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
+import { excludesCancelledByDefault } from "@/lib/bulk-email-audience";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
 import {
   Dialog,
@@ -269,13 +270,9 @@ export default function RegistrationsPage() {
         : null;
     return registrations.filter((r) => {
       if (f.status && f.status !== "all" && r.status !== f.status) return false;
-      // Mirror the backend rule: certificate + payment-reminder sends
-      // exclude CANCELLED registrations when no explicit status is set.
-      if (
-        (f.emailType === "certificate" || f.emailType === "payment-reminder") &&
-        (!f.status || f.status === "all") &&
-        r.status === "CANCELLED"
-      )
+      // Same rule the server applies to build the audience — imported, not
+      // restated, so this count cannot drift from the actual send.
+      if (excludesCancelledByDefault(f.emailType, f.status) && r.status === "CANCELLED")
         return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
