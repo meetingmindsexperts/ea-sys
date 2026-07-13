@@ -470,11 +470,24 @@ export default function CertificatesPage() {
         }
         throw new Error(err.error ?? `Duplicate failed (${res.status})`);
       }
-      return (await res.json()) as { template: { id: string; name: string } };
+      return (await res.json()) as {
+        template: { id: string; name: string };
+        autoIssuePaused?: boolean;
+      };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
-      toast.success(`Duplicated as "${data.template.name}"`);
+      // The clone deliberately starts with survey auto-issue OFF (a live
+      // auto-issuing copy would instantly double-issue the source's tag
+      // audience). Surface that so the operator knows to re-enable it, rather
+      // than discovering the copy silently never auto-issues.
+      if (data.autoIssuePaused) {
+        toast.warning(
+          `Duplicated as "${data.template.name}" — auto-issue is OFF on the copy. Turn it back on when the variant is ready.`,
+        );
+      } else {
+        toast.success(`Duplicated as "${data.template.name}"`);
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
