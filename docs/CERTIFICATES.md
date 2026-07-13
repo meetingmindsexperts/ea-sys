@@ -1,6 +1,6 @@
 # Certificates — Architecture + Operational Reference
 
-**Last updated:** 2026-06-02
+**Last updated:** 2026-07-13
 
 The certificate system in EA-SYS is built around the **v3 PDF-overlay
 model**: organizers upload a finished cert PDF (or PNG/JPG that gets
@@ -42,25 +42,38 @@ Event ──┬─── CertificateTemplate (N per category)
         ├─── IssuedCertificate (immutable audit row)
         │      ├─ type (ATTENDANCE | APPRECIATION)
         │      ├─ certificateTemplateId (FK, SetNull on template delete)
-        │      ├─ serial (unique), pdfUrl
+        │      ├─ serial (GLOBALLY unique), pdfUrl
         │      ├─ recipientSnapshot Json (frozen at issue)
         │      ├─ cmeHoursSnapshot
-        │      └─ @@unique([eventId, type, registrationId])
-        │      └─ @@unique([eventId, type, speakerId])
+        │      └─ @@unique([eventId, certificateTemplateId, registrationId])
+        │      └─ @@unique([eventId, certificateTemplateId, speakerId])
         │
         └─── CertificateSerialCounter (atomic counter per category)
                └─ @@id([eventId, type])
 ```
 
-### Why `@@unique([eventId, type, registrationId])` rather than per-template
+### Why `@@unique([eventId, certificateTemplateId, registrationId])` (PER-TEMPLATE)
 
-The invariant is **one cert per recipient per category per event** —
-regardless of which template variant fired. A person can hold at most
-one Attendance cert + one Appreciation cert per event. The dual unique
-constraints on IssuedCertificate (registration AND speaker variants)
-enforce this at the database level, catching concurrent operator
-clicks + MCP retries that race past the application-level eligibility
-exclusion.
+The invariant is **one cert per recipient per _template_ per event**
+(migration `20260625140000`, superseding the old per-**category** rule).
+Per-template uniqueness is the whole multi-role feature: a person can hold
+a Speaker cert **and** a Moderator cert **and** an Organizing-Committee cert
+in the same event, each from a different template. The dual unique
+constraints on IssuedCertificate (registration AND speaker variants) enforce
+this at the database level, catching concurrent operator clicks + MCP retries
+that race past the application-level eligibility exclusion.
+
+> **Note (2026-07-13):** an earlier version of this doc described
+> `@@unique([eventId, type, registrationId])` (per-category) and argued for
+> it — that predates the multi-role migration above and was corrected in the
+> July-13 certificates review (M7).
+
+> **`serial` is unique GLOBALLY, not per-event**, while its display prefix
+> derives from the non-unique `Event.code`. Two same-code events (e.g. a
+> monthly meeting cloned each cycle) can therefore mint the same serial and
+> collide on this index — surfaced as a distinct serial-collision error since
+> the July-13 review (M1). The durable fix (`@@unique([eventId, serial])`) is
+> a deferred schema change tracked in ROADMAP.
 
 ### Why `SetNull` on template delete
 
@@ -107,8 +120,9 @@ src/
                   ▼
           PENDING (run + items created in one tx)
                   │
-                  │  cron tick (every 60s)
-                  │  /api/cron/certificate-issues
+                  │  worker tick (every 3 min — worker/jobs/cert-issue.ts;
+                  │  the /api/cron/certificate-issues route is a disabled
+                  │  legacy rollback handle)
                   ▼
           ┌─ RENDERING ─┐
           │    ↻ 50 items/tick
@@ -275,7 +289,7 @@ launch a dialog.
 
 For higher throughput (100k+ certs), the constraints are:
 1. AWS SES rate (provision higher quota with AWS)
-2. Cron tick frequency (currently 60s; could go to 30s)
+2. Worker tick frequency (currently every 3 min; could go tighter)
 3. RENDER_BATCH_SIZE (currently 50; can go higher if EC2 has CPU
    headroom — pdf-lib rendering is CPU-bound)
 

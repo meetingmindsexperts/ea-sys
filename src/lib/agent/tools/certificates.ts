@@ -14,9 +14,10 @@
  *   - delete_certificate_template   DELETE a template (blocked if issued)
  *   - update_cme_settings           PATCH event-level cmeHours + accreditations
  *
- * Asset URLs must be `/uploads/...` paths (or `/certificates/...`).
- * Upload PDFs via POST /api/upload/pdf first (5MB cap, magic-byte
- * validated); PNG/JPG also accepted and server-converted to PDF.
+ * Asset URLs must be a `/uploads/certificates/...` path or an https
+ * Supabase URL (validated by validateBackgroundPdfUrl — path-traversal +
+ * host allowlist). Upload PDFs via POST /api/upload/pdf first (10MB cap,
+ * magic-byte validated); PNG/JPG also accepted and server-converted to PDF.
  */
 
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";

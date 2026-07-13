@@ -97,13 +97,13 @@
 <h2>Remediation phases</h2>
 <div class="tbl-wrap">
 <table>
-  <thead><tr><th>Phase</th><th>Findings</th><th>Theme</th><th>Status</th></tr></thead>
+  <thead><tr><th>Phase</th><th>Commit</th><th>Findings</th><th>Theme</th><th>Status</th></tr></thead>
   <tbody>
-    <tr><td>1</td><td>B1</td><td>The file-read / SSRF chain (validate on write, guard on read)</td><td><span class="pill progress" data-phase="1">IN&nbsp;PROGRESS</span></td></tr>
-    <tr><td>2a</td><td>H1, H2, H3</td><td>Worker state machine + double-email + placeholder-ship</td><td><span class="pill deferred" data-phase="2a">PENDING</span></td></tr>
-    <tr><td>2b</td><td>H4, H5</td><td>Drift: field-dropping clone + dead divergent send pipeline</td><td><span class="pill deferred" data-phase="2b">PENDING</span></td></tr>
-    <tr><td>3</td><td>M1–M5</td><td>CANCELLED gates, bundle cover template, cron lock, P2002 diagnosis</td><td><span class="pill deferred" data-phase="3">PENDING</span></td></tr>
-    <tr><td>Docs</td><td>M7, M8, L5 + deferrals</td><td>Doc-drift corrections + ROADMAP entries for M6/M9/L1–L4/L6/L7</td><td><span class="pill deferred" data-phase="docs">PENDING</span></td></tr>
+    <tr><td>1</td><td><code>2c32d21</code></td><td>B1</td><td>The file-read / SSRF chain (validate on write, guard on read)</td><td><span class="pill shipped">SHIPPED</span></td></tr>
+    <tr><td>2a</td><td><code>bc06124</code></td><td>H1, H2, H3</td><td>Worker state machine + double-email + placeholder-ship</td><td><span class="pill shipped">SHIPPED</span></td></tr>
+    <tr><td>2b</td><td><code>05f0695</code></td><td>H4, H5</td><td>Drift: field-dropping clone + dead divergent send pipeline</td><td><span class="pill shipped">SHIPPED</span></td></tr>
+    <tr><td>3</td><td><code>a4b080d</code></td><td>M1–M5</td><td>CANCELLED gates, bundle cover template, cron guard, P2002 diagnosis</td><td><span class="pill shipped">SHIPPED</span></td></tr>
+    <tr><td>Docs</td><td>—</td><td>M7, M8, L5 + deferrals</td><td>Doc-drift corrections + ROADMAP entries for M6/M9/L1–L4/L6/L7</td><td><span class="pill shipped">SHIPPED</span></td></tr>
   </tbody>
 </table>
 </div>
@@ -113,26 +113,26 @@
 <table>
   <thead><tr><th>#</th><th>Severity</th><th>One-liner</th><th>Status</th></tr></thead>
   <tbody>
-    <tr><td>B1</td><td><span class="sev blocker">Blocker</span></td><td>Unvalidated <code>backgroundPdfUrl</code> → arbitrary local file read + SSRF; duplicate route is a public exfiltration channel</td><td><span class="pill progress" data-f="B1">PHASE&nbsp;1</span></td></tr>
-    <tr><td>H1</td><td><span class="sev high">High</span></td><td>Worker run-state transitions are unconditional — Cancel is clobbered; a cancelled auto run resurrects and emails anyway</td><td><span class="pill deferred" data-f="H1">PENDING</span></td></tr>
-    <tr><td>H2</td><td><span class="sev high">High</span></td><td>Missing/unfetchable background PDF silently issues + emails the instructional placeholder page as a real certificate</td><td><span class="pill deferred" data-f="H2">PENDING</span></td></tr>
-    <tr><td>H3</td><td><span class="sev high">High</span></td><td>Manual run × auto-issue overlap double-emails the same certificate — the P2002 net that made this safe was removed by the bundle rework</td><td><span class="pill deferred" data-f="H3">PENDING</span></td></tr>
-    <tr><td>H4</td><td><span class="sev high">High</span></td><td>Template duplicate silently drops <code>role</code> / <code>cmeHours</code> / <code>autoIssueOnSurvey</code> / <code>autoIssueTag</code></td><td><span class="pill deferred" data-f="H4">PENDING</span></td></tr>
-    <tr><td>H5</td><td><span class="sev high">High</span></td><td>Dead <code>/resend</code> route + <code>useResendCertificate</code> hook: an orphaned 4th send pipeline that already drifted off the audit-copy contract</td><td><span class="pill deferred" data-f="H5">PENDING</span></td></tr>
-    <tr><td>M1</td><td><span class="sev medium">Medium</span></td><td>Global-unique <code>serial</code> + non-unique event <code>code</code> prefix: two same-code events collide and the P2002 is misdiagnosed</td><td><span class="pill deferred" data-f="M1">PENDING</span></td></tr>
-    <tr><td>M2</td><td><span class="sev medium">Medium</span></td><td>Auto-issue sweep never checks registration status — a CANCELLED registration can be auto-issued and emailed a certificate</td><td><span class="pill deferred" data-f="M2">PENDING</span></td></tr>
-    <tr><td>M3</td><td><span class="sev medium">Medium</span></td><td>Bulk-email certificate send with an explicit status filter bypasses the CANCELLED exclusion</td><td><span class="pill deferred" data-f="M3">PENDING</span></td></tr>
-    <tr><td>M4</td><td><span class="sev medium">Medium</span></td><td>Survey auto-issue MULTI bundles ignore the editable <code>certificate-bundle-delivery</code> template</td><td><span class="pill deferred" data-f="M4">PENDING</span></td></tr>
-    <tr><td>M5</td><td><span class="sev medium">Medium</span></td><td>Legacy cron shim runs the cert sweeps with no advisory lock — re-enabling it alongside the worker double-drains runs</td><td><span class="pill deferred" data-f="M5">PENDING</span></td></tr>
+    <tr><td>B1</td><td><span class="sev blocker">Blocker</span></td><td>Unvalidated <code>backgroundPdfUrl</code> → arbitrary local file read + SSRF; duplicate route is a public exfiltration channel</td><td><span class="pill shipped">SHIPPED 2c32d21</span></td></tr>
+    <tr><td>H1</td><td><span class="sev high">High</span></td><td>Worker run-state transitions are unconditional — Cancel is clobbered; a cancelled auto run resurrects and emails anyway</td><td><span class="pill shipped">SHIPPED bc06124</span></td></tr>
+    <tr><td>H2</td><td><span class="sev high">High</span></td><td>Missing/unfetchable background PDF silently issues + emails the instructional placeholder page as a real certificate</td><td><span class="pill shipped">SHIPPED bc06124</span></td></tr>
+    <tr><td>H3</td><td><span class="sev high">High</span></td><td>Manual run × auto-issue overlap double-emails the same certificate — the P2002 net that made this safe was removed by the bundle rework</td><td><span class="pill shipped">SHIPPED bc06124</span></td></tr>
+    <tr><td>H4</td><td><span class="sev high">High</span></td><td>Template duplicate silently drops <code>role</code> / <code>cmeHours</code> / <code>autoIssueOnSurvey</code> / <code>autoIssueTag</code></td><td><span class="pill shipped">SHIPPED 05f0695</span></td></tr>
+    <tr><td>H5</td><td><span class="sev high">High</span></td><td>Dead <code>/resend</code> route + <code>useResendCertificate</code> hook: an orphaned 4th send pipeline that already drifted off the audit-copy contract</td><td><span class="pill shipped">SHIPPED 05f0695</span></td></tr>
+    <tr><td>M1</td><td><span class="sev medium">Medium</span></td><td>Global-unique <code>serial</code> + non-unique event <code>code</code> prefix: two same-code events collide and the P2002 is misdiagnosed</td><td><span class="pill shipped">SHIPPED a4b080d</span></td></tr>
+    <tr><td>M2</td><td><span class="sev medium">Medium</span></td><td>Auto-issue sweep never checks registration status — a CANCELLED registration can be auto-issued and emailed a certificate</td><td><span class="pill shipped">SHIPPED a4b080d</span></td></tr>
+    <tr><td>M3</td><td><span class="sev medium">Medium</span></td><td>Bulk-email certificate send with an explicit status filter bypasses the CANCELLED exclusion</td><td><span class="pill shipped">SHIPPED a4b080d</span></td></tr>
+    <tr><td>M4</td><td><span class="sev medium">Medium</span></td><td>Survey auto-issue MULTI bundles ignore the editable <code>certificate-bundle-delivery</code> template</td><td><span class="pill shipped">SHIPPED a4b080d</span></td></tr>
+    <tr><td>M5</td><td><span class="sev medium">Medium</span></td><td>Legacy cron shim runs the cert sweeps with no advisory lock — re-enabling it alongside the worker double-drains runs</td><td><span class="pill shipped">SHIPPED a4b080d</span></td></tr>
     <tr><td>M6</td><td><span class="sev medium">Medium</span></td><td>Send-phase crash windows: <code>emailedAt</code> stamped after the send with no per-item claim; thank-you suppression keys on the legacy 1:1 pointer</td><td><span class="pill deferred" data-f="M6">DEFER</span></td></tr>
-    <tr><td>M7</td><td><span class="sev medium">Medium</span></td><td><code>docs/CERTIFICATES.md</code> documents the superseded per-category uniqueness — the doc contradicts itself</td><td><span class="pill deferred" data-f="M7">DOCS</span></td></tr>
-    <tr><td>M8</td><td><span class="sev medium">Medium</span></td><td>ROADMAP still lists the <code>abstractTitle</code> XSS as open — it was fixed; a reviewer would re-do the work</td><td><span class="pill deferred" data-f="M8">DOCS</span></td></tr>
+    <tr><td>M7</td><td><span class="sev medium">Medium</span></td><td><code>docs/CERTIFICATES.md</code> documents the superseded per-category uniqueness — the doc contradicts itself</td><td><span class="pill shipped">DOC-FIXED</span></td></tr>
+    <tr><td>M8</td><td><span class="sev medium">Medium</span></td><td>ROADMAP still lists the <code>abstractTitle</code> XSS as open — it was fixed; a reviewer would re-do the work</td><td><span class="pill shipped">DOC-FIXED</span></td></tr>
     <tr><td>M9</td><td><span class="sev medium">Medium</span></td><td>MCP↔REST parity gap: no <code>duplicate_certificate_template</code> tool</td><td><span class="pill deferred" data-f="M9">DEFER</span></td></tr>
     <tr><td>L1</td><td><span class="sev low">Low</span></td><td>Legacy render path can overwrite an existing cert's PDF with one displaying a serial that exists on no DB row</td><td><span class="pill deferred" data-f="L1">DEFER</span></td></tr>
     <tr><td>L2</td><td><span class="sev low">Low</span></td><td>Auto-run partial-render failures leave <code>failedCount</code> in a state retry-failed “corrects” to zero, erasing the miss</td><td><span class="pill deferred" data-f="L2">DEFER</span></td></tr>
     <tr><td>L3</td><td><span class="sev low">Low</span></td><td>Issue route's concurrent-run guard is in a transaction but is not true mutual exclusion</td><td><span class="pill deferred" data-f="L3">DEFER</span></td></tr>
     <tr><td>L4</td><td><span class="sev low">Low</span></td><td>Serial allocation sits outside the cert-create transaction — failed renders burn serial numbers (benign gaps)</td><td><span class="pill deferred" data-f="L4">DEFER</span></td></tr>
-    <tr><td>L5</td><td><span class="sev low">Low</span></td><td>Stale caps/dates: “5MB” in the MCP tool header (cap is 10MB), “every 60s” tick (worker is 3 min), stale “Last updated” header</td><td><span class="pill deferred" data-f="L5">DOCS</span></td></tr>
+    <tr><td>L5</td><td><span class="sev low">Low</span></td><td>Stale caps/dates: “5MB” in the MCP tool header (cap is 10MB), “every 60s” tick (worker is 3 min), stale “Last updated” header</td><td><span class="pill shipped">DOC-FIXED</span></td></tr>
     <tr><td>L6</td><td><span class="sev low">Low</span></td><td>Observation: <code>revokedAt</code> has no write path anywhere — the refusal machinery guards a state nothing can set, and there is no unrevoke/supersede flow</td><td><span class="pill deferred" data-f="L6">DEFER</span></td></tr>
     <tr><td>L7</td><td><span class="sev low">Low</span></td><td>Issued cert PDFs are world-readable at unguessable UUID URLs with immutable caching — acceptable-by-design today, revisit if certs ever carry sensitive data</td><td><span class="pill deferred" data-f="L7">DEFER</span></td></tr>
   </tbody>
@@ -192,12 +192,13 @@
       <code>loadCertificatePdfBytes()</code> (which also gains a 15s fetch timeout).</li>
   </ul>
   <p class="lbl">Actual fix</p>
-  <p data-fix="B1">Phase 1 (in progress): <code>validateBackgroundPdfUrl()</code> added to
-    <code>pdf-loader.ts</code>; both REST template routes reject invalid URLs with 400
-    <code>INVALID_PDF_URL</code> (logged); MCP validator delegates to the same function;
-    <code>render.ts fetchBackgroundPdf</code> and the duplicate route's <code>fetchBackgroundBuffer</code> now
-    delegate to <code>loadCertificatePdfBytes</code>; loader fetch gained <code>AbortSignal.timeout(15s)</code>.
-    Package version bumped (MCP validation behavior changed — clients reconnect).</p>
+  <p data-fix="B1"><strong>Shipped (<code>2c32d21</code>).</strong> <code>validateBackgroundPdfUrl()</code>
+    added to <code>pdf-loader.ts</code>; both REST template routes reject invalid URLs via Zod refine with
+    400 <code>INVALID_PDF_URL</code>; the MCP validator delegates to the same function (the prefix-only
+    <code>LOCAL_URL_RE</code> is gone); <code>render.ts fetchBackgroundPdf</code> and the duplicate route's
+    <code>fetchBackgroundBuffer</code> now delegate to the guarded <code>loadCertificatePdfBytes</code>, which
+    gained <code>AbortSignal.timeout(15s)</code>. +11 tests. Package 0.4.19 → 0.4.20 (MCP validation behavior
+    changed — clients reconnect).</p>
   <div class="learn"><strong>What to learn:</strong> validate untrusted input at the <em>write</em> boundary AND
     guard at the <em>read</em> boundary (defense in depth) — either alone eventually gets bypassed. And when a
     security review consolidates a “single source of truth” helper, grep for every other caller of the same
@@ -233,7 +234,7 @@
     This is byte-for-byte the pattern the July-11 comms review applied to the scheduled-emails worker
     (commit <code>1e7c45e</code>) — it was never mirrored here.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="H1">Pending Phase 2a.</p>
+  <p data-fix="H1"><strong>Shipped (<code>bc06124</code>).</strong> New <code>transitionRunStatus()</code> does a conditional <code>updateMany</code> keyed on the expected prior status; applied to all four phase-complete sites (legacy render, bundle render, send, reissue) + <code>failRun</code> (guarded to never overwrite a terminal run). A lost transition logs <code>transition-superseded</code> and skips its follow-on. +1 test (cancel-mid-tick skip).</p>
   <div class="learn"><strong>What to learn:</strong> in any state machine shared by two writers (worker +
     operator route), a transition must be <em>compare-and-swap</em> — “move from RENDERING to AWAITING_REVIEW”,
     never “set to AWAITING_REVIEW”. <code>updateMany({ where: { id, status: expected } })</code> returning
@@ -261,7 +262,7 @@
     <code>allowPlaceholder</code> flag is passed — set only by the preview endpoint, where the placeholder is a
     feature.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="H2">Pending Phase 2a.</p>
+  <p data-fix="H2"><strong>Shipped (<code>bc06124</code>).</strong> <code>renderCertificate</code> now THROWS on a real issue path when the background is missing/unfetchable; only the preview endpoint opts in via <code>{ allowPlaceholder: true }</code>. Render errors are already caught per-item, so this surfaces as a per-recipient failure. +1 throw test.</p>
   <div class="learn"><strong>What to learn:</strong> a graceful fallback that is correct for a preview is a
     silent data-corruption bug in production. When one function serves both, the safe default is
     <em>fail loudly</em>, with an explicit opt-in flag for the forgiving mode — never the other way round. Read
@@ -290,7 +291,7 @@
   <p>The auto-sweep's existing-item guard matches pending items of <em>any</em> non-terminal run covering
     (template, recipient) — not just <code>autoIssue: true</code> ones.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="H3">Pending Phase 2a.</p>
+  <p data-fix="H3"><strong>Shipped (<code>bc06124</code>).</strong> The auto-sweep guard now matches any NON-TERMINAL run (manual OR auto) covering (template, recipient), excluding FAILED/CANCELLED (so nobody is stranded) and render-failed items. +1 manual-run-suppression test.</p>
   <div class="learn"><strong>What to learn:</strong> idempotency arguments are often <em>load-bearing on some
     specific constraint</em>. When you refactor away that constraint (here: the strict 1:1 cert-pointer link),
     every past “safe because of X” verdict that cited it silently expires. Keep a note of WHAT makes a race safe,
@@ -314,7 +315,7 @@
     <code>autoIssueOnSurvey</code> on the clone (a live auto-issuing clone would instantly double-issue the same
     tag audience); surface “auto-issue is off on the copy — re-enable when ready” in the response instead.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="H4">Pending Phase 2b.</p>
+  <p data-fix="H4"><strong>Shipped (<code>05f0695</code>).</strong> The clone now copies <code>role</code>/<code>cmeHours</code>/<code>autoIssueTag</code>; <code>autoIssueOnSurvey</code> is forced OFF (a live clone would instantly double-issue the source tag audience) and the response returns <code>{ autoIssuePaused }</code> so the UI can prompt a re-enable. +3 route tests.</p>
   <div class="learn"><strong>What to learn:</strong> hand-listing fields in a clone/copy operation creates a
     maintenance trap — every future column silently defaults on clones. Either copy by spread-and-omit
     (<code>{ ...source, id: undefined, name: newName }</code> shaped for the ORM) or add a test that fails when
@@ -339,7 +340,7 @@
   <p class="lbl">Suggested fix</p>
   <p>Delete the route + hook. The reissue/resend-bundle paths supersede it.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="H5">Pending Phase 2b.</p>
+  <p data-fix="H5"><strong>Shipped (<code>05f0695</code>).</strong> Deleted the dead <code>/resend</code> route (449 LOC), the <code>useResendCertificate</code> hook, and its test.</p>
   <div class="learn"><strong>What to learn:</strong> dead code is not neutral — a dead <em>copy of a live
     pipeline</em> is a drift bomb: the next person greps, finds it, “fixes” or resurrects it, and reintroduces
     every contract it missed. When a feature is superseded, delete the old path in the same change (git history
@@ -365,7 +366,7 @@
   <p>Discriminate the P2002 target (<code>e.meta.target</code>) in the catch blocks now (code-only); consider
     <code>@@unique([eventId, serial])</code> as a follow-up schema change.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="M1">Pending Phase 3 (catch-block discrimination; index change deferred to ROADMAP).</p>
+  <p data-fix="M1"><strong>Shipped (<code>a4b080d</code>).</strong> New shared <code>isSerialCollision()</code> discriminates <code>err.meta.target</code>; both catch blocks surface a distinct serial-collision error instead of the wrong recipient-dup handling. The <code>@([eventId, serial])</code> schema change is deferred to ROADMAP. +1 test.</p>
   <div class="learn"><strong>What to learn:</strong> a table can have several unique constraints, and
     <code>P2002</code> alone doesn't tell you which one fired — read <code>error.meta.target</code> before
     “handling” it, or your recovery path handles the wrong failure. And when building an identifier from parts,
@@ -384,7 +385,7 @@
   <p><code>status: { not: "CANCELLED" }</code> in the candidate query + a belt-and-braces skip in
     <code>processRegistration</code>.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="M2">Pending Phase 3.</p>
+  <p data-fix="M2"><strong>Shipped (<code>a4b080d</code>).</strong> Added <code>status: { not: "CANCELLED" }</code> to the auto-issue candidate query. +1 test.</p>
   <div class="learn"><strong>What to learn:</strong> when several code paths select “people who should get X”,
     the eligibility predicate must be shared or at least identical — grep for the sibling paths' WHERE clauses
     and diff them. A delayed/retried job also needs its guards re-checked <em>at execution time</em>, not just
@@ -403,7 +404,7 @@
   <p>For <code>emailType: "certificate"</code>, force-exclude CANCELLED regardless of the explicit filter (or 400
     <code>INVALID_FILTER</code> when the status list includes it).</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="M3">Pending Phase 3.</p>
+  <p data-fix="M3"><strong>Shipped (<code>a4b080d</code>).</strong> <code>precheckBulkEmailViability</code> now 400s <code>INVALID_FILTER</code> for a certificate send explicitly targeting CANCELLED. +1 test.</p>
   <div class="learn"><strong>What to learn:</strong> a business invariant (“a cancelled reg never gets a cert”)
     must hold for every input combination, not just the default one. When a rule is implemented as “apply the
     guard unless the caller specified something”, the caller's input just became a bypass. Encode invariants
@@ -423,7 +424,7 @@
   <p>The worker send phase resolves its fallback cover via <code>loadBundleCoverEmailTemplate(eventId)</code>
     (per-run, cached per tick if needed) before the hardcoded constants.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="M4">Pending Phase 3.</p>
+  <p data-fix="M4"><strong>Shipped (<code>a4b080d</code>).</strong> The worker send phase now resolves a multi-cert bundle cover via <code>loadBundleCoverEmailTemplate</code> before the hardcoded default, matching <code>deliver.resolveResendBundleCover</code>.</p>
   <div class="learn"><strong>What to learn:</strong> when a configurable value replaces a hardcoded one, list
     every consumer of the old constant and migrate all of them — the constant should end up referenced only as
     the terminal fallback inside the loader itself, so no caller can accidentally skip the config.</div>
@@ -442,7 +443,7 @@
   <p>Route the shim through the same advisory lock (or at minimum a prominent comment: “must stay disabled while
     the worker runs”). The lock is the honest fix — the shim's whole purpose is to be safe to turn on.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="M5">Pending Phase 3.</p>
+  <p data-fix="M5"><strong>Shipped (<code>a4b080d</code>).</strong> Loud DEPRECATED-ROLLBACK-HANDLE guard comment + a runtime warn on every invocation. Full lock-sharing deferred (would couple src→worker and, per the P3 transaction-pooler limitation, wouldn't hold across backends anyway).</p>
   <div class="learn"><strong>What to learn:</strong> a rollback path is production code — it runs precisely when
     things are already going wrong. If the primary path needed a lock, the fallback needs the same lock; “it's
     disabled right now” is a runtime state, not a safety property.</div>
@@ -461,8 +462,7 @@
     accepting the reversed trade-off (crash after claim = one missed email, recoverable) — and key suppression
     the same deterministic (templateIds × facets) way the send phase collects.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="M6">Deferred to ROADMAP (needs the same at-least-once vs at-most-once decision the comms worker
-    made; bundle it with H1's conditional-transition work if picked up together).</p>
+  <p data-fix="M6"><strong>Deferred → ROADMAP.</strong> Needs the same at-least-once vs at-most-once decision the comms worker made; bundle it with H1's conditional-transition work if picked up together.</p>
   <div class="learn"><strong>What to learn:</strong> “do the side effect, then record it” gives at-least-once
     (duplicates on crash); “record it, then do it” gives at-most-once (drops on crash). Neither is free — pick
     per side effect: for emails to humans, a rare missed email you can resend beats a duplicate you can't
@@ -475,7 +475,7 @@
     + a rationale heading defending it) vs <code>prisma/schema.prisma</code> (per-template uniqueness since
     migration <code>20260625140000</code>) — later doc sections describe the new model correctly.</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="M7">Docs phase.</p>
+  <p data-fix="M7"><strong>Fixed in docs (this review).</strong> <code>docs/CERTIFICATES.md</code> Models block now shows the per-template <code>@</code> + a dated correction note; the old per-category rationale heading is rewritten.</p>
   <div class="learn"><strong>What to learn:</strong> when you change a constraint, grep the docs for the OLD
     constraint string in the same commit. A doc that argues confidently for a superseded design is worse than no
     doc — the next engineer trusts the rationale section most.</div>
@@ -486,7 +486,7 @@
   <p class="loc"><code>docs/ROADMAP.md</code> P1 #2 + June-3 deferred table vs
     <code>email-tokens-resolver.ts:210</code> (escaped under <code>escapeDynamic</code>, set by every HTML caller).</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="M8">Docs phase (strike from ROADMAP).</p>
+  <p data-fix="M8"><strong>Fixed in docs (this review).</strong> The stale <code>abstractTitle</code> XSS entry is struck from ROADMAP (already fixed in <code>email-tokens-resolver.ts</code> under <code>escapeDynamic</code>).</p>
   <div class="learn"><strong>What to learn:</strong> a backlog is only useful if closing an item removes it.
     Doc-drift runs both directions — stale “open” items cause duplicated work just as stale “done” claims cause
     false confidence.</div>
@@ -496,8 +496,7 @@
   <h3><span class="sev medium">Medium</span> M9 — MCP↔REST parity gap: no <code>duplicate_certificate_template</code> tool</h3>
   <p class="loc"><code>src/lib/agent/tools/certificates.ts</code> (list/create/update/delete/update_cme only).</p>
   <p class="lbl">Actual fix</p>
-  <p data-fix="M9">Deferred to ROADMAP (adding the tool owes a package bump + client reconnects; fold into the
-    next MCP-changing deploy).</p>
+  <p data-fix="M9"><strong>Deferred → ROADMAP.</strong> Adding the tool owes a package bump + client reconnects; fold into the next MCP-changing deploy.</p>
   <div class="learn"><strong>What to learn:</strong> when a system has two API surfaces (REST + MCP), every new
     REST capability should trigger the question “does the agent surface need this too?” — asymmetry accumulates
     quietly and forces agents into worse multi-call workarounds.</div>
