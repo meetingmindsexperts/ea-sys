@@ -17,6 +17,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import { Prisma } from "@prisma/client";
 
 interface RouteParams {
@@ -45,7 +46,16 @@ const textBoxSchema = z.object({
 const createSchema = z.object({
   name: z.string().min(1).max(120).trim(),
   category: z.enum(["ATTENDANCE", "APPRECIATION"]),
-  backgroundPdfUrl: z.string().max(500).nullable().optional(),
+  // Guard against a path-traversal / SSRF value being persisted (B1). Every
+  // URL the system itself generates satisfies this; only attacker input fails.
+  backgroundPdfUrl: z
+    .string()
+    .max(500)
+    .nullable()
+    .optional()
+    .refine((v) => v == null || validateBackgroundPdfUrl(v).ok, {
+      message: "backgroundPdfUrl must be a /uploads/certificates/ path or an https Supabase URL",
+    }),
   textBoxes: z.array(textBoxSchema).max(40).optional(),
   // Per-template default cover email. Both nullable — when null the
   // Issue dialog pre-fills with the system default. min(1) when set

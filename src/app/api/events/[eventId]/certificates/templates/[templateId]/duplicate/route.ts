@@ -28,6 +28,7 @@ import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { uploadCertificatePdf } from "@/lib/storage";
+import { loadCertificatePdfBytes } from "@/lib/certificates/pdf-loader";
 import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 
@@ -47,32 +48,17 @@ interface RouteParams {
  * the duplicate (today: yes — if the operator uploaded a background and
  * it's gone, the clone would be broken silently).
  */
-async function fetchBackgroundBuffer(url: string): Promise<Buffer | null> {
-  if (url.startsWith("/uploads/")) {
-    const { readFile } = await import("fs/promises");
-    const { join } = await import("path");
-    const filepath = join(process.cwd(), "public", url);
-    try {
-      return await readFile(filepath);
-    } catch (e) {
-      apiLogger.warn({ msg: "cert-templates:duplicate-read-failed", url, err: String(e) });
-      return null;
-    }
-  }
+async function fetchBackgroundBuffer(url: string, eventId: string): Promise<Buffer | null> {
+  // Route through the GUARDED shared loader (path-traversal + https/host
+  // allowlist + timeout). This helper used to carry its own unguarded
+  // readFile/fetch copy — combined with the world-readable URL the clone
+  // stores, that made a malicious backgroundPdfUrl a full local-file-read /
+  // SSRF exfiltration channel. Loader rejections surface as the same
+  // null → 409 BACKGROUND_PDF_MISSING the caller already handles.
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) {
-      apiLogger.warn({
-        msg: "cert-templates:duplicate-fetch-failed",
-        url,
-        status: res.status,
-      });
-      return null;
-    }
-    const arr = await res.arrayBuffer();
-    return Buffer.from(arr);
+    return await loadCertificatePdfBytes(url, { eventId });
   } catch (e) {
-    apiLogger.warn({ msg: "cert-templates:duplicate-fetch-error", url, err: String(e) });
+    apiLogger.warn({ msg: "cert-templates:duplicate-read-failed", url, err: String(e) });
     return null;
   }
 }
@@ -121,7 +107,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     // half-cloned row with a broken backgroundPdfUrl pointer.
     let newBackgroundUrl: string | null = source.backgroundPdfUrl;
     if (source.backgroundPdfUrl) {
-      const buf = await fetchBackgroundBuffer(source.backgroundPdfUrl);
+      const buf = await fetchBackgroundBuffer(source.backgroundPdfUrl, eventId);
       if (!buf) {
         return NextResponse.json(
           {

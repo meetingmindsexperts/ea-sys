@@ -20,6 +20,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import { Prisma } from "@prisma/client";
 
 interface RouteParams {
@@ -47,7 +48,15 @@ const textBoxSchema = z.object({
 
 const patchSchema = z.object({
   name: z.string().min(1).max(120).trim().optional(),
-  backgroundPdfUrl: z.string().max(500).nullable().optional(),
+  // Guard against a path-traversal / SSRF value being persisted (B1).
+  backgroundPdfUrl: z
+    .string()
+    .max(500)
+    .nullable()
+    .optional()
+    .refine((v) => v == null || validateBackgroundPdfUrl(v).ok, {
+      message: "backgroundPdfUrl must be a /uploads/certificates/ path or an https Supabase URL",
+    }),
   textBoxes: z.array(textBoxSchema).max(40).optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
   // Per-template default cover email — patches independently of the

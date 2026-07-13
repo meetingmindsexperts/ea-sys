@@ -9,7 +9,7 @@ const { readFileMock } = vi.hoisted(() => ({ readFileMock: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("fs/promises", () => ({ readFile: readFileMock }));
 
-import { loadCertificatePdfBytes } from "@/lib/certificates/pdf-loader";
+import { loadCertificatePdfBytes, validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -67,5 +67,54 @@ describe("loadCertificatePdfBytes — remote SSRF guard", () => {
   it("throws on a non-2xx fetch", async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 404 });
     await expect(loadCertificatePdfBytes("https://proj.supabase.co/x.pdf")).rejects.toThrow(/HTTP 404/);
+  });
+});
+
+describe("validateBackgroundPdfUrl — write-side guard (B1)", () => {
+  it("accepts a system-generated local cert path", () => {
+    expect(validateBackgroundPdfUrl("/uploads/certificates/evt123/abc.pdf").ok).toBe(true);
+  });
+
+  it("accepts an https Supabase URL", () => {
+    expect(validateBackgroundPdfUrl("https://proj.supabase.co/storage/v1/x.pdf").ok).toBe(true);
+  });
+
+  it("rejects a local path-traversal (../../.env)", () => {
+    const r = validateBackgroundPdfUrl("/uploads/../../.env");
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects a local path outside certificates/ (photos)", () => {
+    expect(validateBackgroundPdfUrl("/uploads/photos/x.pdf").ok).toBe(false);
+  });
+
+  it("rejects a traversal that stays under the certificates/ prefix textually", () => {
+    // starts with /uploads/certificates/ but contains a `..` segment
+    expect(validateBackgroundPdfUrl("/uploads/certificates/../../secrets/x.pdf").ok).toBe(false);
+  });
+
+  it("rejects a NUL byte", () => {
+    expect(validateBackgroundPdfUrl("/uploads/certificates/a\0.pdf").ok).toBe(false);
+  });
+
+  it("rejects a non-allowlisted remote host", () => {
+    expect(validateBackgroundPdfUrl("https://evil.example.com/x.pdf").ok).toBe(false);
+  });
+
+  it("rejects a look-alike remote host", () => {
+    expect(validateBackgroundPdfUrl("https://supabase.co.evil.com/x.pdf").ok).toBe(false);
+  });
+
+  it("rejects an http (non-https) remote URL", () => {
+    expect(validateBackgroundPdfUrl("http://proj.supabase.co/x.pdf").ok).toBe(false);
+  });
+
+  it("rejects an SSRF metadata-endpoint URL", () => {
+    expect(validateBackgroundPdfUrl("http://169.254.169.254/latest/meta-data/").ok).toBe(false);
+  });
+
+  it("rejects an empty string and an over-length string", () => {
+    expect(validateBackgroundPdfUrl("").ok).toBe(false);
+    expect(validateBackgroundPdfUrl("/uploads/certificates/" + "a".repeat(500) + ".pdf").ok).toBe(false);
   });
 });

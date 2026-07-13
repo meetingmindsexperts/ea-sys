@@ -17,6 +17,53 @@ import { apiLogger } from "@/lib/logger";
 
 const REMOTE_PDF_HOST_ALLOWLIST = [/\.supabase\.co$/i];
 
+/**
+ * WRITE-side validator for `CertificateTemplate.backgroundPdfUrl` — the same
+ * constraint the READ-side loader below enforces, applied at persist time so a
+ * bad value can never be stored in the first place. Used by the REST template
+ * POST/PATCH routes and the MCP create/update tools.
+ *
+ * Every URL the system itself generates satisfies this (uploadCertificatePdf
+ * writes `/uploads/certificates/{eventId}/…` locally, or a Supabase https URL),
+ * so tightening rejects only attacker-shaped input:
+ *   - local  → must start with /uploads/certificates/ and contain no `..`
+ *              segment or NUL (readFile does not percent-decode, so encoded
+ *              dots are literal filename chars, not traversal)
+ *   - remote → https + hostname on the Supabase allowlist
+ */
+export function validateBackgroundPdfUrl(
+  url: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (url.length === 0 || url.length > 500) {
+    return { ok: false, reason: "must be 1-500 characters" };
+  }
+  if (url.includes("\0")) {
+    return { ok: false, reason: "contains a NUL byte" };
+  }
+  if (url.startsWith("/")) {
+    if (!url.startsWith("/uploads/certificates/")) {
+      return { ok: false, reason: "local path must be under /uploads/certificates/" };
+    }
+    if (url.split("/").some((seg) => seg === "..")) {
+      return { ok: false, reason: "path traversal segment (..) not allowed" };
+    }
+    return { ok: true };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, reason: "not a valid absolute URL or /uploads/certificates/ path" };
+  }
+  if (parsed.protocol !== "https:") {
+    return { ok: false, reason: "remote URL must use https" };
+  }
+  if (!REMOTE_PDF_HOST_ALLOWLIST.some((re) => re.test(parsed.hostname))) {
+    return { ok: false, reason: `remote host not allowed: ${parsed.hostname}` };
+  }
+  return { ok: true };
+}
+
 export interface PdfLoadLogContext {
   eventId?: string;
   certificateId?: string;
@@ -60,7 +107,8 @@ export async function loadCertificatePdfBytes(
     throw new Error(`Remote pdfUrl host not on allowlist: ${url.hostname}`);
   }
 
-  const res = await fetch(pdfUrl);
+  // 15s ceiling — a hung storage fetch must not stall a worker tick forever.
+  const res = await fetch(pdfUrl, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
     apiLogger.warn({ msg: "cert-pdf:fetch-failed", pdfUrl, status: res.status, ...logCtx });
     throw new Error(`Failed to fetch PDF: HTTP ${res.status} ${pdfUrl}`);

@@ -29,21 +29,18 @@ import type {
   CertificateFontName,
 } from "./types";
 
-/** Load + cache the background PDF bytes for a given URL. */
+/**
+ * Load the background PDF bytes for a given URL — via the GUARDED shared
+ * loader (path-traversal + https/host-allowlist + timeout). This helper used
+ * to carry its own unguarded readFile/fetch copy, bypassing the pdf-loader
+ * consolidation; a malicious backgroundPdfUrl could read arbitrary local
+ * files or hit internal endpoints (SSRF). Backgrounds live under the same
+ * /uploads/certificates/ prefix (or Supabase) as issued PDFs, so the loader's
+ * constraint applies unchanged.
+ */
 async function fetchBackgroundPdf(url: string): Promise<Buffer> {
-  if (url.startsWith("/uploads/")) {
-    // Local file — read from disk.
-    const { readFile } = await import("fs/promises");
-    const { join } = await import("path");
-    return readFile(join(process.cwd(), "public", url));
-  }
-  // Supabase / absolute URL — fetch.
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch background PDF (HTTP ${res.status}): ${url}`);
-  }
-  const arr = await res.arrayBuffer();
-  return Buffer.from(arr);
+  const { loadCertificatePdfBytes } = await import("./pdf-loader");
+  return loadCertificatePdfBytes(url);
 }
 
 /** Map our CertificateFontName to pdf-lib's StandardFonts enum value. */

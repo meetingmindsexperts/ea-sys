@@ -24,6 +24,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { updateEventSettings } from "@/lib/event-settings";
+import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 import type { AgentContext, ToolExecutor } from "./_shared";
 
 const CERT_CATEGORIES = ["ATTENDANCE", "APPRECIATION"] as const;
@@ -32,7 +33,6 @@ type CertCategory = (typeof CERT_CATEGORIES)[number];
 const ACCREDITOR_BODIES = ["DHA", "DOH", "SCFHS", "EACCME", "ACCME", "OTHER"] as const;
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-const LOCAL_URL_RE = /^\/(uploads|certificates)\//;
 const FONT_NAMES = new Set([
   "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
   "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
@@ -69,9 +69,13 @@ function validatePdfUrl(url: unknown, field: string): string | { error: string; 
   if (typeof url !== "string" || url.length === 0) {
     return { error: `${field} must be a non-empty string`, code: "INVALID_PDF_URL" };
   }
-  if (!LOCAL_URL_RE.test(url) || url.length > 500) {
+  // The prefix-only LOCAL_URL_RE let `/uploads/../../.env` through; delegate to
+  // the shared validator so the agent surface enforces the same path-traversal /
+  // https-host-allowlist guard as the read-side loader (B1).
+  const check = validateBackgroundPdfUrl(url);
+  if (!check.ok) {
     return {
-      error: `${field} must be a /uploads/... or /certificates/... path (max 500 chars). Upload via POST /api/upload/pdf first.`,
+      error: `${field} is invalid: ${check.reason}. Upload via POST /api/upload/pdf first.`,
       code: "INVALID_PDF_URL",
     };
   }
