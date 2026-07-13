@@ -300,6 +300,101 @@ wrong-event badge 404s); sequential double-scan IS idempotent (only the concurre
 ONSITE fix holds on the five routes it touched; DTCM is never substituted for the entry barcode.
 
 
+### 🚨 Survey + Dinner RSVP review (July 13, 2026) — **B1 IS AN OPEN BLOCKER**; everything else in the batch shipped
+
+First independent review of the last un-reviewed domain: **2 BLOCKER / 5 HIGH / 8 MED / 5 LOW** — the most
+severe result of any domain. Full report (teaching format):
+[docs/CODE_REVIEW_SURVEY_RSVP.html](CODE_REVIEW_SURVEY_RSVP.html).
+
+> ## ⚠️ OPEN BLOCKER — B1: anyone can submit a survey AS another attendee, minting their CME certificate
+>
+> **Do not run a conference that issues CME certificates off a broadcast survey link until this is closed.**
+>
+> The survey share link (designed to be posted publicly — a slide, WhatsApp, an email signature) resolves the
+> respondent **purely from the email they type into the form** — no proof of mailbox control. That submit
+> stamps `Registration.surveyCompletedAt`, which is exactly what the certificate auto-issue sweep polls on
+> (`auto-issue.ts`: `surveyCompletedAt: { not: null }`).
+>
+> So a stranger who knows an attendee's email (routinely public for medical faculty) can:
+> 1. **auto-issue a real, serialized, audited CME certificate in that person's name** off garbage answers;
+> 2. **permanently lock the real attendee out** — `SurveyResponse.registrationId` is `@unique` and the flag is
+>    set, so their own link returns `alreadyCompleted` forever, and there is no organizer "reset survey";
+> 3. poison the accreditation dataset with forged answers attributed to a named physician.
+>
+> **How it happened** (the lesson): the share link shipped June 9, when `surveyCompletedAt` was *just a feedback
+> flag* — trusting a typed email was a defensible trade. Certificate auto-issue shipped June 25 and **promoted
+> that flag into a credential-issuing trigger**; its own comment reads *"the survey POST path is UNTOUCHED — it
+> already sets surveyCompletedAt."* Nobody went back to ask who was allowed to set it.
+>
+> **Needs an owner decision** (each changes the attendee's experience):
+> - **(a) Email them their link (recommended)** — the share page becomes "enter your registered email → we'll
+>   email you your survey link", reusing the EXISTING secure per-registration token path. Turns an assertion
+>   into a proof; also closes M1 (the enumeration oracle). Costs one step: the attendee checks their phone.
+> - **(b) Share = feedback, never a certificate** — direct submit stays but doesn't stamp `surveyCompletedAt`.
+>   Keeps the frictionless closing-slide flow; breaks "fill the survey to get your certificate" for share users.
+> - **(c) Retire the share link** — only the emailed per-registration token works. Simplest + safest; removes a
+>   feature organizers use.
+
+**Shipped** (Blockers+HIGHs batch, minus B1):
+- **✅ B2 (`220d421`) — editing a dinner wiped its venue, description and RSVP deadline.** The roster GET (the
+  console's ONLY source of dinners) selected `{id, name, dinnerAt}`; the edit dialog read the missing fields as
+  blank and PUT them back as `""`/`null`, which the PUT reads as an explicit CLEAR. Fixing a **typo in a
+  dinner's name** erased its venue and set `rsvpDeadline = NULL` — so **RSVP for that dinner never closed
+  again**. The client's `Dinner` interface always *declared* those fields; nothing enforced that the API sent
+  them.
+- **✅ H5 (`220d421`) — dinner times drifted by the UTC offset on every save** (`iso.slice(0,16)` into a
+  `datetime-local`, which the browser reads as local). A 19:00 Dubai gala opened showing 15:00 and *moved* there
+  on save; save again → 11:00. New `src/lib/datetime-local.ts` is the one lossless pair.
+- **✅ H2 (`1ea4a92`) — the RSVP roster handed out the invite token** (an impersonation credential: it lets
+  anyone POST the *public* rsvp endpoint with no login and rewrite a professor's attendance) plus the VIP guest
+  list, to MEMBER / cross-event ONSITE / internal-domain REGISTRANT. Now `denyReviewer` + `buildEventAccessWhere`.
+- **✅ H1 (`1ea4a92`) — the survey "soft IP dedup" locked an entire conference room out.** Keyed on IP, not
+  registration → everyone on the venue WiFi shares one NAT IP → QR on the closing slide, first submit lands,
+  **everyone else gets 429**, window never empties → they never complete the survey → **they never get their
+  certificate**. It was also redundant (the `@unique` already handles the double-click). Deleted.
+- **✅ H3 (`c7a2faf`) — the thank-you sweep starved everyone but the newest 100** (took 100 newest, filtered
+  already-thanked *after* the take). On a 400-completion conference ~300 people never got the thank-you — the
+  email carrying their certificate — while the sweep logged a healthy `scanned: 100` forever.
+- **✅ H4 (`c7a2faf`) — MCP `list_dinner_rsvps` computed the caterer's headcount over one truncated page**
+  (~25% under-order on a 260-invitee event; and `status:PENDING` made every dinner report 0 seats).
+
+**Deferred:**
+- **M1 — the share submit is a registration-enumeration oracle** (unknown email 404s, known one proceeds), so
+  anyone with the broadcast link can test emails against a named medical conference's roster. *Closed
+  automatically by B1 option (a).*
+- **M2 — a speaker who is also a delegate** has two registrations on one email; the share path picks one
+  arbitrarily, so the completion stamp can land on the hidden faculty companion while the delegate row stays
+  "not completed" and its certificate never issues.
+- **M3 — deleting a survey question after responses exist** makes those answers vanish from the dashboard AND
+  the CSV with no warning (the data survives in JSON but is unreachable from every operator surface).
+- **M4 — a withdrawal is silently partly ignored.** The replace-all only covers dinners whose deadline hasn't
+  passed, so "I can't attend any of the dinners" leaves a past-deadline *Yes +2* intact — while the invitee sees
+  the full "your RSVP has been recorded" screen. Three covers get plated for someone who told you they weren't
+  coming.
+- **M5 — the import picker includes CANCELLED registrations** (no status filter, no badge) → cancelled people
+  get invited to the gala.
+- **M6 — a deactivated dinner still feeds the organizer headcount + CSV** while hidden from invitees; those
+  stale responses can never be cleared (the public replace-all only touches active dinners), and reinstating the
+  dinner resurrects every original "Yes".
+- **M7 — 8 unlogged 4xx branches in the SURVEY routes.** (The CLAUDE.md "every failure path logs" claim for
+  **Dinner RSVP was independently verified and HOLDS** — zero silent 4xx. Survey is where the rule breaks.)
+- **M8 — doc drift on a security boundary:** both survey-responses routes claim "MEMBER allowed (read-only)",
+  but `denyReviewer` 403s MEMBER. The behaviour is the safe one; the comment is a lie in a security-relevant
+  place, and the denial logs as `auth-guard:write-denied` on a *read* route.
+- **LOWs:** RSVP tokens never expire / can't be rotated (permanent bearer credential in a URL path);
+  `?preview=1` is unauthenticated, works for DRAFT events, and survives share-link revocation; the send route
+  shares one 10/hr bucket between bulk and single-invitee sends (429 on the 11th nudge); `target:"all"` re-mails
+  everyone including those who already replied.
+
+**Verified clean:** the per-registration survey token is hashed at rest, slug-bound, one-time-use, and its
+delete + the response write + the completion stamp are all in ONE transaction; `SurveyResponse.registrationId
+@unique` genuinely prevents a duplicate response (P2002 caught as an idempotent 200), so re-submitting can't
+mint a second certificate; answers are strictly validated against the config; both CSV exports use
+`escapeCsvCell`; the RSVP token is 192-bit CSPRNG and event-slug-bound (no cross-event replay); the share-link
+compare is timing-safe AND correctly ordered (token before expiry); the public RSVP submit is a
+server-authoritative replace-all under a row lock; bulk-add dedup is race-safe.
+
+
 ### Accommodation / hotels review (July 13, 2026) — security + counter batch SHIPPED, visibility/hygiene deferred
 
 First full 4-angle review of the accommodation + hotels domain (booking lifecycle · RBAC/info-exposure ·

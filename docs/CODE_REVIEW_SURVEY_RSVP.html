@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — Survey &amp; Dinner RSVP (July 2026)</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+    --ok:#15803d; --bad:#b91c1c; --lesson-bg:#f5f3ff; --lesson-line:#c4b5fd;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:980px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.6rem 0}
+  pre code{background:none;padding:0}
+  pre.bad{border-left:4px solid var(--bad)}
+  pre.good{border-left:4px solid var(--ok)}
+  .tag{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin:.6rem 0 .1rem}
+  .tag.bad{color:var(--bad)} .tag.good{color:var(--ok)}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)}
+  .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .pill{font-weight:700;font-size:.72rem;letter-spacing:.04em;padding:.14em .5em;border-radius:3px;white-space:nowrap}
+  .pill.shipped{background:var(--ok);color:#fff} .pill.deferred{background:var(--muted);color:#fff}
+  .pill.open{background:var(--blocker);color:#fff}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.5rem 0}
+  .finding.blocker{border-left-color:var(--blocker)} .finding.high{border-left-color:var(--high)}
+  .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .finding h3{margin-top:0;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .loc{color:var(--muted);font-size:.87rem;margin:.1rem 0 .8rem;font-family:ui-monospace,monospace}
+  .lbl{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.9rem 0 .2rem}
+  .lesson{background:var(--lesson-bg);border:1px solid var(--lesson-line);border-left:4px solid #8b5cf6;border-radius:6px;padding:.85rem 1.1rem;margin:1rem 0 .2rem}
+  .lesson .lbl{color:#6d28d9;margin-top:0}
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1.25rem 0}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+  .note.danger{background:#fef2f2;border-color:#fecaca}
+  ul,ol{padding-left:1.4rem} li{margin:.35rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf;--ok:#22c55e;--bad:#ef4444;
+      --lesson-bg:#1e1b31;--lesson-line:#4c3d7a}
+    .sev{color:#14171a} .pill.shipped{color:#14171a} .pill.deferred{color:#14171a} .pill.open{color:#fff}
+    .lesson .lbl{color:#c4b5fd}
+    .note{background:#0c2b3a;border-color:#1e4a5f}
+    .note.warn{background:#33290c;border-color:#66551a}
+    .note.danger{background:#3b1414;border-color:#7f1d1d}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Survey &amp; Dinner RSVP</h1>
+  <p class="sub">
+    4-angle production review · July 13, 2026 · <strong>2 BLOCKER / 5 HIGH / 8 MED / 5 LOW</strong> —
+    the most severe result of any domain.<br>
+    Angles: token security &amp; public-surface auth · RSVP lifecycle &amp; integrity · survey lifecycle &amp;
+    the certificate coupling · RBAC / PII / drift / logging.<br>
+    Scope: the public token-gated survey + RSVP endpoints, the organizer dinner console, the survey builder
+    and responses, the MCP tool, and <code>survey-thankyou-sweep</code>.
+  </p>
+</header>
+
+<div class="note danger">
+  <strong>⚠ B1 IS STILL OPEN.</strong> The survey share-link lets anyone submit a survey <em>as another
+  attendee</em>, which auto-issues a real CME certificate in that person's name. Every fix changes what an
+  attendee experiences, so it needs an owner decision — see <a href="#b1">B1</a> for the three options.
+  <strong>Do not run a conference that issues CME certificates off a broadcast survey link until this is
+  closed.</strong>
+</div>
+
+<div class="note">
+  <strong>Status — everything else in the Blockers+HIGHs batch is SHIPPED</strong> (July 13):
+  <code>220d421</code> (B2 dinner-edit wipe + timezone), <code>1ea4a92</code> (H2 RSVP token leak, H1
+  venue-WiFi lockout), <code>c7a2faf</code> (H3 thank-you starvation, H4 MCP headcounts).
+  The MEDs/LOWs are deferred to <code>docs/ROADMAP.md</code>.
+</div>
+
+<h2>The theme: a flag changed meaning, and nobody re-checked who could set it</h2>
+
+<p>Two of the worst findings here have the same shape, and it's a shape worth learning because it doesn't
+look like a bug in any single commit.</p>
+
+<p><strong>June 9</strong> — the survey share link shipped. Its design was explicit: respondents
+"self-identify by their registered email." At that moment <code>Registration.surveyCompletedAt</code> was
+just a <em>feedback flag</em>. Trusting a typed email was a reasonable trade: worst case, somebody submits
+fake feedback.</p>
+
+<p><strong>June 25</strong> — survey-gated certificate auto-issue shipped. Its own header comment says it
+plainly:</p>
+<pre class="bad"><code>// the survey POST path is UNTOUCHED — it already sets `surveyCompletedAt`.</code></pre>
+<p>That sentence was written as reassurance. It is actually the bug report. The new feature <em>promoted an
+existing flag into a credential-issuing trigger</em> — and never went back to ask <strong>who is allowed to
+set it</strong>. A field that was safe to let a stranger write became a field that mints an accredited
+medical certificate.</p>
+
+<div class="lesson">
+  <p class="lbl">💡 The lesson (this is the one to remember)</p>
+  <p><strong>When you make an existing field load-bearing for something new, re-audit every path that can
+  write it.</strong> Security isn't a property of a function — it's a property of the whole graph of who can
+  reach what. Adding a consumer changes the security requirements of the producer, even though the producer's
+  code didn't change and its tests still pass.</p>
+  <p>Concretely, ask: <em>"what is the weakest authentication on any path that can set this field, and is
+  that strong enough for the strongest thing that now depends on it?"</em> Here the weakest path was "type an
+  email into a public form," and the strongest dependent was "issue a CME certificate." Those two should never
+  have met.</p>
+</div>
+
+<h2>BLOCKER</h2>
+
+<div class="finding blocker" id="b1">
+  <h3><span class="sev blocker">Blocker</span> B1 — Anyone can submit a survey as another attendee (and mint their certificate) <span class="pill open">OPEN — needs a decision</span></h3>
+  <p class="loc">src/app/api/public/events/[slug]/survey/route.ts — handleShareSubmit (~:589)</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>// The share token is valid (it's DESIGNED to be broadcast — a slide, WhatsApp,
+// an email signature). Now: who is submitting?
+const registrations = await db.registration.findMany({
+  where: {
+    event: { slug },
+    status: { notIn: ["CANCELLED"] },
+    attendee: { email: normalizedEmail },   // ← whatever they TYPED into the form
+  },
+});
+const target = registrations.find((r) =&gt; !r.surveyCompletedAt) ?? registrations[0];
+
+return finalizeSubmission(req, target, rawAnswers, null);
+//     └─ writes SurveyResponse, stamps `surveyCompletedAt`, tags the Attendee</code></pre>
+
+  <p><strong>Why it's wrong:</strong> a typed email is an <em>assertion</em> of identity, not <em>proof</em>
+  of it. Nothing here demonstrates the submitter controls that mailbox. And medical-faculty emails are
+  routinely public.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>The organizer puts the survey QR on the closing slide (its intended use). Someone opens it, types
+  <code>famous.cardiologist@hospital.ae</code>, and submits garbage. Three consequences, none reversible by
+  the victim:</p>
+  <ol>
+    <li><strong>A real CME certificate is auto-issued in their name.</strong> <code>surveyCompletedAt</code>
+      is exactly what the auto-issue sweep polls on (<code>auto-issue.ts</code>:
+      <code>surveyCompletedAt: { not: null }</code>), so a serialized, audited certificate is minted and
+      emailed — <em>accreditation evidence manufactured by a stranger.</em></li>
+    <li><strong>The real attendee is permanently locked out.</strong>
+      <code>SurveyResponse.registrationId</code> is <code>@unique</code> and the flag is now set, so their own
+      link returns <code>alreadyCompleted</code> forever. There is no organizer "reset survey" affordance.</li>
+    <li><strong>The accreditation dataset is poisoned</strong> with forged answers attributed to a named
+      physician.</li>
+  </ol>
+
+  <p class="lbl">Why it isn't fixed yet</p>
+  <p>Every real fix changes the attendee's experience, so it's an owner decision, not an engineering one:</p>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Option</th><th>What changes</th><th>Trade</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Email them their link</strong> <em>(recommended)</em></td>
+        <td>The share page becomes "enter your registered email → we'll email you your survey link." The
+          emailed link is the <em>existing</em>, secure, per-registration token path.</td>
+        <td>Turns an assertion into a proof — only the mailbox owner can act. Also closes the enumeration
+          oracle (always answer "if that email is registered, we've sent a link"). Costs one step: the
+          attendee checks their phone in the room.</td>
+      </tr>
+      <tr>
+        <td><strong>Share = feedback, never a certificate</strong></td>
+        <td>Direct submit stays, but it does <em>not</em> stamp <code>surveyCompletedAt</code>, so it can't
+          mint a certificate.</td>
+        <td>Keeps the frictionless closing-slide flow for feedback — but breaks "fill the survey to get your
+          certificate" for share users.</td>
+      </tr>
+      <tr>
+        <td><strong>Retire the share link</strong></td>
+        <td>Only the per-registration emailed token works.</td>
+        <td>Simplest, most secure. Removes a feature organizers use.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>"The user told us who they are" is not authentication.</strong> Authentication is proof of
+    control over an identity — a password, a session, a link sent to a mailbox only they can read. A typed
+    email is a <em>claim</em>. It's fine to trust a claim for something harmless (pre-filling a name); it is
+    never fine to trust one for something that issues a credential.</p>
+    <p>The give-away question: <em>"what does the attacker need that they don't already have?"</em> Here the
+    answer was "the victim's email address, which is on their conference badge." That's not a secret, so it
+    can't be a key.</p>
+  </div>
+</div>
+
+<div class="finding blocker">
+  <h3><span class="sev blocker">Blocker</span> B2 — Editing a dinner silently wipes its venue, description and RSVP deadline <span class="pill shipped">SHIPPED 220d421</span></h3>
+  <p class="loc">rsvp-invites/route.ts (the select) → dinner/page.tsx (openEditDinner → saveDinner) → dinners/[dinnerId]/route.ts (the PUT)</p>
+
+  <p>A three-file chain, where each file is individually reasonable and the combination destroys data.</p>
+
+  <span class="tag bad">1. The API doesn't send the fields</span>
+  <pre class="bad"><code>// rsvp-invites/route.ts — the ONLY place the console gets dinners from.
+db.rsvpDinner.findMany({
+  select: { id: true, name: true, dinnerAt: true },   // ❌ no location / description / rsvpDeadline
+})</code></pre>
+
+  <span class="tag bad">2. The client reads fields that were never sent</span>
+  <pre class="bad"><code>// dinner/page.tsx
+setDinnerForm({
+  location:     d.location ?? "",          // undefined → ""
+  description:  d.description ?? "",       // undefined → ""
+  rsvpDeadline: d.rsvpDeadline ? … : "",   // undefined → ""
+});</code></pre>
+
+  <span class="tag bad">3. The PUT reads "present but empty" as "clear it"</span>
+  <pre class="bad"><code>// dinners/[dinnerId]/route.ts
+...(d.location !== undefined &amp;&amp; { location: d.location || null })   // "" is not undefined → writes NULL</code></pre>
+
+  <p class="lbl">Failure scenario</p>
+  <p>An organizer fixes a <strong>typo in a dinner's name</strong> and clicks Save. The gala's venue and
+  description are erased — and its <strong>RSVP deadline is set to NULL</strong>, so RSVP for that dinner
+  <em>never closes</em>. Invitees keep changing their answer and their guest count long after catering has
+  been confirmed to the hotel, and the organizer has no idea, because the dialog shows a blank deadline
+  every time they open it.</p>
+
+  <p class="lbl">Why nobody caught it</p>
+  <pre class="bad"><code>interface Dinner {
+  location: string | null;       // ← the type SAYS these exist
+  rsvpDeadline: string | null;   // ← TypeScript believed it. Nothing checked the API agreed.
+}</code></pre>
+  <p>The interface described the API's contract <em>aspirationally</em>. TypeScript can only check that your
+  code is consistent with the types you wrote — it cannot check that the types are true.</p>
+
+  <p class="lbl">Fix — shipped</p>
+  <p>The roster GET now selects every field the console edits, and a test pins that select.</p>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>A hand-written type for API data is a wish, not a guarantee.</strong> The compiler validated
+    every line of that page against an interface that simply lied. Types protect you from <em>your own</em>
+    inconsistency; they say nothing about what a server actually returns. Anywhere a type crosses the network,
+    something must verify it at runtime (a shared schema, a generated client, or — at minimum — a test that
+    pins the query's <code>select</code>, which is what we added).</p>
+    <p>And a design rule that would have removed the whole class: <strong>"absent" and "empty" must not mean
+    the same thing in a PATCH.</strong> If <code>""</code> means "clear it", then a field the client forgot to
+    load is indistinguishable from a field the user deliberately blanked. Prefer explicit <code>null</code> to
+    clear and treat <code>undefined</code>/absent as "don't touch" — and never let the client send a field it
+    never received.</p>
+  </div>
+</div>
+
+<h2>HIGH</h2>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H1 — The survey guard locked an entire conference room out <span class="pill shipped">SHIPPED 1ea4a92</span></h3>
+  <p class="loc">public/events/[slug]/survey/route.ts — the share-path "soft IP dedup"</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>// Reject if ANY response came from this IP in the last 60 seconds.
+const recent = await db.surveyResponse.findFirst({
+  where: { eventId, ipHash, submittedAt: { gte: new Date(Date.now() - 60_000) } },
+});
+if (recent) return NextResponse.json({ error: "A response was just submitted from this device." }, { status: 429 });</code></pre>
+
+  <p>It keys on the <strong>IP</strong>, not on the submitting registration. Everyone on the venue WiFi shares
+  one NAT egress IP — so they all hash to the same <code>ipHash</code>.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>The organizer puts the survey QR on the closing slide. 300 people scan it at once. The first submission
+  lands; <strong>every other person in the room gets 429.</strong> And because submissions keep arriving, the
+  sliding 60-second window never empties — so the lockout is <em>sustained</em>. They never complete the
+  survey, <code>surveyCompletedAt</code> is never set, and <strong>they never get their certificate.</strong>
+  The guard fired hardest at the exact moment of intended use.</p>
+
+  <p>Two details make this worth studying. First, the code comment said the window was short <em>"so distinct
+  registrants behind one NAT IP aren't blocked"</em> — the author had identified the exact risk, and the guard
+  did the opposite of what the comment claimed. Second, it was <strong>redundant</strong>: the double-click it
+  was written for is already handled by <code>SurveyResponse.registrationId @unique</code>, whose P2002 is
+  caught and returned as an idempotent 200.</p>
+
+  <p class="lbl">Fix — shipped</p>
+  <p>Deleted. The <code>@unique</code> is the real guard; <code>ipHash</code> is still recorded for the audit
+  trail.</p>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>A guard that duplicates a database constraint can only add false positives.</strong> The DB
+    constraint is exact and race-proof; your application-level approximation of it is neither. Before adding a
+    check, ask what it catches that the constraint doesn't — if the answer is "nothing", you've added a bug
+    surface with no upside.</p>
+    <p><strong>And: an IP address is not a person.</strong> Behind NAT — conference WiFi, offices, mobile
+    carriers, VPNs — thousands of distinct humans share one. Any rule of the form "one X per IP per minute"
+    will punish exactly the crowded, legitimate case you built the feature for. Rate-limit per <em>identity</em>
+    where you have one; use IP limits only for coarse, generous abuse ceilings.</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H2 — The RSVP roster hands out the invite token (an impersonation credential) <span class="pill shipped">SHIPPED 1ea4a92</span></h3>
+  <p class="loc">src/app/api/events/[eventId]/rsvp-invites/route.ts — GET</p>
+
+  <p>The roster GET returns each invitee's <code>token</code>. That token <em>is</em> the credential: whoever
+  holds it can POST the <strong>public</strong> <code>rsvp/[token]</code> endpoint with <strong>no login</strong>
+  and rewrite a named professor's attendance, guest count and dietary note. The response also carries the
+  confidential VIP guest list, and <code>?export=csv</code> streams the lot.</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>// No denyReviewer. Hand-rolled org filter instead of buildEventAccessWhere.
+const event = await db.event.findFirst({
+  where: { id: eventId, organizationId: session.user.organizationId! },
+});
+// … then returns `token: true` for every invitee.</code></pre>
+
+  <p>Three <em>org-attached</em> populations could therefore read it: <strong>MEMBER</strong> (the read-only,
+  sponsor-side observer), <strong>ONSITE</strong> (org-scoped here, so a desk temp assigned to Event A could
+  pull Event B's roster — the July-7 cross-event class that <code>buildEventAccessWhere</code> exists to close,
+  never carried to the dinner routes), and an <strong>internal-domain REGISTRANT</strong> — i.e. an attendee
+  account.</p>
+
+  <p class="lbl">Fix — shipped</p>
+  <p><code>denyReviewer</code> on the GET (blocks all three) + <code>buildEventAccessWhere</code> for the event
+  lookup. The token <em>stays</em> in the payload — the console's copy-link button needs it — but only the roles
+  who actually run the dinner can reach it. The CSV export now logs who pulled it.</p>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p>This is the <em>same finding</em> as the check-in barcode leak (July 11) and the accommodation barcode
+    leak (July 13), in a third costume: <strong>a credential sitting in a payload that a read endpoint hands to
+    roles who shouldn't hold it.</strong></p>
+    <p>Build the habit of asking, for every field you return: <em>"is this data, or is this a key?"</em> A
+    token, a barcode, a signed URL, a password-reset code — these aren't information <em>about</em> the user,
+    they're the ability to <em>act as</em> them. Data can be shown to anyone who may know it. Keys may only be
+    shown to those who may use them, and that's usually a much smaller set.</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H3 — The thank-you sweep starved everyone but the newest 100 <span class="pill shipped">SHIPPED c7a2faf</span></h3>
+  <p class="loc">src/lib/certificates/survey-thankyou-sweep.ts</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>const candidates = await db.registration.findMany({
+  where: { surveyCompletedAt: { not: null, gte: windowStart } },
+  orderBy: { surveyCompletedAt: "desc" },   // newest first
+  take: 100,                                // ← take FIRST
+});
+…
+for (const reg of candidates) {
+  if (thanked.has(reg.id)) continue;        // ← filter AFTER
+  …
+}</code></pre>
+
+  <p><strong>Why it's wrong:</strong> the <code>take</code> is spent <em>before</em> the "already done" rows are
+  removed. Once more than 100 completions exist in the window, the batch is permanently the same newest 100 —
+  all thanked after the first pass — so every tick does zero work, and the older, un-thanked registrations sit
+  below the slice, are never fetched again, and age out of the window unprocessed.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>400 attendees complete the survey. Roughly <strong>300 of them never receive the thank-you</strong> —
+  which is the email carrying their certificate — and the sweep cheerfully logs <code>scanned: 100</code>
+  forever.</p>
+
+  <p class="lbl">Fix — shipped</p>
+  <pre class="good"><code>const candidates = await db.registration.findMany({
+  where: {
+    surveyCompletedAt: { not: null, gte: windowStart },
+    ...(thanked.size &amp;&amp; { id: { notIn: [...thanked] } }),   // ✅ exclude in the QUERY
+  },
+  orderBy: { surveyCompletedAt: "asc" },                    // ✅ oldest first — FIFO, nobody starves
+  take: 100,
+});</code></pre>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>Filtering after a <code>LIMIT</code> is a queue that never drains.</strong> The limit is spent on
+    rows you're about to throw away, so the work you actually need never enters the batch. Whatever decides
+    "does this row still need work?" belongs in the <code>WHERE</code>, not in the loop.</p>
+    <p>And for any worker that processes a backlog: <strong>drain oldest-first.</strong> Newest-first plus a
+    limit is a starvation machine — under sustained load, the front of the queue is never reached. The tell is a
+    worker whose logs look healthy (<em>"scanned: 100"</em>) while doing no useful work.</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H4 — The agent briefs the caterer with a headcount computed over one page <span class="pill shipped">SHIPPED c7a2faf</span></h3>
+  <p class="loc">src/lib/agent/tools/dinner.ts — list_dinner_rsvps</p>
+
+  <p>The tool fetched invites with <code>take: limit</code> (default 200) <em>and</em> the optional status
+  filter — then fed that same array to <code>computeDinnerHeadcounts</code> <em>and</em> to
+  <code>summary.totalInvited</code>.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <ol>
+    <li>An event with <strong>260 invitees</strong>: the agent reports seats for the oldest 200 only. The
+      caterer is under-ordered by ~25%, with no truncation flag — and the page size is reported as the total.</li>
+    <li>The operator asks <em>"who hasn't replied to the gala yet?"</em> → <code>status: "PENDING"</code> →
+      headcounts are computed over people who <em>by definition have no responses</em>, so every dinner reports
+      <strong>0 attendees / 0 seats</strong> — still presented as the authoritative headcount.</li>
+  </ol>
+  <p>The dashboard aggregates over <em>all</em> invites, so the two surfaces disagreed — and the agent is the
+  one talking to the caterer.</p>
+
+  <p class="lbl">Fix — shipped</p>
+  <p>Aggregate over the full set; paginate only the returned <code>invitees[]</code>; return
+  <code>inviteesTruncated</code> / <code>inviteesShown</code> so the agent can say "showing 200 of 260" rather
+  than implying it has the whole list.</p>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>Never compute an aggregate from a paginated list.</strong> A page is for <em>display</em>; a
+    total is for <em>truth</em>. The moment one query serves both, your sums silently become "the sum of the
+    first page" — and they'll look completely plausible, which is what makes it dangerous.</p>
+    <p>Extra credit for the second failure: a filter that's correct for the list can be <em>nonsense</em> for
+    the aggregate. "Show me the PENDING invitees" is a sensible list; "the headcount of the PENDING invitees"
+    is meaningless — and the code happily computed it, because both came from the same array.</p>
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H5 — Dinner times drift by the UTC offset on every save <span class="pill shipped">SHIPPED 220d421</span></h3>
+  <p class="loc">src/app/(dashboard)/events/[eventId]/dinner/page.tsx</p>
+
+  <span class="tag bad">The bug</span>
+  <pre class="bad"><code>// READ:  a UTC instant → the input
+dinnerAt: d.dinnerAt.slice(0, 16)                    // "2026-08-01T15:00" — the UTC wall-clock
+// WRITE: the input → a UTC instant
+dinnerAt: new Date(dinnerForm.dinnerAt).toISOString() // browser parses it as LOCAL</code></pre>
+
+  <p>A <code>datetime-local</code> input has <strong>no timezone</strong> — the browser reads its value as
+  <em>local</em> wall-clock. So slicing the <em>UTC</em> wall-clock into it and then parsing it back as
+  <em>local</em> shifts the instant by your UTC offset — <strong>on every single save</strong>, compounding.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>A 19:00 Dubai gala opens in the edit dialog showing <strong>15:00</strong> (while the card beside it still
+  says 19:00 — the organizer sees two different times for the same dinner). Save anything at all and the dinner
+  <em>moves</em> to 15:00. Save again → 11:00.</p>
+
+  <p class="lbl">Fix — shipped</p>
+  <p>New <code>src/lib/datetime-local.ts</code> with the one lossless pair
+  (<code>toLocalDateTimeInput</code> / <code>fromLocalDateTimeInput</code>) and the trap documented. The correct
+  implementation already existed in the scheduled-email dialog; the dinner page had hand-rolled a broken one.
+  Both now share the helper.</p>
+
+  <div class="lesson">
+    <p class="lbl">💡 What a junior dev should learn</p>
+    <p><strong>String-slicing a date is always a bug.</strong> An ISO string looks like text, so it's tempting to
+    treat it as text — but <code>.slice(0, 16)</code> silently reinterprets the <em>meaning</em> of the value
+    (UTC wall-clock → local wall-clock) while looking like it just trimmed some characters.</p>
+    <p>The invariant to hold onto: <strong>read-back and write-back must be exact inverses.</strong> If
+    <code>toInput(toStored(x)) !== x</code>, your form corrupts data a little bit every time someone opens it and
+    clicks Save — and because each save looks like it "worked", nobody notices until the times are hours off.
+    (We pinned exactly this with a test that saves five times and asserts the value didn't move.)</p>
+  </div>
+</div>
+
+<h2>MEDIUM &amp; LOW <span class="pill deferred">DEFERRED</span></h2>
+<ul>
+  <li><strong>M1 — the share submit is a registration-enumeration oracle.</strong> An unknown email 404s, a
+    known one proceeds — so anyone with the (broadcast) link can test emails against the attendee roster of a
+    named medical conference. <em>Closed automatically if B1 is fixed with the email-a-link option.</em></li>
+  <li><strong>M2 — a speaker who is also a delegate has two registrations on one email;</strong> the share path
+    picks one arbitrarily, so the completion stamp can land on the hidden faculty companion while the delegate
+    row stays "not completed" (and its certificate never issues).</li>
+  <li><strong>M3 — deleting a question in the builder after responses exist</strong> makes those answers vanish
+    from the dashboard <em>and</em> the CSV, with no warning. The data survives in the JSON but is unreachable
+    from every operator surface.</li>
+  <li><strong>M4 — a withdrawal is silently partly ignored.</strong> The replace-all is scoped to dinners whose
+    deadline hasn't passed, so ticking "I can't attend any of the dinners" leaves a past-deadline <em>Yes +2</em>
+    intact — while the invitee sees the full "your RSVP has been recorded" thank-you. Three covers get plated
+    for someone who told you they weren't coming.</li>
+  <li><strong>M5 — the import picker includes CANCELLED registrations</strong> (no status filter, no status
+    badge), so people who cancelled weeks ago get invited to the gala.</li>
+  <li><strong>M6 — a deactivated dinner still feeds the organizer's headcount</strong> (and the CSV) while being
+    hidden from invitees — and because the public replace-all only touches active dinners, those stale responses
+    can never be cleared. Reinstating the dinner resurrects every original "Yes".</li>
+  <li><strong>M7 — 8 unlogged 4xx branches in the SURVEY routes</strong> (incl. the share-link org-boundary
+    404s). <em>Note: the CLAUDE.md claim that "every failure path logs" for Dinner RSVP was independently
+    verified and it HOLDS — zero silent 4xx. Survey is where the rule breaks.</em></li>
+  <li><strong>M8 — doc drift on a security boundary:</strong> both survey-responses routes' comments say
+    "MEMBER is allowed to view (read-only by design)", but <code>denyReviewer</code> 403s MEMBER. The behaviour
+    is the safe one; the comment is a lie in a security-relevant place. (And the denial logs as
+    <code>auth-guard:write-denied</code> on a <em>read</em> route.)</li>
+  <li><strong>LOWs:</strong> RSVP tokens never expire and can't be rotated (a permanent bearer credential in a
+    URL path); <code>?preview=1</code> is unauthenticated and works for DRAFT events, surviving share-link
+    revocation; the send route shares one 10/hr bucket between bulk and single-invitee sends, so nudging faculty
+    one-by-one 429s on the 11th; <code>target: "all"</code> re-mails everyone including those who already
+    replied (no per-recipient idempotency).</li>
+</ul>
+
+<h2>What shipped</h2>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Phase</th><th>Commit</th><th>Findings</th><th>Status</th></tr></thead>
+  <tbody>
+    <tr><td>1 — Data destruction</td><td><code>220d421</code></td><td>B2 dinner-edit wipe · H5 timezone drift</td><td><span class="pill shipped">Shipped</span></td></tr>
+    <tr><td>2 — Credential + lockout</td><td><code>1ea4a92</code></td><td>H2 RSVP token leak · H1 venue-WiFi lockout · L3 export logging</td><td><span class="pill shipped">Shipped</span></td></tr>
+    <tr><td>3 — Impersonation</td><td>—</td><td><strong>B1</strong> — needs an owner decision (3 options above)</td><td><span class="pill open">OPEN</span></td></tr>
+    <tr><td>4 — Silent starvation</td><td><code>c7a2faf</code></td><td>H3 thank-you sweep · H4 MCP headcounts</td><td><span class="pill shipped">Shipped</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p>Suite 2559 → 2583 (+24). Every phase verified <code>tsc</code> + <code>eslint</code> + full
+<code>vitest</code> + <code>build</code> green before commit.</p>
+
+<h2>The reviewer's checklist</h2>
+<ul>
+  <li><strong>When a field gains a new consumer:</strong> "what is the weakest auth on any path that can WRITE
+    this, and is it strong enough for the strongest thing that now READS it?"</li>
+  <li><strong>When you see an identity claim:</strong> "what does the attacker need that they don't already
+    have?" If the answer is on the victim's badge, it isn't a key.</li>
+  <li><strong>When you see a hand-written type for API data:</strong> "what enforces that the server actually
+    returns this?" Usually: nothing.</li>
+  <li><strong>When you see <code>""</code> treated as "clear it":</strong> "can the client send an empty value
+    it never actually loaded?"</li>
+  <li><strong>When you see a rate limit or dedup keyed on IP:</strong> "what happens when 300 people share one
+    NAT?"</li>
+  <li><strong>When you see <code>take</code>/<code>LIMIT</code>:</strong> "is anything filtered out AFTER this?
+    Then the limit is being spent on rows I'm about to discard."</li>
+  <li><strong>When you see an aggregate:</strong> "is it computed over the full set, or over the page I'm about
+    to display?"</li>
+  <li><strong>When you see a guard next to a DB constraint:</strong> "what does this catch that the constraint
+    doesn't?" If nothing — it only adds false positives.</li>
+</ul>
+
+<div class="note">
+  <strong>What this domain got right</strong> (verified, so the fixes don't regress it): the per-registration
+  survey token is hashed at rest, slug-bound, one-time-use, and its delete + the response write + the completion
+  stamp all happen in <em>one</em> transaction; <code>SurveyResponse.registrationId @unique</code> genuinely
+  prevents a duplicate response (and its P2002 is caught as an idempotent 200), so re-submitting cannot mint a
+  second certificate; answers are strictly validated against the current config, so arbitrary JSON can't land in
+  the response; both CSV exports use <code>escapeCsvCell</code> (no formula injection); the RSVP token is a
+  192-bit CSPRNG value and is event-slug-bound (no cross-event replay); the share-link compare is timing-safe
+  <em>and correctly ordered</em> (token before expiry); the public RSVP submit is a server-authoritative
+  replace-all under a row lock; bulk-add dedup is race-safe; and — as noted — the Dinner RSVP logging claim in
+  the docs is <strong>true</strong>.
+</div>
+
+<footer>
+  Part of the EA-SYS domain production-review programme. <strong>Survey + Dinner RSVP was the last un-reviewed
+  domain.</strong> Deferred findings are tracked in <code>docs/ROADMAP.md</code>.
+</footer>
+
+</div>
+</body>
+</html>
