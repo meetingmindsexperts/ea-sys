@@ -69,7 +69,8 @@
   threaded everywhere (no orphan EmailLog rows), no send error is swallowed, row claims are atomic, and the
   system-vs-custom slug classifier has a real drift test. The findings cluster around
   <strong>duplicate / mis-targeted sends</strong>. The user chose the <strong>anti-double-send batch</strong>
-  (H1, H2, M1, M2, M3, M6), shipped in three gated phases. The remaining M/Ls are deferred to
+  (H1, H2, M1, M2, M3, M6), shipped in three gated phases — <strong>M7 followed on July 13
+  (<code>46330af</code>)</strong>. The remaining M/Ls are deferred to
   <code>docs/ROADMAP.md</code> § "Communications / bulk-email review".
 </div>
 
@@ -192,12 +193,17 @@
 </div>
 
 <div class="finding medium">
-  <h3>M7 — a bad filter value silently widens the audience, unlogged <span class="pill deferred">DEFERRED</span></h3>
+  <h3>M7 — a bad filter value silently widens the audience, unlogged <span class="pill shipped">SHIPPED 46330af · July 13</span></h3>
   <p class="loc"><code>src/lib/bulk-email.ts</code> (<code>parsePaymentStatusFilter</code> / abstracts <code>status as never</code>)</p>
   <p>A typo'd <code>paymentStatus</code>/<code>status</code> parses to empty → no predicate → the send goes to
   <em>everyone</em> (and a reminder re-admits CANCELLED). Unreachable via the current dialog (valid enum values
-  only), reachable via MCP / API / a future tile; and it violates the every-failure-logs rule. Fix: reject +
-  log an unparsable filter value instead of dropping it.</p>
+  only), reachable via MCP / API / a future tile; and it violates the every-failure-logs rule.</p>
+  <p><strong>Fix (July 13, <code>46330af</code>):</strong> new <code>assertValidBulkEmailFilters()</code> rejects
+  any unknown <code>status</code> (per recipient type) or <code>paymentStatus</code> token (ANY invalid token in
+  a comma list rejects — <code>"PAID,COMPLIMENTRY"</code> must not silently narrow either) with a 400
+  <code>INVALID_FILTER</code> <code>BulkEmailError</code>; the <code>"all"</code> sentinel passes as no-filter.
+  Wired via <code>precheckBulkEmailViability</code>, so the enqueue + schedule routes 400 synchronously and a
+  legacy persisted row fails loudly (FAILED + admin notify) at fire time instead of over-sending. +9 tests.</p>
 </div>
 
 <h2>LOW <span class="pill deferred">DEFERRED</span></h2>
@@ -205,7 +211,9 @@
   <li><strong>Unlogged post-auth rejection cluster</strong> — schedule lead-time 400 + several 404s (schedule
     create/GET, retry not-found, bulk event-404). The silent-4xx class the owner wants surfaced.</li>
   <li><strong>Abstracts <code>status as never</code> cast</strong> — passes an unchecked status straight to
-    Prisma → cryptic enum throw aborts the whole send, vs the reg/speaker <code>safeParse</code>.</li>
+    Prisma → cryptic enum throw aborts the whole send, vs the reg/speaker <code>safeParse</code>.
+    <em>✅ Closed with M7 (July 13, <code>46330af</code>) — now a validated <code>safeParse</code> behind the
+    filter guard.</em></li>
   <li><strong><code>presentationDetails</code> raw HTML</strong> — session/topic/track names embedded raw in
     agreement emails (same class as the <code>{{abstractTitle}}</code> fix; organizer-authored / trusted today).</li>
   <li><strong><code>email-preview</code> no rate limit</strong> — an uncapped authenticated DB/CPU path that
@@ -237,6 +245,17 @@
 <ul>
   <li><strong>H1 + M6</strong> — <code>ScheduledEmail.emailedKeys</code>; the send skips already-emailed ids and records each batch's sent ids; a retry resumes; already-emailed recipients' survey tokens aren't re-minted.</li>
   <li><strong>Tests</strong> — +4 (fresh send records all; re-run skips; completed-retry sends nothing; record-failure isolation). Suite 2452 → 2456.</li>
+</ul>
+
+<h3>Phase 4 — <code>46330af</code> (July 13, 2026 — filter guard, no schema)</h3>
+<ul>
+  <li><strong>M7</strong> — <code>assertValidBulkEmailFilters()</code>: unparsable <code>status</code>/<code>paymentStatus</code>
+    values are rejected (400 <code>INVALID_FILTER</code>) instead of silently dropping the predicate and widening
+    the send to everyone; called from <code>precheckBulkEmailViability</code> (synchronous 4xx on both routes +
+    loud fire-time failure for legacy rows). Also closed the LOW abstracts <code>status as never</code> cast.</li>
+  <li><strong>Tests</strong> — +9 (reject typo'd reg/speaker/abstract status; any-bad-token-in-list rejects;
+    valid values / "all" sentinel / absent filters pass; reviewers path unvalidated by design). Suite → 2486
+    (shared commit with the abstracts H8/H9 fixes).</li>
 </ul>
 
 <p>Every phase verified <code>tsc</code> + <code>eslint</code> + full <code>vitest</code> + <code>build</code> green before commit + push.</p>

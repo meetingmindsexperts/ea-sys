@@ -495,7 +495,11 @@ await db.registration.update({ data: { checkedInAt: new Date(), status: "CHECKED
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Medium</span> &nbsp;M4 — Refund routes the whole balance through the newest payment only</h3>
+  <h3><span class="sev medium">Medium</span> &nbsp;M4 — Refund routes the whole balance through the newest payment only
+    <em style="font-weight:400">(✅ resolved — stale finding, verified July 11: the payments round's <code>1191b25</code>
+    multi-payment allocation already slices refunds across ALL settled payments, each Stripe slice capped at its
+    charge's own remaining via <code>Payment.refundedAmount</code>, manual remainder recorded. This finding and the
+    payments-review H6 described the same defect; the fix landed under H6.)</em></h3>
   <p class="loc"><code>src/services/payment-service.ts:237-238, 248-249</code></p>
 <pre><code>const payment = registration.payments[0];             // newest PAID payment only
 const isManualRefund = !payment?.stripePaymentId;
@@ -876,7 +880,7 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
 
 <h3>Suggested ordering for the deferred work</h3>
 <ol>
-  <li><strong>M4 (multi-payment refund routing)</strong> — the only deferred finding that can move real money incorrectly. Do it next.</li>
+  <li><strong>M4 (multi-payment refund routing)</strong> — ✅ resolved (stale — already fixed by the payments round's <code>1191b25</code> allocator; verified July 11).</li>
   <li><strong>M7 + M8 + M9 + L4 as one "MCP parity" round</strong> — they share a root cause and a fix location.</li>
   <li><strong>M12 + M13 (logging hygiene)</strong> — small, mechanical, and they make every future incident diagnosable.</li>
   <li><strong>ROADMAP #5 <code>updateRegistration()</code> service extraction</strong> — the structural fix that stops the drift class from regenerating. Schedule it before adding another registration write path.</li>

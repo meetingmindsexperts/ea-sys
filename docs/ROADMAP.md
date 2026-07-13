@@ -560,9 +560,10 @@ companion-CANCELLED link + registration→speaker email cascade, `47644cc` MCP t
 bulk-type repricing, + the check-in unification onto `src/lib/check-in.ts` — shared
 gate/commit for both REST handlers + MCP, pkg 0.4.15). The mediums/lows below are
 deferred and independently shippable. Suggested order:
-M4 first (only one that moves real money), then the MCP-parity cluster (M7/M8/M9/L4),
-then logging hygiene (M12/M13), then the `updateRegistration()` service extraction (#5
-below in the cross-caller section) which stops the drift class from regenerating.
+~~M4 first~~ (M4 turned out to be a stale finding — already fixed by `1191b25`, see its row), then
+the MCP-parity cluster (M7/M8/M9/L4), then logging hygiene (M12/M13), then the
+`updateRegistration()` service extraction (#5 below in the cross-caller section) which stops
+the drift class from regenerating.
 
 - **M1 — MCP registration writes scope by org, not the tool's `eventId`** (`agent/tools/registrations.ts:419, 853, 954`). A mis-scoped agent call mutates a sibling event's registrations. Fix: add `eventId: ctx.eventId` to the `where` (REST PUT already event-scopes).
 - **M2 — companion create race** (`speaker-companion.ts:100-124`). Check-then-create, no uniqueness backstop; two racing calls mint an orphaned CONFIRMED faculty reg with a live entry barcode. Fix shape: partial unique index on `(eventId, attendee-email) WHERE createdSource='SPEAKER_COMPANION'` or advisory lock.

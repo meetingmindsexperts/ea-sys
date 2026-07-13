@@ -967,13 +967,39 @@ weight: z.number().int().min(1).max(100),   // per-criterion bound only — the 
     (+7, the assign status matrix).</li>
 </ul>
 
+<h3>Phase 5 — Blind-review integrity (H8 + H9 + M7) · commit <code>46330af</code> · July 13, 2026</h3>
+<ul>
+  <li><strong>H9 (email half) — <code>consolidateReviewNotes</code> anonymized.</strong> The author
+    decision email's notes block prefixed each note with the reviewer's NAME (<code>— {name}:</code>)
+    — breaking blind review in the one place it mattered most, while the submissions GET deliberately
+    stripped identity from the author's dashboard view. Notes are now numbered
+    (<code>— Reviewer N:</code>; a single note stays bare), and the format is pinned by tests so
+    attribution can't quietly return. The full attributed view lives only in the dashboard.</li>
+  <li><strong>H9/M7 (view half) — submissions GET matrix tightened.</strong> The full per-reviewer
+    view (identities / notes / per-criterion) was granted to ANY org-attached role via the bare
+    <code>isOrgMember</code> check — including <strong>MEMBER</strong> (read-only, documented as
+    sponsor-side stakeholders). Full view is now org STAFF (ADMIN/SUPER_ADMIN/ORGANIZER) + pool
+    reviewers only; MEMBER/ONSITE receive the SAME anonymized shape the submitter gets (notes +
+    overall aggregates, no identities, no per-criterion).</li>
+  <li><strong>H8 — MCP <code>assign_reviewer_to_abstract</code> honors <code>conflictFlag</code>.</strong>
+    The schema advertised it; the executor dropped it — "assign Dr X, flag the conflict" returned
+    success with NO flag, and since COI is an <em>enforcement</em> input (June 26) the dropped flag let
+    a conflicted reviewer's score count. Now persisted on create (default false) and toggleable on the
+    idempotent upsert (REST parity: role and/or COI independently; same-role+same-flag re-call is a
+    no-op reporting the current flag), audited with <code>previousConflictFlag</code>. Tool description
+    states the enforcement. pkg 0.4.17 → 0.4.18 (MCP clients reconnect).</li>
+  <li><strong>Tests</strong>: +11 for this doc's findings (view matrix incl. MEMBER-anonymized /
+    ADMIN-full / pool-reviewer-full / outsider-403 / submitter-unchanged; the anonymized note format;
+    4 conflictFlag executor contracts). Suite 2469 → 2486 (with the comms M7 guard in the same commit).</li>
+</ul>
+
 <div class="note">
-  <strong>Scoreboard after this round:</strong> B1 n/a; <strong>all 9 HIGHs fixed</strong>
-  (H3/H5/H6 → <code>97b11d4</code>; H1/H2 → <code>fcd5932</code>; H4 + H5-gate + M4 →
-  <code>0dcf750</code>; H6 remainder → <code>314e45e</code>). Deferred to later rounds + ROADMAP:
-  <strong>H7</strong> (submission-service extraction — the ~120-line triplication), <strong>H8</strong>
-  (MCP assign drops <code>conflictFlag</code>), <strong>H9</strong> + <strong>M7</strong> (blind-review:
-  email attribution + MEMBER full view), and the workflow MEDs (M1/M2/M3/M5/M6/M9/M10/M11) + L1–L6.
+  <strong>Scoreboard after this round:</strong> B1 n/a; H3/H5/H6 → <code>97b11d4</code>; H1/H2 →
+  <code>fcd5932</code>; H4 + H5-gate + M4 → <code>0dcf750</code>; H6 remainder → <code>314e45e</code>;
+  <strong>H8 + H9 + M7 → <code>46330af</code> (July 13)</strong>. Still deferred to ROADMAP:
+  <strong>H7</strong> (submission-service extraction — the ~120-line triplication; also the natural
+  landing spot for M10's feedback-notification re-wire), the workflow MEDs
+  (M1/M2/M3/M5/M6/M9/M10/M11) and L1–L6.
 </div>
 
 <h2 id="clean">11. What checked out clean</h2>

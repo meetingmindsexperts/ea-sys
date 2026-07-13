@@ -530,14 +530,49 @@ finally { setScanning(false); setManualInput(""); inputRef.current?.focus(); }  
     empty, rejection propagates). Suite 2433 → 2438.</li>
 </ul>
 
+<h3>Phase 4 — Door-day MEDs (M1 + M2-decided + M3 + M4 + M5 + M6 + L2-half) · commit <code>b55a18c</code> · July 11, 2026</h3>
+<ul>
+  <li><strong>M2 — gate policy DECIDED, no behavior change.</strong> Owner call (July 11):
+    <code>FAILED</code> and <code>REFUNDED</code> stay <strong>admitted</strong> at the door — a failed
+    charge attempt or a goodwill refund doesn't bar the person from the venue. The policy is now
+    <em>explicit</em>: pinned in <code>isPaymentAdmissible</code>'s comment + a truth-table test, so it
+    can't be "fixed" without a new product decision. Badges keep following automatically.</li>
+  <li><strong>M1 — audited desk payment override.</strong> Owner call: the override covers <em>any</em>
+    payment block (webhook-lagged PENDING, UNPAID, FAILED…). <code>checkInGate</code> gained
+    <code>allowPaymentDue</code> (skips ONLY the payment gate — never cancelled / double-scan); the
+    check-in POST accepts <code>{ overridePayment: true }</code> for the same desk-gated population,
+    warn-logs <code>check-in:payment-override</code> and audits
+    <code>paymentOverride</code> + <code>paymentStatusAtOverride</code>. Gate rejections now carry a
+    machine-readable <code>code</code>, and the registration detail sheet offers
+    <strong>"Admit anyway (override)"</strong> on a PAYMENT_REQUIRED refusal.</li>
+  <li><strong>M3 — DTCM import: per-row try/catch.</strong> A P2002 unique-collision (concurrent import)
+    is now a per-row error; anything else is a per-row error with a server-log pointer — the import
+    report always survives instead of a generic 500 discarding it days before a compliance deadline.</li>
+  <li><strong>M4 — deterministic email match.</strong> The import's email lookup prefers a
+    non-cancelled registration, newest first (falls back to newest overall) instead of whatever the
+    planner returned. <strong>L2 (half)</strong>: replacing a <em>different</em> existing barcode on
+    re-import is now warn-logged (<code>barcode-import:overwriting-existing-barcode</code>); a visible
+    per-row report entry remains open.</li>
+  <li><strong>M5 — live attendance counter.</strong> A successful scan invalidates the registrations
+    query, so the counter tracks the door instead of freezing for up to 5 minutes of React Query
+    staleTime.</li>
+  <li><strong>M6 — the scanner never fails silently.</strong> A venue-network drop mid-scan now beeps
+    the failure tone, writes an explicit <em>"Network error — NOT checked in. Re-scan when back
+    online."</em> row into Recent Scans (a toast alone is easy to miss at a busy door), and clears the
+    2s same-code debounce so an immediate retry of the same badge isn't swallowed.</li>
+  <li><strong>Also in this commit:</strong> the DECLINED-speaker → companion-registration cascade (the
+    roadmap's speaker-lifecycle MED — a declined speaker no longer keeps a valid badge + entry barcode
+    forever) and the refund credit-note <em>amount</em> gate. +13 tests. Suite 2456 → 2469.</li>
+</ul>
+
 <div class="note">
   <strong>Scoreboard after this round:</strong> <strong>all 8 HIGHs fixed</strong> across three phases —
   H1/H2/H3/M7 (door correctness, <code>706ba17</code>); H6/H7/H8/L4 (credentials, <code>aac727a</code>);
-  H4/H5 (Print All + logging, <code>935c1f7</code>). Suite 2401 → 2438. Deferred to ROADMAP: the
-  gate-policy MEDs (M1 no desk override for a webhook-lagged PENDING; M2 FAILED/REFUNDED admitted +
-  no desk reactivation), the DTCM-import integrity MEDs (M3 no per-row try/catch; M4 arbitrary-email
-  match; L2 silent overwrite), the scanner-UX MEDs (M5 stale attendance counter; M6 silent network-drop),
-  and L1/L3.
+  H4/H5 (Print All + logging, <code>935c1f7</code>) — <strong>and the door-day MEDs closed in Phase 4</strong>
+  (<code>b55a18c</code>, July 11): M1 desk override shipped, M2 decided-as-is (FAILED/REFUNDED admitted,
+  now explicit), M3/M4 DTCM import integrity, M5/M6 scanner honesty, L2 half (overwrite logged).
+  Still open: L1 (scan <code>OR</code>s two unique domains with no <code>orderBy</code>), L3 (MCP
+  <code>check_in_registration</code> gate short-circuit), and L2's visible per-row report entry.
 </div>
 
 <h2 id="clean">8. What checked out clean</h2>
