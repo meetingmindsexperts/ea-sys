@@ -25,6 +25,8 @@ const { mockDb } = vi.hoisted(() => {
   const db = {
     registration: { findFirst: regFindFirst },
     ticketType: { findFirst: ticketTypeFindFirst },
+    // The service loads the event (settings) alongside the registration.
+    event: { findFirst: vi.fn().mockResolvedValue({ id: "ev1", settings: {} }) },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
     $transaction: vi.fn(async (cb: (t: unknown) => unknown) => cb(tx)),
     _tx: tx,
@@ -38,6 +40,11 @@ vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn() }));
 vi.mock("@/lib/utils", () => ({ generateBarcode: () => "BC-TEST-MINTED", normalizeTag: (t: string) => t }));
+vi.mock("@/lib/checkout-session-cleanup", () => ({ expireOpenCheckoutSessionOnCancel: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("@/lib/person-tag-sync", () => ({
+  computeTagDelta: vi.fn(() => ({ added: [], removed: [] })),
+  syncRegistrationTagsToSpeakers: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { REGISTRATION_EXECUTORS } from "@/lib/agent/tools/registrations";
 

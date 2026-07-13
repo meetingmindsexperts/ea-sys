@@ -22,6 +22,7 @@ const { mockDb } = vi.hoisted(() => {
   return {
     mockDb: {
       registration: { findFirst: vi.fn() },
+      event: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn() },
       pricingTier: { findFirst: vi.fn() },
       auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
@@ -36,6 +37,11 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), war
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn() }));
+vi.mock("@/lib/checkout-session-cleanup", () => ({ expireOpenCheckoutSessionOnCancel: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("@/lib/person-tag-sync", () => ({
+  computeTagDelta: vi.fn(() => ({ added: [], removed: [] })),
+  syncRegistrationTagsToSpeakers: vi.fn().mockResolvedValue(undefined),
+}));
 // registration-seat + registration-seat-db are REAL — the tx counter calls below
 // are what the seat model actually does.
 
@@ -67,6 +73,9 @@ function captured() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The service loads the event (settings for sponsor validation) alongside
+  // the registration.
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: {} });
   mockDb.ticketType.findFirst.mockResolvedValue({ id: NEW_TYPE, price: 250 });
   mockDb.pricingTier.findFirst.mockResolvedValue({ id: NEW_TIER, price: 500 });
   mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });

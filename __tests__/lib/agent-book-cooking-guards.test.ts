@@ -37,8 +37,13 @@ beforeEach(() => {
     id: "reg1", eventId: "ev1", status: "CONFIRMED", paymentStatus: "PAID",
     sponsorId: null, ticketTypeId: "tt1", pricingTierId: null,
     attendanceMode: "IN_PERSON", createdSource: null, promoCodeId: null,
-    attendee: { tags: [] },
+    discountAmount: null, qrCode: "QR", attendeeId: "att1",
+    attendee: { id: "att1", firstName: "A", lastName: "B", email: "a@b.com", tags: [] },
   });
+  // The registration-update service loads the event (settings) alongside the
+  // registration before validating paymentStatus — fixture it so the guard
+  // under test (and not a NOT_FOUND) is what fires.
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: {} });
 });
 
 describe("update_registration — H12", () => {

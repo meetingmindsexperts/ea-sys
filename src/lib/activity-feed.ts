@@ -62,6 +62,11 @@ const DIFF_SKIP_KEYS = new Set<string>([
   "attempts",
   "externalId",
   "qrCode",
+  // Physical-access credential (July-11 barcode-visibility class): full-row
+  // audit snapshots now come from BOTH callers via the update service, so a
+  // dtcmBarcode correction must not render its before→after to a MEMBER
+  // viewer through the Activity diff.
+  "dtcmBarcode",
   "serialId",
 ]);
 

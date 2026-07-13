@@ -4,18 +4,16 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode, normalizeTag } from "@/lib/utils";
-import { needsQrCode, holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
-import { releaseSeats, applyRegistrationTransition } from "@/lib/registration-seat-db";
-import { resolveRepricing } from "@/lib/registration-repricing";
+import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
+import { releaseSeats } from "@/lib/registration-seat-db";
 import { syncToContact } from "@/lib/contact-sync";
-import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
 import { checkInGate, executeCheckIn } from "@/lib/check-in";
 import { refreshEventStats } from "@/lib/event-stats";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { readSponsors } from "@/lib/webinar";
 import {
   createRegistration,
+  updateRegistration as updateRegistrationService,
   type ManualPaymentStatus,
   type ManualRegistrationStatus,
   type RegistrationAttendeeRole,
@@ -468,430 +466,123 @@ const listUnpaidRegistrations: ToolExecutor = async (input, ctx) => {
   }
 };
 
+// Thin MCP wrapper — the update domain logic (sponsor invariant, billing/
+// ticket-type validation, shared repricing, seat/promo transition, optimistic
+// lock, attendee patch, audit/sync/stats fan-out) lives in
+// registration-service.updateRegistration (cross-caller #5: this executor and
+// the REST PUT used to hand-mirror it, with live drift). Boundary keeps the
+// loose-input parsing. Parity notes vs the old copy: the lookup is now
+// EVENT-scoped (M1 — a mis-scoped call can no longer touch a sibling event's
+// registration), the INCLUSIVE↔sponsor invariant fires only when the request
+// touches those fields (M7), and attendee empty strings now CLEAR fields to
+// null instead of persisting "" (L4).
 const updateRegistration: ToolExecutor = async (input, ctx) => {
   try {
     const registrationId = String(input.registrationId ?? "").trim();
     if (!registrationId) return { error: "registrationId is required" };
 
-    // Verify the registration belongs to the authenticated org's event.
-    // Loading `event.settings` so sponsor-id resolution can run in-memory
-    // without a second roundtrip.
-    const existing = await db.registration.findFirst({
-      where: { id: registrationId, event: { organizationId: ctx.organizationId } },
-      select: {
-        id: true,
-        eventId: true,
-        status: true,
-        paymentStatus: true,
-        sponsorId: true,
-        ticketTypeId: true,
-        attendeeId: true,
-        promoCodeId: true,
-        // Repricing guard (shared resolveRepricing): a stored discount blocks a
-        // re-tier / type reprice (re-stamping the base could over-discount).
-        discountAmount: true,
-        // Hybrid seat accounting + lazy barcode mint on virtual↔in-person.
-        attendanceMode: true,
-        qrCode: true,
-        // Seat-counter routing (tier vs ticket type) — ROADMAP P1.1.
-        pricingTierId: true,
-        createdSource: true,
-        attendee: { select: { id: true, firstName: true, lastName: true, email: true, tags: true } },
-        event: { select: { settings: true } },
-      },
-    });
-    if (!existing) return { error: `Registration ${registrationId} not found or access denied` };
-
     const status = input.status ? String(input.status) : undefined;
     if (status && !REGISTRATION_STATUSES.has(status)) {
       return { error: `Invalid status. Must be one of: ${[...REGISTRATION_STATUSES].join(", ")}` };
     }
-    const paymentStatus = input.paymentStatus ? String(input.paymentStatus) : undefined;
-    if (paymentStatus && !ADMIN_SETTABLE_PAYMENT_STATUSES.has(paymentStatus)) {
-      return {
-        error: `Invalid paymentStatus "${paymentStatus}". Settable values: ${[...ADMIN_SETTABLE_PAYMENT_STATUSES].join(", ")}. ${PAYMENT_STATUS_WRITE_REJECTION}`,
-        code: "PAYMENT_STATUS_NOT_SETTABLE",
-      };
-    }
-
-    // Sponsor attribution. Same rules as the REST PUT route:
-    //   - paymentStatus = INCLUSIVE requires an effective sponsorId
-    //   - sponsorId (when present) must resolve to an entry in
-    //     Event.settings.sponsors[]
-    //   - sponsorId is preserved on status flips away from INCLUSIVE
-    //     unless the caller explicitly sets it to null
-    const sponsorIdInput =
-      input.sponsorId === undefined
-        ? undefined
-        : input.sponsorId === null
-        ? null
-        : String(input.sponsorId);
-    const effectivePaymentStatus = paymentStatus ?? existing.paymentStatus;
-    const effectiveSponsorId =
-      sponsorIdInput === undefined ? existing.sponsorId : sponsorIdInput;
-    if (effectivePaymentStatus === "INCLUSIVE" && !effectiveSponsorId) {
-      return {
-        error:
-          "paymentStatus=INCLUSIVE requires a sponsorId. Add the sponsor to the event's Sponsors page first, then pass its id.",
-        code: "INCLUSIVE_REQUIRES_SPONSOR",
-      };
-    }
-    if (effectiveSponsorId) {
-      const sponsors = readSponsors(existing.event.settings);
-      if (!sponsors.find((s) => s.id === effectiveSponsorId)) {
-        return {
-          error: `Sponsor ${effectiveSponsorId} not found in event's sponsor list.`,
-          code: "SPONSOR_NOT_FOUND",
-          availableSponsors: sponsors.map((s) => ({ id: s.id, name: s.name })),
-        };
-      }
-    }
-
-    // "Charge to another account" — `null` reverts to self-pay (fallback);
-    // a string must resolve to an active BillingAccount in this org
-    // (org-scoped — never trust the id alone). Orthogonal to paymentStatus.
-    const billingAccountIdInput =
-      input.billingAccountId === undefined
-        ? undefined
-        : input.billingAccountId === null
-        ? null
-        : String(input.billingAccountId);
-    if (typeof billingAccountIdInput === "string") {
-      const ba = await db.billingAccount.findFirst({
-        where: { id: billingAccountIdInput, organizationId: ctx.organizationId },
-        select: { id: true, isActive: true },
-      });
-      if (!ba) {
-        return {
-          error: `Billing account ${billingAccountIdInput} not found in this organization.`,
-          code: "BILLING_ACCOUNT_NOT_FOUND",
-        };
-      }
-      if (!ba.isActive) {
-        return {
-          error: `Billing account ${billingAccountIdInput} is inactive. Reactivate it or pick another payer.`,
-          code: "BILLING_ACCOUNT_INACTIVE",
-        };
-      }
-    }
-    const payerReferenceInput =
-      input.payerReference === undefined
-        ? undefined
-        : String(input.payerReference ?? "").trim() || null;
-    const attendeeIsGuarantorInput =
-      typeof input.attendeeIsGuarantor === "boolean" ? input.attendeeIsGuarantor : undefined;
-
-    const newTicketTypeId = input.ticketTypeId ? String(input.ticketTypeId) : undefined;
-    if (newTicketTypeId && newTicketTypeId !== existing.ticketTypeId) {
-      const ticket = await db.ticketType.findFirst({
-        where: { id: newTicketTypeId, eventId: existing.eventId },
-        select: { id: true },
-      });
-      if (!ticket) return { error: `ticketTypeId ${newTicketTypeId} not found in this event` };
-    }
-
-    // Pricing — re-tier and/or type-change repricing, resolved by the SHARED
-    // helper so MCP and the REST PUT stay in lock-step (previously MCP couldn't
-    // set a tier and never repriced on a type change). `pricingTierId`: an id, or
-    // null / "" for base; omit to leave the tier untouched.
-    const pricingTierIdInput =
-      input.pricingTierId === undefined
-        ? undefined
-        : input.pricingTierId === null || String(input.pricingTierId).trim() === ""
-        ? null
-        : String(input.pricingTierId).trim();
-    const repricing = await resolveRepricing({
-      eventId: existing.eventId,
-      existing: {
-        ticketTypeId: existing.ticketTypeId,
-        pricingTierId: existing.pricingTierId,
-        paymentStatus: existing.paymentStatus,
-        promoCodeId: existing.promoCodeId,
-        discountAmount: existing.discountAmount,
-      },
-      ticketTypeId: newTicketTypeId,
-      pricingTierId: pricingTierIdInput,
-    });
-    if (!repricing.ok) {
-      return { error: repricing.message, code: repricing.code };
-    }
-
-    // Hybrid attendance mode change (HYBRID events). VIRTUAL holds no venue
-    // seat + has no barcode; virtual→in-person lazily mints a qrCode + claims a
-    // seat, in-person→virtual releases the seat (keeps the barcode for audit).
     const rawMode = input.attendanceMode ? String(input.attendanceMode).toUpperCase() : undefined;
     if (rawMode && rawMode !== "IN_PERSON" && rawMode !== "VIRTUAL") {
       return { error: `Invalid attendanceMode "${rawMode}". Must be IN_PERSON or VIRTUAL.` };
     }
-    const attendanceMode = rawMode as "IN_PERSON" | "VIRTUAL" | undefined;
 
-    const attendeeUpdates: Prisma.AttendeeUpdateInput = {};
+    // Loose → typed attendee patch. `undefined` keeps a field; empty string
+    // clears it (the service collapses "" → null on every path).
+    let attendeePatch:
+      | {
+          title?: string | null; firstName?: string; lastName?: string;
+          additionalEmail?: string | null; organization?: string; jobTitle?: string;
+          phone?: string; city?: string; country?: string; bio?: string;
+          specialty?: string; tags?: string[]; dietaryReqs?: string;
+        }
+      | undefined;
     const a = input.attendee as Record<string, unknown> | undefined;
     if (a && typeof a === "object") {
-      if (a.title != null) {
-        const t = String(a.title);
-        if (t === "") attendeeUpdates.title = null;
-        else if (TITLE_VALUES.has(t)) attendeeUpdates.title = t as never;
-        else return { error: `Invalid title. Must be one of: ${[...TITLE_VALUES].join(", ")}` };
+      if (a.title != null && String(a.title) !== "" && !TITLE_VALUES.has(String(a.title))) {
+        return { error: `Invalid title. Must be one of: ${[...TITLE_VALUES].join(", ")}` };
       }
-      if (a.firstName != null) attendeeUpdates.firstName = String(a.firstName).slice(0, 100);
-      if (a.lastName != null) attendeeUpdates.lastName = String(a.lastName).slice(0, 100);
-      // Secondary CC inbox — empty string clears it.
-      if (a.additionalEmail !== undefined) attendeeUpdates.additionalEmail = String(a.additionalEmail ?? "").trim().slice(0, 255) || null;
-      if (a.organization != null) attendeeUpdates.organization = String(a.organization).slice(0, 255);
-      if (a.jobTitle != null) attendeeUpdates.jobTitle = String(a.jobTitle).slice(0, 255);
-      if (a.phone != null) attendeeUpdates.phone = String(a.phone).slice(0, 50);
-      if (a.city != null) attendeeUpdates.city = String(a.city).slice(0, 255);
-      if (a.country != null) attendeeUpdates.country = String(a.country).slice(0, 255);
-      if (a.bio != null) attendeeUpdates.bio = String(a.bio).slice(0, 5000);
-      if (a.specialty != null) attendeeUpdates.specialty = String(a.specialty).slice(0, 255);
-      if (Array.isArray(a.tags)) {
-        attendeeUpdates.tags = (a.tags as unknown[])
-          .map((t) => normalizeTag(String(t).slice(0, 100)))
-          .filter(Boolean);
-      }
-      if (a.dietaryReqs != null) attendeeUpdates.dietaryReqs = String(a.dietaryReqs).slice(0, 2000);
-    }
-
-    // Optimistic-lock token (W2-F8 fix). Optional during rollout — when
-    // missing, the conditional updateMany below falls back to id-only
-    // matching with a warn log so we can audit which clients haven't
-    // migrated.
-    const expectedUpdatedAt = typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : null;
-    if (!expectedUpdatedAt) {
-      apiLogger.warn({
-        msg: "optimistic-lock:missing-expectedUpdatedAt",
-        resource: "registration",
-        resourceId: registrationId,
-        source: "mcp",
-      });
-    }
-
-    // Transaction: ticket type change needs soldCount adjustments on both
-    // tiers. The optimistic-lock check on registration sits inside the
-    // same transaction so a stale-write rejection rolls back any
-    // soldCount delta we just applied.
-    type UpdateResult = {
-      ok: true;
-      registration: {
-        id: string;
-        status: string;
-        paymentStatus: string;
-        ticketTypeId: string | null;
-        notes: string | null;
-        attendee: { id: string; firstName: string; lastName: string; email: string };
+      attendeePatch = {
+        ...(a.title != null && { title: String(a.title) }),
+        ...(a.firstName != null && String(a.firstName).trim() && { firstName: String(a.firstName).slice(0, 100) }),
+        ...(a.lastName != null && String(a.lastName).trim() && { lastName: String(a.lastName).slice(0, 100) }),
+        ...(a.additionalEmail !== undefined && { additionalEmail: a.additionalEmail == null ? null : String(a.additionalEmail).slice(0, 255) }),
+        ...(a.organization != null && { organization: String(a.organization).slice(0, 255) }),
+        ...(a.jobTitle != null && { jobTitle: String(a.jobTitle).slice(0, 255) }),
+        ...(a.phone != null && { phone: String(a.phone).slice(0, 50) }),
+        ...(a.city != null && { city: String(a.city).slice(0, 255) }),
+        ...(a.country != null && { country: String(a.country).slice(0, 255) }),
+        ...(a.bio != null && { bio: String(a.bio).slice(0, 5000) }),
+        ...(a.specialty != null && { specialty: String(a.specialty).slice(0, 255) }),
+        ...(Array.isArray(a.tags) && {
+          tags: (a.tags as unknown[]).map((t) => normalizeTag(String(t).slice(0, 100))).filter(Boolean),
+        }),
+        ...(a.dietaryReqs != null && { dietaryReqs: String(a.dietaryReqs).slice(0, 2000) }),
       };
-    } | { ok: false; reason: "STALE_WRITE" | "REGISTRATION_DISAPPEARED" | "CAPACITY_EXCEEDED" };
+      if (Object.keys(attendeePatch).length === 0) attendeePatch = undefined;
+    }
 
-    const txResult: UpdateResult = await db.$transaction(async (tx) => {
-      // soldCount accounting — MUST mirror the REST PUT route
-      // (src/app/api/events/[eventId]/registrations/[registrationId]/route.ts).
-      // Previously this branch only handled a ticket-type change, so
-      // cancelling/reactivating a registration via the agent silently left
-      // soldCount inflated → events falsely reported sold-out and rejected
-      // paying registrants. Same four mutually-exclusive cases as REST.
-      const effectiveStatus = status || existing.status;
-      const effectiveMode = attendanceMode || existing.attendanceMode;
-      const effectiveTypeId = newTicketTypeId || existing.ticketTypeId;
-      const isChangingType =
-        !!newTicketTypeId && newTicketTypeId !== existing.ticketTypeId;
-      // Effective tier for seat accounting: the resolved next tier, or the
-      // existing one when the request leaves the tier unchanged (undefined).
-      const seatTierId =
-        repricing.nextTierId !== undefined ? repricing.nextTierId : existing.pricingTierId;
+    const expectedUpdatedAt = typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : null;
 
-      // Seat + promo accounting is the SHARED applier (single source of truth —
-      // src/services/README.md "THE RULE"), so this can't drift from the REST PUT
-      // route + the cancel service. It releases/claims the correct counter (tier
-      // vs ticket type; VIRTUAL holds none), throws CAPACITY_EXCEEDED on a
-      // sold-out claim, and releases the promo usedCount when becoming CANCELLED.
-      await applyRegistrationTransition(tx, {
-        prev: {
-          status: existing.status,
-          attendanceMode: existing.attendanceMode,
-          ticketTypeId: existing.ticketTypeId,
-          pricingTierId: existing.pricingTierId,
-          createdSource: existing.createdSource,
-        },
-        next: {
-          // effectiveStatus/effectiveMode are validated strings here; cast to
-          // the row's enum types (status was checked against REGISTRATION_STATUSES,
-          // attendanceMode against IN_PERSON/VIRTUAL above).
-          status: effectiveStatus as typeof existing.status,
-          attendanceMode: effectiveMode as typeof existing.attendanceMode,
-          ticketTypeId: effectiveTypeId,
-          pricingTierId: seatTierId,
-          createdSource: existing.createdSource,
-        },
-        promoCodeId: existing.promoCodeId,
-      });
-
-      // Keep attendee.registrationType synced with the new ticket type name
-      // when the type changes (applies to virtual too).
-      if (isChangingType) {
-        const newTicket = await tx.ticketType.findUnique({
-          where: { id: newTicketTypeId },
-          select: { name: true },
-        });
-        if (!newTicket) {
-          throw new Error("CAPACITY_EXCEEDED");
-        }
-        await tx.attendee.update({
-          where: { id: existing.attendeeId },
-          data: { registrationType: newTicket.name },
-        });
-      }
-
-      const regData: Prisma.RegistrationUncheckedUpdateInput = { updatedAt: new Date() };
-      if (status) regData.status = status as never;
-      if (paymentStatus) regData.paymentStatus = paymentStatus as never;
-      if (sponsorIdInput !== undefined) regData.sponsorId = sponsorIdInput;
-      if (billingAccountIdInput !== undefined) regData.billingAccountId = billingAccountIdInput;
-      if (payerReferenceInput !== undefined) regData.payerReference = payerReferenceInput;
-      if (attendeeIsGuarantorInput !== undefined) regData.attendeeIsGuarantor = attendeeIsGuarantorInput;
-      if (newTicketTypeId) regData.ticketTypeId = newTicketTypeId;
-      // Persist the resolved tier + re-stamped price (undefined = leave the tier
-      // unchanged). A re-tier / type change sets the new tier + originalPrice; a
-      // bare type change nulls the tier (tiers belong to a type) so the stored
-      // row stays consistent with where its seat now lives. Shared with REST.
-      if (repricing.nextTierId !== undefined) regData.pricingTierId = repricing.nextTierId;
-      if (repricing.originalPrice !== undefined) regData.originalPrice = repricing.originalPrice;
-      if (attendanceMode !== undefined) regData.attendanceMode = attendanceMode as never;
-      // Lazy entry-barcode mint when becoming (or already) in-person with none.
-      if (needsQrCode(effectiveMode, existing.qrCode)) regData.qrCode = generateBarcode();
-      if (input.badgeType !== undefined) regData.badgeType = input.badgeType as string | null;
-      if (input.dtcmBarcode !== undefined) regData.dtcmBarcode = input.dtcmBarcode as string | null;
-      if (input.notes !== undefined) regData.notes = String(input.notes).slice(0, 2000);
-
-      const updateRes = await tx.registration.updateMany({
-        where: {
-          id: registrationId,
-          ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
-        },
-        data: regData,
-      });
-      if (updateRes.count === 0) {
-        // Throw to roll back the soldCount changes above. The reason is
-        // smuggled out via the message so the outer catch can branch
-        // on a clean code rather than parsing an opaque error.
-        throw new Error(expectedUpdatedAt ? "STALE_WRITE" : "REGISTRATION_DISAPPEARED");
-      }
-
-      const updated = await tx.registration.findUniqueOrThrow({
-        where: { id: registrationId },
-        select: {
-          id: true,
-          status: true,
-          paymentStatus: true,
-          ticketTypeId: true,
-          notes: true,
-          attendee: { select: { id: true, firstName: true, lastName: true, email: true } },
-        },
-      });
-
-      if (Object.keys(attendeeUpdates).length > 0) {
-        await tx.attendee.update({
-          where: { id: existing.attendeeId },
-          data: attendeeUpdates,
-        });
-      }
-
-      return { ok: true as const, registration: updated };
-    }).catch((err) => {
-      if (err instanceof Error && err.message === "STALE_WRITE") {
-        return { ok: false as const, reason: "STALE_WRITE" as const };
-      }
-      if (err instanceof Error && err.message === "REGISTRATION_DISAPPEARED") {
-        return { ok: false as const, reason: "REGISTRATION_DISAPPEARED" as const };
-      }
-      if (err instanceof Error && err.message === "CAPACITY_EXCEEDED") {
-        return { ok: false as const, reason: "CAPACITY_EXCEEDED" as const };
-      }
-      throw err;
+    const result = await updateRegistrationService({
+      eventId: ctx.eventId,
+      registrationId,
+      organizationId: ctx.organizationId,
+      actorUserId: ctx.userId,
+      source: "mcp",
+      expectedUpdatedAt,
+      ...(status && { status: status as never }),
+      ...(input.paymentStatus != null && { paymentStatus: String(input.paymentStatus) }),
+      ...(input.sponsorId !== undefined && { sponsorId: input.sponsorId === null ? null : String(input.sponsorId) }),
+      ...(input.billingAccountId !== undefined && { billingAccountId: input.billingAccountId === null ? null : String(input.billingAccountId) }),
+      ...(input.payerReference !== undefined && { payerReference: String(input.payerReference ?? "").trim() || null }),
+      ...(typeof input.attendeeIsGuarantor === "boolean" && { attendeeIsGuarantor: input.attendeeIsGuarantor }),
+      ...(input.badgeType !== undefined && { badgeType: input.badgeType as string | null }),
+      ...(input.dtcmBarcode !== undefined && { dtcmBarcode: input.dtcmBarcode as string | null }),
+      ...(input.ticketTypeId != null && String(input.ticketTypeId).trim() && { ticketTypeId: String(input.ticketTypeId).trim() }),
+      ...(input.pricingTierId !== undefined && {
+        pricingTierId:
+          input.pricingTierId === null || String(input.pricingTierId).trim() === ""
+            ? null
+            : String(input.pricingTierId).trim(),
+      }),
+      ...(rawMode && { attendanceMode: rawMode as never }),
+      ...(input.notes !== undefined && { notes: String(input.notes).slice(0, 2000) }),
+      ...(attendeePatch && { attendee: attendeePatch }),
     });
 
-    if (!txResult.ok && txResult.reason === "STALE_WRITE") {
-      apiLogger.info({ msg: "registration:stale-write-rejected", registrationId, source: "mcp" });
-      return {
-        error: "This registration was modified after you fetched it. Re-read the row and retry with the new updatedAt.",
-        code: "STALE_WRITE",
-      };
+    if (!result.ok) {
+      // REPRICING_BLOCKED surfaces the resolver's sub-code (parity with REST).
+      const code = result.code === "REPRICING_BLOCKED" ? (result.repricingCode ?? result.code) : result.code;
+      // Agent-actionable phrasing for the optimistic-lock loser (the shared
+      // message is human-phrased for the dashboard toast).
+      const message =
+        result.code === "STALE_WRITE"
+          ? "This registration was modified after you fetched it. Re-read the row and retry with the new updatedAt."
+          : result.message;
+      return { error: message, code, ...(result.meta ?? {}) };
     }
-    if (!txResult.ok && txResult.reason === "REGISTRATION_DISAPPEARED") {
-      return { error: `Registration ${registrationId} not found or access denied` };
-    }
-    if (!txResult.ok && txResult.reason === "CAPACITY_EXCEEDED") {
-      apiLogger.warn({
-        msg: "registration:reactivate-capacity-exceeded",
-        registrationId,
-        source: "mcp",
-      });
-      return {
-        error:
-          "Cannot reactivate/move this registration — the target registration type is sold out. Increase its quantity or pick another type.",
-        code: "CAPACITY_EXCEEDED",
-      };
-    }
-    if (!txResult.ok) {
-      // Exhaustive guard — both `ok: false` reasons handled above. Keeps
-      // the type-narrowing happy without an unsafe cast.
-      return { error: "Failed to update registration" };
-    }
-    const result = txResult.registration;
 
-    await db.auditLog.create({
-      data: {
-        eventId: existing.eventId,
-        userId: ctx.userId,
-        action: "UPDATE",
-        entityType: "Registration",
-        entityId: registrationId,
-        changes: {
-          source: "mcp",
-          before: { status: existing.status, paymentStatus: existing.paymentStatus, ticketTypeId: existing.ticketTypeId, attendanceMode: existing.attendanceMode },
-          after: { status: result.status, paymentStatus: result.paymentStatus, ticketTypeId: result.ticketTypeId, attendanceMode: attendanceMode ?? existing.attendanceMode },
-          // Whether this update lazily minted an entry barcode (virtual→in-person).
-          qrCodeMinted: needsQrCode(attendanceMode ?? existing.attendanceMode, existing.qrCode),
-          attendeeFieldsChanged: Object.keys(attendeeUpdates),
+    const r = result.registration;
+    return {
+      success: true,
+      registration: {
+        id: r.id,
+        status: r.status,
+        paymentStatus: r.paymentStatus,
+        ticketTypeId: r.ticketTypeId,
+        notes: r.notes,
+        attendee: {
+          id: r.attendee.id,
+          firstName: r.attendee.firstName,
+          lastName: r.attendee.lastName,
+          email: r.attendee.email,
         },
       },
-    }).catch((err) => apiLogger.error({ err }, "agent:update_registration audit-log-failed"));
-
-    // Sync to contact store (fire-and-forget)
-    if (Object.keys(attendeeUpdates).length > 0) {
-      syncToContact({
-        organizationId: ctx.organizationId,
-        eventId: existing.eventId,
-        email: result.attendee.email,
-        firstName: result.attendee.firstName,
-        lastName: result.attendee.lastName,
-      }).catch((err) => apiLogger.error({ err }, "agent:update_registration contact-sync-failed"));
-    }
-
-    // Mirror the tag delta onto the person's Speaker facet (same call the REST
-    // registration PUT makes — review H5: the MCP path used to bypass this, so
-    // agent-written attendee tags never reached speaker.tags and APPRECIATION
-    // cert routing / speaker tag filters missed them). Best-effort by contract:
-    // the helper logs + never throws.
-    if (Array.isArray(attendeeUpdates.tags)) {
-      await syncRegistrationTagsToSpeakers(existing.eventId, [
-        {
-          registrationId,
-          email: existing.attendee.email,
-          delta: computeTagDelta(existing.attendee.tags, attendeeUpdates.tags as string[]),
-        },
-      ]);
-    }
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(ctx.eventId);
-
-    // A cancel kills any still-open Stripe payment tab (review H2 sub-item).
-    if (status === "CANCELLED" && existing.status !== "CANCELLED") {
-      void expireOpenCheckoutSessionOnCancel(registrationId, "mcp-update");
-    }
-
-    return { success: true, registration: result };
+    };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_registration failed");
     return { error: err instanceof Error ? err.message : "Failed to update registration" };

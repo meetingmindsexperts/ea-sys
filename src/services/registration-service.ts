@@ -33,6 +33,17 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { readSponsors } from "@/lib/webinar";
+import { needsQrCode } from "@/lib/registration-seat";
+import { applyRegistrationTransition } from "@/lib/registration-seat-db";
+import { resolveRepricing } from "@/lib/registration-repricing";
+import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
+import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
+// Leaf constants module (no agent machinery) — the admin-settable
+// paymentStatus policy (review H12) shared with the MCP boundary.
+import {
+  ADMIN_SETTABLE_PAYMENT_STATUSES,
+  PAYMENT_STATUS_WRITE_REJECTION,
+} from "@/lib/agent/tools/_shared";
 
 // ── Constants (shared with callers) ──────────────────────────────────────────
 
@@ -828,5 +839,555 @@ class RegistrationServiceSentinel extends Error {
   ) {
     super(code);
     this.name = "RegistrationServiceSentinel";
+  }
+}
+
+// ── updateRegistration ───────────────────────────────────────────────────────
+//
+// Cross-caller audit #5 (July 13, 2026): the update body was hand-mirrored
+// between the REST PUT (registrations/[registrationId]/route.ts) and MCP
+// `update_registration` (agent/tools/registrations.ts) — the seat/promo
+// transition was already shared (`applyRegistrationTransition`) but the
+// sponsor invariant, billing-account lookup, change-set assembly, and the
+// audit/sync/stats fan-out were two copies with live drift. This is the ONE
+// implementation both delegate to. Drift resolved here:
+//
+//  - M1: the registration lookup binds to the caller's EVENT (`{id, eventId}`),
+//    not just the org — a mis-scoped agent call can no longer mutate a sibling
+//    event's registration.
+//  - M7: the INCLUSIVE↔sponsor invariant is enforced only when the request
+//    actually touches paymentStatus/sponsorId (REST's July-7 H2 fix) — MCP
+//    used to hard-block ANY edit to a legacy INCLUSIVE-without-sponsor row.
+//  - L4: attendee empty-string values collapse to null (REST semantics) —
+//    MCP used to persist "" and the Contact sync then skipped the field,
+//    leaving the entity blank while the Contact kept the old value.
+//  - The audit row now carries the FULL before/after snapshots for both
+//    callers (the Activity timeline derives its field-level diffs from them;
+//    MCP's slim audit gets richer, REST's stays identical), and the Contact
+//    sync uses REST's full field merge (MCP only synced name+email).
+
+/** Attendee patch — `undefined` keeps the current value; empty string clears
+ *  clearable fields to null (REST semantics, now on every path). */
+export interface UpdateRegistrationAttendeeInput {
+  title?: string | null;
+  role?: string | null;
+  firstName?: string;
+  lastName?: string;
+  additionalEmail?: string | null;
+  organization?: string;
+  jobTitle?: string;
+  phone?: string;
+  photo?: string | null;
+  city?: string;
+  country?: string;
+  bio?: string;
+  specialty?: string;
+  tags?: string[];
+  dietaryReqs?: string;
+  associationName?: string | null;
+  memberId?: string | null;
+  studentId?: string | null;
+  studentIdExpiry?: string | null;
+  customFields?: Record<string, unknown>;
+}
+
+export interface UpdateRegistrationInput {
+  eventId: string;
+  registrationId: string;
+  organizationId: string;
+  actorUserId: string;
+  source: "rest" | "mcp";
+  requestIp?: string | null;
+  /** Optimistic-lock token; when absent the write is id-only (warn-logged). */
+  expectedUpdatedAt?: string | null;
+  status?: RegistrationStatus;
+  /** Validated against the admin-settable subset (review H12). */
+  paymentStatus?: string;
+  sponsorId?: string | null;
+  billingAccountId?: string | null;
+  payerReference?: string | null;
+  attendeeIsGuarantor?: boolean;
+  badgeType?: string | null;
+  dtcmBarcode?: string | null;
+  ticketTypeId?: string;
+  /** An id, or null to clear the tier (→ base price); omit to leave unchanged. */
+  pricingTierId?: string | null;
+  attendanceMode?: AttendanceMode;
+  notes?: string;
+  taxNumber?: string | null;
+  billingFirstName?: string | null;
+  billingLastName?: string | null;
+  billingEmail?: string | null;
+  billingPhone?: string | null;
+  billingAddress?: string | null;
+  billingCity?: string | null;
+  billingState?: string | null;
+  billingZipCode?: string | null;
+  billingCountry?: string | null;
+  attendee?: UpdateRegistrationAttendeeInput;
+}
+
+export type UpdateRegistrationErrorCode =
+  | "REGISTRATION_NOT_FOUND"
+  | "PAYMENT_STATUS_NOT_SETTABLE"
+  | "INCLUSIVE_REQUIRES_SPONSOR"
+  | "SPONSOR_NOT_FOUND"
+  | "BILLING_ACCOUNT_NOT_FOUND"
+  | "BILLING_ACCOUNT_INACTIVE"
+  | "TICKET_TYPE_NOT_FOUND"
+  | "INVALID_STUDENT_ID_EXPIRY"
+  | "INVALID_STATUS"
+  | "INVALID_ATTENDANCE_MODE"
+  | "UNIQUE_CONSTRAINT"
+  | "STALE_WRITE"
+  | "CAPACITY_EXCEEDED"
+  | "REPRICING_BLOCKED"
+  | "UNKNOWN";
+
+export type UpdatedRegistrationRow = Prisma.RegistrationGetPayload<{
+  include: {
+    attendee: true;
+    ticketType: true;
+    pricingTier: true;
+    payments: {
+      select: { id: true; amount: true; currency: true; status: true; createdAt: true };
+    };
+    accommodation: {
+      select: {
+        id: true; checkIn: true; checkOut: true; status: true;
+        roomType: { select: { name: true; hotel: { select: { name: true } } } };
+      };
+    };
+  };
+}>;
+
+export type UpdateRegistrationResult =
+  | { ok: true; registration: UpdatedRegistrationRow; qrCodeMinted: boolean }
+  | {
+      ok: false;
+      code: UpdateRegistrationErrorCode;
+      message: string;
+      meta?: Record<string, unknown>;
+      /** For REPRICING_BLOCKED: the sub-code from resolveRepricing (e.g.
+       *  TIER_CHANGE_REQUIRES_UNPAID) + its suggested HTTP status. */
+      repricingCode?: string;
+      httpStatus?: number;
+    };
+
+/**
+ * Update a registration — statuses, payer, type/tier (repriced), attendance
+ * mode, badge/DTCM, billing block, notes, and attendee fields — atomically,
+ * with the shared seat/promo transition, the optimistic lock, and the full
+ * post-commit fan-out (speaker tag sync, Contact sync, stats, checkout-session
+ * expiry on cancel, audit).
+ *
+ * The caller owns: auth (+ event access via `buildEventAccessWhere` /
+ * `getOrgIdSecure`), the EMAIL_IMMUTABLE guard, input shape validation, and
+ * response shaping (HTTP mapping / financials block / redaction).
+ */
+export async function updateRegistration(
+  input: UpdateRegistrationInput,
+): Promise<UpdateRegistrationResult> {
+  const { eventId, registrationId, organizationId, actorUserId, source } = input;
+
+  try {
+    // ── Load: registration bound to the caller's event (M1) + event settings ─
+    const [existing, event] = await Promise.all([
+      db.registration.findFirst({
+        where: { id: registrationId, eventId },
+        include: { attendee: true },
+      }),
+      db.event.findFirst({
+        where: { id: eventId },
+        select: { id: true, settings: true },
+      }),
+    ]);
+    if (!existing || !event) {
+      apiLogger.warn({ msg: "registration-update:not-found", registrationId, eventId, source });
+      return { ok: false, code: "REGISTRATION_NOT_FOUND", message: "Registration not found" };
+    }
+
+    // ── Validate enum-ish inputs (typed callers pass enums; re-check anyway) ─
+    const { status, attendanceMode } = input;
+    if (status && !Object.values(RegistrationStatus).includes(status)) {
+      return { ok: false, code: "INVALID_STATUS", message: `Invalid status "${status}".` };
+    }
+    if (attendanceMode && !Object.values(AttendanceMode).includes(attendanceMode)) {
+      return { ok: false, code: "INVALID_ATTENDANCE_MODE", message: `Invalid attendanceMode "${attendanceMode}".` };
+    }
+    const paymentStatus = input.paymentStatus as PaymentStatus | undefined;
+    if (paymentStatus && !ADMIN_SETTABLE_PAYMENT_STATUSES.has(paymentStatus)) {
+      apiLogger.warn({ msg: "registration-update:payment-status-not-settable", registrationId, paymentStatus, source });
+      return {
+        ok: false,
+        code: "PAYMENT_STATUS_NOT_SETTABLE",
+        message: `Invalid paymentStatus "${paymentStatus}". Settable values: ${[...ADMIN_SETTABLE_PAYMENT_STATUSES].join(", ")}. ${PAYMENT_STATUS_WRITE_REJECTION}`,
+      };
+    }
+
+    // ── Sponsor invariant — change-scoped (M7) ───────────────────────────────
+    const { sponsorId } = input;
+    const effectivePaymentStatus = paymentStatus ?? existing.paymentStatus;
+    const effectiveSponsorId = sponsorId === undefined ? existing.sponsorId : sponsorId;
+    const touchingSponsorFields = paymentStatus !== undefined || sponsorId !== undefined;
+    if (touchingSponsorFields && effectivePaymentStatus === PaymentStatus.INCLUSIVE && !effectiveSponsorId) {
+      apiLogger.warn({ msg: "registration-update:inclusive-requires-sponsor", registrationId, source, actorUserId });
+      return {
+        ok: false,
+        code: "INCLUSIVE_REQUIRES_SPONSOR",
+        message: "paymentStatus=INCLUSIVE requires a sponsorId. Add the sponsor to the event's Sponsors page first, then reference its id.",
+      };
+    }
+    if (touchingSponsorFields && effectiveSponsorId) {
+      const sponsors = readSponsors(event.settings);
+      if (!sponsors.find((s) => s.id === effectiveSponsorId)) {
+        apiLogger.warn({ msg: "registration-update:sponsor-not-found", registrationId, sponsorId: effectiveSponsorId, source });
+        return {
+          ok: false,
+          code: "SPONSOR_NOT_FOUND",
+          message: `Sponsor ${effectiveSponsorId} not found in event's sponsor list.`,
+          meta: { availableSponsors: sponsors.map((s) => ({ id: s.id, name: s.name })) },
+        };
+      }
+    }
+
+    // ── Billing account ("charge to another account") ────────────────────────
+    const { billingAccountId } = input;
+    if (typeof billingAccountId === "string") {
+      const ba = await db.billingAccount.findFirst({
+        where: { id: billingAccountId, organizationId },
+        select: { id: true, isActive: true },
+      });
+      if (!ba) {
+        apiLogger.warn({ msg: "registration-update:billing-account-not-found", registrationId, billingAccountId, source });
+        return { ok: false, code: "BILLING_ACCOUNT_NOT_FOUND", message: `Billing account ${billingAccountId} not found in this organization.` };
+      }
+      if (!ba.isActive) {
+        apiLogger.warn({ msg: "registration-update:billing-account-inactive", registrationId, billingAccountId, source });
+        return { ok: false, code: "BILLING_ACCOUNT_INACTIVE", message: `Billing account ${billingAccountId} is inactive. Reactivate it or pick another payer.` };
+      }
+    }
+
+    // ── Ticket type (event-scoped — never trust the id alone) ────────────────
+    const { ticketTypeId } = input;
+    if (ticketTypeId && ticketTypeId !== existing.ticketTypeId) {
+      const tt = await db.ticketType.findFirst({
+        where: { id: ticketTypeId, eventId },
+        select: { id: true },
+      });
+      if (!tt) {
+        apiLogger.warn({ msg: "registration-update:ticket-type-not-found", registrationId, ticketTypeId, source });
+        return { ok: false, code: "TICKET_TYPE_NOT_FOUND", message: `Ticket type ${ticketTypeId} not found in this event.` };
+      }
+    }
+
+    // ── Attendee patch (REST semantics: "" clears, undefined keeps — L4) ─────
+    const attendee = input.attendee;
+    if (attendee?.studentIdExpiry && isNaN(new Date(attendee.studentIdExpiry).getTime())) {
+      apiLogger.warn({ msg: "registration-update:invalid-student-id-expiry", registrationId, studentIdExpiry: attendee.studentIdExpiry, source });
+      return { ok: false, code: "INVALID_STUDENT_ID_EXPIRY", message: "Invalid student ID expiry date" };
+    }
+    const attendeeData = attendee
+      ? {
+          ...(attendee.title !== undefined && { title: (attendee.title || null) as never }),
+          ...(attendee.role !== undefined && { role: (attendee.role || null) as never }),
+          ...(attendee.firstName && { firstName: attendee.firstName }),
+          ...(attendee.lastName && { lastName: attendee.lastName }),
+          ...(attendee.additionalEmail !== undefined && {
+            additionalEmail: attendee.additionalEmail?.trim() || null,
+          }),
+          ...(attendee.organization !== undefined && { organization: attendee.organization || null }),
+          ...(attendee.photo !== undefined && { photo: attendee.photo || null }),
+          ...(attendee.jobTitle !== undefined && { jobTitle: attendee.jobTitle || null }),
+          ...(attendee.phone !== undefined && { phone: attendee.phone || null }),
+          ...(attendee.city !== undefined && { city: attendee.city || null }),
+          ...(attendee.country !== undefined && { country: attendee.country || null }),
+          ...(attendee.bio !== undefined && { bio: attendee.bio || null }),
+          ...(attendee.specialty !== undefined && { specialty: attendee.specialty || null }),
+          ...(attendee.tags !== undefined && { tags: attendee.tags }),
+          ...(attendee.dietaryReqs !== undefined && { dietaryReqs: attendee.dietaryReqs || null }),
+          ...(attendee.associationName !== undefined && { associationName: attendee.associationName || null }),
+          ...(attendee.memberId !== undefined && { memberId: attendee.memberId || null }),
+          ...(attendee.studentId !== undefined && { studentId: attendee.studentId || null }),
+          ...(attendee.studentIdExpiry !== undefined && {
+            studentIdExpiry: attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null,
+          }),
+          ...(attendee.customFields && { customFields: attendee.customFields as Prisma.InputJsonValue }),
+        }
+      : null;
+
+    // ── Repricing (shared resolver — tier and/or type change) ────────────────
+    const repricing = await resolveRepricing({
+      eventId,
+      existing: {
+        ticketTypeId: existing.ticketTypeId,
+        pricingTierId: existing.pricingTierId,
+        paymentStatus: existing.paymentStatus,
+        promoCodeId: existing.promoCodeId,
+        discountAmount: existing.discountAmount,
+      },
+      ticketTypeId,
+      pricingTierId: input.pricingTierId,
+    });
+    if (!repricing.ok) {
+      apiLogger.warn({ msg: "registration-update:repricing-blocked", registrationId, code: repricing.code, source });
+      return {
+        ok: false,
+        code: "REPRICING_BLOCKED",
+        message: repricing.message,
+        repricingCode: repricing.code,
+        httpStatus: repricing.status,
+      };
+    }
+    const { isChangingType, effectiveTypeId, nextTierId, originalPrice: retierOriginalPrice } = repricing;
+
+    const expectedUpdatedAt = input.expectedUpdatedAt ?? null;
+    if (!expectedUpdatedAt) {
+      apiLogger.warn({
+        msg: "optimistic-lock:missing-expectedUpdatedAt",
+        resource: "registration",
+        resourceId: registrationId,
+        source,
+      });
+    }
+
+    const effectiveMode = attendanceMode || existing.attendanceMode;
+    const qrCodeMinted = needsQrCode(effectiveMode, existing.qrCode);
+
+    // ── The transaction: seat/promo transition + lock-gated writes ───────────
+    const registration = await db.$transaction(async (tx) => {
+      const effectiveStatus = status || existing.status;
+      const seatTierId = nextTierId !== undefined ? nextTierId : existing.pricingTierId;
+
+      // Seat + promo accounting via the SHARED applier (single source of
+      // truth): correct counter (tier vs ticket type), VIRTUAL holds no seat,
+      // atomic oversell guard (throws CAPACITY_EXCEEDED), promo usedCount
+      // moves symmetrically with CANCELLED transitions.
+      await applyRegistrationTransition(tx, {
+        prev: {
+          status: existing.status,
+          attendanceMode: existing.attendanceMode,
+          ticketTypeId: existing.ticketTypeId,
+          pricingTierId: existing.pricingTierId,
+          createdSource: existing.createdSource,
+        },
+        next: {
+          status: effectiveStatus,
+          attendanceMode: effectiveMode,
+          ticketTypeId: effectiveTypeId,
+          pricingTierId: seatTierId,
+          createdSource: existing.createdSource,
+        },
+        promoCodeId: existing.promoCodeId,
+      });
+
+      // Keep attendee.registrationType synced with the ticket type name when
+      // the type changes (independent of seat movement — applies to virtual too).
+      if (isChangingType) {
+        const newTicket = await tx.ticketType.findUnique({
+          where: { id: ticketTypeId },
+          select: { name: true },
+        });
+        if (!newTicket) {
+          throw new Error("CAPACITY_EXCEEDED");
+        }
+        await tx.attendee.update({
+          where: { id: existing.attendeeId },
+          data: { registrationType: newTicket.name },
+        });
+      }
+
+      const changeData: Prisma.RegistrationUncheckedUpdateInput = {
+        ...(status && { status }),
+        ...(paymentStatus && { paymentStatus }),
+        ...(sponsorId !== undefined && { sponsorId }),
+        ...(billingAccountId !== undefined && { billingAccountId }),
+        ...(input.payerReference !== undefined && { payerReference: input.payerReference || null }),
+        ...(input.attendeeIsGuarantor !== undefined && { attendeeIsGuarantor: input.attendeeIsGuarantor }),
+        ...(input.badgeType !== undefined && { badgeType: input.badgeType }),
+        ...(input.dtcmBarcode !== undefined && { dtcmBarcode: input.dtcmBarcode || null }),
+        ...(ticketTypeId && { ticketTypeId }),
+        // Persist the resolved tier (undefined = leave unchanged) + re-stamped
+        // price. A bare type change nulls the tier (tiers belong to a type) so
+        // the stored row stays consistent with where its seat now lives.
+        ...(nextTierId !== undefined && { pricingTierId: nextTierId }),
+        ...(retierOriginalPrice !== undefined && { originalPrice: retierOriginalPrice }),
+        ...(attendanceMode !== undefined && { attendanceMode }),
+        // Lazy entry-barcode mint: becoming (or already) in-person with no
+        // barcode gets one; virtual keeps null; an existing barcode is kept.
+        ...(qrCodeMinted && { qrCode: generateBarcode() }),
+        ...(input.notes !== undefined && { notes: input.notes || null }),
+        ...(input.taxNumber !== undefined && { taxNumber: input.taxNumber || null }),
+        ...(input.billingFirstName !== undefined && { billingFirstName: input.billingFirstName || null }),
+        ...(input.billingLastName !== undefined && { billingLastName: input.billingLastName || null }),
+        ...(input.billingEmail !== undefined && { billingEmail: input.billingEmail || null }),
+        ...(input.billingPhone !== undefined && { billingPhone: input.billingPhone || null }),
+        ...(input.billingAddress !== undefined && { billingAddress: input.billingAddress || null }),
+        ...(input.billingCity !== undefined && { billingCity: input.billingCity || null }),
+        ...(input.billingState !== undefined && { billingState: input.billingState || null }),
+        ...(input.billingZipCode !== undefined && { billingZipCode: input.billingZipCode || null }),
+        ...(input.billingCountry !== undefined && { billingCountry: input.billingCountry || null }),
+        updatedAt: new Date(),
+      };
+
+      // Optimistic lock: with expectedUpdatedAt, write only if the row still
+      // has that timestamp — a stale write throws + rolls back the seat delta.
+      const updateResult = await tx.registration.updateMany({
+        where: {
+          id: registrationId,
+          ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
+        },
+        data: changeData,
+      });
+      if (updateResult.count === 0) {
+        throw new Error(expectedUpdatedAt ? "STALE_WRITE" : "REGISTRATION_DISAPPEARED");
+      }
+
+      // Attendee edits commit atomically with the registration row — AFTER
+      // the lock held, so a STALE_WRITE rejection persists nothing (H7).
+      if (attendeeData) {
+        await tx.attendee.update({
+          where: { id: existing.attendeeId },
+          data: attendeeData,
+        });
+      }
+
+      return tx.registration.findUniqueOrThrow({
+        where: { id: registrationId },
+        include: {
+          attendee: true,
+          ticketType: true,
+          pricingTier: true,
+          payments: {
+            select: { id: true, amount: true, currency: true, status: true, createdAt: true },
+            orderBy: { createdAt: "desc" },
+          },
+          accommodation: {
+            select: {
+              id: true, checkIn: true, checkOut: true, status: true,
+              roomType: { select: { name: true, hotel: { select: { name: true } } } },
+            },
+          },
+        },
+      });
+    }).catch((err) => {
+      if (err instanceof Error && ["STALE_WRITE", "REGISTRATION_DISAPPEARED", "CAPACITY_EXCEEDED"].includes(err.message)) {
+        return err.message as "STALE_WRITE" | "REGISTRATION_DISAPPEARED" | "CAPACITY_EXCEEDED";
+      }
+      throw err;
+    });
+
+    if (registration === "STALE_WRITE") {
+      apiLogger.info({ msg: "registration:stale-write-rejected", registrationId, source });
+      return {
+        ok: false,
+        code: "STALE_WRITE",
+        message: "This registration was modified by someone else after you opened it. Reload the latest version and try again.",
+      };
+    }
+    if (registration === "REGISTRATION_DISAPPEARED") {
+      return { ok: false, code: "REGISTRATION_NOT_FOUND", message: "Registration not found" };
+    }
+    if (registration === "CAPACITY_EXCEEDED") {
+      apiLogger.warn({ msg: "registration:update-capacity-exceeded", registrationId, source });
+      return {
+        ok: false,
+        code: "CAPACITY_EXCEEDED",
+        message: "Cannot reactivate/move this registration — the target registration type is sold out. Increase its quantity or pick another type.",
+      };
+    }
+
+    // ── Post-commit best-effort fan-out (after the tx held — nothing leaks
+    //    into the Speaker facet / Contact store on a rejected write) ──────────
+    if (attendee) {
+      if (attendee.tags !== undefined) {
+        await syncRegistrationTagsToSpeakers(eventId, [
+          {
+            registrationId,
+            email: existing.attendee.email,
+            delta: computeTagDelta(existing.attendee.tags, attendee.tags),
+          },
+        ]);
+      }
+
+      // Full-merge Contact sync (REST's shape — MCP used to sync name+email
+      // only). `undefined` preserves what the Contact already had.
+      const a = existing.attendee;
+      await syncToContact({
+        organizationId,
+        eventId,
+        email: a.email,
+        additionalEmail: attendee.additionalEmail !== undefined
+          ? (attendee.additionalEmail?.trim() || null)
+          : a.additionalEmail,
+        firstName: attendee.firstName || a.firstName,
+        lastName: attendee.lastName || a.lastName,
+        title: attendee.title !== undefined ? ((attendee.title || null) as never) : a.title,
+        role: attendee.role !== undefined ? ((attendee.role || null) as never) : a.role,
+        organization: attendee.organization !== undefined ? (attendee.organization || null) : a.organization,
+        jobTitle: attendee.jobTitle !== undefined ? (attendee.jobTitle || null) : a.jobTitle,
+        phone: attendee.phone !== undefined ? (attendee.phone || null) : a.phone,
+        photo: attendee.photo !== undefined ? (attendee.photo || null) : a.photo,
+        city: attendee.city !== undefined ? (attendee.city || null) : a.city,
+        country: attendee.country !== undefined ? (attendee.country || null) : a.country,
+        bio: attendee.bio !== undefined ? (attendee.bio || null) : a.bio,
+        specialty: attendee.specialty !== undefined ? (attendee.specialty || null) : a.specialty,
+        registrationType: a.registrationType,
+        associationName: attendee.associationName !== undefined ? (attendee.associationName || null) : a.associationName,
+        memberId: attendee.memberId !== undefined ? (attendee.memberId || null) : a.memberId,
+        studentId: attendee.studentId !== undefined ? (attendee.studentId || null) : a.studentId,
+        studentIdExpiry: attendee.studentIdExpiry !== undefined
+          ? (attendee.studentIdExpiry ? new Date(attendee.studentIdExpiry) : null)
+          : a.studentIdExpiry,
+      });
+    }
+
+    refreshEventStats(eventId);
+
+    // A cancel kills any still-open Stripe payment tab. Fire-and-forget.
+    if (status === "CANCELLED" && existing.status !== "CANCELLED") {
+      void expireOpenCheckoutSessionOnCancel(registrationId, `registration-update-${source}`);
+    }
+
+    // Audit — full before/after snapshots (the Activity timeline derives its
+    // field-level diffs from these). Fire-and-forget with a logged catch: a
+    // transient insert blip must not turn a committed update into a caller-
+    // facing failure (review M13 class).
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: actorUserId,
+          action: "UPDATE",
+          entityType: "Registration",
+          entityId: registration.id,
+          changes: {
+            source,
+            before: JSON.parse(JSON.stringify(existing)),
+            after: JSON.parse(JSON.stringify(registration)),
+            ...(qrCodeMinted && { qrCodeMinted: true }),
+            ...(input.requestIp ? { ip: input.requestIp } : {}),
+          },
+        },
+      })
+      .catch((err) => apiLogger.warn({ err, msg: "registration-update:audit-write-failed", registrationId }));
+
+    return { ok: true, registration, qrCodeMinted };
+  } catch (err) {
+    // P2002 unique-constraint violation — most likely a duplicate dtcmBarcode.
+    if (typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002") {
+      const target = (err as { meta?: { target?: string[] } }).meta?.target;
+      apiLogger.warn({ msg: "registration-update:unique-constraint", target, registrationId, source });
+      return {
+        ok: false,
+        code: "UNIQUE_CONSTRAINT",
+        message: target?.includes("dtcmBarcode")
+          ? "This DTCM barcode is already assigned to another registration."
+          : "A unique constraint was violated.",
+        meta: { target },
+      };
+    }
+    apiLogger.error({ err, msg: "updateRegistration:unknown-failure", registrationId, eventId, source });
+    return { ok: false, code: "UNKNOWN", message: "Failed to update registration" };
   }
 }

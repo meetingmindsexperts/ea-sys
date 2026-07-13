@@ -27,6 +27,8 @@ const { mockDb, mockSyncSpkToReg, mockSyncRegToSpk } = vi.hoisted(() => {
         findUniqueOrThrow: vi.fn(),
       },
       registration: { findFirst: vi.fn() },
+      // The registration-update service loads the event (settings) alongside.
+      event: { findFirst: vi.fn() },
       ticketType: { findFirst: vi.fn() },
       pricingTier: { findFirst: vi.fn() },
       auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
@@ -64,6 +66,7 @@ const ctx = { eventId: "ev1", organizationId: "org1", userId: "u1", counters: { 
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", settings: {} });
   mockDb.speaker.updateMany.mockResolvedValue({ count: 1 });
   mockDb._tx.registration.updateMany.mockResolvedValue({ count: 1 });
   // Stored tags are Title-Cased by normalizeTag at write time.
