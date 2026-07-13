@@ -32,7 +32,7 @@ import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-selec
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import Link from "next/link";
-import { PRESENTATION_TYPE_OPTIONS } from "../abstract-enums";
+import { enabledPresentationTypeOptions } from "../abstract-enums";
 
 interface Speaker {
   id: string;
@@ -287,7 +287,8 @@ export default function NewAbstractPage() {
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    {PRESENTATION_TYPE_OPTIONS.map((o) => (
+                    {/* Only the types this event offers (Content → Abstracts). */}
+                    {enabledPresentationTypeOptions(event?.settings).map((o) => (
                       <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                     ))}
                   </SelectContent>

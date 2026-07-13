@@ -17,6 +17,7 @@ import { optimisticLockField } from "@/lib/optimistic-lock";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 
 // HTTP status mapping for the service's domain error codes. Kept local to
 // the REST caller — the service never knows about HTTP.
@@ -256,6 +257,24 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json(
         { error: "Presentation type is required to submit an abstract", code: "PRESENTATION_TYPE_REQUIRED" },
         { status: 400 }
+      );
+    }
+    // The event only offers the presentation types its organizer enabled
+    // (Content → Abstracts). Enforced on a CHANGE only — an abstract may
+    // always KEEP its existing type after the organizer narrows the offering,
+    // so an unrelated edit is never forced to change it.
+    if (
+      data.presentationType &&
+      data.presentationType !== existingAbstract.presentationType &&
+      !isPresentationTypeEnabled(event.settings, data.presentationType)
+    ) {
+      apiLogger.warn({ msg: "abstract-update:presentation-type-not-offered", eventId, abstractId, presentationType: data.presentationType, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: `This event does not offer ${data.presentationType} presentations. Offered: ${readEnabledPresentationTypes(event.settings).join(", ")}.`,
+          code: "PRESENTATION_TYPE_NOT_OFFERED",
+        },
+        { status: 400 },
       );
     }
     // WITHDRAWN transitions aren't in `reviewStatuses` (reviewers don't set

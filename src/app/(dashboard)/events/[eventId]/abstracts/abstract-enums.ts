@@ -11,6 +11,7 @@
  */
 
 import { AbstractStatus, PresentationType } from "@prisma/client";
+import { readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 
 export const ABSTRACT_STATUS_COLORS: Record<AbstractStatus, string> = {
   DRAFT: "bg-gray-100 text-gray-700",
@@ -41,6 +42,27 @@ export const PRESENTATION_TYPE_OPTIONS: { value: PresentationType; label: string
   { value: "VIDEO", label: "Video Presentation" },
   { value: "WORKSHOP", label: "Workshop Presentation" },
 ];
+
+/**
+ * The presentation-type options an event actually OFFERS (July 13, 2026):
+ * organizers narrow the list per event via Content → Abstracts
+ * (`Event.settings.abstractPresentationTypes`); absent config = all types.
+ * `currentValue` (edit forms): an abstract's existing type stays selectable
+ * even after the organizer disabled it — narrowing the offering must not
+ * force an unrelated edit to change the type — annotated "(no longer offered)".
+ */
+export function enabledPresentationTypeOptions(
+  settings: unknown,
+  currentValue?: string | null,
+): { value: PresentationType; label: string }[] {
+  const enabled = new Set<string>(readEnabledPresentationTypes(settings));
+  const options = PRESENTATION_TYPE_OPTIONS.filter((o) => enabled.has(o.value));
+  if (currentValue && !enabled.has(currentValue)) {
+    const current = PRESENTATION_TYPE_OPTIONS.find((o) => o.value === currentValue);
+    if (current) options.push({ ...current, label: `${current.label} (no longer offered)` });
+  }
+  return options;
+}
 
 /** Short label, e.g. for badges. */
 export const PRESENTATION_TYPE_LABELS: Record<PresentationType, string> = {

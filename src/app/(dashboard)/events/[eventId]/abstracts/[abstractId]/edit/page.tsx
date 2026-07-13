@@ -32,7 +32,7 @@ import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 import {
-  PRESENTATION_TYPE_OPTIONS,
+  enabledPresentationTypeOptions,
   PRESENTATION_TYPE_LABELS,
   abstractStatusColor,
   abstractStatusLabel,
@@ -387,7 +387,10 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    {PRESENTATION_TYPE_OPTIONS.map((o) => (
+                    {/* Only the types this event offers — but an abstract's
+                        existing type stays selectable even if the organizer
+                        later disabled it (annotated in the label). */}
+                    {enabledPresentationTypeOptions((eventData as { settings?: unknown } | undefined)?.settings, (abstract.presentationType as string | null) ?? null).map((o) => (
                       <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                     ))}
                   </SelectContent>

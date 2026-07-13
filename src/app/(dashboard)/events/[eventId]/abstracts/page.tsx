@@ -59,7 +59,7 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { BulkEmailDialog } from "@/components/bulk-email-dialog";
 import {
-  PRESENTATION_TYPE_OPTIONS,
+  enabledPresentationTypeOptions,
   abstractStatusColor,
   abstractStatusLabel,
 } from "./abstract-enums";
@@ -519,7 +519,8 @@ export default function AbstractsPage() {
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                         <SelectContent>
-                          {PRESENTATION_TYPE_OPTIONS.map((o) => (
+                          {/* Only the types this event offers (Content → Abstracts). */}
+                          {enabledPresentationTypeOptions((event as { settings?: unknown } | undefined)?.settings).map((o) => (
                             <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                           ))}
                         </SelectContent>

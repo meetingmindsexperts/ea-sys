@@ -16,6 +16,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { MAX_ABSTRACT_WORDS, withinAbstractWordLimit } from "@/lib/abstract-content";
+import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -186,7 +187,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const [event, speaker, track, theme] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true },
+        select: { id: true, settings: true },
       }),
       db.speaker.findFirst({
         where: speakerWhere,
@@ -223,6 +224,21 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (themeId && !theme) {
       return NextResponse.json({ error: "Theme not found" }, { status: 404 });
+    }
+
+    // The event only offers the presentation types its organizer enabled
+    // (Content → Abstracts; settings.abstractPresentationTypes — absent =
+    // all). The forms filter their dropdowns, but a form can be bypassed, so
+    // enforce here too.
+    if (presentationType && !isPresentationTypeEnabled(event.settings, presentationType)) {
+      apiLogger.warn({ msg: "abstract-create:presentation-type-not-offered", eventId, presentationType, userId: session.user.id });
+      return NextResponse.json(
+        {
+          error: `This event does not offer ${presentationType} presentations. Offered: ${readEnabledPresentationTypes(event.settings).join(", ")}.`,
+          code: "PRESENTATION_TYPE_NOT_OFFERED",
+        },
+        { status: 400 },
+      );
     }
 
     const abstract = await db.abstract.create({

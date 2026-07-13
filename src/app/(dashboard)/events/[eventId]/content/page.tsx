@@ -11,6 +11,10 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { DEFAULT_ABSTRACT_GUIDELINES_HTML } from "@/lib/default-terms";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { readEnabledPresentationTypes, ALL_PRESENTATION_TYPE_VALUES } from "@/lib/abstract-presentation-types";
+import { PRESENTATION_TYPE_OPTIONS } from "../abstracts/abstract-enums";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
@@ -35,6 +39,11 @@ export default function ContentPage() {
     abstractConfirmationHtml: "",
     speakerAgreementHtml: "",
   });
+  // Which presentation types this event's abstract form offers (July 13,
+  // 2026). Stored in Event.settings.abstractPresentationTypes; absent = all.
+  const [presentationTypes, setPresentationTypes] = useState<string[]>([
+    ...ALL_PRESENTATION_TYPE_VALUES,
+  ]);
 
   useEffect(() => {
     async function load() {
@@ -55,6 +64,7 @@ export default function ContentPage() {
             abstractConfirmationHtml: data.abstractConfirmationHtml || "",
             speakerAgreementHtml: data.speakerAgreementHtml || "",
           });
+          setPresentationTypes([...readEnabledPresentationTypes(data.settings)]);
         } else {
           // Surface a non-OK response (500/403/...) instead of silently
           // leaving the editor blank — the catch below only sees network errors.
@@ -86,6 +96,8 @@ export default function ContentPage() {
           abstractTermsHtml: content.abstractTermsHtml || null,
           abstractConfirmationHtml: content.abstractConfirmationHtml || null,
           speakerAgreementHtml: content.speakerAgreementHtml || null,
+          // Partial settings merge — the PUT preserves other settings keys.
+          settings: { abstractPresentationTypes: presentationTypes },
         }),
       });
       if (res.ok) toast.success("Content saved");
@@ -188,6 +200,49 @@ export default function ContentPage() {
         {/* Abstract Content */}
         <TabsContent value="abstracts">
           <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Presentation Types Offered</CardTitle>
+                <CardDescription>
+                  Which presentation types submitters can choose on the abstract form.
+                  At least one must stay enabled; existing abstracts keep their current
+                  type even if you disable it later.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {PRESENTATION_TYPE_OPTIONS.map((o) => {
+                    const checked = presentationTypes.includes(o.value);
+                    return (
+                      <Label
+                        key={o.value}
+                        className="flex items-center gap-2 rounded-md border p-3 text-sm font-normal cursor-pointer hover:bg-muted/50"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(next) => {
+                            if (next === true) {
+                              setPresentationTypes((prev) => [...prev, o.value]);
+                              return;
+                            }
+                            // Never allow an empty offering — the type is
+                            // mandatory to submit, so zero types would make
+                            // submission impossible.
+                            if (presentationTypes.length === 1) {
+                              toast.error("At least one presentation type must stay enabled");
+                              return;
+                            }
+                            setPresentationTypes((prev) => prev.filter((v) => v !== o.value));
+                          }}
+                        />
+                        {o.label}
+                      </Label>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle>Welcome Text</CardTitle>
