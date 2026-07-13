@@ -534,11 +534,6 @@ const shareSubmitSchema = z.object({
   answers: z.record(z.string(), z.unknown()),
 });
 
-// Soft IP-dedup window for the shareable link. Deliberately short so it
-// only catches a double-click/refresh — NOT distinct registrants behind
-// one conference-WiFi NAT IP. The per-registration @unique stays primary.
-const SHARE_SOFT_DEDUP_WINDOW_MS = 60_000;
-
 /**
  * Shareable-link submit (self-identify by email). Validates the
  * organizer-generated reusable token, resolves the registration from
@@ -612,31 +607,32 @@ async function handleShareSubmit(
     return NextResponse.json({ ok: true, alreadyCompleted: true });
   }
 
-  // Soft IP dedup — secondary guard only (the per-registration @unique is
-  // primary). 60s window catches double-click/refresh; the short window is
-  // deliberate so distinct registrants behind one NAT IP aren't blocked.
-  const ipHash = hashIp(getClientIp(req));
-  if (ipHash) {
-    const recent = await db.surveyResponse.findFirst({
-      where: {
-        eventId: event.id,
-        ipHash,
-        submittedAt: { gte: new Date(Date.now() - SHARE_SOFT_DEDUP_WINDOW_MS) },
-      },
-      select: { id: true },
-    });
-    if (recent) {
-      apiLogger.info({ msg: "survey:share-post-soft-dedup", eventId: event.id });
-      return NextResponse.json(
-        {
-          error:
-            "A response was just submitted from this device. Please wait a moment and try again if that wasn't you.",
-        },
-        { status: 429 },
-      );
-    }
-  }
-
+  // ── The IP "soft dedup" that used to live here has been REMOVED (review H1) ──
+  //
+  // It queried for ANY response from the same ipHash in the last 60s and 429'd —
+  // keyed on the IP, NOT on the submitting registration. Every attendee on the
+  // venue WiFi shares one NAT egress IP, so they all hash to the same ipHash.
+  //
+  // The real-world failure: the organizer puts the survey QR on the closing
+  // slide and 300 people scan it at once. The first submission lands; EVERY
+  // other person in the room gets 429 "A response was just submitted from this
+  // device." And because submissions keep arriving, the sliding 60s window never
+  // empties — so the lockout is sustained. They never complete the survey,
+  // `surveyCompletedAt` is never set, and they therefore NEVER GET THEIR
+  // CERTIFICATE. The guard fired hardest at the exact moment of intended use.
+  //
+  // The comment on the old code said the short window was "deliberate so distinct
+  // registrants behind one NAT IP aren't blocked" — the author was thinking about
+  // precisely this risk, and the guard did the opposite.
+  //
+  // And it was REDUNDANT: the double-click/refresh case it was written for is
+  // already handled by `SurveyResponse.registrationId @unique`, whose P2002 is
+  // caught in finalizeSubmission and returned as an idempotent 200. A guard that
+  // duplicates a DB constraint can only add false positives.
+  //
+  // Abuse of this endpoint is bounded by the per-IP rate limit above and — for
+  // the impersonation vector — by the identity check on the share path. `ipHash`
+  // is still recorded on the response for the audit trail.
   return finalizeSubmission(req, target, rawAnswers, null);
 }
 

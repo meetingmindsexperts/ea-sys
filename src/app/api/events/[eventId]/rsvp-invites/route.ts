@@ -16,6 +16,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import {
   computeDinnerHeadcounts,
@@ -35,8 +36,27 @@ export async function GET(req: Request, { params }: RouteParams) {
     const [session, { eventId }] = await Promise.all([auth(), params]);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    // H2: this GET returns each invitee's `token` — which IS the impersonation
+    // credential. Anyone holding it can POST the PUBLIC rsvp/[token] endpoint
+    // with no login and rewrite a named professor's attendance, guest count and
+    // dietary note. It also returns the confidential VIP guest list (names,
+    // emails, dietary requirements).
+    //
+    // The route had NO denyReviewer and hand-rolled `organizationId!` instead of
+    // buildEventAccessWhere, so three org-ATTACHED populations could read it:
+    // MEMBER (the read-only sponsor-side observer), ONSITE (org-scoped here, so
+    // a desk temp assigned to Event A could pull Event B's roster — the July-7
+    // cross-event class), and an internal-domain REGISTRANT (an attendee
+    // account). denyReviewer blocks all three; buildEventAccessWhere is the
+    // assignment-aware lookup the rest of the codebase uses.
+    //
+    // The token stays in the payload — the console's copy-link button needs it —
+    // but only the roles that actually run the dinner can now see it.
+    const denied = denyReviewer(session);
+    if (denied) return denied;
+
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {
@@ -88,6 +108,14 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const url = new URL(req.url);
     if (url.searchParams.get("export") === "csv") {
+      // L3: a bulk PII extraction (every invitee's name, email, dietary note)
+      // used to leave no trace at all — unlike the survey export, which logs a
+      // rowCount. If a VIP guest list leaks, this is the only record of who
+      // pulled it and when.
+      apiLogger.info(
+        { eventId, userId: session.user.id, rowCount: invites.length },
+        "rsvp-invites:csv-exported",
+      );
       const header = [
         "Name",
         "Email",
