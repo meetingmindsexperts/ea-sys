@@ -566,6 +566,16 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
           continue;
         }
 
+        // Role (profession) — validated like the single-create path. Previously
+        // dropped along with country/city/state/zip/photo/additionalEmail/tags/
+        // registrationType (review M9): bulk-imported faculty got blank badge
+        // countries and "—" professions on their companion registrations.
+        const role = row.role ? String(row.role) : undefined;
+        if (role && !ATTENDEE_ROLE_VALUES.has(role)) {
+          errors.push({ index: i, email, error: `Invalid role; must be one of ${[...ATTENDEE_ROLE_VALUES].join(", ")}`, code: "INVALID_ROLE" });
+          continue;
+        }
+
         const speaker = await db.speaker.create({
           data: {
             eventId: ctx.eventId,
@@ -573,16 +583,53 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
             firstName,
             lastName,
             title: (title as never) ?? null,
+            role: (role as never) ?? null,
             bio: row.bio ? String(row.bio).slice(0, 5000) : null,
             organization: row.organization ? String(row.organization).slice(0, 255) : null,
             jobTitle: row.jobTitle ? String(row.jobTitle).slice(0, 255) : null,
             phone: row.phone ? String(row.phone).slice(0, 50) : null,
+            additionalEmail: row.additionalEmail ? String(row.additionalEmail).trim().toLowerCase().slice(0, 255) : null,
+            photo: row.photo ? String(row.photo).slice(0, 500) : null,
+            city: row.city ? String(row.city).slice(0, 255) : null,
+            state: row.state ? String(row.state).slice(0, 255) : null,
+            zipCode: row.zipCode ? String(row.zipCode).slice(0, 20) : null,
+            country: row.country ? String(row.country).slice(0, 255) : null,
             specialty: row.specialty ? String(row.specialty).slice(0, 255) : null,
+            registrationType: row.registrationType ? String(row.registrationType).slice(0, 255) : null,
+            tags: Array.isArray(row.tags)
+              ? (row.tags as unknown[]).map((t) => normalizeTag(String(t).slice(0, 100))).filter(Boolean)
+              : [],
             status: (status as never) ?? "INVITED",
           },
-          select: { id: true, email: true, firstName: true, lastName: true },
+          select: {
+            id: true, email: true, firstName: true, lastName: true, title: true,
+            role: true, organization: true, jobTitle: true, phone: true, photo: true,
+            city: true, country: true, bio: true, specialty: true, registrationType: true,
+          },
         });
-        created.push({ index: i, ...speaker });
+        created.push({ index: i, id: speaker.id, email: speaker.email, firstName: speaker.firstName, lastName: speaker.lastName });
+
+        // Contact-store sync — parity with the single-create service (review
+        // M9: the bulk path skipped it entirely, so bulk-imported people never
+        // reached the org CRM). Never throws by contract.
+        await syncToContact({
+          organizationId: ctx.organizationId,
+          eventId: ctx.eventId,
+          email: speaker.email,
+          firstName: speaker.firstName,
+          lastName: speaker.lastName,
+          title: speaker.title,
+          role: speaker.role,
+          organization: speaker.organization,
+          jobTitle: speaker.jobTitle,
+          phone: speaker.phone,
+          photo: speaker.photo,
+          city: speaker.city,
+          country: speaker.country,
+          bio: speaker.bio,
+          specialty: speaker.specialty,
+          registrationType: speaker.registrationType,
+        });
       } catch (err) {
         const email = (items[i] as { email?: string }).email;
         const message = err instanceof Error ? err.message : "Unknown error";

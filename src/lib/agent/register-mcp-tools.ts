@@ -351,7 +351,7 @@ export function registerAllMcpTools(
       payerReference: z.string().optional().describe("Optional PO / grant reference printed on the invoice. Only meaningful with billingAccountId."),
       attendeeIsGuarantor: z.boolean().optional().describe("If true with a billingAccountId, the attendee stays guarantor for an unpaid third-party invoice. Default false."),
     }},
-    { name: "send_bulk_email", description: "Email speakers or registrations. Use paymentStatusFilter='UNPAID' for the unpaid-chase workflow (registrations recipient only).", params: {
+    { name: "send_bulk_email", description: "Email speakers or registrations through the shared send pipeline (per-event branding + custom-notification template applied; an unparsable status/payment filter is rejected with INVALID_FILTER instead of silently widening the audience). Use paymentStatusFilter='UNPAID' for the unpaid-chase workflow (registrations recipient only).", params: {
       recipientType: z.enum(["speakers", "registrations"]), emailType: z.string(),
       subject: z.string(), htmlMessage: z.string(),
       statusFilter: z.string().optional(),
@@ -674,21 +674,30 @@ export function registerAllMcpTools(
       slug: z.string(),
     }},
     // ─── Bulk creates ───
-    { name: "create_speakers_bulk", description: "Bulk-create up to 100 speakers in one call. Returns per-row { created, errors } so one bad row doesn't kill the batch. Pre-dedups by email within the payload. Each speaker needs email/firstName/lastName; optional title, bio, organization, jobTitle, phone, specialty, status (INVITED/CONFIRMED).", params: {
+    { name: "create_speakers_bulk", description: "Bulk-create up to 100 speakers in one call. Returns per-row { created, errors } so one bad row doesn't kill the batch. Pre-dedups by email within the payload. Each speaker needs email/firstName/lastName; optional title, role (profession), bio, organization, jobTitle, phone, additionalEmail, photo, city, state, zipCode, country, specialty, registrationType, tags, status (INVITED/CONFIRMED). Every row is synced to the org contact store; each speaker also gets a companion registration (badge/barcode/check-in).", params: {
       speakers: z.array(z.object({
         email: z.string(),
         firstName: z.string(),
         lastName: z.string(),
         title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
+        role: z.enum(["ACADEMIA", "ALLIED_HEALTH", "MEDICAL_DEVICES", "PHARMA", "PHYSICIAN", "RESIDENT", "SPEAKER", "STUDENT", "OTHERS"]).optional().describe("Profession category — also becomes the companion registration's type display."),
         bio: z.string().optional(),
         organization: z.string().optional(),
         jobTitle: z.string().optional(),
         phone: z.string().optional(),
+        additionalEmail: z.string().optional(),
+        photo: z.string().optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        zipCode: z.string().optional(),
+        country: z.string().optional(),
         specialty: z.string().optional(),
+        registrationType: z.string().optional(),
+        tags: z.array(z.string()).optional(),
         status: z.enum(["INVITED", "CONFIRMED"]).optional(),
       })).min(1).max(100),
     }},
-    { name: "create_registrations_bulk", description: "Bulk-create up to 100 registrations in one call. Returns per-row { created, errors }. Pre-dedups by email within the payload. Each row needs email/firstName/lastName/ticketTypeId; optional title, organization, jobTitle, phone, country, specialty, status (PENDING/CONFIRMED/WAITLISTED, default CONFIRMED). Use list_ticket_types to get ticketTypeId.", params: {
+    { name: "create_registrations_bulk", description: "Bulk-create up to 100 registrations in one call. Returns per-row { created, errors }. Pre-dedups by email within the payload; CANCELLED rows don't block a re-registration. Each row needs email/firstName/lastName/ticketTypeId; optional title, organization, jobTitle, phone, country, specialty, status (PENDING/CONFIRMED/WAITLISTED, default CONFIRMED — an approval-gated ticket type forces PENDING). Sales windows are enforced per row (SALES_NOT_STARTED/SALES_ENDED). Paid tickets start UNASSIGNED and each paying registrant is emailed their confirmation + quote/pay link; free tickets start COMPLIMENTARY (no email). Use list_ticket_types to get ticketTypeId.", params: {
       registrations: z.array(z.object({
         email: z.string(),
         firstName: z.string(),

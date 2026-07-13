@@ -12,7 +12,9 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { notifyEventAdmins } from "@/lib/notifications";
 import {
+  CONFIRMATION_EVENT_SELECT,
   createRegistration,
+  sendRegistrationConfirmationEmail,
   updateRegistration as updateRegistrationService,
   type ManualPaymentStatus,
   type ManualRegistrationStatus,
@@ -801,11 +803,19 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
     }
 
     // Pre-load the event's ticket types once so we can validate ticketTypeId
-    // without hitting the DB N times.
-    const ticketTypes = await db.ticketType.findMany({
-      where: { eventId: ctx.eventId },
-      select: { id: true, name: true, quantity: true, price: true },
-    });
+    // without hitting the DB N times. requiresApproval / sales window /
+    // currency are needed for the M8 parity fixes below; the event row (loaded
+    // once, service-shared select) feeds the per-row confirmation emails.
+    const [ticketTypes, confirmationEvent] = await Promise.all([
+      db.ticketType.findMany({
+        where: { eventId: ctx.eventId },
+        select: {
+          id: true, name: true, quantity: true, price: true, currency: true,
+          requiresApproval: true, salesStart: true, salesEnd: true,
+        },
+      }),
+      db.event.findFirst({ where: { id: ctx.eventId }, select: CONFIRMATION_EVENT_SELECT }),
+    ]);
     const ticketTypeById = new Map(ticketTypes.map((t) => [t.id, t]));
 
     const seenEmails = new Set<string>();
@@ -850,8 +860,33 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
           continue;
         }
 
+        // Sales-window enforcement (M8 parity with the single-create service —
+        // the bulk path used to skip it entirely).
+        const now = new Date();
+        if (ticketType.salesStart && now < ticketType.salesStart) {
+          errors.push({ index: i, email, error: `Ticket sales for ${ticketType.name} have not started yet`, code: "SALES_NOT_STARTED" });
+          continue;
+        }
+        if (ticketType.salesEnd && now > ticketType.salesEnd) {
+          errors.push({ index: i, email, error: `Ticket sales for ${ticketType.name} have ended`, code: "SALES_ENDED" });
+          continue;
+        }
+
+        // Approval-gated types force PENDING regardless of the caller's status
+        // (M8 parity — the bulk path used to ignore requiresApproval).
+        const finalStatus = ticketType.requiresApproval ? "PENDING" : rawStatus;
+
+        // Payment default parity (M8): paid tickets start UNASSIGNED (money
+        // owed, chased by payment reminders), free tickets COMPLIMENTARY —
+        // the bulk path used to leave the schema default (UNPAID), so FREE
+        // rows were chased by the Chase-Unpaid workflow.
+        const price = Number(ticketType.price ?? 0);
+        const finalPaymentStatus = price > 0 ? "UNASSIGNED" : "COMPLIMENTARY";
+
         const duplicate = await db.registration.findFirst({
-          where: { eventId: ctx.eventId, attendee: { email } },
+          // CANCELLED rows don't block a re-registration (M8 parity — the
+          // single-create service excludes them from the duplicate check).
+          where: { eventId: ctx.eventId, status: { not: "CANCELLED" }, attendee: { email } },
           select: { id: true },
         });
         if (duplicate) {
@@ -895,18 +930,45 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
               attendeeId: attendee.id,
               serialId,
               createdSource: "MCP_AGENT",
-              status: rawStatus as never,
+              status: finalStatus as never,
+              paymentStatus: finalPaymentStatus as never,
               qrCode,
               // In-person, no-tier bulk create → base price is the ticket-type
               // price. Stamp it so the subtotal never resolves to 0.
-              originalPrice: Number(ticketType.price ?? 0),
+              originalPrice: price,
             },
-            select: { id: true },
+            select: { id: true, serialId: true, qrCode: true },
           });
-          return { attendeeId: attendee.id, registrationId: registration.id };
+          return { attendeeId: attendee.id, registrationId: registration.id, serialId: registration.serialId, qrCode: registration.qrCode };
         });
 
-        created.push({ index: i, email, ...result });
+        created.push({ index: i, email, attendeeId: result.attendeeId, registrationId: result.registrationId });
+
+        // Confirmation email + quote PDF for money-owed rows (M8 parity —
+        // the bulk path used to skip the email silently, so bulk-imported
+        // paying registrants never received their quote/pay link). Same
+        // owes-money gate + shared assembly as the single-create service;
+        // fire-and-forget with its own log key.
+        if (confirmationEvent && price > 0 && finalPaymentStatus === "UNASSIGNED") {
+          sendRegistrationConfirmationEmail({
+            event: confirmationEvent,
+            registration: { id: result.registrationId, serialId: result.serialId, qrCode: result.qrCode },
+            attendee: {
+              email,
+              firstName,
+              lastName,
+              title: rawTitle ?? null,
+              organization: row.organization ? String(row.organization).slice(0, 255) : null,
+              jobTitle: row.jobTitle ? String(row.jobTitle).slice(0, 255) : null,
+              country: row.country ? String(row.country).slice(0, 255) : null,
+            },
+            ticketTypeName: ticketType.name,
+            ticketCurrency: ticketType.currency,
+            price,
+            attendanceMode: "IN_PERSON",
+            logKey: "agent:create_registrations_bulk confirmation-send-failed",
+          });
+        }
 
         // Fire-and-forget Contact upsert so bulk-created attendees reach the
         // org-wide Contact store (parity with the single `create_registration`

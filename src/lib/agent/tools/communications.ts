@@ -1,17 +1,22 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
-import { sendEmail } from "@/lib/email";
 import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { executeBulkEmail, BulkEmailError } from "@/lib/bulk-email";
 import {
-  SPEAKER_STATUSES,
-  REGISTRATION_STATUSES,
-  ALL_PAYMENT_STATUSES,
   MAX_EMAIL_RECIPIENTS,
   type ToolExecutor,
 } from "./_shared";
 
+// Routes through the SHARED executeBulkEmail pipeline (cross-caller parity,
+// July 13 2026): this executor used to carry its own inline recipient
+// resolution + send loop, which silently missed everything the shared
+// pipeline gained — the send-viability precheck, the INVALID_FILTER guard
+// (a bad filter can no longer widen the audience to everyone), per-event
+// branding + CSS inlining via the custom-notification template, and the
+// unified per-recipient EmailLog threading. Still sends INLINE (the JSON-RPC
+// return contract for n8n/claude.ai is sync — jobifying stays deferred).
 const sendBulkEmail: ToolExecutor = async (input, ctx) => {
   try {
     // Rate limit: 10 bulk email sends per event per hour
@@ -40,131 +45,91 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
     const htmlMessage = sanitizeHtml(rawHtmlMessage);
 
     const recipientType = String(input.recipientType);
-    const rawStatusFilter = input.statusFilter ? String(input.statusFilter) : undefined;
-    const rawPaymentStatusFilter = input.paymentStatusFilter ? String(input.paymentStatusFilter) : undefined;
-
-    // Validate statusFilter against known enums (registration status only — not payment)
-    if (rawStatusFilter) {
-      const validSet = recipientType === "speakers" ? SPEAKER_STATUSES : REGISTRATION_STATUSES;
-      if (!validSet.has(rawStatusFilter)) {
-        return { error: `Invalid statusFilter "${rawStatusFilter}". Must be one of: ${[...validSet].join(", ")}` };
-      }
-    }
-    // paymentStatusFilter only meaningful for registrations recipient type.
-    // Closes W2-F4 — the unpaid-chase workflow needs this. Reject early
-    // when set on the speakers branch so callers don't silently ignore it.
-    if (rawPaymentStatusFilter) {
-      if (recipientType !== "registrations") {
-        return { error: "paymentStatusFilter is only valid when recipientType is 'registrations'." };
-      }
-      if (!ALL_PAYMENT_STATUSES.has(rawPaymentStatusFilter)) {
-        return {
-          error: `Invalid paymentStatusFilter "${rawPaymentStatusFilter}". Must be one of: ${[...ALL_PAYMENT_STATUSES].join(", ")}`,
-        };
-      }
-    }
-    const statusFilter = rawStatusFilter;
-    const paymentStatusFilter = rawPaymentStatusFilter;
-
-    // Track the entity id per recipient so each send produces an EmailLog row
-    // linked to the specific speaker/registration (visible on their detail
-    // sheet Email History card).
-    let recipients: { email: string; name: string; entityId: string }[] = [];
-    const entityType: "SPEAKER" | "REGISTRATION" = recipientType === "speakers" ? "SPEAKER" : "REGISTRATION";
-
-    if (recipientType === "speakers") {
-      const speakers = await db.speaker.findMany({
-        where: {
-          eventId: ctx.eventId,
-          ...(statusFilter ? { status: statusFilter as never } : {}),
-        },
-        select: { id: true, email: true, firstName: true, lastName: true },
-      });
-      recipients = speakers.map((s) => ({
-        email: s.email,
-        name: `${s.firstName} ${s.lastName}`.trim(),
-        entityId: s.id,
-      }));
-    } else if (recipientType === "registrations") {
-      const registrations = await db.registration.findMany({
-        where: {
-          eventId: ctx.eventId,
-          ...(statusFilter ? { status: statusFilter as never } : {}),
-          ...(paymentStatusFilter ? { paymentStatus: paymentStatusFilter as never } : {}),
-        },
-        select: {
-          id: true,
-          attendee: { select: { email: true, firstName: true, lastName: true } },
-        },
-      });
-      recipients = registrations.map((r) => ({
-        email: r.attendee.email,
-        name: `${r.attendee.firstName} ${r.attendee.lastName}`.trim(),
-        entityId: r.id,
-      }));
-    } else {
+    if (recipientType !== "speakers" && recipientType !== "registrations") {
       return { error: "recipientType must be 'speakers' or 'registrations'" };
     }
-
-    if (recipients.length === 0) {
-      return { error: "No recipients found matching the given filters" };
+    const statusFilter = input.statusFilter ? String(input.statusFilter) : undefined;
+    const paymentStatusFilter = input.paymentStatusFilter ? String(input.paymentStatusFilter) : undefined;
+    // paymentStatusFilter is only meaningful for registrations — reject early
+    // rather than silently ignoring it on the speakers branch (W2-F4).
+    if (paymentStatusFilter && recipientType !== "registrations") {
+      return { error: "paymentStatusFilter is only valid when recipientType is 'registrations'." };
     }
+    const filters = {
+      ...(statusFilter && { status: statusFilter }),
+      ...(paymentStatusFilter && { paymentStatus: paymentStatusFilter }),
+    };
 
-    if (recipients.length > MAX_EMAIL_RECIPIENTS) {
+    // Inline-send size cap (the shared pipeline itself is uncapped — the REST
+    // path is drained by the worker; this JSON-RPC call blocks until done).
+    // MCP exposes exactly the two filters below, so this count == the send.
+    const recipientCount =
+      recipientType === "speakers"
+        ? await db.speaker.count({
+            where: { eventId: ctx.eventId, ...(statusFilter ? { status: statusFilter as never } : {}) },
+          })
+        : await db.registration.count({
+            where: {
+              eventId: ctx.eventId,
+              ...(statusFilter ? { status: statusFilter as never } : {}),
+              ...(paymentStatusFilter ? { paymentStatus: paymentStatusFilter as never } : {}),
+            },
+          });
+    if (recipientCount > MAX_EMAIL_RECIPIENTS) {
       return {
-        error: `Too many recipients (${recipients.length}). Maximum is ${MAX_EMAIL_RECIPIENTS} per bulk email. Use a statusFilter to narrow the audience.`,
+        error: `Too many recipients (${recipientCount}). Maximum is ${MAX_EMAIL_RECIPIENTS} per bulk email. Use a statusFilter to narrow the audience.`,
       };
     }
 
-    // Resolve per-event sender branding so agent-sent emails go FROM the
-    // organizer's configured address, not the env-level default. Pre-fix
-    // these sends silently fell through to DEFAULT_FROM_EMAIL /
-    // DEFAULT_FROM_NAME — overriding the event's own sender without warning.
-    const event = await db.event.findUnique({
-      where: { id: ctx.eventId },
-      select: { name: true, emailFromAddress: true, emailFromName: true },
+    // Organizer identity for the {{organizerName}}/signature template vars —
+    // the triggering user when it's a real session, else the event's sender.
+    const [user, event] = await Promise.all([
+      ctx.userId && ctx.userId !== "mcp-remote"
+        ? db.user.findUnique({
+            where: { id: ctx.userId },
+            select: { firstName: true, lastName: true, email: true, emailSignature: true },
+          })
+        : Promise.resolve(null),
+      db.event.findUnique({
+        where: { id: ctx.eventId },
+        select: { name: true, emailFromAddress: true, emailFromName: true },
+      }),
+    ]);
+    const organizerName =
+      (user && `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim()) ||
+      event?.emailFromName ||
+      event?.name ||
+      "Event Team";
+    const organizerEmail = user?.email || event?.emailFromAddress || "";
+
+    const result = await executeBulkEmail({
+      eventId: ctx.eventId,
+      recipientType,
+      emailType: "custom",
+      customSubject: subject,
+      customMessage: htmlMessage,
+      filters,
+      organizerName,
+      organizerEmail,
+      organizerSignature: user?.emailSignature ?? undefined,
+      organizationId: ctx.organizationId,
+      triggeredByUserId: ctx.userId && ctx.userId !== "mcp-remote" ? ctx.userId : null,
     });
-    const eventFrom = event?.emailFromAddress
-      ? { email: event.emailFromAddress, name: event.emailFromName || event.name }
-      : undefined;
-
-    let sent = 0;
-    let failed = 0;
-    const errors: string[] = [];
-
-    for (const recipient of recipients) {
-      try {
-        await sendEmail({
-          to: [{ email: recipient.email, name: recipient.name }],
-          subject,
-          htmlContent: htmlMessage,
-          from: eventFrom,
-          emailType: "agent_bulk_email",
-          stream: "bulk",
-          logContext: {
-            organizationId: ctx.organizationId,
-            eventId: ctx.eventId,
-            entityType,
-            entityId: recipient.entityId,
-            templateSlug: "agent-bulk-email",
-          },
-        });
-        sent++;
-      } catch (emailErr) {
-        failed++;
-        errors.push(`Failed to send to ${recipient.email}`);
-        apiLogger.warn({ emailErr, to: recipient.email }, "agent:send_bulk_email individual send failed");
-      }
-    }
 
     return {
       success: true,
-      sent,
-      failed,
-      total: recipients.length,
-      errors: errors.slice(0, 5),
+      sent: result.successCount,
+      failed: result.failureCount,
+      total: result.total,
+      errors: result.errors.slice(0, 5).map((e) => `Failed to send to ${e.email}`),
     };
   } catch (err) {
+    // Business rejections from the shared pipeline (no recipients, invalid
+    // filter, missing viability prerequisite) come back coded, not opaque.
+    if (err instanceof BulkEmailError) {
+      apiLogger.warn({ msg: "agent:send_bulk_email rejected", eventId: ctx.eventId, code: err.code, error: err.message });
+      return { error: err.message, ...(err.code ? { code: err.code } : {}) };
+    }
     apiLogger.error({ err }, "agent:send_bulk_email failed");
     return { error: "Failed to send bulk email" };
   }
@@ -407,7 +372,7 @@ export const COMMUNICATION_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "send_bulk_email",
     description:
-      "Send a bulk email to speakers or registrants. IMPORTANT: Before calling this tool, inform the user what you plan to send and to how many recipients. Specify recipientType (speakers or registrations), emailType, a subject, and HTML message content.",
+      "Send a bulk email to speakers or registrants through the shared send pipeline (per-event branding + the custom-notification template are applied; an unparsable status/payment filter is rejected instead of widening the audience). IMPORTANT: Before calling this tool, inform the user what you plan to send and to how many recipients. Specify recipientType (speakers or registrations), a subject, and HTML message content.",
     input_schema: {
       type: "object" as const,
       properties: {

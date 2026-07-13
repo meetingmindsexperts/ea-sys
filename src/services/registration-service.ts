@@ -45,6 +45,92 @@ import {
   PAYMENT_STATUS_WRITE_REJECTION,
 } from "@/lib/agent/tools/_shared";
 
+// ── Confirmation-email building blocks (shared with the MCP bulk path) ──────
+
+/**
+ * Event select carrying everything `sendRegistrationConfirmation` +
+ * `buildEventConfirmationFields` need. Exported so the MCP bulk-create path
+ * loads the SAME shape instead of hand-copying this list (review M8).
+ */
+export const CONFIRMATION_EVENT_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  startDate: true,
+  venue: true,
+  city: true,
+  taxRate: true,
+  taxLabel: true,
+  bankDetails: true,
+  supportEmail: true,
+  settings: true,
+  organizationId: true,
+  organization: {
+    select: {
+      name: true,
+      companyName: true,
+      companyAddress: true,
+      companyCity: true,
+      companyState: true,
+      companyZipCode: true,
+      companyCountry: true,
+      taxId: true,
+      logo: true,
+    },
+  },
+} as const;
+export type ConfirmationEventRow = Prisma.EventGetPayload<{ select: typeof CONFIRMATION_EVENT_SELECT }>;
+
+/**
+ * Fire-and-forget confirmation email (quote PDF auto-attaches when price > 0).
+ * ONE assembly shared by the single-create path and MCP bulk create — the
+ * caller decides WHETHER to send (owes-money / virtual gate); this owns HOW.
+ */
+export function sendRegistrationConfirmationEmail(args: {
+  event: ConfirmationEventRow;
+  registration: { id: string; serialId: number | null; qrCode: string | null };
+  attendee: {
+    email: string;
+    additionalEmail?: string | null;
+    firstName: string;
+    lastName: string;
+    title?: string | null;
+    organization?: string | null;
+    jobTitle?: string | null;
+    city?: string | null;
+    country?: string | null;
+  };
+  ticketTypeName: string;
+  ticketCurrency?: string | null;
+  price: number;
+  attendanceMode: AttendanceMode;
+  logKey: string;
+}): void {
+  const { event, registration, attendee } = args;
+  sendRegistrationConfirmation({
+    ...buildEventConfirmationFields(event),
+    to: attendee.email,
+    additionalEmail: attendee.additionalEmail ?? null,
+    firstName: attendee.firstName,
+    lastName: attendee.lastName,
+    title: attendee.title ?? null,
+    organization: attendee.organization ?? null,
+    jobTitle: attendee.jobTitle ?? null,
+    attendanceMode: args.attendanceMode,
+    ticketType: args.ticketTypeName,
+    registrationId: registration.id,
+    serialId: registration.serialId,
+    qrCode: registration.qrCode || "",
+    eventSlug: event.slug,
+    ticketPrice: args.price,
+    ticketCurrency: args.ticketCurrency ?? undefined,
+    billingCity: attendee.city ?? null,
+    billingCountry: attendee.country ?? null,
+  }).catch((err) =>
+    apiLogger.error({ err, registrationId: registration.id }, args.logKey),
+  );
+}
+
 // ── Constants (shared with callers) ──────────────────────────────────────────
 
 /**
@@ -794,31 +880,26 @@ export async function createRegistration(
   const owesMoney =
     effectiveTicketPrice > 0 && OUTSTANDING_PAYMENT_STATUSES.has(finalPaymentStatus);
   if (ticketType && (owesMoney || isVirtual)) {
-    sendRegistrationConfirmation({
-      ...buildEventConfirmationFields(event),
-      to: email,
-      additionalEmail,
-      firstName,
-      lastName,
-      title: attendeeTitle,
-      organization,
-      jobTitle,
-      attendanceMode,
-      ticketType: ticketType.name,
-      registrationId: registration.id,
-      serialId: registration.serialId,
-      qrCode: registration.qrCode || "",
-      eventSlug: event.slug,
-      ticketPrice: effectiveTicketPrice,
+    sendRegistrationConfirmationEmail({
+      event,
+      registration,
+      attendee: {
+        email,
+        additionalEmail,
+        firstName,
+        lastName,
+        title: attendeeTitle,
+        organization,
+        jobTitle,
+        city,
+        country,
+      },
+      ticketTypeName: ticketType.name,
       ticketCurrency: ticketType.currency,
-      billingCity: city,
-      billingCountry: country,
-    }).catch((err) =>
-      apiLogger.error(
-        { err, registrationId: registration.id },
-        "registration-service:confirmation-send-failed",
-      ),
-    );
+      price: effectiveTicketPrice,
+      attendanceMode,
+      logKey: "registration-service:confirmation-send-failed",
+    });
   }
 
   return { ok: true, registration };
