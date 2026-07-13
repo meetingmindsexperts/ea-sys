@@ -334,6 +334,24 @@ severe result of any domain. Full report (teaching format):
 >   Keeps the frictionless closing-slide flow; breaks "fill the survey to get your certificate" for share users.
 > - **(c) Retire the share link** — only the emailed per-registration token works. Simplest + safest; removes a
 >   feature organizers use.
+>
+> ### Live exposure (checked against prod, 2026-07-13) + the interim mitigation
+>
+> Of **29 events, exactly one has a survey share link generated**: **OSH Monthly Meeting 2026**
+> (`/e/osh-mm-june2026`), PUBLISHED, link **live until 2026-07-18**. That event has **37 non-cancelled
+> registrations, only 2 of whom have completed the survey** — so **35 are forgeable** — and **4 certificate
+> templates, all with `autoIssueOnSurvey = true` and a tag**. A forged submit there today mints a real CME
+> certificate. (The token has also been pasted into a chat window, which is exactly how bearer links leak.)
+>
+> **Interim mitigation — no code, no deploy, and it costs the organizer nothing:**
+> **Survey builder → Shareable link card → Disable.** Attendees never receive the share link in the normal
+> flow: Communications → *Send Survey Invitations* mints a **per-recipient `?token=` link inside each
+> attendee's own email**, which is the secure path and is unaffected. Disabling the share link only removes
+> the broadcast option (QR on a closing slide / WhatsApp blast). **Disable, don't regenerate** — regenerating
+> mints a fresh bearer token with the same design flaw.
+>
+> Deliberately **left open** (owner call, 2026-07-13) rather than picking a mechanism under time pressure.
+> Revisit before the next CME event that wants a broadcast survey link.
 
 **Shipped** (Blockers+HIGHs batch, minus B1):
 - **✅ B2 (`220d421`) — editing a dinner wiped its venue, description and RSVP deadline.** The roster GET (the
