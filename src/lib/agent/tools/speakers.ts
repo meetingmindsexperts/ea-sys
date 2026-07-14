@@ -4,19 +4,18 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
-import { computeTagDelta, syncSpeakerTagsToRegistrations } from "@/lib/person-tag-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { checkRateLimit } from "@/lib/security";
 import {
   createSpeaker,
-  cascadeSpeakerDecline,
-  isSpeakerDeclineTransition,
-  type SpeakerDeclineCascadeResult,
+  // Aliased: the local ToolExecutor is also called `updateSpeaker`.
+  updateSpeaker as updateSpeakerSvc,
   type SpeakerAttendeeRole,
   type SpeakerStatus,
   type SpeakerTitle,
+  type UpdateSpeakerFields,
 } from "@/services/speaker-service";
 
 // Mirrors Prisma's AttendeeRole enum — validated at the MCP boundary.
@@ -215,55 +214,52 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
     const speakerId = String(input.speakerId ?? "").trim();
     if (!speakerId) return { error: "speakerId is required" };
 
+    // AUTHORIZATION + eventId resolution stay here: the tool is org-scoped, so
+    // we bind the speaker to the caller's org BEFORE handing the (speakerId,
+    // eventId) pair to the service (which takes organizationId on trust).
     const existing = await db.speaker.findFirst({
       where: { id: speakerId, event: { organizationId: ctx.organizationId } },
-      select: {
-        id: true, eventId: true, email: true, firstName: true, lastName: true,
-        status: true, tags: true, sourceRegistrationId: true,
-      },
+      select: { id: true, eventId: true },
     });
     if (!existing) return { error: `Speaker ${speakerId} not found or access denied` };
 
+    // Loose-input coercion is the MCP boundary's job (the agent sends whatever
+    // the model produced). Everything past this point is the shared service.
     const status = input.status ? String(input.status) : undefined;
     if (status && !SPEAKER_STATUSES.has(status)) {
       return { error: `Invalid status. Must be one of: ${[...SPEAKER_STATUSES].join(", ")}` };
     }
 
-    const updates: Prisma.SpeakerUpdateInput = {};
-    if (status) updates.status = status as never;
+    const fields: UpdateSpeakerFields = {};
+    if (status) fields.status = status as SpeakerStatus;
     if (input.title != null) {
       const t = String(input.title);
-      if (t === "") updates.title = null;
-      else if (TITLE_VALUES.has(t)) updates.title = t as never;
+      if (t === "") fields.title = null;
+      else if (TITLE_VALUES.has(t)) fields.title = t as SpeakerTitle;
       else return { error: `Invalid title. Must be one of: ${[...TITLE_VALUES].join(", ")}` };
     }
-    if (input.firstName != null) updates.firstName = String(input.firstName).slice(0, 100);
-    if (input.lastName != null) updates.lastName = String(input.lastName).slice(0, 100);
+    if (input.firstName != null) fields.firstName = String(input.firstName).slice(0, 100);
+    if (input.lastName != null) fields.lastName = String(input.lastName).slice(0, 100);
     // Secondary CC inbox — empty string clears it.
-    if (input.additionalEmail !== undefined) updates.additionalEmail = String(input.additionalEmail ?? "").trim().slice(0, 255) || null;
-    if (input.bio != null) updates.bio = String(input.bio).slice(0, 5000);
-    if (input.organization != null) updates.organization = String(input.organization).slice(0, 255);
-    if (input.jobTitle != null) updates.jobTitle = String(input.jobTitle).slice(0, 255);
-    if (input.phone != null) updates.phone = String(input.phone).slice(0, 50);
-    if (input.city != null) updates.city = String(input.city).slice(0, 255);
-    if (input.country != null) updates.country = String(input.country).slice(0, 255);
-    if (input.specialty != null) updates.specialty = String(input.specialty).slice(0, 255);
-    if (input.website != null) updates.website = String(input.website).slice(0, 500);
-    if (input.photo !== undefined) updates.photo = input.photo as string | null;
+    if (input.additionalEmail !== undefined) fields.additionalEmail = String(input.additionalEmail ?? "").trim().slice(0, 255) || null;
+    if (input.bio != null) fields.bio = String(input.bio).slice(0, 5000);
+    if (input.organization != null) fields.organization = String(input.organization).slice(0, 255);
+    if (input.jobTitle != null) fields.jobTitle = String(input.jobTitle).slice(0, 255);
+    if (input.phone != null) fields.phone = String(input.phone).slice(0, 50);
+    if (input.city != null) fields.city = String(input.city).slice(0, 255);
+    if (input.country != null) fields.country = String(input.country).slice(0, 255);
+    if (input.specialty != null) fields.specialty = String(input.specialty).slice(0, 255);
+    if (input.website != null) fields.website = String(input.website).slice(0, 500);
+    // Coerced, not blind-cast: a non-string photo used to reach Prisma raw.
+    if (input.photo !== undefined) {
+      fields.photo = input.photo == null ? null : String(input.photo).slice(0, 500) || null;
+    }
     if (Array.isArray(input.tags)) {
-      updates.tags = (input.tags as unknown[])
+      fields.tags = (input.tags as unknown[])
         .map((t) => normalizeTag(String(t).slice(0, 100)))
         .filter(Boolean);
     }
 
-    if (Object.keys(updates).length === 0) {
-      return { error: "No fields provided to update" };
-    }
-
-    // Optimistic-lock token (W2-F8 fix): when supplied, the conditional
-    // updateMany rejects writes that would silently overwrite a concurrent
-    // edit. Optional during rollout — missing tokens fall back to the
-    // legacy unconditional path with a warn log.
     const expectedUpdatedAt = typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : null;
     if (!expectedUpdatedAt) {
       apiLogger.warn({
@@ -274,104 +270,49 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
       });
     }
 
-    const updateResult = await db.speaker.updateMany({
-      where: {
-        id: speakerId,
-        ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
-      },
-      data: { ...updates, updatedAt: new Date() },
-    });
-    if (updateResult.count === 0) {
-      // Distinguish the row-gone case from a stale-write rejection.
-      const stillExists = await db.speaker.findFirst({
-        where: { id: speakerId, event: { organizationId: ctx.organizationId } },
-        select: { id: true },
-      });
-      if (!stillExists) return { error: `Speaker ${speakerId} not found or access denied` };
-      apiLogger.info({ msg: "speaker:stale-write-rejected", speakerId, source: "mcp" });
-      return {
-        error: "This speaker was modified after you fetched it. Re-read the row and retry with the new updatedAt.",
-        code: "STALE_WRITE",
-      };
-    }
-
-    const updated = await db.speaker.findUniqueOrThrow({
-      where: { id: speakerId },
-      select: {
-        id: true,
-        title: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        status: true,
-        organization: true,
-        jobTitle: true,
-      },
-    });
-
-    await db.auditLog.create({
-      data: {
-        eventId: existing.eventId,
-        userId: ctx.userId,
-        action: "UPDATE",
-        entityType: "Speaker",
-        entityId: speakerId,
-        changes: {
-          source: "mcp",
-          before: { status: existing.status },
-          after: { status: updated.status },
-          fieldsChanged: Object.keys(updates),
-        },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:update_speaker audit-log-failed"));
-
-    syncToContact({
-      organizationId: ctx.organizationId,
+    // ONE implementation, shared with the REST PUT (contacts review H4): the
+    // optimistic-locked write, the tag mirror onto the registration facet, the
+    // decline cascade, the FULL contact sync (this path used to sync only
+    // name+email — a silent no-op against an enrich-only sync, so agent edits
+    // never reached the CRM), the audit row, and the stats refresh.
+    const result = await updateSpeakerSvc({
+      speakerId,
       eventId: existing.eventId,
-      email: updated.email,
-      firstName: updated.firstName,
-      lastName: updated.lastName,
-    }).catch((err) => apiLogger.error({ err }, "agent:update_speaker contact-sync-failed"));
+      organizationId: ctx.organizationId,
+      fields,
+      expectedUpdatedAt,
+      cancelCompanionRegistration: input.cancelCompanionRegistration === true,
+      source: "mcp",
+      actorUserId: ctx.userId,
+    });
 
-    // Mirror the tag delta onto the person's Registration facet (same call the
-    // REST speaker PUT makes — review H5: the MCP path used to bypass this, so
-    // agent-tagged committee speakers never reached attendee.tags, silently
-    // breaking cert auto-issue / tag filters / ?tags= queries for them).
-    // Best-effort by contract: the helper logs + never throws.
-    if (Array.isArray(updates.tags)) {
-      await syncSpeakerTagsToRegistrations(existing.eventId, [
-        {
-          speakerId,
-          email: existing.email,
-          sourceRegistrationId: existing.sourceRegistrationId,
-          delta: computeTagDelta(existing.tags, updates.tags as string[]),
-        },
-      ]);
+    if (!result.ok) {
+      // Agent-actionable phrasing for the stale-write case (the model should
+      // re-read and retry, not surface a human "reload the page" message).
+      if (result.code === "STALE_WRITE") {
+        return {
+          error: "This speaker was modified after you fetched it. Re-read the row and retry with the new updatedAt.",
+          code: "STALE_WRITE",
+        };
+      }
+      return { error: result.message, code: result.code };
     }
 
-    // Speaker moved INTO declined/cancelled: handle the companion registration
-    // via the SAME shared helper as the REST PUT (door-day fix — a DECLINED
-    // speaker used to keep a valid badge + entry barcode forever). Keep-by-
-    // default: the agent must pass cancelCompanionRegistration: true to revoke.
-    let companionCascade: SpeakerDeclineCascadeResult | null = null;
-    if (isSpeakerDeclineTransition(existing.status, status)) {
-      companionCascade = await cascadeSpeakerDecline({
-        eventId: existing.eventId,
-        organizationId: ctx.organizationId,
-        speakerId,
-        sourceRegistrationId: existing.sourceRegistrationId,
-        cancelCompanion: input.cancelCompanionRegistration === true,
-        source: "mcp",
-        actorUserId: ctx.userId,
-      });
-    }
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(ctx.eventId);
+    const { speaker, companionCascade } = result;
 
     return {
       success: true,
-      speaker: updated,
+      // Keep the tool's narrow, token-cheap response shape.
+      speaker: {
+        id: speaker.id,
+        title: speaker.title,
+        firstName: speaker.firstName,
+        lastName: speaker.lastName,
+        email: speaker.email,
+        status: speaker.status,
+        organization: speaker.organization,
+        jobTitle: speaker.jobTitle,
+      },
       ...(companionCascade && {
         companionRegistration: {
           outcome: companionCascade.companion,

@@ -8,17 +8,20 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
-import { syncToContact } from "@/lib/contact-sync";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
 import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
-import { optimisticLockField, runOptimisticUpdate } from "@/lib/optimistic-lock";
-import { computeTagDelta, syncSpeakerTagsToRegistrations } from "@/lib/person-tag-sync";
-import {
-  cascadeSpeakerDecline,
-  isSpeakerDeclineTransition,
-  type SpeakerDeclineCascadeResult,
-} from "@/services/speaker-service";
+import { optimisticLockField } from "@/lib/optimistic-lock";
+import { updateSpeaker, type UpdateSpeakerErrorCode } from "@/services/speaker-service";
+
+/** Service error code → HTTP status. The service is transport-agnostic; this
+ *  is the route's half of the contract. */
+const HTTP_STATUS_FOR_UPDATE_SPEAKER: Record<UpdateSpeakerErrorCode, number> = {
+  SPEAKER_NOT_FOUND: 404,
+  NO_FIELDS: 400,
+  STALE_WRITE: 409,
+  UNKNOWN: 500,
+};
 
 // NOTE: `email` is intentionally NOT in this schema. Email is immutable
 // at the general-purpose update path — use the dedicated
@@ -169,30 +172,24 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const [event, existingSpeaker] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true },
-      }),
-      db.speaker.findFirst({
-        where: {
-          id: speakerId,
-          eventId,
-        },
-      }),
-    ]);
+    // AUTHORIZATION stays here (the service takes `organizationId` on trust and
+    // binds the speaker to {id, eventId} — it does not re-check that the event
+    // belongs to the caller's org). 404, not 403, to avoid existence leaks.
+    const event = await db.event.findFirst({
+      where: {
+        id: eventId,
+        organizationId: session.user.organizationId!,
+      },
+      select: { id: true },
+    });
 
     if (!event) {
+      apiLogger.warn({ msg: "speaker:update-event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    if (!existingSpeaker) {
-      return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
-    }
-
+    // The speaker's own existence check now lives in the service
+    // (SPEAKER_NOT_FOUND → 404 below), so it isn't duplicated here.
     const body = await req.json();
 
     // Email is immutable via the general-purpose update path. Return a
@@ -220,144 +217,59 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
-    // Build the change set in the same shape we used to pass to update().
-    // Explicit `updatedAt: new Date()` so the optimistic-lock check below
-    // bumps the version token even when no other column changes.
-    const changeData = {
-      ...(data.title !== undefined && { title: data.title || null }),
-      ...(data.role !== undefined && { role: data.role || null }),
-      ...(data.firstName && { firstName: data.firstName }),
-      ...(data.lastName && { lastName: data.lastName }),
-      // Trim before the empty-to-null collapse so trailing whitespace
-      // doesn't slip a phantom value past the clear path.
-      ...(data.additionalEmail !== undefined && {
-        additionalEmail: data.additionalEmail?.trim() || null,
-      }),
-      ...(data.bio !== undefined && { bio: data.bio || null }),
-      ...(data.organization !== undefined && { organization: data.organization || null }),
-      ...(data.jobTitle !== undefined && { jobTitle: data.jobTitle || null }),
-      ...(data.phone !== undefined && { phone: data.phone || null }),
-      ...(data.website !== undefined && { website: data.website || null }),
-      ...(data.photo !== undefined && { photo: data.photo || null }),
-      ...(data.city !== undefined && { city: data.city || null }),
-      ...(data.country !== undefined && { country: data.country || null }),
-      ...(data.specialty !== undefined && { specialty: data.specialty || null }),
-      ...(data.registrationType !== undefined && { registrationType: data.registrationType || null }),
-      ...(data.tags !== undefined && { tags: data.tags }),
-      ...(data.socialLinks && { socialLinks: data.socialLinks }),
-      ...(data.status && { status: data.status }),
-      updatedAt: new Date(),
-    };
-
-    const lockResult = await runOptimisticUpdate({
-      model: db.speaker,
-      where: { id: speakerId, eventId },
-      data: changeData,
+    // Everything below the boundary — the optimistic-locked write, the tag
+    // mirror onto the registration facet, the decline cascade, the FULL contact
+    // sync, the audit row and the stats refresh — is owned by the service, so
+    // the MCP `update_speaker` path cannot drift from it again (contacts review
+    // H4). The route keeps only what is HTTP's: auth, denyReviewer, the
+    // EMAIL_IMMUTABLE guard, Zod, and the status mapping below.
+    const result = await updateSpeaker({
+      speakerId,
+      eventId,
+      organizationId: session.user.organizationId!,
+      fields: {
+        title: data.title,
+        role: data.role,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        additionalEmail: data.additionalEmail,
+        bio: data.bio,
+        organization: data.organization,
+        jobTitle: data.jobTitle,
+        phone: data.phone,
+        website: data.website,
+        photo: data.photo,
+        city: data.city,
+        country: data.country,
+        specialty: data.specialty,
+        registrationType: data.registrationType,
+        tags: data.tags,
+        socialLinks: data.socialLinks,
+        status: data.status,
+      },
       expectedUpdatedAt: data.expectedUpdatedAt,
-      resourceLabel: "speaker",
-      resourceId: speakerId,
+      cancelCompanionRegistration: data.cancelCompanionRegistration === true,
+      source: "rest",
+      actorUserId: session.user.id,
+      requestIp: getClientIp(req),
     });
 
-    if (!lockResult.ok && lockResult.reason === "NOT_FOUND") {
-      return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
-    }
-    if (!lockResult.ok && lockResult.reason === "STALE_WRITE") {
-      apiLogger.info({ msg: "speaker:stale-write-rejected", speakerId, eventId, userId: session.user.id });
+    if (!result.ok) {
+      const status = HTTP_STATUS_FOR_UPDATE_SPEAKER[result.code];
+      apiLogger.warn({
+        msg: "speaker:update-rejected",
+        code: result.code,
+        speakerId,
+        eventId,
+        userId: session.user.id,
+      });
       return NextResponse.json(
-        {
-          error: "This speaker was modified by someone else after you opened it. Reload the latest version and try again.",
-          code: "STALE_WRITE",
-        },
-        { status: 409 }
+        { error: result.message, code: result.code },
+        { status },
       );
     }
 
-    // Mirror any tag change onto the person's Registration facet (best-effort).
-    if (data.tags !== undefined) {
-      await syncSpeakerTagsToRegistrations(eventId, [
-        {
-          speakerId,
-          email: existingSpeaker.email,
-          sourceRegistrationId: existingSpeaker.sourceRegistrationId,
-          delta: computeTagDelta(existingSpeaker.tags, data.tags),
-        },
-      ]);
-    }
-
-    // Speaker moved INTO declined/cancelled: handle the companion registration
-    // (door-day fix — a DECLINED speaker used to keep a valid entry barcode +
-    // printable badge forever). Companion-only by owner decision; a real
-    // linked registration is reported for the operator to review, never touched.
-    let companionCascade: SpeakerDeclineCascadeResult | null = null;
-    if (isSpeakerDeclineTransition(existingSpeaker.status, data.status)) {
-      companionCascade = await cascadeSpeakerDecline({
-        eventId,
-        organizationId: session.user.organizationId!,
-        speakerId,
-        sourceRegistrationId: existingSpeaker.sourceRegistrationId,
-        cancelCompanion: data.cancelCompanionRegistration === true,
-        source: "rest",
-        actorUserId: session.user.id,
-      });
-    }
-
-    // Fetch the freshly-updated row for the response.
-    const speaker = await db.speaker.findUniqueOrThrow({
-      where: { id: speakerId },
-      include: {
-        _count: {
-          select: {
-            sessions: true,
-            abstracts: true,
-          },
-        },
-      },
-    });
-
-    // Sync updated speaker to org contact store (awaited — errors caught internally)
-    await syncToContact({
-      organizationId: session.user.organizationId!,
-      eventId,
-      email: speaker.email,
-      // Mirror the secondary inbox so the org Contact row stays in step
-      // with the Speaker row. Read straight off the freshly-updated row,
-      // which already reflects the empty-to-null collapse from the update
-      // body above.
-      additionalEmail: speaker.additionalEmail,
-      firstName: speaker.firstName,
-      lastName: speaker.lastName,
-      title: speaker.title,
-      role: speaker.role,
-      organization: speaker.organization,
-      jobTitle: speaker.jobTitle,
-      phone: speaker.phone,
-      photo: speaker.photo,
-      city: speaker.city,
-      country: speaker.country,
-      bio: speaker.bio,
-      specialty: speaker.specialty,
-      registrationType: speaker.registrationType,
-    });
-
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(eventId);
-
-    // Log the action
-    await db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "UPDATE",
-        entityType: "Speaker",
-        entityId: speaker.id,
-        changes: {
-          before: existingSpeaker,
-          after: speaker,
-          ...(companionCascade && { companionCascade: companionCascade.companion }),
-          ip: getClientIp(req),
-        },
-      },
-    });
+    const { speaker, companionCascade } = result;
 
     // `companionCascade` tells the UI what happened to the companion
     // registration on a decline (cancelled / kept / real-registration / …).

@@ -1,12 +1,19 @@
 /**
- * Speaker service — domain logic for creating an event speaker.
+ * Speaker service — domain logic for creating and updating an event speaker.
  *
- * Shared by the REST admin POST route and the MCP agent tool. Phase 0
- * previously patched drift in the MCP tool in-place (audit log, contact
- * sync, admin notification); this extraction consolidates both callers
- * onto one function so they can't drift again.
+ *   createSpeaker()        — single-create. REST POST + MCP `create_speaker`.
+ *   updateSpeaker()        — single-update. REST PUT + MCP `update_speaker`.
+ *   cascadeSpeakerDecline()— the companion-registration side of a decline.
  *
- * Scope is single-create only. Bulk paths (`MCP create_speakers_bulk`,
+ * Shared by the REST admin routes and the MCP agent tools. Phase 0 previously
+ * patched drift in the MCP tools in-place (audit log, contact sync, admin
+ * notification); these extractions consolidate both callers onto one function
+ * per operation so they can't drift again — which they demonstrably do when
+ * left duplicated (contacts review H4: the update path was NOT extracted with
+ * the create, and its MCP copy quietly stopped syncing the speaker's profile
+ * to the org Contact store).
+ *
+ * Scope is single create/update only. Bulk paths (`MCP create_speakers_bulk`,
  * import-from-registrations) use different mechanics (`createMany` with
  * `skipDuplicates`, per-row error capture loops) and aren't a fit for a
  * shared service yet — each has its own drift-tolerance profile.
@@ -21,6 +28,8 @@ import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
+import { runOptimisticUpdate } from "@/lib/optimistic-lock";
+import { syncSpeakerTagsToRegistrations, computeTagDelta } from "@/lib/person-tag-sync";
 import { cancelRegistration } from "./payment-service";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
@@ -474,5 +483,272 @@ export async function cascadeSpeakerDecline(input: {
   } catch (err) {
     apiLogger.error({ err, msg: "speaker-decline:cascade-unknown-failure", eventId, speakerId });
     return { companion: "cancel-failed", registrationId: sourceRegistrationId ?? undefined };
+  }
+}
+
+// ── updateSpeaker (cross-caller #6) ──────────────────────────────────────────
+//
+// The single-update path, shared by the REST speaker PUT and MCP
+// `update_speaker`. Extracted July 14, 2026 for contacts review H4: the two
+// callers were mirrored ~full implementations and had DRIFTED — the MCP one
+// synced only `{ email, firstName, lastName }` to the org Contact store while
+// REST synced ~13 fields. Because `syncToContact` is enrich-only, a name+email
+// payload against an existing contact is a NO-OP: the call succeeded, logged
+// nothing, and changed nothing, so every agent/n8n speaker edit (phone,
+// affiliation, job title…) silently never reached the CRM — and, since the
+// central mirror enriches its scalars from Contact, never reached the EU
+// mirror either.
+//
+// This is the same class the team fixed for registrations on July 13
+// (`registration-service.updateRegistration`), and it recurred here for exactly
+// the reason the house rule predicts: only `createSpeaker` had been extracted,
+// so the UPDATE stayed duplicated and the copies drifted.
+//
+// Boundaries kept OUT of the service (they belong to the caller):
+//   REST — session auth, denyReviewer, the EMAIL_IMMUTABLE guard, Zod parsing,
+//          the org-scoped event lookup, HTTP status mapping, response shape.
+//   MCP  — loose-input coercion/validation (String(...), title/status enums),
+//          the org-scoped speaker lookup, JSON-RPC response shape.
+// The service owns everything below that: the optimistic-locked write, the tag
+// mirror onto the registration facet, the decline cascade, the FULL contact
+// sync, the audit row, and the stats refresh.
+
+/** Fields an update may set. `undefined` = "leave alone"; `null` = "clear". */
+export interface UpdateSpeakerFields {
+  title?: SpeakerTitle | null;
+  role?: SpeakerAttendeeRole | null;
+  firstName?: string;
+  lastName?: string;
+  additionalEmail?: string | null;
+  bio?: string | null;
+  organization?: string | null;
+  jobTitle?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  photo?: string | null;
+  city?: string | null;
+  country?: string | null;
+  specialty?: string | null;
+  registrationType?: string | null;
+  tags?: string[];
+  socialLinks?: { twitter?: string; linkedin?: string; github?: string };
+  status?: SpeakerStatus;
+}
+
+export interface UpdateSpeakerInput {
+  speakerId: string;
+  eventId: string;
+  organizationId: string;
+  /** Already-parsed + validated by the caller (Zod on REST, coercion on MCP). */
+  fields: UpdateSpeakerFields;
+  /** ISO string; when present the write is conditional on it (optimistic lock). */
+  expectedUpdatedAt?: string | null;
+  /** Decline cascade: revoke the companion registration's badge + barcode too? */
+  cancelCompanionRegistration?: boolean;
+  source: "rest" | "mcp" | "api";
+  actorUserId?: string | null;
+  requestIp?: string;
+}
+
+export type UpdateSpeakerErrorCode =
+  | "SPEAKER_NOT_FOUND"
+  | "NO_FIELDS"
+  | "STALE_WRITE"
+  | "UNKNOWN";
+
+export type UpdateSpeakerResult =
+  | {
+      ok: true;
+      speaker: SpeakerWithCounts;
+      /** Present only when this write was a transition into DECLINED/CANCELLED. */
+      companionCascade: SpeakerDeclineCascadeResult | null;
+    }
+  | {
+      ok: false;
+      code: UpdateSpeakerErrorCode;
+      message: string;
+      meta?: Record<string, unknown>;
+    };
+
+export async function updateSpeaker(
+  input: UpdateSpeakerInput,
+): Promise<UpdateSpeakerResult> {
+  const {
+    speakerId,
+    eventId,
+    organizationId,
+    fields,
+    expectedUpdatedAt,
+    cancelCompanionRegistration = false,
+    source,
+    actorUserId = null,
+    requestIp,
+  } = input;
+
+  try {
+    // Bind the row to BOTH the speaker id and the event — a mis-scoped caller
+    // can't reach a sibling event's speaker (the same bind registration-service
+    // added for its M1).
+    const existing = await db.speaker.findFirst({
+      where: { id: speakerId, eventId },
+    });
+    if (!existing) {
+      return {
+        ok: false,
+        code: "SPEAKER_NOT_FOUND",
+        message: `Speaker ${speakerId} not found or access denied`,
+      };
+    }
+
+    // Build the change set. `undefined` is skipped; empty string collapses to
+    // null (clear) — trimmed first so trailing whitespace can't slip a phantom
+    // value past the clear path.
+    const data: Prisma.SpeakerUncheckedUpdateInput = {
+      ...(fields.title !== undefined && { title: fields.title || null }),
+      ...(fields.role !== undefined && { role: fields.role || null }),
+      ...(fields.firstName && { firstName: fields.firstName }),
+      ...(fields.lastName && { lastName: fields.lastName }),
+      ...(fields.additionalEmail !== undefined && {
+        additionalEmail: fields.additionalEmail?.trim() || null,
+      }),
+      ...(fields.bio !== undefined && { bio: fields.bio || null }),
+      ...(fields.organization !== undefined && { organization: fields.organization || null }),
+      ...(fields.jobTitle !== undefined && { jobTitle: fields.jobTitle || null }),
+      ...(fields.phone !== undefined && { phone: fields.phone || null }),
+      ...(fields.website !== undefined && { website: fields.website || null }),
+      ...(fields.photo !== undefined && { photo: fields.photo || null }),
+      ...(fields.city !== undefined && { city: fields.city || null }),
+      ...(fields.country !== undefined && { country: fields.country || null }),
+      ...(fields.specialty !== undefined && { specialty: fields.specialty || null }),
+      ...(fields.registrationType !== undefined && {
+        registrationType: fields.registrationType || null,
+      }),
+      ...(fields.tags !== undefined && { tags: fields.tags }),
+      ...(fields.socialLinks && { socialLinks: fields.socialLinks }),
+      ...(fields.status && { status: fields.status }),
+    };
+
+    if (Object.keys(data).length === 0) {
+      return { ok: false, code: "NO_FIELDS", message: "No fields provided to update" };
+    }
+
+    const lock = await runOptimisticUpdate({
+      model: db.speaker,
+      where: { id: speakerId, eventId },
+      // Explicit bump so the version token moves even when no column changes.
+      data: { ...data, updatedAt: new Date() },
+      expectedUpdatedAt,
+      resourceLabel: "speaker",
+      resourceId: speakerId,
+    });
+
+    if (!lock.ok && lock.reason === "NOT_FOUND") {
+      return {
+        ok: false,
+        code: "SPEAKER_NOT_FOUND",
+        message: `Speaker ${speakerId} not found or access denied`,
+      };
+    }
+    if (!lock.ok && lock.reason === "STALE_WRITE") {
+      apiLogger.info({ msg: "speaker:stale-write-rejected", speakerId, eventId, source });
+      return {
+        ok: false,
+        code: "STALE_WRITE",
+        message:
+          "This speaker was modified by someone else after you opened it. Reload the latest version and try again.",
+      };
+    }
+
+    // Mirror any tag change onto the person's Registration facet (best-effort;
+    // the helper logs and never throws). Agent-tagged committee speakers must
+    // reach `attendee.tags` or cert auto-issue / tag filters silently miss them.
+    if (fields.tags !== undefined) {
+      await syncSpeakerTagsToRegistrations(eventId, [
+        {
+          speakerId,
+          email: existing.email,
+          sourceRegistrationId: existing.sourceRegistrationId,
+          delta: computeTagDelta(existing.tags, fields.tags),
+        },
+      ]);
+    }
+
+    // Speaker moved INTO declined/cancelled: a DECLINED speaker must not keep a
+    // valid entry barcode + printable badge. Companion-only by owner decision.
+    let companionCascade: SpeakerDeclineCascadeResult | null = null;
+    if (isSpeakerDeclineTransition(existing.status, fields.status)) {
+      companionCascade = await cascadeSpeakerDecline({
+        eventId,
+        organizationId,
+        speakerId,
+        sourceRegistrationId: existing.sourceRegistrationId,
+        cancelCompanion: cancelCompanionRegistration,
+        source: source === "api" ? "rest" : source,
+        actorUserId,
+      });
+    }
+
+    const speaker = await db.speaker.findUniqueOrThrow({
+      where: { id: speakerId },
+      include: { _count: { select: { sessions: true, abstracts: true } } },
+    });
+
+    // FULL contact sync — this is the H4 fix. Read straight off the freshly
+    // updated row so it already reflects the empty-to-null collapse above.
+    // Awaited; `syncToContact` catches its own errors and never throws.
+    await syncToContact({
+      organizationId,
+      eventId,
+      email: speaker.email,
+      additionalEmail: speaker.additionalEmail,
+      firstName: speaker.firstName,
+      lastName: speaker.lastName,
+      title: speaker.title,
+      role: speaker.role,
+      organization: speaker.organization,
+      jobTitle: speaker.jobTitle,
+      phone: speaker.phone,
+      photo: speaker.photo,
+      city: speaker.city,
+      country: speaker.country,
+      bio: speaker.bio,
+      specialty: speaker.specialty,
+      registrationType: speaker.registrationType,
+    });
+
+    refreshEventStats(eventId);
+
+    // Fire-and-forget with a logged catch: an audit-write blip must not fail a
+    // speaker update that already committed (M13 class).
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: actorUserId,
+          action: "UPDATE",
+          entityType: "Speaker",
+          entityId: speaker.id,
+          changes: {
+            source,
+            before: existing,
+            after: speaker,
+            fieldsChanged: Object.keys(data),
+            ...(companionCascade && { companionCascade: companionCascade.companion }),
+            ...(requestIp && { ip: requestIp }),
+          } as unknown as Prisma.InputJsonValue,
+        },
+      })
+      .catch((err) =>
+        apiLogger.error({ err, msg: "speaker-update:audit-write-failed", speakerId, source }),
+      );
+
+    return { ok: true, speaker, companionCascade };
+  } catch (err) {
+    apiLogger.error({ err, msg: "speaker-update:unknown-failure", speakerId, eventId, source });
+    return {
+      ok: false,
+      code: "UNKNOWN",
+      message: err instanceof Error ? err.message : "Failed to update speaker",
+    };
   }
 }
