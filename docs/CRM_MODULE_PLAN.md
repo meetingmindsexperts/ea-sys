@@ -1,5 +1,7 @@
 # CRM Module — Assessment & Implementation Blueprint
 
+> **Live status board: [docs/CRM_STATUS.html](CRM_STATUS.html)** — what is done, what is pending, and what is actually *linked* to the rest of EA-SYS. Keep it current; it is the page people will read instead of this one.
+>
 > **Status: IN BUILD — Week 1 (un-parked July 14, 2026).** The §9 planning round is **complete**; all four owner decisions are locked (see §9). Build proceeds per the §8 gate table.
 >
 > **Prior status, kept for the record:** PARKED (July 13, 2026) — "no new domains until a few real conferences have run on EA-SYS; the 11 active domains are already a large surface and stabilization comes first." The owner un-parked it the next day. The stabilization concern that drove the park has **not** gone away, so it is carried into the build as a constraint rather than dismissed: v1 ships **behind the §10 scope fence**, the module is **namespace-bounded** (§7.0) so it adds one place to look rather than eleven, and the Week-4 **adversarial review** gate is non-negotiable, not a nice-to-have. If a conference lands mid-build, the conference wins — the CRM schema is additive and unreferenced by any live path, so pausing costs nothing.

@@ -1,0 +1,489 @@
+<title>CRM — Build Status</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #667085; --line: #e4e7ec;
+    --card: #f9fafb; --accent: #00aade;
+    --done-bg: #ecfdf3; --done-fg: #027a48; --done-line: #abefc6;
+    --part-bg: #fffaeb; --part-fg: #b54708; --part-line: #fedf89;
+    --none-bg: #fef3f2; --none-fg: #b42318; --none-line: #fecdca;
+    --info-bg: #eff8ff; --info-fg: #175cd3; --info-line: #b2ddff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e8ea; --muted: #98a2b3; --line: #2a2f36;
+      --card: #1b1f24; --accent: #38bdf8;
+      --done-bg: #053321; --done-fg: #6ce9a6; --done-line: #085d3a;
+      --part-bg: #3a2503; --part-fg: #fec84b; --part-line: #93370d;
+      --none-bg: #3d1a17; --none-fg: #fda29b; --none-line: #912018;
+      --info-bg: #0b2b4a; --info-fg: #84caff; --info-line: #1849a9;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171a; --fg: #e6e8ea; --muted: #98a2b3; --line: #2a2f36;
+    --card: #1b1f24; --accent: #38bdf8;
+    --done-bg: #053321; --done-fg: #6ce9a6; --done-line: #085d3a;
+    --part-bg: #3a2503; --part-fg: #fec84b; --part-line: #93370d;
+    --none-bg: #3d1a17; --none-fg: #fda29b; --none-line: #912018;
+    --info-bg: #0b2b4a; --info-fg: #84caff; --info-line: #1849a9;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #667085; --line: #e4e7ec;
+    --card: #f9fafb; --accent: #00aade;
+    --done-bg: #ecfdf3; --done-fg: #027a48; --done-line: #abefc6;
+    --part-bg: #fffaeb; --part-fg: #b54708; --part-line: #fedf89;
+    --none-bg: #fef3f2; --none-fg: #b42318; --none-line: #fecdca;
+    --info-bg: #eff8ff; --info-fg: #175cd3; --info-line: #b2ddff;
+  }
+
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    margin: 0; padding: 2rem 1.25rem 5rem;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 1.9rem; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  h2 {
+    font-size: 1.25rem; margin: 2.75rem 0 .9rem; padding-bottom: .4rem;
+    border-bottom: 2px solid var(--line);
+  }
+  h3 { font-size: 1rem; margin: 1.75rem 0 .5rem; }
+  p, li { color: var(--fg); }
+  .sub { color: var(--muted); margin: 0 0 1.5rem; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .86em; background: var(--card); border: 1px solid var(--line);
+    padding: .08em .35em; border-radius: 4px;
+  }
+  a { color: var(--accent); }
+
+  .tag {
+    display: inline-block; font-size: .72rem; font-weight: 600; letter-spacing: .02em;
+    padding: .12rem .5rem; border-radius: 999px; border: 1px solid; white-space: nowrap;
+  }
+  .done { background: var(--done-bg); color: var(--done-fg); border-color: var(--done-line); }
+  .part { background: var(--part-bg); color: var(--part-fg); border-color: var(--part-line); }
+  .none { background: var(--none-bg); color: var(--none-fg); border-color: var(--none-line); }
+  .info { background: var(--info-bg); color: var(--info-fg); border-color: var(--info-line); }
+
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: .92rem; }
+  th, td {
+    text-align: left; padding: .6rem .75rem; border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .kpis { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.25rem 0 0; }
+  .kpi {
+    flex: 1 1 8rem; background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; padding: .75rem .9rem;
+  }
+  .kpi b { display: block; font-size: 1.5rem; line-height: 1.2; }
+  .kpi span { font-size: .78rem; color: var(--muted); }
+
+  .callout {
+    border-left: 4px solid; border-radius: 6px; padding: .85rem 1rem; margin: 1.25rem 0;
+    background: var(--card);
+  }
+  .callout.warn { border-color: var(--part-fg); background: var(--part-bg); }
+  .callout.stop { border-color: var(--none-fg); background: var(--none-bg); }
+  .callout.note { border-color: var(--info-fg); background: var(--info-bg); }
+  .callout p:first-child { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+
+  details {
+    border: 1px solid var(--line); border-radius: 8px; padding: .6rem .9rem;
+    margin: .6rem 0; background: var(--card);
+  }
+  summary { cursor: pointer; font-weight: 600; }
+  .why { color: var(--muted); font-size: .9rem; }
+  .stamp { color: var(--muted); font-size: .85rem; }
+  ul { padding-left: 1.2rem; }
+</style>
+
+<div class="wrap">
+
+<h1>CRM — Build Status</h1>
+<p class="sub">
+  What is built, what is wired to the rest of EA-SYS, and what is not.<br>
+  <span class="stamp">Last updated: <b>14 July 2026</b> · HEAD <code>67334fc</code> ·
+  Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
+</p>
+
+<div class="callout stop">
+  <p><b>NOT DEPLOYED.</b> Everything below is merged to <code>main</code> but <b>not running in
+  production</b>. The migration has <b>not</b> been applied to the prod database, and no user can
+  reach any of it. Deploy is a separate, explicit step (<code>bash scripts/deploy.sh</code> on the
+  box).</p>
+  <p>The migration is additive + idempotent, and no existing code path touches the new tables, so
+  deploying is low-risk — but it is a decision, not a formality.</p>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><b>5</b><span>services</span></div>
+  <div class="kpi"><b>12</b><span>API endpoints</span></div>
+  <div class="kpi"><b>4</b><span>pages</span></div>
+  <div class="kpi"><b>1</b><span>worker job</span></div>
+  <div class="kpi"><b>114</b><span>CRM tests</span></div>
+  <div class="kpi"><b>0</b><span>rows in prod</span></div>
+</div>
+
+<h2>1. At a glance</h2>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Area</th><th>Status</th><th>Notes</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Schema + migration</td>
+      <td><span class="tag done">DONE</span></td>
+      <td>5 <code>Crm*</code> models, 4 enums, 2 <code>Contact</code> columns. Verified byte-equal to Prisma's canonical DDL. <b>Not applied to prod.</b></td>
+    </tr>
+    <tr>
+      <td>Import boundary (ESLint)</td>
+      <td><span class="tag done">DONE</span></td>
+      <td>One-way: <code>src/crm/</code> → core only. Verified to fire. 4 named core-side exemptions.</td>
+    </tr>
+    <tr>
+      <td>Visibility / RBAC</td>
+      <td><span class="tag done">DONE</span></td>
+      <td>Own boundary (<code>crm-roles.ts</code> + <code>crm-visibility.ts</code>). MEMBER reads, never writes, never sees money.</td>
+    </tr>
+    <tr>
+      <td>Services</td>
+      <td><span class="tag done">DONE</span></td>
+      <td>company · pipeline · deal · task · note. Race-safe claims on every state transition.</td>
+    </tr>
+    <tr>
+      <td>REST API</td>
+      <td><span class="tag done">DONE</span></td>
+      <td>12 endpoints, all gated (drift-tested), all writes rate-limited + audited.</td>
+    </tr>
+    <tr>
+      <td>UI</td>
+      <td><span class="tag part">PARTIAL</span></td>
+      <td>Board, companies, tasks, deal detail. <b>Several APIs have no UI</b> — see §4.</td>
+    </tr>
+    <tr>
+      <td>Reminder worker</td>
+      <td><span class="tag done">DONE</span></td>
+      <td><code>crm-reminders</code>, every 5 min. On the Infra/Ops roster.</td>
+    </tr>
+    <tr>
+      <td>MCP / agent tools</td>
+      <td><span class="tag none">NOT BUILT</span></td>
+      <td>The CRM is <b>not automatable</b> from n8n or claude.ai yet.</td>
+    </tr>
+    <tr>
+      <td>Backfill (org string → company)</td>
+      <td><span class="tag none">NOT BUILT</span></td>
+      <td>Every existing contact's company link is <code>null</code>. See §3.</td>
+    </tr>
+    <tr>
+      <td>Adversarial review</td>
+      <td><span class="tag none">NOT DONE</span></td>
+      <td>Week-4 gate. <b>Treat as required, not a formality</b> — see §7.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>2. Owner decisions (locked)</h2>
+
+<p>Answered in the planning round, 14 July. Changing one now means a migration against a live DB, so
+they are recorded rather than left in chat. Full reasoning in
+<a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md §9 / §9a</a>.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Decision</th><th>Chosen</th></tr></thead>
+  <tbody>
+    <tr><td>Primary use case</td><td><b>Sponsor / exhibitor sales pipeline.</b> Company is the centre of gravity; the deal↔event link is first-class.</td></tr>
+    <tr><td>Contact lifecycle</td><td><code>LEAD → ENGAGED → CUSTOMER → CHAMPION</code> (nullable; no backfill needed).</td></tr>
+    <tr><td>Pipeline stages</td><td><code>Prospect → Contacted → Proposal → Negotiation → Won/Lost</code>, as a <b>table</b> (org-editable), not an enum.</td></tr>
+    <tr><td>Visibility</td><td>Staff own deals; all staff see all deals; <b>MEMBER sees the board with values redacted</b>.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>3. What is LINKED to the rest of EA-SYS</h2>
+
+<p>The whole reason to build this rather than buy Freshsales is the joins into our own data. Here is
+exactly which of those exist today.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Link</th><th>Status</th><th>Reality</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Deal → Event</b><br><span class="why">the differentiator</span></td>
+      <td><span class="tag done">WIRED</span></td>
+      <td>FK <code>CrmDeal.eventId</code> (SetNull). Set from the create dialog; the board filters by event. This is the <i>“Abbott → BRIDGES 2026 → Gold → $40k → Negotiation”</i> join.</td>
+    </tr>
+    <tr>
+      <td><b>Deal → Company</b></td>
+      <td><span class="tag done">WIRED</span></td>
+      <td>FK (Restrict). The create dialog find-or-creates the account, so a deal never hangs off a free-text string.</td>
+    </tr>
+    <tr>
+      <td><b>Deal → Owner (User)</b></td>
+      <td><span class="tag done">WIRED</span></td>
+      <td>FK (SetNull). Defaults to the creator. Deleting a user leaves the deal <i>unowned</i>, never blocked or vanished.</td>
+    </tr>
+    <tr>
+      <td><b>Contact → Company</b></td>
+      <td><span class="tag part">WIRED, EMPTY</span></td>
+      <td>FK + a picker on the contact detail sheet. <b>But no backfill has run</b>, so <b>every existing contact's link is <code>null</code></b> — the free-text <code>Contact.organization</code> string is untouched and still the only company data we have. Someone must link them by hand, or we build the backfill.</td>
+    </tr>
+    <tr>
+      <td><b>Contact → Lifecycle</b></td>
+      <td><span class="tag part">WIRED, EMPTY</span></td>
+      <td>Editable on the contact sheet. Nullable by design — every existing contact is <code>null</code> until set. That's correct, not a gap.</td>
+    </tr>
+    <tr>
+      <td><b>Task reminder → Email</b></td>
+      <td><span class="tag done">WIRED</span></td>
+      <td>Worker job, every 5 min, via SES. Claims the row before sending, so it cannot double-email.</td>
+    </tr>
+    <tr>
+      <td><b>Won deal → <code>Event.settings.sponsors[]</code></b></td>
+      <td><span class="tag none">NOT WIRED</span></td>
+      <td>Plan §7.6. The column <code>sponsorSyncedAt</code> exists and <b>nothing writes it</b>. Winning a sponsorship deal does <i>not</i> put the sponsor on the event page — that's still manual.</td>
+    </tr>
+    <tr>
+      <td><b>CrmNote → shared Activity timeline</b></td>
+      <td><span class="tag none">NOT WIRED</span></td>
+      <td>Plan §7.5 wants notes merged into <code>activity-feed.ts</code> so a person's emails + edits + CRM notes render as one feed. Notes currently only appear on the deal sheet.</td>
+    </tr>
+    <tr>
+      <td><b>CRM → MCP / AI agent</b></td>
+      <td><span class="tag none">NOT WIRED</span></td>
+      <td>No <code>src/crm/agent-tools.ts</code>. n8n / claude.ai cannot read or write the pipeline.</td>
+    </tr>
+    <tr>
+      <td><b>Overdue tasks → dashboard tile</b></td>
+      <td><span class="tag none">NOT WIRED</span></td>
+      <td>Plan §7.5. Tasks are only visible if you go looking for them.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>4. API exists, UI does not</h2>
+
+<div class="callout warn">
+  <p>These are <b>fully working, tested, gated endpoints with no way to reach them from the app.</b>
+  They are not broken — they are unreachable. Listed separately from “not built” because the cost to
+  finish each is a form, not a feature.</p>
+</div>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Capability</th><th>API</th><th>UI</th><th>Consequence today</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Manage pipeline stages</b><br><span class="why">create / reorder / delete</span></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag none">NONE</span></td>
+      <td>The pipeline was made org-editable <i>on purpose</i> (§9 d3) so sales could change it without a migration — and there is <b>no screen to edit it</b>. The 6 seeded stages are, in practice, fixed. <b>This most undercuts a locked decision.</b></td>
+    </tr>
+    <tr>
+      <td><b>Create a standalone task</b></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag part">DEAL ONLY</span></td>
+      <td>Tasks can only be added <i>from a deal</i>. The Tasks tab has no “New task” button, so a follow-up not tied to a deal cannot be created.</td>
+    </tr>
+    <tr>
+      <td><b>Edit a company</b></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag part">PARTIAL</span></td>
+      <td>The detail sheet can only dismiss the “needs review” flag. Name / industry / website / notes are <b>not editable after creation</b>.</td>
+    </tr>
+    <tr>
+      <td><b>Notes on a company or contact</b></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag part">DEAL ONLY</span></td>
+      <td>The API accepts <code>companyId</code> / <code>contactId</code>; only the deal sheet renders notes.</td>
+    </tr>
+    <tr>
+      <td><b>Link a contact to a deal</b></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag none">NONE</span></td>
+      <td><code>CrmDeal.contactId</code> exists and is validated, but no picker sets it. Deals have a company, never a named person.</td>
+    </tr>
+    <tr>
+      <td><b>Edit a deal after creating it</b></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag none">NONE</span></td>
+      <td><code>PATCH /api/crm/deals/[id]</code> works; the detail sheet can only <i>close</i> a deal. You cannot fix a typo'd name or change the value.</td>
+    </tr>
+    <tr>
+      <td><b>Edit / delete a note</b></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag part">DELETE ONLY</span></td>
+      <td>Delete is offered to the author. Edit (also author-only) has no affordance.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>5. What is DONE</h2>
+
+<details>
+  <summary>Schema &amp; migration <span class="tag done">DONE</span></summary>
+  <ul>
+    <li>5 models — <code>CrmCompany</code>, <code>CrmPipelineStage</code>, <code>CrmDeal</code>, <code>CrmTask</code>, <code>CrmNote</code> — plus 4 enums and 2 nullable <code>Contact</code> columns.</li>
+    <li>Migration <code>20260714120000_add_crm_module</code>: <b>fully additive + idempotent</b> (guarded <code>CREATE</code>/<code>ADD</code>), so the old container serves happily against it mid-blue-green-swap and a re-run is a no-op.</li>
+    <li>Verified column-by-column against <code>prisma migrate diff --from-empty</code> — all 63 columns, every index name and FK policy byte-match Prisma's canonical DDL.</li>
+    <li><b>FK policy protects money history:</b> company/stage are <code>RESTRICT</code> (can't delete an account or a pipeline column that still holds deals); event/contact/owner are <code>SET NULL</code> (the deal outlives them).</li>
+    <li><code>CrmCompany.nameKey</code> (trim+lowercase) carries the unique index, so the “<i>Abbott</i> vs <i>abbott</i> = two accounts” bug is <b>structurally impossible</b> rather than dependent on every writer remembering to normalize.</li>
+  </ul>
+</details>
+
+<details>
+  <summary>Services <span class="tag done">DONE</span></summary>
+  <ul>
+    <li><b>company</b> — find-or-create; exact dupes blocked by the index, near-dupes created + flagged <code>needsReview</code> for a human.</li>
+    <li><b>pipeline</b> — idempotent seeding; <code>resolveStage()</code> is the one place an untrusted stage id becomes trusted (always org-bound).</li>
+    <li><b>deal</b> — <b>the stage move is a conditional claim, not a write.</b> It carries the stage the mover <i>believed</i> the card was in; if a colleague moved it first, the write is refused (409) instead of silently overwriting their decision.</li>
+    <li><b>task</b> — the reminder stamp. Re-arming a reminder clears it (so a rescheduled reminder actually fires); completing does not (a cleared stamp on a due task would make the worker re-email).</li>
+    <li><b>note</b> — author-only to edit; admins may delete but never rewrite. A note is a first-person account of a call held with no visible edit history.</li>
+  </ul>
+</details>
+
+<details>
+  <summary>API — 12 endpoints <span class="tag done">DONE</span></summary>
+  <ul>
+    <li><code>/api/crm/companies</code> + <code>/[companyId]</code></li>
+    <li><code>/api/crm/pipeline-stages</code> + <code>/[stageId]</code></li>
+    <li><code>/api/crm/deals</code> + <code>/[dealId]</code> + <code>/[dealId]/stage</code> + <code>/[dealId]/close</code></li>
+    <li><code>/api/crm/tasks</code> + <code>/[taskId]</code></li>
+    <li><code>/api/crm/notes</code> + <code>/[noteId]</code></li>
+  </ul>
+  <p class="why">Auth, money-redaction and error→HTTP mapping live in <b>one</b> shared boundary helper, not
+  re-typed twelve times — twelve hand-rolled guards is how one ends up missing, which is exactly the
+  contacts-H1 bug. A <b>source-level drift test</b> enumerates every route file and fails if any handler
+  forgets its gate. The default write rate limit lives <i>inside</i> the write gate, so an unprotected
+  CRM write is not expressible.</p>
+</details>
+
+<details>
+  <summary>UI — 4 pages <span class="tag part">PARTIAL — see §4</span></summary>
+  <ul>
+    <li><b>Sidebar:</b> one <b>CRM</b> entry. Deals / Companies / Tasks are tabs in the right pane (real routes, so deep links and the back button work).</li>
+    <li><b>Deals board</b> — drag-and-drop kanban. The drag captures the card's stage at <i>drag start</i> and sends it, so the server's race check holds. The optimistic move has a real rollback: on 409 it restores <i>and refetches</i>, because “put it back where it was” is wrong if the colleague moved it somewhere else.</li>
+    <li><b>Companies</b> — list, search, “Needs review” duplicate worklist, detail sheet.</li>
+    <li><b>Tasks</b> — overdue surfaced first.</li>
+    <li><b>Deal detail</b> — notes, follow-ups, close won/lost.</li>
+    <li><b>Money is optional everywhere.</b> MEMBER gets <code>dealValue</code> stripped server-side, so every surface renders an em dash — never <code>$0</code>. A redacted value and a genuinely-zero deal are different facts.</li>
+  </ul>
+</details>
+
+<details>
+  <summary>Worker — <code>crm-reminders</code> <span class="tag done">DONE</span></summary>
+  <p>Every 5 minutes. Emails a task's owner when it falls due.</p>
+  <p class="why"><b>The row is CLAIMED before the email is sent</b>, and that ordering is the design.
+  Claim-then-send risks a reminder claimed but never delivered — logged loudly, and recoverable by a
+  human seeing an OPEN overdue task. Send-then-claim risks emailing the same nag twice, or ten times if
+  a slow send overlaps the next tick. A missed nudge beats a spammed inbox.</p>
+  <p class="why">Registered on the Infra / Ops “Cron / Jobs” card, so it can't go silently unmonitored.</p>
+</details>
+
+<h2>6. What is PENDING</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Item</th><th>Size</th><th>Why it matters</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Deploy + apply migration</b></td>
+      <td>~30 min</td>
+      <td>Nothing above is reachable until this happens.</td>
+    </tr>
+    <tr>
+      <td><b>Pipeline-stage management UI</b></td>
+      <td>~half day</td>
+      <td>Restores the org-editable pipeline that was <i>chosen</i> in §9 d3 and is currently unreachable.</td>
+    </tr>
+    <tr>
+      <td><b>The §4 UI gaps</b><br><span class="why">deal edit · standalone task · company edit · deal↔contact · note edit</span></td>
+      <td>~1 day</td>
+      <td>Forms over endpoints that already work, are tested and are gated.</td>
+    </tr>
+    <tr>
+      <td><b>Adversarial review (Week-4 gate)</b></td>
+      <td>~1 day</td>
+      <td>4-angle: lifecycle · RBAC/finance leaks · concurrency · drift/logging. <b>Do not skip</b> — see §7.</td>
+    </tr>
+    <tr>
+      <td><b>Backfill: <code>Contact.organization</code> → <code>CrmCompany</code></b></td>
+      <td>~half day</td>
+      <td>Until this runs, Companies is an empty room. Dry-run default, <code>--write</code>, reusing the runtime's own <code>companyNameKey()</code> so script and app can't disagree.</td>
+    </tr>
+    <tr>
+      <td><b>MCP / agent tools</b></td>
+      <td>~1 day</td>
+      <td>Makes the pipeline automatable from n8n / claude.ai, like every other domain.</td>
+    </tr>
+    <tr>
+      <td><b>Won deal → sponsor entry</b></td>
+      <td>~2 hours</td>
+      <td>The §7.6 payoff: a won sponsorship offers to publish the sponsor onto the event page.</td>
+    </tr>
+    <tr>
+      <td><b>Notes into the shared Activity feed</b></td>
+      <td>~half day</td>
+      <td>One person, one timeline: emails + edits + CRM notes.</td>
+    </tr>
+    <tr>
+      <td><b>Company merge</b></td>
+      <td>~1 day</td>
+      <td>The <code>needsReview</code> flag has no merge action behind it — it only points at the problem.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>7. Honest notes</h2>
+
+<div class="callout warn">
+  <p><b>Three things were caught by guards, not by me</b> — which is the single best argument for not
+  skipping the Week-4 review:</p>
+  <ul>
+    <li>The <b>build</b> caught a Node import (<code>fs</code>, via the logger) leaking into the client
+      bundle. Had it not failed, the runtime symptom is <i>“the button does nothing and there are no
+      logs.”</i></li>
+    <li>An <b>existing drift test</b> caught the new cron missing from the monitoring roster — it would
+      have run unwatched.</li>
+    <li>The <b>owner's own review</b> ("are you sure Week 1 is done?") found <b>six gaps</b>, including
+      five mutations writing no audit row — the exact finding from the contacts review, reproduced
+      verbatim weeks after writing it up.</li>
+  </ul>
+</div>
+
+<div class="callout note">
+  <p><b>Stabilization-first still applies.</b> The CRM was parked on 13 July on the basis that no new
+  domains should land until a few real conferences have run. It was un-parked the next day; that concern
+  has <i>not</i> gone away, and it is carried into the build as a constraint: v1 stays behind the §10
+  scope fence, the module is namespace-bounded so it adds one place to look rather than eleven, and
+  <b>if a conference lands mid-build, the conference wins</b> — the CRM schema is additive and
+  unreferenced by any live path, so pausing costs nothing.</p>
+</div>
+
+<h3>Deliberately not built (v1)</h3>
+<ul>
+  <li><b>Two-way email inbox sync</b> — integrate, don't build. Months of work to replicate; connect a real Freshsales/HubSpot via n8n if it's ever needed.</li>
+  <li><b>Lead scoring / workflow automation.</b></li>
+  <li><b>Hard delete for deals or companies</b> — a deal is revenue history. A mistaken deal is closed LOST; a mistaken company is merged.</li>
+  <li><b>Multi-currency pipeline rollups</b> — currency is stored per deal; report per-currency.</li>
+</ul>
+
+<p class="stamp" style="margin-top:3rem">
+  Update this page whenever the answer to “what's linked?” changes — that is the question it exists to
+  answer.
+</p>
+
+</div>
