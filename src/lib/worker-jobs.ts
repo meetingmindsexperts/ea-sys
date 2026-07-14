@@ -20,6 +20,7 @@ export const EXPECTED_JOBS: ExpectedJob[] = [
   { name: "scheduled-emails", cadence: "every minute" },
   { name: "cert-issue", cadence: "every 3 min" },
   { name: "webinar-recordings", cadence: "every 5 min" },
+  { name: "crm-reminders", cadence: "every 5 min" },
   { name: "webinar-attendance", cadence: "every 10 min" },
   { name: "invoice-reconciliation", cadence: "every 10 min" },
   { name: "contacts-central-sync", cadence: "twice hourly (:16, :53)" },

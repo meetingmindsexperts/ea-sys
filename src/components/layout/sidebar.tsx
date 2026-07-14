@@ -36,9 +36,12 @@ import {
   BarChart3,
   BookOpen,
   Cpu,
+  Handshake,
+  CheckSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { canViewCrm } from "@/crm/lib/crm-roles";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { useHelpChatLauncher } from "@/components/help-chat/help-chat-provider";
@@ -57,10 +60,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean }[] = [
+const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
   { name: "Contacts",  href: "/contacts",  icon: BookUser },
+  // CRM (docs/CRM_MODULE_PLAN.md). One of the three permitted core-side touch
+  // points for the module (§7.0) — hence the @/crm import below, which the
+  // ESLint import-boundary rule exempts this file for, deliberately.
+  // Gated on canViewCrm, NOT on an existing predicate: MEMBER may see the board
+  // (leadership) but ONSITE may not (a desk temp must not hold the sponsorship
+  // pipeline), which matches no other role set in the app.
+  { name: "Deals",     href: "/crm/deals",     icon: Handshake, crmOnly: true },
+  { name: "Companies", href: "/crm/companies", icon: Building2, crmOnly: true },
+  { name: "Tasks",     href: "/crm/tasks",     icon: CheckSquare, crmOnly: true },
   { name: "Invoices",  href: "/invoices",  icon: Receipt, financeOnly: true },
   { name: "Media",     href: "/media",     icon: ImageIcon },
   { name: "Settings",  href: "/settings",  icon: Settings },
@@ -178,6 +190,7 @@ export function Sidebar() {
   const isOnsite      = session?.user?.role === "ONSITE";
   const isRestricted  = isReviewer || isSubmitter;
   const canFinance    = canViewFinance(session?.user?.role);
+  const canCrm        = canViewCrm(session?.user?.role);
 
   // Fetch all orgs for SUPER_ADMIN switcher
   const { data: allOrgs } = useOrganizations(isSuperAdmin);
@@ -225,6 +238,7 @@ export function Sidebar() {
           if (item.superAdminOnly && !isSuperAdmin) return false;
           if (item.adminOnly && !isAdmin) return false;
           if (item.financeOnly && !canFinance) return false;
+          if (item.crmOnly && !canCrm) return false;
           return true;
         });
 

@@ -24,6 +24,7 @@ export const JOB_IDS = {
   CONTACTS_CENTRAL_SYNC: 1007,
   CONTACTS_CENTRAL_RECONCILE: 1008,
   LOG_ARCHIVE: 1009,
+  CRM_REMINDERS: 1010,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];

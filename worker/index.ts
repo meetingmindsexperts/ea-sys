@@ -51,6 +51,7 @@ import * as webinarRecordings from "./jobs/webinar-recordings";
 import * as webinarAttendance from "./jobs/webinar-attendance";
 import * as oauthCleanup from "./jobs/oauth-cleanup";
 import * as invoiceReconciliation from "./jobs/invoice-reconciliation";
+import * as crmReminders from "./jobs/crm-reminders";
 import * as contactsCentralSync from "./jobs/contacts-central-sync";
 import * as contactsCentralReconcile from "./jobs/contacts-central-reconcile";
 import * as logArchive from "./jobs/log-archive";
@@ -83,6 +84,7 @@ const JOBS = [
   contactsCentralSync,
   contactsCentralReconcile,
   logArchive,
+  crmReminders,
 ];
 
 // Shared state — populated as jobs tick. The health endpoint reads

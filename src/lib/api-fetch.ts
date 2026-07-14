@@ -85,6 +85,15 @@ export function apiPutJson<T = unknown>(url: string, body: unknown): Promise<T> 
   });
 }
 
+/** PATCH with a JSON body — partial updates (the CRM's default write verb). */
+export function apiPatchJson<T = unknown>(url: string, body: unknown): Promise<T> {
+  return apiFetch<T>(url, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+}
+
 export function apiDelete<T = unknown>(url: string): Promise<T> {
   return apiFetch<T>(url, { method: "DELETE" });
 }
