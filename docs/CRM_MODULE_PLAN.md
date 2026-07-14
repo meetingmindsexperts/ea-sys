@@ -1,10 +1,8 @@
 # CRM Module — Assessment & Implementation Blueprint
 
-> **Status: PARKED (July 13, 2026).** Owner decision communicated to management: no new domains until a few real conferences have run on EA-SYS — the 11 active domains are already a large surface and stabilization comes first. This document preserves the full assessment + implementation plan so the module can start the day it un-parks, without re-deriving anything.
+> **Status: IN BUILD — Week 1 (un-parked July 14, 2026).** The §9 planning round is **complete**; all four owner decisions are locked (see §9). Build proceeds per the §8 gate table.
 >
-> **Re-evaluation trigger:** after 2–3 real conferences have completed on EA-SYS.
->
-> **First action when un-parked:** the half-day planning round in §9 — four owner decisions gate everything else.
+> **Prior status, kept for the record:** PARKED (July 13, 2026) — "no new domains until a few real conferences have run on EA-SYS; the 11 active domains are already a large surface and stabilization comes first." The owner un-parked it the next day. The stabilization concern that drove the park has **not** gone away, so it is carried into the build as a constraint rather than dismissed: v1 ships **behind the §10 scope fence**, the module is **namespace-bounded** (§7.0) so it adds one place to look rather than eleven, and the Week-4 **adversarial review** gate is non-negotiable, not a nice-to-have. If a conference lands mid-build, the conference wins — the CRM schema is additive and unreferenced by any live path, so pausing costs nothing.
 
 ---
 
@@ -204,12 +202,23 @@ Small hooks into existing code, all fire-and-forget like `syncToContact`:
 
 Post-ship: add a "12. CRM" branch to `docs/DOMAIN_MAP.html` and refresh its stamp.
 
-## 9. Owner decisions to lock in the planning round (nothing coded before these)
+## 9. Owner decisions — **LOCKED (planning round, July 14, 2026)**
 
-1. **Primary use case** — sponsor/exhibitor sales pipeline vs delegate/HCP relationship management vs general team CRM. (Shapes Deal↔Event linkage prominence and lifecycle-stage semantics.)
-2. **Lifecycle-stage values** for contacts (e.g. LEAD / ENGAGED / CUSTOMER / CHAMPION — final set TBD).
-3. **Default pipeline stages** (e.g. Prospect → Contacted → Proposal → Negotiation → Won/Lost — final set TBD) and whether stages are org-editable in v1.
-4. **Visibility & ownership** — who can own deals; does MEMBER see the board (values redacted) or nothing; can ORGANIZER see others' deals or only their own.
+All four answered. These are now build constraints; changing one after Week 1 means a migration on a live DB, so they are recorded here rather than left in chat.
+
+**1. Primary use case → sponsor / exhibitor sales pipeline.**
+Not delegate/HCP management (mostly already served by the contact store + activity timeline, so the net-new value was small) and not a general team CRM (widest scope, weakest differentiation — that's the shape an off-the-shelf tool serves best). *Consequences:* **`CrmCompany` is the centre of gravity**, not Contact. `CrmDeal.eventId` is a **first-class, prominent link** — the "Abbott → BRIDGES 2026 → Gold → $40k → Negotiation" join is the module's whole reason to exist (§4). The kanban board's default filter is by event. The won-deal → `Event.settings.sponsors[]` handoff (§7.6) is a headline feature, not a footnote.
+
+**2. Contact lifecycle → `LEAD` / `ENGAGED` / `CUSTOMER` / `CHAMPION`.**
+Prisma enum `CrmLifecycleStage`, nullable on `Contact` — existing contacts stay `null`, so this is additive and needs no backfill. Generic enough to fit both a sponsor company contact and an HCP; small enough that each value stays meaningful. *Rejected:* the sponsor-flavoured `PROSPECT/ENGAGED/SPONSOR/LAPSED` set (LAPSED is genuinely the most actionable renewal segment, but it belongs to the **company**, not the contact — a person doesn't lapse, an account does; renewal chasing is therefore a **deal/company** query, not a lifecycle value, and is served by "won deal last year, none this year"). *Also rejected:* skipping lifecycle in v1 (tags cover it informally but can't be reported on) and the coarse two-state LEAD/CUSTOMER.
+
+**3. Pipeline → `Prospect → Contacted → Proposal → Negotiation → Won/Lost`, org-editable.**
+Stages live in the **`CrmPipelineStage` table** (not a Prisma enum) with `sortOrder`, seeded with these five. Editable because sales *will* change its mind, and a table means that's a row edit rather than a migration against a live DB. *Consequence:* the stage-management UI + reorder logic are in v1 scope, and `moveDealStage()` must validate the target stage belongs to the caller's org (a stage id is now user-supplied input, i.e. an IDOR surface — bind it).
+
+**4. Visibility → staff own; all staff see all deals; MEMBER sees the board with values redacted.**
+Deal `ownerId` ∈ {SUPER_ADMIN, ADMIN, ORGANIZER}. Every staff member sees the **whole** board — the team is small, and per-owner siloing adds friction with no benefit. **MEMBER** sees stages, companies and deal names but **not** values: `CrmDeal.value` goes into `FINANCIAL_KEYS` so the existing `redactFinancialFields()` machinery applies unchanged. *Rejected:* hiding the CRM from MEMBER entirely (leadership is exactly who wants the board); showing MEMBER full values (MEMBER *is* finance-capable today, but a sponsor-side stakeholder holding a MEMBER account would then see every rival sponsor's deal value — the one place the existing finance boundary is too generous); and per-owner ORGANIZER scoping (adds row-level ownership filtering to every query and every MCP tool, which is historically exactly where this codebase's IDOR bugs come from — see the contacts/accommodation reviews).
+
+> **Note on the CRM's own visibility boundary.** Per the `AGENTS.md` rule, this does **not** reuse an existing predicate: `canViewContacts` includes MEMBER but excludes ONSITE; finance includes both MEMBER *and* ONSITE. The CRM needs "staff + MEMBER-with-redaction, never ONSITE/REVIEWER/SUBMITTER/REGISTRANT" — close to `contact-visibility` but not equal to it. Week 1 therefore adds **`src/crm/lib/crm-visibility.ts`** (`canViewCrm()` / `canOwnDeals()` / `denyCrmAccess()`), fails-closed, logging its own refusal.
 
 ## 10. Explicitly out of scope (v1)
 

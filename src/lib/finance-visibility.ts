@@ -47,6 +47,23 @@ const FINANCIAL_KEYS = new Set<string>([
   // The whole computed money breakdown (subtotal/VAT/total/balance) —
   // strip it wholesale for MEMBER rather than relying on its inner keys.
   "financials",
+  // CRM deal value (docs/CRM_MODULE_PLAN.md §9 decision 4). MEMBER reads the
+  // sponsorship board but must not read the money on it — a sponsor-side
+  // stakeholder holding a MEMBER account would otherwise see every rival
+  // sponsor's deal value. Listed here so the existing redaction machinery
+  // covers the CRM unchanged. The CRM's own predicate lives in
+  // src/crm/lib/crm-visibility.ts (canViewDealValues) — deliberately NARROWER
+  // than canViewFinance(), which includes MEMBER and ONSITE.
+  //
+  // ⚠ The column is `dealValue`, NOT `value`, specifically so it can appear in
+  // this set. redactFinancialFields() is a RECURSIVE walk that strips a key by
+  // NAME anywhere in the payload — and `value` is a generic key that already
+  // occurs in unrelated shapes (survey free-text answers are
+  // `{ responseId, submittedAt, value }`, see src/lib/survey/aggregate.ts).
+  // Adding bare "value" here would silently blank every survey answer for
+  // MEMBER. Any future financial field must be named specifically enough that
+  // its key is unambiguous across the whole API surface.
+  "dealValue",
   "amount",
   "amountPaid",
   "totalPaid",

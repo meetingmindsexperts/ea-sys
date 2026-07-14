@@ -40,6 +40,13 @@ model Organization {
   scheduledEmails ScheduledEmail[]
   emailLogs       EmailLog[]
   billingAccounts BillingAccount[]
+
+  // CRM module — see docs/CRM_MODULE_PLAN.md
+  crmCompanies      CrmCompany[]
+  crmPipelineStages CrmPipelineStage[]
+  crmDeals          CrmDeal[]
+  crmTasks          CrmTask[]
+  crmNotes          CrmNote[]
 }
 
 model User {
@@ -78,6 +85,12 @@ model User {
   attachedBillingAccounts   EventBillingAccount[]
   issuedCertificates        IssuedCertificate[]
   triggeredCertificateRuns  CertificateIssueRun[]
+
+  // CRM module — all SetNull on user delete, so removing a team member never
+  // destroys deal/task/note history AND never blocks the delete. See CrmDeal.
+  ownedCrmDeals    CrmDeal[] @relation("CrmDealOwner")
+  ownedCrmTasks    CrmTask[] @relation("CrmTaskOwner")
+  authoredCrmNotes CrmNote[] @relation("CrmNoteAuthor")
 
   @@index([organizationId])
   @@index([email])
@@ -294,6 +307,10 @@ model Event {
   surveyResponses           SurveyResponse[]
   rsvpDinners               RsvpDinner[]
   rsvpInvites               RsvpInvite[]
+
+  // CRM module — SetNull, so a sponsorship deal (revenue history) outlives the
+  // event it was sold against.
+  crmDeals CrmDeal[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -1442,7 +1459,21 @@ model Contact {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
+  // ── CRM module (additive; both nullable — existing contacts are unaffected) ──
+  /// Links this person to a first-class Account. The free-text `organization`
+  /// string above is deliberately KEPT: it stays the raw captured value, while
+  /// companyId is the curated link. A backfill script mints companies from the
+  /// distinct strings; until it runs (and for any contact it can't resolve),
+  /// companyId is simply null.
+  companyId      String?
+  company        CrmCompany?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  lifecycleStage CrmLifecycleStage?
+  crmDeals       CrmDeal[]
+  crmTasks       CrmTask[]
+  crmNotes       CrmNote[]
+
   @@unique([organizationId, email])
+  @@index([companyId])
   @@index([organizationId])
 }
 
@@ -2336,4 +2367,264 @@ model JobRun {
 
   @@index([job, startedAt])
   @@index([startedAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CRM MODULE
+//
+// Bounded module — see docs/CRM_MODULE_PLAN.md §7.0 ("independent module,
+// shared runtime"). Every model is Crm*-prefixed so the schema reads as one
+// distinct block; code lives under src/crm/, routes under /api/crm/*, pages
+// under /(dashboard)/crm/*. src/crm/ may import core; core NEVER imports
+// src/crm/ (enforced by an ESLint import-boundary rule, not by discipline).
+//
+// Primary use case (locked, §9): SPONSOR / EXHIBITOR SALES PIPELINE. The
+// CrmDeal.eventId link is the whole point — "Abbott → BRIDGES 2026 → Gold →
+// $40k → Negotiation" is a join no off-the-shelf CRM can do against our data.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum CrmDealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+enum CrmTaskStatus {
+  OPEN
+  DONE
+}
+
+/// Contact lifecycle (locked, §9). Nullable on Contact — existing contacts stay
+/// null, so this is additive and needs no backfill. NOTE: an account lapses, a
+/// person doesn't — "lapsed sponsor" is deliberately NOT a value here; it is a
+/// deal/company query ("won last year, nothing open this year").
+enum CrmLifecycleStage {
+  LEAD
+  ENGAGED
+  CUSTOMER
+  CHAMPION
+}
+
+enum CrmActivityType {
+  NOTE
+  CALL
+  MEETING
+}
+
+/// First-class Account. Today Contact.organization is a free-text string, which
+/// is why "Cleveland Clinic" and "Cleveland Clinic Foundation" are two things.
+///
+/// `nameKey` is the trimmed+lowercased name and carries the unique index;
+/// `name` is the display form. This is deliberate: the contacts review (H2,
+/// July 14 2026) found that a CASE-SENSITIVE unique index plus writers that
+/// don't normalize mints two rows for one entity — and then the downstream
+/// sync silently mirrors only one of the pair. Normalizing in the index rather
+/// than trusting every writer to lowercase makes that bug unrepresentable.
+model CrmCompany {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name     String
+  nameKey  String // trimmed + lowercased — the dedup key, see note above
+  industry String? // pharma | hospital | society | agency | …
+  website  String?
+  country  String?
+  city     String?
+  notes    String? @db.Text
+
+  /// Set when created via fuzzy match (e.g. "Cleveland Clinic" vs "Cleveland
+  /// Clinic Foundation") so finance can merge later. Advisory — never blocks.
+  needsReview Boolean @default(false)
+
+  contacts Contact[]
+  deals    CrmDeal[]
+  tasks    CrmTask[]
+  notes_   CrmNote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, nameKey])
+  @@index([organizationId])
+}
+
+/// Org-configurable pipeline (locked, §9). A TABLE, not an enum — sales will
+/// change its mind, and that must be a row edit rather than a migration against
+/// a live production DB. Seeded per-org with:
+///   Prospect → Contacted → Proposal → Negotiation → Won → Lost
+/// The two terminal stages are flagged isTerminal.
+///
+/// SECURITY: stageId becomes user-supplied input on every deal write and every
+/// kanban drag, so it is an IDOR surface — always bind it to the caller's org
+/// before use.
+model CrmPipelineStage {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name       String
+  sortOrder  Int
+  isTerminal Boolean @default(false)
+
+  /// Deals are Restrict-protected: you cannot delete a stage that still holds
+  /// deals — move them first. Silently vaporising a pipeline column's contents
+  /// is not a thing we let an errant click do.
+  deals CrmDeal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, sortOrder])
+}
+
+/// A sponsorship / exhibitor deal.
+///
+/// FK deletion policy is chosen so that MONEY HISTORY SURVIVES:
+///   company  → Restrict  (can't delete an account that has deals; reassign or
+///                         close them first — the BillingAccount precedent)
+///   stage    → Restrict  (see CrmPipelineStage)
+///   event    → SetNull   (event deletion is already a heavy cascade; the deal
+///                         is revenue history and must outlive it)
+///   contact  → SetNull
+///   owner    → SetNull   (see the ownerId note below)
+///
+/// `ownerId` is NULLABLE and SetNull, deviating from the original blueprint
+/// sketch (which had it required). Reason: users DO get deleted here (temp
+/// accounts are a routine flow). A required owner with Restrict would make
+/// deleting a deal-owning organizer fail with a raw P2003 from an unrelated
+/// core route — and teaching that core route about CRM would violate the
+/// one-way import rule. An unowned deal is visible, recoverable and
+/// reassignable; a blocked user-delete or an orphaned FK is neither.
+model CrmDeal {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name String // "Abbott — BRIDGES 2026 Gold"
+
+  companyId String?
+  company   CrmCompany? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  /// THE differentiator — the deal↔event join (§9 decision 1).
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  /// Finance-gated: `dealValue` is in FINANCIAL_KEYS so the existing
+  /// redactFinancialFields() machinery hides it from MEMBER unchanged (§9 d4).
+  ///
+  /// Named `dealValue`, NOT `value`, deliberately: redactFinancialFields() is a
+  /// recursive strip-by-key-name, and `value` already occurs in unrelated
+  /// payload shapes (survey free-text answers). A bare `value` in FINANCIAL_KEYS
+  /// would blank those for MEMBER — a new feature breaking a shipped one.
+  dealValue Decimal? @db.Decimal(12, 2)
+  currency  String   @default("USD")
+
+  stageId String
+  stage   CrmPipelineStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
+
+  ownerId String?
+  owner   User?   @relation("CrmDealOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  expectedClose DateTime?
+  status        CrmDealStatus @default(OPEN)
+  wonAt         DateTime?
+  lostAt        DateTime?
+  lostReason    String?
+
+  /// Set once the won deal has been pushed to Event.settings.sponsors[] (§7.6),
+  /// so the "create sponsor entry" button is offered exactly once.
+  sponsorSyncedAt DateTime?
+
+  tasks CrmTask[]
+  notes CrmNote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, stageId])
+  @@index([eventId])
+  @@index([companyId])
+  @@index([ownerId, status])
+}
+
+model CrmTask {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?   @db.Text
+  dueAt       DateTime?
+
+  ownerId String?
+  owner   User?   @relation("CrmTaskOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  companyId String?
+  company   CrmCompany? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  dealId String?
+  deal   CrmDeal? @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  status CrmTaskStatus @default(OPEN)
+
+  /// Reminder job (worker/jobs/crm-reminders.ts, every 5 min):
+  ///   remindAt <= now AND remindedAt IS NULL AND status = OPEN
+  /// `remindedAt` is the idempotency stamp — written in the same claim as the
+  /// send so a crash mid-tick can't double-email. Partial index below serves it.
+  remindAt   DateTime?
+  remindedAt DateTime?
+
+  completedAt DateTime?
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status, dueAt])
+  @@index([ownerId, status])
+  @@index([dealId])
+  @@index([remindAt])
+}
+
+/// Manual activity log — the "we actually called them" record that no automated
+/// sync can produce. Merges into the existing activity-feed.ts builder so a
+/// person's emails + edits + notes render as ONE timeline.
+///
+/// `authorId` is SetNull: the note body is history and must outlive the author's
+/// account. A note attributed to "(deleted user)" is fine; a vanished note isn't.
+model CrmNote {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  body         String          @db.Text
+  activityType CrmActivityType @default(NOTE)
+
+  authorId String?
+  author   User?   @relation("CrmNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  companyId String?
+  company   CrmCompany? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  dealId String?
+  deal   CrmDeal? @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, createdAt])
+  @@index([contactId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([dealId, createdAt])
 }
