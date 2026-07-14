@@ -345,6 +345,28 @@ const postRes = await fetch(`${base}/rest/v1/${table}?on_conflict=email`, { meth
     historical superset”) — <strong>the rename case is a defect regardless</strong>, because both rows look like
     current people.
   </p>
+  <p class="lbl">Status — <span class="pill deferred">BACKLOG, plan written</span> (owner decisions locked July 14, 2026)</p>
+  <p>
+    <strong>Not started.</strong> The full implementation plan (tombstone table → worker retraction pass →
+    one-time backfill of the orphans already created) is in <code>docs/ROADMAP.md</code> §“H3 — mirror
+    retraction”, and the defect is now recorded in <code>docs/CONTACTS_CENTRAL_SYNC.md</code>'s limitations —
+    the <em>absence</em> of that note is a large part of why this shipped in the first place.
+  </p>
+  <p>
+    <strong>The trap to avoid</strong> (written down so nobody re-derives it the fast way): the obvious fix —
+    diff the target against the source and delete what's missing — is <strong>dangerous</strong>.
+    <code>contacts_centralv1</code> is <em>shared with other sources</em> (<code>evenstair_customerid</code>,
+    <code>mailchimp_*</code>), so a prune would delete people EA-SYS never knew about. The fix is
+    <em>retraction</em>, not deletion — which requires <em>recording</em> which emails we retracted, because that
+    information is destroyed at the moment of the change.
+  </p>
+  <p>
+    <strong>Owner decisions:</strong> (1) never hard-delete a mirror row — retraction is always
+    <code>ea_synced = false</code>; (2) a row carrying <code>mailchimp_*</code> or
+    <code>evenstair_customerid</code> belongs to another source and, once retracted, is no longer EA-SYS's
+    concern; (3) <strong><code>ea_synced = false</code> is the contract — “EA-SYS no longer vouches for this
+    address”</strong>, and downstream consumers must filter on it.
+  </p>
   <div class="learn"><strong>What to learn.</strong> An append-only mirror keyed on a <em>mutable</em> field is not
     a mirror — it is an accumulator. Before you build a sync, enumerate every operation the source supports
     (create, update, <strong>rename-the-key</strong>, merge, delete) and decide what each one means on the target.

@@ -1480,7 +1480,7 @@ duplicate-contact backfill H2 doesn't perform.
 | ~~**H2**~~ | HIGH | **REST contact create never lowercased the email** while the other 5 writers do and the unique index is case-sensitive ⇒ **two contacts for one person**, one of which the central sync silently never mirrors. | ✅ **SHIPPED `a0744ef`.** Trim+lowercase via `z.preprocess` (before validation, so a pasted trailing space is accepted not 400'd); P2002 race → 409 instead of a 500 echoing the raw Prisma message. **⚠ No backfill run — existing duplicate pairs remain (see below).** |
 | **NEW** | MED | **Case-variant duplicate-contact backfill** — H2 stops *new* duplicates but does not merge the pairs already minted. Needs a one-time script: find contacts differing only by email case within an org, merge (union tags + `eventIds`, enrich scalars), delete the loser. Dry-run default, `--write`, audited — same shape as `backfill-faculty-registration-type.ts`. **Check prod for existing pairs before adding any DB-level `citext`/functional-unique-index constraint** (it would fail the migration). | Deferred. |
 | ~~**H4**~~ | HIGH | **MCP `update_speaker` synced name+email only** while the REST PUT synced ~13 fields ⇒ agent/n8n speaker edits never reached the Contact store (and, being enrich-only, the payload was a **silent no-op**). | ✅ **SHIPPED `5849962`.** Fixed by **extraction, not a patched payload**: new `speaker-service.updateSpeaker()` (cross-caller #6) owns the locked write + tag mirror + decline cascade + FULL contact sync + audit + stats; REST and MCP are thin delegations. Extra drift fixed in-flight: MCP audit now carries full before/after snapshots (was status-only), the write binds `{id, eventId}`, stats refresh the speaker's own event (was `ctx.eventId`), `photo` is coerced not blind-cast. +20 tests; all 2666 pre-existing tests pass unchanged through the delegation. No schema change → no pkg bump. |
-| **H3** | HIGH | **The EU central mirror never learns about a rename / merge / delete** — it is email-keyed and POST-upsert-only. Fixing a typo'd email leaves the old address in `contacts_centralv1` **forever**, looking like a current, EA-maintained person (that table feeds `mailchimp_*`). The nightly reconcile only upserts, so it cannot heal it. | Deletes-are-kept may be defensible; the **rename → duplicate live identity** case is a defect regardless. Fix = PATCH the old-email row (`ea_synced=false` / `ea_merged_into`) on update/merge/delete. |
+| **H3** | HIGH | **The EU central mirror never learns about a rename / merge / delete** — it is email-keyed and POST-upsert-only. Fixing a typo'd email leaves the old address in `contacts_centralv1` **forever**, looking like a current, EA-maintained person (that table feeds `mailchimp_*`). The nightly reconcile only upserts, so it cannot heal it. | **Implementation plan below** (§"H3 — mirror retraction"). Owner decision (July 14): **never hard-delete — always `ea_synced = false`**; a row carrying `mailchimp_*` / `evenstair_customerid` belongs to another source and is no longer EA-SYS's concern. |
 | M1 | MED | `syncToContact` is check-then-act on a unique index; the P2002 loser lands in a swallowed catch → an `eventId` **and all enrich data** are permanently lost, and the reconcile can't heal it (it recomputes *from* the corrupted `Contact.eventIds`). | Retry-once on P2002 + atomic array append. |
 | M2 | MED | **Audit coverage is 2 of 9 mutation paths** — `DELETE` writes **no audit row** (destructive + unrecoverable); bulk-tags none (its registrations/speakers twins *are* audited); create/import/PUT none (but MCP `update_contact` *does* — inconsistent). | Start with DELETE + bulk-tags. |
 | M3 | MED | MCP `create_registrations_bulk` syncs name+email only; its "parity with the single executor" comment is now false (the single path delegates to the ~20-field service). A 100-row agent import → 100 husk CRM rows. | |
@@ -1502,6 +1502,69 @@ duplicate-contact backfill H2 doesn't perform.
 | L7 | LOW | `bulk-tags` reads tags **outside** its transaction → concurrent tag ops lose updates (tags drive email cohorts). |
 
 **Flagged for the owner (not bugs today):** the **central sync is org-blind by design** — `buildCentralRows` has no `organizationId` filter and its registration join has no `where` at all, so a second org would silently mix contacts + registration types into one email-keyed EU table. **Hard blocker for white-label** → belongs in [MULTI_TENANCY_IMPACT.md](MULTI_TENANCY_IMPACT.md). Also: `CONTACTS_CENTRAL_URL` has no scheme/host assertion (an operator typo would POST the service key + all PII to the wrong host).
+
+---
+
+#### H3 — mirror retraction (rename / merge / delete): implementation plan
+
+**Status: BACKLOG.** Not started. Owner decisions locked July 14, 2026 (below). Estimated ~1 focused day (schema + lib + worker + tests), plus one column added in the target project.
+
+**The problem in one line:** `buildCentralRows()` reads contacts that *currently exist* and the only HTTP verb in [contacts-central-sync.ts](../src/lib/contacts-central-sync.ts) is `POST` — so when an email stops being current (renamed / merged away / deleted) it simply stops appearing in the payload, and **nothing ever tells the target**. The old row keeps its full profile, keeps `ea_synced = true`, and keeps feeding `mailchimp_*`. The nightly reconcile can't heal it (it is also upsert-only).
+
+**Why the obvious fix is wrong.** "Diff the target against the source and delete what's missing" would be *dangerous*: `contacts_centralv1` is **shared with other sources** (it carries `evenstair_customerid` + `mailchimp_*`), and the design of record is *never remove another source's entries*. A prune would delete people EA-SYS never knew about. The fix cannot be "delete what's absent" — it must be "**retract our claim on a specific email**", which means we must *record* which emails we retracted, because that information is destroyed at the moment of the change.
+
+**Owner decisions (July 14, 2026):**
+1. **Never hard-delete a mirror row.** Retraction = `ea_synced = false`, always.
+2. A row carrying **`mailchimp_*` or `evenstair_customerid`** belongs to another source — once we retract, **it is no longer EA-SYS's concern**. We do not clean it, delete it, or null its columns.
+3. Consequence to communicate downstream: **`ea_synced = false` means "EA-SYS no longer vouches for this address — do not treat it as a current EA person."** Consumers must filter on it.
+
+**Design: tombstones + a worker pass** (mirrors the rest of the worker tier — durable, ordered, idempotent, retry-safe).
+
+**1. Schema (additive, blue-green safe).** New table:
+```prisma
+model ContactMirrorTombstone {
+  id           String   @id @default(cuid())
+  email        String                       // the OLD email — what we retract in the mirror
+  reason       ContactTombstoneReason       // RENAMED | MERGED | DELETED
+  newEmail     String?                      // set for RENAMED/MERGED — the surviving identity
+  createdAt    DateTime @default(now())
+  processedAt  DateTime?                    // null = pending; set when the target ACKs
+  attempts     Int      @default(0)
+  lastError    String?
+  @@index([processedAt, createdAt])         // the worker's queue scan
+}
+enum ContactTombstoneReason { RENAMED MERGED DELETED }
+```
+Rows are kept after processing (audit trail of what we retracted + when).
+
+**2. Write the tombstone at every point the identity dies** — all three inside the SAME transaction as the mutation, so a crash can't lose the retraction:
+- `repointOrgContactEmail()` ([email-change.ts](../src/lib/email-change.ts)) — the `"updated"` branch → `RENAMED` (old → new); the `"merged"` branch (it `delete`s the loser) → `MERGED`.
+- `DELETE /api/contacts/[contactId]` → `DELETED`.
+- ⚠️ **Do not forget the cascade paths.** Audit whether any Contact rows are removed by Prisma cascade or a bulk delete; a DB-level cascade fires no application code (the accommodation H4 lesson) and would leave no tombstone.
+
+**3. Target project — one additive column** (mirrors how `ea_synced` was added):
+```sql
+alter table public.contacts_centralv1 add column if not exists ea_merged_into text;
+```
+Optional but recommended: it lets a downstream consumer follow a rename instead of just seeing a dead row.
+
+**4. New lib function** in `contacts-central-sync.ts` (keep it in the same module — it shares the base URL / service key / chunking):
+```ts
+export async function retractCentralRows(tombstones: Tombstone[]): Promise<{ patched: number; failed: number }>
+```
+Per tombstone: `PATCH {base}/rest/v1/{table}?email=eq.{email}` with body `{ ea_synced: false, ...(newEmail && { ea_merged_into: newEmail }) }`.
+- **Only ever writes those two columns** — everything else (incl. `mailchimp_*`, `evenstair_customerid`) is preserved by omission, exactly like the existing upsert.
+- A **404 / zero-rows-matched is a SUCCESS**, not a failure (the row may never have synced) — mark processed.
+- Idempotent: re-PATCHing an already-retracted row is a no-op.
+- **Ordering matters:** a RENAME must retract the OLD email *without* clobbering the NEW one. Since the two are different rows (different keys), there's no conflict — but if old and new somehow collapse to the same address (a case-only "rename"), skip the retraction. Guard for it.
+
+**5. Worker.** Fold into the existing `contacts-central-sync` job (same advisory lock, so it can't race the upsert pass) — drain pending tombstones **before** the upsert, so a rename retracts the old row in the same tick that it creates the new one. Cap the batch (e.g. 200/tick), bump `attempts`, record `lastError`, and give up loudly after N attempts (error-level → the SES alert path). ⚠️ Note the **P3 pooler advisory-lock stall (M12)** applies here too: if the lock wedges, retractions stall silently at debug level — worth logging the pending-tombstone backlog count at `warn` when it grows.
+
+**6. Backfill the damage already done.** Existing orphans predate the tombstones and are invisible to them. One-time script (dry-run default, `--write`): pull all `ea_synced = true` rows from the target, diff against the live `Contact` emails, and retract (`ea_synced = false`) any target row whose email **no longer exists in EA-SYS**. This is safe *specifically because* it only touches rows we already claimed (`ea_synced = true`) and only sets our own flag — it never deletes and never touches another source's row. Expect it to catch every rename/merge/delete since the mirror went live.
+
+**7. Tests.** Tombstone written inside the mutation tx (rename / merge / delete); the PATCH body contains ONLY `ea_synced` (+ `ea_merged_into`) — the regression guard against ever widening it into another source's columns; zero-rows-matched → processed, not failed; retry on 5xx; the case-only-rename guard; worker drains retractions before upserts.
+
+**Docs to update on ship:** [CONTACTS_CENTRAL_SYNC.md](CONTACTS_CENTRAL_SYNC.md) (the "Notes / limitations" section currently does NOT mention rename/delete non-propagation — that omission is why this shipped), plus the `ea_synced = false` contract for downstream consumers.
 
 ### Certificates review — deferred findings (July 13, 2026)
 

@@ -106,6 +106,28 @@ Watch both in `/logs` (search `contacts-central:`): `contacts-central:tick` +
 chunk — errors also hit the SES admin-alert email.
 
 ## Notes / limitations
+
+- ⚠️ **KNOWN DEFECT — the mirror never learns about a rename / merge / delete
+  (contacts review H3, OPEN).** `buildCentralRows()` reads contacts that
+  *currently exist*, and the only HTTP verb in this module is `POST`. So when an
+  email stops being current — the email PATCH route renames it, a merge deletes
+  the loser row, or a contact is deleted — it simply **stops appearing in the
+  payload, and nothing tells the target**. The old row keeps its full profile,
+  keeps `ea_synced = true`, and keeps feeding `mailchimp_*` as a live-looking,
+  EA-maintained person. **Fixing a typo'd email therefore leaves the typo alive
+  in the mirror forever, and creates a second row for the same human.** The
+  nightly reconcile does NOT heal this — it is also upsert-only.
+  **Do not "fix" this by diffing and deleting**: this table is shared with other
+  sources (`evenstair_customerid`, `mailchimp_*`) and a prune would delete people
+  EA-SYS never knew about. The agreed fix is *retraction*, not deletion —
+  tombstone the old email and `PATCH ea_synced = false`. Full implementation plan
+  in [ROADMAP.md](ROADMAP.md) §"H3 — mirror retraction".
+  **Owner decisions (July 14, 2026):** never hard-delete a mirror row; a row
+  carrying `mailchimp_*` / `evenstair_customerid` belongs to another source and,
+  once retracted, is no longer EA-SYS's concern. **`ea_synced = false` is the
+  contract: "EA-SYS no longer vouches for this address."** Downstream consumers
+  must filter on it.
+
 - **Enrich-only scalars** mean once a field is set on the central row (by any
   source), EA-SYS won't overwrite it — only fill blanks. To make "EA-SYS wins on
   non-empty" instead, flip the scalar lines in `mergeWithExisting`
