@@ -162,6 +162,35 @@ export interface BackupStatus {
 export interface AlertStatus {
   silencedUntil: string | null;
 }
+export interface Heartbeat {
+  registrations24h: number;
+  registrations7d: number;
+  payments24h: number;
+  checkIns24h: number;
+  abstracts24h: number;
+  emailsSent24h: number;
+  liveEvents: number;
+  nextEventName: string | null;
+  nextEventStartsAt: string | null;
+}
+export interface ErrorTrendBucket {
+  hour: string;
+  errors: number;
+  warns: number;
+}
+export interface AbuseStat {
+  label: string;
+  value: number;
+  hint: string;
+}
+export interface DrArtifact {
+  label: string;
+  prefix: string;
+  latestAt: string | null;
+  ageHours: number | null;
+  staleAfterHours: number;
+  stale: boolean;
+}
 
 export interface InfraSnapshot {
   generatedAt: string;
@@ -170,6 +199,10 @@ export interface InfraSnapshot {
   database: { status: SourceStatus; error?: string; info: DbStatus | null };
   worker: { status: SourceStatus; error?: string; info: WorkerLive | null };
   queues: { status: SourceStatus; error?: string; rows: QueueDepth[] };
+  heartbeat: { status: SourceStatus; error?: string; info: Heartbeat | null };
+  errorTrend: { status: SourceStatus; error?: string; buckets: ErrorTrendBucket[] };
+  abuse: { status: SourceStatus; error?: string; rows: AbuseStat[] };
+  dr: { status: SourceStatus; error?: string; rows: DrArtifact[] };
   backup: { status: SourceStatus; error?: string; info: BackupStatus | null };
   alerts: { status: SourceStatus; error?: string; info: AlertStatus | null };
   deploys: { status: SourceStatus; error?: string; runs: DeployRun[] };
@@ -671,13 +704,176 @@ async function fetchAlerts(): Promise<InfraSnapshot["alerts"]> {
   }
 }
 
+
+/**
+ * Product heartbeat — "is the system doing its JOB?"
+ *
+ * Everything else on this page measures the machine. None of it would notice the
+ * failure mode that actually matters: the box is green, the worker is ticking,
+ * CPU is 4% — and nobody has been able to register for eleven hours because a
+ * Stripe key expired. Zero registrations during a live event is an outage that
+ * no infra metric can see.
+ */
+async function fetchHeartbeat(): Promise<InfraSnapshot["heartbeat"]> {
+  try {
+    const now = new Date();
+    const dayAgo = new Date(Date.now() - 24 * 3600_000);
+    const weekAgo = new Date(Date.now() - 7 * 24 * 3600_000);
+    const weekAhead = new Date(Date.now() + 7 * 24 * 3600_000);
+
+    const [registrations24h, registrations7d, payments24h, checkIns24h, abstracts24h, emailsSent24h, liveEvents, nextEvent] =
+      await Promise.all([
+        db.registration.count({ where: { createdAt: { gte: dayAgo } } }),
+        db.registration.count({ where: { createdAt: { gte: weekAgo } } }),
+        db.payment.count({ where: { createdAt: { gte: dayAgo }, status: "PAID" } }),
+        db.registration.count({ where: { checkedInAt: { gte: dayAgo } } }),
+        db.abstract.count({ where: { createdAt: { gte: dayAgo } } }),
+        db.emailLog.count({ where: { createdAt: { gte: dayAgo }, status: "SENT" } }),
+        // An event running RIGHT NOW is the difference between "fix it tomorrow"
+        // and "fix it in the next ten minutes".
+        db.event.count({ where: { startDate: { lte: now }, endDate: { gte: now }, status: "PUBLISHED" } }),
+        db.event.findFirst({
+          where: { startDate: { gte: now, lte: weekAhead }, status: "PUBLISHED" },
+          orderBy: { startDate: "asc" },
+          select: { name: true, startDate: true },
+        }),
+      ]);
+
+    return {
+      status: "ok",
+      info: {
+        registrations24h,
+        registrations7d,
+        payments24h,
+        checkIns24h,
+        abstracts24h,
+        emailsSent24h,
+        liveEvents,
+        nextEventName: nextEvent?.name ?? null,
+        nextEventStartsAt: nextEvent?.startDate.toISOString() ?? null,
+      },
+    };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:heartbeat-failed");
+    return { status: "error", error: (err as Error).message, info: null };
+  }
+}
+
+/**
+ * Error rate over the last 24h, bucketed hourly.
+ *
+ * A list of the 15 most recent errors tells you what is broken. It does not tell
+ * you whether this is normal. A shape does: a flat line with a cliff at 14:00 is
+ * a deploy; a rising ramp is a leak; a spike at 02:00 is a cron.
+ */
+async function fetchErrorTrend(): Promise<InfraSnapshot["errorTrend"]> {
+  try {
+    const rows = await db.$queryRaw<Array<{ hour: Date; level: string; count: bigint }>>`
+      SELECT date_trunc('hour', "timestamp") AS hour, level, COUNT(*) AS count
+        FROM "SystemLog"
+       WHERE "timestamp" >= now() - interval '24 hours'
+         AND level IN ('error', 'warn')
+       GROUP BY 1, 2
+       ORDER BY 1
+    `;
+    const byHour = new Map<string, ErrorTrendBucket>();
+    // Seed all 24 hours so a gap reads as "zero", not as "missing".
+    for (let i = 23; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 3600_000);
+      d.setMinutes(0, 0, 0);
+      byHour.set(d.toISOString(), { hour: d.toISOString(), errors: 0, warns: 0 });
+    }
+    for (const r of rows) {
+      const key = new Date(r.hour).toISOString();
+      const b = byHour.get(key);
+      if (!b) continue;
+      if (r.level === "error") b.errors = Number(r.count);
+      else b.warns = Number(r.count);
+    }
+    return { status: "ok", buckets: [...byHour.values()] };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:error-trend-failed");
+    return { status: "error", error: (err as Error).message, buckets: [] };
+  }
+}
+
+/**
+ * Abuse / auth signals. Cheap, and the only place a brute-force attempt or a
+ * client hammering the API would ever surface on this page.
+ */
+async function fetchAbuse(): Promise<InfraSnapshot["abuse"]> {
+  try {
+    const dayAgo = new Date(Date.now() - 24 * 3600_000);
+    const [rateLimited, authFailures, forbidden] = await Promise.all([
+      db.systemLog.count({ where: { timestamp: { gte: dayAgo }, message: { contains: "rate-limit", mode: "insensitive" } } }),
+      db.systemLog.count({ where: { timestamp: { gte: dayAgo }, message: { contains: "invalid-credentials", mode: "insensitive" } } }),
+      db.systemLog.count({ where: { timestamp: { gte: dayAgo }, message: { contains: "forbidden", mode: "insensitive" } } }),
+    ]);
+    return {
+      status: "ok",
+      rows: [
+        { label: "Rate-limited requests", value: rateLimited, hint: "Someone (or something) is hitting a limit. A few is normal; hundreds is a client in a retry loop or an attack." },
+        { label: "Failed logins", value: authFailures, hint: "A spike is a brute-force attempt." },
+        { label: "Forbidden (403)", value: forbidden, hint: "Someone is reaching for things they are not allowed to have." },
+      ],
+    };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:abuse-failed");
+    return { status: "error", error: (err as Error).message, rows: [] };
+  }
+}
+
+/**
+ * The FULL disaster-recovery picture, not just the database.
+ *
+ * Three independent streams land in the Singapore bucket — the Postgres dump,
+ * the uploads mirror, and the .env. A restore needs all three. Checking only the
+ * database dump would let you believe you were covered while the uploads mirror
+ * had been dead for a month, and you would discover it while restoring.
+ */
+async function fetchDr(): Promise<InfraSnapshot["dr"]> {
+  const streams = [
+    { label: "Database dump", prefix: "db/", staleAfterHours: 18 },
+    { label: "Uploads mirror", prefix: "uploads/", staleAfterHours: 3 },
+    { label: "Env file", prefix: "env/", staleAfterHours: 30 },
+  ];
+  try {
+    const rows = await Promise.all(
+      streams.map(async (st) => {
+        const out = await getS3().send(
+          new ListObjectsV2Command({ Bucket: DR_BUCKET, Prefix: st.prefix, MaxKeys: 1000 }),
+        );
+        const objects = (out.Contents ?? []).filter((o) => o.LastModified);
+        if (objects.length === 0) {
+          return { label: st.label, prefix: st.prefix, latestAt: null, ageHours: null, staleAfterHours: st.staleAfterHours, stale: true };
+        }
+        const newest = objects.reduce((a, b) => ((a.LastModified as Date) > (b.LastModified as Date) ? a : b));
+        const at = newest.LastModified as Date;
+        const ageHours = (Date.now() - at.getTime()) / 3600_000;
+        return {
+          label: st.label,
+          prefix: st.prefix,
+          latestAt: at.toISOString(),
+          ageHours,
+          staleAfterHours: st.staleAfterHours,
+          stale: ageHours > st.staleAfterHours,
+        };
+      }),
+    );
+    return { status: "ok", rows };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:dr-failed");
+    return { status: "error", error: friendlyAwsError(err), rows: [] };
+  }
+}
+
 // ── Public ─────────────────────────────────────────────────────────
 
 export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
   if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.snap;
 
   const instanceId = await getInstanceId();
-  const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures, database, worker, queues, backup, alerts] =
+  const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures, database, worker, queues, backup, alerts, heartbeat, errorTrend, abuse, dr] =
     await Promise.all([
       fetchDeploys(),
       fetchAlarms(),
@@ -691,6 +887,10 @@ export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
       fetchQueues(),
       fetchBackup(),
       fetchAlerts(),
+      fetchHeartbeat(),
+      fetchErrorTrend(),
+      fetchAbuse(),
+      fetchDr(),
     ]);
   const snap: InfraSnapshot = {
     generatedAt: new Date().toISOString(),
@@ -699,6 +899,10 @@ export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
     database,
     worker,
     queues,
+    heartbeat,
+    errorTrend,
+    abuse,
+    dr,
     backup,
     alerts,
     deploys,

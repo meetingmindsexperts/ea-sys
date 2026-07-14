@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   RefreshCw, Rocket, Mail, BellRing, Cpu, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Timer, ScrollText, MailWarning,
-  Database, Server, Layers, Archive, BellOff, GitCommit, ShieldCheck, ShieldAlert, Radio,
+  Database, Server, Layers, Archive, BellOff, GitCommit, ShieldCheck, ShieldAlert, Radio, Activity,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -25,6 +25,10 @@ interface Snapshot {
   database: { status: string; error?: string; info: null | { connected: boolean; latencyMs: number | null } };
   worker: { status: string; error?: string; info: null | { reachable: boolean; uptimeSeconds: number | null; gitSha: string | null; jobs: { name: string; schedule: string; lastTickAt: string | null; stale: boolean }[]; staleJobs: string[] } };
   queues: { status: string; error?: string; rows: { label: string; value: number; warnAbove: number; hint: string }[] };
+  heartbeat: { status: string; error?: string; info: null | { registrations24h: number; registrations7d: number; payments24h: number; checkIns24h: number; abstracts24h: number; emailsSent24h: number; liveEvents: number; nextEventName: string | null; nextEventStartsAt: string | null } };
+  errorTrend: { status: string; error?: string; buckets: { hour: string; errors: number; warns: number }[] };
+  abuse: { status: string; error?: string; rows: { label: string; value: number; hint: string }[] };
+  dr: { status: string; error?: string; rows: { label: string; prefix: string; latestAt: string | null; ageHours: number | null; staleAfterHours: number; stale: boolean }[] };
   backup: { status: string; error?: string; info: null | { latestKey: string | null; latestAt: string | null; ageHours: number | null; stale: boolean; bucket: string } };
   alerts: { status: string; error?: string; info: null | { silencedUntil: string | null } };
   deploys: { status: string; error?: string; runs: { title: string; status: string; conclusion: string | null; event: string; createdAt: string; url: string }[] };
@@ -137,6 +141,17 @@ function deriveIssues(s: Snapshot): Issue[] {
     if (m.label === "CPU credits" && v < 40) out.push({ severity: "warn", label: `CPU credits low (${v.toFixed(0)})`, detail: "The box will not crash — it will get SLOW, and it will look like a database problem.", anchor: "metrics" });
   }
 
+  for (const d of s.dr.rows) {
+    if (d.stale) {
+      out.push({ severity: "critical", label: `DR: ${d.label} is stale`, detail: `Last landed ${d.ageHours == null ? "never" : `${d.ageHours.toFixed(1)}h ago`} (expected within ${d.staleAfterHours}h). A restore needs ALL three streams.`, anchor: "dr" });
+    }
+  }
+  // Product heartbeat: a live event with zero registrations in 24h is an outage
+  // that no infra metric on this page would ever notice.
+  if (s.heartbeat.info && s.heartbeat.info.liveEvents > 0 && s.heartbeat.info.registrations24h === 0) {
+    out.push({ severity: "warn", label: "An event is live and nobody registered in 24h", detail: "The machine can be perfectly healthy while the product is broken. Check the public registration flow.", anchor: "heartbeat" });
+  }
+
   // Critical first, then warnings — the order you want to read them in.
   return out.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "critical" ? -1 : 1));
 }
@@ -170,6 +185,10 @@ export default function InfraPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [silencing, setSilencing] = useState(false);
+  // Off by default, and 2 minutes when on. The snapshot is cached 60s server-side
+  // and the route allows 60 requests/hour — a 30s poll would 429 you out of your
+  // own dashboard mid-incident.
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   const load = useCallback(async (force = false) => {
     if (force) setRefreshing(true);
@@ -226,6 +245,12 @@ export default function InfraPage() {
     else setLoading(false);
   }, [isAdmin, load]);
 
+  useEffect(() => {
+    if (!autoRefresh || !isAdmin) return;
+    const t = setInterval(() => load(true), 120_000);
+    return () => clearInterval(t);
+  }, [autoRefresh, isAdmin, load]);
+
   if (!isAdmin) {
     return <div className="p-8 text-sm text-muted-foreground">Not authorized.</div>;
   }
@@ -255,9 +280,20 @@ export default function InfraPage() {
             </p>
           )}
         </div>
-        <Button size="sm" variant="outline" onClick={() => load(true)} disabled={refreshing}>
-          {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />} Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={autoRefresh ? "default" : "outline"}
+            onClick={() => setAutoRefresh((v) => !v)}
+            title="Poll every 2 minutes"
+          >
+            <Radio className={`h-4 w-4 mr-1 ${autoRefresh ? "animate-pulse" : ""}`} />
+            {autoRefresh ? "Live" : "Auto"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => load(true)} disabled={refreshing}>
+            {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />} Refresh
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -265,6 +301,67 @@ export default function InfraPage() {
       ) : error ? (
         <p className="text-sm text-red-600">{error}</p>
       ) : snap ? (
+        <>
+        {(() => {
+          const issues = deriveIssues(snap);
+          const criticals = issues.filter((i) => i.severity === "critical");
+          const warns = issues.filter((i) => i.severity === "warn");
+          const clean = issues.length === 0;
+          return (
+            <div
+              className={`rounded-lg border-2 p-4 ${
+                criticals.length > 0
+                  ? "border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-900"
+                  : warns.length > 0
+                    ? "border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900"
+                    : "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-900"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                {clean ? (
+                  <ShieldCheck className="h-8 w-8 text-emerald-600 shrink-0" />
+                ) : (
+                  <ShieldAlert className={`h-8 w-8 shrink-0 ${criticals.length ? "text-red-600" : "text-amber-600"}`} />
+                )}
+                <div className="min-w-0 flex-1">
+                  <h2 className={`text-lg font-bold leading-tight ${clean ? "text-emerald-700 dark:text-emerald-400" : criticals.length ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
+                    {clean
+                      ? "All systems operational"
+                      : criticals.length > 0
+                        ? `${criticals.length} critical ${criticals.length === 1 ? "issue" : "issues"}${warns.length ? ` · ${warns.length} warning${warns.length === 1 ? "" : "s"}` : ""}`
+                        : `${warns.length} warning${warns.length === 1 ? "" : "s"}`}
+                  </h2>
+
+                  {clean ? (
+                    <p className="text-sm text-emerald-700/80 dark:text-emerald-400/80 mt-0.5">
+                      Database, worker, backups, queues, alarms and email all check out.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1.5">
+                      {issues.map((i, n) => (
+                        <li key={n}>
+                          <a
+                            href={`#${i.anchor}`}
+                            className="flex items-start gap-2 text-sm rounded px-1.5 py-1 -mx-1.5 hover:bg-black/5 dark:hover:bg-white/5"
+                          >
+                            <span
+                              className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${i.severity === "critical" ? "bg-red-600" : "bg-amber-500"}`}
+                            />
+                            <span className="min-w-0">
+                              <span className="font-medium">{i.label}</span>
+                              <span className="text-muted-foreground"> — {i.detail}</span>
+                            </span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="grid lg:grid-cols-2 gap-4">
           {/* ── Is the system alive? ──────────────────────────────────────────
               These four go first because they are what you check before you
@@ -274,7 +371,7 @@ export default function InfraPage() {
               it, or whether a backup had been taken this century. */}
 
           {/* System status — DB + worker + alerts, one row */}
-          <Card className="lg:col-span-2">
+          <Card id="system" className="lg:col-span-2 scroll-mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Server className="h-4 w-4 text-primary" /> System status
@@ -365,7 +462,7 @@ export default function InfraPage() {
 
           {/* Queues — "is work piling up?" You could always see that a job ran.
               You could never see that it was falling behind. */}
-          <Card>
+          <Card id="queues" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Queues</CardTitle></CardHeader>
             <CardContent>
               <StatusNote status={snap.queues.status} error={snap.queues.error} unconfiguredHint="No queue data." />
@@ -391,7 +488,7 @@ export default function InfraPage() {
           {/* Last backup — nothing had EVER read back from the DR bucket. A
               backup nobody verifies is a backup you find out about at restore
               time, which is the worst possible moment. */}
-          <Card>
+          <Card id="backup" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Archive className="h-4 w-4 text-primary" /> Last database backup</CardTitle></CardHeader>
             <CardContent>
               <StatusNote status={snap.backup.status} error={snap.backup.error} unconfiguredHint="DR bucket not configured." />
@@ -417,8 +514,163 @@ export default function InfraPage() {
             </CardContent>
           </Card>
 
+          {/* Product heartbeat — everything else on this page measures the MACHINE.
+              None of it would notice that the box is green, the worker is
+              ticking, CPU is 4% — and nobody has been able to register for
+              eleven hours because a Stripe key expired. */}
+          <Card id="heartbeat" className="lg:col-span-2 scroll-mt-4">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Activity className="h-4 w-4 text-primary" /> Product heartbeat
+                {snap.heartbeat.info && snap.heartbeat.info.liveEvents > 0 && (
+                  <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700 flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-600 animate-pulse" />
+                    {snap.heartbeat.info.liveEvents} event{snap.heartbeat.info.liveEvents === 1 ? "" : "s"} LIVE now
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StatusNote status={snap.heartbeat.status} error={snap.heartbeat.error} unconfiguredHint="No activity data." />
+              {snap.heartbeat.status === "ok" && snap.heartbeat.info && (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    {[
+                      { label: "Registrations 24h", value: snap.heartbeat.info.registrations24h, sub: `${snap.heartbeat.info.registrations7d} in 7d` },
+                      { label: "Payments 24h", value: snap.heartbeat.info.payments24h, sub: "captured" },
+                      { label: "Check-ins 24h", value: snap.heartbeat.info.checkIns24h, sub: "scanned in" },
+                      { label: "Abstracts 24h", value: snap.heartbeat.info.abstracts24h, sub: "submitted" },
+                      { label: "Emails sent 24h", value: snap.heartbeat.info.emailsSent24h, sub: "delivered" },
+                      { label: "Live events", value: snap.heartbeat.info.liveEvents, sub: "running now" },
+                    ].map((k) => (
+                      <div key={k.label} className="rounded border p-3">
+                        <div className="text-xs text-muted-foreground">{k.label}</div>
+                        <div className="text-xl font-bold tabular-nums">{k.value.toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">{k.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {snap.heartbeat.info.nextEventName && (
+                    <p className="text-xs text-muted-foreground mt-3">
+                      Next event: <span className="font-medium text-foreground">{snap.heartbeat.info.nextEventName}</span>
+                      {snap.heartbeat.info.nextEventStartsAt && ` · ${fmtTime(snap.heartbeat.info.nextEventStartsAt)}`}
+                    </p>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Error rate over 24h. The list of recent errors tells you WHAT is
+              broken; only a shape tells you whether this is normal. A cliff at
+              14:00 is a deploy. A rising ramp is a leak. A spike at 02:00 is a
+              cron. */}
+          <Card id="trend" className="lg:col-span-2 scroll-mt-4">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Activity className="h-4 w-4 text-primary" /> Error rate — last 24h
+                {snap.errorTrend.status === "ok" && (
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">
+                    {snap.errorTrend.buckets.reduce((a, b) => a + b.errors, 0)} errors ·{" "}
+                    {snap.errorTrend.buckets.reduce((a, b) => a + b.warns, 0)} warnings
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StatusNote status={snap.errorTrend.status} error={snap.errorTrend.error} unconfiguredHint="No log history." />
+              {snap.errorTrend.status === "ok" && (() => {
+                const peak = Math.max(1, ...snap.errorTrend.buckets.map((b) => b.errors + b.warns));
+                return (
+                  <div className="flex items-end gap-[3px] h-24">
+                    {snap.errorTrend.buckets.map((b) => {
+                      const total = b.errors + b.warns;
+                      const h = Math.round((total / peak) * 100);
+                      const hour = new Date(b.hour).getHours();
+                      return (
+                        <div
+                          key={b.hour}
+                          className="flex-1 flex flex-col justify-end h-full group relative"
+                          title={`${String(hour).padStart(2, "0")}:00 — ${b.errors} errors, ${b.warns} warnings`}
+                        >
+                          {total === 0 ? (
+                            <div className="w-full h-[2px] bg-muted rounded-sm" />
+                          ) : (
+                            <>
+                              <div
+                                className="w-full bg-red-500/80 rounded-t-sm"
+                                style={{ height: `${(b.errors / Math.max(total, 1)) * h}%` }}
+                              />
+                              <div
+                                className="w-full bg-amber-400/70"
+                                style={{ height: `${(b.warns / Math.max(total, 1)) * h}%` }}
+                              />
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+              <div className="flex justify-between text-[10px] text-muted-foreground mt-1 font-mono">
+                <span>24h ago</span>
+                <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-red-500/80" /> errors</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-amber-400/70" /> warnings</span>
+                </span>
+                <span>now</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Disaster recovery — all THREE streams, not just the database. A
+              restore needs the dump AND the uploads AND the .env. Checking only
+              one lets you believe you are covered while another has been dead
+              for a month — which you would discover mid-restore. */}
+          <Card id="dr" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Archive className="h-4 w-4 text-primary" /> Disaster recovery</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.dr.status} error={snap.dr.error} unconfiguredHint="DR bucket not reachable." />
+              {snap.dr.status === "ok" && (
+                <div className="space-y-2">
+                  {snap.dr.rows.map((d) => (
+                    <div key={d.prefix} className="flex items-center justify-between gap-2 text-sm">
+                      <span className={d.stale ? "font-medium" : "text-muted-foreground"}>{d.label}</span>
+                      <span className={`font-mono text-xs ${d.stale ? "text-red-600 font-bold" : "text-emerald-600"}`}>
+                        {d.ageHours == null ? "MISSING" : `${d.ageHours.toFixed(1)}h ago`}
+                      </span>
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground pt-1">
+                    A restore needs all three. Singapore bucket.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Abuse / auth — the only place a brute-force attempt or a client stuck
+              in a retry loop would ever surface on this page. */}
+          <Card id="abuse" className="scroll-mt-4">
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><ShieldAlert className="h-4 w-4 text-primary" /> Abuse &amp; auth (24h)</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.abuse.status} error={snap.abuse.error} unconfiguredHint="No log history." />
+              {snap.abuse.status === "ok" && (
+                <div className="space-y-1.5">
+                  {snap.abuse.rows.map((r) => (
+                    <div key={r.label} className="flex items-center justify-between gap-2 text-sm" title={r.hint}>
+                      <span className="text-muted-foreground">{r.label}</span>
+                      <span className="font-mono tabular-nums">{r.value.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Cron / Jobs — full width */}
-          <Card className="lg:col-span-2">
+          <Card id="jobs" className="lg:col-span-2 scroll-mt-4">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <Timer className="h-4 w-4 text-primary" /> Cron / Jobs
@@ -465,7 +717,7 @@ export default function InfraPage() {
           </Card>
 
           {/* Alarms */}
-          <Card>
+          <Card id="alarms" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><BellRing className="h-4 w-4 text-primary" /> Alarms</CardTitle></CardHeader>
             <CardContent>
               <StatusNote status={snap.alarms.status} error={snap.alarms.error} unconfiguredHint="No alarms configured." />
@@ -486,19 +738,27 @@ export default function InfraPage() {
           </Card>
 
           {/* Host metrics */}
-          <Card>
+          <Card id="metrics" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Cpu className="h-4 w-4 text-primary" /> Host metrics</CardTitle></CardHeader>
             <CardContent>
               <StatusNote status={snap.metrics.status} error={snap.metrics.error} unconfiguredHint="Instance metrics unavailable (no instance id / not on EC2)." />
               {snap.metrics.status === "ok" && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
-                    {snap.metrics.values.map((m) => (
-                      <div key={m.label} className="rounded border p-3">
-                        <div className="text-xs text-muted-foreground">{m.label}</div>
-                        <div className="text-xl font-bold">{num(m.value, 1)}<span className="text-sm font-normal text-muted-foreground">{m.unit}</span></div>
-                      </div>
-                    ))}
+                    {snap.metrics.values.map((m) => {
+                      const tone = metricTone(m.label, m.value);
+                      return (
+                        <div key={m.label} className={`rounded border p-3 ${tone ? "border-current/30" : ""}`}>
+                          <div className="text-xs text-muted-foreground">{m.label}</div>
+                          {/* A number nobody can judge is not a metric, it is decoration.
+                              Colour it by what it MEANS. */}
+                          <div className={`text-xl font-bold tabular-nums ${tone}`}>
+                            {num(m.value, 1)}
+                            <span className="text-sm font-normal text-muted-foreground">{m.unit}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                   {snap.metrics.instanceId && <p className="text-xs text-muted-foreground mt-2">{snap.metrics.instanceId}</p>}
                 </>
@@ -507,7 +767,7 @@ export default function InfraPage() {
           </Card>
 
           {/* Email / SES */}
-          <Card>
+          <Card id="ses" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Mail className="h-4 w-4 text-primary" /> Email (SES)</CardTitle></CardHeader>
             <CardContent>
               <StatusNote status={snap.ses.status} error={snap.ses.error} unconfiguredHint="SES not configured." />
@@ -537,7 +797,7 @@ export default function InfraPage() {
           </Card>
 
           {/* Deploys */}
-          <Card>
+          <Card id="deploys" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Rocket className="h-4 w-4 text-primary" /> Deploys</CardTitle></CardHeader>
             <CardContent>
               <StatusNote status={snap.deploys.status} error={snap.deploys.error} unconfiguredHint="Set GITHUB_OPS_TOKEN (read-only Actions) to show GitHub deploy runs." />
@@ -563,7 +823,7 @@ export default function InfraPage() {
           </Card>
 
           {/* Email failures */}
-          <Card>
+          <Card id="email-failures" className="scroll-mt-4">
             <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><MailWarning className="h-4 w-4 text-primary" /> Email failures</CardTitle></CardHeader>
             <CardContent>
               <StatusNote status={snap.emailFailures.status} error={snap.emailFailures.error} unconfiguredHint="No email log." />
@@ -601,18 +861,25 @@ export default function InfraPage() {
               ) : (
                 <div className="space-y-1 font-mono text-xs max-h-80 overflow-y-auto">
                   {snap.recentErrors.rows.map((l, i) => (
-                    <div key={i} className="flex items-start gap-2 border-b border-slate-100 pb-1 last:border-0">
+                    // Clicking an error should take you to that error, not to a
+                    // log viewer you then have to re-search by hand.
+                    <Link
+                      key={i}
+                      href={`/logs?level=${l.level}&search=${encodeURIComponent(l.message.slice(0, 80))}`}
+                      className="flex items-start gap-2 border-b border-slate-100 pb-1 last:border-0 hover:bg-muted/50 rounded px-1 -mx-1"
+                    >
                       <span className={`shrink-0 px-1.5 rounded ${l.level === "error" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>{l.level}</span>
                       <span className="shrink-0 text-muted-foreground">{l.module}</span>
                       <span className="shrink-0 text-muted-foreground">{ago(l.at)}</span>
-                      <span className="text-slate-700 break-all">{l.message}</span>
-                    </div>
+                      <span className="text-slate-700 dark:text-slate-300 break-all">{l.message}</span>
+                    </Link>
                   ))}
                 </div>
               ))}
             </CardContent>
           </Card>
         </div>
+        </>
       ) : null}
     </div>
   );
