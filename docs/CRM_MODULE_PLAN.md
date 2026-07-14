@@ -220,6 +220,24 @@ Deal `ownerId` ∈ {SUPER_ADMIN, ADMIN, ORGANIZER}. Every staff member sees the 
 
 > **Note on the CRM's own visibility boundary.** Per the `AGENTS.md` rule, this does **not** reuse an existing predicate: `canViewContacts` includes MEMBER but excludes ONSITE; finance includes both MEMBER *and* ONSITE. The CRM needs "staff + MEMBER-with-redaction, never ONSITE/REVIEWER/SUBMITTER/REGISTRANT" — close to `contact-visibility` but not equal to it. Week 1 therefore adds **`src/crm/lib/crm-visibility.ts`** (`canViewCrm()` / `canOwnDeals()` / `denyCrmAccess()`), fails-closed, logging its own refusal.
 
+## 9a. Decisions taken during the build (July 14, 2026)
+
+Recorded here rather than left implicit in code, because each is a judgement someone will otherwise "fix" later without knowing it was chosen.
+
+**No DELETE for deals or companies.** A deal is revenue history; a company is the thing that history hangs off. Neither is deletable via the API — a mistaken deal is closed as LOST, and a mistaken company is merged (the `needsReview` flow). This also means the `RESTRICT` FKs can never fire from the app. If a hard-delete ever becomes necessary it should be an explicit, audited, admin-only operation, not a row action next to "Edit".
+
+**`ownerId` and `authorId` are nullable + `SET NULL`, not required.** Deviates from the §7.2 sketch. Users genuinely get deleted here (temp accounts are routine), and a required owner with `RESTRICT` would make deleting a deal-owning organizer fail with a raw `P2003` thrown from a **core** route — which would then have to be taught about the CRM, violating the one-way import rule. An unowned deal (or a note attributed to "(deleted user)") is visible, recoverable and reassignable; a blocked user-delete or a vanished note is neither.
+
+**Notes are author-only to edit; admins may delete but not rewrite.** A note is a first-person account of a conversation, stored with no visible edit history. Letting a colleague silently rewrite it puts words in someone's mouth. Delete is legitimate (and audited with `deletedByAdmin`); rewrite is not.
+
+**A note must be attached to a deal, company or contact.** An unattached note renders in no surface and is simply lost, so it is rejected (`NO_ATTACHMENT`) rather than silently orphaned.
+
+**The write rate limit lives inside `requireCrmWrite`, not in each handler.** §7.4 asks for "rate limits on writes"; the usual way of meeting that — pasting `checkRateLimit` into every route — guarantees the *next* route won't have one. Folding it into the gate every write already calls makes an unprotected CRM write structurally impossible. Tighter named buckets layer on top where warranted (company/deal creation: 100/hr).
+
+**`GET /api/crm/tasks` with an API key returns all tasks.** The default scope is "mine", resolved from `ctx.userId` — which is null for API-key callers, so they fall through to the org-wide list. Deliberate: an API key is admin-equivalent and has no personal task list. Pass `?scope=all` explicitly from the UI.
+
+**`CrmDeal.dealValue`, not `CrmDeal.value`.** §7.4 originally said to add `CrmDeal.value` to `FINANCIAL_KEYS`. That would have been a live bug: `redactFinancialFields()` is a *recursive strip-by-key-name*, and `value` already occurs in unrelated shapes — survey free-text answers are `{ responseId, submittedAt, value }`. A bare `"value"` in that set silently blanks every survey answer for MEMBER. Any future financial field must be named specifically enough that its key is unambiguous across the whole API surface.
+
 ## 10. Explicitly out of scope (v1)
 
 - Two-way email inbox sync (integrate, don't build — §4)

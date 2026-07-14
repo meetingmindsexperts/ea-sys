@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   RefreshCw, Rocket, Mail, BellRing, Cpu, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Timer, ScrollText, MailWarning,
-  Database, Server, Layers, Archive, BellOff, GitCommit,
+  Database, Server, Layers, Archive, BellOff, GitCommit, ShieldCheck, ShieldAlert, Radio,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -49,6 +49,107 @@ function fmtTime(iso: string) {
 }
 function num(v: number | null, digits = 0) {
   return v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+
+// ── The verdict ───────────────────────────────────────────────────────────────
+// The page used to present nine equal-weight cards and leave the operator to
+// read all of them and decide for themselves whether anything was wrong. At 3am
+// that is the wrong job to hand a human. Everything below exists to answer ONE
+// question in under a second: is anything broken, and what.
+//
+// Severity is deliberately blunt:
+//   critical — production is degraded RIGHT NOW, or a safety net is gone.
+//   warn     — something needs a human today, but nothing is on fire.
+
+type Severity = "critical" | "warn";
+interface Issue {
+  severity: Severity;
+  label: string;
+  detail: string;
+  /** id of the card to jump to. */
+  anchor: string;
+}
+
+function deriveIssues(s: Snapshot): Issue[] {
+  const out: Issue[] = [];
+
+  // ── critical ──
+  if (s.database.info && !s.database.info.connected) {
+    out.push({ severity: "critical", label: "Database unreachable", detail: s.database.error ?? "The app cannot reach Postgres.", anchor: "system" });
+  }
+  if (s.worker.info && !s.worker.info.reachable) {
+    out.push({ severity: "critical", label: "Worker is down", detail: "No background job is running — no emails, certificates or webinar sync.", anchor: "system" });
+  }
+  for (const a of s.alarms.inAlarm) {
+    out.push({ severity: "critical", label: `Alarm: ${a.name}`, detail: a.reason || a.metric, anchor: "alarms" });
+  }
+  if (s.backup.info?.stale) {
+    out.push({ severity: "critical", label: "Database backup is stale", detail: `Newest dump is ${s.backup.info.ageHours?.toFixed(1)}h old. The backup cron may have stopped — check it BEFORE you need it.`, anchor: "backup" });
+  }
+  if (s.ses.info && !s.ses.info.sendingEnabled) {
+    out.push({ severity: "critical", label: "SES sending is disabled", detail: "No email is going out at all.", anchor: "ses" });
+  }
+  const statusCheck = s.metrics.values.find((m) => m.label === "Status check");
+  if (statusCheck?.value != null && statusCheck.value > 0) {
+    out.push({ severity: "critical", label: "EC2 status check failing", detail: "The instance itself is unhealthy.", anchor: "metrics" });
+  }
+
+  // ── warn ──
+  if (s.alerts.info?.silencedUntil) {
+    // Being unable to hear alarms is itself a finding. It must never be quiet.
+    out.push({ severity: "warn", label: "Alerts are silenced", detail: `You will not be paged until ${fmtTime(s.alerts.info.silencedUntil)}.`, anchor: "system" });
+  }
+  if (s.worker.info?.staleJobs.length) {
+    out.push({ severity: "warn", label: `${s.worker.info.staleJobs.length} worker job(s) stale`, detail: s.worker.info.staleJobs.join(", "), anchor: "jobs" });
+  }
+  if (s.worker.info?.gitSha && s.worker.info.gitSha !== s.build.gitSha) {
+    out.push({ severity: "warn", label: "Web and worker are on different commits", detail: `Web ${s.build.gitShaShort} · worker ${s.worker.info.gitSha.slice(0, 7)}. A deploy probably half-failed.`, anchor: "system" });
+  }
+  for (const q of s.queues.rows) {
+    if (q.value > q.warnAbove) {
+      out.push({ severity: "warn", label: `${q.label}: ${q.value}`, detail: q.hint, anchor: "queues" });
+    }
+  }
+  const failing = s.jobs.rows.filter((j) => j.failed24h > 0);
+  if (failing.length) {
+    out.push({ severity: "warn", label: `${failing.length} job(s) failing`, detail: failing.map((j) => `${j.job} (${j.failed24h}x)`).join(", "), anchor: "jobs" });
+  }
+  const lastDeploy = s.deploys.runs[0];
+  if (lastDeploy && lastDeploy.status === "completed" && lastDeploy.conclusion === "failure") {
+    out.push({ severity: "warn", label: "Last deploy failed", detail: lastDeploy.title, anchor: "deploys" });
+  }
+  if (s.ses.info?.sandbox) {
+    out.push({ severity: "warn", label: "SES is in sandbox mode", detail: "Mail only reaches verified addresses.", anchor: "ses" });
+  }
+  if (s.ses.info?.bounceRate != null && s.ses.info.bounceRate > 0.05) {
+    out.push({ severity: "warn", label: "SES bounce rate is high", detail: `${(s.ses.info.bounceRate * 100).toFixed(2)}% — sending can be suspended above ~5%.`, anchor: "ses" });
+  }
+  if (s.emailFailures.rows.length > 0) {
+    out.push({ severity: "warn", label: `${s.emailFailures.rows.length} recent email failure(s)`, detail: "Someone did not get an email they were promised.", anchor: "email-failures" });
+  }
+  for (const m of s.metrics.values) {
+    const v = m.value;
+    if (v == null) continue;
+    if (m.label === "Memory" && v > 85) out.push({ severity: "warn", label: `Memory at ${v.toFixed(0)}%`, detail: "INC-001 was an out-of-memory freeze on this box.", anchor: "metrics" });
+    if (m.label === "Disk" && v > 80) out.push({ severity: "warn", label: `Disk at ${v.toFixed(0)}%`, detail: "INC-002 was a full disk. Run scripts/docker-prune.sh.", anchor: "metrics" });
+    if (m.label === "CPU" && v > 85) out.push({ severity: "warn", label: `CPU at ${v.toFixed(0)}%`, detail: "Sustained high CPU burns t3 credits.", anchor: "metrics" });
+    if (m.label === "CPU credits" && v < 40) out.push({ severity: "warn", label: `CPU credits low (${v.toFixed(0)})`, detail: "The box will not crash — it will get SLOW, and it will look like a database problem.", anchor: "metrics" });
+  }
+
+  // Critical first, then warnings — the order you want to read them in.
+  return out.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "critical" ? -1 : 1));
+}
+
+/** Colour a metric by what the number MEANS, not just print it. */
+function metricTone(label: string, v: number | null): string {
+  if (v == null) return "";
+  if (label === "Memory") return v > 85 ? "text-red-600" : v > 70 ? "text-amber-600" : "";
+  if (label === "Disk") return v > 80 ? "text-red-600" : v > 65 ? "text-amber-600" : "";
+  if (label === "CPU") return v > 85 ? "text-red-600" : v > 60 ? "text-amber-600" : "";
+  if (label === "CPU credits") return v < 40 ? "text-amber-600" : "";
+  if (label === "Status check") return v > 0 ? "text-red-600" : "";
+  return "";
 }
 
 function StatusNote({ status, error, unconfiguredHint }: { status: string; error?: string; unconfiguredHint: string }) {

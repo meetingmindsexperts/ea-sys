@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     return zodErrorResponse(parsed, { route: "crm/pipeline-stages:POST", organizationId: ctx.organizationId });
   }
 
-  const result = await createStage({ organizationId: ctx.organizationId, ...parsed.data });
+  const result = await createStage({ organizationId: ctx.organizationId, userId: ctx.userId, ...parsed.data });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ stage: result.stage }, { status: 201 });
 }
@@ -73,6 +73,7 @@ export async function PATCH(req: Request) {
 
   const result = await reorderStages({
     organizationId: ctx.organizationId,
+    userId: ctx.userId,
     orderedStageIds: parsed.data.orderedStageIds,
   });
   if (!result.ok) return crmErrorResponse(result);

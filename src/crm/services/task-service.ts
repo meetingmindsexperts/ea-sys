@@ -183,6 +183,14 @@ export async function updateTask(input: UpdateTaskInput): Promise<TaskResult> {
     }
 
     const task = await db.crmTask.findUniqueOrThrow({ where: { id: input.taskId } });
+
+    void writeAudit({
+      userId: input.userId,
+      action: "UPDATE",
+      entityId: task.id,
+      changes: { source: input.source, fields: Object.keys(data) },
+    });
+
     apiLogger.info({ msg: "crm-task:updated", taskId: task.id, source: input.source });
     return { ok: true, task };
   } catch (err) {
@@ -266,6 +274,14 @@ export async function reopenTask(input: {
       return { ok: false, code: "TASK_NOT_FOUND", message: "Task not found, or it is not complete" };
     }
     const task = await db.crmTask.findUniqueOrThrow({ where: { id: input.taskId } });
+
+    void writeAudit({
+      userId: input.userId,
+      action: "TASK_REOPENED",
+      entityId: task.id,
+      changes: { source: input.source, dealId: task.dealId },
+    });
+
     apiLogger.info({ msg: "crm-task:reopened", taskId: task.id, source: input.source });
     return { ok: true, task };
   } catch (err) {

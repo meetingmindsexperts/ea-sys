@@ -15,6 +15,40 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
 /**
+ * Fire-and-forget WITH a logged catch — an audit-insert blip must never 500 a
+ * write that already committed (the M13 class from the registrations review).
+ *
+ * Pipeline edits ARE audited: the stage list is the shape of the sales process,
+ * and "who deleted Negotiation, and when?" is exactly the question you ask after
+ * a quarter's numbers look wrong. (The contacts review, M2, flagged us for
+ * auditing only 2 of 9 mutation paths. Not repeating that here.)
+ */
+function writeAudit(entry: {
+  userId: string | null;
+  action: string;
+  entityId: string;
+  changes: Record<string, unknown>;
+}) {
+  return db.auditLog
+    .create({
+      data: {
+        userId: entry.userId,
+        action: entry.action,
+        entityType: "CrmPipelineStage",
+        entityId: entry.entityId,
+        changes: entry.changes as Prisma.InputJsonValue,
+      },
+    })
+    .catch((err: unknown) => {
+      apiLogger.error({
+        msg: "crm-pipeline:audit-failed",
+        entityId: entry.entityId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+}
+
+/**
  * The seed pipeline (§9 decision 3). Won/Lost are terminal — a deal in a terminal
  * stage has a matching CrmDeal.status, and closeDeal() keeps the two in step.
  */
@@ -88,6 +122,7 @@ export async function resolveStage(
 
 export async function createStage(input: {
   organizationId: string;
+  userId: string | null;
   name: string;
   isTerminal?: boolean;
 }): Promise<
@@ -115,6 +150,13 @@ export async function createStage(input: {
       });
     });
 
+    void writeAudit({
+      userId: input.userId,
+      action: "CREATE",
+      entityId: stage.id,
+      changes: { name: stage.name, sortOrder: stage.sortOrder, isTerminal: stage.isTerminal },
+    });
+
     apiLogger.info({ msg: "crm-pipeline:stage-created", stageId: stage.id, organizationId: input.organizationId });
     return { ok: true, stage };
   } catch (err) {
@@ -134,6 +176,7 @@ export async function createStage(input: {
  */
 export async function reorderStages(input: {
   organizationId: string;
+  userId: string | null;
   orderedStageIds: string[];
 }): Promise<{ ok: true; stages: CrmPipelineStage[] } | { ok: false; code: PipelineErrorCode; message: string }> {
   try {
@@ -156,6 +199,13 @@ export async function reorderStages(input: {
         db.crmPipelineStage.update({ where: { id }, data: { sortOrder: i } }),
       ),
     );
+
+    void writeAudit({
+      userId: input.userId,
+      action: "REORDER",
+      entityId: `org:${input.organizationId}`,
+      changes: { orderedStageIds: input.orderedStageIds },
+    });
 
     apiLogger.info({ msg: "crm-pipeline:reordered", organizationId: input.organizationId });
     return {
@@ -182,6 +232,7 @@ export async function reorderStages(input: {
  */
 export async function deleteStage(input: {
   organizationId: string;
+  userId: string | null;
   stageId: string;
 }): Promise<{ ok: true } | { ok: false; code: PipelineErrorCode; message: string; meta?: Record<string, unknown> }> {
   const stage = await resolveStage(input.stageId, input.organizationId);
@@ -203,6 +254,16 @@ export async function deleteStage(input: {
 
   try {
     await db.crmPipelineStage.delete({ where: { id: stage.id } });
+
+    void writeAudit({
+      userId: input.userId,
+      action: "DELETE",
+      entityId: stage.id,
+      // Snapshot the deleted row — after the delete there is nothing left to
+      // diff against, so the audit entry IS the only record it ever existed.
+      changes: { name: stage.name, sortOrder: stage.sortOrder, isTerminal: stage.isTerminal },
+    });
+
     apiLogger.info({ msg: "crm-pipeline:stage-deleted", stageId: stage.id, organizationId: input.organizationId });
     return { ok: true };
   } catch (err) {

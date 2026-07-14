@@ -11,6 +11,8 @@
  */
 import { NextResponse } from "next/server";
 import { getOrgContext, type OrgContext } from "@/lib/api-auth";
+import { apiLogger } from "@/lib/logger";
+import { checkRateLimit } from "@/lib/security";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { canViewDealValues, denyCrmAccess, denyCrmWrite } from "@/crm/lib/crm-visibility";
 
@@ -34,14 +36,58 @@ export async function requireCrmRead(
   return { ctx };
 }
 
-/** As above, plus the write gate (blocks MEMBER — it reads the board, never moves a card). */
+/**
+ * As above, plus the write gate (blocks MEMBER — it reads the board, never moves
+ * a card) AND a default per-org write rate limit.
+ *
+ * The rate limit lives HERE, not in each handler, deliberately. §7.4 says "rate
+ * limits on writes", and the way that requirement is normally met — paste
+ * `checkRateLimit` into each route — guarantees that the ninth route added six
+ * months from now won't have one. Folding it into the gate every write route
+ * already calls makes an unprotected CRM write structurally impossible.
+ *
+ * This is a BACKSTOP, generous by design (a busy sales day is a lot of clicks).
+ * Expensive or abusable endpoints layer a tighter, named bucket on top — e.g.
+ * company/deal creation is 100/hr, because those mint rows that are awkward to
+ * clean up.
+ */
+const CRM_WRITE_LIMIT = 600;
+const CRM_WRITE_WINDOW_MS = 60 * 60 * 1000;
+
 export async function requireCrmWrite(
   req: Request,
 ): Promise<{ error: NextResponse; ctx?: never } | { error?: never; ctx: OrgContext }> {
   const read = await requireCrmRead(req);
   if (read.error) return read;
+
   const denied = denyCrmWrite(read.ctx); // logs its own refusal
   if (denied) return { error: denied };
+
+  const limit = checkRateLimit({
+    key: `crm-write:org:${read.ctx.organizationId}`,
+    limit: CRM_WRITE_LIMIT,
+    windowMs: CRM_WRITE_WINDOW_MS,
+  });
+  if (!limit.allowed) {
+    apiLogger.warn({
+      msg: "crm:write-rate-limited",
+      organizationId: read.ctx.organizationId,
+      userId: read.ctx.userId,
+    });
+    return {
+      error: NextResponse.json(
+        {
+          error: "Too many changes — try again shortly",
+          code: "RATE_LIMITED",
+          retryAfterSeconds: limit.retryAfterSeconds,
+          limit: CRM_WRITE_LIMIT,
+          windowSeconds: CRM_WRITE_WINDOW_MS / 1000,
+        },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+      ),
+    };
+  }
+
   return { ctx: read.ctx };
 }
 
@@ -73,6 +119,9 @@ const STATUS_BY_CODE: Record<string, number> = {
   EVENT_NOT_FOUND: 404,
   OWNER_NOT_FOUND: 404,
   STAGE_NOT_FOUND: 404,
+  NOTE_NOT_FOUND: 404,
+  // forbidden — you may be in the CRM, but this row isn't yours to rewrite
+  NOT_AUTHOR: 403,
   // conflict — someone else got there first, or the state moved under us
   STAGE_CHANGED: 409,
   ALREADY_CLOSED: 409,
@@ -81,6 +130,8 @@ const STATUS_BY_CODE: Record<string, number> = {
   // bad request
   NAME_REQUIRED: 400,
   TITLE_REQUIRED: 400,
+  BODY_REQUIRED: 400,
+  NO_ATTACHMENT: 400,
   NO_FIELDS: 400,
   // ours
   UNKNOWN: 500,
