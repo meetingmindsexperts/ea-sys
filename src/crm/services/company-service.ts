@@ -1,0 +1,318 @@
+/**
+ * CRM company (Account) service.
+ *
+ * A CrmCompany is a first-class Account — the thing `Contact.organization` is
+ * only a free-text guess at today. It is the centre of gravity of the sponsor
+ * pipeline (§9 decision 1): deals hang off companies, not off people.
+ *
+ * DEDUP IS THE WHOLE PROBLEM HERE, and it has two halves that are often confused:
+ *
+ *   1. EXACT duplicates ("Abbott" vs "abbott " vs "ABBOTT"). Solved structurally:
+ *      `nameKey` (trimmed + lowercased) carries the unique index, so the DB
+ *      itself refuses the second row. We do NOT rely on every writer remembering
+ *      to lowercase — that is exactly the assumption that produced the contacts
+ *      H2 bug (case-sensitive unique index + one writer that didn't normalize =
+ *      two contacts for one person, and a downstream sync that mirrored only one).
+ *
+ *   2. NEAR duplicates ("Cleveland Clinic" vs "Cleveland Clinic Foundation").
+ *      NOT solvable structurally — they are genuinely different strings and may
+ *      genuinely be different entities. We create the row and flag `needsReview`
+ *      so a human merges later. Advisory; it NEVER blocks the write. Proven in
+ *      billing-account-service; copied deliberately rather than reinvented.
+ *
+ * Conventions: src/services/README.md (errors-as-values, typed inputs, no
+ * next/server import, service owns its side effects).
+ */
+import { Prisma, type CrmCompany } from "@prisma/client";
+import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
+
+// ── Input / Result types ─────────────────────────────────────────────────────
+
+interface CompanyFields {
+  name: string;
+  industry?: string | null;
+  website?: string | null;
+  country?: string | null;
+  city?: string | null;
+  notes?: string | null;
+}
+
+export interface FindOrCreateCompanyInput extends CompanyFields {
+  organizationId: string;
+  userId: string | null;
+  source: "rest" | "mcp" | "api" | "backfill";
+  requestIp?: string;
+}
+
+export interface UpdateCompanyInput extends Partial<CompanyFields> {
+  companyId: string;
+  organizationId: string;
+  userId: string | null;
+  source: "rest" | "mcp" | "api";
+  requestIp?: string;
+  /** Clear the fuzzy-duplicate flag once a human has confirmed it's distinct. */
+  needsReview?: boolean;
+}
+
+export type CompanyErrorCode =
+  | "NAME_REQUIRED"
+  | "COMPANY_NOT_FOUND"
+  | "NO_FIELDS"
+  | "UNKNOWN";
+
+export type FindOrCreateCompanyResult =
+  | { ok: true; company: CrmCompany; created: boolean; needsReview: boolean }
+  | { ok: false; code: CompanyErrorCode; message: string; meta?: Record<string, unknown> };
+
+export type UpdateCompanyResult =
+  | { ok: true; company: CrmCompany }
+  | { ok: false; code: CompanyErrorCode; message: string; meta?: Record<string, unknown> };
+
+// ── Name normalization ───────────────────────────────────────────────────────
+
+/**
+ * The dedup key: trimmed, lowercased, internal whitespace collapsed.
+ *
+ * Exported because the backfill script and the tests must derive the SAME key
+ * the runtime does — a script computing its key differently from the runtime is
+ * how reconciliation jobs end up disagreeing with the system they reconcile
+ * (the `holdsRoom()` lesson from the accommodation review: share the predicate,
+ * don't re-implement it).
+ */
+export function companyNameKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Loose alphanumeric key for NEAR-duplicate detection. "Cleveland Clinic" and
+ * "Cleveland Clinic Foundation" reduce to keys where one contains the other.
+ */
+function fuzzyKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// ── Operations ───────────────────────────────────────────────────────────────
+
+/**
+ * Find an existing company by exact (normalized) name, else create one.
+ *
+ * Returns `created: false` when an existing row was reused — callers use this to
+ * decide whether to say "linked to Abbott" vs "created Abbott".
+ */
+export async function findOrCreateCompany(
+  input: FindOrCreateCompanyInput,
+): Promise<FindOrCreateCompanyResult> {
+  const name = input.name?.trim() ?? "";
+  if (!name) {
+    return { ok: false, code: "NAME_REQUIRED", message: "Company name is required" };
+  }
+
+  const nameKey = companyNameKey(name);
+
+  try {
+    // 1. Exact match (normalized) → reuse. Never mint a second row for the same
+    //    account, and never clobber the existing row's details from a thin
+    //    payload — enrich-only, per the AGENTS.md rule.
+    const existing = await db.crmCompany.findUnique({
+      where: { organizationId_nameKey: { organizationId: input.organizationId, nameKey } },
+    });
+    if (existing) {
+      apiLogger.info({
+        msg: "crm-company:reused",
+        companyId: existing.id,
+        organizationId: input.organizationId,
+        source: input.source,
+      });
+      return { ok: true, company: existing, created: false, needsReview: existing.needsReview };
+    }
+
+    // 2. Near-duplicate → still create, but flag for a human. Advisory only.
+    const siblings = await db.crmCompany.findMany({
+      where: { organizationId: input.organizationId },
+      select: { id: true, name: true },
+    });
+    const fk = fuzzyKey(name);
+    const nearMatch = siblings.find((s) => {
+      const sk = fuzzyKey(s.name);
+      if (!sk || !fk) return false;
+      return sk.includes(fk) || fk.includes(sk);
+    });
+
+    const company = await db.crmCompany.create({
+      data: {
+        organizationId: input.organizationId,
+        name,
+        nameKey,
+        industry: input.industry?.trim() || null,
+        website: input.website?.trim() || null,
+        country: input.country?.trim() || null,
+        city: input.city?.trim() || null,
+        notes: input.notes?.trim() || null,
+        needsReview: Boolean(nearMatch),
+      },
+    });
+
+    if (nearMatch) {
+      apiLogger.warn({
+        msg: "crm-company:possible-duplicate",
+        companyId: company.id,
+        name,
+        similarToId: nearMatch.id,
+        similarToName: nearMatch.name,
+        organizationId: input.organizationId,
+      });
+    }
+
+    void writeAudit({
+      userId: input.userId,
+      action: "CREATE",
+      entityId: company.id,
+      ipAddress: input.requestIp,
+      changes: {
+        source: input.source,
+        name,
+        needsReview: Boolean(nearMatch),
+        ...(nearMatch ? { similarTo: nearMatch.name } : {}),
+      },
+    });
+
+    apiLogger.info({
+      msg: "crm-company:created",
+      companyId: company.id,
+      organizationId: input.organizationId,
+      source: input.source,
+    });
+
+    return { ok: true, company, created: true, needsReview: company.needsReview };
+  } catch (err) {
+    // The unique index is the real dedup guarantee; this is the race branch.
+    // Two concurrent creates of "Abbott" — one wins, the loser re-reads and
+    // reuses rather than surfacing a 500 for what is semantically a success.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const winner = await db.crmCompany.findUnique({
+        where: { organizationId_nameKey: { organizationId: input.organizationId, nameKey } },
+      });
+      if (winner) {
+        apiLogger.info({
+          msg: "crm-company:create-race-reused",
+          companyId: winner.id,
+          organizationId: input.organizationId,
+        });
+        return { ok: true, company: winner, created: false, needsReview: winner.needsReview };
+      }
+    }
+    apiLogger.error({
+      msg: "crm-company:create-failed",
+      organizationId: input.organizationId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, code: "UNKNOWN", message: "Could not create the company" };
+  }
+}
+
+export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCompanyResult> {
+  const data: Prisma.CrmCompanyUpdateInput = {};
+
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) {
+      return { ok: false, code: "NAME_REQUIRED", message: "Company name cannot be empty" };
+    }
+    data.name = name;
+    data.nameKey = companyNameKey(name); // keep the dedup key in lockstep with the display name
+  }
+  if (input.industry !== undefined) data.industry = input.industry?.trim() || null;
+  if (input.website !== undefined) data.website = input.website?.trim() || null;
+  if (input.country !== undefined) data.country = input.country?.trim() || null;
+  if (input.city !== undefined) data.city = input.city?.trim() || null;
+  if (input.notes !== undefined) data.notes = input.notes?.trim() || null;
+  if (input.needsReview !== undefined) data.needsReview = input.needsReview;
+
+  if (Object.keys(data).length === 0) {
+    return { ok: false, code: "NO_FIELDS", message: "No fields to update" };
+  }
+
+  try {
+    // Bind the row to the caller's org IN THE WRITE — a company id from a request
+    // body is untrusted input, and an unbound update is this codebase's most
+    // repeated IDOR (see the accommodation + contacts reviews).
+    const result = await db.crmCompany.updateMany({
+      where: { id: input.companyId, organizationId: input.organizationId },
+      data,
+    });
+    if (result.count === 0) {
+      apiLogger.warn({
+        msg: "crm-company:update-not-found",
+        companyId: input.companyId,
+        organizationId: input.organizationId,
+      });
+      return { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
+    }
+
+    const company = await db.crmCompany.findUniqueOrThrow({ where: { id: input.companyId } });
+
+    void writeAudit({
+      userId: input.userId,
+      action: "UPDATE",
+      entityId: company.id,
+      ipAddress: input.requestIp,
+      changes: { source: input.source, fields: Object.keys(data) },
+    });
+
+    apiLogger.info({ msg: "crm-company:updated", companyId: company.id, source: input.source });
+    return { ok: true, company };
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return {
+        ok: false,
+        code: "UNKNOWN",
+        message: "Another company already uses that name",
+        meta: { conflict: "name" },
+      };
+    }
+    apiLogger.error({
+      msg: "crm-company:update-failed",
+      companyId: input.companyId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, code: "UNKNOWN", message: "Could not update the company" };
+  }
+}
+
+// ── Audit ────────────────────────────────────────────────────────────────────
+
+/**
+ * Fire-and-forget WITH a logged catch — an audit-insert blip must never 500 a
+ * write that already committed (the M13 class from the registrations review).
+ *
+ * NOTE: AuditLog has no organizationId column (it is event-scoped or global), so
+ * org-level CRM rows carry `eventId: null` and rely on entityType + entityId.
+ * The IP goes in the real `ipAddress` column, not the changes blob.
+ */
+function writeAudit(entry: {
+  userId: string | null;
+  action: string;
+  entityId: string;
+  ipAddress?: string;
+  changes: Record<string, unknown>;
+}) {
+  return db.auditLog
+    .create({
+      data: {
+        userId: entry.userId,
+        action: entry.action,
+        entityType: "CrmCompany",
+        entityId: entry.entityId,
+        ipAddress: entry.ipAddress ?? null,
+        changes: entry.changes as Prisma.InputJsonValue,
+      },
+    })
+    .catch((err: unknown) => {
+      apiLogger.error({
+        msg: "crm-company:audit-failed",
+        entityId: entry.entityId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+}

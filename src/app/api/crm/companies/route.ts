@@ -1,0 +1,106 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
+import { checkRateLimit, getClientIp } from "@/lib/security";
+import { zodErrorResponse } from "@/lib/api-errors";
+import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
+import { findOrCreateCompany } from "@/crm/services/company-service";
+
+const createCompanySchema = z.object({
+  name: z.string().min(1).max(255),
+  industry: z.string().max(100).optional().nullable(),
+  website: z.string().max(500).optional().nullable(),
+  country: z.string().max(100).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
+  notes: z.string().max(5000).optional().nullable(),
+});
+
+/** GET /api/crm/companies — list accounts, with their open-deal counts. */
+export async function GET(req: Request) {
+  const { error, ctx } = await requireCrmRead(req);
+  if (error) return error;
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const q = searchParams.get("q")?.trim();
+    const needsReview = searchParams.get("needsReview") === "true";
+
+    const companies = await db.crmCompany.findMany({
+      where: {
+        organizationId: ctx.organizationId,
+        ...(needsReview ? { needsReview: true } : {}),
+        ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        industry: true,
+        website: true,
+        country: true,
+        city: true,
+        needsReview: true,
+        createdAt: true,
+        _count: { select: { contacts: true, deals: true } },
+      },
+      orderBy: { name: "asc" },
+      take: 500,
+    });
+
+    return NextResponse.json({ companies: redactForCaller(companies, ctx) });
+  } catch (err) {
+    apiLogger.error({
+      msg: "crm/companies:list-failed",
+      organizationId: ctx.organizationId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return NextResponse.json({ error: "Could not load companies" }, { status: 500 });
+  }
+}
+
+/** POST /api/crm/companies — find-or-create (never mints a duplicate account). */
+export async function POST(req: Request) {
+  const { error, ctx } = await requireCrmWrite(req);
+  if (error) return error;
+
+  const limit = checkRateLimit({
+    key: `crm-company-create:org:${ctx.organizationId}`,
+    limit: 100,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!limit.allowed) {
+    apiLogger.warn({ msg: "crm/companies:rate-limited", organizationId: ctx.organizationId });
+    return NextResponse.json(
+      { error: "Too many companies created — try again shortly", retryAfterSeconds: limit.retryAfterSeconds },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+    );
+  }
+
+  const body = await req.json().catch(() => null);
+  const parsed = createCompanySchema.safeParse(body);
+  if (!parsed.success) {
+    return zodErrorResponse(parsed, { route: "crm/companies:POST", organizationId: ctx.organizationId });
+  }
+
+  const result = await findOrCreateCompany({
+    ...parsed.data,
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    source: ctx.fromApiKey ? "api" : "rest",
+    requestIp: getClientIp(req) ?? undefined,
+  });
+
+  if (!result.ok) return crmErrorResponse(result);
+
+  // 200 (not 201) when an existing account was reused — the caller asked for a
+  // company and got one, but nothing was created, and the UI wants to say
+  // "linked to Abbott" rather than "created Abbott".
+  return NextResponse.json(
+    {
+      company: redactForCaller(result.company, ctx),
+      created: result.created,
+      needsReview: result.needsReview,
+    },
+    { status: result.created ? 201 : 200 },
+  );
+}

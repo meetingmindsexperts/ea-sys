@@ -35,8 +35,15 @@ const eslintConfig = defineConfig([
   {
     files: ["src/**/*.{ts,tsx}"],
     ignores: [
+      // ── INSIDE the module (§7.0 defines the namespace as all three of these) ──
+      // Code root, API namespace, UI namespace. These ARE the CRM; the one-way
+      // rule governs what CORE may import, not what the module imports from
+      // itself.
       "src/crm/**",
-      // Permitted core-side touch points (§7.0) — keep this list SHORT.
+      "src/app/api/crm/**",
+      "src/app/(dashboard)/crm/**",
+
+      // ── Permitted core-side touch points (§7.0) — keep this list SHORT ──
       "src/components/layout/sidebar.tsx",
       "src/lib/agent/mcp-server-builder.ts",
       "src/lib/agent/register-mcp-tools.ts",
