@@ -441,14 +441,21 @@ function forwardToAdminAlert(module: string, args: unknown[]): void {
         ...(detail ? [`Detail:        ${detail}`] : []),
         `Error signature: ${errSignature ?? "(none)"}`,
         ...(contextLines.length > 0 ? ["", "Context:", ...contextLines] : []),
-        "",
-        `Further occurrences of (${module} + same message prefix) within the next hour will NOT trigger another alert — open /logs in the dashboard or Sentry for the full picture.`,
-        "",
-        `--`,
-        `ea-sys automated alert`,
       ].join("\n");
 
-      await notifyAdminAlert({ subject, body: lines, dedupKey, detail });
+      // The action footer (deep links, running SHA, occurrence count, silence
+      // pointer) is appended by notifyAdminAlert — one place, so every alert
+      // path gets it, not just this one.
+      await notifyAdminAlert({
+        subject,
+        body: lines,
+        dedupKey,
+        detail,
+        // Pre-fill the /logs search with the message, not the subject: the
+        // subject carries "[ea-sys][prod] module:" decoration that appears in
+        // no log line and would return zero hits.
+        logsSearch: message,
+      });
     } catch {
       // Last-resort: any failure in this hook must NOT propagate, or
       // we'd kill the original log call.

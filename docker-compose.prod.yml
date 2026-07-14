@@ -7,6 +7,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Only used on the on-box fallback build (ECR unreachable). The normal
+        # path pulls an image CI already built WITH these baked in.
+        GIT_SHA: ${IMAGE_TAG:-unknown}
     container_name: ea-sys-blue
     restart: unless-stopped
     env_file:
@@ -14,6 +18,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - EA_SYS_SLOT=blue
       - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
     ports:
       - "3000:3000"
@@ -38,6 +43,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${IMAGE_TAG:-unknown}
     container_name: ea-sys-green
     restart: unless-stopped
     env_file:
@@ -45,6 +52,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - EA_SYS_SLOT=green
       - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
     ports:
       - "3001:3000"
@@ -85,6 +93,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
+      args:
+        GIT_SHA: ${IMAGE_TAG:-unknown}
     container_name: ea-sys-worker
     restart: unless-stopped
     env_file:

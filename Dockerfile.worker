@@ -59,6 +59,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Build identity — see the same block in Dockerfile. The worker needs it too:
+# its alert emails come from the same pipeline, and "which SHA is the worker on"
+# is a different question from "which SHA is the web tier on" (they are restarted
+# at different points in deploy.sh and CAN diverge if a deploy half-fails).
+ARG GIT_SHA=unknown
+ARG BUILT_AT=""
+ENV GIT_SHA=$GIT_SHA
+ENV BUILT_AT=$BUILT_AT
+
 # Non-root user, same uid/gid scheme as the web image so logs and
 # bind-mounted directories are interoperable.
 RUN groupadd --system --gid 1001 nodejs

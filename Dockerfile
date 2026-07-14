@@ -50,6 +50,18 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# ── Build identity ────────────────────────────────────────────────────────────
+# "What SHA is running?" was previously unanswerable from the running system:
+# /api/health reported npm_package_version, which is the same string across
+# dozens of deploys, and deploy.sh pinned IMAGE_TAG to the SHA and discarded it.
+# CI passes these as build-args; src/lib/build-info.ts reads them back and they
+# surface in /api/health, on /admin/infra, and in every alert email footer.
+# Defaults keep a local `docker build` honest rather than lying.
+ARG GIT_SHA=unknown
+ARG BUILT_AT=""
+ENV GIT_SHA=$GIT_SHA
+ENV BUILT_AT=$BUILT_AT
+
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs
 # Allow nextjs user to read the Docker socket (mounted :ro) for docker logs.

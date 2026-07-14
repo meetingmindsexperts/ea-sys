@@ -2628,3 +2628,30 @@ model CrmNote {
   @@index([companyId, createdAt])
   @@index([dealId, createdAt])
 }
+
+/// Cross-process state for the admin-alert pipeline.
+///
+/// Dedup used to be an in-memory Map inside admin-alert.ts. With blue-green
+/// (two web slots) plus the worker container, that is THREE independent maps —
+/// so every error fingerprint could page the operator up to 3x — and each one
+/// is wiped on container restart, which means a deploy during an ongoing
+/// incident re-opens the floodgates. Postgres gives us one shared, durable,
+/// atomically-claimable dedup state.
+///
+/// Three kinds of row share this table, distinguished by `key`:
+///   - "logger:<module>:<msg>"  a single error fingerprint.
+///       lastSentAt = when we last emailed about it
+///       counter    = occurrences suppressed since that email
+///   - "__ceiling__"            the global alerts-per-hour budget.
+///       windowStartedAt = start of the current hour bucket
+///       counter         = alerts sent inside it
+///   - "__silence__"            operator-set maintenance window.
+///       silencedUntil = alerts are suppressed until this instant
+model AlertState {
+  key             String    @id
+  lastSentAt      DateTime  @default(now())
+  windowStartedAt DateTime  @default(now())
+  counter         Int       @default(0)
+  silencedUntil   DateTime?
+  updatedAt       DateTime  @updatedAt
+}

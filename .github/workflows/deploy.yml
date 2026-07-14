@@ -138,6 +138,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Stamp the ACTUAL build time. `github.event.repository.updated_at` looks
+      # like a build timestamp and isn't — it's when the repo record was last
+      # touched, so it reports "today" for an image built last week (i.e. it lies
+      # in exactly the situation this field exists for: a rollback), and it can be
+      # empty on workflow_dispatch. Compute it here instead.
+      - name: Compute build metadata
+        id: meta
+        run: echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Build & push WEB image
         uses: docker/build-push-action@v6
         with:
@@ -147,6 +156,11 @@ jobs:
           tags: |
             803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:${{ github.sha }}
             803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:latest
+          # Bake the commit into the image so /api/health, /admin/infra and every
+          # alert email can answer "what SHA is running?" — previously unanswerable.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
           # Don't push provenance/SBOM attestation manifests — buildx defaults to
@@ -164,6 +178,9 @@ jobs:
           tags: |
             803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:worker-${{ github.sha }}
             803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:worker-latest
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
           cache-from: type=gha,scope=worker
           cache-to: type=gha,mode=max,scope=worker
           provenance: false
