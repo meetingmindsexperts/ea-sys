@@ -22,13 +22,23 @@ services:
       - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
     ports:
       - "3000:3000"
-    # Cap: 2 GB heap (NODE_OPTIONS) + room for the runtime. Steady state ~230 MB.
-    mem_limit: 2600m
-    memswap_limit: 3600m
+    # Steady state is ~230 MB. The cap exists to stop a runaway from taking the
+    # whole box down (INC-001), not to run the app close to a ceiling.
+    #
+    # 3500m, not 2600m: badge "Print All" renders up to 2500 barcodes via
+    # pdfkit/bwip-js, and those are OFF-HEAP Buffers — they do not count against
+    # the 2 GB V8 heap cap in NODE_OPTIONS, so RSS can climb past it on a big
+    # print. Getting OOM-killed mid-print at a live door would be a worse bug than
+    # the one we are preventing. Ceilings are not reservations; the headroom costs
+    # nothing until something misbehaves.
+    mem_limit: 3500m
+    memswap_limit: 4500m
     healthcheck:
-      # The blue/green slots had NO liveness probe — `restart: unless-stopped`
-      # only restarts a container whose process EXITS, so a wedged-but-alive Node
-      # (event-loop stall, pool exhaustion) was never recycled.
+      # NOTE: this does NOT self-heal. Docker Compose does not restart a container
+      # just because it goes unhealthy (only Swarm does); `restart: unless-stopped`
+      # fires when the process EXITS. This is VISIBILITY — `docker ps` shows
+      # "unhealthy" instead of "Up", which is what you want when a Node process is
+      # wedged-but-alive (event-loop stall, pool exhaustion) rather than crashed.
       test: ["CMD", "curl", "-fs", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 5s
@@ -80,13 +90,23 @@ services:
       - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
     ports:
       - "3001:3000"
-    # Cap: 2 GB heap (NODE_OPTIONS) + room for the runtime. Steady state ~230 MB.
-    mem_limit: 2600m
-    memswap_limit: 3600m
+    # Steady state is ~230 MB. The cap exists to stop a runaway from taking the
+    # whole box down (INC-001), not to run the app close to a ceiling.
+    #
+    # 3500m, not 2600m: badge "Print All" renders up to 2500 barcodes via
+    # pdfkit/bwip-js, and those are OFF-HEAP Buffers — they do not count against
+    # the 2 GB V8 heap cap in NODE_OPTIONS, so RSS can climb past it on a big
+    # print. Getting OOM-killed mid-print at a live door would be a worse bug than
+    # the one we are preventing. Ceilings are not reservations; the headroom costs
+    # nothing until something misbehaves.
+    mem_limit: 3500m
+    memswap_limit: 4500m
     healthcheck:
-      # The blue/green slots had NO liveness probe — `restart: unless-stopped`
-      # only restarts a container whose process EXITS, so a wedged-but-alive Node
-      # (event-loop stall, pool exhaustion) was never recycled.
+      # NOTE: this does NOT self-heal. Docker Compose does not restart a container
+      # just because it goes unhealthy (only Swarm does); `restart: unless-stopped`
+      # fires when the process EXITS. This is VISIBILITY — `docker ps` shows
+      # "unhealthy" instead of "Up", which is what you want when a Node process is
+      # wedged-but-alive (event-loop stall, pool exhaustion) rather than crashed.
       test: ["CMD", "curl", "-fs", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 5s

@@ -292,31 +292,63 @@ phase_done "Nginx switch + reload"
 
 # ── Smoke-test THROUGH nginx before we stop the old slot ──────────────────────
 # The health gate above hits the container directly on its port. That proves the
-# app booted; it does not prove that real traffic reaches it. If nginx is now
+# app booted; it does not prove that real traffic REACHES it. If nginx is now
 # pointing somewhere that 502s, the deploy would previously have reported success
 # and then stopped the only working container.
 #
-# The old slot is still up at this point, so a failure here can flip straight
-# back with zero downtime.
-echo "==> Smoke-testing through nginx..."
-SMOKE_OK=1
-for path in "/api/health" "/"; do
-  CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 10 "http://localhost${path}" || echo "000")
-  case "$CODE" in
-    2*|3*) echo "  ✓ ${path} → ${CODE}" ;;
-    *)     echo "  ✗ ${path} → ${CODE}"; SMOKE_OK=0 ;;
-  esac
-done
+# The old slot is still up at this point, so a failure here flips straight back
+# with zero downtime.
+#
+# ⚠ Hard-won detail: you MUST request the real hostname. nginx uses name-based
+# virtual hosts, so `curl http://localhost/` carries `Host: localhost`, matches no
+# server block, falls through to the default server and 404s — on a completely
+# healthy app. (That is exactly what happened the first time this shipped: a false
+# alarm that reverted a good deploy. Safely, but for no reason.) --resolve pins the
+# real hostname to the local box so we test the actual vhost without leaving it.
+SMOKE_URL=$(grep -E "^(NEXT_PUBLIC_APP_URL|NEXTAUTH_URL)=" "$DEPLOY_DIR/.env" 2>/dev/null \
+  | head -1 | sed 's/^[A-Z_]*=//; s/^["'"'"']//; s/["'"'"']$//; s#/*$##')
+SMOKE_HOST=$(echo "$SMOKE_URL" | sed -E 's#^https?://##; s#/.*##')
 
-if [ "$SMOKE_OK" -ne 1 ]; then
-  echo "✗ Traffic through nginx is NOT healthy on the new slot. Reverting upstream."
-  printf 'upstream ea_sys_app {\n    server 127.0.0.1:%s;\n    keepalive 32;\n}\n' \
-    "$ACTIVE_PORT" | sudo tee "$NGINX_UPSTREAM" > /dev/null
-  sudo nginx -t && sudo nginx -s reload || true
-  echo "✓ Reverted to ea-sys-$ACTIVE (still running — no downtime)."
-  echo "  New slot left up for inspection: docker logs ea-sys-$INACTIVE --tail 200"
-  alert_failure "post-swap smoke test failed through nginx (reverted to the old slot)"
-  exit 1
+if [ -z "$SMOKE_HOST" ]; then
+  # Fail OPEN, not closed. If we cannot work out our own hostname we do not know
+  # what a correct response looks like, and a gate that wrongly refuses to ship is
+  # its own hazard on a live system.
+  echo "⚠ Could not determine the public hostname from .env — skipping the nginx smoke test."
+else
+  echo "==> Smoke-testing through nginx (https://${SMOKE_HOST} → 127.0.0.1)..."
+
+  smoke_code() {
+    curl -s -o /dev/null -w "%{http_code}" -m 10 \
+      --resolve "${SMOKE_HOST}:443:127.0.0.1" \
+      "https://${SMOKE_HOST}$1" 2>/dev/null || echo "000"
+  }
+
+  # /api/health is the ONLY veto. It is deterministic: 200 when the app is up.
+  HEALTH_CODE=$(smoke_code "/api/health")
+  case "$HEALTH_CODE" in
+    2*|3*) echo "  ✓ /api/health → ${HEALTH_CODE}" ;;
+    *)
+      echo "  ✗ /api/health → ${HEALTH_CODE}"
+      echo "✗ Traffic through nginx is NOT reaching the new slot. Reverting upstream."
+      printf 'upstream ea_sys_app {\n    server 127.0.0.1:%s;\n    keepalive 32;\n}\n' \
+        "$ACTIVE_PORT" | sudo tee "$NGINX_UPSTREAM" > /dev/null
+      sudo nginx -t && sudo nginx -s reload || true
+      echo "✓ Reverted to ea-sys-$ACTIVE (still running — no downtime)."
+      echo "  New slot left up for inspection: docker logs ea-sys-$INACTIVE --tail 200"
+      alert_failure "post-swap smoke test failed through nginx (reverted to the old slot)"
+      exit 1
+      ;;
+  esac
+
+  # The homepage is a WARNING, never a veto. It can legitimately redirect, gate on
+  # auth, or change shape — an unexpected code here is far more likely to mean the
+  # check is wrong than that the deploy is bad, and blocking a good deploy is worse
+  # than shipping one with a noisy line in the log.
+  ROOT_CODE=$(smoke_code "/")
+  case "$ROOT_CODE" in
+    2*|3*) echo "  ✓ / → ${ROOT_CODE}" ;;
+    *)     echo "  ⚠ / → ${ROOT_CODE} (not blocking the deploy — /api/health is the gate)" ;;
+  esac
 fi
 phase_done "Smoke test via nginx"
 
