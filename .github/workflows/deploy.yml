@@ -127,7 +127,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Configure AWS credentials (OIDC — no stored keys)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::803726282629:role/ea-sys-gha-ecr-push
           aws-region: ap-south-1
