@@ -24,6 +24,79 @@ NGINX_UPSTREAM="/etc/nginx/conf.d/ea-sys-upstream.conf"
 HEALTH_RETRIES=40   # 40 × 1s = 40 seconds max wait
 COMPOSE="docker compose -f $DEPLOY_DIR/docker-compose.prod.yml"
 
+# ── Failure alerting ──────────────────────────────────────────────────────────
+# A deploy that dies half-way is the worst state this system can be in: the
+# migration has already run, so the OLD slot may be serving live traffic against
+# the NEW schema. Until now that failed silently into a terminal nobody was
+# watching. Every abort path below now pages a human.
+alert_failure() {
+  local what="$1"
+  bash "$DEPLOY_DIR/scripts/ops-alert.sh" \
+    "EA-SYS DEPLOY FAILED on the box — $what" \
+    "Deploy of ${IMAGE_TAG:-latest} aborted: ${what}
+
+Active slot (per $SLOT_FILE): $(cat "$SLOT_FILE" 2>/dev/null || echo unknown)
+Running containers:
+$(docker ps --format '  {{.Names}}  {{.Status}}' 2>/dev/null || echo '  (docker ps failed)')
+
+NOTE: migrations run BEFORE the nginx swap, so the new schema may already be
+live while the old code serves traffic.
+
+Roll back to a known-good image:
+  IMAGE_TAG=<previous-full-40-char-sha> bash scripts/deploy.sh
+Or flip the upstream back without redeploying:
+  bash scripts/deploy.sh --rollback
+Runbook: docs/ROLLBACK.md" || true
+}
+
+# ── Rollback mode ─────────────────────────────────────────────────────────────
+# `bash scripts/deploy.sh --rollback`
+#
+# Recovering from a bad promote used to mean hand-editing the nginx upstream
+# file and manually `docker compose up`-ing the other slot, from memory, at 3am.
+# The old slot is only `stop`ped (never `rm`ed), so the previous container is
+# still sitting there with the previous image — flipping back is a few seconds.
+if [ "${1:-}" = "--rollback" ]; then
+  CURRENT=$(cat "$SLOT_FILE" 2>/dev/null || echo "blue")
+  if [ "$CURRENT" = "blue" ]; then
+    PREVIOUS="green"; PREVIOUS_PORT=3001
+  else
+    PREVIOUS="blue"; PREVIOUS_PORT=3000
+  fi
+
+  echo "==> ROLLBACK: $CURRENT → $PREVIOUS (port $PREVIOUS_PORT)"
+  echo "    This flips nginx back to the PREVIOUS container. It does NOT undo"
+  echo "    database migrations — those are forward-only. See docs/ROLLBACK.md."
+
+  cd "$DEPLOY_DIR"
+  $COMPOSE up -d "ea-sys-$PREVIOUS"
+
+  echo "==> Waiting for ea-sys-$PREVIOUS to answer..."
+  ATTEMPTS=0
+  until curl -sf "http://localhost:$PREVIOUS_PORT/api/health" > /dev/null 2>&1; do
+    ATTEMPTS=$((ATTEMPTS + 1))
+    if [ "$ATTEMPTS" -ge 30 ]; then
+      echo "✗ ea-sys-$PREVIOUS did not become healthy. NOT switching nginx."
+      echo "  Both slots are now unhealthy — this needs hands-on debugging:"
+      $COMPOSE logs --tail=50 "ea-sys-$PREVIOUS" || true
+      alert_failure "rollback FAILED — previous slot ($PREVIOUS) will not start"
+      exit 1
+    fi
+    sleep 1
+  done
+
+  printf 'upstream ea_sys_app {\n    server 127.0.0.1:%s;\n    keepalive 32;\n}\n' \
+    "$PREVIOUS_PORT" | sudo tee "$NGINX_UPSTREAM" > /dev/null
+  sudo nginx -t && sudo nginx -s reload
+  echo "$PREVIOUS" > "$SLOT_FILE"
+
+  echo ""
+  echo "✓ Rolled back. Serving from ea-sys-$PREVIOUS (port $PREVIOUS_PORT)."
+  echo "  The bad slot (ea-sys-$CURRENT) is left RUNNING so you can read its logs:"
+  echo "    docker logs ea-sys-$CURRENT --tail 200"
+  exit 0
+fi
+
 # ── ECR image config ──────────────────────────────────────────────────────────
 # CI (the "build-push" job) builds + pushes the web + worker images to ECR and
 # the deploy job passes IMAGE_TAG=<git-sha>. The box then just `docker compose
@@ -35,6 +108,10 @@ ECR_REGISTRY="803726282629.dkr.ecr.ap-south-1.amazonaws.com"
 ECR_REPO="$ECR_REGISTRY/ea-sys"
 AWS_REGION="ap-south-1"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
+# Exported so docker-compose's `build.args: GIT_SHA: ${IMAGE_TAG}` resolves on
+# the on-box fallback build path (ECR unreachable). Without this the fallback
+# image would report GIT_SHA=unknown and /api/health could not identify itself.
+export IMAGE_TAG
 if [ "$IMAGE_TAG" = "latest" ]; then
   export EA_SYS_WEB_IMAGE="$ECR_REPO:latest"
   export EA_SYS_WORKER_IMAGE="$ECR_REPO:worker-latest"
@@ -127,6 +204,9 @@ if ! docker run --rm --user root \
     -e "DIRECT_URL=$MIGRATION_DIRECT_URL" \
     "$EA_SYS_WORKER_IMAGE" npx prisma migrate deploy; then
   echo "✗ Migration failed. Aborting deploy."
+  echo "  The old slot is still serving traffic and is UNTOUCHED — this is the"
+  echo "  safe failure. Fix the migration and redeploy."
+  alert_failure "database migration failed (old slot still serving, no swap made)"
   exit 1
 fi
 phase_done "Database migrations"
@@ -167,8 +247,21 @@ until curl -sf "http://localhost:$INACTIVE_PORT/api/health" > /dev/null 2>&1; do
   ATTEMPTS=$((ATTEMPTS + 1))
   if [ "$ATTEMPTS" -ge "$HEALTH_RETRIES" ]; then
     echo "✗ Health check failed after ${HEALTH_RETRIES}s. Rolling back."
+    # Dump the evidence BEFORE destroying the container. Previously this printed
+    # "health check failed" and immediately `rm -f`d the only thing that could
+    # tell you why — so you were told it failed and nothing about the cause.
+    echo ""
+    echo "──── last 60 lines from ea-sys-$INACTIVE ────"
+    $COMPOSE logs --tail=60 "ea-sys-$INACTIVE" 2>&1 || echo "(could not read logs)"
+    echo "──── /api/health said ────"
+    curl -s -m 5 "http://localhost:$INACTIVE_PORT/api/health" 2>&1 || echo "(no response at all)"
+    echo ""
+    echo "───────────────────────────────────────────────"
+    echo ""
     $COMPOSE stop "ea-sys-$INACTIVE" || true
     $COMPOSE rm -f "ea-sys-$INACTIVE" || true
+    echo "✓ Old slot ($ACTIVE) is still serving traffic — this is the safe failure."
+    alert_failure "new slot failed its health check (old slot still serving, no swap made)"
     exit 1
   fi
   sleep 1
@@ -192,9 +285,40 @@ else
   sudo nginx -t && sudo nginx -s reload || true
   $COMPOSE stop "ea-sys-$INACTIVE" || true
   $COMPOSE rm -f "ea-sys-$INACTIVE" || true
+  alert_failure "nginx config test failed (upstream reverted to the old slot)"
   exit 1
 fi
 phase_done "Nginx switch + reload"
+
+# ── Smoke-test THROUGH nginx before we stop the old slot ──────────────────────
+# The health gate above hits the container directly on its port. That proves the
+# app booted; it does not prove that real traffic reaches it. If nginx is now
+# pointing somewhere that 502s, the deploy would previously have reported success
+# and then stopped the only working container.
+#
+# The old slot is still up at this point, so a failure here can flip straight
+# back with zero downtime.
+echo "==> Smoke-testing through nginx..."
+SMOKE_OK=1
+for path in "/api/health" "/"; do
+  CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 10 "http://localhost${path}" || echo "000")
+  case "$CODE" in
+    2*|3*) echo "  ✓ ${path} → ${CODE}" ;;
+    *)     echo "  ✗ ${path} → ${CODE}"; SMOKE_OK=0 ;;
+  esac
+done
+
+if [ "$SMOKE_OK" -ne 1 ]; then
+  echo "✗ Traffic through nginx is NOT healthy on the new slot. Reverting upstream."
+  printf 'upstream ea_sys_app {\n    server 127.0.0.1:%s;\n    keepalive 32;\n}\n' \
+    "$ACTIVE_PORT" | sudo tee "$NGINX_UPSTREAM" > /dev/null
+  sudo nginx -t && sudo nginx -s reload || true
+  echo "✓ Reverted to ea-sys-$ACTIVE (still running — no downtime)."
+  echo "  New slot left up for inspection: docker logs ea-sys-$INACTIVE --tail 200"
+  alert_failure "post-swap smoke test failed through nginx (reverted to the old slot)"
+  exit 1
+fi
+phase_done "Smoke test via nginx"
 
 # ── Persist active slot ───────────────────────────────────────────────────────
 echo "$INACTIVE" > "$SLOT_FILE"

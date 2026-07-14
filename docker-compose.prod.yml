@@ -22,6 +22,18 @@ services:
       - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
     ports:
       - "3000:3000"
+    # Cap: 2 GB heap (NODE_OPTIONS) + room for the runtime. Steady state ~230 MB.
+    mem_limit: 2600m
+    memswap_limit: 3600m
+    healthcheck:
+      # The blue/green slots had NO liveness probe — `restart: unless-stopped`
+      # only restarts a container whose process EXITS, so a wedged-but-alive Node
+      # (event-loop stall, pool exhaustion) was never recycled.
+      test: ["CMD", "curl", "-fs", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     networks:
       - web
     volumes:
@@ -29,7 +41,19 @@ services:
       - ./public/uploads:/app/public/uploads
       # Shared log directory for file-based log reading
       - ./logs:/app/logs
-      # Docker socket (read-only) — allows docker inspect/logs but prevents container creation
+      # Docker socket — powers the "docker" source of the /logs viewer, which is
+      # the only place you can see RAW container stdout (crash traces from before
+      # the logger initialises, OOM kills, Next.js boot errors). file + database
+      # sources cannot show those.
+      #
+      # ⚠ ACCEPTED RISK, deliberately. The `:ro` flag does NOT sandbox this: it
+      # makes the socket FILE read-only, while the Docker API served over it stays
+      # fully READ-WRITE. Anything that can reach this socket can create a
+      # privileged container and become root on the host. (An earlier comment here
+      # claimed :ro "prevents container creation" — it does not. Do not re-reason
+      # from that.) Keep the SSRF surface tight — see downloadExternalPhoto, which
+      # currently has no host allowlist. If this ever needs closing, the fix is a
+      # docker-socket-proxy sidecar (read-only API), not the :ro flag.
       - /var/run/docker.sock:/var/run/docker.sock:ro
     logging:
       driver: "json-file"
@@ -56,11 +80,24 @@ services:
       - MEDIAMTX_HLS_URL=http://ea-sys-mediamtx:8888
     ports:
       - "3001:3000"
+    # Cap: 2 GB heap (NODE_OPTIONS) + room for the runtime. Steady state ~230 MB.
+    mem_limit: 2600m
+    memswap_limit: 3600m
+    healthcheck:
+      # The blue/green slots had NO liveness probe — `restart: unless-stopped`
+      # only restarts a container whose process EXITS, so a wedged-but-alive Node
+      # (event-loop stall, pool exhaustion) was never recycled.
+      test: ["CMD", "curl", "-fs", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     networks:
       - web
     volumes:
       - ./public/uploads:/app/public/uploads
       - ./logs:/app/logs
+      # See the note on ea-sys-blue: :ro does NOT restrict the Docker API.
       - /var/run/docker.sock:/var/run/docker.sock:ro
     logging:
       driver: "json-file"
@@ -102,6 +139,11 @@ services:
     environment:
       - NODE_ENV=production
       - WORKER_HEALTH_PORT=3099
+    # Same reasoning as the web slots. The worker renders PDFs and pulls Zoom
+    # reports, so its peaks are spikier — but it must not be able to take the
+    # host down with it.
+    mem_limit: 2600m
+    memswap_limit: 3600m
     networks:
       - web
     volumes:
@@ -136,6 +178,9 @@ services:
       - "1935:1935"    # RTMP ingest (Zoom pushes here)
       - "8888:8888"    # HLS output (nginx proxies /stream/ to here)
       - "8889:8889"    # WebRTC (future low-latency option)
+    # Idles at ~11 MB; a live stream is the only thing that moves it. Capped so a
+    # misbehaving ingest can't compete with the app for host memory.
+    mem_limit: 512m
     volumes:
       - ./mediamtx.yml:/mediamtx.yml
     networks:

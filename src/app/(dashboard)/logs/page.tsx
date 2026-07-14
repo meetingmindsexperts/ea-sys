@@ -306,8 +306,8 @@ export default function LogsPage() {
               </SelectTrigger>
               <SelectContent className="bg-[#131a27] border-cyan-500/30">
                 <SelectItem value="database" className="text-cyan-100 font-mono text-xs">Database</SelectItem>
-                <SelectItem value="file" className="text-cyan-100 font-mono text-xs">File</SelectItem>
                 <SelectItem value="docker" className="text-cyan-100 font-mono text-xs">Docker</SelectItem>
+                <SelectItem value="file" className="text-cyan-100 font-mono text-xs">File</SelectItem>
               </SelectContent>
             </Select>
           </div>

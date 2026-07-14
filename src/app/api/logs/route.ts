@@ -347,6 +347,7 @@ export async function GET(req: Request) {
     }
 
     if (!ALLOWED_SOURCES.has(sourceParam)) {
+      apiLogger.warn({ msg: "logs:invalid-source", source: sourceParam, userId: session.user.id });
       return NextResponse.json(
         { error: "Invalid 'source' parameter. Allowed: file, docker, database" },
         { status: 400 }
