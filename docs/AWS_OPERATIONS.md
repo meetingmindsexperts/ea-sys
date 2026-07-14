@@ -848,10 +848,15 @@ docker pull 803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:<tag>
 ```
 
 - **Rollback** = redeploy a previous `:<sha>` (no rebuild) — e.g. run
-  `IMAGE_TAG=<old-sha> bash scripts/deploy.sh` on the box, or re-run the older
-  green Actions deploy. **Full step-by-step runbook (code image + DB restore
-  points + uploads/.env + combined scenarios + post-rollback checklist):
+  `IMAGE_TAG=<full-40-char-sha> bash scripts/deploy.sh` on the box, or re-run the older
+  green Actions deploy. ✅ **Drilled on prod July 14, 2026: 22 seconds, zero downtime.**
+  **Full step-by-step runbook (code image + DB restore points + uploads/.env +
+  combined scenarios + post-rollback checklist + the drill log):
   [docs/ROLLBACK.md](ROLLBACK.md).**
+  ⚠️ Two things that surprise people: **`git log` is not what prod runs** — docs-only and
+  empty commits never deploy (`paths-ignore`), so check `docker ps`; and **never pin
+  `:latest`** on a rollback (it moves, and during an incident it points at the thing you're
+  escaping). Force a deploy with no code change via `gh workflow run deploy.yml --ref main`.
 - **DR caveat:** ECR is in **Mumbai** — a full-region loss takes it down too. For
   region-independent recovery, enable **ECR cross-region replication → Singapore**
   (`ap-southeast-1`, where the DR S3 bucket is) — a one-time registry setting.
