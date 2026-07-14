@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
+import { denyContactAccess } from "@/lib/contact-visibility";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -46,11 +47,17 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Staff + MEMBER only — the detail payload carries phone, bio and the
+    // organizer's private notes (contacts review H1).
+    const denied = denyContactAccess(ctx);
+    if (denied) return denied;
+
     const contact = await db.contact.findFirst({
       where: { id: contactId, organizationId: ctx.organizationId },
     });
 
     if (!contact) {
+      apiLogger.warn({ msg: "contacts:detail-not-found", contactId, organizationId: ctx.organizationId });
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
     }
 

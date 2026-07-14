@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
+import { denyContactAccess } from "@/lib/contact-visibility";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -11,7 +13,16 @@ import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 const createContactSchema = z.object({
   title: titleEnum.optional(),
   role: attendeeRoleEnum.optional().nullable(),
-  email: z.string().email().max(255),
+  // Trimmed + lowercased BEFORE validation, to match EVERY other writer
+  // (syncToContact, MCP create_contact, both imports, the email PATCH).
+  // `@@unique([organizationId, email])` is case-sensitive, so a raw value here
+  // mints a SECOND contact for a person who already exists — and the central
+  // sync, which dedups by lowercased email (last-write-wins), then silently
+  // mirrors only one of the pair (contacts review H2).
+  email: z.preprocess(
+    (v) => (typeof v === "string" ? v.trim().toLowerCase() : v),
+    z.string().email().max(255),
+  ),
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   organization: z.string().max(255).optional(),
@@ -38,6 +49,12 @@ export async function GET(req: Request) {
     if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // The org CRM is staff + MEMBER only. `denyReviewer` guards the writes;
+    // without this, ONSITE / internal-domain REGISTRANT (both org-bound) could
+    // page through every contact in the organization (contacts review H1).
+    const denied = denyContactAccess(ctx);
+    if (denied) return denied;
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
@@ -153,6 +170,7 @@ export async function POST(req: Request) {
     });
 
     if (existing) {
+      apiLogger.warn({ msg: "contacts:create-duplicate-email", organizationId: ctx.organizationId });
       return NextResponse.json(
         { error: "A contact with this email already exists" },
         { status: 409 }
@@ -187,6 +205,20 @@ export async function POST(req: Request) {
 
     return NextResponse.json(contact, { status: 201 });
   } catch (error) {
+    // The dup-check above is check-then-act; two concurrent creates for the
+    // same email both pass it and one loses the unique index. That is a
+    // duplicate (409), not a server fault — and it must not echo the raw
+    // Prisma message back to the caller (contacts review H2).
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      apiLogger.warn({ msg: "contacts:create-duplicate-email-race" });
+      return NextResponse.json(
+        { error: "A contact with this email already exists" },
+        { status: 409 }
+      );
+    }
     apiLogger.error({ err: error, msg: "Error creating contact" });
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: "Failed to create contact", detail: message }, { status: 500 });

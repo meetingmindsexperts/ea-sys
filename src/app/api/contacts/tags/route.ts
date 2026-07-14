@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
+import { denyContactAccess } from "@/lib/contact-visibility";
 
 export async function GET(req: Request) {
   try {
@@ -10,6 +11,10 @@ export async function GET(req: Request) {
     if (!ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Staff + MEMBER only — the tag vocabulary is CRM metadata (contacts review H1).
+    const denied = denyContactAccess(ctx);
+    if (denied) return denied;
 
     const contacts = await db.contact.findMany({
       where: { organizationId: ctx.organizationId },
