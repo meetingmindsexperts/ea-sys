@@ -60,20 +60,43 @@ import { installShutdownHandler } from "./lib/shutdown";
 
 const HEALTH_PORT = Number(process.env.WORKER_HEALTH_PORT ?? 3099);
 
+/**
+ * THE roster. Every job appears exactly once, and the cron registrations, the
+ * /health seed and the startup log are all DERIVED from it.
+ *
+ * This used to be three hand-maintained lists, and they had drifted: the health
+ * seed named 5 jobs while 9 were registered. The four missing ones
+ * (invoice-reconciliation, contacts-central-sync, contacts-central-reconcile,
+ * log-archive) were simply ABSENT from /worker/health until their first tick —
+ * so asking "is log-archive running?" returned no key at all, which is
+ * indistinguishable from "that job doesn't exist". For a monthly job that's a
+ * 30-day blind spot. Deriving everything from one array makes the drift
+ * unexpressible rather than merely fixed.
+ */
+const JOBS = [
+  certIssue,
+  scheduledEmails,
+  webinarRecordings,
+  webinarAttendance,
+  oauthCleanup,
+  invoiceReconciliation,
+  contactsCentralSync,
+  contactsCentralReconcile,
+  logArchive,
+];
+
 // Shared state — populated as jobs tick. The health endpoint reads
 // from this so operators can see at a glance whether each schedule
 // is firing. lastTickAt updates AFTER the tick settles (success or
 // failure), so a stale entry means the job is either crashed or
 // holding the lock.
+//
+// Seeded with EVERY job at null, so "registered but hasn't ticked yet" is
+// visible as a key with a null value, rather than being invisible.
 const state: HealthState = {
   startedAt: Date.now(),
-  lastTickAt: {
-    [certIssue.JOB_NAME]: null,
-    [scheduledEmails.JOB_NAME]: null,
-    [webinarRecordings.JOB_NAME]: null,
-    [webinarAttendance.JOB_NAME]: null,
-    [oauthCleanup.JOB_NAME]: null,
-  },
+  lastTickAt: Object.fromEntries(JOBS.map((j) => [j.JOB_NAME, null])),
+  schedules: Object.fromEntries(JOBS.map((j) => [j.JOB_NAME, j.SCHEDULE])),
   shuttingDown: false,
 };
 
@@ -134,17 +157,7 @@ function wrapTick(job: {
 // day-of-week). Each schedule string also lives on the job module
 // (`SCHEDULE`) so adding/changing one job touches a single file.
 
-const tasks = [
-  cron.schedule(certIssue.SCHEDULE, wrapTick(certIssue)),
-  cron.schedule(scheduledEmails.SCHEDULE, wrapTick(scheduledEmails)),
-  cron.schedule(webinarRecordings.SCHEDULE, wrapTick(webinarRecordings)),
-  cron.schedule(webinarAttendance.SCHEDULE, wrapTick(webinarAttendance)),
-  cron.schedule(oauthCleanup.SCHEDULE, wrapTick(oauthCleanup)),
-  cron.schedule(invoiceReconciliation.SCHEDULE, wrapTick(invoiceReconciliation)),
-  cron.schedule(contactsCentralSync.SCHEDULE, wrapTick(contactsCentralSync)),
-  cron.schedule(contactsCentralReconcile.SCHEDULE, wrapTick(contactsCentralReconcile)),
-  cron.schedule(logArchive.SCHEDULE, wrapTick(logArchive)),
-];
+const tasks = JOBS.map((job) => cron.schedule(job.SCHEDULE, wrapTick(job)));
 
 const healthServer = startHealthServer(HEALTH_PORT, state);
 
@@ -159,15 +172,6 @@ apiLogger.info({
   msg: "worker:started",
   jobs: tasks.length,
   healthPort: HEALTH_PORT,
-  schedules: {
-    [certIssue.JOB_NAME]: certIssue.SCHEDULE,
-    [scheduledEmails.JOB_NAME]: scheduledEmails.SCHEDULE,
-    [webinarRecordings.JOB_NAME]: webinarRecordings.SCHEDULE,
-    [webinarAttendance.JOB_NAME]: webinarAttendance.SCHEDULE,
-    [oauthCleanup.JOB_NAME]: oauthCleanup.SCHEDULE,
-    [invoiceReconciliation.JOB_NAME]: invoiceReconciliation.SCHEDULE,
-    [contactsCentralSync.JOB_NAME]: contactsCentralSync.SCHEDULE,
-    [contactsCentralReconcile.JOB_NAME]: contactsCentralReconcile.SCHEDULE,
-    [logArchive.JOB_NAME]: logArchive.SCHEDULE,
-  },
+  gitSha: process.env.GIT_SHA ?? "unknown",
+  schedules: state.schedules,
 });

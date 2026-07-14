@@ -112,8 +112,9 @@ function sinceToDate(since: string): Date | null {
 async function readDatabaseLogs(
   level: string,
   since: string,
-  tailNum: number
-): Promise<{ logs: LogEntry[]; source: string }> {
+  tailNum: number,
+  search: string
+): Promise<{ logs: LogEntry[]; source: string; total: number }> {
   const sinceDate = sinceToDate(since);
 
   const where: Record<string, unknown> = {};
@@ -123,13 +124,28 @@ async function readDatabaseLogs(
   if (sinceDate) {
     where.timestamp = { gte: sinceDate };
   }
+  // Search in the QUERY, not after the fact.
+  //
+  // This used to fetch the newest `tailNum` rows and only then filter them in
+  // memory — so a search for a string that existed 600 rows back returned "No
+  // logs found". The viewer confidently told you the thing you were looking at
+  // in Sentry had never happened. Now the database does the matching across the
+  // whole time window, and the tail limit applies to the MATCHES.
+  if (search) {
+    where.message = { contains: search, mode: "insensitive" };
+  }
 
-  const rows = await db.systemLog.findMany({
-    where,
-    orderBy: { timestamp: "desc" },
-    take: tailNum,
-    select: { level: true, message: true, timestamp: true },
-  });
+  // Count first so we can tell the operator when we're only showing them a
+  // slice. Silent truncation is what made the old viewer untrustworthy.
+  const [total, rows] = await Promise.all([
+    db.systemLog.count({ where }),
+    db.systemLog.findMany({
+      where,
+      orderBy: { timestamp: "desc" },
+      take: tailNum,
+      select: { level: true, message: true, timestamp: true },
+    }),
+  ]);
 
   const logs: LogEntry[] = rows.reverse().map((row) => ({
     timestamp: row.timestamp.toISOString(),
@@ -137,7 +153,7 @@ async function readDatabaseLogs(
     message: row.message,
   }));
 
-  return { logs, source: "database" };
+  return { logs, source: "database", total };
 }
 
 async function readLogFile(
@@ -347,11 +363,15 @@ export async function GET(req: Request) {
 
     let logs: LogEntry[];
     let source: string;
+    // Total MATCHING rows in the window (database source only — file/docker are
+    // inherently tail-based and cannot know). null = unknowable.
+    let total: number | null = null;
 
     if (sourceParam === "database") {
-      const result = await readDatabaseLogs(level, since, tailNum);
+      const result = await readDatabaseLogs(level, since, tailNum, search);
       logs = result.logs;
       source = result.source;
+      total = result.total;
     } else if (sourceParam === "docker") {
       // Docker source — uses read-only socket
       try {
@@ -378,8 +398,11 @@ export async function GET(req: Request) {
       logs = logs.filter((log) => log.level === level);
     }
 
-    // Filter by search term
-    if (search) {
+    // File + docker sources are read as a tail of text, so their search still
+    // has to happen here. The database source already searched in SQL — do not
+    // re-filter it, or a match found across the full window would be discarded
+    // again by an in-memory pass over the truncated slice.
+    if (search && sourceParam !== "database") {
       const searchLower = search.toLowerCase();
       logs = logs.filter(
         (log) =>
@@ -391,6 +414,12 @@ export async function GET(req: Request) {
     return NextResponse.json({
       logs,
       count: logs.length,
+      total,
+      // Say so when we're showing a slice. The operator can then widen the tail
+      // or narrow the filter, instead of drawing conclusions from a fraction of
+      // the data while believing they see all of it.
+      truncated: total != null && total > logs.length,
+      tail: tailNum,
       source,
       since,
       level,

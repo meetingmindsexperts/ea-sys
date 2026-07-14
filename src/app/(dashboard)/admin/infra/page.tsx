@@ -11,7 +11,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   RefreshCw, Rocket, Mail, BellRing, Cpu, Loader2, AlertTriangle, CheckCircle2, ExternalLink, Timer, ScrollText, MailWarning,
+  Database, Server, Layers, Archive, BellOff, GitCommit,
 } from "lucide-react";
+import { toast } from "sonner";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +21,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 interface Snapshot {
   generatedAt: string;
   region: string;
+  build: { gitSha: string; gitShaShort: string; builtAt: string | null; slot: string | null; hostname: string };
+  database: { status: string; error?: string; info: null | { connected: boolean; latencyMs: number | null } };
+  worker: { status: string; error?: string; info: null | { reachable: boolean; uptimeSeconds: number | null; gitSha: string | null; jobs: { name: string; schedule: string; lastTickAt: string | null; stale: boolean }[]; staleJobs: string[] } };
+  queues: { status: string; error?: string; rows: { label: string; value: number; warnAbove: number; hint: string }[] };
+  backup: { status: string; error?: string; info: null | { latestKey: string | null; latestAt: string | null; ageHours: number | null; stale: boolean; bucket: string } };
+  alerts: { status: string; error?: string; info: null | { silencedUntil: string | null } };
   deploys: { status: string; error?: string; runs: { title: string; status: string; conclusion: string | null; event: string; createdAt: string; url: string }[] };
   ses: { status: string; error?: string; info: null | { sendingEnabled: boolean; sandbox: boolean; max24Hour: number | null; sentLast24Hours: number | null; maxSendRate: number | null; bounceRate: number | null; complaintRate: number | null; send24h: number | null; bounce24h: number | null; complaint24h: number | null } };
   alarms: { status: string; error?: string; inAlarm: { name: string; metric: string; reason: string; since: string | null }[] };
@@ -60,6 +68,7 @@ export default function InfraPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [silencing, setSilencing] = useState(false);
 
   const load = useCallback(async (force = false) => {
     if (force) setRefreshing(true);
@@ -82,6 +91,35 @@ export default function InfraPage() {
     }
   }, []);
 
+  // Stop paging yourself while you fix the thing that is paging you. Every
+  // .error() in the app emails the operator, so an incident IS a burst of
+  // alerts — and the person remediating it was getting mailed by their own
+  // restarts and replays. Time-boxed on the server (max 4h) on purpose: a
+  // silence that never expires is how prod stays broken since Tuesday.
+  const setSilence = useCallback(async (minutes: number) => {
+    setSilencing(true);
+    try {
+      const res = await fetch("/api/admin/alerts/silence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ minutes, reason: minutes > 0 ? "silenced from /admin/infra" : "unsilenced" }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        console.error("infra:silence-failed", res.status, json?.error);
+        toast.error(json?.error || "Could not change alert silence");
+        return;
+      }
+      toast.success(minutes > 0 ? `Alerts silenced for ${minutes} minutes` : "Alerts resumed");
+      await load(true);
+    } catch (err) {
+      console.error("infra:silence-error", err);
+      toast.error("Could not change alert silence");
+    } finally {
+      setSilencing(false);
+    }
+  }, [load]);
+
   useEffect(() => {
     if (isAdmin) load();
     else setLoading(false);
@@ -99,6 +137,22 @@ export default function InfraPage() {
           <p className="text-sm text-muted-foreground mt-0.5">
             Deploys, email health, alarms and host metrics{snap ? ` · ${snap.region} · updated ${fmtTime(snap.generatedAt)}` : ""}.
           </p>
+          {/* "What is actually running?" — the first question of every incident,
+              and one this system could not answer until the SHA was baked into
+              the image. */}
+          {snap && (
+            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 font-mono">
+              <GitCommit className="h-3.5 w-3.5" />
+              {snap.build.gitShaShort}
+              {snap.build.slot && <span className="px-1.5 py-0.5 rounded bg-muted">{snap.build.slot}</span>}
+              {snap.build.builtAt && <span className="text-muted-foreground/70">built {fmtTime(snap.build.builtAt)}</span>}
+              {snap.worker.info?.gitSha && snap.worker.info.gitSha !== snap.build.gitSha && (
+                <span className="text-amber-600" title="The worker is running a different commit from the web tier. A deploy probably half-failed.">
+                  ⚠ worker on {snap.worker.info.gitSha.slice(0, 7)}
+                </span>
+              )}
+            </p>
+          )}
         </div>
         <Button size="sm" variant="outline" onClick={() => load(true)} disabled={refreshing}>
           {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />} Refresh
@@ -111,6 +165,157 @@ export default function InfraPage() {
         <p className="text-sm text-red-600">{error}</p>
       ) : snap ? (
         <div className="grid lg:grid-cols-2 gap-4">
+          {/* ── Is the system alive? ──────────────────────────────────────────
+              These four go first because they are what you check before you
+              look at anything else. Previously none of them existed: you could
+              see that a job RAN, but not whether the database was up, whether
+              the worker was actually alive, whether work was piling up behind
+              it, or whether a backup had been taken this century. */}
+
+          {/* System status — DB + worker + alerts, one row */}
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Server className="h-4 w-4 text-primary" /> System status
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid sm:grid-cols-3 gap-3">
+              {/* Database */}
+              <div className="rounded border p-3">
+                <div className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1"><Database className="h-3.5 w-3.5" /> Database</div>
+                {snap.database.info?.connected ? (
+                  <div className="text-emerald-600 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4" /> Connected
+                    <span className="text-xs text-muted-foreground font-normal">{snap.database.info.latencyMs}ms</span>
+                  </div>
+                ) : (
+                  <div className="text-red-600 font-medium flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4" /> Unreachable
+                  </div>
+                )}
+                {snap.database.error && <p className="text-xs text-red-600 mt-1 break-all">{snap.database.error}</p>}
+              </div>
+
+              {/* Worker — LIVE, not inferred from JobRun rows */}
+              <div className="rounded border p-3">
+                <div className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1"><Timer className="h-3.5 w-3.5" /> Worker</div>
+                {snap.worker.info?.reachable ? (
+                  <>
+                    <div className="text-emerald-600 font-medium flex items-center gap-1.5">
+                      <CheckCircle2 className="h-4 w-4" /> Alive
+                      <span className="text-xs text-muted-foreground font-normal">
+                        up {Math.floor((snap.worker.info.uptimeSeconds ?? 0) / 60)}m
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {snap.worker.info.jobs.length} jobs registered
+                      {snap.worker.info.staleJobs.length > 0 && (
+                        <span className="text-amber-600 font-medium"> · {snap.worker.info.staleJobs.length} stale</span>
+                      )}
+                    </p>
+                    {snap.worker.info.staleJobs.length > 0 && (
+                      <p className="text-xs text-amber-600 mt-0.5 break-words" title="Registered, but has not ticked within 3x its cadence.">
+                        {snap.worker.info.staleJobs.join(", ")}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="text-red-600 font-medium flex items-center gap-1.5">
+                      <AlertTriangle className="h-4 w-4" /> Unreachable
+                    </div>
+                    <p className="text-xs text-red-600 mt-1">{snap.worker.error}</p>
+                  </>
+                )}
+              </div>
+
+              {/* Alerts — with the silence control */}
+              <div className="rounded border p-3">
+                <div className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1"><BellRing className="h-3.5 w-3.5" /> Alerts</div>
+                {snap.alerts.info?.silencedUntil ? (
+                  <>
+                    <div className="text-amber-600 font-medium flex items-center gap-1.5">
+                      <BellOff className="h-4 w-4" /> Silenced
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">until {fmtTime(snap.alerts.info.silencedUntil)}</p>
+                    <Button size="sm" variant="outline" className="mt-2 h-7 text-xs" disabled={silencing} onClick={() => setSilence(0)}>
+                      Resume alerts
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-emerald-600 font-medium flex items-center gap-1.5">
+                      <CheckCircle2 className="h-4 w-4" /> Live
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Every error emails the operator.</p>
+                    <div className="flex gap-1.5 mt-2">
+                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={silencing} onClick={() => setSilence(30)}>
+                        Silence 30m
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={silencing} onClick={() => setSilence(120)}>
+                        2h
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Queues — "is work piling up?" You could always see that a job ran.
+              You could never see that it was falling behind. */}
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Layers className="h-4 w-4 text-primary" /> Queues</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.queues.status} error={snap.queues.error} unconfiguredHint="No queue data." />
+              {snap.queues.status === "ok" && (
+                <div className="space-y-1.5">
+                  {snap.queues.rows.map((q) => {
+                    const bad = q.value > q.warnAbove;
+                    return (
+                      <div key={q.label} className="flex items-center justify-between gap-2 text-sm" title={q.hint}>
+                        <span className={bad ? "font-medium" : "text-muted-foreground"}>{q.label}</span>
+                        <span className={`font-mono ${bad ? "text-red-600 font-bold" : "text-muted-foreground"}`}>{q.value}</span>
+                      </div>
+                    );
+                  })}
+                  {snap.queues.rows.every((q) => q.value <= q.warnAbove) && (
+                    <p className="text-sm text-emerald-600 flex items-center gap-1.5 pt-1"><CheckCircle2 className="h-4 w-4" /> Nothing backing up.</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Last backup — nothing had EVER read back from the DR bucket. A
+              backup nobody verifies is a backup you find out about at restore
+              time, which is the worst possible moment. */}
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Archive className="h-4 w-4 text-primary" /> Last database backup</CardTitle></CardHeader>
+            <CardContent>
+              <StatusNote status={snap.backup.status} error={snap.backup.error} unconfiguredHint="DR bucket not configured." />
+              {snap.backup.status === "ok" && snap.backup.info && (
+                <div className="space-y-1">
+                  <div className={`text-xl font-bold ${snap.backup.info.stale ? "text-red-600" : "text-emerald-600"}`}>
+                    {snap.backup.info.ageHours == null ? "—" : `${snap.backup.info.ageHours.toFixed(1)}h ago`}
+                  </div>
+                  {snap.backup.info.stale && (
+                    <p className="text-sm text-red-600 flex items-start gap-1.5">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                      Stale. The dump cron may have stopped — check it on the box before you need it.
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground break-all">
+                    s3://{snap.backup.info.bucket}/{snap.backup.info.latestKey}
+                  </p>
+                  {snap.backup.info.latestAt && (
+                    <p className="text-xs text-muted-foreground">{fmtTime(snap.backup.info.latestAt)}</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Cron / Jobs — full width */}
           <Card className="lg:col-span-2">
             <CardHeader className="pb-2">

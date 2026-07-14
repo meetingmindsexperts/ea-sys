@@ -23,9 +23,12 @@ import {
   type MetricDataQuery,
 } from "@aws-sdk/client-cloudwatch";
 import { SESv2Client, GetAccountCommand } from "@aws-sdk/client-sesv2";
+import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
 import { EXPECTED_JOBS } from "@/lib/worker-jobs";
+import { getBuildInfo } from "@/lib/build-info";
+import { getAlertSilence } from "@/lib/admin-alert";
 
 const REGION = process.env.AWS_CLOUDWATCH_REGION || process.env.AWS_REGION || "ap-south-1";
 const SES_REGION = process.env.AWS_SES_REGION || process.env.AWS_REGION || "ap-south-1";
@@ -41,6 +44,22 @@ function getSes(): SESv2Client {
   if (!sesClient) sesClient = new SESv2Client({ region: SES_REGION });
   return sesClient;
 }
+let s3Client: S3Client | null = null;
+function getS3(): S3Client {
+  if (!s3Client) s3Client = new S3Client({ region: DR_REGION });
+  return s3Client;
+}
+
+// Disaster-recovery bucket (Singapore). scripts/dr-pg-dump.sh writes
+// db/{YYYY}/{MM}/{DD-HH}-mumbai.dump here on a cron — and until now NOTHING
+// ever read it back. Backups could have silently stopped weeks ago and the
+// first anyone would know is a restore that finds nothing there. Reading the
+// newest object's age is the cheapest possible "is the backup alive" check.
+const DR_BUCKET = process.env.DR_BUCKET || "ea-sys-dr-singapore";
+const DR_REGION = process.env.DR_REGION || "ap-southeast-1";
+const DR_PREFIX = "db/";
+/** Dumps run twice daily-ish; anything older than this is a red flag. */
+const BACKUP_STALE_HOURS = 18;
 
 // ── Types ──────────────────────────────────────────────────────────
 type SourceStatus = "ok" | "error" | "unconfigured";
@@ -102,9 +121,57 @@ export interface EmailFailRow {
   at: string;
 }
 
+export interface BuildIdentity {
+  gitSha: string;
+  gitShaShort: string;
+  builtAt: string | null;
+  slot: string | null;
+  hostname: string;
+}
+export interface DbStatus {
+  connected: boolean;
+  latencyMs: number | null;
+}
+export interface WorkerJobLive {
+  name: string;
+  schedule: string;
+  lastTickAt: string | null;
+  stale: boolean;
+}
+export interface WorkerLive {
+  reachable: boolean;
+  uptimeSeconds: number | null;
+  gitSha: string | null;
+  jobs: WorkerJobLive[];
+  staleJobs: string[];
+}
+export interface QueueDepth {
+  label: string;
+  value: number;
+  /** Above this, the number is a problem rather than a fact. */
+  warnAbove: number;
+  hint: string;
+}
+export interface BackupStatus {
+  latestKey: string | null;
+  latestAt: string | null;
+  ageHours: number | null;
+  stale: boolean;
+  bucket: string;
+}
+export interface AlertStatus {
+  silencedUntil: string | null;
+}
+
 export interface InfraSnapshot {
   generatedAt: string;
   region: string;
+  build: BuildIdentity;
+  database: { status: SourceStatus; error?: string; info: DbStatus | null };
+  worker: { status: SourceStatus; error?: string; info: WorkerLive | null };
+  queues: { status: SourceStatus; error?: string; rows: QueueDepth[] };
+  backup: { status: SourceStatus; error?: string; info: BackupStatus | null };
+  alerts: { status: SourceStatus; error?: string; info: AlertStatus | null };
   deploys: { status: SourceStatus; error?: string; runs: DeployRun[] };
   ses: { status: SourceStatus; error?: string; info: SesInfo | null };
   alarms: { status: SourceStatus; error?: string; inAlarm: AlarmRow[] };
@@ -416,24 +483,224 @@ async function fetchEmailFailures(): Promise<InfraSnapshot["emailFailures"]> {
   }
 }
 
+
+// ── The four things an operator wants at 3am and could not get ─────────────
+// Deploys / SES / alarms / metrics were already here. What was missing was the
+// stuff that tells you whether the SYSTEM is actually working: is the database
+// up, is the worker alive (as opposed to "did a JobRun row appear at some
+// point"), is anything backing up behind a queue, and does a backup exist.
+
+async function fetchDatabase(): Promise<InfraSnapshot["database"]> {
+  const start = Date.now();
+  try {
+    await db.$queryRaw`SELECT 1`;
+    return { status: "ok", info: { connected: true, latencyMs: Date.now() - start } };
+  } catch (err) {
+    apiLogger.error({ err }, "infra:db-ping-failed");
+    return {
+      status: "error",
+      error: (err as Error).message,
+      info: { connected: false, latencyMs: null },
+    };
+  }
+}
+
+/**
+ * LIVE worker liveness — asks the worker container itself.
+ *
+ * The existing Jobs card infers the worker's health from JobRun rows, which
+ * cannot distinguish "the worker is dead" from "that job isn't due yet". A
+ * worker that crashed before the first tick of a slow job looks identical to a
+ * healthy one. /worker/health knows the difference: it reports real uptime, and
+ * (since the roster fix) EVERY registered job, including the ones that have
+ * never ticked.
+ */
+async function fetchWorker(): Promise<InfraSnapshot["worker"]> {
+  const url = process.env.WORKER_HEALTH_URL || "http://ea-sys-worker:3099/health";
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(2500), cache: "no-store" });
+    if (!res.ok) {
+      return {
+        status: "error",
+        error: `Worker health returned ${res.status}`,
+        info: { reachable: false, uptimeSeconds: null, gitSha: null, jobs: [], staleJobs: [] },
+      };
+    }
+    const body = (await res.json()) as {
+      uptimeSeconds?: number;
+      gitSha?: string;
+      jobs?: WorkerJobLive[];
+      staleJobs?: string[];
+    };
+    return {
+      status: "ok",
+      info: {
+        reachable: true,
+        uptimeSeconds: body.uptimeSeconds ?? null,
+        gitSha: body.gitSha ?? null,
+        jobs: body.jobs ?? [],
+        staleJobs: body.staleJobs ?? [],
+      },
+    };
+  } catch (err) {
+    // Unreachable is a REAL finding, not a config gap — the worker drains every
+    // queue in the system. Log it at warn so it is greppable, and surface it.
+    apiLogger.warn({ err, url }, "infra:worker-unreachable");
+    return {
+      status: "error",
+      error: "Worker unreachable — no background job is running (emails, certificates, webinar sync).",
+      info: { reachable: false, uptimeSeconds: null, gitSha: null, jobs: [], staleJobs: [] },
+    };
+  }
+}
+
+/**
+ * Queue depths — "is work piling up?".
+ *
+ * You could always see that a job RAN. You could never see that it was falling
+ * behind. A scheduled-emails job that ticks happily every minute while 400
+ * emails sit due-and-unsent is green on every existing card.
+ */
+async function fetchQueues(): Promise<InfraSnapshot["queues"]> {
+  try {
+    const now = new Date();
+    const dayAgo = new Date(Date.now() - 24 * 3600_000);
+    const [emailsDue, emailsStuck, emailsFailed24h, certRunsActive, certRunsFailed24h] =
+      await Promise.all([
+        db.scheduledEmail.count({ where: { status: "PENDING", scheduledFor: { lte: now } } }),
+        db.scheduledEmail.count({ where: { status: "PROCESSING" } }),
+        db.scheduledEmail.count({ where: { status: "FAILED", updatedAt: { gte: dayAgo } } }),
+        db.certificateIssueRun.count({
+          where: { status: { in: ["PENDING", "RENDERING", "SENDING"] } },
+        }),
+        db.certificateIssueRun.count({ where: { status: "FAILED", triggeredAt: { gte: dayAgo } } }),
+      ]);
+
+    const rows: QueueDepth[] = [
+      {
+        label: "Emails due, unsent",
+        value: emailsDue,
+        warnAbove: 0,
+        hint: "PENDING and past their send time. The worker drains these every minute — anything here means it is not keeping up, or not running.",
+      },
+      {
+        label: "Emails mid-send",
+        value: emailsStuck,
+        warnAbove: 3,
+        hint: "PROCESSING. A couple is normal. A pile means sends are wedging.",
+      },
+      {
+        label: "Email sends failed (24h)",
+        value: emailsFailed24h,
+        warnAbove: 0,
+        hint: "Bulk-email jobs that gave up in the last day.",
+      },
+      {
+        label: "Certificate runs in flight",
+        value: certRunsActive,
+        warnAbove: 5,
+        hint: "Rendering or sending. These are slow by nature; a standing pile is not.",
+      },
+      {
+        label: "Certificate runs failed (24h)",
+        value: certRunsFailed24h,
+        warnAbove: 0,
+        hint: "Attendees who were promised a certificate and did not get one.",
+      },
+    ];
+    return { status: "ok", rows };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:queues-failed");
+    return { status: "error", error: (err as Error).message, rows: [] };
+  }
+}
+
+/**
+ * Last DR backup — the classic "the backup that wasn't".
+ *
+ * dr-pg-dump.sh emails on failure, but that only fires if the script RUNS and
+ * fails. If the crontab is lost (box rebuild, user change, the DR failover the
+ * whole thing exists for), backups stop silently and you discover it at restore
+ * time, which is the worst possible moment. Reading the newest object's age
+ * turns "no news" into an actual signal.
+ */
+async function fetchBackup(): Promise<InfraSnapshot["backup"]> {
+  try {
+    // The keys are db/{YYYY}/{MM}/{DD-HH}-mumbai.dump. Listing the whole prefix
+    // is a handful of objects (30-day lifecycle), so just take the newest by
+    // LastModified rather than paginating cleverly.
+    const out = await getS3().send(
+      new ListObjectsV2Command({ Bucket: DR_BUCKET, Prefix: DR_PREFIX, MaxKeys: 200 }),
+    );
+    const objects = (out.Contents ?? []).filter((o) => o.Key && o.LastModified);
+    if (objects.length === 0) {
+      return {
+        status: "error",
+        error: `No database backups found in s3://${DR_BUCKET}/${DR_PREFIX}`,
+        info: { latestKey: null, latestAt: null, ageHours: null, stale: true, bucket: DR_BUCKET },
+      };
+    }
+    const newest = objects.reduce((a, b) =>
+      (a.LastModified as Date) > (b.LastModified as Date) ? a : b,
+    );
+    const at = newest.LastModified as Date;
+    const ageHours = (Date.now() - at.getTime()) / 3600_000;
+    return {
+      status: "ok",
+      info: {
+        latestKey: newest.Key ?? null,
+        latestAt: at.toISOString(),
+        ageHours,
+        stale: ageHours > BACKUP_STALE_HOURS,
+        bucket: DR_BUCKET,
+      },
+    };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:backup-check-failed");
+    return { status: "error", error: friendlyAwsError(err), info: null };
+  }
+}
+
+async function fetchAlerts(): Promise<InfraSnapshot["alerts"]> {
+  try {
+    const silencedUntil = await getAlertSilence();
+    return { status: "ok", info: { silencedUntil: silencedUntil?.toISOString() ?? null } };
+  } catch (err) {
+    apiLogger.warn({ err }, "infra:alert-silence-failed");
+    return { status: "error", error: (err as Error).message, info: null };
+  }
+}
+
 // ── Public ─────────────────────────────────────────────────────────
 
 export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
   if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.snap;
 
   const instanceId = await getInstanceId();
-  const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures] = await Promise.all([
-    fetchDeploys(),
-    fetchAlarms(),
-    fetchSes(),
-    fetchMetrics(instanceId),
-    fetchJobs(),
-    fetchRecentErrors(),
-    fetchEmailFailures(),
-  ]);
+  const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures, database, worker, queues, backup, alerts] =
+    await Promise.all([
+      fetchDeploys(),
+      fetchAlarms(),
+      fetchSes(),
+      fetchMetrics(instanceId),
+      fetchJobs(),
+      fetchRecentErrors(),
+      fetchEmailFailures(),
+      fetchDatabase(),
+      fetchWorker(),
+      fetchQueues(),
+      fetchBackup(),
+      fetchAlerts(),
+    ]);
   const snap: InfraSnapshot = {
     generatedAt: new Date().toISOString(),
     region: REGION,
+    build: getBuildInfo(),
+    database,
+    worker,
+    queues,
+    backup,
+    alerts,
     deploys,
     alarms,
     ses,

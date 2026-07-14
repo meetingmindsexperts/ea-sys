@@ -17,6 +17,12 @@
  */
 
 import os from "os";
+// Read the real version rather than process.env.npm_package_version, which is
+// only set when the process was started BY npm. The container runs
+// `node server.js` directly, so it was never set in production — /api/health
+// has always been reporting a hardcoded fallback string that had nothing to do
+// with the deployed version.
+import pkg from "../../package.json";
 
 export interface BuildInfo {
   /** Full 40-char git SHA of the deployed commit, or "unknown" outside Docker. */
@@ -46,7 +52,7 @@ export function getBuildInfo(): BuildInfo {
     builtAt,
     slot,
     hostname: os.hostname(),
-    version: process.env.npm_package_version ?? "0.0.0",
+    version: pkg.version,
   };
 }
 

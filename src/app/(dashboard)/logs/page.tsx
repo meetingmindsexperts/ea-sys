@@ -37,6 +37,11 @@ interface LogEntry {
 interface LogResponse {
   logs: LogEntry[];
   count: number;
+  /** Total MATCHING rows in the window (database source only; null otherwise). */
+  total?: number | null;
+  /** True when `logs` is only a slice of `total`. */
+  truncated?: boolean;
+  tail?: number;
   source?: string;
   containerName?: string;
   since: string;
@@ -46,10 +51,15 @@ interface LogResponse {
 
 export default function LogsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [filteredLogs, setFilteredLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  // Debounced copy of searchTerm — search now goes to the SERVER (so it covers
+  // the whole time window, not just the 500 rows we happened to fetch), which
+  // means we must not fire a query on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [total, setTotal] = useState<number | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [levelFilter, setLevelFilter] = useState("error");
   const [timeRange, setTimeRange] = useState("10m");
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -67,6 +77,7 @@ export default function LogsPage() {
         tail: "500",
         source: logSource,
       });
+      if (debouncedSearch) params.set("search", debouncedSearch);
 
       const response = await fetch(`/api/logs?${params}`);
       const data: LogResponse = await response.json();
@@ -78,6 +89,8 @@ export default function LogsPage() {
       }
 
       setLogs(data.logs);
+      setTotal(data.total ?? null);
+      setTruncated(Boolean(data.truncated));
       setSourceLabel(data.source || data.containerName || logSource);
     } catch (error) {
       toast.error("Failed to fetch logs");
@@ -85,7 +98,7 @@ export default function LogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [levelFilter, timeRange, logSource]);
+  }, [levelFilter, timeRange, logSource, debouncedSearch]);
 
   useEffect(() => {
     fetchLogs();
@@ -101,19 +114,16 @@ export default function LogsPage() {
     return () => clearInterval(interval);
   }, [autoRefresh, fetchLogs]);
 
+  // Debounce the search box, then let the SERVER do the matching.
+  //
+  // This used to filter the already-fetched rows in memory. Since we only fetch
+  // the newest 500, searching for something 600 rows back rendered "No logs
+  // found" — the viewer told you an error you were staring at in Sentry had
+  // never happened. The query now runs against the whole window.
   useEffect(() => {
-    // Filter logs by search term
-    if (searchTerm) {
-      const filtered = logs.filter(
-        (log) =>
-          log.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          log.timestamp.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-      setFilteredLogs(filtered);
-    } else {
-      setFilteredLogs(logs);
-    }
-  }, [searchTerm, logs]);
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   useEffect(() => {
     // Scroll detection
@@ -136,7 +146,7 @@ export default function LogsPage() {
   };
 
   const downloadLogs = () => {
-    const logText = filteredLogs
+    const logText = logs
       .map((log) => `[${log.timestamp}] [${log.level.toUpperCase()}] ${log.message}`)
       .join("\n");
 
@@ -377,7 +387,7 @@ export default function LogsPage() {
               </Button>
               <Button
                 onClick={downloadLogs}
-                disabled={filteredLogs.length === 0}
+                disabled={logs.length === 0}
                 variant="outline"
                 className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300 font-mono"
                 size="sm"
@@ -421,8 +431,11 @@ export default function LogsPage() {
           {/* Stats */}
           <div className="flex items-center gap-4 mt-3 text-xs text-cyan-400/60 font-mono">
             <div>
-              <span className="text-cyan-400">{filteredLogs.length}</span> entries
-              {searchTerm && <span> (filtered from {logs.length})</span>}
+              <span className="text-cyan-400">{logs.length}</span> entries
+              {total != null && total > logs.length && (
+                <span className="text-amber-400"> of {total.toLocaleString()} matching</span>
+              )}
+              {searchTerm !== debouncedSearch && <span className="text-cyan-400/40"> · searching…</span>}
             </div>
             {autoRefresh && (
               <div className="flex items-center gap-1.5">
@@ -446,7 +459,7 @@ export default function LogsPage() {
               <p className="text-cyan-400/60 font-mono text-sm">Loading logs...</p>
             </div>
           </div>
-        ) : filteredLogs.length === 0 ? (
+        ) : logs.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Terminal className="w-12 h-12 text-cyan-400/30 mx-auto mb-3" />
@@ -460,21 +473,30 @@ export default function LogsPage() {
           </div>
         ) : (
           <div className="space-y-2 pb-20">
+            {/* Truncation is stated, not hidden. Showing 500 of 5,231 rows while
+                implying you are looking at everything is how an operator draws a
+                confident conclusion from a fraction of the data. */}
+            {truncated && total != null && (
+              <div className="border border-amber-500/40 bg-amber-500/10 text-amber-300 rounded px-4 py-2 font-mono text-xs">
+                Showing the newest {logs.length.toLocaleString()} of {total.toLocaleString()} matching entries.
+                Narrow the time range, the level, or the search to see the rest.
+              </div>
+            )}
             {/* Display newest-first (latest at top). Exports keep the
                 chronological API order. */}
-            {[...filteredLogs].reverse().map((log, index) => (
+            {[...logs].reverse().map((log, index) => (
               <div
-                key={index}
+                // Keyed on the row's own identity, not its position. With a
+                // positional key + the staggered slide-in below, every 9-second
+                // auto-refresh re-ran a 500ms animation cascade across the whole
+                // list — the thing you were trying to read kept moving.
+                key={`${log.timestamp}#${index}`}
                 className={`
                   border-l-2 pl-4 py-2 rounded-r backdrop-blur-sm
-                  transition-all duration-300 ease-out
+                  transition-colors duration-150
                   hover:bg-cyan-500/5 hover:border-l-cyan-400
                   ${getLevelColor(log.level)}
-                  animate-slide-in
                 `}
-                style={{
-                  animationDelay: `${Math.min(index * 20, 500)}ms`,
-                }}
               >
                 <div className="flex items-start gap-3">
                   <div className="flex items-center gap-2 min-w-[140px] mt-0.5">
