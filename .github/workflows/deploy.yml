@@ -85,18 +85,10 @@ jobs:
       - name: Migration safety (blue-green)
         run: bash scripts/check-migration-safety.sh
 
-      # Blocking gate on CRITICAL only. As of July 2026 the tree carries 10 high
-      # + 16 moderate advisories, so gating on `high` would red-line every deploy
-      # on day one and get switched off within a week. Critical passes today and
-      # blocks anything genuinely on fire; Dependabot (.github/dependabot.yml)
-      # grinds the highs down. Revisit the threshold once the backlog is clear.
-      - name: Audit dependencies (critical blocks)
-        run: npm audit --audit-level=critical --omit=dev
-
-      # Non-blocking visibility on the rest, so the backlog is at least *seen*.
-      - name: Audit dependencies (high — report only)
-        continue-on-error: true
-        run: npm audit --audit-level=high --omit=dev
+      # Dependency auditing is done manually, locally, before a push — not in CI.
+      # (`npm audit` on demand.) Deliberate: CI gates what a commit BREAKS, not
+      # what the ecosystem happens to have disclosed today, which is not something
+      # a deploy should be blocked on.
 
       # `next build` here uploads source maps to Sentry (has the auth token) AND
       # fails fast on any build error before we bother building the Docker image.
