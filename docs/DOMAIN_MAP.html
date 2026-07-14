@@ -524,15 +524,16 @@
 </details>
 
 <details class="domain noreview">
-<summary>Contacts (org CRM store) <span class="chip warn">reviewed jul 13 — ALL findings deferred</span>
+<summary>Contacts (org CRM store) <span class="chip ok">H1+H2 shipped jul 14</span> <span class="chip warn">H3/H4 + MED/LOW deferred</span>
 <span class="oneliner">Org-wide contact records auto-synced from every registrant/speaker/reviewer interaction. Enrich-only: the sync fills fields, never clears them. Mirrored to an external EU Supabase table (<code>contacts_centralv1</code>) by two worker jobs.</span></summary>
 <div class="kids">
 <div class="leaf"><b class="k">Entry</b> contacts pages · <code>/api/contacts/*</code> · MCP <code>tools/contacts.ts</code> · worker <code>contacts-central-sync</code>/<code>-reconcile</code></div>
 <div class="leaf"><b class="k">Core</b> <code>lib/contact-sync.ts</code> (enrich-only) · <code>lib/email-change.ts</code> (email immutable via PUT; Contact PATCH is deliberately CRM-only, no cascade) · <code>lib/contacts-central-sync.ts</code></div>
-<div class="leaf"><b class="k">Review</b> <code>docs/CODE_REVIEW_CONTACTS.html</code> (July 13) — 0 BLOCKER / <b>4 HIGH</b> / 12 MED / 7 LOW, <b>all deferred by owner decision</b> (document-only round). Tracked in ROADMAP §"Contacts review — deferred findings".</div>
-<div class="gotcha"><b>H1 (open):</b> the contacts READ routes have no role gate — ONSITE / MEMBER / internal-domain REGISTRANT can export the whole org CRM incl. private notes.</div>
-<div class="gotcha"><b>H2 (open):</b> the REST contact-create path doesn't lowercase the email (all other writers do) → case-variant duplicate contacts.</div>
-<div class="gotcha"><b>H3 (open):</b> the EU mirror is email-keyed + append-only — renames/merges/deletes never propagate, so a typo'd address lives on forever.</div>
+<div class="leaf"><b class="k">Review</b> <code>docs/CODE_REVIEW_CONTACTS.html</code> (July 13) — 0 BLOCKER / 4 HIGH / 12 MED / 7 LOW. <b>H1 + H2 shipped</b> (<code>a0744ef</code>, July 14); H3/H4 + all MED/LOW deferred → ROADMAP §"Contacts review".</div>
+<div class="leaf"><b class="k">Read gate</b> <code>lib/contact-visibility.ts</code> — <code>canViewContacts()</code>: staff (SUPER_ADMIN/ADMIN/ORGANIZER) + <b>MEMBER</b> + API keys. ONSITE / REGISTRANT / REVIEWER / SUBMITTER get 403. Its own boundary — NOT finance (includes ONSITE) and NOT barcodes (the inverse).</div>
+<div class="gotcha"><b>H4 (open):</b> MCP <code>update_speaker</code> syncs name+email only while REST syncs ~12 fields → agent/n8n speaker edits never reach the Contact store (silent no-op, since sync is enrich-only).</div>
+<div class="gotcha"><b>H3 (open):</b> the EU mirror is email-keyed + append-only — renames/merges/deletes never propagate, so a typo'd address lives on forever as a live-looking marketing record.</div>
+<div class="gotcha"><b>Open (H2 residue):</b> no backfill was run — case-variant duplicate contacts minted before July 14 still exist.</div>
 </div>
 </details>
 
@@ -605,9 +606,9 @@
 <tr><td>Certificates</td><td><b>July 13</b></td><td><span class="chip ok">1/1</span></td><td><span class="chip ok">5/5 + M1–M5</span></td><td>ROADMAP ✅</td></tr>
 <tr><td>Survey + Dinner RSVP</td><td><b>July 13</b></td><td><span class="chip warn">1/2 — B1 OPEN</span></td><td><span class="chip ok">5/5</span></td><td>ROADMAP ⚠️</td></tr>
 <tr><td>Media library</td><td>(inside certs review)</td><td>—</td><td>—</td><td>—</td></tr>
-<tr><td>Contacts <span class="chip muted">supporting</span></td><td><b>July 13</b></td><td>0</td><td><span class="chip warn">4 — ALL DEFERRED</span></td><td>ROADMAP ✅ (all 23)</td></tr>
+<tr><td>Contacts <span class="chip muted">supporting</span></td><td><b>July 13</b></td><td>0</td><td><span class="chip ok">2/4 (H1+H2)</span> <span class="chip warn">H3, H4 open</span></td><td>ROADMAP ✅ (all 23)</td></tr>
 </table>
-<div class="note warn" style="margin-top:1rem"><strong>Every domain has now been independently reviewed.</strong> ⚠️ <strong>One BLOCKER remains OPEN:</strong> Survey <b>B1</b> — the share link accepts a typed email as proof of identity, so anyone can submit a survey as another attendee and auto-issue a real CME certificate in their name. Needs an owner decision (3 options in <code>docs/CODE_REVIEW_SURVEY_RSVP.html</code>). <strong>Do not run a CME-certificate conference off a broadcast survey link until it is closed.</strong><br><br>⚠️ <strong>Contacts is the only domain with an open HIGH backlog</strong> — a document-only round by owner decision (<code>docs/CODE_REVIEW_CONTACTS.html</code>). Live today: <b>H1</b> the contacts read/export routes have no role gate (ONSITE / MEMBER / internal REGISTRANT can pull the whole org CRM incl. private notes), and <b>H2</b> the REST create path doesn't lowercase emails, minting duplicate contacts.</div>
+<div class="note warn" style="margin-top:1rem"><strong>Every domain has now been independently reviewed.</strong> ⚠️ <strong>One BLOCKER remains OPEN:</strong> Survey <b>B1</b> — the share link accepts a typed email as proof of identity, so anyone can submit a survey as another attendee and auto-issue a real CME certificate in their name. Needs an owner decision (3 options in <code>docs/CODE_REVIEW_SURVEY_RSVP.html</code>). <strong>Do not run a CME-certificate conference off a broadcast survey link until it is closed.</strong><br><br><strong>Contacts</strong> shipped its two live-impact HIGHs on July 14 (<code>a0744ef</code> — the CRM read/export gate + email normalization). Still open there: <b>H4</b> (MCP <code>update_speaker</code> doesn't sync the profile to the CRM) and <b>H3</b> (the EU mirror never learns about renames/merges/deletes), plus a duplicate-contact backfill.</div>
 </div>
 </details>
 </div>

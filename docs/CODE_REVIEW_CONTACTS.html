@@ -73,12 +73,13 @@
 </header>
 
 <div class="note warn">
-  <strong>Status: DOCUMENTED ONLY — nothing has been fixed.</strong> The owner's call (July 13) was to record
-  the findings and defer all remediation, consistent with the current stabilization-first posture
-  (<code>docs/CRM_MODULE_PLAN.md</code>). Every finding below is <span class="pill deferred">DEFER</span>.
-  The deferred list is mirrored into <code>docs/ROADMAP.md</code> § “Contacts review — deferred findings”.
-  <strong>H1 is a live PII-exfiltration path</strong> reachable today by an ONSITE desk temp, and
-  <strong>H2 mints duplicate contacts continuously</strong> — if any of this gets un-deferred, start there.
+  <strong>Status (updated July 14): H1 + H2 SHIPPED (<code>a0744ef</code>); H3, H4 and every MED/LOW remain deferred.</strong>
+  The review was first recorded as a document-only round (stabilization-first posture,
+  <code>docs/CRM_MODULE_PLAN.md</code>). The owner then un-deferred the two live-impact HIGHs — H1 (an ONSITE
+  desk temp could export the whole org CRM) and H2 (duplicate contacts being minted continuously). The rest is
+  tracked in <code>docs/ROADMAP.md</code> § “Contacts review — deferred findings”.
+  <strong>Next in line if this reopens: H4</strong> (extract <code>speaker-service.updateSpeaker()</code> — the
+  duplication that caused it is the real fix), then H3 (mirror rename/merge/delete propagation).
 </div>
 
 <div class="note">
@@ -146,8 +147,8 @@
 <table>
   <thead><tr><th>#</th><th>Severity</th><th>One-liner</th><th>Status</th></tr></thead>
   <tbody>
-    <tr><td>H1</td><td><span class="sev high">High</span></td><td>Read routes have no role gate — ONSITE / MEMBER / internal REGISTRANT can export the entire org CRM (incl. private notes), un-audited, un-rate-limited</td><td><span class="pill deferred">DEFER</span></td></tr>
-    <tr><td>H2</td><td><span class="sev high">High</span></td><td>REST contact create never lowercases the email — mints case-variant duplicate people; the mirror silently drops one of each pair</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>H1</td><td><span class="sev high">High</span></td><td>Read routes have no role gate — ONSITE / MEMBER / internal REGISTRANT can export the entire org CRM (incl. private notes), un-audited, un-rate-limited</td><td><span class="pill shipped">SHIPPED a0744ef</span></td></tr>
+    <tr><td>H2</td><td><span class="sev high">High</span></td><td>REST contact create never lowercases the email — mints case-variant duplicate people; the mirror silently drops one of each pair</td><td><span class="pill shipped">SHIPPED a0744ef</span></td></tr>
     <tr><td>H3</td><td><span class="sev high">High</span></td><td>Central mirror never learns about a rename / merge / delete — the old email survives forever as a live-looking marketing record</td><td><span class="pill deferred">DEFER</span></td></tr>
     <tr><td>H4</td><td><span class="sev high">High</span></td><td>MCP <code>update_speaker</code> syncs name+email only while REST syncs the full profile — agent edits never reach the CRM</td><td><span class="pill deferred">DEFER</span></td></tr>
     <tr><td>M1</td><td><span class="sev medium">Medium</span></td><td><code>syncToContact</code> is check-then-act; the P2002 loser lands in a swallowed catch, dropping an <code>eventId</code> + all enrich data</td><td><span class="pill deferred">DEFER</span></td></tr>
@@ -218,6 +219,20 @@ const contacts = await db.contact.findMany({
       by design, but a full cross-event CRM with private notes is a data-minimization question, separate from
       ONSITE/REGISTRANT (who clearly should not).</li>
   </ul>
+  <p class="lbl">Actual fix — <span class="pill shipped">SHIPPED a0744ef</span> (July 14, 2026)</p>
+  <p>
+    <strong>Owner decision: staff + MEMBER may read; ONSITE / REGISTRANT / REVIEWER / SUBMITTER may not.</strong>
+    New <code>src/lib/contact-visibility.ts</code> is the boundary — <code>canViewContacts(role, isApiKey)</code>
+    + <code>denyContactAccess(ctx)</code> (which logs the refusal itself, so no call site can forget). It is
+    deliberately <em>its own</em> predicate rather than a reuse: <code>denyReviewer</code> is a write guard that
+    blocks MEMBER (who is allowed here), <code>FINANCE_ROLES</code> includes ONSITE (who is not), and
+    <code>BARCODE_ROLES</code> is the exact inverse of what we want. Fails closed on an unknown role. Wired into
+    all four read routes; the <strong>export additionally writes an <code>EXPORT</code> audit row</strong> (who,
+    when, row count, role, IP) and is <strong>rate-limited to 10/hr/org</strong>. Two previously-silent
+    rejections (the duplicate-email 409 and the detail 404) now log. +51 tests: the truth table incl. the
+    fail-closed cases, every role × every read route, "a blocked role never reaches the database", the audit row,
+    and the 429.
+  </p>
   <div class="learn"><strong>What to learn.</strong> A write-guard is not an access-control model. When you add
     a guard to the mutations of a resource, ask immediately: <em>who can read this, and is reading it harmful?</em>
     A bulk export endpoint is the highest-value object in any CRM — it deserves a stricter gate than the rows it
@@ -265,6 +280,21 @@ const contact = await db.contact.create({
     (<code>src/lib/email-change.ts</code>) like every other path. While there, map the create's P2002 race to a
     409 instead of the current 500 that echoes the raw Prisma message as <code>detail</code>. A one-time
     case-collapse backfill will be needed for rows already minted.
+  </p>
+  <p class="lbl">Actual fix — <span class="pill shipped">SHIPPED a0744ef</span> (July 14, 2026)</p>
+  <p>
+    The create schema now trims + lowercases <strong>before</strong> validation
+    (<code>z.preprocess</code>), so the dup-check and the insert both see the canonical value — and a pasted
+    trailing space is <em>accepted</em> rather than 400'd (a plain <code>.transform()</code> after
+    <code>.email()</code> would have rejected it). <code>normalizeEmail()</code> itself wasn't reused because it
+    returns <code>string | null</code>, which would have made a required field nullable. The P2002 race now maps
+    to a 409 and no longer echoes the Prisma message. +5 tests (lowercased dup-check, lowercased persist,
+    case-variant 409, race 409 with no <code>detail</code> leak).
+  </p>
+  <p class="lbl">Still open</p>
+  <p>
+    <strong>No backfill has been run</strong> — any case-variant duplicate pairs already in production remain.
+    This fix is forward-looking (it stops new ones). A one-time case-collapse/merge script is tracked in ROADMAP.
   </p>
   <div class="learn"><strong>What to learn.</strong> If a value has an invariant (“emails are stored lowercase”),
     the invariant must be enforced <em>at the boundary of the data, not in each writer</em> — a shared normalizer

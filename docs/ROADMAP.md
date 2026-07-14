@@ -1456,25 +1456,27 @@ independently shippable.
 | **Re-tier L2 — reject simultaneous type + tier change** | The PUT allows changing `ticketTypeId` and `pricingTierId` in one request; a type change nulls the tier, so a combined change is ambiguous. Add a 400 guard. | ~15 min | Low — the UI paths don't currently send both together; belt-and-braces. |
 | **Resident "official letter" — capture the file** | The public register form shows a Resident/Trainee "upload an official letter" **notice** (text-only, shipped July 7). Actually capturing + storing the file (additive `Attendee` column + upload UI + dashboard display) was deferred per the organizer's "text only" choice. | ~half day | If the organizer later wants the letter collected in-system rather than emailed/brought out-of-band. |
 
-### Contacts review — deferred findings (July 13, 2026) — **ALL DEFERRED, nothing fixed**
+### Contacts review — H1 + H2 SHIPPED; rest deferred (July 13–14, 2026)
 
 Full report: [docs/CODE_REVIEW_CONTACTS.html](docs/CODE_REVIEW_CONTACTS.html)
-(**0 BLOCKER / 4 HIGH / 12 MED / 7 LOW**). Owner decision: **document only, fix nothing this round**
-(stabilization-first posture — see [docs/CRM_MODULE_PLAN.md](CRM_MODULE_PLAN.md)). 3 of 4 review
-angles completed (RBAC/PII · concurrency/sync-integrity · drift/logging); the lifecycle angle died on
-an infra error and was not re-run.
+(**0 BLOCKER / 4 HIGH / 12 MED / 7 LOW**). Recorded first as a document-only round
+(stabilization-first posture — see [docs/CRM_MODULE_PLAN.md](CRM_MODULE_PLAN.md)); the owner then
+un-deferred the two live-impact HIGHs, **shipped July 14 in `a0744ef`**. 3 of 4 review angles
+completed (RBAC/PII · concurrency/sync-integrity · drift/logging); the lifecycle angle died on an
+infra error and was not re-run.
 
 **Foundations verified clean:** cross-tenant IDOR (every lookup binds `organizationId`), MCP org
 binding (injected from the API key), the May-18 write-guard fix, CSV formula-injection escaping, the
 email-change P2002→409 race handling.
 
-**If any of this is ever un-deferred, start with H1 and H2** — H1 is a live PII-exfiltration path
-reachable today; H2 mints duplicate contacts continuously.
+**Next in line if this reopens: H4** (extract `speaker-service.updateSpeaker()` — fixing the
+duplication IS the fix), then H3 (mirror rename/merge/delete propagation).
 
-| # | Sev | Finding | Note |
+| # | Sev | Finding | Status / note |
 |---|---|---|---|
-| **H1** | HIGH | **Read routes have no role gate** — `GET /api/contacts`, `/export`, `/tags`, detail GET authorize on `getOrgContext` alone (`denyReviewer` guards only writes). **ONSITE desk temps, MEMBER, and internal-domain REGISTRANTs are all org-bound**, so any of them can export the entire org CRM — every contact's email, phone, bio and private `notes` — un-audited and un-rate-limited. | Same class as check-in H7/H8 (guard sat on the POST). Fix = a `canViewContacts()` predicate (staff + API keys), audit + rate-limit the export. **Owner call needed on MEMBER.** |
-| **H2** | HIGH | **REST contact create never lowercases the email** ([contacts/route.ts:150-167](../src/app/api/contacts/route.ts)) while the other 5 writers do, and the unique index is case-sensitive → `John@Hospital.com` + a later `syncToContact` = **two contacts for one person**; the central sync then dedups by lowercased email (last-write-wins) and **silently never mirrors one of them**. | One line (`normalizeEmail` already exists) + map the create's P2002 to 409 (today: 500 echoing the raw Prisma message). Needs a case-collapse backfill. |
+| ~~**H1**~~ | HIGH | **Read routes had no role gate** — `GET /api/contacts`, `/export`, `/tags`, detail authorized on `getOrgContext` alone (`denyReviewer` guards only writes), and ONSITE / internal-domain REGISTRANT are org-bound ⇒ either could export the entire org CRM (email, phone, bio, private `notes`), un-audited + un-rate-limited. Same class as check-in H7/H8. | ✅ **SHIPPED `a0744ef`.** Owner decision: **staff + MEMBER may read; ONSITE / REGISTRANT / REVIEWER / SUBMITTER may not.** New [src/lib/contact-visibility.ts](../src/lib/contact-visibility.ts) (`canViewContacts` + `denyContactAccess`, fails closed, logs its own refusal) — deliberately its own predicate (denyReviewer blocks MEMBER, FINANCE_ROLES includes ONSITE, BARCODE_ROLES is the inverse). Export also writes an `EXPORT` audit row + 10/hr/org limit. +51 tests. |
+| ~~**H2**~~ | HIGH | **REST contact create never lowercased the email** while the other 5 writers do and the unique index is case-sensitive ⇒ **two contacts for one person**, one of which the central sync silently never mirrors. | ✅ **SHIPPED `a0744ef`.** Trim+lowercase via `z.preprocess` (before validation, so a pasted trailing space is accepted not 400'd); P2002 race → 409 instead of a 500 echoing the raw Prisma message. **⚠ No backfill run — existing duplicate pairs remain (see below).** |
+| **NEW** | MED | **Case-variant duplicate-contact backfill** — H2 stops *new* duplicates but does not merge the pairs already minted. Needs a one-time script: find contacts differing only by email case within an org, merge (union tags + `eventIds`, enrich scalars), delete the loser. Dry-run default, `--write`, audited — same shape as `backfill-faculty-registration-type.ts`. **Check prod for existing pairs before adding any DB-level `citext`/functional-unique-index constraint** (it would fail the migration). | Deferred. |
 | **H3** | HIGH | **The EU central mirror never learns about a rename / merge / delete** — it is email-keyed and POST-upsert-only. Fixing a typo'd email leaves the old address in `contacts_centralv1` **forever**, looking like a current, EA-maintained person (that table feeds `mailchimp_*`). The nightly reconcile only upserts, so it cannot heal it. | Deletes-are-kept may be defensible; the **rename → duplicate live identity** case is a defect regardless. Fix = PATCH the old-email row (`ea_synced=false` / `ea_merged_into`) on update/merge/delete. |
 | **H4** | HIGH | **MCP `update_speaker` syncs name+email only** while the REST speaker PUT syncs ~12 fields — so agent/n8n speaker edits (phone, affiliation…) **never reach the Contact store** (and, being enrich-only, the payload is a silent no-op). | The exact class already fixed for registrations on July 13 (`registration-service.ts:1394` comment). The speaker **update** was never service-extracted. Fix = `speaker-service.updateSpeaker()`. |
 | M1 | MED | `syncToContact` is check-then-act on a unique index; the P2002 loser lands in a swallowed catch → an `eventId` **and all enrich data** are permanently lost, and the reconcile can't heal it (it recomputes *from* the corrupted `Contact.eventIds`). | Retry-once on P2002 + atomic array append. |
