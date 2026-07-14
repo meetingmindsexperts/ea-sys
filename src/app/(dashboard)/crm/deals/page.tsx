@@ -50,13 +50,9 @@ export default function CrmDealsPage() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Deals</h1>
-          <p className="text-sm text-muted-foreground">
-            Sponsorship and exhibitor pipeline
-            {!canWrite && " — read-only"}
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          {canWrite ? "Drag a card to move it through the pipeline." : "Read-only."}
+        </p>
 
         <div className="flex items-center gap-2">
           <Select value={eventId} onValueChange={setEventId}>

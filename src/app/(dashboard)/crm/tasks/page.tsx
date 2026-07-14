@@ -34,10 +34,7 @@ export default function CrmTasksPage() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Tasks</h1>
-          <p className="text-sm text-muted-foreground">Follow-ups on deals and accounts</p>
-        </div>
+        <p className="text-sm text-muted-foreground">Follow-ups on deals and accounts</p>
         <div className="flex items-center gap-2">
           <Tabs value={scope} onValueChange={(v) => setScope(v as "mine" | "all")}>
             <TabsList>

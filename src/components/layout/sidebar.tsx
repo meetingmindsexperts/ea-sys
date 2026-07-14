@@ -37,7 +37,6 @@ import {
   BookOpen,
   Cpu,
   Handshake,
-  CheckSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
@@ -70,9 +69,7 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   // Gated on canViewCrm, NOT on an existing predicate: MEMBER may see the board
   // (leadership) but ONSITE may not (a desk temp must not hold the sponsorship
   // pipeline), which matches no other role set in the app.
-  { name: "Deals",     href: "/crm/deals",     icon: Handshake, crmOnly: true },
-  { name: "Companies", href: "/crm/companies", icon: Building2, crmOnly: true },
-  { name: "Tasks",     href: "/crm/tasks",     icon: CheckSquare, crmOnly: true },
+  { name: "CRM",       href: "/crm",       icon: Handshake, crmOnly: true },
   { name: "Invoices",  href: "/invoices",  icon: Receipt, financeOnly: true },
   { name: "Media",     href: "/media",     icon: ImageIcon },
   { name: "Settings",  href: "/settings",  icon: Settings },
