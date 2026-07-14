@@ -320,4 +320,74 @@ describe("create_registrations_bulk — M8 parity", () => {
     expect(res.createdCount).toBe(0);
     expect(res.errors[0]).toMatchObject({ code: "SALES_ENDED" });
   });
+
+  // ── contacts review M3 ────────────────────────────────────────────────────
+  // The sync used to carry only { email, firstName, lastName }. Because
+  // `syncToContact` is ENRICH-ONLY, that is a silent NO-OP against an existing
+  // contact — it succeeded, logged nothing, changed nothing — so a 100-row agent
+  // import produced 100 husk CRM rows while the Attendee rows held the full data.
+  //
+  // These assert the EFFECT (which fields are carried), not that the call
+  // happened: a test checking only "syncToContact was called" PASSES against the
+  // bug, which is precisely why it survived this long.
+  it("M3 — syncs the FULL row to the contact store, not just name+email", async () => {
+    await REGISTRATION_EXECUTORS.create_registrations_bulk(
+      {
+        registrations: [
+          row({
+            title: "DR",
+            organization: "Cleveland Clinic",
+            jobTitle: "Head of Cardiology",
+            phone: "+971500000000",
+            country: "AE",
+            specialty: "Cardiology",
+          }),
+        ],
+      },
+      ctx,
+    );
+
+    expect(mockSyncToContact).toHaveBeenCalledTimes(1);
+    expect(mockSyncToContact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org1",
+        eventId: "ev1",
+        email: "a@b.com",
+        firstName: "A",
+        lastName: "B",
+        title: "DR",
+        organization: "Cleveland Clinic",
+        jobTitle: "Head of Cardiology",
+        phone: "+971500000000",
+        country: "AE",
+        specialty: "Cardiology",
+        // Derived from the ticket type, exactly like the Attendee row.
+        registrationType: "Physician",
+      }),
+    );
+  });
+
+  it("M3 — the Attendee row and the contact sync are fed from ONE parsed object", async () => {
+    // The drift mechanism was three hand-rebuilt copies of the same row values.
+    // Whatever lands on the Attendee must land on the Contact.
+    await REGISTRATION_EXECUTORS.create_registrations_bulk(
+      { registrations: [row({ organization: "Tawam", specialty: "Oncology" })] },
+      ctx,
+    );
+
+    const attendeeData = (mockDb as MockDb)._regTx.attendee.create.mock.calls[0][0].data;
+    const syncArg = mockSyncToContact.mock.calls[0][0];
+
+    for (const field of ["organization", "jobTitle", "phone", "country", "specialty", "registrationType"] as const) {
+      expect(syncArg[field]).toEqual(attendeeData[field]);
+    }
+  });
+
+  it("M3 — omitted optional fields sync as null (not undefined-dropped)", async () => {
+    await REGISTRATION_EXECUTORS.create_registrations_bulk({ registrations: [row()] }, ctx);
+
+    expect(mockSyncToContact).toHaveBeenCalledWith(
+      expect.objectContaining({ organization: null, phone: null, specialty: null, title: null }),
+    );
+  });
 });

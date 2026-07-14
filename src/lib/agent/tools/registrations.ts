@@ -894,19 +894,41 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
           continue;
         }
 
+        // Parse the row's optional attendee fields ONCE. These same values feed
+        // three consumers — the Attendee row, the confirmation email, and the
+        // Contact-store sync — and rebuilding them per consumer is exactly how
+        // the sync came to carry only name+email (contacts review M3): the
+        // attendee got the full set, the CRM got a husk. One object, three uses.
+        // Typed as plain strings (NOT `as never`) so the shared payload keeps
+        // its type-safety at the syncToContact boundary; the Prisma enum cast
+        // stays where it belongs — on the Prisma call.
+        const attendeeFields: {
+          title: string | null;
+          organization: string | null;
+          jobTitle: string | null;
+          phone: string | null;
+          country: string | null;
+          specialty: string | null;
+          registrationType: string;
+        } = {
+          title: rawTitle ?? null,
+          organization: row.organization ? String(row.organization).slice(0, 255) : null,
+          jobTitle: row.jobTitle ? String(row.jobTitle).slice(0, 255) : null,
+          phone: row.phone ? String(row.phone).slice(0, 50) : null,
+          country: row.country ? String(row.country).slice(0, 255) : null,
+          specialty: row.specialty ? String(row.specialty).slice(0, 255) : null,
+          registrationType: ticketType.name,
+        };
+
         const result = await db.$transaction(async (tx) => {
           const attendee = await tx.attendee.create({
             data: {
               email,
               firstName,
               lastName,
-              title: (rawTitle as never) ?? null,
-              organization: row.organization ? String(row.organization).slice(0, 255) : null,
-              jobTitle: row.jobTitle ? String(row.jobTitle).slice(0, 255) : null,
-              phone: row.phone ? String(row.phone).slice(0, 50) : null,
-              country: row.country ? String(row.country).slice(0, 255) : null,
-              specialty: row.specialty ? String(row.specialty).slice(0, 255) : null,
-              registrationType: ticketType.name,
+              ...attendeeFields,
+              // `rawTitle` is already validated against TITLE_VALUES above.
+              title: (attendeeFields.title as never) ?? null,
             },
             select: { id: true, email: true },
           });
@@ -957,10 +979,10 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
               email,
               firstName,
               lastName,
-              title: rawTitle ?? null,
-              organization: row.organization ? String(row.organization).slice(0, 255) : null,
-              jobTitle: row.jobTitle ? String(row.jobTitle).slice(0, 255) : null,
-              country: row.country ? String(row.country).slice(0, 255) : null,
+              title: attendeeFields.title,
+              organization: attendeeFields.organization,
+              jobTitle: attendeeFields.jobTitle,
+              country: attendeeFields.country,
             },
             ticketTypeName: ticketType.name,
             ticketCurrency: ticketType.currency,
@@ -971,14 +993,21 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
         }
 
         // Fire-and-forget Contact upsert so bulk-created attendees reach the
-        // org-wide Contact store (parity with the single `create_registration`
-        // executor — otherwise bulk-imported attendees silently don't sync).
+        // org-wide Contact store — with the FULL row, not just name+email
+        // (contacts review M3). It used to pass only { email, firstName,
+        // lastName }: because `syncToContact` is ENRICH-ONLY, that is a silent
+        // NO-OP against an existing contact — the call succeeded, logged
+        // nothing, and changed nothing — so a 100-row agent import produced 100
+        // husk CRM rows while the Attendee rows held the full data. Same class
+        // as H4 (MCP update_speaker); the bulk paths are deliberately not
+        // service-backed, so the single-create service's fix didn't reach here.
         syncToContact({
           organizationId: ctx.organizationId,
           eventId: ctx.eventId,
           email,
           firstName,
           lastName,
+          ...attendeeFields,
         }).catch((err) => apiLogger.error({ err, index: i, email }, "agent:create_registrations_bulk contact-sync-failed"));
       } catch (err) {
         const rowEmail = (items[i] as { email?: string }).email;
