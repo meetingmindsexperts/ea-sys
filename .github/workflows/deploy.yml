@@ -70,6 +70,34 @@ jobs:
           npm run lint
           wait
 
+      # The unit suite (2747 tests across 205 files) runs in ~4 seconds and
+      # covers the invariants we most need protected on a live system — RBAC,
+      # finance visibility, barcode visibility, seat accounting, the worker-job
+      # drift guard. Until now CI deployed to production without running any of
+      # it. There is no reason for that; it costs 4 seconds.
+      - name: Unit tests
+        run: npm test
+
+      # Blue-green migrates BEFORE the nginx swap, so a DROP/RENAME/SET NOT NULL
+      # breaks the old slot while it is still serving real users — and a code
+      # rollback re-runs `migrate deploy` and cannot undo it. See the script's
+      # header for the expand/contract escape hatch.
+      - name: Migration safety (blue-green)
+        run: bash scripts/check-migration-safety.sh
+
+      # Blocking gate on CRITICAL only. As of July 2026 the tree carries 10 high
+      # + 16 moderate advisories, so gating on `high` would red-line every deploy
+      # on day one and get switched off within a week. Critical passes today and
+      # blocks anything genuinely on fire; Dependabot (.github/dependabot.yml)
+      # grinds the highs down. Revisit the threshold once the backlog is clear.
+      - name: Audit dependencies (critical blocks)
+        run: npm audit --audit-level=critical --omit=dev
+
+      # Non-blocking visibility on the rest, so the backlog is at least *seen*.
+      - name: Audit dependencies (high — report only)
+        continue-on-error: true
+        run: npm audit --audit-level=high --omit=dev
+
       # `next build` here uploads source maps to Sentry (has the auth token) AND
       # fails fast on any build error before we bother building the Docker image.
       # The build-push job below builds the runtime image separately; source maps
@@ -170,11 +198,98 @@ jobs:
             echo "==> Fixing upload dir ownership for git reset"
             sudo chown -R ubuntu:ubuntu /home/ubuntu/ea-sys/public/uploads /home/ubuntu/ea-sys/logs
 
-            echo "==> Pulling latest code"
-            git fetch origin main
-            git reset --hard origin/main
+            # Check out the EXACT commit whose images we're about to deploy —
+            # not whatever origin/main happens to be right now.
+            #
+            # This used to be `git reset --hard origin/main` while IMAGE_TAG is
+            # pinned to github.sha. Those are the same thing on a normal push,
+            # but they diverge on the one action you take under pressure:
+            # re-running an older workflow run. That gave the box CURRENT main's
+            # docker-compose.prod.yml, deploy.sh and prisma/migrations/, and then
+            # deployed an OLD image against them — and ran the NEW migrations from
+            # the OLD worker image. Code and image must always be the same commit.
+            echo "==> Checking out deploy commit ($IMAGE_TAG)"
+            git fetch origin
+            if ! git cat-file -e "${IMAGE_TAG}^{commit}" 2>/dev/null; then
+              echo "✗ Commit $IMAGE_TAG not found on the box after fetch. Aborting."
+              exit 1
+            fi
+            git reset --hard "$IMAGE_TAG"
 
             echo "==> Running blue-green deploy (IMAGE_TAG=$IMAGE_TAG)"
             bash scripts/deploy.sh
         env:
           IMAGE_TAG: ${{ github.sha }}
+
+  # ── Page a human when the pipeline fails ────────────────────────────────────
+  # Until now a failed deploy notified NOBODY. appleboy/ssh-action runs with
+  # script_stop: true, so deploy.sh can halt part-way through — after migrations
+  # have run, possibly after the new slot is up but before nginx switched — and
+  # the only signal was a red ✗ in the Actions tab that nobody is watching at 3am.
+  #
+  # The email is sent FROM THE BOX (scripts/ops-alert.sh) because the EC2 instance
+  # role already has ses:SendEmail — doing it from the runner would need new IAM.
+  # The trade-off: if the box itself is unreachable (the fail2ban-bans-the-runner
+  # case, see docs/INCIDENTS.md), this job can't send either. That's a known and
+  # accepted hole; the durable fix is OIDC + an ses:SendEmail policy on the
+  # ea-sys-gha role, which is an AWS change to make deliberately.
+  notify-failure:
+    name: Alert on failure
+    needs: [ci, build-push, deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send SES alert
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.MUMBAI_EC2_HOST }}
+          username: ${{ secrets.MUMBAI_EC2_USER }}
+          key: ${{ secrets.MUMBAI_EC2_SSH_KEY }}
+          port: 22
+          command_timeout: 3m
+          envs: RUN_URL,SHA,ACTOR,BRANCH
+          script: |
+            cd /home/ubuntu/ea-sys
+
+            # First failure after this change ships, the script may not be on the
+            # box yet (the deploy that would have delivered it is the one that
+            # failed). Pull just that file.
+            if [ ! -f scripts/ops-alert.sh ]; then
+              git fetch origin main --quiet || true
+              git checkout origin/main -- scripts/ops-alert.sh || true
+            fi
+
+            SUBJECT="EA-SYS DEPLOY FAILED — ${SHA:0:7} (${BRANCH})"
+            BODY="A deploy to production FAILED.
+
+            Commit : ${SHA}
+            Branch : ${BRANCH}
+            By     : ${ACTOR}
+            Run    : ${RUN_URL}
+
+            The box may be HALF-DEPLOYED. deploy.sh can stop part-way, and
+            migrations run BEFORE the nginx swap — so the new schema may already
+            be live while the old code still serves traffic.
+
+            Check what is actually running (the newest commit in git log is NOT
+            necessarily what is serving):
+              ssh the box, then:  docker ps
+              active slot:        cat /home/ubuntu/.active-slot
+              health:             curl -s localhost/api/health
+
+            To roll back to a known-good image:
+              IMAGE_TAG=<previous-full-40-char-sha> bash scripts/deploy.sh
+            Full runbook: docs/ROLLBACK.md"
+
+            if [ -f scripts/ops-alert.sh ]; then
+              bash scripts/ops-alert.sh "$SUBJECT" "$BODY"
+            else
+              echo "✗ ops-alert.sh missing on the box — could not send alert" >&2
+              exit 1
+            fi
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          BRANCH: ${{ github.ref_name }}

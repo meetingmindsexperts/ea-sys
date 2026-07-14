@@ -1,0 +1,26 @@
+# Acknowledged destructive migrations
+# ===================================
+# Checked by scripts/check-migration-safety.sh (runs in CI).
+#
+# EA-SYS migrates BEFORE the blue-green swap, so the old slot serves live
+# traffic against the new schema for a few seconds. A DROP / RENAME / SET NOT
+# NULL / ALTER TYPE on a column the old code still touches will 500 real users
+# — and a code rollback re-runs `migrate deploy`, so it cannot undo it.
+#
+# Prefer expand/contract: add now, drop in a later deploy once no code reads it.
+#
+# If a destructive migration IS safe, add its directory name here with a reason.
+# Format:  <migration_dir_name>   # why it is safe
+#
+# The entries below are HISTORICAL — every one of them is already applied to
+# production. They are grandfathered in so the guard starts clean; they were not
+# reviewed under this policy. The policy applies to everything from July 2026 on.
+
+20260303000000_sync_schema_changes              # historical — pre-policy (column renames, applied long ago)
+20260303000001_fix_missing_columns              # historical — pre-policy (idempotent re-run of the above)
+20260318000000_category_enum_to_text            # historical — pre-policy (enum → text widening)
+20260330100000_rename_barcode_to_dtcm           # historical — pre-policy (barcode → dtcmBarcode rename)
+20260331100000_add_session_topics               # historical — pre-policy (SessionSpeaker.role text → enum)
+20260410200000_drop_event_tax_inclusive_if_exists  # historical — pre-policy (drop of an unused column)
+20260417000000_add_abstract_reviewers_and_scores   # historical — pre-prod, no data (Abstract review fields moved to their own table)
+20260602110000_collapse_certificate_types_to_two   # historical — verified zero issued certs at the time (see CLAUDE.md, June 2 2026)
