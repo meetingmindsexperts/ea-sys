@@ -1456,6 +1456,49 @@ independently shippable.
 | **Re-tier L2 — reject simultaneous type + tier change** | The PUT allows changing `ticketTypeId` and `pricingTierId` in one request; a type change nulls the tier, so a combined change is ambiguous. Add a 400 guard. | ~15 min | Low — the UI paths don't currently send both together; belt-and-braces. |
 | **Resident "official letter" — capture the file** | The public register form shows a Resident/Trainee "upload an official letter" **notice** (text-only, shipped July 7). Actually capturing + storing the file (additive `Attendee` column + upload UI + dashboard display) was deferred per the organizer's "text only" choice. | ~half day | If the organizer later wants the letter collected in-system rather than emailed/brought out-of-band. |
 
+### Contacts review — deferred findings (July 13, 2026) — **ALL DEFERRED, nothing fixed**
+
+Full report: [docs/CODE_REVIEW_CONTACTS.html](docs/CODE_REVIEW_CONTACTS.html)
+(**0 BLOCKER / 4 HIGH / 12 MED / 7 LOW**). Owner decision: **document only, fix nothing this round**
+(stabilization-first posture — see [docs/CRM_MODULE_PLAN.md](CRM_MODULE_PLAN.md)). 3 of 4 review
+angles completed (RBAC/PII · concurrency/sync-integrity · drift/logging); the lifecycle angle died on
+an infra error and was not re-run.
+
+**Foundations verified clean:** cross-tenant IDOR (every lookup binds `organizationId`), MCP org
+binding (injected from the API key), the May-18 write-guard fix, CSV formula-injection escaping, the
+email-change P2002→409 race handling.
+
+**If any of this is ever un-deferred, start with H1 and H2** — H1 is a live PII-exfiltration path
+reachable today; H2 mints duplicate contacts continuously.
+
+| # | Sev | Finding | Note |
+|---|---|---|---|
+| **H1** | HIGH | **Read routes have no role gate** — `GET /api/contacts`, `/export`, `/tags`, detail GET authorize on `getOrgContext` alone (`denyReviewer` guards only writes). **ONSITE desk temps, MEMBER, and internal-domain REGISTRANTs are all org-bound**, so any of them can export the entire org CRM — every contact's email, phone, bio and private `notes` — un-audited and un-rate-limited. | Same class as check-in H7/H8 (guard sat on the POST). Fix = a `canViewContacts()` predicate (staff + API keys), audit + rate-limit the export. **Owner call needed on MEMBER.** |
+| **H2** | HIGH | **REST contact create never lowercases the email** ([contacts/route.ts:150-167](../src/app/api/contacts/route.ts)) while the other 5 writers do, and the unique index is case-sensitive → `John@Hospital.com` + a later `syncToContact` = **two contacts for one person**; the central sync then dedups by lowercased email (last-write-wins) and **silently never mirrors one of them**. | One line (`normalizeEmail` already exists) + map the create's P2002 to 409 (today: 500 echoing the raw Prisma message). Needs a case-collapse backfill. |
+| **H3** | HIGH | **The EU central mirror never learns about a rename / merge / delete** — it is email-keyed and POST-upsert-only. Fixing a typo'd email leaves the old address in `contacts_centralv1` **forever**, looking like a current, EA-maintained person (that table feeds `mailchimp_*`). The nightly reconcile only upserts, so it cannot heal it. | Deletes-are-kept may be defensible; the **rename → duplicate live identity** case is a defect regardless. Fix = PATCH the old-email row (`ea_synced=false` / `ea_merged_into`) on update/merge/delete. |
+| **H4** | HIGH | **MCP `update_speaker` syncs name+email only** while the REST speaker PUT syncs ~12 fields — so agent/n8n speaker edits (phone, affiliation…) **never reach the Contact store** (and, being enrich-only, the payload is a silent no-op). | The exact class already fixed for registrations on July 13 (`registration-service.ts:1394` comment). The speaker **update** was never service-extracted. Fix = `speaker-service.updateSpeaker()`. |
+| M1 | MED | `syncToContact` is check-then-act on a unique index; the P2002 loser lands in a swallowed catch → an `eventId` **and all enrich data** are permanently lost, and the reconcile can't heal it (it recomputes *from* the corrupted `Contact.eventIds`). | Retry-once on P2002 + atomic array append. |
+| M2 | MED | **Audit coverage is 2 of 9 mutation paths** — `DELETE` writes **no audit row** (destructive + unrecoverable); bulk-tags none (its registrations/speakers twins *are* audited); create/import/PUT none (but MCP `update_contact` *does* — inconsistent). | Start with DELETE + bulk-tags. |
+| M3 | MED | MCP `create_registrations_bulk` syncs name+email only; its "parity with the single executor" comment is now false (the single path delegates to the ~20-field service). A 100-row agent import → 100 husk CRM rows. | |
+| M4 | MED | **Tag normalization drift** — MCP `create_contact` and the CSV import skip `normalizeTag`; both tag filters are exact-match → agent-created `committee` is invisible to a `Committee` filter (the n8n/Webflow pain, at its source). | |
+| M5 | MED | Two "import contacts" features with **opposite semantics**: CSV = `createMany({skipDuplicates})` (existing rows untouched — a re-import to enrich does nothing), EventsAir = enrich-upsert. Skips are never itemized, only counted. | |
+| M6 | MED | Neither `import-contacts` → event path appends the event to `Contact.eventIds` → that person's attendance **never appears** in the mirror's `events_attended`. (The registrations one also writes no audit row.) | |
+| M7 | MED | REST ⇄ MCP `update_contact` field drift: `role`/`registrationType`/`memberId`/… REST-only; `state`/`zipCode` **MCP-only (uneditable from the dashboard at all)**; `notes` capped **2000 (REST) vs 10000 (MCP)** → an agent-written 3k note makes every later dashboard save 400. | |
+| M8 | MED | **13 post-auth 4xx paths log nothing** (409 duplicate, 403 protected, 4× 404, `EMAIL_IMMUTABLE`, `NO_CHANGE`, `CONTACT_EMAIL_TAKEN`, the P2002 race, bulk-tags 404, import 400). | The contacts instance of the known silent-rejection cluster. |
+| M9 | MED | `bulk-tags` has **no rate limit and no cap** on `contactIds` (every sibling write is limited) — unbounded `$transaction`, and un-audited (M2), so abuse is invisible. | |
+| M10 | MED | **SSRF**: `downloadExternalPhoto` ([storage.ts:214](../src/lib/storage.ts)) `fetch`es an EventsAir-supplied URL with **no scheme/host allowlist** (reachable from the contacts EventsAir import) → metadata-service / internal-network probing. | Reuse the hardened `certificates/pdf-loader.ts` allowlist shape. |
+| M11 | MED | The central-sync error path can log **attendee emails** into SystemLog/CloudWatch — they're inline in the PostgREST query URL, and Node `fetch` errors embed the URL. (The service key is *not* leaked — header-only.) | |
+| M12 | MED | Both central-sync jobs are exposed to the **P3 pooler advisory-lock stall**: a lock stranded on one pooled backend makes every later tick skip at **debug** level with no `JobRun` row → the mirror silently stops. If the reconcile's lock wedges too, the safety net for every LOW here stops as well. | Durable fix = point the worker at `DIRECT_URL`. Interim = log the skip at `info` / use `pg_advisory_xact_lock`. |
+| L1 | LOW | Central-sync summary logs at `info` even when `failed > 0` (per-chunk failures *do* log at error). |
+| L2 | LOW | **ROADMAP drift:** the M9 note (line ~757) says the speakers CSV import lacks contact-sync — **it doesn't**; the real gap is narrower (omits `role`/`state`/`zipCode`/`photo`/`additionalEmail`). |
+| L3 | LOW | Worker-job + backfill-script comments describe an `ea_upsert_contacts` RPC that **deliberately does not exist** (all merge logic is client-side); the job comment also states the wrong lookback (30 vs 45 min). |
+| L4 | LOW | `buildCentralRows` runs `db.registration.findMany` with **no `where`** — loads every registration in the DB on every tick, even a 2-contact incremental. |
+| L5 | LOW | CSV import's `created`/`skipped` counts derive from two racing `count()` queries (`createMany` returns `{count}`). |
+| L6 | LOW | `PROTECTED_EMAILS = ["krishna@meetingmindsdubai.com"]` hardcoded as policy inside a route handler (untestable, multi-tenant footgun; its 403 is also unlogged per M8). |
+| L7 | LOW | `bulk-tags` reads tags **outside** its transaction → concurrent tag ops lose updates (tags drive email cohorts). |
+
+**Flagged for the owner (not bugs today):** the **central sync is org-blind by design** — `buildCentralRows` has no `organizationId` filter and its registration join has no `where` at all, so a second org would silently mix contacts + registration types into one email-keyed EU table. **Hard blocker for white-label** → belongs in [MULTI_TENANCY_IMPACT.md](MULTI_TENANCY_IMPACT.md). Also: `CONTACTS_CENTRAL_URL` has no scheme/host assertion (an operator typo would POST the service key + all PII to the wrong host).
+
 ### Certificates review — deferred findings (July 13, 2026)
 
 Full report: [docs/CODE_REVIEW_CERTIFICATES.html](docs/CODE_REVIEW_CERTIFICATES.html)

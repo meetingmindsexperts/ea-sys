@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — Contacts (July 2026)</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+    --ok:#15803d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:960px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.75rem 0}
+  pre code{background:none;padding:0}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)}
+  .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .pill{font-weight:700;font-size:.72rem;letter-spacing:.04em;padding:.14em .5em;border-radius:3px;white-space:nowrap}
+  .pill.shipped{background:var(--ok);color:#fff} .pill.deferred{background:var(--muted);color:#fff}
+  .pill.progress{background:var(--accent);color:#fff}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.25rem 0}
+  .finding.blocker{border-left-color:var(--blocker)}
+  .finding.high{border-left-color:var(--high)} .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .finding h3{margin-top:0;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .loc{color:var(--muted);font-size:.87rem;margin:.1rem 0 .8rem}
+  .lbl{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.9rem 0 .2rem}
+  .learn{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:.7rem 1rem;margin:.9rem 0 0;font-size:.93rem}
+  .learn strong{color:var(--ok)}
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1.25rem 0}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+  ul,ol{padding-left:1.4rem} li{margin:.3rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf;--ok:#22c55e}
+    .sev{color:#14171a} .pill.shipped{color:#14171a} .pill.deferred{color:#14171a} .pill.progress{color:#14171a}
+    .note{background:#0c2b3a;border-color:#1e4a5f}
+    .note.warn{background:#33290c;border-color:#66551a}
+    .learn{background:#0c2e1a;border-color:#1a5c34}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Contacts</h1>
+  <p class="sub">
+    Production review · July 13, 2026 · <strong>0 BLOCKER / 4 HIGH / 12 MED / 7 LOW</strong><br>
+    Angles run: <em>RBAC &amp; PII exposure</em> · <em>concurrency &amp; sync-integrity</em> ·
+    <em>drift / duplication / failure-visibility</em>. (A fourth <em>lifecycle &amp; data-integrity</em> angle was
+    started but did not complete — see the caveat below.) Scope: all 8 routes under
+    <code>src/app/api/contacts/**</code> (list, detail, email PATCH, bulk-tags, CSV import, EventsAir import,
+    export, tags), <code>src/lib/contact-sync.ts</code> + its 16 caller paths,
+    <code>src/lib/contacts-central-sync.ts</code> + both worker jobs + the backfill script,
+    <code>src/lib/agent/tools/contacts.ts</code>, <code>src/lib/email-change.ts</code>, and the
+    <code>import-contacts</code> paths that read the store into events.
+  </p>
+</header>
+
+<div class="note warn">
+  <strong>Status: DOCUMENTED ONLY — nothing has been fixed.</strong> The owner's call (July 13) was to record
+  the findings and defer all remediation, consistent with the current stabilization-first posture
+  (<code>docs/CRM_MODULE_PLAN.md</code>). Every finding below is <span class="pill deferred">DEFER</span>.
+  The deferred list is mirrored into <code>docs/ROADMAP.md</code> § “Contacts review — deferred findings”.
+  <strong>H1 is a live PII-exfiltration path</strong> reachable today by an ONSITE desk temp, and
+  <strong>H2 mints duplicate contacts continuously</strong> — if any of this gets un-deferred, start there.
+</div>
+
+<div class="note">
+  <strong>Coverage caveat.</strong> Three of four review angles completed. The <em>lifecycle / data-integrity</em>
+  angle (field-mapping across surfaces vs the central-sync mapping table, import/export correctness) was
+  terminated mid-run by an infrastructure error and was <strong>not</strong> re-run — the owner judged the three
+  completed angles to overlap it sufficiently (they independently covered field-mapping drift and merge
+  semantics). Treat the finding list as thorough but not provably exhaustive on that axis.
+</div>
+
+<h2>Verdict</h2>
+<p>
+  The <strong>foundations are sound</strong>: cross-tenant isolation is clean everywhere (every contact lookup is
+  <code>findFirst({ where: { id, organizationId } })</code>; the MCP layer injects <code>organizationId</code> from
+  the validated API key and never trusts tool input; wrong-org ids 404 without leaking existence). The May-18
+  write-guard fix held — every write path runs <code>denyReviewer</code>. CSV export escapes formula injection.
+  The email-change race is correctly mapped to a 409.
+</p>
+<p>
+  The problems cluster in three places, and each is an instance of a principle this codebase already knows:
+</p>
+<ol>
+  <li><strong>The guard was put on writes, and reads were forgotten.</strong> <code>denyReviewer</code> gates every
+    contacts mutation and nothing gates the reads — so the whole org CRM, private notes included, is exportable by
+    roles that should never see it (H1). This is the same class as the check-in review's H7/H8 (barcodes were
+    returned to everyone because the guard sat on the POST).</li>
+  <li><strong>One writer skipped the normalization every other writer applies.</strong> Five paths lowercase the
+    email; the dashboard create path doesn't, and the unique index is case-sensitive — so the system mints
+    duplicate people, and the EU mirror silently drops one of each pair (H2).</li>
+  <li><strong>The CRM goes stale silently.</strong> Agent-driven speaker edits never reach the Contact (H4), bulk
+    agent imports produce name+email husks (M3), imports into an event never record the event on the contact (M6),
+    and the EU mirror never learns about a rename, merge or delete — so a typo'd email lives on forever as a
+    live-looking marketing record (H3).</li>
+</ol>
+
+<h2>How to read this document</h2>
+<p>
+  Each finding has: <strong>the issue</strong> (what the code does), <strong>failure scenario</strong> (concrete
+  inputs → concrete damage — if you can't write this, it isn't a finding), and <strong>suggested fix</strong>.
+  The green <strong>“What to learn”</strong> box states the general engineering principle the bug is an instance
+  of; they're collected in <a href="#lessons">§ Lessons</a> at the bottom.
+</p>
+
+<h2>Deliberate decisions — NOT findings</h2>
+<p>These were verified as intentional and excluded from the report. Don't "fix" them:</p>
+<ul>
+  <li><strong>Enrich-only sync</strong> — <code>syncToContact</code> never clears a populated Contact field with
+    <code>null</code>/<code>""</code>/<code>undefined</code> (June 29 decision).</li>
+  <li><strong>Contact email is immutable via the general PUT</strong> (400 <code>EMAIL_IMMUTABLE</code>), and the
+    dedicated <code>PATCH /email</code> deliberately does <strong>not</strong> cascade to Speaker/User/Registration
+    — Contact is a CRM snapshot, and propagating from it would re-introduce the identity drift the email-change
+    feature eliminated.</li>
+  <li><strong>The central-sync read-modify-write window</strong> (cross-source lost write between our GET and POST)
+    — documented and accepted in <code>docs/CONTACTS_CENTRAL_SYNC.md</code>.</li>
+  <li><strong>PII leaving to the EU Supabase mirror</strong> — an explicit, signed-off data-sharing decision.
+    (<em>How</em> it flows — key handling, PII in logs — remained in scope; see M11.)</li>
+  <li><strong>A person with two email addresses is two contacts</strong> — the store is keyed
+    <code>@@unique([organizationId, email])</code>; known and accepted.</li>
+  <li><strong>The mirror re-creating a row deleted out-of-band</strong> while the person still exists in EA-SYS —
+    that is the definition of a self-healing mirror.</li>
+</ul>
+
+<h2>Findings index</h2>
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>#</th><th>Severity</th><th>One-liner</th><th>Status</th></tr></thead>
+  <tbody>
+    <tr><td>H1</td><td><span class="sev high">High</span></td><td>Read routes have no role gate — ONSITE / MEMBER / internal REGISTRANT can export the entire org CRM (incl. private notes), un-audited, un-rate-limited</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>H2</td><td><span class="sev high">High</span></td><td>REST contact create never lowercases the email — mints case-variant duplicate people; the mirror silently drops one of each pair</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>H3</td><td><span class="sev high">High</span></td><td>Central mirror never learns about a rename / merge / delete — the old email survives forever as a live-looking marketing record</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>H4</td><td><span class="sev high">High</span></td><td>MCP <code>update_speaker</code> syncs name+email only while REST syncs the full profile — agent edits never reach the CRM</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M1</td><td><span class="sev medium">Medium</span></td><td><code>syncToContact</code> is check-then-act; the P2002 loser lands in a swallowed catch, dropping an <code>eventId</code> + all enrich data</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M2</td><td><span class="sev medium">Medium</span></td><td>Audit coverage is 2 of 9 mutation paths — <code>DELETE</code> writes no audit row at all</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M3</td><td><span class="sev medium">Medium</span></td><td>MCP <code>create_registrations_bulk</code> syncs name+email only; its “parity” comment is now false</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M4</td><td><span class="sev medium">Medium</span></td><td>Tag normalization drift — MCP <code>create_contact</code> and CSV import skip <code>normalizeTag</code>; filters are exact-match</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M5</td><td><span class="sev medium">Medium</span></td><td>Two “import contacts” features with opposite update semantics (skip-existing vs enrich-upsert); CSV skips are unitemized</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M6</td><td><span class="sev medium">Medium</span></td><td>Both <code>import-contacts</code> → event paths never append the event to <code>Contact.eventIds</code> → missing from <code>events_attended</code> forever</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M7</td><td><span class="sev medium">Medium</span></td><td>REST ⇄ MCP <code>update_contact</code> field drift; <code>notes</code> capped 2000 (REST) vs 10000 (MCP) → agent note makes later dashboard saves 400</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M8</td><td><span class="sev medium">Medium</span></td><td>13 post-auth 4xx paths return without logging — the contacts instance of the known silent-rejection cluster</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M9</td><td><span class="sev medium">Medium</span></td><td><code>bulk-tags</code> has no rate limit and no cap on <code>contactIds</code> — the only contacts write without one</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M10</td><td><span class="sev medium">Medium</span></td><td>SSRF: <code>downloadExternalPhoto</code> fetches an EventsAir-supplied URL with no scheme/host allowlist</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M11</td><td><span class="sev medium">Medium</span></td><td>Central-sync error path can log attendee <strong>emails</strong> (they're in the PostgREST query URL) into SystemLog/CloudWatch</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M12</td><td><span class="sev medium">Medium</span></td><td>Both central-sync jobs are exposed to the P3 pooler advisory-lock stall — the mirror can silently stop with only a debug-level trace</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>L1</td><td><span class="sev low">Low</span></td><td>Central-sync tick summary logs at <code>info</code> even when <code>failed &gt; 0</code></td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>L2</td><td><span class="sev low">Low</span></td><td>ROADMAP's M9 note is <strong>stale</strong> — the speakers CSV import DOES sync; the real gap is narrower (5 fields)</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>L3</td><td><span class="sev low">Low</span></td><td>Worker-job + backfill-script comments describe an <code>ea_upsert_contacts</code> RPC that deliberately does not exist</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>L4</td><td><span class="sev low">Low</span></td><td><code>buildCentralRows</code> loads <strong>every registration in the DB</strong> (no <code>where</code>) on every tick, incl. a 2-row incremental</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>L5</td><td><span class="sev low">Low</span></td><td>CSV import's <code>created</code>/<code>skipped</code> counts come from two racing <code>count()</code> queries</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>L6</td><td><span class="sev low">Low</span></td><td>Hardcoded <code>PROTECTED_EMAILS = ["krishna@meetingmindsdubai.com"]</code> as policy inside a route handler</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>L7</td><td><span class="sev low">Low</span></td><td><code>bulk-tags</code> reads tags outside its transaction — concurrent tag ops lose updates</td><td><span class="pill deferred">DEFER</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ================= HIGH ================= -->
+<h2>HIGH</h2>
+
+<div class="finding high" id="H1">
+  <h3><span class="sev high">High</span> H1 — The entire org contact book is readable and exportable by ONSITE, MEMBER, and internal-domain REGISTRANT</h3>
+  <p class="loc">
+    <code>src/app/api/contacts/export/route.ts:6-31</code> · <code>contacts/route.ts:34</code> (list GET) ·
+    <code>contacts/tags/route.ts:6</code> · <code>contacts/[contactId]/route.ts</code> (detail GET).
+    Authorization is <code>getOrgContext</code> only — no <code>denyReviewer</code>, no role check.
+    <em>Found independently by two review angles.</em>
+  </p>
+  <p class="lbl">The issue</p>
+  <pre><code>// export/route.ts — the whole org CRM, one GET, no role gate
+const contacts = await db.contact.findMany({
+  where: { organizationId: ctx.organizationId },
+  orderBy: { createdAt: "desc" },
+  select: { title, firstName, lastName, email, organization, jobTitle,
+            specialty, registrationType, bio, phone, tags, notes },  // full PII, every contact
+});</code></pre>
+  <p>
+    <code>denyReviewer</code> is applied to every contacts <em>write</em> and to none of the <em>reads</em>.
+    <code>getOrgContext</code> returns a valid context for <strong>any</strong> session user carrying an
+    <code>organizationId</code> — and per the RBAC model that includes <strong>ONSITE</strong> (per-event desk
+    temps), <strong>MEMBER</strong> (read-only sponsor-side observers), and <strong>internal-domain
+    REGISTRANTs</strong> (org attached since the June-16 rule, but not staff). <code>src/proxy.ts</code>
+    explicitly skips <code>/api/*</code>, so the API layer is the authoritative gate — and it isn't gating.
+  </p>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    A temp desk worker is hired for one event and given an ONSITE account (deliberately scoped to that event's
+    registrations). They call <code>GET /api/contacts/export</code> and receive a CSV of the
+    <strong>entire organization's CRM</strong> — every attendee and speaker across every event, with email,
+    phone, bio and the organizer's private <code>notes</code>. Nothing is audited, so there is no record it
+    happened, and nothing is rate-limited, so it can be pulled repeatedly. The same applies to a MEMBER
+    (a sponsor-side observer) and to any internal-domain registrant.
+  </p>
+  <p class="lbl">Suggested fix</p>
+  <ul>
+    <li>Gate the four read routes to org staff (SUPER_ADMIN / ADMIN / ORGANIZER + API keys), the way
+      <code>barcode-visibility.ts</code> gates door credentials — a dedicated predicate, not a finance/`denyReviewer` reuse.</li>
+    <li>Audit the export (who, when, how many rows) and rate-limit it.</li>
+    <li><strong>Owner decision needed:</strong> should MEMBER see the contact book at all? It is finance-capable
+      by design, but a full cross-event CRM with private notes is a data-minimization question, separate from
+      ONSITE/REGISTRANT (who clearly should not).</li>
+  </ul>
+  <div class="learn"><strong>What to learn.</strong> A write-guard is not an access-control model. When you add
+    a guard to the mutations of a resource, ask immediately: <em>who can read this, and is reading it harmful?</em>
+    A bulk export endpoint is the highest-value object in any CRM — it deserves a stricter gate than the rows it
+    exports, plus an audit trail. This exact class was already fixed once in this codebase (check-in H7/H8:
+    barcodes were readable by everyone because the guard sat on the POST). One domain learning a lesson does not
+    teach the others.</div>
+</div>
+
+<div class="finding high" id="H2">
+  <h3><span class="sev high">High</span> H2 — REST contact create never normalizes the email → duplicate people, and the mirror silently drops one of each pair</h3>
+  <p class="loc">
+    <code>src/app/api/contacts/route.ts:14</code> (schema — no transform), <code>:150-167</code> (dup-check +
+    create use the raw string). Every other writer normalizes:
+    <code>agent/tools/contacts.ts:42</code>, <code>lib/contact-sync.ts:73</code>,
+    <code>contacts/import/route.ts:88</code>, <code>contacts/import-eventsair/route.ts:95</code>,
+    <code>lib/email-change.ts</code> (<code>normalizeEmail</code>).
+    <em>Found independently by two review angles.</em>
+  </p>
+  <p class="lbl">The issue</p>
+  <pre><code>const existing = await db.contact.findUnique({
+  where: { organizationId_email: { organizationId: ctx.organizationId, email } },  // raw, case preserved
+});
+...
+const contact = await db.contact.create({
+  data: { organizationId: ctx.organizationId, ...rest, email },  // no .trim().toLowerCase()
+});</code></pre>
+  <p>
+    The <code>@@unique([organizationId, email])</code> index is <strong>case-sensitive</strong>. Five of six write
+    paths lowercase before touching it; the dashboard create path does not — so its own duplicate check is
+    bypassable by casing, and it can insert a row that collides logically (but not physically) with an existing one.
+  </p>
+  <p class="lbl">Failure scenario</p>
+  <ol>
+    <li>An organizer adds <code>John@Hospital.com</code> from the dashboard → row A.</li>
+    <li>John later registers for an event → <code>syncToContact</code> lowercases to <code>john@hospital.com</code>
+      → the dup check misses row A → row B is created. <strong>Two contacts for one person</strong>, each
+      accumulating half of his data, half of his event history, half of his tags.</li>
+    <li>Downstream, <code>contacts-central-sync.ts:167-171</code> dedups the outbound payload by
+      <em>lowercased</em> email with last-write-wins — so <strong>one of the two rows never reaches the EU
+      mirror at all</strong>, silently: no log, no counter, no failure.</li>
+  </ol>
+  <p class="lbl">Suggested fix</p>
+  <p>
+    One line: run the create schema's email through the existing <code>normalizeEmail()</code>
+    (<code>src/lib/email-change.ts</code>) like every other path. While there, map the create's P2002 race to a
+    409 instead of the current 500 that echoes the raw Prisma message as <code>detail</code>. A one-time
+    case-collapse backfill will be needed for rows already minted.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> If a value has an invariant (“emails are stored lowercase”),
+    the invariant must be enforced <em>at the boundary of the data, not in each writer</em> — a shared normalizer
+    called by convention will eventually be forgotten by exactly one caller, and that caller is enough to break it.
+    The strongest version is a database-level guarantee (a <code>citext</code> column or a functional unique index
+    on <code>lower(email)</code>), because then no code path <em>can</em> get it wrong. The weakest version is what
+    we have: six writers, five of whom remembered.</div>
+</div>
+
+<div class="finding high" id="H3">
+  <h3><span class="sev high">High</span> H3 — The central mirror never learns about a rename, merge, or delete — orphaned identities live forever</h3>
+  <p class="loc">
+    <code>src/lib/email-change.ts:35-44</code> (<code>repointOrgContactEmail</code> — updates or deletes the
+    Contact) · <code>src/app/api/contacts/[contactId]/route.ts:226</code> (DELETE) ·
+    <code>src/lib/contacts-central-sync.ts</code> — <strong>contains no DELETE and no rename handling</strong>;
+    the only mutation is the POST upsert at <code>:293-297</code>.
+  </p>
+  <p class="lbl">The issue</p>
+  <pre><code>// email-change.ts — EA-SYS side handles both cases correctly…
+if (collision) { await tx.contact.delete({ where: { id: old.id } }); return "merged"; }
+await tx.contact.update({ where: { id: old.id }, data: { email: newEmail } });
+
+// contacts-central-sync.ts — …but the mirror is email-keyed and APPEND-ONLY
+const postRes = await fetch(`${base}/rest/v1/${table}?on_conflict=email`, { method: "POST", ... });</code></pre>
+  <p>
+    The mirror's primary key is the email address, and the sync only ever upserts. Nothing communicates
+    “this email is no longer a person” to the target.
+  </p>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    <code>jane@hosptial.com</code> (typo) is created and syncs to the mirror with her full
+    <code>events_attended</code>, <code>tags</code>, and <code>ea_synced = true</code>. An organizer fixes the typo
+    via the email PATCH → EA-SYS now holds <code>jane@hospital.com</code>. The next incremental tick pushes a
+    <strong>new</strong> mirror row. The old row is never touched again — and the mirror feeds
+    <code>mailchimp_*</code> columns, so the typo'd address remains a live-looking, EA-maintained marketing
+    record <em>forever</em>. Jane now exists twice downstream. The nightly reconcile does <strong>not</strong>
+    heal this: it only upserts, never prunes. Merges and deletes orphan rows identically. There is also a
+    snapshot race: if a tick reads its batch and the rename commits mid-tick, the tick re-POSTs the
+    <em>old</em> email and refreshes its <code>last_updated</code>, making the stale row look freshly maintained.
+  </p>
+  <p class="lbl">Suggested fix</p>
+  <p>
+    On <code>updated</code> / <code>merged</code> / <code>deleted</code>, tell the mirror: PATCH the old-email row
+    (e.g. <code>ea_synced = false</code>, or an <code>ea_merged_into</code> pointer), or at minimum emit an
+    operator-visible log line so the mirror can be cleaned. Deletes-are-kept may be defensible (“the mirror is a
+    historical superset”) — <strong>the rename case is a defect regardless</strong>, because both rows look like
+    current people.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> An append-only mirror keyed on a <em>mutable</em> field is not
+    a mirror — it is an accumulator. Before you build a sync, enumerate every operation the source supports
+    (create, update, <strong>rename-the-key</strong>, merge, delete) and decide what each one means on the target.
+    “We only ever upsert” quietly encodes the decision that keys are immutable, and that decision is wrong the
+    first time someone fixes a typo.</div>
+</div>
+
+<div class="finding high" id="H4">
+  <h3><span class="sev high">High</span> H4 — MCP <code>update_speaker</code> syncs name + email only, while the REST PUT syncs the full profile</h3>
+  <p class="loc">
+    <code>src/lib/agent/tools/speakers.ts:328-334</code> vs
+    <code>src/app/api/events/[eventId]/speakers/[speakerId]/route.ts:318-341</code>.
+  </p>
+  <p class="lbl">The issue</p>
+  <pre><code>// MCP executor — the entire sync payload
+syncToContact({
+  organizationId: ctx.organizationId,
+  eventId: existing.eventId,
+  email: updated.email,
+  firstName: updated.firstName,
+  lastName: updated.lastName,
+}).catch(...)
+
+// REST PUT — threads title / role / additionalEmail / organization / jobTitle /
+//            phone / photo / city / country / bio / specialty / registrationType</code></pre>
+  <p>
+    <code>update_speaker</code> <em>accepts and persists</em> title, bio, organization, jobTitle, phone, city,
+    country, specialty and photo — but sends none of them to the Contact store. And because
+    <code>syncToContact</code> is enrich-only, a name+email payload against an existing contact is effectively a
+    <strong>no-op</strong>: the call succeeds, logs nothing, and changes nothing.
+  </p>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    An n8n workflow (or a Claude conversation) updates 40 speakers' affiliations and phone numbers before a
+    congress. All 40 Speaker rows are correct. <strong>Zero</strong> of the org Contact records are updated — and
+    since the EU mirror enriches its scalars from Contact, none of it propagates downstream either. The CRM and
+    the marketing mirror quietly hold last year's affiliations, with no error anywhere.
+  </p>
+  <p class="lbl">Why this existed — the instructive part</p>
+  <p>
+    This is <em>the same bug the team already found and fixed for registrations</em> on July 13. The fix comment
+    still sits in the code: <code>registration-service.ts:1394</code> — <em>“Full-merge Contact sync (REST's shape
+    — MCP used to sync name+email only)”</em>. That fix worked because the registration <strong>update</strong> was
+    extracted into a service both callers share. The speaker update never was — only <code>createSpeaker</code>
+    got a service — so REST PUT and the MCP executor remain two mirrored implementations, and they drifted exactly
+    as the house rule predicts.
+  </p>
+  <p class="lbl">Suggested fix</p>
+  <p>
+    Extract <code>speaker-service.updateSpeaker()</code> and delegate both callers — the template is
+    <code>registration-service.updateRegistration()</code>, sitting in the next file. (Minimum viable: copy the
+    REST sync shape into the executor with a drift-guard comment — but that just re-arms the same trap.)
+  </p>
+  <div class="learn"><strong>What to learn.</strong> When you fix a drift bug, fix the <em>duplication</em> that
+    allowed it, not just the instance — otherwise you have proven the mechanism works and left it loaded. And note
+    what made this bug <em>invisible</em>: an enrich-only sync means a wrong-but-well-formed payload fails
+    <strong>silently and successfully</strong>. Any code path whose failure mode is “succeeds and does nothing”
+    needs a test that asserts the effect, not the call.</div>
+</div>
+
+<!-- ================= MEDIUM ================= -->
+<h2>MEDIUM</h2>
+
+<div class="finding medium" id="M1">
+  <h3><span class="sev medium">Medium</span> M1 — <code>syncToContact</code> is check-then-act; the P2002 loser is swallowed, dropping an event association and all enrich data</h3>
+  <p class="loc"><code>src/lib/contact-sync.ts:105-137</code> (race) and <code>:156-162</code> (the swallow).</p>
+  <pre><code>const existing = await db.contact.findUnique({ where: compositeKey, select: { eventIds: true } });
+if (existing) {
+  const eventIds = existing.eventIds.includes(data.eventId) ? existing.eventIds : [...existing.eventIds, data.eventId];
+  await db.contact.update({ where: compositeKey, data: { ...optional, eventIds } });
+} else {
+  await db.contact.create({ data: { ...optional, eventIds: [data.eventId] } });
+}
+...
+} catch (err) {
+  apiLogger.warn({ msg: "Contact sync failed", ... });   // the eventId + enrich data are GONE
+}</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    A brand-new email registers for Event A (public register) at the same moment an admin adds them to Event B.
+    Both <code>findUnique</code> return null; both <code>create</code>; the loser hits P2002 on the unique index
+    and lands in the catch as a <code>warn</code>. Its <code>eventId</code> <strong>and every enrich field</strong>
+    are dropped, and nothing ever re-fires the sync for that pair — so the Contact permanently lacks Event B, and
+    the mirror's <code>events_attended</code> / <code>event_speciality</code> / <code>event_type</code> lack it too
+    (the nightly reconcile recomputes <em>from</em> <code>Contact.eventIds</code>, which is itself wrong — so the
+    reconcile <strong>cannot</strong> heal this one). The update/update variant loses an event the same way:
+    both read <code>[X]</code>, one writes <code>[X,A]</code>, the other <code>[X,B]</code>, last writer wins.
+  </p>
+  <p class="lbl">Suggested fix</p>
+  <p>
+    Retry-once on P2002 by falling through to the update branch, and make the array append atomic
+    (<code>eventIds: { push }</code> with a dedup-on-read, or a guarded <code>array_append … WHERE NOT eventIds @&gt; …</code>).
+  </p>
+  <div class="learn"><strong>What to learn.</strong> “Failures here are non-blocking” is a contract about
+    <em>not breaking the caller</em> — it is not a licence to <em>manufacture</em> failures and then swallow them.
+    A check-then-act against a unique index will lose races; wrapping it in a catch converts a race into
+    permanent, invisible data loss. And note the second-order trap: a “self-healing” reconcile heals nothing when
+    it recomputes from the very field the race corrupted.</div>
+</div>
+
+<div class="finding medium" id="M2">
+  <h3><span class="sev medium">Medium</span> M2 — Audit coverage is 2 of 9 mutation paths; <code>DELETE</code> writes nothing</h3>
+  <p class="loc">Only <code>contacts/[contactId]/email/route.ts:98</code> and MCP <code>update_contact</code> (<code>tools/contacts.ts:153</code>) write an <code>AuditLog</code> row.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Mutation</th><th>Audited?</th></tr></thead>
+    <tbody>
+      <tr><td>REST <code>POST /api/contacts</code> (create)</td><td>❌</td></tr>
+      <tr><td>REST <code>PUT /api/contacts/[id]</code></td><td>❌ (MCP's equivalent <em>does</em> audit — inconsistent)</td></tr>
+      <tr><td>REST <code>DELETE /api/contacts/[id]</code></td><td>❌ ← destructive, unrecoverable, no trace</td></tr>
+      <tr><td>REST <code>PATCH /contacts/bulk-tags</code></td><td>❌ (the registrations + speakers twins <em>are</em> audited)</td></tr>
+      <tr><td>CSV import · EventsAir import</td><td>❌ · ❌</td></tr>
+      <tr><td><code>PATCH /contacts/[id]/email</code></td><td>✅ before/after + ip</td></tr>
+      <tr><td>MCP <code>create_contact</code> · <code>update_contact</code></td><td>❌ · ✅</td></tr>
+    </tbody>
+  </table></div>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    A contact vanishes from the CRM. “Who deleted it, when, and what did it contain?” is <strong>unanswerable</strong>
+    — there is no audit row and the row itself is gone. Same for “who bulk-retagged 500 contacts last Tuesday”
+    (tags drive email cohorts and certificate eligibility) and “who imported these 3,000 rows”.
+  </p>
+  <p class="lbl">Suggested fix</p>
+  <p>Audit rows on DELETE (snapshot the row in <code>changes</code>) and bulk-tags first; then create/import/PUT for consistency with the MCP path.</p>
+  <div class="learn"><strong>What to learn.</strong> Auditing isn't a compliance checkbox — it's the difference
+    between “we can answer the question” and “we cannot”. The rule of thumb: <em>any operation whose effect cannot
+    be reconstructed from the resulting state must write an audit row</em>. A DELETE is the purest example, because
+    the evidence is precisely what it destroys.</div>
+</div>
+
+<div class="finding medium" id="M3">
+  <h3><span class="sev medium">Medium</span> M3 — MCP <code>create_registrations_bulk</code> syncs name+email only, and its “parity” comment is now false</h3>
+  <p class="loc"><code>src/lib/agent/tools/registrations.ts:973-982</code> vs <code>src/services/registration-service.ts:803-828</code> (~20 fields).</p>
+  <p>
+    The comment claims parity with the single-create executor — true only against the <em>pre-service</em> version.
+    The single path now delegates to <code>registration-service</code>, whose sync threads title, role, organization,
+    jobTitle, phone, city, state, zip, country, bio, specialty, memberId, studentId…
+  </p>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    An agent bulk-imports 100 delegates from a sponsor's spreadsheet. Their organization, job title and country
+    <em>are</em> persisted to the Attendee rows (they even appear in the confirmation emails) — but the 100
+    resulting CRM contacts are name+email husks. Same root cause as H4: a copy that didn't move when the original did.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> A comment asserting “parity with X” is a liability the moment
+    X changes — it makes the next reader <em>stop checking</em>. If two things must stay in sync, encode it in code
+    (one shared function) or in a test, never in prose.</div>
+</div>
+
+<div class="finding medium" id="M4">
+  <h3><span class="sev medium">Medium</span> M4 — Tag normalization drift: 2 of 5 writers skip <code>normalizeTag</code>, and every filter is exact-match</h3>
+  <p class="loc">
+    ✅ REST POST/PUT/bulk-tags (<code>z.string().transform(normalizeTag)</code>) · ✅ MCP <code>update_contact</code>
+    (<code>tools/contacts.ts:118</code>) · ❌ <strong>MCP <code>create_contact</code></strong>
+    (<code>tools/contacts.ts:72</code> — raw, un-normalized, un-capped) · ❌ <strong>CSV import</strong>
+    (<code>import/route.ts:112</code> → <code>parseTags</code> trims only).
+  </p>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    An n8n workflow creates contacts tagged <code>committee</code>. The dashboard filter (and the
+    <code>?tags=Committee</code> API pull that feeds the Webflow people-sync) is exact-match — so those contacts are
+    <strong>invisible</strong> to it. This is precisely the case-sensitivity pain already hit once in the
+    EA-SYS → Webflow sync; the tag writers, not the readers, are where it originates.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> Same principle as H2, different field: normalize at the
+    boundary or not at all. A “normalize on write, exact-match on read” design is only safe if <em>every</em>
+    writer normalizes — and the way to guarantee that is to make the un-normalized path impossible, not to
+    remember.</div>
+</div>
+
+<div class="finding medium" id="M5">
+  <h3><span class="sev medium">Medium</span> M5 — Two “import contacts” features with opposite semantics on existing rows; CSV skips are unitemized</h3>
+  <p class="loc">
+    <code>contacts/import/route.ts:126-129</code> — <code>createMany({ skipDuplicates: true })</code> (existing rows
+    <strong>untouched</strong>) vs <code>contacts/import-eventsair/route.ts:145-161</code> — enrich-upsert +
+    <code>eventIds</code> append (the org-standard semantics).
+  </p>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    An organizer receives a richer contact list from a society and re-imports the CSV to fill in missing phone
+    numbers and job titles. <strong>Nothing happens</strong> to any existing contact — every row is silently skipped
+    — and the response reports only a <em>count</em> (itself derived from two racing <code>count()</code> queries,
+    see L5), never <em>which</em> emails were skipped. The operator believes the enrichment worked.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> Two features with the same verb in the UI must not have
+    opposite semantics under it. And a bulk operation that skips items owes the operator an itemized account of
+    what it skipped — a bare count is indistinguishable from success.</div>
+</div>
+
+<div class="finding medium" id="M6">
+  <h3><span class="sev medium">Medium</span> M6 — Neither <code>import-contacts</code> → event path appends the event to <code>Contact.eventIds</code></h3>
+  <p class="loc">
+    <code>events/[eventId]/registrations/import-contacts/route.ts</code> — <strong>zero</strong>
+    <code>syncToContact</code> calls and zero audit writes · <code>events/[eventId]/speakers/import-contacts/route.ts</code>
+    — audits, but also never touches <code>Contact.eventIds</code>.
+  </p>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    A contact is imported from the CRM into Event X as a registration. Every other participation path appends the
+    event id to <code>Contact.eventIds</code> — this one doesn't. Since
+    <code>contacts-central-sync.ts:113</code> derives <code>events_attended</code> <em>from</em>
+    <code>Contact.eventIds</code>, that person's attendance at Event X <strong>never appears</strong> in the EU
+    mirror, and the contact-detail event history undercounts — permanently, unless some later edit happens to
+    re-sync them.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> Skipping the field-level sync here is defensible (the Contact
+    <em>is</em> the source of truth for the fields). But “this path doesn't need the sync” was applied to the whole
+    call — including the one part that <em>is</em> new information (the person now attends this event). When you
+    skip a shared side-effect, enumerate what it does; you're usually skipping more than you meant to.</div>
+</div>
+
+<div class="finding medium" id="M7">
+  <h3><span class="sev medium">Medium</span> M7 — REST ⇄ MCP <code>update_contact</code> field drift, including a round-trip-breaking limit mismatch</h3>
+  <p class="loc"><code>contacts/[contactId]/route.ts:19-39</code> vs <code>agent/tools/contacts.ts:96-122</code>.</p>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Field</th><th>REST PUT</th><th>MCP update</th></tr></thead>
+    <tbody>
+      <tr><td><code>role</code>, <code>registrationType</code>, <code>associationName</code>, <code>memberId</code>, <code>studentId</code>, <code>studentIdExpiry</code></td><td>✅</td><td>❌</td></tr>
+      <tr><td><code>state</code>, <code>zipCode</code></td><td>❌</td><td>✅</td></tr>
+      <tr><td><code>notes</code> max length</td><td><strong>2000</strong></td><td><strong>10000</strong></td></tr>
+    </tbody>
+  </table></div>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    <strong>(a)</strong> A contact's <code>state</code>/<code>zipCode</code> arrive wrong via a sync. They are
+    <strong>uneditable from the dashboard</strong> — those columns aren't in the REST create or update schema at
+    all. <strong>(b)</strong> An agent writes a 3,000-character note. Every subsequent dashboard save of that
+    contact now fails Zod with a 400 the operator cannot interpret, because the PUT round-trips <code>notes</code>
+    and the value exceeds the REST cap.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> When two APIs write the same row, their schemas are not two
+    schemas — they are one schema with two spellings, and any divergence is a bug waiting for a round-trip. The
+    asymmetric-cap case is the nastiest kind: writer A can persist a value writer B cannot re-save, so the record
+    becomes <em>read-only by accident</em>.</div>
+</div>
+
+<div class="finding medium" id="M8">
+  <h3><span class="sev medium">Medium</span> M8 — 13 post-auth 4xx paths return without logging</h3>
+  <p class="loc">
+    <code>contacts/route.ts:155</code> (409 duplicate) · <code>[contactId]/route.ts:53</code> (404),
+    <code>:145</code> (<code>EMAIL_IMMUTABLE</code>), <code>:175</code> (404), <code>:216</code> (404),
+    <code>:222</code> (403 protected) · <code>[contactId]/email/route.ts:59, 68, 73, 86, 123</code> ·
+    <code>bulk-tags/route.ts:51</code> · <code>import/route.ts:39</code>.
+  </p>
+  <p>
+    House rule: every failure path logs. These 13 return silently, so a support question (“my import did nothing”,
+    “I get a 409 and don't know why”) leaves no trace in <code>/logs</code>. This is the contacts instance of the
+    same cluster already deferred from the communications review. One <code>apiLogger.warn</code> per branch.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> A 4xx is not “nothing happened” — it's the system refusing a
+    real user's real intent. If it isn't logged, you cannot answer the only question that matters afterwards:
+    <em>how often, and to whom?</em></div>
+</div>
+
+<div class="finding medium" id="M9">
+  <h3><span class="sev medium">Medium</span> M9 — <code>bulk-tags</code> has no rate limit and no cap on <code>contactIds</code></h3>
+  <p class="loc"><code>contacts/bulk-tags/route.ts:18</code> (guarded but un-limited), <code>:55-72</code> (unbounded <code>$transaction</code>).</p>
+  <p>
+    Every sibling write is limited — create 50/hr, update 100/hr, email-change 30/hr, import 10/hr. This one isn't,
+    and its <code>contactIds</code> array is validated only with <code>.min(1)</code> (no max), then executed as one
+    <code>update</code> per id inside a single transaction. A caller can pass thousands of ids and loop freely; and
+    because the route is also un-audited (M2), the damage is invisible afterwards.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> When you add a limit to a family of endpoints, the one you
+    forget is the one that gets abused. Bulk endpoints deserve <em>two</em> limits: rate (calls per window) and
+    size (items per call).</div>
+</div>
+
+<div class="finding medium" id="M10">
+  <h3><span class="sev medium">Medium</span> M10 — SSRF: <code>downloadExternalPhoto</code> fetches an EventsAir-supplied URL with no allowlist</h3>
+  <p class="loc"><code>src/lib/storage.ts:214-224</code>, reached from <code>contacts/import-eventsair/route.ts:128-130</code> with <code>contact.photo.url</code> straight off the EventsAir API response.</p>
+  <pre><code>export async function downloadExternalPhoto(externalUrl: string) {
+  if (externalUrl.startsWith("/uploads/")) return externalUrl;
+  if (externalUrl.includes(".supabase.co/storage/")) return externalUrl;
+  const res = await fetch(externalUrl, { signal: AbortSignal.timeout(10000) });  // no scheme/host allowlist
+</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    The only constraints are content-type ∈ {jpg,png,webp} and size &lt; 500 KB — which bound <em>exfiltration</em>
+    but not a blind SSRF. A crafted EventsAir dataset makes the box issue GETs to
+    <code>http://169.254.169.254/…</code> (instance metadata) or internal services; status and timing are
+    observable through the error logs. Trust here is only “the org's own EventsAir account” — but that is still
+    external, attacker-influenceable data reaching a server-side <code>fetch</code>.
+  </p>
+  <p class="lbl">Suggested fix</p>
+  <p>
+    An allowlist before the fetch: https only, deny RFC-1918 / link-local / metadata IPs — the same shape as the
+    hardened <code>certificates/pdf-loader.ts</code> guard written for the certificates BLOCKER.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> “The URL comes from a trusted integration” is not a security
+    boundary — the integration's <em>content</em> is still attacker-influenceable data. Any server-side
+    <code>fetch()</code> of a URL you did not construct yourself needs an allowlist. We have already written this
+    guard once in this codebase; the lesson is to <em>reuse</em> it, not to re-derive it per domain.</div>
+</div>
+
+<div class="finding medium" id="M11">
+  <h3><span class="sev medium">Medium</span> M11 — The central-sync error path can log attendee emails into SystemLog / CloudWatch</h3>
+  <p class="loc"><code>src/lib/contacts-central-sync.ts:275-277</code> (URL built with emails inline) → the catch at <code>:305</code>.</p>
+  <pre><code>const inList = chunk.map((r) =&gt; `"${r.email.replace(/["\\]/g, "")}"`).join(",");
+const getUrl = `${base}/rest/v1/${table}?select=…&amp;email=in.(${encodeURIComponent(inList)})`;
+const getRes = await fetch(getUrl, { headers: readHeaders });   // throws on network failure
+...
+} catch (err) { apiLogger.error({ err, msg: "contacts-central:upsert-error" }); }</code></pre>
+  <p>
+    Node <code>fetch</code> errors commonly embed the request URL in the error object — so a transient network
+    failure can write a batch of <strong>real attendee email addresses</strong> into <code>SystemLog</code> and
+    CloudWatch at error level. The house rule is explicit: never log PII. (The service-role <em>key</em> was
+    verified <strong>not</strong> leaked — it's header-only, and only response bodies are sliced into logs.)
+  </p>
+  <div class="learn"><strong>What to learn.</strong> Putting identifiers in a query string means putting them in
+    every error, trace, and proxy log that touches the request. If the identifiers are PII, prefer a request body
+    (POST-style filtering) — or scrub the URL before logging. “We never log PII” must hold on the
+    <em>exception</em> path too, which is exactly where nobody looks.</div>
+</div>
+
+<div class="finding medium" id="M12">
+  <h3><span class="sev medium">Medium</span> M12 — Both central-sync jobs are exposed to the P3 pooler stall — the mirror can stop silently</h3>
+  <p class="loc"><code>worker/jobs/contacts-central-sync.ts:24</code>, <code>contacts-central-reconcile.ts:24</code>, <code>worker/lib/advisory-lock.ts:21-35, 72-74, 126</code>.</p>
+  <p>
+    The known P3 caveat is that <code>pg_try_advisory_lock</code> and <code>pg_advisory_unlock</code> are separate
+    statements through the transaction pooler and can land on different backends. The existing note argues this
+    hasn't bitten us because a single worker never contends with itself — but that only covers the
+    <em>double-run</em> half. The other half needs no second runner:
+  </p>
+  <ol>
+    <li>Acquire lands on backend <strong>A</strong> → <code>true</code>; the tick runs.</li>
+    <li>The unlock lands on backend <strong>B</strong> → no-op. (<code>pg_advisory_unlock</code> on a lock you don't
+      hold returns <code>false</code> <em>silently</em> — it does not throw, so the
+      <code>worker:advisory-unlock-failed</code> line never fires.)</li>
+    <li>The lock is now stuck on A's long-lived pooled connection. Every subsequent tick's acquire lands elsewhere →
+      <code>false</code> → <code>worker:skip-tick-locked</code> at <strong>debug</strong> level → skipped, with no
+      <code>JobRun</code> row.</li>
+  </ol>
+  <p class="lbl">Failure scenario</p>
+  <p>
+    The incremental mirror stops. Nobody notices — the only trace is a debug-level line, and skips deliberately
+    don't record a <code>JobRun</code>. If the reconcile's lock wedges the same way, the designed safety net for
+    <em>every LOW in this report</em> stops too, and the EU mirror quietly diverges from EA-SYS indefinitely.
+  </p>
+  <p class="lbl">Suggested fix</p>
+  <p>
+    Durable: point the worker at <code>DIRECT_URL</code> (session mode) as the P3 note already prescribes. Interim:
+    log <code>skip-tick-locked</code> at <code>info</code> for these two jobs, or use
+    <code>pg_advisory_xact_lock</code> inside a transaction (which pins one backend under transaction pooling).
+    Observable signature to check first: gaps &gt; 37 min (job 1007) / &gt; 24 h (job 1008) in <code>JobRun</code>.
+  </p>
+  <div class="learn"><strong>What to learn.</strong> A lock you cannot observe is a lock you cannot trust. Two
+    lessons here: (1) an abstraction (“advisory locks give us singletons”) that is only true under an assumption
+    (“one session”) must state the assumption <em>at the call site</em>, because the assumption is invisible; (2)
+    the failure mode of a silent skip is a job that <strong>appears</strong> healthy while doing nothing — always
+    give “I did no work” a louder voice than you think it deserves.</div>
+</div>
+
+<!-- ================= LOW ================= -->
+<h2>LOW</h2>
+
+<div class="finding low" id="L1">
+  <h3><span class="sev low">Low</span> L1 — Central-sync tick summary logs at <code>info</code> even when rows failed</h3>
+  <p class="loc"><code>contacts-central-sync.ts:325, 340</code>.</p>
+  <p>Per-chunk failures <em>do</em> log at error (status + body slice + chunk size), so a totally-failing tick still
+  pages — that's why this is LOW. But the one line a human greps for (“N of M failed this tick”) is
+  <code>info</code>. Make the summary <code>warn</code> when <code>failed &gt; 0</code>.</p>
+</div>
+
+<div class="finding low" id="L2">
+  <h3><span class="sev low">Low</span> L2 — ROADMAP's M9 note is stale: the speakers CSV import DOES sync</h3>
+  <p class="loc"><code>docs/ROADMAP.md:757</code> vs <code>events/[eventId]/import/speakers/route.ts:195-212</code>.</p>
+  <p>The ROADMAP says the speakers CSV-import contact-sync “remains open”. It doesn't — the sync is there. The real
+  residue is narrower: that sync map omits <code>role</code>, <code>state</code>, <code>zipCode</code>,
+  <code>photo</code>, <code>additionalEmail</code>. Left as-is, someone will re-fix the wrong thing.</p>
+  <div class="learn"><strong>What to learn.</strong> A stale “known issue” is worse than no note: it spends a future
+    engineer's time and can talk them out of investigating the real gap next to it.</div>
+</div>
+
+<div class="finding low" id="L3">
+  <h3><span class="sev low">Low</span> L3 — Worker + backfill comments describe an <code>ea_upsert_contacts</code> RPC that deliberately does not exist</h3>
+  <p class="loc"><code>worker/jobs/contacts-central-sync.ts:3-4</code> (also claims a “last ~30 min” lookback; the code uses 45) and <code>scripts/backfill-contacts-central.ts:2-11</code> (“Prereqs: the <code>ea_upsert_contacts</code> + <code>ea_array_union</code> functions exist in the target project”).</p>
+  <p>Both contradict the design of record (<code>docs/CONTACTS_CENTRAL_SYNC.md</code>: “no functions/objects live in
+  the target project”; all merge logic is client-side RMW). An operator following the script header would go hunting
+  for functions that must not exist.</p>
+</div>
+
+<div class="finding low" id="L4">
+  <h3><span class="sev low">Low</span> L4 — <code>buildCentralRows</code> loads every registration in the database on every tick</h3>
+  <p class="loc"><code>contacts-central-sync.ts:147-149</code> — <code>db.registration.findMany({ select: {…} })</code> with <strong>no <code>where</code></strong> and no pagination.</p>
+  <p>Runs twice an hour plus nightly, regardless of whether the incremental has 2 contacts or 2,000 — just to compute
+  <code>registration_type</code>. Cheap today (2 columns), unbounded with growth, and a needless load spike on the
+  shared pool the schedules were specifically offset to protect. The incremental tick already knows its candidate
+  emails and could filter on them.</p>
+</div>
+
+<div class="finding low" id="L5">
+  <h3><span class="sev low">Low</span> L5 — CSV import counts come from two racing <code>count()</code> queries</h3>
+  <p class="loc"><code>contacts/import/route.ts:122-136</code> — <code>countBefore</code> → <code>createMany</code> → <code>countAfter</code>.</p>
+  <p>Any concurrent contact creation in the org between the two counts (a public registration's sync, another import)
+  skews the reported <code>created</code>/<code>skipped</code>. <code>createMany</code> returns
+  <code>{ count }</code> — use it.</p>
+</div>
+
+<div class="finding low" id="L6">
+  <h3><span class="sev low">Low</span> L6 — A person's email is hardcoded as policy inside a route handler</h3>
+  <p class="loc"><code>contacts/[contactId]/route.ts:221</code> — <code>const PROTECTED_EMAILS = ["krishna@meetingmindsdubai.com"]</code>.</p>
+  <p>Policy as a magic constant: untestable, invisible to operators, a multi-tenant footgun, and its 403 is one of
+  the unlogged branches in M8. Move to org settings or env.</p>
+</div>
+
+<div class="finding low" id="L7">
+  <h3><span class="sev low">Low</span> L7 — <code>bulk-tags</code> reads tags outside its transaction</h3>
+  <p class="loc"><code>contacts/bulk-tags/route.ts:43-49</code> (read) vs <code>:72</code> (<code>$transaction(updates)</code>).</p>
+  <p>Two admins running add/remove on overlapping contacts concurrently compute from stale snapshots; last writer
+  wins and one operation's tags vanish. Tags drive email cohorts, so the blast radius is a mis-scoped send.
+  Low frequency (two humans, same rows, same second).</p>
+</div>
+
+<!-- ================= OWNER ================= -->
+<h2>Flagged for the owner (not bugs today)</h2>
+<div class="note warn">
+  <p>
+    <strong>The central sync is org-blind by design.</strong> <code>buildCentralRows</code> reads
+    <code>db.contact.findMany({ where: since ? { updatedAt } : {} })</code> with <strong>no
+    <code>organizationId</code> filter</strong>, and the registration-type join has <strong>no where clause at
+    all</strong> — it maps ticket types by email across every org. Correct for the single-org deployment and
+    consistent with the “org-agnostic mirror” intent — but the moment a second organization exists, it silently
+    mixes two orgs' contacts and registration types into one EU table keyed only on email. This belongs in
+    <code>docs/MULTI_TENANCY_IMPACT.md</code> as a hard blocker for white-label.
+  </p>
+  <p>
+    <strong>Should MEMBER read the contact book at all?</strong> (H1's product half.) MEMBER is a read-only,
+    finance-capable observer. Whether “operational visibility” extends to the full cross-event CRM including
+    private notes is a data-minimization call only the owner can make. ONSITE and REGISTRANT are not a judgment
+    call — they should not reach it.
+  </p>
+  <p>
+    <strong><code>CONTACTS_CENTRAL_URL</code> has no scheme/host validation</strong> (<code>:27, :276, :293</code>).
+    Env-sourced, so not a live vulnerability — but a single operator typo would POST the service-role key and every
+    contact's PII to the wrong host. An https + expected-host assertion at startup costs nothing.
+  </p>
+</div>
+
+<h2>Verified clean — checked, not a bug</h2>
+<ul>
+  <li><strong>Cross-tenant IDOR on <code>[contactId]</code></strong> (GET/PUT/DELETE/email/bulk-tags): every lookup
+    is <code>findFirst({ where: { id, organizationId } })</code>; a wrong-org id 404s without leaking existence.</li>
+  <li><strong>MCP org binding:</strong> <code>organizationId</code> is injected from the validated API key, never
+    from tool input; <code>update_contact</code> binds <code>contactId</code> to the org before mutating.</li>
+  <li><strong>The May-18 write-guard fix held</strong> — <code>denyReviewer</code> is present on POST/PUT/DELETE/
+    bulk-tags/import/email-change.</li>
+  <li><strong>CSV formula injection on export:</strong> every cell (including <code>tags.join(",")</code>) runs
+    through <code>escapeCsvCell</code>.</li>
+  <li><strong>CSV import insert race:</strong> <code>createMany({ skipDuplicates: true })</code> is a single atomic
+    <code>INSERT … ON CONFLICT DO NOTHING</code> — no check-then-act (the suspected bug isn't there).</li>
+  <li><strong>Missing <code>updatedAt</code> bumps:</strong> false alarm — every Contact mutation uses Prisma
+    <code>update</code>/<code>upsert</code>, which sets <code>@updatedAt</code>; no raw SQL touches the table. All
+    mutations are therefore visible to the incremental sync filter.</li>
+  <li><strong>The 45-min lookback vs 37-min cadence:</strong> 8 minutes of margin; all Contact writes are short
+    interactive transactions and web+worker share one box (no clock skew). Effectively unreachable, and the nightly
+    reconcile covers it.</li>
+  <li><strong>Two email-changes racing:</strong> the PATCH maps the losing P2002 to a 409, and the speaker/
+    registration variants run <code>repointOrgContactEmail</code> inside a transaction that rolls the whole cascade
+    back.</li>
+  <li><strong>Central-sync service-role key:</strong> header-only; only response bodies are logged. Not leaked.</li>
+  <li><strong>Contact photo stored-XSS:</strong> rendered via <code>next/image</code> → plain <code>&lt;img src&gt;</code>;
+    not exploitable. (The <em>import fetch</em> is the real angle — M10.)</li>
+</ul>
+
+<!-- ================= LESSONS ================= -->
+<h2 id="lessons">Lessons for a junior developer — the principles behind these bugs</h2>
+<ol>
+  <li><strong>A write-guard is not an access-control model.</strong> Guarding mutations says nothing about who may
+    <em>read</em>. In a CRM, the export endpoint is the crown jewels — it deserves the strictest gate and an audit
+    trail. (H1)</li>
+  <li><strong>Enforce invariants at the data boundary, not in each writer.</strong> Six writers, five of whom
+    remembered to lowercase, is a broken invariant. The database can enforce it; convention cannot. (H2, M4)</li>
+  <li><strong>An append-only mirror keyed on a mutable field is an accumulator, not a mirror.</strong> Before
+    building a sync, enumerate every source operation — create, update, <em>rename-the-key</em>, merge, delete —
+    and decide what each means on the target. (H3)</li>
+  <li><strong>When you fix a drift bug, delete the duplication that caused it.</strong> Otherwise you've proven the
+    mechanism works and left it loaded. (H4, M3)</li>
+  <li><strong>Beware code whose failure mode is “succeeds and does nothing.”</strong> An enrich-only sync fed the
+    wrong payload logs nothing and changes nothing. Test the effect, not the call. (H4)</li>
+  <li><strong>“Non-blocking” is not a licence to manufacture failures.</strong> A check-then-act against a unique
+    index will lose races; a catch around it converts a race into permanent invisible data loss. (M1)</li>
+  <li><strong>Audit anything whose effect can't be reconstructed from the resulting state</strong> — a DELETE most
+    of all, because the evidence is what it destroys. (M2)</li>
+  <li><strong>Comments asserting parity are liabilities.</strong> If two things must stay in sync, encode it in code
+    or a test — never in prose. (M3)</li>
+  <li><strong>Two APIs writing the same row share one schema with two spellings.</strong> An asymmetric field cap
+    makes a record read-only by accident. (M7)</li>
+  <li><strong>“It comes from a trusted integration” is not a security boundary.</strong> Any server-side
+    <code>fetch()</code> of a URL you didn't construct needs an allowlist — and we already wrote that guard once.
+    (M10)</li>
+  <li><strong>“We never log PII” must hold on the exception path</strong> — which is exactly where nobody looks.
+    Identifiers in a query string end up in every error and proxy log. (M11)</li>
+  <li><strong>Give “I did no work” a loud voice.</strong> A silently-skipped job looks identical to a healthy one.
+    (M12, L1)</li>
+</ol>
+
+<footer>
+  EA-SYS · Contacts production review · July 13, 2026 · 3 of 4 review angles completed (see coverage caveat).<br>
+  All findings <strong>deferred by owner decision</strong> — tracked in <code>docs/ROADMAP.md</code> §
+  “Contacts review — deferred findings”. Domain map: <code>docs/DOMAIN_MAP.html</code>.
+</footer>
+
+</div>
+</body>
+</html>
