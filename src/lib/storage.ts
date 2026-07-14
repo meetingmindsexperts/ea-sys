@@ -15,6 +15,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { apiLogger } from "./logger";
+import { safeFetchImage } from "./safe-fetch";
 
 const PROVIDER = (process.env.STORAGE_PROVIDER || "local") as "local" | "supabase";
 const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "photos";
@@ -210,6 +211,21 @@ export async function uploadStripeReceipt(
  * Downloads an external photo URL and re-hosts it in our storage.
  * Returns the local/Supabase URL on success, or null on failure.
  * Skips URLs that are already hosted by us.
+ *
+ * SSRF: this used to be a bare `fetch(externalUrl)` with no validation of any
+ * kind. The URL arrives from the EventsAir import payload, so it is not typed by
+ * an end user — but it is not ours either, and "an upstream system supplies it"
+ * is not a security boundary. A bare fetch here could be pointed at the EC2
+ * instance-metadata endpoint, at localhost, or at any service on the Docker
+ * network (the app is on the same bridge as the worker and MediaMTX). The Docker
+ * socket is mounted into this container, which makes the blast radius of an
+ * app-initiated internal request considerably worse than it looks.
+ *
+ * It now goes through the SSRF-safe fetcher the codebase already had and this
+ * call site never used: scheme + credential checks, a cloud-metadata hostname
+ * blocklist, DNS resolution with private/reserved IP rejection, and — the part a
+ * naive allowlist always misses — re-validation of every redirect hop, so a
+ * permitted host cannot 302 us into 169.254.169.254.
  */
 export async function downloadExternalPhoto(
   externalUrl: string
@@ -219,42 +235,42 @@ export async function downloadExternalPhoto(
   if (externalUrl.includes(".supabase.co/storage/")) return externalUrl;
 
   try {
-    const res = await fetch(externalUrl, {
-      signal: AbortSignal.timeout(10000),
+    const result = await safeFetchImage(externalUrl, {
+      maxBytes: 500 * 1024, // unchanged: 500KB cap
+      timeoutMs: 10_000, // unchanged
+      maxRedirects: 2,
     });
-    if (!res.ok) {
-      apiLogger.warn({ msg: "Failed to download external photo", url: externalUrl, status: res.status });
+
+    if (!result.ok) {
+      // Log the REASON, not just "it failed". An `ip_blocked` here is a security
+      // event (something tried to make us fetch an internal address); an
+      // `http_error` is just a dead link. They should not look the same in /logs.
+      apiLogger.warn({
+        msg: "external-photo:rejected",
+        url: externalUrl,
+        reason: result.reason,
+        detail: result.detail,
+        finalUrl: result.finalUrl,
+      });
       return null;
     }
 
-    const contentType = res.headers.get("content-type")?.split(";")[0]?.trim();
-    const ALLOWED: Record<string, string> = {
-      "image/jpeg": "jpg",
-      "image/png": "png",
-      "image/webp": "webp",
-    };
+    const { buffer, ext, mime } = result.data;
 
-    const ext = contentType ? ALLOWED[contentType] : null;
-    if (!ext) {
-      apiLogger.warn({ msg: "External photo has unsupported content type", url: externalUrl, contentType });
-      return null;
-    }
-
-    const arrayBuf = await res.arrayBuffer();
-    const buffer = Buffer.from(arrayBuf);
-
-    // Enforce 500KB limit
-    if (buffer.length > 500 * 1024) {
-      apiLogger.warn({ msg: "External photo too large, skipping", url: externalUrl, size: buffer.length });
+    // safeFetchImage permits SVG. We must not: these files are re-served from OUR
+    // origin, and an SVG can carry a <script>. Accepting one would turn a photo
+    // import into stored XSS on our own domain.
+    if (ext === "svg") {
+      apiLogger.warn({ msg: "external-photo:svg-rejected", url: externalUrl });
       return null;
     }
 
     const { randomUUID } = await import("crypto");
     const filename = `${randomUUID()}.${ext}`;
 
-    return await uploadPhoto(buffer, filename, contentType!);
+    return await uploadPhoto(buffer, filename, mime);
   } catch (err) {
-    apiLogger.warn({ msg: "Error downloading external photo", url: externalUrl, err });
+    apiLogger.warn({ msg: "external-photo:download-failed", url: externalUrl, err });
     return null;
   }
 }
