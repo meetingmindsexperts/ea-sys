@@ -136,7 +136,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # Stamp the ACTUAL build time. `github.event.repository.updated_at` looks
       # like a build timestamp and isn't — it's when the repo record was last
