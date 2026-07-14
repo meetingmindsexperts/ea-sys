@@ -73,13 +73,15 @@
 </header>
 
 <div class="note warn">
-  <strong>Status (updated July 14): H1 + H2 SHIPPED (<code>a0744ef</code>); H3, H4 and every MED/LOW remain deferred.</strong>
+  <strong>Status (July 14): 3 of 4 HIGHs SHIPPED — H1 + H2 (<code>a0744ef</code>) and H4 (<code>5849962</code>).
+  H3 and every MED/LOW remain deferred.</strong>
   The review was first recorded as a document-only round (stabilization-first posture,
-  <code>docs/CRM_MODULE_PLAN.md</code>). The owner then un-deferred the two live-impact HIGHs — H1 (an ONSITE
-  desk temp could export the whole org CRM) and H2 (duplicate contacts being minted continuously). The rest is
-  tracked in <code>docs/ROADMAP.md</code> § “Contacts review — deferred findings”.
-  <strong>Next in line if this reopens: H4</strong> (extract <code>speaker-service.updateSpeaker()</code> — the
-  duplication that caused it is the real fix), then H3 (mirror rename/merge/delete propagation).
+  <code>docs/CRM_MODULE_PLAN.md</code>); the owner then un-deferred the HIGHs. Remaining work is tracked in
+  <code>docs/ROADMAP.md</code> § “Contacts review”.
+  <strong>Still open and worth knowing:</strong> <strong>H3</strong> (the EU mirror never learns about a
+  rename/merge/delete — the riskiest fix, it touches the external Supabase target), <strong>M3</strong> (the
+  bulk-registration MCP path has H4's bug and was NOT covered by the extraction — bulk paths are deliberately not
+  service-backed), and the <strong>duplicate-contact backfill</strong> H2 does not perform.
 </div>
 
 <div class="note">
@@ -150,7 +152,7 @@
     <tr><td>H1</td><td><span class="sev high">High</span></td><td>Read routes have no role gate — ONSITE / MEMBER / internal REGISTRANT can export the entire org CRM (incl. private notes), un-audited, un-rate-limited</td><td><span class="pill shipped">SHIPPED a0744ef</span></td></tr>
     <tr><td>H2</td><td><span class="sev high">High</span></td><td>REST contact create never lowercases the email — mints case-variant duplicate people; the mirror silently drops one of each pair</td><td><span class="pill shipped">SHIPPED a0744ef</span></td></tr>
     <tr><td>H3</td><td><span class="sev high">High</span></td><td>Central mirror never learns about a rename / merge / delete — the old email survives forever as a live-looking marketing record</td><td><span class="pill deferred">DEFER</span></td></tr>
-    <tr><td>H4</td><td><span class="sev high">High</span></td><td>MCP <code>update_speaker</code> syncs name+email only while REST syncs the full profile — agent edits never reach the CRM</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>H4</td><td><span class="sev high">High</span></td><td>MCP <code>update_speaker</code> syncs name+email only while REST syncs the full profile — agent edits never reach the CRM</td><td><span class="pill shipped">SHIPPED 5849962</span></td></tr>
     <tr><td>M1</td><td><span class="sev medium">Medium</span></td><td><code>syncToContact</code> is check-then-act; the P2002 loser lands in a swallowed catch, dropping an <code>eventId</code> + all enrich data</td><td><span class="pill deferred">DEFER</span></td></tr>
     <tr><td>M2</td><td><span class="sev medium">Medium</span></td><td>Audit coverage is 2 of 9 mutation paths — <code>DELETE</code> writes no audit row at all</td><td><span class="pill deferred">DEFER</span></td></tr>
     <tr><td>M3</td><td><span class="sev medium">Medium</span></td><td>MCP <code>create_registrations_bulk</code> syncs name+email only; its “parity” comment is now false</td><td><span class="pill deferred">DEFER</span></td></tr>
@@ -395,6 +397,36 @@ syncToContact({
     Extract <code>speaker-service.updateSpeaker()</code> and delegate both callers — the template is
     <code>registration-service.updateRegistration()</code>, sitting in the next file. (Minimum viable: copy the
     REST sync shape into the executor with a drift-guard comment — but that just re-arms the same trap.)
+  </p>
+  <p class="lbl">Actual fix — <span class="pill shipped">SHIPPED 5849962</span> (July 14, 2026)</p>
+  <p>
+    <strong>The extraction, not a patched payload.</strong> New
+    <code>speaker-service.updateSpeaker()</code> owns the optimistic-locked write, the tag mirror onto the
+    registration facet, the decline cascade, the <strong>full</strong> contact sync, the audit row and the stats
+    refresh. Both callers are now thin: REST keeps session auth, <code>denyReviewer</code>,
+    <code>EMAIL_IMMUTABLE</code>, Zod, the org-scoped event lookup and the HTTP status map; MCP keeps loose-input
+    coercion, its org-scoped speaker lookup and the JSON-RPC response shape.
+  </p>
+  <p>
+    <strong>Extra drift found and fixed while extracting</strong> (all in the MCP copy, none of it in the
+    original finding): its audit row recorded <em>status only</em> — now full before/after snapshots, so the
+    Activity timeline can render diffs; the write is now bound to <code>{id, eventId}</code> so a mis-scoped call
+    can't touch a sibling event's speaker; stats now refresh for the speaker's <em>own</em> event (it used
+    <code>ctx.eventId</code>); and <code>photo</code> is coerced instead of blind-cast
+    (<code>input.photo as string | null</code> let a non-string reach Prisma raw). The REST audit write became
+    fire-and-forget-with-logged-catch (M13 class) and its event-not-found 404 now logs.
+  </p>
+  <p>
+    <strong>+20 service tests, and the regression guard asserts the EFFECT, not the call</strong> — a test that
+    merely checked “<code>syncToContact</code> was called” would have <em>passed against the bug</em>. All 2666
+    pre-existing tests (including every REST speaker-route test) pass unchanged through the delegation, which is
+    the real evidence the extraction preserved behavior. No MCP schema change → no package bump.
+  </p>
+  <p class="lbl">Still open — the same class, one file over</p>
+  <p>
+    <strong>M3</strong> (MCP <code>create_registrations_bulk</code> syncing name+email only) is the identical
+    bug in the bulk path, and bulk paths are deliberately NOT service-extracted (different mechanics: per-row
+    error capture, <code>createMany</code>). It needs its own fix.
   </p>
   <div class="learn"><strong>What to learn.</strong> When you fix a drift bug, fix the <em>duplication</em> that
     allowed it, not just the instance — otherwise you have proven the mechanism works and left it loaded. And note
