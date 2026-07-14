@@ -37,7 +37,7 @@ jobs:
       # On hit, npm ci is skipped entirely (~30-40s saved).
       - name: Cache dependencies
         id: deps-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: node_modules
           key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
