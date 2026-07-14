@@ -1456,7 +1456,7 @@ independently shippable.
 | **Re-tier L2 — reject simultaneous type + tier change** | The PUT allows changing `ticketTypeId` and `pricingTierId` in one request; a type change nulls the tier, so a combined change is ambiguous. Add a 400 guard. | ~15 min | Low — the UI paths don't currently send both together; belt-and-braces. |
 | **Resident "official letter" — capture the file** | The public register form shows a Resident/Trainee "upload an official letter" **notice** (text-only, shipped July 7). Actually capturing + storing the file (additive `Attendee` column + upload UI + dashboard display) was deferred per the organizer's "text only" choice. | ~half day | If the organizer later wants the letter collected in-system rather than emailed/brought out-of-band. |
 
-### Contacts review — H1 + H2 + H4 SHIPPED; H3 + MED/LOW deferred (July 13–14, 2026)
+### Contacts review — H1 + H2 + H4 + M3 SHIPPED; H3 + rest deferred (July 13–14, 2026)
 
 Full report: [docs/CODE_REVIEW_CONTACTS.html](docs/CODE_REVIEW_CONTACTS.html)
 (**0 BLOCKER / 4 HIGH / 12 MED / 7 LOW**). Recorded first as a document-only round
@@ -1470,9 +1470,10 @@ binding (injected from the API key), the May-18 write-guard fix, CSV formula-inj
 email-change P2002→409 race handling.
 
 **Still open:** **H3** (mirror rename/merge/delete propagation — the riskiest, it touches the
-external EU Supabase target), **M3** (the bulk-registration MCP path has H4's bug and was NOT covered
-by the `updateSpeaker` extraction — bulk paths are deliberately not service-backed), and the
-duplicate-contact backfill H2 doesn't perform.
+external EU Supabase target; **plan written below**) and the duplicate-contact backfill H2 doesn't
+perform. The enrich-only-sync bug class (H4 + M3) is now **closed on every single-write and bulk
+path** — but note the same trap remains latent anywhere a `syncToContact` payload is hand-built:
+a wrong-but-well-formed payload fails **silently and successfully**, so always test the *effect*.
 
 | # | Sev | Finding | Status / note |
 |---|---|---|---|
@@ -1483,7 +1484,7 @@ duplicate-contact backfill H2 doesn't perform.
 | **H3** | HIGH | **The EU central mirror never learns about a rename / merge / delete** — it is email-keyed and POST-upsert-only. Fixing a typo'd email leaves the old address in `contacts_centralv1` **forever**, looking like a current, EA-maintained person (that table feeds `mailchimp_*`). The nightly reconcile only upserts, so it cannot heal it. | **Implementation plan below** (§"H3 — mirror retraction"). Owner decision (July 14): **never hard-delete — always `ea_synced = false`**; a row carrying `mailchimp_*` / `evenstair_customerid` belongs to another source and is no longer EA-SYS's concern. |
 | M1 | MED | `syncToContact` is check-then-act on a unique index; the P2002 loser lands in a swallowed catch → an `eventId` **and all enrich data** are permanently lost, and the reconcile can't heal it (it recomputes *from* the corrupted `Contact.eventIds`). | Retry-once on P2002 + atomic array append. |
 | M2 | MED | **Audit coverage is 2 of 9 mutation paths** — `DELETE` writes **no audit row** (destructive + unrecoverable); bulk-tags none (its registrations/speakers twins *are* audited); create/import/PUT none (but MCP `update_contact` *does* — inconsistent). | Start with DELETE + bulk-tags. |
-| M3 | MED | MCP `create_registrations_bulk` syncs name+email only; its "parity with the single executor" comment is now false (the single path delegates to the ~20-field service). A 100-row agent import → 100 husk CRM rows. | |
+| ~~M3~~ | MED | MCP `create_registrations_bulk` synced name+email only while the Attendee row got the full set ⇒ a 100-row agent import produced 100 **husk** CRM rows (and husks in the EU mirror, which enriches from Contact). H4's class; it survived that fix because bulk paths are deliberately NOT service-backed. | ✅ **SHIPPED `ba69eab`.** Fixed the drift **mechanism**: the row's optional fields were hand-rebuilt in **three** places (Attendee row, confirmation email, contact sync) — now one parsed `attendeeFields` object feeds all three, and the Prisma enum cast stays on the Prisma call instead of leaking `as never` into the shared payload. +3 tests, **verified to fail against the pre-fix code**; one pins Attendee-vs-Contact field equality so they can't silently drift again. |
 | M4 | MED | **Tag normalization drift** — MCP `create_contact` and the CSV import skip `normalizeTag`; both tag filters are exact-match → agent-created `committee` is invisible to a `Committee` filter (the n8n/Webflow pain, at its source). | |
 | M5 | MED | Two "import contacts" features with **opposite semantics**: CSV = `createMany({skipDuplicates})` (existing rows untouched — a re-import to enrich does nothing), EventsAir = enrich-upsert. Skips are never itemized, only counted. | |
 | M6 | MED | Neither `import-contacts` → event path appends the event to `Contact.eventIds` → that person's attendance **never appears** in the mirror's `events_attended`. (The registrations one also writes no audit row.) | |

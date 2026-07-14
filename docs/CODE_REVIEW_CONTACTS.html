@@ -78,10 +78,13 @@
   The review was first recorded as a document-only round (stabilization-first posture,
   <code>docs/CRM_MODULE_PLAN.md</code>); the owner then un-deferred the HIGHs. Remaining work is tracked in
   <code>docs/ROADMAP.md</code> § “Contacts review”.
-  <strong>Still open and worth knowing:</strong> <strong>H3</strong> (the EU mirror never learns about a
-  rename/merge/delete — the riskiest fix, it touches the external Supabase target), <strong>M3</strong> (the
-  bulk-registration MCP path has H4's bug and was NOT covered by the extraction — bulk paths are deliberately not
-  service-backed), and the <strong>duplicate-contact backfill</strong> H2 does not perform.
+  <strong>M3 also shipped</strong> (<code>ba69eab</code>) — it was H4's bug in the bulk path, which the extraction
+  deliberately didn't cover (bulk paths aren't service-backed). <strong>The enrich-only-sync bug class is now
+  closed on every single-write and bulk path.</strong>
+  <br><br>
+  <strong>Still open:</strong> <strong>H3</strong> (the EU mirror never learns about a rename/merge/delete — the
+  riskiest fix, it touches the external Supabase target; <em>plan + owner decisions written</em>, see below) and
+  the <strong>duplicate-contact backfill</strong> H2 does not perform.
 </div>
 
 <div class="note">
@@ -155,7 +158,7 @@
     <tr><td>H4</td><td><span class="sev high">High</span></td><td>MCP <code>update_speaker</code> syncs name+email only while REST syncs the full profile — agent edits never reach the CRM</td><td><span class="pill shipped">SHIPPED 5849962</span></td></tr>
     <tr><td>M1</td><td><span class="sev medium">Medium</span></td><td><code>syncToContact</code> is check-then-act; the P2002 loser lands in a swallowed catch, dropping an <code>eventId</code> + all enrich data</td><td><span class="pill deferred">DEFER</span></td></tr>
     <tr><td>M2</td><td><span class="sev medium">Medium</span></td><td>Audit coverage is 2 of 9 mutation paths — <code>DELETE</code> writes no audit row at all</td><td><span class="pill deferred">DEFER</span></td></tr>
-    <tr><td>M3</td><td><span class="sev medium">Medium</span></td><td>MCP <code>create_registrations_bulk</code> syncs name+email only; its “parity” comment is now false</td><td><span class="pill deferred">DEFER</span></td></tr>
+    <tr><td>M3</td><td><span class="sev medium">Medium</span></td><td>MCP <code>create_registrations_bulk</code> syncs name+email only; its “parity” comment is now false</td><td><span class="pill shipped">SHIPPED ba69eab</span></td></tr>
     <tr><td>M4</td><td><span class="sev medium">Medium</span></td><td>Tag normalization drift — MCP <code>create_contact</code> and CSV import skip <code>normalizeTag</code>; filters are exact-match</td><td><span class="pill deferred">DEFER</span></td></tr>
     <tr><td>M5</td><td><span class="sev medium">Medium</span></td><td>Two “import contacts” features with opposite update semantics (skip-existing vs enrich-upsert); CSV skips are unitemized</td><td><span class="pill deferred">DEFER</span></td></tr>
     <tr><td>M6</td><td><span class="sev medium">Medium</span></td><td>Both <code>import-contacts</code> → event paths never append the event to <code>Contact.eventIds</code> → missing from <code>events_attended</code> forever</td><td><span class="pill deferred">DEFER</span></td></tr>
@@ -539,6 +542,22 @@ if (existing) {
     An agent bulk-imports 100 delegates from a sponsor's spreadsheet. Their organization, job title and country
     <em>are</em> persisted to the Attendee rows (they even appear in the confirmation emails) — but the 100
     resulting CRM contacts are name+email husks. Same root cause as H4: a copy that didn't move when the original did.
+  </p>
+  <p class="lbl">Actual fix — <span class="pill shipped">SHIPPED ba69eab</span> (July 14, 2026)</p>
+  <p>
+    <strong>Fixed the drift mechanism, not just the payload.</strong> The row's optional attendee fields were
+    hand-rebuilt in <strong>three</strong> places — the Attendee row, the confirmation email, and the contact
+    sync — which is precisely how one of them came to carry less than the others. They now come from a single
+    parsed <code>attendeeFields</code> object consumed by all three. The Prisma enum cast was also moved back
+    onto the Prisma call: leaving <code>as never</code> in the shared object would have made it assignable to
+    anything and <em>silently defeated type-checking at the <code>syncToContact</code> boundary</em> — the very
+    boundary this finding is about.
+  </p>
+  <p>
+    +3 tests, <strong>verified to fail against the pre-fix code</strong> (I reverted the fix and watched them go
+    red before trusting them). One of them pins Attendee-vs-Contact field equality, so the two payloads cannot
+    silently diverge again. Note the tests assert the <em>effect</em> — a test that only checked
+    “<code>syncToContact</code> was called” passes against the bug, which is why it survived this long.
   </p>
   <div class="learn"><strong>What to learn.</strong> A comment asserting “parity with X” is a liability the moment
     X changes — it makes the next reader <em>stop checking</em>. If two things must stay in sync, encode it in code
