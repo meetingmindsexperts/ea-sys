@@ -139,22 +139,26 @@ function StageColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex w-72 shrink-0 flex-col rounded-lg border bg-muted/30 transition-colors",
-        isOver && "border-primary bg-primary/5",
+        "flex w-72 shrink-0 flex-col rounded-xl border bg-muted/30 transition-colors",
+        isOver && "border-primary bg-primary/5 ring-1 ring-primary/20",
       )}
     >
-      <div className="flex items-baseline justify-between gap-2 border-b px-3 py-2">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold">{stage.name}</h3>
-          <span className="rounded bg-muted px-1.5 text-xs text-muted-foreground">{deals.length}</span>
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 rounded-t-xl border-b bg-muted/60 px-3 py-2.5 backdrop-blur-sm">
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="truncate text-sm font-semibold">{stage.name}</h3>
+          <span className="rounded-full bg-background px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+            {deals.length}
+          </span>
         </div>
         {/* Null when money is redacted (MEMBER) — show nothing rather than a fake 0. */}
-        {total && <span className="text-xs font-medium text-muted-foreground">{total}</span>}
+        {total && <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">{total}</span>}
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 p-2">
+      <div className="flex min-h-[6rem] flex-1 flex-col gap-2 p-2">
         {deals.length === 0 ? (
-          <p className="px-1 py-6 text-center text-xs text-muted-foreground">No deals</p>
+          <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground/70">
+            No deals
+          </div>
         ) : (
           deals.map((deal) => (
             <DraggableDeal
@@ -167,6 +171,28 @@ function StageColumn({
         )}
       </div>
     </div>
+  );
+}
+
+/** Owner initials in a small token — a face on the card without a photo. */
+function Monogram({ name }: { name: string }) {
+  const initials =
+    name === "Unassigned"
+      ? "?"
+      : name
+          .split(" ")
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((w) => w[0])
+          .join("")
+          .toUpperCase();
+  return (
+    <span
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[9px] font-semibold text-primary"
+      aria-hidden="true"
+    >
+      {initials}
+    </span>
   );
 }
 
@@ -223,12 +249,23 @@ function DealCard({
   const value = formatDealValue(deal.dealValue, deal.currency);
   const tasks = deal._count?.tasks ?? 0;
   const notes = deal._count?.notes ?? 0;
+  const ownerName = personName(deal.owner);
+  // A subtle left accent for closed deals (seen in the Won/Lost columns + archived
+  // view) — status you can read at a glance without parsing a badge.
+  const statusAccent =
+    deal.status === "WON"
+      ? "border-l-2 border-l-emerald-400"
+      : deal.status === "LOST"
+        ? "border-l-2 border-l-rose-300"
+        : "";
 
   return (
     <div
       className={cn(
-        "rounded-md border bg-background p-3 shadow-sm",
-        isOverlay && "rotate-2 shadow-lg",
+        "group rounded-lg border bg-background p-3 shadow-sm transition-all",
+        statusAccent,
+        onOpen && "hover:border-primary/40 hover:shadow-md",
+        isOverlay && "rotate-2 shadow-lg ring-1 ring-primary/20",
       )}
     >
       <div className="flex items-start gap-2">
@@ -236,50 +273,56 @@ function DealCard({
         <button
           type="button"
           onClick={onOpen}
-          className="flex-1 text-left"
+          className={cn("min-w-0 flex-1 text-left", onOpen && "cursor-pointer")}
           disabled={!onOpen}
         >
           <p className="text-sm font-medium leading-snug">{deal.name}</p>
 
           {deal.company && (
-            <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-              <Building2 className="h-3 w-3" />
+            <p className="mt-1 flex items-center gap-1 truncate text-xs text-muted-foreground">
+              <Building2 className="h-3 w-3 shrink-0" />
               {deal.company.name}
             </p>
           )}
 
           <div className="mt-2 flex items-center justify-between gap-2">
-            {/* A redacted value and a $0 deal are different facts. */}
-            <span className="text-sm font-semibold">
-              {value ?? <span className="text-muted-foreground">—</span>}
+            {/* A redacted value and a $0 deal are different facts. Tabular figures
+                keep the column of numbers aligned across cards. */}
+            <span className="text-sm font-semibold tabular-nums">
+              {value ?? <span className="font-normal text-muted-foreground">—</span>}
             </span>
             {deal.event && (
-              <Badge variant="outline" className="max-w-[8rem] truncate text-[10px]">
+              <Badge variant="outline" className="max-w-[8rem] shrink-0 truncate text-[10px]">
                 {deal.event.name}
               </Badge>
             )}
           </div>
 
-          <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
-            <span>{personName(deal.owner)}</span>
-            {deal.expectedClose && (
-              <span className="flex items-center gap-1">
-                <CalendarClock className="h-3 w-3" />
-                {new Date(deal.expectedClose).toLocaleDateString()}
-              </span>
-            )}
-            {tasks > 0 && (
-              <span className="flex items-center gap-1">
-                <CheckSquare className="h-3 w-3" />
-                {tasks}
-              </span>
-            )}
-            {notes > 0 && (
-              <span className="flex items-center gap-1">
-                <MessageSquare className="h-3 w-3" />
-                {notes}
-              </span>
-            )}
+          <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Monogram name={ownerName} />
+              <span className="truncate">{ownerName}</span>
+            </span>
+            <span className="flex shrink-0 items-center gap-2.5 tabular-nums">
+              {deal.expectedClose && (
+                <span className="flex items-center gap-1">
+                  <CalendarClock className="h-3 w-3" />
+                  {new Date(deal.expectedClose).toLocaleDateString()}
+                </span>
+              )}
+              {tasks > 0 && (
+                <span className="flex items-center gap-1" title={`${tasks} task${tasks === 1 ? "" : "s"}`}>
+                  <CheckSquare className="h-3 w-3" />
+                  {tasks}
+                </span>
+              )}
+              {notes > 0 && (
+                <span className="flex items-center gap-1" title={`${notes} note${notes === 1 ? "" : "s"}`}>
+                  <MessageSquare className="h-3 w-3" />
+                  {notes}
+                </span>
+              )}
+            </span>
           </div>
         </button>
       </div>

@@ -17,20 +17,22 @@
  */
 import { Suspense, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Archive, Plus, Loader2, X } from "lucide-react";
+import { Archive, Handshake, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmEvents } from "@/crm/hooks/use-crm-api";
 import { DealBoard } from "@/crm/components/deal-board";
 import { DealDetailSheet } from "@/crm/components/deal-detail-sheet";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
+import { CrmEmptyState } from "@/crm/components/crm-empty-state";
+import { CrmBoardSkeleton } from "@/crm/components/crm-skeletons";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { ValueRangeFilter } from "@/crm/components/filters/value-range-filter";
 import { useCrmDeals, useCrmStages, useMoveDealStage } from "@/crm/hooks/use-crm-api";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
-import type { CrmBoardDeal } from "@/crm/lib/crm-types";
+import { sumStageValue, type CrmBoardDeal } from "@/crm/lib/crm-types";
 
 const ALL_EVENTS = "__all__";
 const ALL_STATUS = "__all__";
@@ -161,19 +163,48 @@ function DealsPageInner() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading the pipeline…
-        </div>
+        <CrmBoardSkeleton columns={stages.length || 5} />
       ) : stages.length === 0 ? (
-        <p className="py-16 text-center text-sm text-muted-foreground">No pipeline stages yet.</p>
+        <CrmEmptyState
+          icon={Handshake}
+          title="No pipeline stages yet"
+          description="The pipeline seeds a default set of stages on first use — reload in a moment if this persists."
+        />
+      ) : deals.length === 0 ? (
+        <CrmEmptyState
+          icon={Handshake}
+          title={
+            archivedView
+              ? "No archived deals"
+              : filtersActive
+                ? "No deals match these filters"
+                : "No deals yet"
+          }
+          description={
+            archivedView
+              ? "Deals you archive will show up here, ready to restore."
+              : filtersActive
+                ? "Try clearing a filter to widen the view."
+                : "Track a sponsorship or exhibitor opportunity against an event."
+          }
+          action={
+            canWrite && !archivedView && !filtersActive ? (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                New deal
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <>
-          {filtersActive && (
-            <p className="text-xs text-muted-foreground">
-              {deals.length} deal{deals.length === 1 ? "" : "s"} match these filters.
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground tabular-nums">
+            {deals.length} deal{deals.length === 1 ? "" : "s"}
+            {filtersActive && " match these filters"}
+            {canSeeValues && sumStageValue(deals) && (
+              <> · {sumStageValue(deals)} total</>
+            )}
+          </p>
           <DealBoard
             stages={stages}
             deals={deals}
