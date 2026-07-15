@@ -13,7 +13,7 @@
  */
 import { useState } from "react";
 import { useSession } from "next-auth/react";
-import { Archive, Building2, Loader2, Plus, Search, TriangleAlert } from "lucide-react";
+import { Archive, Building2, Plus, Search, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,9 @@ import {
 } from "@/components/ui/table";
 import { CompanyDetailSheet } from "@/crm/components/company-detail-sheet";
 import { CreateCompanyDialog } from "@/crm/components/create-company-dialog";
+import { CrmEmptyState } from "@/crm/components/crm-empty-state";
+import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
+import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies } from "@/crm/hooks/use-crm-api";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
@@ -118,22 +121,38 @@ export default function CrmCompaniesPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading companies…
-        </div>
+        <CrmTableSkeleton rows={6} cols={5} />
       ) : rows.length === 0 ? (
-        <div className="py-16 text-center">
-          <Building2 className="mx-auto h-8 w-8 text-muted-foreground/50" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            {q ? "No companies match that search." : "No companies yet."}
-          </p>
-        </div>
+        <CrmEmptyState
+          icon={Building2}
+          title={
+            showArchived
+              ? "No archived companies"
+              : q
+                ? "No companies match that search"
+                : "No companies yet"
+          }
+          description={
+            showArchived
+              ? "Accounts you archive will show up here, ready to restore."
+              : q
+                ? "Try a different search term."
+                : "Sponsors, exhibitors, hospitals and societies — the accounts you sell to."
+          }
+          action={
+            canWrite && !showArchived && !q ? (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                New company
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border">
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableHead>Name</TableHead>
                 <TableHead>Industry</TableHead>
                 <TableHead>Location</TableHead>
@@ -145,7 +164,7 @@ export default function CrmCompaniesPage() {
               {rows.map((c) => (
                 <TableRow
                   key={c.id}
-                  className="cursor-pointer"
+                  className={cn("cursor-pointer transition-colors", c.archivedAt && "opacity-60")}
                   onClick={() => setOpenId(c.id)}
                 >
                   <TableCell className="font-medium">
@@ -159,14 +178,19 @@ export default function CrmCompaniesPage() {
                           Needs review
                         </Badge>
                       )}
+                      {c.archivedAt && (
+                        <Badge variant="outline" className="border-rose-200 bg-rose-50 text-[10px] text-rose-700">
+                          Archived
+                        </Badge>
+                      )}
                     </span>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{c.industry ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {[c.city, c.country].filter(Boolean).join(", ") || "—"}
                   </TableCell>
-                  <TableCell className="text-right">{c._count?.contacts ?? 0}</TableCell>
-                  <TableCell className="text-right">{c._count?.deals ?? 0}</TableCell>
+                  <TableCell className="text-right tabular-nums">{c._count?.contacts ?? 0}</TableCell>
+                  <TableCell className="text-right tabular-nums">{c._count?.deals ?? 0}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
