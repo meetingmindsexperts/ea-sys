@@ -3,13 +3,14 @@
 /**
  * "Sales rep" filter — the org's deal-owning staff.
  *
- * Only staff (SUPER_ADMIN/ADMIN/ORGANIZER) can own a deal, so the picker is
- * filtered to those roles — a MEMBER or a reviewer in the user list would never
- * appear as an owner and would just be noise.
+ * Sourced from the CRM-gated /api/crm/reps, which returns exactly the deal-owning
+ * roles: the sales team (CRM_USER) and the admin tier (ADMIN / SUPER_ADMIN /
+ * ORGANIZER). Using the dedicated endpoint (rather than the org-wide users API +
+ * a client-side role filter) means a CRM_USER can populate the picker too, and the
+ * list can never drift to include a MEMBER or reviewer.
  */
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useOrgUsers } from "@/hooks/use-api";
-import { canOwnDeals } from "@/crm/lib/crm-roles";
+import { useCrmReps } from "@/crm/hooks/use-crm-api";
 
 const ALL = "__all__";
 
@@ -22,8 +23,7 @@ export function OwnerFilter({
   onChange: (userId: string | null) => void;
   placeholder?: string;
 }) {
-  const { data: users = [] } = useOrgUsers();
-  const reps = users.filter((u) => canOwnDeals(u.role));
+  const { data: reps = [] } = useCrmReps();
 
   return (
     <Select value={value || ALL} onValueChange={(v) => onChange(v === ALL ? null : v)}>

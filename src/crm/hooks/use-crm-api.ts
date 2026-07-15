@@ -557,3 +557,17 @@ export function useCrmEvents() {
       apiFetch<{ events: Array<{ id: string; name: string }> }>("/api/crm/events-lite").then((r) => r.events),
   });
 }
+
+/**
+ * The org's deal-owning staff (sales team + admins) for the owner picker. CRM-gated
+ * so a CRM_USER can populate it, and scoped to exactly the deal-owning roles.
+ */
+export function useCrmReps() {
+  return useQuery({
+    queryKey: ["crm", "reps"],
+    queryFn: () =>
+      apiFetch<{ reps: Array<{ id: string; firstName: string; lastName: string; role: string }> }>(
+        "/api/crm/reps",
+      ).then((r) => r.reps),
+  });
+}
