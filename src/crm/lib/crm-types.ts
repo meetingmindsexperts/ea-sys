@@ -29,6 +29,50 @@ export interface CrmPersonRef {
   email?: string;
 }
 
+export type CrmDealContactRole =
+  | "PRIMARY"
+  | "PROCUREMENT"
+  | "MARKETING"
+  | "TECHNICAL"
+  | "INFLUENCER"
+  | "OTHER";
+
+/**
+ * A BUSINESS contact — pharma rep, exhibitor sales, procurement.
+ *
+ * NOT the event `Contact` (HCPs). Those are a different table and a different
+ * population, because every event Contact is mirrored to the external HCP
+ * marketing list and a rep must never land there.
+ */
+export interface CrmContactRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  jobTitle?: string | null;
+  phone?: string | null;
+  country?: string | null;
+  lifecycleStage?: CrmLifecycleStage | null;
+  company?: { id: string; name: string } | null;
+  /** Non-null when this rep is ALSO in the event contact store (i.e. they attend). */
+  contactId?: string | null;
+  createdAt: string;
+  _count?: { deals: number };
+}
+
+/** A person on a deal, with the role they play on THAT deal. */
+export interface CrmDealContactRef {
+  role: CrmDealContactRole;
+  crmContact: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    jobTitle?: string | null;
+    phone?: string | null;
+  };
+}
+
 export interface CrmBoardDeal {
   id: string;
   name: string;
@@ -44,7 +88,7 @@ export interface CrmBoardDeal {
   sponsorSyncedAt?: string | null;
   createdAt: string;
   company?: { id: string; name: string } | null;
-  contact?: CrmPersonRef | null;
+  contacts?: CrmDealContactRef[];
   event?: { id: string; name: string; slug: string } | null;
   owner?: CrmPersonRef | null;
   _count?: { tasks: number; notes: number };
@@ -86,7 +130,7 @@ export interface CrmTaskRow {
   owner?: CrmPersonRef | null;
   deal?: { id: string; name: string } | null;
   company?: { id: string; name: string } | null;
-  contact?: { id: string; firstName: string; lastName: string } | null;
+  crmContact?: { id: string; firstName: string; lastName: string } | null;
 }
 
 export interface CrmNoteRow {
@@ -102,6 +146,15 @@ export interface CrmNoteRow {
 // ── Display ──────────────────────────────────────────────────────────────────
 
 /** Exhaustive Records — TS fails the build if a new enum value has no mapping. */
+export const DEAL_CONTACT_ROLE_LABELS: Record<CrmDealContactRole, string> = {
+  PRIMARY: "Primary",
+  PROCUREMENT: "Procurement",
+  MARKETING: "Marketing",
+  TECHNICAL: "Technical",
+  INFLUENCER: "Influencer",
+  OTHER: "Other",
+};
+
 export const ACTIVITY_TYPE_LABELS: Record<CrmActivityType, string> = {
   NOTE: "Note",
   CALL: "Call",

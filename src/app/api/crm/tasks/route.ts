@@ -13,7 +13,7 @@ const createTaskSchema = z.object({
   dueAt: z.coerce.date().optional().nullable(),
   remindAt: z.coerce.date().optional().nullable(),
   ownerId: z.string().min(1).optional().nullable(),
-  contactId: z.string().min(1).optional().nullable(),
+  crmContactId: z.string().min(1).optional().nullable(),
   companyId: z.string().min(1).optional().nullable(),
   dealId: z.string().min(1).optional().nullable(),
 });
@@ -45,7 +45,7 @@ export async function GET(req: Request) {
         owner: { select: { id: true, firstName: true, lastName: true } },
         deal: { select: { id: true, name: true } },
         company: { select: { id: true, name: true } },
-        contact: { select: { id: true, firstName: true, lastName: true } },
+        crmContact: { select: { id: true, firstName: true, lastName: true } },
       },
       // Nulls last so undated tasks don't crowd out the ones that are actually due.
       orderBy: [{ dueAt: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],

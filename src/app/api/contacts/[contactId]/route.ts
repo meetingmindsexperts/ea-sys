@@ -37,17 +37,6 @@ const updateContactSchema = z.object({
   studentIdExpiry: z.string().max(20).optional().nullable(),
   tags: z.array(z.string().max(100).transform(normalizeTag)).optional(),
   notes: z.string().max(2000).optional().nullable(),
-
-  // ── CRM module (docs/CRM_MODULE_PLAN.md) ──────────────────────────────────
-  // Link the contact to a first-class Account, and set their lifecycle stage.
-  // These are plain columns on Contact, so this core route writes them directly
-  // — it does NOT import from src/crm/ (the boundary is one-way).
-  //
-  // `companyId` is an UNTRUSTED id from the request body and is org-bound below
-  // before it is written; without that check a caller could attach one of their
-  // contacts to ANOTHER org's company.
-  companyId: z.string().min(1).optional().nullable(),
-  lifecycleStage: z.enum(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]).optional().nullable(),
 });
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -192,30 +181,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     if (!contact) {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
-    }
-
-    // Bind the CRM company id to the caller's org before writing it. A nested id
-    // taken straight from a request body is this codebase's most-repeated IDOR
-    // (accommodation H1, invoices H9, contacts H1) — without this, a caller could
-    // attach their contact to ANOTHER org's account, leaking that company's
-    // existence and name back through the contact detail payload.
-    if (validated.data.companyId) {
-      const company = await db.crmCompany.findFirst({
-        where: { id: validated.data.companyId, organizationId: ctx.organizationId },
-        select: { id: true },
-      });
-      if (!company) {
-        apiLogger.warn({
-          msg: "contacts/update:unknown-company",
-          contactId,
-          companyId: validated.data.companyId,
-          organizationId: ctx.organizationId,
-        });
-        return NextResponse.json(
-          { error: "Company not found", code: "COMPANY_NOT_FOUND" },
-          { status: 404 },
-        );
-      }
     }
 
     const updateData = {

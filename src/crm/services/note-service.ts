@@ -35,7 +35,7 @@ export interface CreateNoteInput {
   activityType?: CrmActivityType;
   dealId?: string | null;
   companyId?: string | null;
-  contactId?: string | null;
+  crmContactId?: string | null;
 }
 
 export interface UpdateNoteInput {
@@ -67,7 +67,7 @@ export type NoteResult = { ok: true; note: CrmNote } | Fail;
 /** Every attachment id is bound to the caller's org before it is written. */
 async function validateAttachments(
   organizationId: string,
-  rel: { dealId?: string | null; companyId?: string | null; contactId?: string | null },
+  rel: { dealId?: string | null; companyId?: string | null; crmContactId?: string | null },
 ): Promise<Fail | null> {
   const checks: Array<Promise<Fail | null>> = [];
 
@@ -85,10 +85,10 @@ async function validateAttachments(
         .then((r) => (r ? null : ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" } as Fail))),
     );
   }
-  if (rel.contactId) {
+  if (rel.crmContactId) {
     checks.push(
-      db.contact
-        .findFirst({ where: { id: rel.contactId, organizationId }, select: { id: true } })
+      db.crmContact
+        .findFirst({ where: { id: rel.crmContactId, organizationId }, select: { id: true } })
         .then((r) => (r ? null : ({ ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" } as Fail))),
     );
   }
@@ -102,7 +102,7 @@ export async function createNote(input: CreateNoteInput): Promise<NoteResult> {
   if (!body) return { ok: false, code: "BODY_REQUIRED", message: "The note is empty" };
 
   // A note attached to nothing renders nowhere — it would be silently lost.
-  if (!input.dealId && !input.companyId && !input.contactId) {
+  if (!input.dealId && !input.companyId && !input.crmContactId) {
     apiLogger.warn({ msg: "crm-note:no-attachment", organizationId: input.organizationId });
     return {
       ok: false,
@@ -126,7 +126,7 @@ export async function createNote(input: CreateNoteInput): Promise<NoteResult> {
         authorId: input.userId,
         dealId: input.dealId ?? null,
         companyId: input.companyId ?? null,
-        contactId: input.contactId ?? null,
+        crmContactId: input.crmContactId ?? null,
       },
     });
 
@@ -140,7 +140,7 @@ export async function createNote(input: CreateNoteInput): Promise<NoteResult> {
         activityType: note.activityType,
         dealId: note.dealId,
         companyId: note.companyId,
-        contactId: note.contactId,
+        crmContactId: note.crmContactId,
         // The note BODY is deliberately not copied into the audit blob: it can be
         // long, and it is already durably stored on the row itself. Audit records
         // that an entry was made, not a second copy of it.

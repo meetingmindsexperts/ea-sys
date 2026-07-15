@@ -107,7 +107,7 @@
 <h1>CRM — Build Status</h1>
 <p class="sub">
   What is built, what is wired to the rest of EA-SYS, and what is not.<br>
-  <span class="stamp">Last updated: <b>14 July 2026</b> · HEAD <code>67334fc</code> ·
+  <span class="stamp">Last updated: <b>15 July 2026</b> · HEAD <code>WORKING</code> ·
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
@@ -120,12 +120,25 @@
   deploying is low-risk — but it is a decision, not a formality.</p>
 </div>
 
+<div class="callout note">
+  <p><b>CRM contacts are their own table (July 15).</b> Business people we negotiate with —
+  pharma reps, exhibitor sales, procurement — live in <code>CrmContact</code>, NOT in the event
+  <code>Contact</code> store (HCPs: doctors, nurses). Reason: every <code>Contact</code> row is
+  mirrored to the external HCP marketing list by <code>contacts-central-sync</code> (which has no
+  where-clause), so a rep in <code>Contact</code> would be marketed to as a doctor. Separate tables
+  make that leak <b>structurally impossible</b>, not merely prevented by remembering to filter.</p>
+  <p>A person who is genuinely both (a rep who also attends) is <b>linked</b> via
+  <code>CrmContact.contactId</code> — one human, one record, two hats. And a deal now links to
+  <b>many</b> contacts, each with a role on that deal (Primary / Procurement / Marketing / …),
+  because a sponsorship is decided by the rep, marketing AND procurement — not one person.</p>
+</div>
+
 <div class="kpis">
-  <div class="kpi"><b>5</b><span>services</span></div>
-  <div class="kpi"><b>12</b><span>API endpoints</span></div>
-  <div class="kpi"><b>4</b><span>pages</span></div>
+  <div class="kpi"><b>6</b><span>services</span></div>
+  <div class="kpi"><b>15</b><span>API endpoints</span></div>
+  <div class="kpi"><b>5</b><span>pages</span></div>
   <div class="kpi"><b>1</b><span>worker job</span></div>
-  <div class="kpi"><b>114</b><span>CRM tests</span></div>
+  <div class="kpi"><b>139</b><span>CRM tests</span></div>
   <div class="kpi"><b>0</b><span>rows in prod</span></div>
 </div>
 
@@ -140,12 +153,12 @@
     <tr>
       <td>Schema + migration</td>
       <td><span class="tag done">DONE</span></td>
-      <td>5 <code>Crm*</code> models, 4 enums, 2 <code>Contact</code> columns. Verified byte-equal to Prisma's canonical DDL. <b>Not applied to prod.</b></td>
+      <td>7 <code>Crm*</code> models, 5 enums. The event <code>Contact</code> table is UNTOUCHED (business contacts are their own table — see the note above). Migration verified byte-equal to Prisma's canonical DDL. <b>Not applied to prod.</b></td>
     </tr>
     <tr>
       <td>Import boundary (ESLint)</td>
       <td><span class="tag done">DONE</span></td>
-      <td>One-way: <code>src/crm/</code> → core only. Verified to fire. 4 named core-side exemptions.</td>
+      <td>One-way: <code>src/crm/</code> → core only. Verified to fire. 3 named core-side exemptions (the 4th, the contact-sheet one, was reverted with the CrmContact rework).</td>
     </tr>
     <tr>
       <td>Visibility / RBAC</td>
@@ -155,12 +168,12 @@
     <tr>
       <td>Services</td>
       <td><span class="tag done">DONE</span></td>
-      <td>company · pipeline · deal · task · note. Race-safe claims on every state transition.</td>
+      <td>company · pipeline · deal · task · note · crm-contact. Race-safe claims on every state transition.</td>
     </tr>
     <tr>
       <td>REST API</td>
       <td><span class="tag done">DONE</span></td>
-      <td>12 endpoints, all gated (drift-tested), all writes rate-limited + audited.</td>
+      <td>15 endpoints, all gated (drift-tested), all writes rate-limited + audited.</td>
     </tr>
     <tr>
       <td>UI</td>
@@ -234,14 +247,19 @@ exactly which of those exist today.</p>
       <td>FK (SetNull). Defaults to the creator. Deleting a user leaves the deal <i>unowned</i>, never blocked or vanished.</td>
     </tr>
     <tr>
-      <td><b>Contact → Company</b></td>
-      <td><span class="tag part">WIRED, EMPTY</span></td>
-      <td>FK + a picker on the contact detail sheet. <b>But no backfill has run</b>, so <b>every existing contact's link is <code>null</code></b> — the free-text <code>Contact.organization</code> string is untouched and still the only company data we have. Someone must link them by hand, or we build the backfill.</td>
+      <td><b>CrmContact → Company</b></td>
+      <td><span class="tag done">WIRED</span></td>
+      <td>FK on the business-contact table. The event <code>Contact</code> store is deliberately left ALONE — see the note at the top; those are HCPs and a different population.</td>
     </tr>
     <tr>
-      <td><b>Contact → Lifecycle</b></td>
-      <td><span class="tag part">WIRED, EMPTY</span></td>
-      <td>Editable on the contact sheet. Nullable by design — every existing contact is <code>null</code> until set. That's correct, not a gap.</td>
+      <td><b>Deal → CrmContacts (many, with roles)</b></td>
+      <td><span class="tag done">WIRED</span></td>
+      <td>Join table <code>CrmDealContact</code> with a per-deal role. The deal detail sheet has an add/remove people section.</td>
+    </tr>
+    <tr>
+      <td><b>CrmContact → event Contact (the rep who also attends)</b></td>
+      <td><span class="tag done">WIRED</span></td>
+      <td>Nullable pointer <code>CrmContact.contactId</code>; a link icon shows it in the contacts list. Points, never copies.</td>
     </tr>
     <tr>
       <td><b>Task reminder → Email</b></td>

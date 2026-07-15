@@ -12,7 +12,7 @@ const createNoteSchema = z.object({
   activityType: z.enum(["NOTE", "CALL", "MEETING"]).optional(),
   dealId: z.string().min(1).optional().nullable(),
   companyId: z.string().min(1).optional().nullable(),
-  contactId: z.string().min(1).optional().nullable(),
+  crmContactId: z.string().min(1).optional().nullable(),
 });
 
 /** GET /api/crm/notes?dealId=|companyId=|contactId= — the activity log for one record. */
@@ -23,12 +23,12 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const dealId = searchParams.get("dealId")?.trim();
   const companyId = searchParams.get("companyId")?.trim();
-  const contactId = searchParams.get("contactId")?.trim();
+  const crmContactId = searchParams.get("crmContactId")?.trim();
 
-  if (!dealId && !companyId && !contactId) {
+  if (!dealId && !companyId && !crmContactId) {
     apiLogger.warn({ msg: "crm/notes:list-no-filter", organizationId: ctx.organizationId });
     return NextResponse.json(
-      { error: "Specify dealId, companyId or contactId", code: "NO_ATTACHMENT" },
+      { error: "Specify dealId, companyId or crmContactId", code: "NO_ATTACHMENT" },
       { status: 400 },
     );
   }
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
         organizationId: ctx.organizationId,
         ...(dealId ? { dealId } : {}),
         ...(companyId ? { companyId } : {}),
-        ...(contactId ? { contactId } : {}),
+        ...(crmContactId ? { crmContactId } : {}),
       },
       select: {
         id: true,

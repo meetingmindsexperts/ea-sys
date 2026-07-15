@@ -15,12 +15,14 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, CheckSquare, Handshake } from "lucide-react";
+import { Building2, CheckSquare, Handshake, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/crm/deals", label: "Deals", icon: Handshake },
   { href: "/crm/companies", label: "Companies", icon: Building2 },
+  // Business contacts — reps, exhibitor sales, procurement. NOT the event HCP store.
+  { href: "/crm/contacts", label: "Contacts", icon: Users },
   { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
 ];
 

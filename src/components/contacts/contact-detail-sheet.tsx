@@ -34,8 +34,6 @@ import {
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { useContact, useUpdateContact, useDeleteContact, queryKeys } from "@/hooks/use-api";
-import { useSession } from "next-auth/react";
-import { ContactCrmCard, type CrmLifecycleStage } from "@/crm/components/contact-crm-card";
 import { EmailLogCard } from "@/components/communications/email-log-card";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { useQueryClient } from "@tanstack/react-query";
@@ -71,7 +69,6 @@ export function ContactDetailSheet({
   const { data: contactData } = useContact(contactId ?? "");
   const contact = contactData?.contact;
   const eventHistory = contactData?.eventHistory ?? [];
-  const { data: session } = useSession();
   const updateContact = useUpdateContact(contactId ?? "");
   const deleteContact = useDeleteContact();
 
@@ -95,8 +92,6 @@ export function ContactDetailSheet({
     specialty: "",
     tags: [] as string[],
     notes: "",
-    companyId: null as string | null,
-    lifecycleStage: null as CrmLifecycleStage | null,
     associationName: "",
     memberId: "",
     studentId: "",
@@ -144,8 +139,6 @@ export function ContactDetailSheet({
         specialty: contact.specialty || "",
         tags: contact.tags || [],
         notes: contact.notes || "",
-        companyId: contact.companyId ?? null,
-        lifecycleStage: (contact.lifecycleStage as CrmLifecycleStage | null) ?? null,
         associationName: contact.associationName || "",
         memberId: contact.memberId || "",
         studentId: contact.studentId || "",
@@ -173,10 +166,6 @@ export function ContactDetailSheet({
         specialty: editData.specialty || undefined,
         tags: editData.tags,
         notes: editData.notes || undefined,
-        // CRM link + lifecycle. Sent explicitly as null (not undefined) so the
-        // fields can be CLEARED, not just set — undefined means "unchanged".
-        companyId: editData.companyId,
-        lifecycleStage: editData.lifecycleStage,
         associationName: editData.associationName || null,
         memberId: editData.memberId || null,
         studentId: editData.studentId || null,
@@ -448,18 +437,6 @@ export function ContactDetailSheet({
                     onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
                   />
                 </div>
-
-                {/* CRM — company link + lifecycle (docs/CRM_MODULE_PLAN.md §7.5).
-                    A CRM-owned component mounted at one point, so the labels,
-                    colours and company picker stay inside the module. */}
-                <ContactCrmCard
-                  role={session?.user?.role}
-                  companyId={editData.companyId}
-                  organization={editData.organization}
-                  lifecycleStage={editData.lifecycleStage}
-                  saving={updateContact.isPending}
-                  onChange={(patch) => setEditData({ ...editData, ...patch })}
-                />
 
                 {/* Membership Details */}
                 <div className="space-y-3 border-t pt-4">

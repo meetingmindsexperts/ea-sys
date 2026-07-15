@@ -26,7 +26,7 @@
  *
  * Conventions: src/services/README.md.
  */
-import { Prisma, type CrmDeal, type CrmDealStatus } from "@prisma/client";
+import { Prisma, type CrmDeal, type CrmDealStatus, type CrmDealContactRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { resolveStage } from "./pipeline-service";
@@ -42,7 +42,6 @@ export interface CreateDealInput {
   name: string;
   stageId: string;
   companyId?: string | null;
-  contactId?: string | null;
   /** THE differentiator — ties the deal to the event it is being sold against. */
   eventId?: string | null;
   ownerId?: string | null;
@@ -60,7 +59,6 @@ export interface UpdateDealInput {
 
   name?: string;
   companyId?: string | null;
-  contactId?: string | null;
   eventId?: string | null;
   ownerId?: string | null;
   dealValue?: number | null;
@@ -93,6 +91,7 @@ export type DealErrorCode =
   | "STAGE_NOT_FOUND"
   | "COMPANY_NOT_FOUND"
   | "CONTACT_NOT_FOUND"
+  | "CONTACT_ALREADY_ON_DEAL"
   | "EVENT_NOT_FOUND"
   | "OWNER_NOT_FOUND"
   | "STAGE_CHANGED"
@@ -116,7 +115,7 @@ export type CloseDealResult = { ok: true; deal: CrmDeal } | Fail;
  */
 async function validateRelations(
   organizationId: string,
-  rel: { companyId?: string | null; contactId?: string | null; eventId?: string | null; ownerId?: string | null },
+  rel: { companyId?: string | null; eventId?: string | null; ownerId?: string | null },
 ): Promise<Fail | null> {
   const checks: Array<Promise<Fail | null>> = [];
 
@@ -125,13 +124,6 @@ async function validateRelations(
       db.crmCompany
         .findFirst({ where: { id: rel.companyId, organizationId }, select: { id: true } })
         .then((r) => (r ? null : ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" } as Fail))),
-    );
-  }
-  if (rel.contactId) {
-    checks.push(
-      db.contact
-        .findFirst({ where: { id: rel.contactId, organizationId }, select: { id: true } })
-        .then((r) => (r ? null : ({ ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" } as Fail))),
     );
   }
   if (rel.eventId) {
@@ -180,7 +172,6 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
         name,
         stageId: stage.id,
         companyId: input.companyId ?? null,
-        contactId: input.contactId ?? null,
         eventId: input.eventId ?? null,
         ownerId: input.ownerId ?? null,
         dealValue: input.dealValue ?? null,
@@ -223,7 +214,7 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
 // ── Update (fields only — stage moves go through moveDealStage) ───────────────
 
 export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResult> {
-  const data: Prisma.CrmDealUpdateManyMutationInput & { companyId?: string | null; contactId?: string | null; eventId?: string | null; ownerId?: string | null } = {};
+  const data: Prisma.CrmDealUpdateManyMutationInput & { companyId?: string | null; eventId?: string | null; ownerId?: string | null } = {};
 
   if (input.name !== undefined) {
     const name = input.name.trim();
@@ -234,7 +225,6 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
   if (input.currency !== undefined) data.currency = input.currency.trim() || "USD";
   if (input.expectedClose !== undefined) data.expectedClose = input.expectedClose;
   if (input.companyId !== undefined) data.companyId = input.companyId;
-  if (input.contactId !== undefined) data.contactId = input.contactId;
   if (input.eventId !== undefined) data.eventId = input.eventId;
   if (input.ownerId !== undefined) data.ownerId = input.ownerId;
 
@@ -517,4 +507,129 @@ function writeAudit(entry: {
         err: err instanceof Error ? err.message : String(err),
       });
     });
+}
+
+// ── Deal ↔ contacts (the people who actually decide) ─────────────────────────
+
+/**
+ * Attach a person to a deal with the role they play ON THIS DEAL.
+ *
+ * A sponsorship deal is not negotiated with one human: there's the rep who wants
+ * it, the marketing lead who owns the budget, and the procurement officer who can
+ * veto it. The role lives on the JOIN, not on the contact, because the same rep can
+ * be PRIMARY on one deal and merely INFLUENCER on another.
+ *
+ * Idempotent on re-add: calling again with a different role UPDATES the role rather
+ * than 409-ing, which is what "set Sarah as procurement" should obviously do.
+ */
+export async function addDealContact(input: {
+  dealId: string;
+  crmContactId: string;
+  role?: CrmDealContactRole;
+  organizationId: string;
+  userId: string | null;
+  source: "rest" | "mcp" | "api";
+}): Promise<{ ok: true } | Fail> {
+  try {
+    // Both ids come from the client. Bind BOTH to the caller's org before writing —
+    // an unbound nested id is this codebase's most-repeated IDOR.
+    const [deal, contact] = await Promise.all([
+      db.crmDeal.findFirst({
+        where: { id: input.dealId, organizationId: input.organizationId },
+        select: { id: true, eventId: true },
+      }),
+      db.crmContact.findFirst({
+        where: { id: input.crmContactId, organizationId: input.organizationId },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!deal) {
+      apiLogger.warn({ msg: "crm-deal:add-contact-deal-not-found", dealId: input.dealId });
+      return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
+    }
+    if (!contact) {
+      apiLogger.warn({ msg: "crm-deal:add-contact-not-found", crmContactId: input.crmContactId });
+      return { ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" };
+    }
+
+    await db.crmDealContact.upsert({
+      where: { dealId_crmContactId: { dealId: deal.id, crmContactId: contact.id } },
+      create: { dealId: deal.id, crmContactId: contact.id, role: input.role ?? "PRIMARY" },
+      update: { role: input.role ?? "PRIMARY" },
+    });
+
+    void writeAudit({
+      userId: input.userId,
+      action: "DEAL_CONTACT_ADDED",
+      entityId: deal.id,
+      eventId: deal.eventId,
+      changes: { source: input.source, crmContactId: contact.id, role: input.role ?? "PRIMARY" },
+    });
+
+    apiLogger.info({
+      msg: "crm-deal:contact-added",
+      dealId: deal.id,
+      crmContactId: contact.id,
+      role: input.role ?? "PRIMARY",
+    });
+    return { ok: true };
+  } catch (err) {
+    apiLogger.error({
+      msg: "crm-deal:add-contact-failed",
+      dealId: input.dealId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, code: "UNKNOWN", message: "Could not add the contact to the deal" };
+  }
+}
+
+/** Detach a person from a deal. Does NOT delete the CrmContact — they still exist. */
+export async function removeDealContact(input: {
+  dealId: string;
+  crmContactId: string;
+  organizationId: string;
+  userId: string | null;
+  source: "rest" | "mcp" | "api";
+}): Promise<{ ok: true } | Fail> {
+  try {
+    const deal = await db.crmDeal.findFirst({
+      where: { id: input.dealId, organizationId: input.organizationId },
+      select: { id: true, eventId: true },
+    });
+    if (!deal) {
+      apiLogger.warn({ msg: "crm-deal:remove-contact-deal-not-found", dealId: input.dealId });
+      return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
+    }
+
+    const res = await db.crmDealContact.deleteMany({
+      where: { dealId: deal.id, crmContactId: input.crmContactId },
+    });
+    if (res.count === 0) {
+      apiLogger.warn({
+        msg: "crm-deal:remove-contact-not-on-deal",
+        dealId: deal.id,
+        crmContactId: input.crmContactId,
+      });
+      return { ok: false, code: "CONTACT_NOT_FOUND", message: "That person is not on this deal" };
+    }
+
+    void writeAudit({
+      userId: input.userId,
+      action: "DEAL_CONTACT_REMOVED",
+      entityId: deal.id,
+      eventId: deal.eventId,
+      changes: { source: input.source, crmContactId: input.crmContactId },
+    });
+
+    apiLogger.info({ msg: "crm-deal:contact-removed", dealId: deal.id, crmContactId: input.crmContactId });
+    return { ok: true };
+  } catch (err) {
+    apiLogger.error({
+      msg: "crm-deal:remove-contact-failed",
+      dealId: input.dealId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, code: "UNKNOWN", message: "Could not remove the contact from the deal" };
+  }
 }

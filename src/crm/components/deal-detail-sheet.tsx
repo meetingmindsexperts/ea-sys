@@ -33,18 +33,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import {
   ACTIVITY_TYPE_LABELS,
+  DEAL_CONTACT_ROLE_LABELS,
   DEAL_STATUS_COLORS,
   formatDealValue,
   personName,
   type CrmActivityType,
   type CrmBoardDeal,
+  type CrmDealContactRole,
 } from "@/crm/lib/crm-types";
 import {
+  useAddDealContact,
   useCloseDeal,
   useCreateNote,
   useCreateTask,
+  useCrmContacts,
   useCrmNotes,
   useDeleteNote,
+  useRemoveDealContact,
 } from "@/crm/hooks/use-crm-api";
 
 export function DealDetailSheet({
@@ -319,17 +324,15 @@ export function DealDetailSheet({
             )}
           </div>
 
-          {deal.contact && (
-            <>
-              <Separator />
-              <Field label="Primary contact">
-                <span className="flex items-center gap-1">
-                  <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                  {personName(deal.contact)}
-                </span>
-              </Field>
-            </>
-          )}
+          <Separator />
+
+          {/* ── People on this deal ──────────────────────────────────────────
+              A sponsorship deal is not negotiated with one human: there's the rep
+              who wants it, the marketing lead who owns the budget, and the
+              procurement officer who can veto it. Each carries the role they play
+              ON THIS DEAL — the same rep can be PRIMARY here and INFLUENCER
+              elsewhere, which is why the role lives on the link. */}
+          <DealContacts deal={deal} canWrite={canWrite} />
         </div>
       </SheetContent>
     </Sheet>
@@ -341,6 +344,119 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="space-y-1">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <div className="text-sm font-medium">{children}</div>
+    </div>
+  );
+}
+
+
+/**
+ * The people on a deal.
+ *
+ * The picker is over CRM contacts (reps, procurement, marketing) — deliberately NOT
+ * the event contact store. HCPs are a different population and live in a different
+ * table; putting a doctor here would be a category error, and putting a rep in
+ * THERE would push them into the HCP marketing mirror.
+ */
+function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolean }) {
+  const [picked, setPicked] = useState("");
+  const [role, setRole] = useState<CrmDealContactRole>("PRIMARY");
+
+  const { data: allContacts = [] } = useCrmContacts();
+  const add = useAddDealContact(deal.id);
+  const remove = useRemoveDealContact(deal.id);
+
+  const onDeal = deal.contacts ?? [];
+  const onDealIds = new Set(onDeal.map((c) => c.crmContact.id));
+  const available = allContacts.filter((c) => !onDealIds.has(c.id));
+
+  return (
+    <div className="space-y-3">
+      <p className="flex items-center gap-2 text-sm font-medium">
+        <Users className="h-4 w-4" />
+        People on this deal
+      </p>
+
+      {onDeal.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Nobody linked yet — add the rep you&apos;re actually talking to.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {onDeal.map(({ crmContact, role: r }) => (
+            <li
+              key={crmContact.id}
+              className="flex items-center justify-between gap-2 rounded-md border p-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">
+                  {crmContact.firstName} {crmContact.lastName}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {crmContact.jobTitle ? `${crmContact.jobTitle} · ` : ""}
+                  {crmContact.email}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge variant="outline" className="text-[10px]">
+                  {DEAL_CONTACT_ROLE_LABELS[r]}
+                </Badge>
+                {canWrite && (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${crmContact.firstName} from this deal`}
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => remove.mutate(crmContact.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canWrite && available.length > 0 && (
+        <div className="flex items-center gap-2">
+          <Select value={picked} onValueChange={setPicked}>
+            <SelectTrigger className="flex-1">
+              <SelectValue placeholder="Add a contact…" />
+            </SelectTrigger>
+            <SelectContent>
+              {available.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.firstName} {c.lastName}
+                  {c.company ? ` — ${c.company.name}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={role} onValueChange={(v) => setRole(v as CrmDealContactRole)}>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(DEAL_CONTACT_ROLE_LABELS) as CrmDealContactRole[]).map((r) => (
+                <SelectItem key={r} value={r}>
+                  {DEAL_CONTACT_ROLE_LABELS[r]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button
+            size="sm"
+            disabled={!picked || add.isPending}
+            onClick={() => {
+              add.mutate({ crmContactId: picked, role });
+              setPicked("");
+            }}
+          >
+            Add
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

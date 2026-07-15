@@ -26,7 +26,7 @@ export interface CreateTaskInput {
   dueAt?: Date | null;
   remindAt?: Date | null;
   ownerId?: string | null;
-  contactId?: string | null;
+  crmContactId?: string | null;
   companyId?: string | null;
   dealId?: string | null;
 }
@@ -61,7 +61,7 @@ export type TaskResult = { ok: true; task: CrmTask } | Fail;
 /** Every attachable id is bound to the caller's org before it is written. */
 async function validateRelations(
   organizationId: string,
-  rel: { ownerId?: string | null; contactId?: string | null; companyId?: string | null; dealId?: string | null },
+  rel: { ownerId?: string | null; crmContactId?: string | null; companyId?: string | null; dealId?: string | null },
 ): Promise<Fail | null> {
   const checks: Array<Promise<Fail | null>> = [];
 
@@ -86,10 +86,10 @@ async function validateRelations(
         .then((r) => (r ? null : ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" } as Fail))),
     );
   }
-  if (rel.contactId) {
+  if (rel.crmContactId) {
     checks.push(
-      db.contact
-        .findFirst({ where: { id: rel.contactId, organizationId }, select: { id: true } })
+      db.crmContact
+        .findFirst({ where: { id: rel.crmContactId, organizationId }, select: { id: true } })
         .then((r) => (r ? null : ({ ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" } as Fail))),
     );
   }
@@ -117,7 +117,7 @@ export async function createTask(input: CreateTaskInput): Promise<TaskResult> {
         dueAt: input.dueAt ?? null,
         remindAt: input.remindAt ?? null,
         ownerId: input.ownerId ?? null,
-        contactId: input.contactId ?? null,
+        crmContactId: input.crmContactId ?? null,
         companyId: input.companyId ?? null,
         dealId: input.dealId ?? null,
         createdById: input.userId,

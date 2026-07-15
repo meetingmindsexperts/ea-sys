@@ -43,6 +43,7 @@ model Organization {
 
   // CRM module — see docs/CRM_MODULE_PLAN.md
   crmCompanies      CrmCompany[]
+  crmContacts       CrmContact[]
   crmPipelineStages CrmPipelineStage[]
   crmDeals          CrmDeal[]
   crmTasks          CrmTask[]
@@ -1459,21 +1460,19 @@ model Contact {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
-  // ── CRM module (additive; both nullable — existing contacts are unaffected) ──
-  /// Links this person to a first-class Account. The free-text `organization`
-  /// string above is deliberately KEPT: it stays the raw captured value, while
-  /// companyId is the curated link. A backfill script mints companies from the
-  /// distinct strings; until it runs (and for any contact it can't resolve),
-  /// companyId is simply null.
-  companyId      String?
-  company        CrmCompany?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  lifecycleStage CrmLifecycleStage?
-  crmDeals       CrmDeal[]
-  crmTasks       CrmTask[]
-  crmNotes       CrmNote[]
+  /// CRM module: business contacts (pharma reps, exhibitor sales, procurement)
+  /// live in their own `CrmContact` table, NOT here. This table is the EVENT
+  /// contact store — HCPs: doctors, nurses, allied health — and every row in it
+  /// is mirrored to the external `contacts_centralv1` marketing table by
+  /// contacts-central-sync (which has NO where-clause). Putting a pharma rep in
+  /// here would market to them as if they were a doctor.
+  ///
+  /// The rare person who is BOTH (a rep who also attends) is POINTED AT from
+  /// `CrmContact.contactId` — linked, never duplicated. Same shape as
+  /// `Speaker.sourceRegistrationId`.
+  crmContacts CrmContact[]
 
   @@unique([organizationId, email])
-  @@index([companyId])
   @@index([organizationId])
 }
 
@@ -2437,7 +2436,7 @@ model CrmCompany {
   /// Clinic Foundation") so finance can merge later. Advisory — never blocks.
   needsReview Boolean @default(false)
 
-  contacts Contact[]
+  contacts CrmContact[]
   deals    CrmDeal[]
   tasks    CrmTask[]
   notes_   CrmNote[]
@@ -2506,8 +2505,10 @@ model CrmDeal {
   companyId String?
   company   CrmCompany? @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
-  contactId String?
-  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  /// A deal involves SEVERAL people at the account — the rep, marketing,
+  /// procurement. A single contactId cannot model that, so the link is a join
+  /// table carrying each person's role on this deal.
+  contacts CrmDealContact[]
 
   /// THE differentiator — the deal↔event join (§9 decision 1).
   eventId String?
@@ -2564,8 +2565,8 @@ model CrmTask {
   ownerId String?
   owner   User?   @relation("CrmTaskOwner", fields: [ownerId], references: [id], onDelete: SetNull)
 
-  contactId String?
-  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  crmContactId String?
+  crmContact   CrmContact? @relation(fields: [crmContactId], references: [id], onDelete: Cascade)
 
   companyId String?
   company   CrmCompany? @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2591,6 +2592,7 @@ model CrmTask {
   @@index([organizationId, status, dueAt])
   @@index([ownerId, status])
   @@index([dealId])
+  @@index([crmContactId])
   @@index([remindAt])
 }
 
@@ -2611,8 +2613,8 @@ model CrmNote {
   authorId String?
   author   User?   @relation("CrmNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
 
-  contactId String?
-  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  crmContactId String?
+  crmContact   CrmContact? @relation(fields: [crmContactId], references: [id], onDelete: Cascade)
 
   companyId String?
   company   CrmCompany? @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2624,7 +2626,7 @@ model CrmNote {
   updatedAt DateTime @updatedAt
 
   @@index([organizationId, createdAt])
-  @@index([contactId, createdAt])
+  @@index([crmContactId, createdAt])
   @@index([companyId, createdAt])
   @@index([dealId, createdAt])
 }
@@ -2654,4 +2656,107 @@ model AlertState {
   counter         Int       @default(0)
   silencedUntil   DateTime?
   updatedAt       DateTime  @updatedAt
+}
+
+/// Role a person plays ON A SPECIFIC DEAL. The same rep can be PRIMARY on one
+/// deal and merely INFLUENCER on another, which is why it lives on the join and
+/// not on CrmContact.
+enum CrmDealContactRole {
+  PRIMARY
+  PROCUREMENT
+  MARKETING
+  TECHNICAL
+  INFLUENCER
+  OTHER
+}
+
+/// A BUSINESS contact — a pharma rep, an exhibitor's sales manager, a society
+/// liaison, procurement. The person our team actually negotiates with.
+///
+/// ─── WHY THIS IS NOT THE `Contact` TABLE ─────────────────────────────────────
+/// `Contact` is the EVENT contact store: HCPs — doctors, nurses, allied health.
+/// Every row in it is mirrored to the external `contacts_centralv1` table by
+/// `contacts-central-sync`, which selects with NO where-clause, and that table
+/// feeds `mailchimp_*`. Putting an Abbott sales rep in `Contact` would therefore
+/// market to them as if they were a doctor.
+///
+/// That leak could have been prevented with a discriminator column plus a filter
+/// in every reader. It is prevented HERE by structure instead: the central sync
+/// reads `Contact`, and a `CrmContact` is not a `Contact`, so a rep CANNOT reach
+/// the HCP marketing mirror by someone forgetting a `where` clause. Same
+/// reasoning as `nameKey` carrying the unique index rather than trusting every
+/// writer to lowercase.
+///
+/// ─── THE PERSON WHO IS BOTH ──────────────────────────────────────────────────
+/// An Abbott rep often also attends the conference (they staff the booth). That
+/// person is ONE human with two hats, and EA-SYS's identity rule is "one person,
+/// one record" — so we do NOT duplicate them. `contactId` POINTS at their event
+/// `Contact` row when one exists. Linked, not copied. Exactly the shape of
+/// `Speaker.sourceRegistrationId`.
+model CrmContact {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// The account they work for. Nullable — you often meet the person before you
+  /// know which entity is actually signing.
+  companyId String?
+  company   CrmCompany? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  firstName String
+  lastName  String
+
+  /// Display form. `emailKey` (trim+lowercase) carries the unique index — the
+  /// same structural dedup as CrmCompany.nameKey, so "S.Khan@abbott.com" and
+  /// "s.khan@abbott.com" cannot become two people.
+  email    String
+  emailKey String
+
+  jobTitle String? // "Regional Medical Affairs Lead"
+  phone    String?
+  country  String?
+  notes    String? @db.Text
+
+  lifecycleStage CrmLifecycleStage?
+
+  /// Set ONLY when this business contact is also in the event contact store
+  /// (i.e. they attend). SetNull, so deleting the event contact doesn't destroy
+  /// the CRM record of the person we're negotiating with.
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  deals    CrmDealContact[]
+  tasks    CrmTask[]
+  crmNotes CrmNote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, emailKey])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([contactId])
+}
+
+/// Deal ↔ person, with the role that person plays on THIS deal.
+///
+/// A sponsorship deal is not negotiated with one human: there is the rep who
+/// wants it, the marketing lead who owns the budget, and the procurement officer
+/// who can veto it. Modelling that as a single `contactId` on the deal loses the
+/// two people who actually decide whether it closes.
+model CrmDealContact {
+  id String @id @default(cuid())
+
+  dealId String
+  deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  crmContactId String
+  crmContact   CrmContact @relation(fields: [crmContactId], references: [id], onDelete: Cascade)
+
+  role CrmDealContactRole @default(PRIMARY)
+
+  createdAt DateTime @default(now())
+
+  @@unique([dealId, crmContactId])
+  @@index([crmContactId])
 }

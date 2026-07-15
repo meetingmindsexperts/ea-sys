@@ -47,12 +47,11 @@ const eslintConfig = defineConfig([
       "src/components/layout/sidebar.tsx",
       "src/lib/agent/mcp-server-builder.ts",
       "src/lib/agent/register-mcp-tools.ts",
-      // Added deliberately (July 14, 2026) — §7.5 puts the company link + lifecycle
-      // stage on the CONTACT detail sheet, which is core. Resolved by mounting ONE
-      // CRM-owned component (<ContactCrmCard/>) at ONE point, rather than inlining
-      // the fields — which would have meant copying LIFECYCLE_LABELS and the company
-      // picker into core, i.e. drift by design. The coupling is a single import.
-      "src/components/contacts/contact-detail-sheet.tsx",
+      // NOTE: contact-detail-sheet.tsx was briefly exempted here (July 14) so the
+      // CRM could put a company/lifecycle picker on the EVENT contact sheet. That
+      // was reverted the same day: business contacts (pharma reps, exhibitor sales)
+      // are a DIFFERENT POPULATION and now live in their own CrmContact table, so
+      // core's contact sheet has no CRM fields and needs no exemption. Back to three.
     ],
     rules: {
       "no-restricted-imports": [

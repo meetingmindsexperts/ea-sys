@@ -23,6 +23,8 @@ import type {
   CrmBoardDeal,
   CrmCompanyRow,
   CrmCompanyDetail,
+  CrmContactRow,
+  CrmDealContactRole,
   CrmNoteRow,
   CrmStage,
   CrmTaskRow,
@@ -37,6 +39,7 @@ export const crmKeys = {
   company: (id: string) => ["crm", "company", id] as const,
   tasks: (scope?: string) => ["crm", "tasks", scope ?? "mine"] as const,
   notes: (attach: Record<string, string>) => ["crm", "notes", attach] as const,
+  contacts: (q?: string) => ["crm", "contacts", q ?? ""] as const,
 };
 
 // ── Pipeline ─────────────────────────────────────────────────────────────────
@@ -284,5 +287,82 @@ export function useDeleteNote() {
       qc.invalidateQueries({ queryKey: ["crm", "deal"] });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not delete the note"),
+  });
+}
+
+
+// ── CRM contacts (business people — NOT the event HCP store) ─────────────────
+
+export function useCrmContacts(q?: string) {
+  return useQuery({
+    queryKey: crmKeys.contacts(q),
+    queryFn: () =>
+      apiFetch<{ contacts: CrmContactRow[] }>(
+        `/api/crm/contacts${q ? `?q=${encodeURIComponent(q)}` : ""}`,
+      ).then((r) => r.contacts),
+  });
+}
+
+export function useCreateCrmContact() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiPostJson<{ contact: CrmContactRow; created: boolean }>("/api/crm/contacts", body),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["crm", "contacts"] });
+      qc.invalidateQueries({ queryKey: ["crm", "companies"] });
+      // find-or-create: say what actually happened.
+      toast[res.created ? "success" : "info"](
+        res.created
+          ? `Added ${res.contact.firstName} ${res.contact.lastName}`
+          : `Linked to the existing contact ${res.contact.email}`,
+      );
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not save the contact"),
+  });
+}
+
+export function useUpdateCrmContact(crmContactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiPatchJson<{ contact: CrmContactRow }>(`/api/crm/contacts/${crmContactId}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm", "contacts"] });
+      qc.invalidateQueries({ queryKey: ["crm", "companies"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the contact"),
+  });
+}
+
+// ── Deal ↔ contacts ─────────────────────────────────────────────────────────
+
+export function useAddDealContact(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { crmContactId: string; role?: CrmDealContactRole }) =>
+      apiPostJson(`/api/crm/deals/${dealId}/contacts`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm", "deals"] });
+      qc.invalidateQueries({ queryKey: ["crm", "deal", dealId] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not add the contact"),
+  });
+}
+
+export function useRemoveDealContact(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (crmContactId: string) =>
+      apiFetch(`/api/crm/deals/${dealId}/contacts`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ crmContactId }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm", "deals"] });
+      qc.invalidateQueries({ queryKey: ["crm", "deal", dealId] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not remove the contact"),
   });
 }

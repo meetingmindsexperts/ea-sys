@@ -29,7 +29,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ dealId: 
       where: { id: dealId, organizationId: ctx.organizationId },
       include: {
         company: { select: { id: true, name: true } },
-        contact: { select: { id: true, firstName: true, lastName: true, email: true } },
+        contacts: {
+          include: {
+            crmContact: { select: { id: true, firstName: true, lastName: true, email: true, jobTitle: true, phone: true } },
+          },
+        },
         event: { select: { id: true, name: true, slug: true } },
         owner: { select: { id: true, firstName: true, lastName: true, email: true } },
         stage: { select: { id: true, name: true, isTerminal: true } },

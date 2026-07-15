@@ -56,7 +56,12 @@ export async function GET(req: Request) {
         sponsorSyncedAt: true,
         createdAt: true,
         company: { select: { id: true, name: true } },
-        contact: { select: { id: true, firstName: true, lastName: true, email: true } },
+        contacts: {
+          select: {
+            role: true,
+            crmContact: { select: { id: true, firstName: true, lastName: true, email: true, jobTitle: true } },
+          },
+        },
         event: { select: { id: true, name: true, slug: true } },
         owner: { select: { id: true, firstName: true, lastName: true, email: true } },
         _count: { select: { tasks: true, notes: true } },
