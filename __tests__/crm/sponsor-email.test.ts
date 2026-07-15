@@ -18,7 +18,7 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     event: { findFirst: vi.fn() },
-    crmDeal: { findMany: vi.fn() },
+    crmDeal: { findMany: vi.fn(), findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
   },
 }));
@@ -39,7 +39,8 @@ import { sendEmail } from "@/lib/email";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { collectSponsorRecipients, narrowToSelected } from "@/crm/lib/sponsor-recipients";
 import type { RawDealForRecipients } from "@/crm/lib/sponsor-recipients";
-import { resolveSponsorRecipients, sendSponsorProspectus } from "@/crm/services/sponsor-email-service";
+import { resolveSponsorRecipients, sendSponsorProspectus, sendDealEmail } from "@/crm/services/sponsor-email-service";
+import { CRM_EMAIL_TEMPLATES } from "@/crm/lib/crm-email-templates";
 
 // ── fixtures ────────────────────────────────────────────────────────────────────
 
@@ -237,5 +238,117 @@ describe("sendSponsorProspectus", () => {
       }),
     ).toMatchObject({ code: "ATTACHMENT_TOO_LARGE" });
     expect(sendEmail).not.toHaveBeenCalled();
+  });
+});
+
+// ── per-deal send ─────────────────────────────────────────────────────────────────
+
+function mockDeal(
+  contacts: RawDealForRecipients["contacts"],
+  event: { name: string } | null = { name: "BRIDGES 2026" },
+) {
+  vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
+    id: "deal1",
+    name: "Abbott — BRIDGES",
+    company: { name: "Abbott" },
+    contacts,
+    event: event
+      ? {
+          name: event.name,
+          emailHeaderImage: null,
+          emailFooterImage: null,
+          emailFooterHtml: null,
+          emailFromAddress: null,
+          emailFromName: null,
+          emailCcAddresses: [],
+        }
+      : null,
+  } as never);
+  vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null } as never);
+}
+
+const DEAL_SEND = {
+  organizationId: "org1",
+  dealId: "deal1",
+  subject: "Following up",
+  message: "<p>Hi {{firstName}}</p>",
+  actorUserId: "u1",
+  source: "rest" as const,
+};
+
+describe("sendDealEmail", () => {
+  it("404s a deal outside the org / archived", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue(null as never);
+    expect(await sendDealEmail(DEAL_SEND)).toMatchObject({ ok: false, code: "DEAL_NOT_FOUND" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("emails the deal's contacts and records a deal-level summary + per-contact history", async () => {
+    mockDeal([
+      contact({ id: "c1", email: "a@a.com", emailKey: "a@a.com" }),
+      contact({ id: "c2", email: "b@b.com", emailKey: "b@b.com" }),
+    ]);
+    const res = await sendDealEmail(DEAL_SEND);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res).toMatchObject({ total: 2, successCount: 2, failureCount: 0 });
+    expect(sendEmail).toHaveBeenCalledTimes(2);
+    // 2 CONTACT rows (EMAIL_SENT) + 1 DEAL summary row (EMAIL_SENT)
+    expect(recordCrmActivity).toHaveBeenCalledTimes(3);
+    expect(recordCrmActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: "DEAL", entityId: "deal1", action: "EMAIL_SENT" }),
+    );
+    expect(recordCrmActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: "CONTACT", action: "EMAIL_SENT" }),
+    );
+  });
+
+  it("never widens — a stranger id in the selection emails nobody it didn't resolve", async () => {
+    mockDeal([contact({ id: "c1", email: "a@a.com", emailKey: "a@a.com" })]);
+    const res = await sendDealEmail({ ...DEAL_SEND, contactIds: ["c1", "stranger"] });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.total).toBe(1);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends for a deal with no linked event (default branding, empty {{eventName}})", async () => {
+    mockDeal([contact({ id: "c1", email: "a@a.com", emailKey: "a@a.com" })], null);
+    const res = await sendDealEmail(DEAL_SEND);
+    expect(res.ok).toBe(true);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not record a deal summary when everyone failed", async () => {
+    mockDeal([contact({ id: "c1", email: "a@a.com", emailKey: "a@a.com" })]);
+    vi.mocked(sendEmail).mockResolvedValue({ success: false, error: "bounced" } as never);
+    const res = await sendDealEmail(DEAL_SEND);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.successCount).toBe(0);
+    expect(recordCrmActivity).not.toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: "DEAL" }),
+    );
+  });
+});
+
+// ── built-in templates ─────────────────────────────────────────────────────────────
+
+describe("CRM_EMAIL_TEMPLATES", () => {
+  it("is a small set with subject + body and only the supported tokens", () => {
+    expect(CRM_EMAIL_TEMPLATES.length).toBeGreaterThanOrEqual(2);
+    expect(CRM_EMAIL_TEMPLATES.length).toBeLessThanOrEqual(3);
+    const allowed = new Set(["firstName", "lastName", "companyName", "eventName"]);
+    for (const t of CRM_EMAIL_TEMPLATES) {
+      expect(t.subject.trim()).not.toBe("");
+      expect(t.body.trim()).not.toBe("");
+      // Bodies must NOT repeat the greeting — the pipeline bakes "Dear {{firstName}}" in.
+      expect(t.body.toLowerCase()).not.toContain("dear {{firstname}}");
+      const tokens = [
+        ...t.subject.matchAll(/\{\{\s*(\w+)\s*\}\}/g),
+        ...t.body.matchAll(/\{\{\s*(\w+)\s*\}\}/g),
+      ].map((m) => m[1]);
+      for (const tok of tokens) expect(allowed.has(tok)).toBe(true);
+    }
   });
 });

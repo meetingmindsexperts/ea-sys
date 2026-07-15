@@ -559,15 +559,18 @@ export function useCrmEvents() {
   });
 }
 
-// ── Sponsor email ─────────────────────────────────────────────────────────────
+// ── CRM email (sponsor blast + per-deal send) ─────────────────────────────────
 
-export interface SponsorRecipientsResponse {
+/** What a send targets: everyone on an event's deals, or one deal's contacts. */
+export type CrmEmailTarget = { kind: "event"; id: string } | { kind: "deal"; id: string };
+
+export interface CrmEmailRecipientsResponse {
   recipients: SponsorRecipient[];
   skipped: { noEmail: number; archivedContacts: number };
-  event: { id: string; name: string };
+  target: { kind: "event" | "deal"; id: string; name: string };
 }
 
-export interface SponsorEmailSendResult {
+export interface CrmEmailSendResult {
   total: number;
   successCount: number;
   failureCount: number;
@@ -575,34 +578,39 @@ export interface SponsorEmailSendResult {
 }
 
 /**
- * Preview who a prospectus send would reach for an event — the deduped sponsor
- * contacts of its non-lost deals. Disabled until an event is chosen.
+ * Preview who a send would reach — an event's deduped sponsor contacts, or a single
+ * deal's contacts. Disabled until a target is chosen.
  */
-export function useSponsorRecipients(eventId: string | null | undefined) {
+export function useCrmEmailRecipients(target: CrmEmailTarget | null | undefined) {
+  const param = target
+    ? `${target.kind === "deal" ? "dealId" : "eventId"}=${encodeURIComponent(target.id)}`
+    : "";
   return useQuery({
-    queryKey: ["crm", "sponsor-recipients", eventId ?? ""],
+    queryKey: ["crm", "email-recipients", target?.kind ?? "", target?.id ?? ""],
     queryFn: () =>
-      apiFetch<SponsorRecipientsResponse>(
-        `/api/crm/sponsor-email/recipients?eventId=${encodeURIComponent(eventId as string)}`,
-      ),
-    enabled: !!eventId,
+      apiFetch<CrmEmailRecipientsResponse>(`/api/crm/sponsor-email/recipients?${param}`),
+    enabled: !!target,
   });
 }
 
-/** Send the sponsorship prospectus to (a subset of) an event's sponsor contacts. */
-export function useSendSponsorEmail() {
+/** Send a CRM email to an event's sponsors (eventId) or one deal's contacts (dealId). */
+export function useSendCrmEmail() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: {
-      eventId: string;
+      eventId?: string;
+      dealId?: string;
       subject: string;
       message: string;
       contactIds?: string[];
       attachments?: { name: string; content: string; contentType?: string }[];
-    }) => apiPostJson<SponsorEmailSendResult>("/api/crm/sponsor-email/send", body),
-    onSuccess: () => {
-      // A send records a PROSPECTUS_SENT row on each contact's history.
+    }) => apiPostJson<CrmEmailSendResult>("/api/crm/sponsor-email/send", body),
+    onSuccess: (_res, vars) => {
+      // A send records history on each contact (and, for a deal, on the deal).
       qc.invalidateQueries({ queryKey: ["crm", "activity", "CONTACT"] });
+      if (vars.dealId) {
+        qc.invalidateQueries({ queryKey: ["crm", "activity", "DEAL", vars.dealId] });
+      }
     },
   });
 }

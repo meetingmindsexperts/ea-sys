@@ -16,7 +16,7 @@
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { Archive, ArchiveRestore, Building2, CalendarDays, Loader2, Pencil, Phone, Trash2, Users } from "lucide-react";
+import { Archive, ArchiveRestore, Building2, CalendarDays, Loader2, Mail, Pencil, Phone, Trash2, Users } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -55,6 +55,7 @@ import {
 import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { EditDealDialog } from "@/crm/components/edit-deal-dialog";
+import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
 
 export function DealDetailSheet({
   deal,
@@ -76,6 +77,7 @@ export function DealDetailSheet({
   const [lostReason, setLostReason] = useState("");
   const [closing, setClosing] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
 
   const { data: notes = [], isLoading: notesLoading } = useCrmNotes(
     deal ? { dealId: deal.id } : {},
@@ -159,6 +161,22 @@ export function DealDetailSheet({
                 <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
                   <Pencil className="mr-2 h-3.5 w-3.5" />
                   Edit
+                </Button>
+              )}
+              {canWrite && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={(deal.contacts?.length ?? 0) === 0}
+                  title={
+                    (deal.contacts?.length ?? 0) === 0
+                      ? "Add a contact to this deal first"
+                      : "Email the people on this deal"
+                  }
+                  onClick={() => setEmailOpen(true)}
+                >
+                  <Mail className="mr-2 h-3.5 w-3.5" />
+                  Email
                 </Button>
               )}
               {canDelete &&
@@ -391,6 +409,7 @@ export function DealDetailSheet({
       </SheetContent>
 
       <EditDealDialog deal={deal} open={editOpen} onOpenChange={setEditOpen} />
+      <CrmEmailDialog open={emailOpen} onOpenChange={setEmailOpen} target={{ kind: "deal", id: deal.id }} />
     </Sheet>
   );
 }

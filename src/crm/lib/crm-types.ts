@@ -299,6 +299,7 @@ export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   LINK_EVENT_CONTACT: "Linked to an event contact",
   UNLINK_EVENT_CONTACT: "Unlinked from the event contact",
   PROSPECTUS_SENT: "Prospectus emailed",
+  EMAIL_SENT: "Email sent",
 };
 
 /**

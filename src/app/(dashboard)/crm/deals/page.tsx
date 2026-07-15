@@ -24,7 +24,7 @@ import { EventCombobox } from "@/crm/components/event-combobox";
 import { DealBoard } from "@/crm/components/deal-board";
 import { DealDetailSheet } from "@/crm/components/deal-detail-sheet";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
-import { SponsorEmailDialog } from "@/crm/components/sponsor-email-dialog";
+import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmBoardSkeleton } from "@/crm/components/crm-skeletons";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
@@ -228,10 +228,10 @@ function DealsPageInner() {
         defaultEventId={eventId || null}
       />
 
-      <SponsorEmailDialog
+      <CrmEmailDialog
         open={sponsorEmailOpen}
         onOpenChange={setSponsorEmailOpen}
-        eventId={eventId || null}
+        target={eventId ? { kind: "event", id: eventId } : null}
       />
 
       <DealDetailSheet

@@ -1,20 +1,21 @@
 /**
- * Sponsor-prospectus email — the CRM's outbound bulk send. SERVER ONLY.
+ * CRM outbound email — the sponsor blast AND the per-deal send. SERVER ONLY.
  *
- * "Send the prospectus to all sponsors of an event": resolve the event's sponsor
- * contacts (via its non-lost deals), render a personalized cover email + attach the
- * prospectus, and send one email per contact.
+ * Two entry points, one engine:
+ *   - sendSponsorProspectus  — everyone on an EVENT's non-lost deals ("email all
+ *                              sponsors of BRIDGES 2026").
+ *   - sendDealEmail          — the contacts on ONE deal ("email the people on the
+ *                              Abbott deal").
+ * Both resolve a deduped recipient list (via collectSponsorRecipients — shared), a
+ * branding/eventName context, then hand off to `dispatchCrmEmail`, which owns the
+ * validate → narrow → batch → per-recipient render/send/record loop. The audience +
+ * token logic stays in the CRM module; rendering + sending reuse the CORE primitives
+ * (`sendEmail`/`renderAndWrap`/branding) — crm→core, never core→crm, and never the
+ * event `executeBulkEmail` pipeline (built around event recipient types).
  *
- * Boundary: this lives in the CRM module and OWNS the audience + token logic, but it
- * reuses the core send primitives (`sendEmail`, `renderAndWrap`, `brandingFrom`) —
- * `crm → core` imports are allowed, `core → crm` is not, so the sender stays in core
- * and the sponsor-specific concern stays here. We do NOT reach into the event
- * bulk-email pipeline (`executeBulkEmail`), which is built around event recipient
- * types (registrations/speakers) and would drag those concerns across the boundary.
- *
- * Per-recipient failure is isolated (one bad address never sinks the batch); each
- * successful send records a `PROSPECTUS_SENT` row on the contact's CRM history and an
- * `EmailLog` row so it shows in the contact's Email History.
+ * Per-recipient failure is isolated; each success writes an `EmailLog` row (Email
+ * History) and a CRM history row on the contact (and, for a deal send, one summary
+ * row on the deal).
  */
 import type { EmailBranding } from "@/lib/email";
 import { sendEmail, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
@@ -37,7 +38,7 @@ const BATCH_SIZE = 25;
  *  personalized; `message` (the sender's HTML) and `signature` are inserted raw. */
 const BODY_TEMPLATE = `<p style="margin:0 0 16px">Dear {{firstName}},</p>\n{{message}}\n{{signature}}`;
 const TEXT_TEMPLATE =
-  "Dear {{firstName}},\n\nPlease find our sponsorship prospectus for {{eventName}} attached.\n";
+  "Dear {{firstName}},\n\nPlease find our message below / attached.\n";
 const RAW_KEYS = new Set(["message", "signature"]);
 
 // Only these tokens are substituted inside the sender-authored body/subject. Values
@@ -57,8 +58,7 @@ export interface SponsorAttachment {
 
 type ServiceFail = { ok: false; code: string; message: string };
 
-interface ResolvedEvent {
-  id: string;
+interface EventBrandingRow {
   name: string;
   emailHeaderImage: string | null;
   emailFooterImage: string | null;
@@ -68,24 +68,37 @@ interface ResolvedEvent {
   emailCcAddresses: string[];
 }
 
-const DEAL_SELECT = {
-  company: { select: { name: true } },
-  contacts: {
+function brandingFromEventRow(e: EventBrandingRow): EmailBranding {
+  return {
+    emailHeaderImage: e.emailHeaderImage,
+    emailFooterImage: e.emailFooterImage,
+    emailFooterHtml: e.emailFooterHtml,
+    emailFromAddress: e.emailFromAddress,
+    emailFromName: e.emailFromName,
+    emailCcAddresses: e.emailCcAddresses ?? [],
+    eventName: e.name,
+  };
+}
+
+const CONTACT_ON_DEAL_SELECT = {
+  crmContact: {
     select: {
-      crmContact: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          emailKey: true,
-          archivedAt: true,
-          company: { select: { name: true } },
-        },
-      },
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      emailKey: true,
+      archivedAt: true,
+      company: { select: { name: true } },
     },
   },
 } as const;
+
+// ── Resolve: event ──────────────────────────────────────────────────────────────
+
+interface ResolvedEvent extends EventBrandingRow {
+  id: string;
+}
 
 /**
  * Resolve the deduped sponsor contacts for an event. Org-bound: the event must
@@ -125,11 +138,10 @@ export async function resolveSponsorRecipients(args: {
       organizationId: args.organizationId,
       eventId: args.eventId,
       archivedAt: null,
-      // A LOST deal is not a sponsor — you don't send the prospectus to a company
-      // that already said no. OPEN (being pitched) + WON (confirmed) both count.
+      // A LOST deal is not a sponsor — you don't send to a company that said no.
       status: { not: "LOST" },
     },
-    select: DEAL_SELECT,
+    select: { company: { select: { name: true } }, contacts: { select: CONTACT_ON_DEAL_SELECT } },
   })) as RawDealForRecipients[];
 
   const { recipients, skipped } = collectSponsorRecipients(deals);
@@ -141,7 +153,74 @@ export async function resolveSponsorRecipients(args: {
   };
 }
 
-export interface SendSponsorProspectusResult {
+// ── Resolve: single deal ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve the deduped contacts on ONE deal, plus the branding to send under (the
+ * deal's linked event, if any — otherwise the org default sender). Org-bound + not
+ * archived.
+ */
+export async function resolveDealRecipients(args: {
+  organizationId: string;
+  dealId: string;
+}): Promise<
+  | {
+      ok: true;
+      target: { id: string; name: string };
+      branding: EmailBranding;
+      eventName: string;
+      recipients: SponsorRecipient[];
+      skipped: { noEmail: number; archivedContacts: number };
+    }
+  | ServiceFail
+> {
+  const deal = await db.crmDeal.findFirst({
+    where: { id: args.dealId, organizationId: args.organizationId, archivedAt: null },
+    select: {
+      id: true,
+      name: true,
+      company: { select: { name: true } },
+      contacts: { select: CONTACT_ON_DEAL_SELECT },
+      event: {
+        select: {
+          name: true,
+          emailHeaderImage: true,
+          emailFooterImage: true,
+          emailFooterHtml: true,
+          emailFromAddress: true,
+          emailFromName: true,
+          emailCcAddresses: true,
+        },
+      },
+    },
+  });
+  if (!deal) {
+    return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
+  }
+
+  // collectSponsorRecipients takes a LIST of deals — a single deal is a one-element
+  // list, so the same dedup/skip logic (and its tests) covers this path.
+  const { recipients, skipped } = collectSponsorRecipients([
+    { company: deal.company, contacts: deal.contacts },
+  ] as RawDealForRecipients[]);
+
+  const branding: EmailBranding = deal.event
+    ? brandingFromEventRow(deal.event)
+    : { emailCcAddresses: [], eventName: undefined };
+
+  return {
+    ok: true,
+    target: { id: deal.id, name: deal.name },
+    branding,
+    eventName: deal.event?.name ?? "",
+    recipients,
+    skipped,
+  };
+}
+
+// ── Send ──────────────────────────────────────────────────────────────────────────
+
+export interface CrmEmailSendResult {
   ok: true;
   total: number;
   successCount: number;
@@ -149,82 +228,64 @@ export interface SendSponsorProspectusResult {
   errors: Array<{ email: string; error: string }>;
 }
 
-/**
- * Send the prospectus to (a subset of) an event's sponsor contacts.
- *
- * `contactIds` narrows the audience (intersection — see narrowToSelected); omit it
- * to send to everyone resolved. The whole batch shares the same attachments; the
- * cover email personalizes per contact.
- */
-export async function sendSponsorProspectus(args: {
-  organizationId: string;
-  eventId: string;
-  subject: string;
-  /** Sender-authored HTML body (Tiptap). May contain {{firstName}} etc. */
-  message: string;
-  attachments?: SponsorAttachment[];
-  /** Explicit selection from the reviewed recipient list. */
-  contactIds?: string[];
-  actorUserId: string | null;
-  source: "rest" | "api";
-}): Promise<SendSponsorProspectusResult | ServiceFail> {
-  const subject = args.subject.trim();
-  const message = args.message.trim();
-  if (!subject) return { ok: false, code: "SUBJECT_REQUIRED", message: "A subject is required" };
-  if (!message) return { ok: false, code: "BODY_REQUIRED", message: "A message is required" };
-
-  const attachments = args.attachments ?? [];
+function validateSend(
+  subject: string,
+  message: string,
+  attachments: SponsorAttachment[],
+): { ok: true; subject: string; message: string } | ServiceFail {
+  const s = subject.trim();
+  const m = message.trim();
+  if (!s) return { ok: false, code: "SUBJECT_REQUIRED", message: "A subject is required" };
+  if (!m) return { ok: false, code: "BODY_REQUIRED", message: "A message is required" };
   if (attachments.length > MAX_ATTACHMENTS) {
     return { ok: false, code: "TOO_MANY_ATTACHMENTS", message: `At most ${MAX_ATTACHMENTS} attachments` };
   }
   // base64 → bytes ≈ length * 3/4. Cheap upper-bound; the exact size doesn't matter.
-  const totalBytes = attachments.reduce((s, a) => s + Math.floor((a.content.length * 3) / 4), 0);
+  const totalBytes = attachments.reduce((acc, a) => acc + Math.floor((a.content.length * 3) / 4), 0);
   if (totalBytes > MAX_ATTACHMENT_BYTES) {
     return { ok: false, code: "ATTACHMENT_TOO_LARGE", message: "Attachments exceed the 10MB limit" };
   }
+  return { ok: true, subject: s, message: m };
+}
 
-  const resolved = await resolveSponsorRecipients({
-    organizationId: args.organizationId,
-    eventId: args.eventId,
-  });
-  if (!resolved.ok) return resolved;
+interface DispatchArgs {
+  organizationId: string;
+  recipients: SponsorRecipient[];
+  contactIds?: string[];
+  branding: EmailBranding;
+  eventName: string;
+  subject: string;
+  message: string;
+  attachments: SponsorAttachment[];
+  actorUserId: string | null;
+  /** CRM history action recorded on each contact on a successful send. */
+  contactActivityAction: string;
+  /** For the "dropped a non-sponsor id" log line. */
+  logScope: Record<string, unknown>;
+}
 
-  const recipients = narrowToSelected(resolved.recipients, args.contactIds);
+/**
+ * The shared send engine: narrow the audience to the selection (intersection —
+ * never widen), then batch-send with per-recipient failure isolation. Assumes
+ * subject/message/attachments are already validated.
+ */
+async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult | ServiceFail> {
+  const recipients = narrowToSelected(args.recipients, args.contactIds);
 
-  // A selection that asks for ids outside the resolved sponsor set is a widening
-  // attempt (or stale UI). We DROP them (never widen) but log it so it's visible.
+  // A selection asking for ids outside the resolved set is a widening attempt (or
+  // stale UI). We DROP them (never widen) but log it.
   if (args.contactIds) {
-    const resolvedIds = new Set(resolved.recipients.map((r) => r.crmContactId));
+    const resolvedIds = new Set(args.recipients.map((r) => r.crmContactId));
     const dropped = args.contactIds.filter((id) => !resolvedIds.has(id)).length;
     if (dropped > 0) {
-      apiLogger.warn({
-        msg: "crm-sponsor-email:dropped-non-sponsor-ids",
-        organizationId: args.organizationId,
-        eventId: args.eventId,
-        dropped,
-      });
+      apiLogger.warn({ msg: "crm-email:dropped-non-recipient-ids", ...args.logScope, dropped });
     }
   }
 
   if (recipients.length === 0) {
-    apiLogger.warn({
-      msg: "crm-sponsor-email:no-recipients",
-      organizationId: args.organizationId,
-      eventId: args.eventId,
-    });
-    return { ok: false, code: "NO_RECIPIENTS", message: "No sponsor contacts to email for this event" };
+    apiLogger.warn({ msg: "crm-email:no-recipients", ...args.logScope });
+    return { ok: false, code: "NO_RECIPIENTS", message: "No contacts to email" };
   }
-
-  const event = resolved.event;
-  const branding: EmailBranding = {
-    emailHeaderImage: event.emailHeaderImage,
-    emailFooterImage: event.emailFooterImage,
-    emailFooterHtml: event.emailFooterHtml,
-    emailFromAddress: event.emailFromAddress,
-    emailFromName: event.emailFromName,
-    emailCcAddresses: event.emailCcAddresses,
-    eventName: event.name,
-  };
 
   // The sender's own signature (same feature as the event bulk-email organizer
   // signature). Appended raw beneath the body.
@@ -237,9 +298,9 @@ export async function sendSponsorProspectus(args: {
     signatureHtml = sender?.emailSignature ?? "";
   }
 
-  const from = brandingFrom(branding);
-  const cc = brandingCc(branding);
-  const sendAttachments = attachments.map((a) => ({
+  const from = brandingFrom(args.branding);
+  const cc = brandingCc(args.branding);
+  const sendAttachments = args.attachments.map((a) => ({
     name: a.name,
     content: a.content,
     contentType: a.contentType,
@@ -252,7 +313,21 @@ export async function sendSponsorProspectus(args: {
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     const batch = recipients.slice(i, i + BATCH_SIZE);
     const settled = await Promise.allSettled(
-      batch.map((r) => sendOne(r, { subject, message, signatureHtml, event, branding, from, cc, sendAttachments, args })),
+      batch.map((r) =>
+        sendOne(r, {
+          subject: args.subject,
+          message: args.message,
+          signatureHtml,
+          eventName: args.eventName,
+          branding: args.branding,
+          from,
+          cc,
+          sendAttachments,
+          organizationId: args.organizationId,
+          actorUserId: args.actorUserId,
+          contactActivityAction: args.contactActivityAction,
+        }),
+      ),
     );
     for (let j = 0; j < settled.length; j++) {
       const r = batch[j];
@@ -271,9 +346,8 @@ export async function sendSponsorProspectus(args: {
               : outcome.value.error;
         errors.push({ email: r.email, error: errMsg });
         apiLogger.warn({
-          msg: "crm-sponsor-email:recipient-failed",
-          organizationId: args.organizationId,
-          eventId: args.eventId,
+          msg: "crm-email:recipient-failed",
+          ...args.logScope,
           crmContactId: r.crmContactId,
           error: errMsg,
         });
@@ -282,43 +356,39 @@ export async function sendSponsorProspectus(args: {
   }
 
   apiLogger.info({
-    msg: "crm-sponsor-email:sent",
-    organizationId: args.organizationId,
-    eventId: args.eventId,
+    msg: "crm-email:sent",
+    ...args.logScope,
     total: recipients.length,
     successCount,
     failureCount,
-    attachmentCount: attachments.length,
-    source: args.source,
+    attachmentCount: args.attachments.length,
   });
 
   return { ok: true, total: recipients.length, successCount, failureCount, errors };
 }
 
-/** Render + send to one recipient; records CRM history on success. */
+/** Render + send to one recipient; records CRM history on the contact on success. */
 async function sendOne(
   r: SponsorRecipient,
   ctx: {
     subject: string;
     message: string;
     signatureHtml: string;
-    event: ResolvedEvent;
+    eventName: string;
     branding: EmailBranding;
     from: ReturnType<typeof brandingFrom>;
     cc: ReturnType<typeof brandingCc>;
     sendAttachments: SponsorAttachment[];
-    args: {
-      organizationId: string;
-      eventId: string;
-      actorUserId: string | null;
-    };
+    organizationId: string;
+    actorUserId: string | null;
+    contactActivityAction: string;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const tokenVars = {
     firstName: r.firstName,
     lastName: r.lastName,
     companyName: r.companyName ?? "",
-    eventName: ctx.event.name,
+    eventName: ctx.eventName,
   };
   // Personalize the sender's body first (tokens escaped), THEN insert it raw — so a
   // {{firstName}} typed into the body resolves, but the body's own markup survives.
@@ -339,35 +409,130 @@ async function sendOne(
     htmlContent: rendered.htmlContent,
     textContent: rendered.textContent,
     attachments: ctx.sendAttachments.length ? ctx.sendAttachments : undefined,
-    emailType: "crm_sponsor_prospectus",
+    emailType: "crm_email",
     stream: "bulk",
     logContext: {
-      organizationId: ctx.args.organizationId,
-      eventId: ctx.args.eventId,
+      organizationId: ctx.organizationId,
       // EmailLogEntityType has no CRM value; OTHER + the crmContactId keeps the row
       // attributable without a schema change.
       entityType: "OTHER",
       entityId: r.crmContactId,
-      templateSlug: "crm-sponsor-prospectus",
-      triggeredByUserId: ctx.args.actorUserId,
+      templateSlug: "crm-email",
+      triggeredByUserId: ctx.actorUserId,
     },
   });
 
   if (!res.success) return { ok: false, error: res.error ?? "send failed" };
 
-  // Surface the outreach on the contact's CRM history timeline.
   void recordCrmActivity({
-    organizationId: ctx.args.organizationId,
+    organizationId: ctx.organizationId,
     entityType: "CONTACT",
     entityId: r.crmContactId,
-    action: "PROSPECTUS_SENT",
-    actorId: ctx.args.actorUserId,
+    action: ctx.contactActivityAction,
+    actorId: ctx.actorUserId,
     changes: {
       subject: ctx.subject,
-      event: ctx.event.name,
+      ...(ctx.eventName ? { event: ctx.eventName } : {}),
       attachments: ctx.sendAttachments.map((a) => a.name),
     },
   });
 
   return { ok: true };
+}
+
+/**
+ * Send the prospectus to (a subset of) an EVENT's sponsor contacts.
+ */
+export async function sendSponsorProspectus(args: {
+  organizationId: string;
+  eventId: string;
+  subject: string;
+  message: string;
+  attachments?: SponsorAttachment[];
+  contactIds?: string[];
+  actorUserId: string | null;
+  source: "rest" | "api";
+}): Promise<CrmEmailSendResult | ServiceFail> {
+  const attachments = args.attachments ?? [];
+  const valid = validateSend(args.subject, args.message, attachments);
+  if (!valid.ok) return valid;
+
+  const resolved = await resolveSponsorRecipients({
+    organizationId: args.organizationId,
+    eventId: args.eventId,
+  });
+  if (!resolved.ok) return resolved;
+
+  return dispatchCrmEmail({
+    organizationId: args.organizationId,
+    recipients: resolved.recipients,
+    contactIds: args.contactIds,
+    branding: brandingFromEventRow(resolved.event),
+    eventName: resolved.event.name,
+    subject: valid.subject,
+    message: valid.message,
+    attachments,
+    actorUserId: args.actorUserId,
+    contactActivityAction: "PROSPECTUS_SENT",
+    logScope: { organizationId: args.organizationId, eventId: args.eventId, source: args.source },
+  });
+}
+
+/**
+ * Send an email to (a subset of) ONE deal's contacts. Records a summary row on the
+ * deal's history in addition to the per-contact rows.
+ */
+export async function sendDealEmail(args: {
+  organizationId: string;
+  dealId: string;
+  subject: string;
+  message: string;
+  attachments?: SponsorAttachment[];
+  contactIds?: string[];
+  actorUserId: string | null;
+  source: "rest" | "api";
+}): Promise<CrmEmailSendResult | ServiceFail> {
+  const attachments = args.attachments ?? [];
+  const valid = validateSend(args.subject, args.message, attachments);
+  if (!valid.ok) return valid;
+
+  const resolved = await resolveDealRecipients({
+    organizationId: args.organizationId,
+    dealId: args.dealId,
+  });
+  if (!resolved.ok) return resolved;
+
+  const result = await dispatchCrmEmail({
+    organizationId: args.organizationId,
+    recipients: resolved.recipients,
+    contactIds: args.contactIds,
+    branding: resolved.branding,
+    eventName: resolved.eventName,
+    subject: valid.subject,
+    message: valid.message,
+    attachments,
+    actorUserId: args.actorUserId,
+    contactActivityAction: "EMAIL_SENT",
+    logScope: { organizationId: args.organizationId, dealId: args.dealId, source: args.source },
+  });
+
+  // Summarize the outreach on the DEAL's own history timeline (in addition to the
+  // per-contact rows), so "who emailed this deal, and when?" is answerable from the
+  // deal sheet.
+  if (result.ok && result.successCount > 0) {
+    void recordCrmActivity({
+      organizationId: args.organizationId,
+      entityType: "DEAL",
+      entityId: args.dealId,
+      action: "EMAIL_SENT",
+      actorId: args.actorUserId,
+      changes: {
+        subject: valid.subject,
+        recipients: result.successCount,
+        ...(resolved.eventName ? { event: resolved.eventName } : {}),
+      },
+    });
+  }
+
+  return result;
 }
