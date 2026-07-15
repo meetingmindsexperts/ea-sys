@@ -51,12 +51,20 @@ function writeAudit(entry: {
 /**
  * The seed pipeline (§9 decision 3). Won/Lost are terminal — a deal in a terminal
  * stage has a matching CrmDeal.status, and closeDeal() keeps the two in step.
+ *
+ * The names "Won" and "Lost" are LOAD-BEARING, not decorative: closeDeal() finds
+ * the terminal column by name, and terminalStatusFor() maps a terminal stage to
+ * WON/LOST only when it is literally called won/lost. Rename either and dragging a
+ * card into it stops closing the deal — so keep them, and put any new columns
+ * BEFORE them.
  */
 export const DEFAULT_PIPELINE_STAGES: ReadonlyArray<{ name: string; isTerminal: boolean }> = [
-  { name: "Prospect", isTerminal: false },
-  { name: "Contacted", isTerminal: false },
+  { name: "New", isTerminal: false },
   { name: "Proposal", isTerminal: false },
   { name: "Negotiation", isTerminal: false },
+  { name: "Contract Signed", isTerminal: false },
+  { name: "Purchase Order", isTerminal: false },
+  { name: "Invoice Sent", isTerminal: false },
   { name: "Won", isTerminal: true },
   { name: "Lost", isTerminal: true },
 ];

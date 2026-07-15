@@ -398,7 +398,7 @@ exactly which of those exist today.</p>
   <summary>Services <span class="tag done">DONE</span></summary>
   <ul>
     <li><b>company</b> — find-or-create; exact dupes blocked by the index, near-dupes created + flagged <code>needsReview</code> for a human.</li>
-    <li><b>pipeline</b> — idempotent seeding; <code>resolveStage()</code> is the one place an untrusted stage id becomes trusted (always org-bound).</li>
+    <li><b>pipeline</b> — idempotent seeding; <code>resolveStage()</code> is the one place an untrusted stage id becomes trusted (always org-bound). <b>Stages (Jul 15):</b> New → Proposal → Negotiation → Contract Signed → Purchase Order → Invoice Sent → <b>Won</b> → <b>Lost</b> (Won/Lost keep those names — the close flow is name-bound). Existing orgs are brought to the new set by <code>scripts/reconcile-crm-pipeline.ts</code> (dry-run first; deals in dropped columns move to New), since <code>ensurePipelineStages</code> never mutates an org that already has a pipeline.</li>
     <li><b>deal</b> — <b>the stage move is a conditional claim, not a write.</b> It carries the stage the mover <i>believed</i> the card was in; if a colleague moved it first, the write is refused (409) instead of silently overwriting their decision.</li>
     <li><b>task</b> — the reminder stamp. Re-arming a reminder clears it (so a rescheduled reminder actually fires); completing does not (a cleared stamp on a due task would make the worker re-email).</li>
     <li><b>note</b> — author-only to edit; admins may delete but never rewrite. A note is a first-person account of a call held with no visible edit history.</li>
