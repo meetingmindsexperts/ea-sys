@@ -9,16 +9,19 @@
  */
 import { Suspense, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Archive, ArchiveRestore, CheckCircle2, Circle, Loader2, X } from "lucide-react";
+import { Archive, ArchiveRestore, CheckCircle2, CheckSquare, Circle, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CrmEmptyState } from "@/crm/components/crm-empty-state";
+import { CrmListSkeleton } from "@/crm/components/crm-skeletons";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { useCrmTasks, useDeleteTask, useRestoreTask, useUpdateTask } from "@/crm/hooks/use-crm-api";
 import { canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 import { personName, type CrmTaskRow } from "@/crm/lib/crm-types";
+import { cn } from "@/lib/utils";
 
 const TASK_FILTER_KEYS = ["owner", "dueFrom", "dueTo"];
 
@@ -97,15 +100,25 @@ function TasksPageInner() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading tasks…
-        </div>
+        <CrmListSkeleton rows={5} />
       ) : tasks.length === 0 ? (
-        <p className="py-16 text-center text-sm text-muted-foreground">
-          {status === "OPEN" ? "Nothing outstanding. " : "Nothing completed yet."}
-          {status === "OPEN" && "Add a follow-up from a deal."}
-        </p>
+        <CrmEmptyState
+          icon={CheckSquare}
+          title={
+            showArchived
+              ? "No archived tasks"
+              : status === "OPEN"
+                ? "Nothing outstanding"
+                : "Nothing completed yet"
+          }
+          description={
+            showArchived
+              ? "Tasks you archive will show up here, ready to restore."
+              : status === "OPEN"
+                ? "Add a follow-up from a deal to start tracking it here."
+                : "Completed follow-ups will appear here."
+          }
+        />
       ) : (
         <div className="space-y-6">
           {overdue.length > 0 && (
@@ -177,7 +190,12 @@ function TaskRow({
   const archived = !!task.archivedAt;
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border p-3">
+    <div
+      className={cn(
+        "flex items-start gap-3 rounded-lg border p-3 transition-colors hover:border-primary/30",
+        archived && "opacity-60",
+      )}
+    >
       <button
         type="button"
         onClick={canWrite ? onToggle : undefined}

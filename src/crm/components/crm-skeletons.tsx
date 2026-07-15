@@ -37,6 +37,24 @@ export function CrmBoardSkeleton({ columns = 5 }: { columns?: number }) {
   );
 }
 
+/** Mirrors a list of stacked card rows (tasks). */
+export function CrmListSkeleton({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: rows }).map((_, r) => (
+        <div key={r} className="flex items-start gap-3 rounded-lg border p-3">
+          <Skeleton className="mt-0.5 h-5 w-5 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-3 w-1/3" />
+          </div>
+          <Skeleton className="h-4 w-4" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Mirrors a data table — a header rule plus N rows. */
 export function CrmTableSkeleton({ rows = 6, cols = 4 }: { rows?: number; cols?: number }) {
   return (
