@@ -13,6 +13,7 @@
  * it will be honoured.
  */
 import { useState } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import {
@@ -207,10 +208,13 @@ export function DealDetailBody({
                 <Fact label="Owner">{personName(deal.owner)}</Fact>
                 <Fact label="Company">
                   {deal.company ? (
-                    <span className="inline-flex items-center gap-1">
-                      <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Link
+                      href={`/crm/companies/${deal.company.id}`}
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <Building2 className="h-3.5 w-3.5" />
                       {deal.company.name}
-                    </span>
+                    </Link>
                   ) : (
                     <Dash />
                   )}
@@ -398,9 +402,12 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
           {onDeal.map(({ crmContact, role: r }) => (
             <li key={crmContact.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
+                <Link
+                  href={`/crm/contacts/${crmContact.id}`}
+                  className="block truncate text-sm font-medium hover:underline"
+                >
                   {crmContact.firstName} {crmContact.lastName}
-                </p>
+                </Link>
                 <p className="truncate text-xs text-muted-foreground">
                   {crmContact.jobTitle ? `${crmContact.jobTitle} · ` : ""}
                   {crmContact.email}

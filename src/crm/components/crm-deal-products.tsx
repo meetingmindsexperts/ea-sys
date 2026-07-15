@@ -92,18 +92,30 @@ function LineItem({ dealId, line, canWrite }: { dealId: string; line: CrmDealPro
   const priceKnown = line.unitPrice !== null && line.unitPrice !== undefined;
   const lineTotal = priceKnown ? Number(line.unitPrice) * line.quantity : null;
 
-  function commitQty() {
-    const n = Math.max(1, Math.trunc(Number(qty) || 1));
-    setQty(String(n));
-    if (n !== line.quantity) update.mutate({ lineId: line.id, quantity: n });
-  }
-  function commitPrice() {
-    const n = Number(price);
-    if (!Number.isFinite(n) || n < 0) {
-      setPrice(line.unitPrice != null ? String(line.unitPrice) : "");
-      return;
+  // No auto-save: qty/price stage locally and commit together only on the Save
+  // button (an explicit trigger, not on blur). Dirty lights the button up; a
+  // successful save refetches the line, so the local text matches and dirty clears.
+  const dirty = qty !== String(line.quantity) || (priceKnown && price !== String(line.unitPrice));
+
+  function handleSave() {
+    const payload: { lineId: string; quantity?: number; unitPrice?: number } = { lineId: line.id };
+
+    const nextQty = Math.max(1, Math.trunc(Number(qty) || 1));
+    setQty(String(nextQty)); // reflect the normalization back into the input
+    if (nextQty !== line.quantity) payload.quantity = nextQty;
+
+    if (priceKnown) {
+      const n = Number(price);
+      if (price.trim() === "" || !Number.isFinite(n) || n < 0) {
+        setPrice(String(line.unitPrice)); // revert an invalid entry, don't send it
+      } else if (n !== Number(line.unitPrice)) {
+        payload.unitPrice = n;
+      }
     }
-    if (n !== Number(line.unitPrice)) update.mutate({ lineId: line.id, unitPrice: n });
+
+    if (payload.quantity !== undefined || payload.unitPrice !== undefined) {
+      update.mutate(payload);
+    }
   }
 
   return (
@@ -123,7 +135,6 @@ function LineItem({ dealId, line, canWrite }: { dealId: string; line: CrmDealPro
             inputMode="numeric"
             value={qty}
             onChange={(e) => setQty(e.target.value)}
-            onBlur={commitQty}
             aria-label="Quantity"
           />
           <span className="text-xs text-muted-foreground">×</span>
@@ -133,11 +144,23 @@ function LineItem({ dealId, line, canWrite }: { dealId: string; line: CrmDealPro
               inputMode="decimal"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
-              onBlur={commitPrice}
               aria-label="Unit price"
             />
           ) : (
             <span className="w-24 text-right text-muted-foreground">—</span>
+          )}
+          {dirty && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-primary"
+              disabled={update.isPending}
+              onClick={handleSave}
+              aria-label="Save line item"
+              title="Save"
+            >
+              {update.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            </Button>
           )}
         </div>
       ) : (
