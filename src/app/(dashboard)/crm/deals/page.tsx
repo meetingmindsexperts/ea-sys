@@ -16,13 +16,13 @@
  * redacted number can't be binary-searched through a filter).
  */
 import { Suspense, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Archive, Handshake, Mail, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EventCombobox } from "@/crm/components/event-combobox";
 import { DealBoard } from "@/crm/components/deal-board";
-import { DealDetailSheet } from "@/crm/components/deal-detail-sheet";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
@@ -33,7 +33,7 @@ import { ValueRangeFilter } from "@/crm/components/filters/value-range-filter";
 import { useCrmDeals, useCrmStages, useMoveDealStage } from "@/crm/hooks/use-crm-api";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
-import { sumStageValue, type CrmBoardDeal } from "@/crm/lib/crm-types";
+import { sumStageValue } from "@/crm/lib/crm-types";
 
 const ALL_STATUS = "__all__";
 
@@ -53,8 +53,8 @@ function DealsPageInner() {
   const canSeeValues = canViewDealValues(role);
 
   const { get, set, clear, anyActive } = useCrmFilters();
+  const router = useRouter();
 
-  const [openDeal, setOpenDeal] = useState<CrmBoardDeal | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [sponsorEmailOpen, setSponsorEmailOpen] = useState(false);
 
@@ -213,9 +213,9 @@ function DealsPageInner() {
             stages={stages}
             deals={deals}
             onMove={(args) => move.mutate(args)}
-            onOpenDeal={setOpenDeal}
+            onOpenDeal={(deal) => router.push(`/crm/deals/${deal.id}`)}
             // Archived deals are a read-only listing — you restore them from the
-            // card, you don't drag them around the pipeline.
+            // deal page, you don't drag them around the pipeline.
             readOnly={!canWrite || archivedView}
           />
         </>
@@ -232,12 +232,6 @@ function DealsPageInner() {
         open={sponsorEmailOpen}
         onOpenChange={setSponsorEmailOpen}
         target={eventId ? { kind: "event", id: eventId } : null}
-      />
-
-      <DealDetailSheet
-        deal={openDeal}
-        onOpenChange={(o) => !o && setOpenDeal(null)}
-        canWrite={canWrite}
       />
     </div>
   );

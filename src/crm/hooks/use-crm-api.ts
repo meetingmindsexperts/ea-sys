@@ -82,6 +82,15 @@ export function useCrmDeals(filters: CrmDealFilters = {}) {
   });
 }
 
+/** One deal by id — powers the dedicated deal page. Disabled until an id is given. */
+export function useCrmDeal(dealId: string | null | undefined) {
+  return useQuery({
+    queryKey: crmKeys.deal(dealId ?? ""),
+    queryFn: () => apiFetch<{ deal: CrmBoardDeal }>(`/api/crm/deals/${dealId}`).then((r) => r.deal),
+    enabled: !!dealId,
+  });
+}
+
 export function useCreateDeal() {
   const qc = useQueryClient();
   return useMutation({

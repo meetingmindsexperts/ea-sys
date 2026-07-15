@@ -12,6 +12,7 @@
  * and flags it for a human. Filtering to those is the merge worklist.
  */
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Archive, Building2, Plus, Search, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CompanyDetailSheet } from "@/crm/components/company-detail-sheet";
 import { CreateCompanyDialog } from "@/crm/components/create-company-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
@@ -42,8 +42,8 @@ export default function CrmCompaniesPage() {
   const [industry, setIndustry] = useState<string>("");
   const [onlyReview, setOnlyReview] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const router = useRouter();
 
   // Unfiltered list drives BOTH the option dropdown (a stable industry list) and
   // the review count — deriving the options from the filtered set would make them
@@ -164,8 +164,8 @@ export default function CrmCompaniesPage() {
               {rows.map((c) => (
                 <TableRow
                   key={c.id}
-                  className={cn("cursor-pointer transition-colors", c.archivedAt && "opacity-60")}
-                  onClick={() => setOpenId(c.id)}
+                  className={cn("cursor-pointer transition-colors hover:bg-muted/40", c.archivedAt && "opacity-60")}
+                  onClick={() => router.push(`/crm/companies/${c.id}`)}
                 >
                   <TableCell className="font-medium">
                     <span className="flex items-center gap-2">
@@ -199,11 +199,6 @@ export default function CrmCompaniesPage() {
       )}
 
       <CreateCompanyDialog open={createOpen} onOpenChange={setCreateOpen} />
-      <CompanyDetailSheet
-        companyId={openId}
-        onOpenChange={(o) => !o && setOpenId(null)}
-        canWrite={canWrite}
-      />
     </div>
   );
 }
