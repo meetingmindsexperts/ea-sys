@@ -30,7 +30,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { db } from "@/lib/db";
-import { createDeal, moveDealStage, closeDeal } from "@/crm/services/deal-service";
+import { createDeal, updateDeal, moveDealStage, closeDeal } from "@/crm/services/deal-service";
 
 const ORG = "org-1";
 const base = { organizationId: ORG, userId: "u-1", source: "rest" as const };
@@ -205,13 +205,22 @@ describe("createDeal — relations are bound to the caller's org", () => {
 
   it("rejects an owner who is not a member of this org", async () => {
     vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(stage() as never);
+    vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-1" } as never);
     vi.mocked(db.user.findFirst).mockResolvedValue(null as never);
 
-    const res = await createDeal({ ...base, name: "Abbott", stageId: "s-neg", ownerId: "outsider" });
+    const res = await createDeal({ ...base, name: "Abbott", stageId: "s-neg", eventId: "e-1", ownerId: "outsider" });
 
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
     expect(res.code).toBe("OWNER_NOT_FOUND");
+  });
+
+  it("requires an event — a deal must be sold against a project", async () => {
+    const res = await createDeal({ ...base, name: "Abbott", stageId: "s-neg", eventId: "" });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("EVENT_REQUIRED");
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
   });
 
   it("creates with the event link — the module's whole differentiator", async () => {
@@ -242,8 +251,16 @@ describe("createDeal — relations are bound to the caller's org", () => {
     );
   });
 
+  it("updateDeal refuses to CLEAR the event (re-point yes, remove no)", async () => {
+    const res = await updateDeal({ ...base, dealId: "d-1", eventId: null });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("EVENT_REQUIRED");
+    expect(db.crmDeal.updateMany).not.toHaveBeenCalled();
+  });
+
   it("requires a name", async () => {
-    const res = await createDeal({ ...base, name: "   ", stageId: "s-neg" });
+    const res = await createDeal({ ...base, name: "   ", stageId: "s-neg", eventId: "e-1" });
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
     expect(res.code).toBe("NAME_REQUIRED");

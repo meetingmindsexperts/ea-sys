@@ -73,6 +73,10 @@ export function EditDealDialog({
       toast.error("Give the deal a name");
       return;
     }
+    if (!eventId) {
+      toast.error("Select the event (project) this deal is for");
+      return;
+    }
     const parsedValue = dealValue.trim() ? Number(dealValue) : null;
     if (parsedValue !== null && !Number.isFinite(parsedValue)) {
       toast.error("Deal value must be a number");
@@ -168,8 +172,16 @@ export function EditDealDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label>Event</Label>
-              <EventCombobox value={eventId} onChange={setEventId} clearLabel="No event" className="w-full" />
+              <Label>
+                Event (project) <span className="text-destructive">*</span>
+              </Label>
+              <EventCombobox
+                value={eventId}
+                onChange={setEventId}
+                allowClear={false}
+                placeholder="Select an event…"
+                className="w-full"
+              />
             </div>
           </div>
         </div>

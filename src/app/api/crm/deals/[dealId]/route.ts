@@ -11,7 +11,8 @@ const updateDealSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   companyId: z.string().min(1).nullable().optional(),
   contactId: z.string().min(1).nullable().optional(),
-  eventId: z.string().min(1).nullable().optional(),
+  // Re-pointable, but not clearable — a deal must stay tied to an event (no null).
+  eventId: z.string().min(1).optional(),
   ownerId: z.string().min(1).nullable().optional(),
   dealValue: z.number().nonnegative().max(1_000_000_000).nullable().optional(),
   currency: z.string().length(3).optional(),

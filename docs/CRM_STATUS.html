@@ -220,6 +220,7 @@
 </div>
 
 <h2>2. Owner decisions (locked)</h2>
+<p class="why"><b>Jul 15:</b> a deal MUST be linked to an event (project) — enforced at create + edit (service <code>EVENT_REQUIRED</code>, required in both dialogs, can re-point but not clear). DB column stays nullable (<code>onDelete: SetNull</code>) so a deal survives its event being deleted; the requirement is app-level, not a NOT-NULL constraint. Reps picker excludes ORGANIZER (sales team + admins only).</p>
 
 <p>Answered in the planning round, 14 July. Changing one now means a migration against a live DB, so
 they are recorded rather than left in chat. Full reasoning in

@@ -72,6 +72,10 @@ export function CreateDealDialog({
       toast.error("Give the deal a name");
       return;
     }
+    if (!eventId) {
+      toast.error("Select the event (project) this deal is for");
+      return;
+    }
     if (!effectiveStage) {
       toast.error("Pick a pipeline stage");
       return;
@@ -139,6 +143,20 @@ export function CreateDealDialog({
           </div>
 
           <div className="space-y-2">
+            <Label>
+              Event (project) <span className="text-destructive">*</span>
+            </Label>
+            <EventCombobox
+              value={eventId}
+              onChange={setEventId}
+              allowClear={false}
+              placeholder="Select an event…"
+              className="w-full"
+            />
+            <p className="text-xs text-muted-foreground">Every deal is sold against a project.</p>
+          </div>
+
+          <div className="space-y-2">
             <Label>Company</Label>
             <CompanyCombobox value={company} onChange={setCompany} />
             <p className="text-xs text-muted-foreground">
@@ -199,11 +217,6 @@ export function CreateDealDialog({
                 onChange={(e) => setExpectedClose(e.target.value)}
               />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Event</Label>
-            <EventCombobox value={eventId} onChange={setEventId} clearLabel="No event" className="w-full" />
           </div>
         </div>
 

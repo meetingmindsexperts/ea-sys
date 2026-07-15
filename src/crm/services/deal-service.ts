@@ -46,8 +46,14 @@ export interface CreateDealInput {
   name: string;
   stageId: string;
   companyId?: string | null;
-  /** THE differentiator — ties the deal to the event it is being sold against. */
-  eventId?: string | null;
+  /**
+   * THE differentiator — ties the deal to the event (project) it is being sold
+   * against. REQUIRED on create (owner decision, July 15): a sponsorship deal that
+   * isn't against a project is meaningless. The DB column stays nullable so the deal
+   * survives its event being deleted (onDelete: SetNull); the requirement is enforced
+   * here at create/edit, not as a NOT-NULL constraint.
+   */
+  eventId: string;
   ownerId?: string | null;
   dealValue?: number | null;
   currency?: string;
@@ -91,6 +97,7 @@ export interface CloseDealInput {
 
 export type DealErrorCode =
   | "NAME_REQUIRED"
+  | "EVENT_REQUIRED"
   | "DEAL_NOT_FOUND"
   | "STAGE_NOT_FOUND"
   | "COMPANY_NOT_FOUND"
@@ -156,6 +163,13 @@ async function validateRelations(
 export async function createDeal(input: CreateDealInput): Promise<CreateDealResult> {
   const name = input.name?.trim() ?? "";
   if (!name) return { ok: false, code: "NAME_REQUIRED", message: "Deal name is required" };
+
+  // A deal must be sold against a project (event) — the reason this pipeline exists
+  // rather than a generic CRM. Enforced here so every create path (not just the
+  // dialog) honours it.
+  if (!input.eventId) {
+    return { ok: false, code: "EVENT_REQUIRED", message: "Select the event (project) this deal is for" };
+  }
 
   const stage = await resolveStage(input.stageId, input.organizationId);
   if (!stage) {
@@ -229,7 +243,15 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
   if (input.currency !== undefined) data.currency = input.currency.trim() || "USD";
   if (input.expectedClose !== undefined) data.expectedClose = input.expectedClose;
   if (input.companyId !== undefined) data.companyId = input.companyId;
-  if (input.eventId !== undefined) data.eventId = input.eventId;
+  if (input.eventId !== undefined) {
+    // A deal must stay tied to a project — you can re-point it at another event, but
+    // not clear it. (An event-less legacy deal, e.g. one whose event was deleted,
+    // must be given an event on its next edit.)
+    if (input.eventId === null) {
+      return { ok: false, code: "EVENT_REQUIRED", message: "A deal must be linked to an event" };
+    }
+    data.eventId = input.eventId;
+  }
   if (input.ownerId !== undefined) data.ownerId = input.ownerId;
 
   if (Object.keys(data).length === 0) {

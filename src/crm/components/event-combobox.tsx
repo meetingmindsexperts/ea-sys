@@ -28,11 +28,17 @@ export function EventCombobox({
   onChange,
   clearLabel = "No event",
   className,
+  allowClear = true,
+  placeholder,
 }: {
   value: string | null;
   onChange: (eventId: string | null) => void;
   clearLabel?: string;
   className?: string;
+  /** When false, the "clear" option is hidden — for a REQUIRED event picker. */
+  allowClear?: boolean;
+  /** Trigger text when nothing is selected (defaults to clearLabel). */
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -60,7 +66,7 @@ export function EventCombobox({
         >
           <span className={cn("flex min-w-0 items-center gap-2 truncate", !selected && "text-muted-foreground")}>
             <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="truncate">{selected ? selected.name : clearLabel}</span>
+            <span className="truncate">{selected ? selected.name : (placeholder ?? clearLabel)}</span>
           </span>
           <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -70,12 +76,14 @@ export function EventCombobox({
           <CommandInput placeholder="Search events…" value={search} onValueChange={setSearch} />
           <CommandList>
             <CommandEmpty>No published events match.</CommandEmpty>
-            <CommandGroup>
-              <CommandItem value="__clear__" onSelect={() => pick(null)}>
-                <X className="mr-2 h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">{clearLabel}</span>
-              </CommandItem>
-            </CommandGroup>
+            {allowClear && (
+              <CommandGroup>
+                <CommandItem value="__clear__" onSelect={() => pick(null)}>
+                  <X className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">{clearLabel}</span>
+                </CommandItem>
+              </CommandGroup>
+            )}
             {filtered.length > 0 && (
               <CommandGroup heading="Published events">
                 {filtered.slice(0, 100).map((e) => (
