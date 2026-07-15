@@ -59,6 +59,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+// CRM is parked/not-deployed to prod, so its sidebar entry is hidden from the
+// normal staff sidebar. Flip to `true` to surface it again (a one-line reversal).
+// A dedicated CRM_USER is unaffected — they're confined to the CRM and would
+// otherwise have an empty sidebar (see crmOnlyNavigation below).
+const CRM_IN_SIDEBAR = false;
+
 const navigation: { name: string; href: string; icon: React.ComponentType<{ className?: string }>; superAdminOnly?: boolean; adminOnly?: boolean; financeOnly?: boolean; crmOnly?: boolean }[] = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Events",    href: "/events",    icon: Calendar },
@@ -241,7 +247,7 @@ export function Sidebar() {
           if (item.superAdminOnly && !isSuperAdmin) return false;
           if (item.adminOnly && !isAdmin) return false;
           if (item.financeOnly && !canFinance) return false;
-          if (item.crmOnly && !canCrm) return false;
+          if (item.crmOnly && (!canCrm || !CRM_IN_SIDEBAR)) return false;
           return true;
         });
 
