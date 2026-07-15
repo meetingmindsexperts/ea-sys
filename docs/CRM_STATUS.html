@@ -161,6 +161,11 @@
       <td>One-way: <code>src/crm/</code> → core only. Verified to fire. 3 named core-side exemptions (the 4th, the contact-sheet one, was reverted with the CrmContact rework).</td>
     </tr>
     <tr>
+      <td>Sales role (CRM_USER)</td>
+      <td><span class="tag done">DONE</span></td>
+      <td>A dedicated org-bound team role CONFINED to the CRM: full pipeline access + sees deal values, but walled off from events / registrations / invoices / settings (proxy redirect + zero events in buildEventAccessWhere + denyReviewer + sidebar). NOT in FINANCE_ROLES. Invite from Settings &rarr; Users. Additive enum migration <code>20260715070000_add_crm_user_role</code>.</td>
+    </tr>
+    <tr>
       <td>Visibility / RBAC</td>
       <td><span class="tag done">DONE</span></td>
       <td>Own boundary (<code>crm-roles.ts</code> + <code>crm-visibility.ts</code>). MEMBER reads, never writes, never sees money.</td>

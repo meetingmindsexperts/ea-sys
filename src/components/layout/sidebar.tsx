@@ -185,6 +185,7 @@ export function Sidebar() {
   const isSubmitter   = session?.user?.role === "SUBMITTER";
   const isRegistrant  = session?.user?.role === "REGISTRANT";
   const isOnsite      = session?.user?.role === "ONSITE";
+  const isCrmUser     = session?.user?.role === "CRM_USER";
   const isRestricted  = isReviewer || isSubmitter;
   const canFinance    = canViewFinance(session?.user?.role);
   const canCrm        = canViewCrm(session?.user?.role);
@@ -198,7 +199,7 @@ export function Sidebar() {
 
   // Fetch event to know eventType (cached by React Query across navigation).
   // Skip fetch on non-event pages and for restricted roles whose sidebar doesn't branch.
-  const { data: currentEvent } = useEvent(isEventPage && !isRestricted && !isOnsite ? (eventId as string) : "");
+  const { data: currentEvent } = useEvent(isEventPage && !isRestricted && !isOnsite && !isCrmUser ? (eventId as string) : "");
   const webinarFilter = webinarModuleFilter(currentEvent?.eventType ?? null);
 
   const handleOrgSwitch = (orgId: string | null) => {
@@ -227,7 +228,12 @@ export function Sidebar() {
 
   const isAdmin = session?.user?.role === "ADMIN" || isSuperAdmin;
 
-  const baseNavigation = isOnsite
+  // CRM_USER is confined to the CRM — the sidebar shows only that entry.
+  const crmOnlyNavigation = navigation.filter((item) => ["CRM"].includes(item.name));
+//this section to be reviewed, to much nesting, maybe can be simplified start
+  const baseNavigation = isCrmUser
+    ? crmOnlyNavigation
+    : isOnsite
     ? eventsOnlyNavigation
     : isRestricted
       ? restrictedNavigation
@@ -256,6 +262,7 @@ export function Sidebar() {
   const flatEventItems = visibleEventSections.flatMap((s) =>
     s.items.map((item) => ({ ...item, href: `/events/${eventId}${item.href}` }))
   );
+//this section to be reviewed, to much nesting, maybe can be simplified end
 
   return (
     <TooltipProvider delayDuration={0}>

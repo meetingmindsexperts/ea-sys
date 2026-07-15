@@ -443,3 +443,16 @@ export function useCrmReport(filters: Record<string, string | undefined> = {}) {
     queryFn: () => apiFetch<CrmReport>(`/api/crm/reports${key ? `?${key}` : ""}`),
   });
 }
+
+
+/**
+ * Org events as {id, name} for the CRM's event pickers. Uses the CRM-gated
+ * events-lite endpoint, so a CRM_USER (no event-API access) can still tag deals.
+ */
+export function useCrmEvents() {
+  return useQuery({
+    queryKey: ["crm", "events-lite"],
+    queryFn: () =>
+      apiFetch<{ events: Array<{ id: string; name: string }> }>("/api/crm/events-lite").then((r) => r.events),
+  });
+}

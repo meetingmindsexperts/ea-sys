@@ -20,7 +20,7 @@ import { useSession } from "next-auth/react";
 import { Plus, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useEvents } from "@/hooks/use-api";
+import { useCrmEvents } from "@/crm/hooks/use-crm-api";
 import { DealBoard } from "@/crm/components/deal-board";
 import { DealDetailSheet } from "@/crm/components/deal-detail-sheet";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
@@ -72,7 +72,7 @@ function DealsPageInner() {
   const { data: stages = [], isLoading: stagesLoading } = useCrmStages();
   const { data: deals = [], isLoading: dealsLoading } = useCrmDeals(filters);
   const move = useMoveDealStage(filters);
-  const { data: events = [] } = useEvents();
+  const { data: events = [] } = useCrmEvents();
 
   const isLoading = stagesLoading || dealsLoading;
   const filtersActive = anyActive(FILTER_KEYS);

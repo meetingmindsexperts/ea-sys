@@ -146,6 +146,20 @@ export default auth((req) => {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // CRM_USER: confined to the CRM. Every matched dashboard path (events,
+  // dashboard, settings, contacts, profile, logs, my-registration) is redirected
+  // to /crm. /crm itself is not in the matcher, so it passes straight through.
+  // API routes carry their own per-route guards (requireCrmRead/Write on /api/crm,
+  // denyReviewer elsewhere), so they are never redirected.
+  if (role === "CRM_USER") {
+    if (pathname.startsWith("/api/")) {
+      return addCorsHeaders(NextResponse.next(), origin);
+    }
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = "/crm";
+    return NextResponse.redirect(redirectUrl);
+  }
+
   // ONSITE: registration-desk staff. Allowed UI = the events list + a chosen
   // event's Registrations + Check-In pages. Everything else (other event
   // sections, dashboard, settings, logs, contacts, new-event) is redirected.

@@ -143,6 +143,8 @@ the board). So the CRM has its own, in `crm-roles.ts`:
 | `canOwnDeals` | staff only (MEMBER excluded) | owning deals, any write |
 | `canViewDealValues` | staff only | seeing / filtering by money |
 
+**Roles that reach the CRM:** SUPER_ADMIN / ADMIN / ORGANIZER (full, via the event platform), **MEMBER** (read-only, no money), and **`CRM_USER`** — a dedicated sales-team role CONFINED to the CRM (full pipeline + sees deal values, but blocked from events/registrations/invoices/settings via the proxy redirect, a zero-event `buildEventAccessWhere` branch, `denyReviewer`, and the sidebar). CRM_USER is NOT in `FINANCE_ROLES` (CRM deal money ≠ event finance). It uses `/api/crm/events-lite` for the name-only event picker since it has no event-API access.
+
 `CrmDeal.dealValue` is in `FINANCIAL_KEYS`, so the existing `redactFinancialFields`
 strips it for MEMBER unchanged. The column is named `dealValue`, **not** `value`, on
 purpose: the redactor is a recursive strip-by-key-name, and a bare `value` would also

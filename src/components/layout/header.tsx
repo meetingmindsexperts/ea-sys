@@ -19,6 +19,7 @@ import {
   X,
   Ticket,
   ScanBarcode,
+  Handshake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -127,6 +128,18 @@ const ROLE_META: Record<string, RoleMeta> = {
       { label: "Check attendees in",       allowed: true },
       { label: "Print badges",             allowed: true },
       { label: "View prices & payments",   allowed: false },
+    ],
+  },
+  CRM_USER: {
+    label: "CRM User",
+    description: "Sales pipeline",
+    color: "bg-green-100 text-green-700",
+    icon: Handshake,
+    permissions: [
+      { label: "Work the sales pipeline",  allowed: true },
+      { label: "See deal values",          allowed: true },
+      { label: "Manage events",            allowed: false },
+      { label: "See event finances",       allowed: false },
     ],
   },
 };
@@ -244,7 +257,9 @@ export function Header() {
                   ? "Submitter Portal"
                   : role === "REGISTRANT"
                     ? "Registration Portal"
-                    : "Dashboard")}
+                    : role === "CRM_USER"
+                      ? "CRM"
+                      : "Dashboard")}
           </h1>
         )}
       </div>

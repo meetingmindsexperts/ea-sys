@@ -24,8 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useEvents } from "@/hooks/use-api";
-import { useCreateCompany, useCreateDeal, useCrmCompanies } from "@/crm/hooks/use-crm-api";
+import { useCreateCompany, useCreateDeal, useCrmCompanies, useCrmEvents } from "@/crm/hooks/use-crm-api";
 import type { CrmStage } from "@/crm/lib/crm-types";
 
 const NO_EVENT = "__none__";
@@ -50,7 +49,7 @@ export function CreateDealDialog({
   const [expectedClose, setExpectedClose] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const { data: events = [] } = useEvents();
+  const { data: events = [] } = useCrmEvents();
   const { data: companies = [] } = useCrmCompanies();
   const createCompany = useCreateCompany();
   const createDeal = useCreateDeal();

@@ -35,7 +35,10 @@
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 
-const CONTACT_READ_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"]);
+// CRM_USER is included (owner decision, 2026-07-15) so the sales team can search
+// the event contact store to LINK a rep to their event registration. This does
+// expose the HCP list to sales — an accepted PII tradeoff, recorded here.
+const CONTACT_READ_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "CRM_USER"]);
 
 /**
  * True when the role may read the org contact store.

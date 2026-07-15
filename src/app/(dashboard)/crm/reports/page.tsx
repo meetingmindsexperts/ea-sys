@@ -21,11 +21,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useEvents } from "@/hooks/use-api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
-import { useCrmReport } from "@/crm/hooks/use-crm-api";
+import { useCrmEvents, useCrmReport } from "@/crm/hooks/use-crm-api";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canViewDealValues } from "@/crm/lib/crm-roles";
 import { formatDealValue } from "@/crm/lib/crm-types";
@@ -57,7 +56,7 @@ function ReportsInner() {
   };
 
   const { data: report, isLoading } = useCrmReport(filters);
-  const { data: events = [] } = useEvents();
+  const { data: events = [] } = useCrmEvents();
   const filtersActive = anyActive(REPORT_FILTER_KEYS);
 
   // The export honours the current URL filters — same params, plus status.

@@ -37,10 +37,13 @@
  */
 
 /** Roles that may READ the CRM (companies, deals board, tasks, notes). */
-const CRM_READ_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"]);
+const CRM_READ_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "CRM_USER"]);
 
-/** Roles that may OWN a deal / be assigned a task — i.e. act, not just look. */
-const CRM_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+/**
+ * Roles that may OWN a deal / write / see money. Includes CRM_USER (the sales
+ * team — they work the pipeline and see deal values) but NOT MEMBER (read-only).
+ */
+const CRM_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "CRM_USER"]);
 
 /**
  * True when the role may read the CRM at all.

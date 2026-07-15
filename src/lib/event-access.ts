@@ -60,6 +60,14 @@ export function buildEventAccessWhere(
     };
   }
 
+  // CRM_USER: confined to the CRM. It never accesses the real event APIs — the
+  // deal/report event picker uses the name-only /api/crm/events-lite instead. So
+  // any event query scoped by this returns NOTHING (an impossible predicate). If a
+  // CRM_USER ever reaches an event route, it gets an empty result / 404, not a leak.
+  if (user.role === "CRM_USER") {
+    return { id: { in: [] } };
+  }
+
   // SUPER_ADMIN: if no org is set (or explicitly cleared), see all events
   if (user.role === "SUPER_ADMIN" && !user.organizationId) {
     return { ...(eventId && { id: eventId }) };

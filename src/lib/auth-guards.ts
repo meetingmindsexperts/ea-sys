@@ -8,7 +8,9 @@ import { apiLogger } from "@/lib/logger";
  * is in this set too — it is allowed ONLY on the specific create-registration,
  * check-in, and badge-print routes, which opt it back in via `opts.allow`.
  */
-const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE"];
+// CRM_USER is restricted from writes on the general (non-CRM) routes — it can only
+// write inside /api/crm/* (which gate via requireCrmWrite → canOwnDeals, not this).
+const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE", "CRM_USER"];
 
 /**
  * Roles permitted to operate the REGISTRATION DESK — create a registration,
@@ -27,7 +29,7 @@ export const REGISTRATION_DESK_ALLOW = ["ONSITE", "MEMBER"] as const;
  * roles (an internal registrant can be org-bound but is NOT a team member),
  * so they're excluded.
  */
-export const TEAM_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE"] as const;
+export const TEAM_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "CRM_USER"] as const;
 
 /** True when a role is an org team-member role (vs an attendee/reviewer role). */
 export function isTeamRole(role: string | null | undefined): boolean {

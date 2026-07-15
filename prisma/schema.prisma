@@ -140,6 +140,14 @@ enum UserRole {
   REVIEWER
   SUBMITTER
   REGISTRANT
+  // CRM User — org-bound team role CONFINED to the CRM (sponsorship pipeline).
+  // Can fully work the CRM (own deals, companies, CRM contacts, tasks, notes,
+  // reports, export) and SEES deal values — but is blocked from everything
+  // outside /crm: no events, registrations, speakers, invoices, settings.
+  // NOT in FINANCE_ROLES (sees CRM deal money, not event invoices/payments);
+  // buildEventAccessWhere returns zero events for it (it uses /api/crm/events-lite
+  // for the name-only event picker). Added 2026-07-15. See src/crm/lib/crm-roles.ts.
+  CRM_USER
   // Onsite Staff — registration-desk role, scoped PER EVENT (org-bound AND
   // assigned via Event.settings.onsiteUserIds — see buildEventAccessWhere).
   // Can ONLY create registrations + check attendees in + view the registrations
