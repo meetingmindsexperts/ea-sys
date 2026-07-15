@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/table";
 import { CompanyDetailSheet } from "@/crm/components/company-detail-sheet";
 import { CreateCompanyDialog } from "@/crm/components/create-company-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies } from "@/crm/hooks/use-crm-api";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
 
@@ -35,13 +36,24 @@ export default function CrmCompaniesPage() {
   const canWrite = canOwnDeals(session?.user?.role);
 
   const [q, setQ] = useState("");
+  const [industry, setIndustry] = useState<string>("");
   const [onlyReview, setOnlyReview] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: companies = [], isLoading } = useCrmCompanies(q || undefined);
+  // Unfiltered list drives BOTH the option dropdown (a stable industry list) and
+  // the review count — deriving the options from the filtered set would make them
+  // vanish as you use them.
+  const { data: allCompanies = [] } = useCrmCompanies();
+  const { data: companies = [], isLoading } = useCrmCompanies({
+    q: q || undefined,
+    industry: industry || undefined,
+  });
   const rows = onlyReview ? companies.filter((c) => c.needsReview) : companies;
-  const reviewCount = companies.filter((c) => c.needsReview).length;
+  const reviewCount = allCompanies.filter((c) => c.needsReview).length;
+  const industries = Array.from(
+    new Set(allCompanies.map((c) => c.industry).filter((i): i is string => !!i)),
+  ).sort();
 
   return (
     <div className="space-y-6 p-6">
@@ -58,7 +70,7 @@ export default function CrmCompaniesPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[16rem]">
+        <div className="relative min-w-[14rem] flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
@@ -67,6 +79,22 @@ export default function CrmCompaniesPage() {
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
+
+        {industries.length > 0 && (
+          <Select value={industry || "__all__"} onValueChange={(v) => setIndustry(v === "__all__" ? "" : v)}>
+            <SelectTrigger className="w-[12rem]">
+              <SelectValue placeholder="Any industry" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Any industry</SelectItem>
+              {industries.map((i) => (
+                <SelectItem key={i} value={i}>
+                  {i}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {reviewCount > 0 && (
           <Button
             variant={onlyReview ? "default" : "outline"}

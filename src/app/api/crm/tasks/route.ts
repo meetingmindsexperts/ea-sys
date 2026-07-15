@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
+import { buildTaskDueRange } from "@/crm/lib/deal-filters";
 import { createTask } from "@/crm/services/task-service";
 
 const createTaskSchema = z.object({
@@ -27,12 +28,17 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const scope = searchParams.get("scope"); // "mine" (default) | "all"
     const status = searchParams.get("status"); // "OPEN" (default) | "DONE" | "all"
+    const ownerId = searchParams.get("ownerId")?.trim(); // explicit rep filter (overrides "mine")
+    const dueRange = buildTaskDueRange({ from: searchParams.get("dueFrom"), to: searchParams.get("dueTo") });
 
     const tasks = await db.crmTask.findMany({
       where: {
         organizationId: ctx.organizationId,
-        ...(scope === "all" ? {} : ctx.userId ? { ownerId: ctx.userId } : {}),
+        // An explicit owner filter wins over the mine/all scope — picking a rep is
+        // a deliberate "show me THEIR tasks" that shouldn't be re-narrowed to me.
+        ...(ownerId ? { ownerId } : scope === "all" ? {} : ctx.userId ? { ownerId: ctx.userId } : {}),
         ...(status === "all" ? {} : { status: status === "DONE" ? "DONE" : "OPEN" }),
+        ...(dueRange ? { dueAt: dueRange } : {}),
       },
       select: {
         id: true,

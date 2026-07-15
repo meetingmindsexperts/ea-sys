@@ -33,11 +33,14 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const q = searchParams.get("q")?.trim();
     const companyId = searchParams.get("companyId")?.trim();
+    const lifecycle = searchParams.get("lifecycle")?.trim();
+    const LIFECYCLE = new Set(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]);
 
     const contacts = await db.crmContact.findMany({
       where: {
         organizationId: ctx.organizationId,
         ...(companyId ? { companyId } : {}),
+        ...(lifecycle && LIFECYCLE.has(lifecycle) ? { lifecycleStage: lifecycle as "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION" } : {}),
         ...(q
           ? {
               OR: [

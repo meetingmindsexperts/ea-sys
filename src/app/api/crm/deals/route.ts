@@ -5,6 +5,8 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
+import { canViewDealValues } from "@/crm/lib/crm-roles";
+import { buildDealWhere } from "@/crm/lib/deal-filters";
 import { createDeal } from "@/crm/services/deal-service";
 
 const createDealSchema = z.object({
@@ -31,17 +33,26 @@ export async function GET(req: Request) {
 
   try {
     const { searchParams } = new URL(req.url);
-    const eventId = searchParams.get("eventId")?.trim();
-    const ownerId = searchParams.get("ownerId")?.trim();
-    const status = searchParams.get("status")?.trim();
+
+    // The value filter is finance-gated: MEMBER has values redacted, so MEMBER
+    // must not be able to FILTER by value (that would make a redacted number
+    // binary-searchable). buildDealWhere drops it unless the caller may see values.
+    const where = buildDealWhere(
+      {
+        eventId: searchParams.get("eventId"),
+        ownerId: searchParams.get("ownerId"),
+        status: searchParams.get("status"),
+        dateField: searchParams.get("dateField"),
+        from: searchParams.get("from"),
+        to: searchParams.get("to"),
+        min: searchParams.get("min"),
+        max: searchParams.get("max"),
+      },
+      { organizationId: ctx.organizationId, canSeeValues: canViewDealValues(ctx.role, ctx.fromApiKey) },
+    );
 
     const deals = await db.crmDeal.findMany({
-      where: {
-        organizationId: ctx.organizationId,
-        ...(eventId ? { eventId } : {}),
-        ...(ownerId ? { ownerId } : {}),
-        ...(status === "OPEN" || status === "WON" || status === "LOST" ? { status } : {}),
-      },
+      where,
       select: {
         id: true,
         name: true,

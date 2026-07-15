@@ -25,11 +25,13 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const q = searchParams.get("q")?.trim();
     const needsReview = searchParams.get("needsReview") === "true";
+    const industry = searchParams.get("industry")?.trim();
 
     const companies = await db.crmCompany.findMany({
       where: {
         organizationId: ctx.organizationId,
         ...(needsReview ? { needsReview: true } : {}),
+        ...(industry ? { industry: { equals: industry, mode: "insensitive" as const } } : {}),
         ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
       },
       select: {

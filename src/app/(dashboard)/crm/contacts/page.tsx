@@ -28,18 +28,26 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
-import { useCrmContacts } from "@/crm/hooks/use-crm-api";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useCrmCompanies, useCrmContacts } from "@/crm/hooks/use-crm-api";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
-import { LIFECYCLE_COLORS, LIFECYCLE_LABELS } from "@/crm/lib/crm-types";
+import { LIFECYCLE_COLORS, LIFECYCLE_LABELS, type CrmLifecycleStage } from "@/crm/lib/crm-types";
 
 export default function CrmContactsPage() {
   const { data: session } = useSession();
   const canWrite = canOwnDeals(session?.user?.role);
 
   const [q, setQ] = useState("");
+  const [lifecycle, setLifecycle] = useState<string>("");
+  const [companyId, setCompanyId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: contacts = [], isLoading } = useCrmContacts(q || undefined);
+  const { data: companies = [] } = useCrmCompanies();
+  const { data: contacts = [], isLoading } = useCrmContacts({
+    q: q || undefined,
+    lifecycle: lifecycle || undefined,
+    companyId: companyId || undefined,
+  });
 
   return (
     <div className="space-y-6 p-6">
@@ -63,14 +71,44 @@ export default function CrmContactsPage() {
         )}
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search by name or email…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-xs flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search by name or email…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+
+        <Select value={lifecycle || "__all__"} onValueChange={(v) => setLifecycle(v === "__all__" ? "" : v)}>
+          <SelectTrigger className="w-[11rem]">
+            <SelectValue placeholder="Any lifecycle" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">Any lifecycle</SelectItem>
+            {(Object.keys(LIFECYCLE_LABELS) as CrmLifecycleStage[]).map((s) => (
+              <SelectItem key={s} value={s}>
+                {LIFECYCLE_LABELS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={companyId || "__all__"} onValueChange={(v) => setCompanyId(v === "__all__" ? "" : v)}>
+          <SelectTrigger className="w-[13rem]">
+            <SelectValue placeholder="Any company" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">Any company</SelectItem>
+            {companies.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {isLoading ? (

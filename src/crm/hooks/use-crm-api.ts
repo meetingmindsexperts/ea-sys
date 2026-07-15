@@ -30,9 +30,20 @@ import type {
   CrmTaskRow,
 } from "@/crm/lib/crm-types";
 
+export interface CrmDealFilters {
+  eventId?: string;
+  ownerId?: string;
+  status?: string;
+  dateField?: string;
+  from?: string;
+  to?: string;
+  min?: string;
+  max?: string;
+}
+
 export const crmKeys = {
   stages: ["crm", "stages"] as const,
-  deals: (filters?: { eventId?: string; ownerId?: string }) =>
+  deals: (filters?: CrmDealFilters) =>
     ["crm", "deals", filters ?? {}] as const,
   deal: (id: string) => ["crm", "deal", id] as const,
   companies: (q?: string) => ["crm", "companies", q ?? ""] as const,
@@ -53,10 +64,11 @@ export function useCrmStages() {
 
 // ── Deals ────────────────────────────────────────────────────────────────────
 
-export function useCrmDeals(filters: { eventId?: string; ownerId?: string } = {}) {
+export function useCrmDeals(filters: CrmDealFilters = {}) {
   const qs = new URLSearchParams();
-  if (filters.eventId) qs.set("eventId", filters.eventId);
-  if (filters.ownerId) qs.set("ownerId", filters.ownerId);
+  for (const [k, v] of Object.entries(filters)) {
+    if (v) qs.set(k, v);
+  }
   const suffix = qs.toString() ? `?${qs}` : "";
 
   return useQuery({
@@ -98,7 +110,7 @@ export function useUpdateDeal(dealId: string) {
  * "putting it back" — because the card may now be somewhere neither of us expects,
  * and the server is the only thing that knows where.
  */
-export function useMoveDealStage(filters: { eventId?: string; ownerId?: string } = {}) {
+export function useMoveDealStage(filters: CrmDealFilters = {}) {
   const qc = useQueryClient();
   const key = crmKeys.deals(filters);
 
@@ -153,13 +165,21 @@ export function useCloseDeal(dealId: string) {
 
 // ── Companies ────────────────────────────────────────────────────────────────
 
-export function useCrmCompanies(q?: string) {
+export interface CrmCompanyFilters {
+  q?: string;
+  industry?: string;
+  needsReview?: string;
+}
+
+export function useCrmCompanies(arg?: string | CrmCompanyFilters) {
+  const filters: CrmCompanyFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
+  const key = qs.toString();
   return useQuery({
-    queryKey: crmKeys.companies(q),
+    queryKey: ["crm", "companies", key],
     queryFn: () =>
-      apiFetch<{ companies: CrmCompanyRow[] }>(
-        `/api/crm/companies${q ? `?q=${encodeURIComponent(q)}` : ""}`,
-      ).then((r) => r.companies),
+      apiFetch<{ companies: CrmCompanyRow[] }>(`/api/crm/companies${key ? `?${key}` : ""}`).then((r) => r.companies),
   });
 }
 
@@ -211,11 +231,22 @@ export function useUpdateCompany(companyId: string) {
 
 // ── Tasks ────────────────────────────────────────────────────────────────────
 
-export function useCrmTasks(scope: "mine" | "all" = "mine", status: "OPEN" | "DONE" | "all" = "OPEN") {
+export interface CrmTaskFilters {
+  ownerId?: string;
+  dueFrom?: string;
+  dueTo?: string;
+}
+
+export function useCrmTasks(
+  scope: "mine" | "all" = "mine",
+  status: "OPEN" | "DONE" | "all" = "OPEN",
+  filters: CrmTaskFilters = {},
+) {
+  const qs = new URLSearchParams({ scope, status });
+  for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
   return useQuery({
-    queryKey: [...crmKeys.tasks(scope), status],
-    queryFn: () =>
-      apiFetch<{ tasks: CrmTaskRow[] }>(`/api/crm/tasks?scope=${scope}&status=${status}`).then((r) => r.tasks),
+    queryKey: [...crmKeys.tasks(scope), status, filters],
+    queryFn: () => apiFetch<{ tasks: CrmTaskRow[] }>(`/api/crm/tasks?${qs}`).then((r) => r.tasks),
   });
 }
 
@@ -293,13 +324,21 @@ export function useDeleteNote() {
 
 // ── CRM contacts (business people — NOT the event HCP store) ─────────────────
 
-export function useCrmContacts(q?: string) {
+export interface CrmContactFilters {
+  q?: string;
+  companyId?: string;
+  lifecycle?: string;
+}
+
+export function useCrmContacts(arg?: string | CrmContactFilters) {
+  const filters: CrmContactFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
+  const key = qs.toString();
   return useQuery({
-    queryKey: crmKeys.contacts(q),
+    queryKey: ["crm", "contacts", key],
     queryFn: () =>
-      apiFetch<{ contacts: CrmContactRow[] }>(
-        `/api/crm/contacts${q ? `?q=${encodeURIComponent(q)}` : ""}`,
-      ).then((r) => r.contacts),
+      apiFetch<{ contacts: CrmContactRow[] }>(`/api/crm/contacts${key ? `?${key}` : ""}`).then((r) => r.contacts),
   });
 }
 

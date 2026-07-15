@@ -7,23 +7,37 @@
  * the thing you were supposed to do last Tuesday among the things due next month
  * is just a list.
  */
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useSession } from "next-auth/react";
-import { CheckCircle2, Circle, Loader2, Trash2 } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { OwnerFilter } from "@/crm/components/filters/owner-filter";
+import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
+import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { useCrmTasks, useDeleteTask, useUpdateTask } from "@/crm/hooks/use-crm-api";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { personName, type CrmTaskRow } from "@/crm/lib/crm-types";
 
-export default function CrmTasksPage() {
+const TASK_FILTER_KEYS = ["owner", "dueFrom", "dueTo"];
+
+function TasksPageInner() {
   const { data: session } = useSession();
   const canWrite = canOwnDeals(session?.user?.role);
 
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [status, setStatus] = useState<"OPEN" | "DONE">("OPEN");
 
-  const { data: tasks = [], isLoading } = useCrmTasks(scope, status);
+  const { get, set, clear, anyActive } = useCrmFilters();
+  const taskFilters = {
+    ownerId: get("owner") || undefined,
+    dueFrom: get("dueFrom") || undefined,
+    dueTo: get("dueTo") || undefined,
+  };
+  const filtersActive = anyActive(TASK_FILTER_KEYS);
+
+  const { data: tasks = [], isLoading } = useCrmTasks(scope, status, taskFilters);
   const update = useUpdateTask();
   const del = useDeleteTask();
 
@@ -49,6 +63,25 @@ export default function CrmTasksPage() {
             </TabsList>
           </Tabs>
         </div>
+      </div>
+
+      {/* ── Filter bar ─────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-2">
+        {/* An explicit rep filter shows THEIR tasks — it overrides the mine/all tab. */}
+        <OwnerFilter value={get("owner")} onChange={(v) => set({ owner: v })} placeholder="Any rep" />
+        <DateRangeFilter
+          label="Due"
+          from={get("dueFrom")}
+          to={get("dueTo")}
+          onFromChange={(v) => set({ dueFrom: v })}
+          onToChange={(v) => set({ dueTo: v })}
+        />
+        {filtersActive && (
+          <Button variant="ghost" size="sm" onClick={() => clear(TASK_FILTER_KEYS)}>
+            <X className="mr-1 h-3.5 w-3.5" />
+            Clear
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -165,5 +198,13 @@ function TaskRow({
         </button>
       )}
     </div>
+  );
+}
+
+export default function CrmTasksPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <TasksPageInner />
+    </Suspense>
   );
 }

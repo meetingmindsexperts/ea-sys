@@ -138,7 +138,7 @@
   <div class="kpi"><b>15</b><span>API endpoints</span></div>
   <div class="kpi"><b>5</b><span>pages</span></div>
   <div class="kpi"><b>1</b><span>worker job</span></div>
-  <div class="kpi"><b>139</b><span>CRM tests</span></div>
+  <div class="kpi"><b>153</b><span>CRM tests</span></div>
   <div class="kpi"><b>0</b><span>rows in prod</span></div>
 </div>
 
@@ -178,7 +178,12 @@
     <tr>
       <td>UI</td>
       <td><span class="tag part">PARTIAL</span></td>
-      <td>Board, companies, tasks, deal detail. <b>Several APIs have no UI</b> — see §4.</td>
+      <td>Board, companies, contacts, tasks, deal detail. <b>Several APIs have no UI</b> — see §4.</td>
+    </tr>
+    <tr>
+      <td>Filters</td>
+      <td><span class="tag done">DONE</span></td>
+      <td>Board: sales rep · status · date range (expected-close / created / closed) · value range (staff-only) · event. Tasks: rep · due range. Contacts: lifecycle · company. Companies: industry · needs-review. Board + task filters live in the URL (shareable). <b>Value filter is finance-gated in the SERVER</b> — a MEMBER's <code>?min=</code> is ignored so a redacted value can't be binary-searched.</td>
     </tr>
     <tr>
       <td>Reminder worker</td>
