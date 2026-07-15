@@ -107,7 +107,7 @@
 <h1>CRM — Build Status</h1>
 <p class="sub">
   What is built, what is wired to the rest of EA-SYS, and what is not.<br>
-  <span class="stamp">Last updated: <b>15 July 2026</b> (edit + soft-delete + change-log shipped) · HEAD <code>WORKING</code> ·
+  <span class="stamp">Last updated: <b>15 July 2026</b> (sponsor prospectus email + edit + soft-delete + change-log shipped) · HEAD <code>WORKING</code> ·
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
@@ -413,12 +413,26 @@ exactly which of those exist today.</p>
     <li><code>/api/crm/deals</code> + <code>/[dealId]</code> + <code>/[dealId]/stage</code> + <code>/[dealId]/close</code></li>
     <li><code>/api/crm/tasks</code> + <code>/[taskId]</code></li>
     <li><code>/api/crm/notes</code> + <code>/[noteId]</code></li>
+    <li><code>/api/crm/sponsor-email/recipients</code> + <code>/send</code> <span class="tag done">NEW</span></li>
   </ul>
   <p class="why">Auth, money-redaction and error→HTTP mapping live in <b>one</b> shared boundary helper, not
   re-typed twelve times — twelve hand-rolled guards is how one ends up missing, which is exactly the
   contacts-H1 bug. A <b>source-level drift test</b> enumerates every route file and fails if any handler
   forgets its gate. The default write rate limit lives <i>inside</i> the write gate, so an unprotected
   CRM write is not expressible.</p>
+</details>
+
+<details open>
+  <summary>Sponsor prospectus email <span class="tag done">DONE — Jul 15</span></summary>
+  <ul>
+    <li><b>The ask:</b> "email the sponsorship prospectus to all sponsors of an event" — a personalized cover email + attachment, in bulk. An <b>Email sponsors</b> button on the Deals board (honours the current event filter) opens a compose dialog.</li>
+    <li><b>Audience = the event's sponsors, computed in one place.</b> "Sponsors" = the deduped business contacts on the event's <b>non-lost, non-archived</b> deals (prospects being pitched + confirmed), via the <code>CrmDealContact</code> join. Deduped on the contact's canonical <code>emailKey</code>; archived / email-less contacts are dropped and <i>counted</i> for the preview.</li>
+    <li><b>Narrow, never widen (the M7 lesson).</b> The dialog shows the resolved recipients with per-row deselect; the send carries an explicit selection which the server <b>intersects</b> with the resolved set — an invented contactId can't smuggle a stranger onto the send. Pure, unit-tested (<code>collectSponsorRecipients</code> / <code>narrowToSelected</code>).</li>
+    <li><b>Reuses the core send primitives, not the event bulk-email pipeline.</b> The service lives in <code>src/crm/</code> and owns the audience + token logic, but renders + sends via core <code>sendEmail</code> / <code>renderAndWrap</code> / branding (crm→core is allowed). Per-recipient failure is isolated; each success writes an <code>EmailLog</code> row (Email History) and a <code>PROSPECTUS_SENT</code> row on the contact's CRM history.</li>
+    <li><b>Personalization:</b> <code>{{firstName}} {{lastName}} {{companyName}} {{eventName}}</code> in subject + Tiptap body (values HTML-escaped); a greeting is baked in; the sender's own <code>emailSignature</code> is appended. Attachments: up to 5 files / 10MB inline (PDF prospectus), no schema change.</li>
+    <li><b>Gated:</b> staff-only (<code>canOwnDeals</code> — MEMBER can't even preview the list), a dedicated <code>crm-sponsor-email:org</code> bucket at <b>10/hr</b> on top of the generic CRM write limit.</li>
+    <li><b>Not deployed</b> — ships with the rest of the CRM module (migration not yet applied to prod). No migration of its own.</li>
+  </ul>
 </details>
 
 <details>

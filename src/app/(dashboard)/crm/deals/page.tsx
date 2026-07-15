@@ -17,13 +17,14 @@
  */
 import { Suspense, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Archive, Handshake, Plus, X } from "lucide-react";
+import { Archive, Handshake, Mail, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EventCombobox } from "@/crm/components/event-combobox";
 import { DealBoard } from "@/crm/components/deal-board";
 import { DealDetailSheet } from "@/crm/components/deal-detail-sheet";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
+import { SponsorEmailDialog } from "@/crm/components/sponsor-email-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmBoardSkeleton } from "@/crm/components/crm-skeletons";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
@@ -55,6 +56,7 @@ function DealsPageInner() {
 
   const [openDeal, setOpenDeal] = useState<CrmBoardDeal | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [sponsorEmailOpen, setSponsorEmailOpen] = useState(false);
 
   const eventId = get("event");
   const archivedView = !!get("archived");
@@ -86,10 +88,21 @@ function DealsPageInner() {
           {canWrite ? "Drag a card to move it through the pipeline." : "Read-only."}
         </p>
         {canWrite && (
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New deal
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              disabled={!eventId}
+              title={eventId ? "Email this event's sponsors" : "Pick an event to email its sponsors"}
+              onClick={() => setSponsorEmailOpen(true)}
+            >
+              <Mail className="mr-2 h-4 w-4" />
+              Email sponsors
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New deal
+            </Button>
+          </div>
         )}
       </div>
 
@@ -213,6 +226,12 @@ function DealsPageInner() {
         onOpenChange={setCreateOpen}
         stages={stages}
         defaultEventId={eventId || null}
+      />
+
+      <SponsorEmailDialog
+        open={sponsorEmailOpen}
+        onOpenChange={setSponsorEmailOpen}
+        eventId={eventId || null}
       />
 
       <DealDetailSheet

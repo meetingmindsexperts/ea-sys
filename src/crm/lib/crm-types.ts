@@ -79,6 +79,20 @@ export interface CrmContactDetail extends CrmContactRow {
   }>;
 }
 
+/**
+ * One resolved recipient of a sponsor-prospectus send: a de-duplicated business
+ * contact reached through an event's non-lost deals. `dealCount` is how many of
+ * that event's deals this person is on (they're emailed once regardless).
+ */
+export interface SponsorRecipient {
+  crmContactId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  companyName: string | null;
+  dealCount: number;
+}
+
 /** A person on a deal, with the role they play on THAT deal. */
 export interface CrmDealContactRef {
   role: CrmDealContactRole;
@@ -284,6 +298,7 @@ export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   CONTACT_REMOVED: "Unlinked a contact",
   LINK_EVENT_CONTACT: "Linked to an event contact",
   UNLINK_EVENT_CONTACT: "Unlinked from the event contact",
+  PROSPECTUS_SENT: "Prospectus emailed",
 };
 
 /**

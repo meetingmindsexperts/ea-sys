@@ -261,5 +261,13 @@ migration has not been applied to prod), and the notable open items are: the "AP
 exists, UI doesn't" set (pipeline-stage management, deal edit, standalone task
 create), MCP tools, the `Contact.organization → CrmCompany` backfill, the won-deal →
 `Event.settings.sponsors[]` handoff, and the **Week-4 adversarial review** — which,
+
+**Shipped surfaces of note.** The **sponsor prospectus email** (`sponsor-email-service.ts`
++ `sponsor-recipients.ts` + `SponsorEmailDialog`, the *Email sponsors* button on the
+board) is the module's one outbound bulk send: it resolves an event's sponsors (the
+deduped contacts on its non-lost deals), then renders + sends via the **core**
+`sendEmail`/`renderAndWrap` primitives (crm→core), never the event `executeBulkEmail`
+pipeline. The audience is computed in the pure, unit-tested `sponsor-recipients.ts` and
+the send is an **intersection** with the reviewed selection — narrow, never widen.
 given that three separate guards (the build, a drift test, and an owner review) each
 caught things during the build, should be treated as required, not a formality.

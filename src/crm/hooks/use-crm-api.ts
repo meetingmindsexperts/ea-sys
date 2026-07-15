@@ -31,6 +31,7 @@ import type {
   CrmNoteRow,
   CrmStage,
   CrmTaskRow,
+  SponsorRecipient,
 } from "@/crm/lib/crm-types";
 
 export interface CrmDealFilters {
@@ -555,6 +556,54 @@ export function useCrmEvents() {
     queryKey: ["crm", "events-lite"],
     queryFn: () =>
       apiFetch<{ events: Array<{ id: string; name: string }> }>("/api/crm/events-lite").then((r) => r.events),
+  });
+}
+
+// ── Sponsor email ─────────────────────────────────────────────────────────────
+
+export interface SponsorRecipientsResponse {
+  recipients: SponsorRecipient[];
+  skipped: { noEmail: number; archivedContacts: number };
+  event: { id: string; name: string };
+}
+
+export interface SponsorEmailSendResult {
+  total: number;
+  successCount: number;
+  failureCount: number;
+  errors: Array<{ email: string; error: string }>;
+}
+
+/**
+ * Preview who a prospectus send would reach for an event — the deduped sponsor
+ * contacts of its non-lost deals. Disabled until an event is chosen.
+ */
+export function useSponsorRecipients(eventId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["crm", "sponsor-recipients", eventId ?? ""],
+    queryFn: () =>
+      apiFetch<SponsorRecipientsResponse>(
+        `/api/crm/sponsor-email/recipients?eventId=${encodeURIComponent(eventId as string)}`,
+      ),
+    enabled: !!eventId,
+  });
+}
+
+/** Send the sponsorship prospectus to (a subset of) an event's sponsor contacts. */
+export function useSendSponsorEmail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      eventId: string;
+      subject: string;
+      message: string;
+      contactIds?: string[];
+      attachments?: { name: string; content: string; contentType?: string }[];
+    }) => apiPostJson<SponsorEmailSendResult>("/api/crm/sponsor-email/send", body),
+    onSuccess: () => {
+      // A send records a PROSPECTUS_SENT row on each contact's history.
+      qc.invalidateQueries({ queryKey: ["crm", "activity", "CONTACT"] });
+    },
   });
 }
 
