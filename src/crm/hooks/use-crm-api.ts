@@ -405,3 +405,41 @@ export function useRemoveDealContact(dealId: string) {
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not remove the contact"),
   });
 }
+
+
+// ── Reports ──────────────────────────────────────────────────────────────────
+
+export interface CrmReport {
+  canSeeValues: boolean;
+  pipeline: {
+    stages: Array<{ stageId: string; stageName: string; isTerminal: boolean; count: number; value: number | null }>;
+    openCount: number;
+    openValue: number | null;
+  };
+  winLoss: {
+    wonCount: number;
+    lostCount: number;
+    wonValue: number | null;
+    lostValue: number | null;
+    winRate: number | null;
+  };
+  reps: Array<{
+    ownerId: string | null;
+    ownerName: string;
+    openCount: number;
+    openValue: number | null;
+    wonCount: number;
+    wonValue: number | null;
+  }>;
+  generatedAt: string;
+}
+
+export function useCrmReport(filters: Record<string, string | undefined> = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
+  const key = qs.toString();
+  return useQuery({
+    queryKey: ["crm", "report", key],
+    queryFn: () => apiFetch<CrmReport>(`/api/crm/reports${key ? `?${key}` : ""}`),
+  });
+}

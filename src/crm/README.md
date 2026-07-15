@@ -37,6 +37,7 @@ entire reason to exist, so `CrmDeal.eventId` is a first-class link and `CrmCompa
 - **Tasks** — follow-ups with email reminders.
 - **Notes** — the manual "we actually phoned them" activity log.
 - **Filters** — sales rep, date range, value (finance-gated), lifecycle, industry.
+- **Reports & export** — pipeline-by-stage, win/loss + win rate, per-rep leaderboard, and CSV export of the filtered deal list (values finance-gated).
 
 **Out of scope (v1) — do not build these without a fresh decision:**
 
@@ -70,6 +71,7 @@ src/crm/
     crm-route.ts        shared route boundary: auth + redaction + error→HTTP + write rate limit
     crm-types.ts        client-safe types + display constants (labels, colours)
     deal-filters.ts     pure filter → Prisma-where parsing (the finance gate lives here)
+    reports.ts          pure report math (pipeline/win-loss/leaderboard; keeps redacted values null, never 0)
     use-crm-filters.ts  URL-backed filter state hook
   hooks/
     use-crm-api.ts      all React Query hooks (queries + mutations)

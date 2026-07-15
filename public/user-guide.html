@@ -2110,6 +2110,79 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
     <div class="divider"></div>
 
+    <!-- S19: CRM -->
+    <div class="section" id="s19">
+      <div class="sec-hd"><div class="sec-num">19</div><div class="sec-meta">
+        <div class="sec-title">CRM &mdash; Sales Pipeline</div>
+        <div class="sec-desc">Track sponsorship &amp; exhibitor deals against your events &mdash; companies, contacts, a drag-and-drop pipeline, follow-ups, and reports.</div>
+        <span class="sec-badge b-all">Sales / Admin / Organizer &middot; Org-wide</span>
+      </div></div>
+
+      <p>The CRM is where your team tracks money coming IN &mdash; sponsors and exhibitors, the deals you&rsquo;re working, and who you&rsquo;re talking to. It lives at <strong>CRM</strong> in the left sidebar (one entry; the sections below are tabs across the top). It is org-wide, not tied to a single event &mdash; but every deal can be linked to the event it&rsquo;s being sold against, which is the whole point.</p>
+
+      <div class="sub" id="s19-people">
+        <div class="sub-title">Two kinds of &ldquo;contacts&rdquo; &mdash; and why they&rsquo;re separate</div>
+        <p>This trips people up, so read it once: there are <strong>two different address books</strong>, deliberately kept apart.</p>
+        <ul>
+          <li><strong>Event Contacts</strong> (the <em>Contacts</em> item in the main sidebar) &mdash; these are your <strong>HCPs</strong>: doctors, nurses, allied-health attendees. This list feeds event communications and the marketing mailing list.</li>
+          <li><strong>CRM Contacts</strong> (the <em>Contacts</em> tab <em>inside</em> CRM) &mdash; the <strong>business people you negotiate with</strong>: a pharma rep, an exhibitor&rsquo;s sales manager, a procurement officer.</li>
+        </ul>
+        <p>Keep a pharma rep in <strong>CRM Contacts</strong>, never in Event Contacts &mdash; otherwise they&rsquo;d get marketed to as if they were a doctor. If a rep <em>also</em> attends your conference, that&rsquo;s fine: open their CRM contact and link it to their event registration &mdash; one person, one record, two roles. You never enter them twice.</p>
+      </div>
+
+      <div class="sub" id="s19-companies">
+        <div class="sub-title">Companies (accounts)</div>
+        <p>A <strong>Company</strong> is the account &mdash; Abbott, Cleveland Clinic, a society. Deals and contacts hang off it. On the <strong>Companies</strong> tab you can add one, search, and filter by industry. When you type a company name that already exists (even with different capitalisation), the system <strong>links you to the existing one</strong> rather than creating a duplicate &mdash; the toast tells you which happened. If a new name looks close to an existing account (&ldquo;Cleveland Clinic&rdquo; vs &ldquo;Cleveland Clinic Foundation&rdquo;), it&rsquo;s created but flagged <strong>Needs review</strong> so you can confirm whether they&rsquo;re genuinely different or should be merged.</p>
+      </div>
+
+      <div class="sub" id="s19-deals">
+        <div class="sub-title">Deals &mdash; the pipeline board</div>
+        <p>The <strong>Deals</strong> tab is a kanban board: one column per pipeline stage (Prospect &rarr; Contacted &rarr; Proposal &rarr; Negotiation &rarr; Won / Lost). <strong>Drag a card</strong> to move a deal along. If a colleague moved the same deal while you were dragging, you&rsquo;ll get a &ldquo;someone else moved this&rdquo; message and the board refreshes &mdash; nobody&rsquo;s change is silently lost.</p>
+        <ul>
+          <li><strong>New deal</strong> &mdash; give it a name (&ldquo;Abbott &mdash; BRIDGES 2026 Gold&rdquo;), a company, a value, and &mdash; importantly &mdash; the <strong>event</strong> it&rsquo;s for. Filter the board by event to see just that conference&rsquo;s pipeline.</li>
+          <li><strong>Open a deal</strong> to see its detail: link the <strong>people</strong> on it (the rep, plus marketing or procurement) each with their role; log <strong>notes</strong> (&ldquo;called Dr Khan, wants Gold, decides after the board meets&rdquo;); add <strong>follow-ups</strong>; and <strong>close</strong> it Won or Lost.</li>
+          <li><strong>Won a sponsorship?</strong> Close it Won &mdash; the value counts toward your win reports.</li>
+        </ul>
+      </div>
+
+      <div class="sub" id="s19-tasks">
+        <div class="sub-title">Tasks &amp; reminders</div>
+        <p>Add a <strong>follow-up</strong> from any deal (&ldquo;chase Abbott about the Gold package&rdquo;) with a due date. Give it a due date and you&rsquo;ll get an <strong>email reminder</strong> when it falls due. The <strong>Tasks</strong> tab lists your follow-ups with <strong>overdue ones surfaced first</strong>; toggle between your own and everyone&rsquo;s, and filter by rep or due-date range.</p>
+      </div>
+
+      <div class="sub" id="s19-filters">
+        <div class="sub-title">Filtering</div>
+        <p>The board, tasks and reports all filter by <strong>sales rep</strong>, <strong>date range</strong> (expected close / created / closed), <strong>status</strong>, <strong>value range</strong>, and <strong>event</strong>. Filters live in the page address, so a filtered view is shareable &mdash; copy the URL to send a colleague &ldquo;every open Abbott deal closing this quarter&rdquo;. Use <strong>Clear</strong> to reset.</p>
+      </div>
+
+      <div class="sub" id="s19-reports">
+        <div class="sub-title">Reports &amp; export</div>
+        <p>The <strong>Reports</strong> tab shows, for whatever you&rsquo;ve filtered to:</p>
+        <ul>
+          <li><strong>Pipeline by stage</strong> &mdash; how many deals and how much value sit in each stage.</li>
+          <li><strong>Win / loss</strong> &mdash; won vs lost counts and values, and your <strong>win rate</strong> over the chosen period.</li>
+          <li><strong>By sales rep</strong> &mdash; a leaderboard of open and won deals per person.</li>
+        </ul>
+        <p>Click <strong>Export deals (CSV)</strong> to download the filtered deal list as a spreadsheet &mdash; it honours whatever filters are active, so you export exactly what you&rsquo;re looking at.</p>
+      </div>
+
+      <div class="sub" id="s19-access">
+        <div class="sub-title">Who can see and do what</div>
+        <ul>
+          <li><strong>Admins &amp; Organizers</strong> &mdash; full access: own deals, edit everything, see values.</li>
+          <li><strong>Members</strong> (read-only leadership / auditors) &mdash; can <strong>view</strong> the board and reports but not change anything, and <strong>deal values are hidden</strong> from them (shown as &ldquo;&mdash;&rdquo;, and the CSV they export has no value columns). This is deliberate: a member account handed to a sponsor-side stakeholder must not reveal every rival&rsquo;s deal size.</li>
+          <li>Registration-desk (Onsite) staff, reviewers, submitters and registrants have <strong>no CRM access</strong>.</li>
+        </ul>
+      </div>
+
+      <div class="sub" id="s19-scope">
+        <div class="sub-title">Not in the CRM (v1)</div>
+        <p>Two-way email inbox sync, lead scoring, and hard-deleting deals or companies are intentionally out of scope for now &mdash; a mistaken deal is closed <em>Lost</em>, and a duplicate company is merged, so history is never destroyed.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
     <!-- SCREENSHOT INDEX -->
     <div class="section" id="img-ref">
       <div class="sec-hd"><div class="sec-num">&#x1F5BC;</div><div class="sec-meta">

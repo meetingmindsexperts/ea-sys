@@ -15,7 +15,7 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, CheckSquare, Handshake, Users } from "lucide-react";
+import { BarChart3, Building2, CheckSquare, Handshake, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -24,6 +24,7 @@ const TABS = [
   // Business contacts — reps, exhibitor sales, procurement. NOT the event HCP store.
   { href: "/crm/contacts", label: "Contacts", icon: Users },
   { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
+  { href: "/crm/reports", label: "Reports", icon: BarChart3 },
 ];
 
 export default function CrmLayout({ children }: { children: React.ReactNode }) {
