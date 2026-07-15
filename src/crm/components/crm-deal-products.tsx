@@ -23,13 +23,19 @@ import {
   useUpdateDealProduct,
   useRemoveDealProduct,
 } from "@/crm/hooks/use-crm-api";
-import { formatDealValue, sumDealProducts, type CrmDealProductRow } from "@/crm/lib/crm-types";
+import {
+  formatDealValue,
+  sumDealProducts,
+  dealProductsMixedCurrency,
+  type CrmDealProductRow,
+} from "@/crm/lib/crm-types";
 
 export function DealProducts({ dealId, canWrite }: { dealId: string; canWrite: boolean }) {
   const { data: lines = [], isLoading } = useDealProducts(dealId);
   const add = useAddDealProduct(dealId);
 
   const total = sumDealProducts(lines);
+  const mixedCurrency = dealProductsMixedCurrency(lines);
   const currency = lines[0]?.currency ?? "AED";
 
   if (isLoading) {
@@ -54,7 +60,13 @@ export function DealProducts({ dealId, canWrite }: { dealId: string; canWrite: b
         <div className="flex items-center justify-between border-t pt-3 text-sm">
           <span className="font-medium">Products total</span>
           <span className="font-semibold tabular-nums">
-            {total === null ? <span className="text-muted-foreground">—</span> : formatDealValue(total, currency)}
+            {total !== null ? (
+              formatDealValue(total, currency)
+            ) : mixedCurrency ? (
+              <span className="text-muted-foreground">— (mixed currencies)</span>
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
           </span>
         </div>
       )}

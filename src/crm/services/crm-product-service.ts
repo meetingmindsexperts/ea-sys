@@ -60,12 +60,18 @@ function writeAudit(entry: { userId: string | null; action: string; entityId: st
 
 // ── Catalog ────────────────────────────────────────────────────────────────────
 
-/** Seed the org's catalog from the built-in list once (idempotent — never re-seeds). */
+/**
+ * Seed the org's catalog from the built-in list once. Idempotent under a concurrent
+ * first-load: the `count === 0` gate is a fast-path, and `skipDuplicates` is the real
+ * guard — the `@@unique([organizationId, sku])` index means a racing second seed skips
+ * every SKU-collision instead of inserting a duplicate 131 rows (review M1). Every
+ * seed row has a SKU, so all collide; manual NULL-SKU products stay distinct.
+ */
 export async function ensureCrmProducts(organizationId: string): Promise<void> {
   const count = await db.crmProduct.count({ where: { organizationId } });
   if (count > 0) return;
   try {
-    await db.crmProduct.createMany({
+    const res = await db.crmProduct.createMany({
       data: CRM_PRODUCT_SEED.map((p, i) => ({
         organizationId,
         name: p.name,
@@ -76,8 +82,9 @@ export async function ensureCrmProducts(organizationId: string): Promise<void> {
         currency: "AED",
         sortOrder: i,
       })),
+      skipDuplicates: true,
     });
-    apiLogger.info({ msg: "crm-product:seeded", organizationId, count: CRM_PRODUCT_SEED.length });
+    apiLogger.info({ msg: "crm-product:seeded", organizationId, inserted: res.count });
   } catch (err) {
     apiLogger.warn({ msg: "crm-product:seed-race", organizationId, err: err instanceof Error ? err.message : String(err) });
   }

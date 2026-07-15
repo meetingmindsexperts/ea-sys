@@ -134,7 +134,14 @@ export default function CrmProductsPage() {
         </div>
       )}
 
-      <CrmProductDialog open={createOpen} onOpenChange={setCreateOpen} categories={categories} />
+      {/* key remounts the dialog on each open so it never keeps the previous entry's
+          values (the create dialog is always mounted — review M3). */}
+      <CrmProductDialog
+        key={createOpen ? "create-open" : "create-closed"}
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        categories={categories}
+      />
     </div>
   );
 }
@@ -202,7 +209,13 @@ function ProductRow({
                 </Button>
               ))}
           </div>
-          <CrmProductDialog open={editOpen} onOpenChange={setEditOpen} product={product} categories={categories} />
+          <CrmProductDialog
+            key={editOpen ? `edit-${product.id}-open` : "edit-closed"}
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            product={product}
+            categories={categories}
+          />
         </TableCell>
       )}
     </TableRow>

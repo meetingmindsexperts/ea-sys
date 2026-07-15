@@ -225,24 +225,22 @@ seed-once. **H1 was fixed in the same pass** (owner picked "just H1"); the rest 
   `PRODUCT_ALREADY_ON_DEAL` / `NAME_REQUIRED` etc. with no `apiLogger.warn` (violated the "every
   failure path logs" rule; the sibling deal/task services all comply). Fixed via a `reject()` helper
   that logs `crm-product:<code>` + context before every business `return { ok: false }`.
-- **M1 — seed can double-seed (deferred).** `CrmProduct` has no unique constraint, so two concurrent
+- **M1 — seed can double-seed** ✅ **SHIPPED** — `CrmProduct` has no unique constraint, so two concurrent
   first-loads (Products tab + a deal's product picker both firing `GET /api/crm/products` →
   `ensureCrmProducts`) can both see `count 0` and both insert 131 rows → a silent 262-row duplicated
   catalog; the "seed-race" catch can't fire. **Fix:** `@@unique([organizationId, sku])` + `skipDuplicates:
   true` on the seed createMany (nullable sku → manual no-SKU products stay distinct), and/or an
-  advisory lock; correct the "never re-seeds" comment. Low real-world odds (one org, rarely first-loaded
-  twice at once) but a real gap.
-- **M2 — mixed-currency products total (deferred).** `sumDealProducts` adds `unitPrice × qty` across
+  advisory lock. **Fixed:** `@@unique([organizationId, sku])` (migration `20260715180000`) + `skipDuplicates: true` on the seed createMany, so a racing second seed skips every SKU-collision; comment corrected.
+- **M2 — mixed-currency products total** ✅ **SHIPPED** — `sumDealProducts` adds `unitPrice × qty` across
   line currencies and labels the total with line 0's currency; and the catalog defaults to **AED**
   while a deal defaults to **USD**, so the products total (AED) sits beside the deal Value (USD) with no
   distinction. **Fix:** constrain a deal's line items to one currency (validate on add against the
   deal's), or have `sumDealProducts` return null / group-by-currency when currencies differ and surface
-  the currency. (MM Group is all-AED today, so low live impact.)
-- **M3 — product dialog keeps stale state (deferred).** `CrmProductDialog` (create) is always mounted;
+  the currency. **Fixed:** `sumDealProducts` returns null when line currencies differ (and stays null when a price is redacted); the deal Products card shows "— (mixed currencies)". +4 tests.
+- **M3 — product dialog keeps stale state** ✅ **SHIPPED** — `CrmProductDialog` (create) is always mounted;
   Radix unmounts only the portal, so after creating a product and reopening "New product" the fields are
   pre-filled with the last entry → easy accidental near-duplicate. **Fix:** remount on open via `key` or
-  reset state on the closed→open transition (same pattern used for the Tiptap editor in the email
-  template dialog).
+  reset state on the closed→open transition. **Fixed:** both the create and edit `CrmProductDialog` are keyed by their open state, so each open remounts with fresh values.
 - **L1 — duplicate line-on-deal race (deferred).** The `PRODUCT_ALREADY_ON_DEAL` guard is `findFirst`
   then `create` with no `@@unique([dealId, crmProductId])` → two concurrent adds of the same product
   both pass. Add the unique index (tolerate nullable `crmProductId`) + translate P2002.

@@ -2532,6 +2532,11 @@ model CrmProduct {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Unique SKU per org — makes the seed idempotent under a concurrent first-load
+  // (the second seed's createMany skipDuplicates skips the SKU-collisions) AND stops
+  // manual duplicate SKUs. `sku` is nullable, so Postgres treats multiple NULL-SKU
+  // products as distinct — manual products without a SKU are unaffected.
+  @@unique([organizationId, sku])
   @@index([organizationId, category, sortOrder])
 }
 

@@ -132,12 +132,21 @@ export interface CrmDealProductRow {
   createdAt: string;
 }
 
+/** True when a deal's line items span more than one currency (can't be summed). */
+export function dealProductsMixedCurrency(lines: CrmDealProductRow[]): boolean {
+  return new Set(lines.map((l) => l.currency)).size > 1;
+}
+
 /**
  * Sum of a deal's line items (unitPrice × quantity). Returns null when any price is
- * redacted (MEMBER) — a partial sum would be a lie — mirroring formatDealValue.
+ * redacted (MEMBER) OR the lines span multiple currencies — a partial or cross-currency
+ * sum would be a lie (mirrors formatDealValue's "redacted ≠ 0" posture). Callers render
+ * "—" and, for the mixed-currency case, say so (see dealProductsMixedCurrency).
  */
 export function sumDealProducts(lines: CrmDealProductRow[]): number | null {
+  if (lines.length === 0) return 0;
   if (lines.some((l) => l.unitPrice === null || l.unitPrice === undefined)) return null;
+  if (dealProductsMixedCurrency(lines)) return null;
   return lines.reduce((acc, l) => acc + Number(l.unitPrice ?? 0) * l.quantity, 0);
 }
 

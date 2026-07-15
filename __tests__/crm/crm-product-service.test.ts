@@ -33,6 +33,37 @@ import {
   removeDealProduct,
 } from "@/crm/services/crm-product-service";
 import { CRM_PRODUCT_SEED } from "@/crm/lib/crm-products-seed";
+import { sumDealProducts, dealProductsMixedCurrency, type CrmDealProductRow } from "@/crm/lib/crm-types";
+
+function line(over: Partial<CrmDealProductRow>): CrmDealProductRow {
+  return {
+    id: over.id ?? "l",
+    productName: "P",
+    category: "C",
+    unitPrice: over.unitPrice ?? 100,
+    currency: over.currency ?? "AED",
+    quantity: over.quantity ?? 1,
+    createdAt: "2026-07-15",
+    ...over,
+  };
+}
+
+describe("sumDealProducts — never a fake or cross-currency total (review M2)", () => {
+  it("sums qty × unitPrice for single-currency lines", () => {
+    expect(sumDealProducts([line({ unitPrice: 100, quantity: 2 }), line({ unitPrice: 50, quantity: 1 })])).toBe(250);
+  });
+  it("returns null (not a partial sum) when any price is redacted", () => {
+    expect(sumDealProducts([line({ unitPrice: 100 }), line({ unitPrice: null })])).toBeNull();
+  });
+  it("returns null when currencies are mixed", () => {
+    const lines = [line({ unitPrice: 100, currency: "AED" }), line({ unitPrice: 100, currency: "USD" })];
+    expect(dealProductsMixedCurrency(lines)).toBe(true);
+    expect(sumDealProducts(lines)).toBeNull();
+  });
+  it("empty → 0", () => {
+    expect(sumDealProducts([])).toBe(0);
+  });
+});
 
 const ORG = "org-1";
 const base = { organizationId: ORG, userId: "u-1" };
