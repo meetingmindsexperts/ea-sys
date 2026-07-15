@@ -14,7 +14,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
-import { Archive, Link2, Loader2, Plus, Search, Users } from "lucide-react";
+import { Archive, Link2, Plus, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -29,9 +29,12 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
 import { CrmContactDetailSheet } from "@/crm/components/crm-contact-detail-sheet";
+import { CrmEmptyState } from "@/crm/components/crm-empty-state";
+import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies, useCrmContacts } from "@/crm/hooks/use-crm-api";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
+import { cn } from "@/lib/utils";
 import { LIFECYCLE_COLORS, LIFECYCLE_LABELS, type CrmLifecycleStage } from "@/crm/lib/crm-types";
 
 export default function CrmContactsPage() {
@@ -125,22 +128,38 @@ export default function CrmContactsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading contacts…
-        </div>
+        <CrmTableSkeleton rows={6} cols={5} />
       ) : contacts.length === 0 ? (
-        <div className="py-16 text-center">
-          <Users className="mx-auto h-8 w-8 text-muted-foreground/50" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            {q ? "Nobody matches that search." : "No CRM contacts yet."}
-          </p>
-        </div>
+        <CrmEmptyState
+          icon={Users}
+          title={
+            showArchived
+              ? "No archived contacts"
+              : q
+                ? "Nobody matches that search"
+                : "No CRM contacts yet"
+          }
+          description={
+            showArchived
+              ? "Contacts you archive will show up here, ready to restore."
+              : q
+                ? "Try a different name or email."
+                : "Reps, exhibitor sales and procurement — the people you deal with."
+          }
+          action={
+            canWrite && !showArchived && !q ? (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                New contact
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
-        <div className="rounded-lg border">
+        <div className="overflow-hidden rounded-xl border">
           <Table>
             <TableHeader>
-              <TableRow>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
                 <TableHead>Name</TableHead>
                 <TableHead>Company</TableHead>
                 <TableHead>Job title</TableHead>
@@ -152,7 +171,7 @@ export default function CrmContactsPage() {
               {contacts.map((c) => (
                 <TableRow
                   key={c.id}
-                  className="cursor-pointer"
+                  className={cn("cursor-pointer transition-colors", c.archivedAt && "opacity-60")}
                   onClick={() => setOpenContactId(c.id)}
                 >
                   <TableCell>
@@ -174,6 +193,11 @@ export default function CrmContactsPage() {
                           </TooltipContent>
                         </Tooltip>
                       )}
+                      {c.archivedAt && (
+                        <Badge variant="outline" className="border-rose-200 bg-rose-50 text-[10px] text-rose-700">
+                          Archived
+                        </Badge>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
@@ -189,7 +213,7 @@ export default function CrmContactsPage() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">{c._count?.deals ?? 0}</TableCell>
+                  <TableCell className="text-right tabular-nums">{c._count?.deals ?? 0}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
