@@ -10,9 +10,12 @@
  */
 import { Suspense } from "react";
 import { useSession } from "next-auth/react";
-import { Download, Loader2, TrendingUp, Trophy, Users, X } from "lucide-react";
+import { Download, Layers, Percent, TrendingUp, Trophy, Users, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -127,50 +130,73 @@ function ReportsInner() {
       </div>
 
       {isLoading || !report ? (
-        <div className="flex items-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Building the report…
-        </div>
+        <ReportSkeleton />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <>
+          {/* ── KPI strip ────────────────────────────────────────────────────── */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard icon={Layers} label="Open deals" value={String(report.pipeline.openCount)} />
+            <KpiCard icon={TrendingUp} label="Open value" value={money(report.pipeline.openValue)} />
+            <KpiCard icon={Trophy} label="Won" value={String(report.winLoss.wonCount)} sub={money(report.winLoss.wonValue)} tone="win" />
+            <KpiCard
+              icon={Percent}
+              label="Win rate"
+              value={report.winLoss.winRate === null ? "—" : `${report.winLoss.winRate}%`}
+              sub={`${report.winLoss.wonCount} won · ${report.winLoss.lostCount} lost`}
+            />
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
           {/* ── Pipeline by stage ──────────────────────────────────────────── */}
-          <section className="rounded-lg border">
+          <section className="overflow-hidden rounded-xl border bg-card">
             <header className="flex items-center gap-2 border-b p-3">
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Pipeline by stage</h2>
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ml-auto text-xs tabular-nums text-muted-foreground">
                 {report.pipeline.openCount} open · {money(report.pipeline.openValue)}
               </span>
             </header>
             <Table>
               <TableHeader>
-                <TableRow>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
                   <TableHead>Stage</TableHead>
                   <TableHead className="text-right">Deals</TableHead>
                   <TableHead className="text-right">Value</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {report.pipeline.stages.map((s) => (
-                  <TableRow key={s.stageId}>
-                    <TableCell className="font-medium">
-                      {s.stageName}
-                      {s.isTerminal && (
-                        <Badge variant="outline" className="ml-2 text-[10px]">
-                          closed
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{s.count}</TableCell>
-                    <TableCell className="text-right">{money(s.value)}</TableCell>
-                  </TableRow>
-                ))}
+                {(() => {
+                  const maxCount = Math.max(1, ...report.pipeline.stages.map((s) => s.count));
+                  return report.pipeline.stages.map((s) => (
+                    <TableRow key={s.stageId}>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          <span>{s.stageName}</span>
+                          {s.isTerminal && (
+                            <Badge variant="outline" className="text-[10px]">
+                              closed
+                            </Badge>
+                          )}
+                        </div>
+                        {/* Proportion of deals in this stage — read the funnel at a glance. */}
+                        <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-primary/40"
+                            style={{ width: `${(s.count / maxCount) * 100}%` }}
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{s.count}</TableCell>
+                      <TableCell className="text-right tabular-nums">{money(s.value)}</TableCell>
+                    </TableRow>
+                  ));
+                })()}
               </TableBody>
             </Table>
           </section>
 
           {/* ── Win / loss ─────────────────────────────────────────────────── */}
-          <section className="rounded-lg border">
+          <section className="overflow-hidden rounded-xl border bg-card">
             <header className="flex items-center gap-2 border-b p-3">
               <Trophy className="h-4 w-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Win / loss</h2>
@@ -185,7 +211,7 @@ function ReportsInner() {
           </section>
 
           {/* ── By rep ─────────────────────────────────────────────────────── */}
-          <section className="rounded-lg border lg:col-span-2">
+          <section className="overflow-hidden rounded-xl border bg-card lg:col-span-2">
             <header className="flex items-center gap-2 border-b p-3">
               <Users className="h-4 w-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">By sales rep</h2>
@@ -195,7 +221,7 @@ function ReportsInner() {
             ) : (
               <Table>
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
                     <TableHead>Rep</TableHead>
                     <TableHead className="text-right">Open</TableHead>
                     <TableHead className="text-right">Open value</TableHead>
@@ -207,17 +233,18 @@ function ReportsInner() {
                   {report.reps.map((r) => (
                     <TableRow key={r.ownerId ?? "none"}>
                       <TableCell className="font-medium">{r.ownerName}</TableCell>
-                      <TableCell className="text-right">{r.openCount}</TableCell>
-                      <TableCell className="text-right">{money(r.openValue)}</TableCell>
-                      <TableCell className="text-right">{r.wonCount}</TableCell>
-                      <TableCell className="text-right font-medium">{money(r.wonValue)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{r.openCount}</TableCell>
+                      <TableCell className="text-right tabular-nums">{money(r.openValue)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{r.wonCount}</TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">{money(r.wonValue)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             )}
           </section>
-        </div>
+          </div>
+        </>
       )}
 
       {report && !canSeeValues && (
@@ -233,8 +260,58 @@ function Stat({ label, count, value, tone }: { label: string; count: number; val
   return (
     <div className="bg-background p-4">
       <p className={`text-xs font-medium ${tone === "win" ? "text-emerald-600" : "text-rose-600"}`}>{label}</p>
-      <p className="mt-1 text-2xl font-bold">{count}</p>
-      <p className="text-sm text-muted-foreground">{value}</p>
+      <p className="mt-1 text-2xl font-bold tabular-nums">{count}</p>
+      <p className="text-sm text-muted-foreground tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function KpiCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: "win";
+}) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <Icon className="h-4 w-4" />
+        {label}
+      </div>
+      <p className={cn("mt-2 text-2xl font-bold tabular-nums", tone === "win" && "text-emerald-600")}>{value}</p>
+      {sub && <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
+
+function ReportSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="space-y-2 rounded-xl border p-4">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-7 w-16" />
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="space-y-3 rounded-xl border p-4">
+            <Skeleton className="h-4 w-32" />
+            {Array.from({ length: 4 }).map((_, r) => (
+              <Skeleton key={r} className="h-4 w-full" />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
