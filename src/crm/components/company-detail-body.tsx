@@ -1,30 +1,39 @@
 "use client";
 
 /**
- * Account detail — the company, its people, and its deals.
+ * Account detail — the body of the dedicated account page (/crm/companies/[id]).
  *
- * This is the BODY of the dedicated account page (/crm/companies/[companyId]). It
- * fetches by id and renders full-width on its own route; `onArchived` lets the page
- * navigate back to the list after archiving.
+ * Record-page layout: identity header, then a two-column body — the account's deals
+ * / people / history on the left, and a sticky facts sidebar on the right. Fetches
+ * by id; `onArchived` navigates the page away after archiving.
  *
- * The "Needs review" banner is the fuzzy-duplicate flag. It is advisory: the server
- * created the row rather than blocking it, because "Cleveland Clinic Foundation"
- * might genuinely not be "Cleveland Clinic". Confirming it distinct is a one-click
- * dismissal; merging is a human job (a deliberate v1 gap — see ROADMAP).
+ * The "Needs review" banner is the fuzzy-duplicate flag — advisory (the server
+ * created the row rather than blocking it). Merging is a human job (a v1 gap).
  */
 import { useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { Archive, ArchiveRestore, Building2, ExternalLink, Loader2, Pencil, TriangleAlert } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Building2,
+  ExternalLink,
+  Handshake,
+  Info,
+  Loader2,
+  Pencil,
+  TriangleAlert,
+  Users,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { useCrmCompany, useUpdateCompany, useSetCompanyArchived } from "@/crm/hooks/use-crm-api";
 import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { EditCompanyDialog } from "@/crm/components/edit-company-dialog";
 import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
+import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
 
 export function CompanyDetailBody({
   companyId,
@@ -33,7 +42,6 @@ export function CompanyDetailBody({
 }: {
   companyId: string;
   canWrite: boolean;
-  /** Called after the account is archived — navigate away. */
   onArchived?: () => void;
 }) {
   const { data: session } = useSession();
@@ -53,7 +61,7 @@ export function CompanyDetailBody({
   }
   if (isError || !company) {
     return (
-      <div className="rounded-lg border bg-muted/20 p-8 text-center">
+      <div className="rounded-xl border bg-muted/20 p-8 text-center">
         <p className="text-sm text-muted-foreground">
           This account could not be found — it may have been removed.
         </p>
@@ -61,175 +69,202 @@ export function CompanyDetailBody({
     );
   }
 
+  const website = company.website
+    ? company.website.startsWith("http")
+      ? company.website
+      : `https://${company.website}`
+    : null;
+  const location = [company.city, company.country].filter(Boolean).join(", ");
+
   return (
-    <div className="space-y-6">
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="space-y-2">
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Building2 className="h-6 w-6 text-muted-foreground" />
-          {company.name}
-        </h1>
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          {company.industry && <Badge variant="outline">{company.industry}</Badge>}
-          {company.archivedAt && (
-            <Badge variant="outline" className="bg-rose-100 text-rose-700 border-rose-200">
-              Archived
-            </Badge>
-          )}
-          {[company.city, company.country].filter(Boolean).join(", ") || null}
-        </div>
-      </div>
-
-      {/* ── Actions ─────────────────────────────────────────────────────── */}
-      {(canWrite || canDelete) && (
-        <div className="flex flex-wrap items-center gap-2">
-          {canWrite && (
-            <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-              <Pencil className="mr-2 h-3.5 w-3.5" />
-              Edit
-            </Button>
-          )}
-          {canDelete &&
-            (company.archivedAt ? (
-              <Button size="sm" variant="outline" disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)}>
-                <ArchiveRestore className="mr-2 h-3.5 w-3.5" />
-                Restore
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-destructive hover:text-destructive"
-                disabled={setArchived.isPending}
-                onClick={() => {
-                  if (!confirm("Archive this account? It will be hidden from the lists. Its deals are not affected. You can restore it from the archived view.")) return;
-                  setArchived.mutate(true, { onSuccess: () => onArchived?.() });
-                }}
-              >
-                <Archive className="mr-2 h-3.5 w-3.5" />
-                Archive
-              </Button>
-            ))}
-        </div>
-      )}
-
-      {company.needsReview && (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <div className="flex-1 text-sm">
-            <p className="font-medium text-amber-900">Possible duplicate</p>
-            <p className="mt-1 text-amber-800">
-              This name looks similar to an existing account. If they are genuinely different
-              organizations, dismiss this.
-            </p>
-            {canWrite && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-2"
-                onClick={async () => {
-                  await update.mutateAsync({ needsReview: false });
-                  toast.success("Marked as distinct");
-                }}
-                disabled={update.isPending}
-              >
-                They&apos;re different — dismiss
-              </Button>
+    <div className="space-y-5">
+      <RecordHeader
+        icon={Building2}
+        title={company.name}
+        badges={
+          <>
+            {company.industry && <Badge variant="outline">{company.industry}</Badge>}
+            {location && <span className="text-sm text-muted-foreground">{location}</span>}
+            {company.archivedAt && (
+              <Badge variant="outline" className="border-rose-200 bg-rose-100 text-rose-700">
+                Archived
+              </Badge>
             )}
+          </>
+        }
+        actions={
+          (canWrite || canDelete) && (
+            <>
+              {canWrite && (
+                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                  <Pencil className="mr-2 h-3.5 w-3.5" />
+                  Edit
+                </Button>
+              )}
+              {canDelete &&
+                (company.archivedAt ? (
+                  <Button size="sm" variant="outline" disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)}>
+                    <ArchiveRestore className="mr-2 h-3.5 w-3.5" />
+                    Restore
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    disabled={setArchived.isPending}
+                    onClick={() => {
+                      if (!confirm("Archive this account? It will be hidden from the lists. Its deals are not affected. You can restore it from the archived view.")) return;
+                      setArchived.mutate(true, { onSuccess: () => onArchived?.() });
+                    }}
+                  >
+                    <Archive className="mr-2 h-3.5 w-3.5" />
+                    Archive
+                  </Button>
+                ))}
+            </>
+          )
+        }
+      />
+
+      <RecordGrid
+        sidebar={
+          <RecordCard icon={Info} title="Details">
+            <Facts>
+              <Fact label="Industry">{company.industry || <Dash />}</Fact>
+              <Fact label="Location">{location || <Dash />}</Fact>
+              <Fact label="Website">
+                {website ? (
+                  <a
+                    href={website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    <span className="break-all">{company.website}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                ) : (
+                  <Dash />
+                )}
+              </Fact>
+              <Fact label="Created">{new Date(company.createdAt).toLocaleDateString()}</Fact>
+            </Facts>
+          </RecordCard>
+        }
+      >
+        {company.needsReview && (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <div className="flex-1 text-sm">
+              <p className="font-medium text-amber-900">Possible duplicate</p>
+              <p className="mt-1 text-amber-800">
+                This name looks similar to an existing account. If they are genuinely different
+                organizations, dismiss this.
+              </p>
+              {canWrite && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-2"
+                  onClick={async () => {
+                    await update.mutateAsync({ needsReview: false });
+                    toast.success("Marked as distinct");
+                  }}
+                  disabled={update.isPending}
+                >
+                  They&apos;re different — dismiss
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {company.website && (
-        <a
-          href={company.website.startsWith("http") ? company.website : `https://${company.website}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 text-sm text-primary hover:underline"
+        {company.notes && (
+          <RecordCard title="Notes">
+            <p className="whitespace-pre-wrap text-sm">{company.notes}</p>
+          </RecordCard>
+        )}
+
+        <RecordCard
+          icon={Handshake}
+          title="Deals"
+          action={<Badge variant="secondary" className="tabular-nums">{company.deals.length}</Badge>}
+          bodyClassName={company.deals.length === 0 ? "p-4" : "p-3"}
         >
-          {company.website}
-          <ExternalLink className="h-3 w-3" />
-        </a>
-      )}
+          {company.deals.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No deals yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {company.deals.map((d) => {
+                const value = formatDealValue(d.dealValue, d.currency);
+                return (
+                  <li key={d.id}>
+                    <Link
+                      href={`/crm/deals/${d.id}`}
+                      className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm transition-colors hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{d.name}</p>
+                        {d.event && <p className="truncate text-xs text-muted-foreground">{d.event.name}</p>}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="font-medium tabular-nums">{value ?? <Dash />}</span>
+                        <Badge variant="outline" className={DEAL_STATUS_COLORS[d.status]}>
+                          {d.status}
+                        </Badge>
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </RecordCard>
 
-      {company.notes && (
-        <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-sm">{company.notes}</p>
-      )}
-
-      <Separator />
-
-      {/* ── Deals ───────────────────────────────────────────────────────── */}
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold">Deals ({company.deals.length})</h2>
-        {company.deals.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No deals yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {company.deals.map((d) => {
-              const value = formatDealValue(d.dealValue, d.currency);
-              return (
-                <li key={d.id}>
+        <RecordCard
+          icon={Users}
+          title="People"
+          action={<Badge variant="secondary" className="tabular-nums">{company.contacts.length}</Badge>}
+          bodyClassName={company.contacts.length === 0 ? "p-4" : "p-3"}
+        >
+          {company.contacts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No contacts linked yet. Link them from the contact&apos;s detail.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {company.contacts.map((c) => (
+                <li key={c.id}>
                   <Link
-                    href={`/crm/deals/${d.id}`}
+                    href={`/crm/contacts/${c.id}`}
                     className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm transition-colors hover:bg-muted/40"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-medium">{d.name}</p>
-                      {d.event && <p className="text-xs text-muted-foreground">{d.event.name}</p>}
+                      <p className="truncate font-medium">
+                        {c.firstName} {c.lastName}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {c.jobTitle ? `${c.jobTitle} · ` : ""}
+                        {c.email}
+                      </p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {/* Redacted for MEMBER — never render a fake 0. */}
-                      <span className="font-medium">
-                        {value ?? <span className="text-muted-foreground">—</span>}
-                      </span>
-                      <Badge variant="outline" className={DEAL_STATUS_COLORS[d.status]}>
-                        {d.status}
+                    {c.lifecycleStage && (
+                      <Badge variant="outline" className={LIFECYCLE_COLORS[c.lifecycleStage]}>
+                        {LIFECYCLE_LABELS[c.lifecycleStage]}
                       </Badge>
-                    </div>
+                    )}
                   </Link>
                 </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+              ))}
+            </ul>
+          )}
+        </RecordCard>
 
-      <Separator />
-
-      {/* ── People ──────────────────────────────────────────────────────── */}
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold">People ({company.contacts.length})</h2>
-        {company.contacts.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No contacts linked yet. Link them from the contact&apos;s detail.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {company.contacts.map((c) => (
-              <li key={c.id} className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
-                <div className="min-w-0">
-                  <p className="truncate font-medium">
-                    {c.firstName} {c.lastName}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {c.jobTitle ? `${c.jobTitle} · ` : ""}
-                    {c.email}
-                  </p>
-                </div>
-                {c.lifecycleStage && (
-                  <Badge variant="outline" className={LIFECYCLE_COLORS[c.lifecycleStage]}>
-                    {LIFECYCLE_LABELS[c.lifecycleStage]}
-                  </Badge>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <Separator />
-
-      <CrmActivityTimeline entityType="COMPANY" entityId={company.id} />
+        <RecordCard>
+          <CrmActivityTimeline entityType="COMPANY" entityId={company.id} />
+        </RecordCard>
+      </RecordGrid>
 
       <EditCompanyDialog company={company} open={editOpen} onOpenChange={setEditOpen} />
     </div>

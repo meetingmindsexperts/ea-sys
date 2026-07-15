@@ -1,11 +1,10 @@
 "use client";
 
 /**
- * Dedicated account page — /crm/companies/[companyId].
+ * Dedicated contact page — /crm/contacts/[crmContactId].
  *
- * A company (account) is its own record with its own URL. The detail lives in
- * CompanyDetailBody (which fetches by id + guards loading/not-found); this page adds
- * the back link and sends you to the list after archiving.
+ * The detail lives in ContactDetailBody (fetches by id + guards loading/not-found);
+ * this page adds the back link and returns to the list after archiving.
  */
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -13,11 +12,11 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
-import { CompanyDetailBody } from "@/crm/components/company-detail-body";
+import { ContactDetailBody } from "@/crm/components/contact-detail-body";
 
-export default function CrmCompanyPage() {
+export default function CrmContactPage() {
   const params = useParams();
-  const companyId = Array.isArray(params.companyId) ? params.companyId[0] : (params.companyId ?? "");
+  const crmContactId = Array.isArray(params.crmContactId) ? params.crmContactId[0] : (params.crmContactId ?? "");
   const router = useRouter();
   const { data: session } = useSession();
   const canWrite = canOwnDeals(session?.user?.role);
@@ -25,16 +24,16 @@ export default function CrmCompanyPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-6">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href="/crm/companies">
+        <Link href="/crm/contacts">
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to accounts
+          Back to contacts
         </Link>
       </Button>
 
-      <CompanyDetailBody
-        companyId={companyId}
+      <ContactDetailBody
+        crmContactId={crmContactId}
         canWrite={canWrite}
-        onArchived={() => router.push("/crm/companies")}
+        onArchived={() => router.push("/crm/contacts")}
       />
     </div>
   );

@@ -113,6 +113,8 @@ export interface CrmBoardDeal {
   dealValue?: string | number | null;
   currency: string;
   stageId: string;
+  /** Present on the deal DETAIL fetch (not the board list) — the resolved stage. */
+  stage?: { id: string; name: string; isTerminal: boolean };
   status: CrmDealStatus;
   expectedClose?: string | null;
   wonAt?: string | null;

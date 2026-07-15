@@ -439,7 +439,7 @@ exactly which of those exist today.</p>
 <details>
   <summary>UI — 4 pages <span class="tag part">PARTIAL — see §4</span></summary>
   <ul>
-    <li><b>Dedicated record pages (Jul 15):</b> a deal and an account each have their OWN page — <code>/crm/deals/[dealId]</code> + <code>/crm/companies/[companyId]</code> (deep-linkable, back-button-friendly), replacing the old slide-out sheets. The sheet content moved verbatim into reusable body components (nothing lost). Contacts keep their sheet.</li>
+    <li><b>Dedicated record pages (Jul 15):</b> deal, account AND contact each have their OWN page — <code>/crm/deals/[dealId]</code>, <code>/crm/companies/[companyId]</code>, <code>/crm/contacts/[crmContactId]</code> (deep-linkable, back-button-friendly). <b>All detail sheets are retired.</b> The pages use a shared <b>two-column record layout</b> (identity header + main work area + sticky facts sidebar, grouped into cards) via <code>record-layout.tsx</code> primitives; records cross-link (account→deals/people, contact→deals/company).</li>
     <li><b>Sidebar:</b> one <b>CRM</b> entry. Deals / Companies / Tasks are tabs in the right pane (real routes, so deep links and the back button work).</li>
     <li><b>Deals board</b> — drag-and-drop kanban. The drag captures the card's stage at <i>drag start</i> and sends it, so the server's race check holds. The optimistic move has a real rollback: on 409 it restores <i>and refetches</i>, because “put it back where it was” is wrong if the colleague moved it somewhere else.</li>
     <li><b>Companies</b> — list, search, “Needs review” duplicate worklist, detail sheet.</li>

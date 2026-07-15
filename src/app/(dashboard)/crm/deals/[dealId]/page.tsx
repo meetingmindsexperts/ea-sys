@@ -27,7 +27,7 @@ export default function CrmDealPage() {
   const { data: deal, isLoading, isError } = useCrmDeal(dealId);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
+    <div className="mx-auto max-w-6xl space-y-5 p-6">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
         <Link href="/crm/deals">
           <ArrowLeft className="mr-2 h-4 w-4" />

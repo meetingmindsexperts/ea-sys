@@ -13,6 +13,7 @@
  */
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Archive, Link2, Plus, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,6 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
-import { CrmContactDetailSheet } from "@/crm/components/crm-contact-detail-sheet";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -46,7 +46,7 @@ export default function CrmContactsPage() {
   const [companyId, setCompanyId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
-  const [openContactId, setOpenContactId] = useState<string | null>(null);
+  const router = useRouter();
 
   const { data: companies = [] } = useCrmCompanies();
   const { data: contacts = [], isLoading } = useCrmContacts({
@@ -171,8 +171,8 @@ export default function CrmContactsPage() {
               {contacts.map((c) => (
                 <TableRow
                   key={c.id}
-                  className={cn("cursor-pointer transition-colors", c.archivedAt && "opacity-60")}
-                  onClick={() => setOpenContactId(c.id)}
+                  className={cn("cursor-pointer transition-colors hover:bg-muted/40", c.archivedAt && "opacity-60")}
+                  onClick={() => router.push(`/crm/contacts/${c.id}`)}
                 >
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -222,11 +222,6 @@ export default function CrmContactsPage() {
       )}
 
       <CreateCrmContactDialog open={createOpen} onOpenChange={setCreateOpen} />
-      <CrmContactDetailSheet
-        crmContactId={openContactId}
-        onOpenChange={(o) => !o && setOpenContactId(null)}
-        canWrite={canWrite}
-      />
     </div>
   );
 }
