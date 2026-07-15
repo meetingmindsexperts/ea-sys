@@ -171,6 +171,13 @@ That output is the authoritative reconcile. (It also surfaced **unrelated** pre-
 - **Durable guard (action item):** wire a pre-deploy drift check into CI —
   `prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --exit-code`
   exits non-zero when the DB and the schema disagree; halt the deploy on drift. Locally, `prisma migrate status` reports "edited after applied".
+- **What worked:** the reconcile's `DROP COLUMN`s tripped the existing CI guard
+  `scripts/check-migration-safety.sh`, which **blocked the deploy before the box
+  ran `migrate deploy`** — so the fix never partially applied. It was safe to
+  proceed (columns empty; no deployed code reads them), acknowledged deliberately
+  in `prisma/destructive-migrations-ack.txt` rather than by editing the migration.
+  That guard catches destructive SQL; it does NOT catch the drift class above — the
+  two guards are complementary.
 - Full symptom→fix entry in the `ea-sys-debugging` skill (Migrations section).
 
 ---

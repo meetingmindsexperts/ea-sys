@@ -24,3 +24,4 @@
 20260410200000_drop_event_tax_inclusive_if_exists  # historical — pre-policy (drop of an unused column)
 20260417000000_add_abstract_reviewers_and_scores   # historical — pre-prod, no data (Abstract review fields moved to their own table)
 20260602110000_collapse_certificate_types_to_two   # historical — verified zero issued certs at the time (see CLAUDE.md, June 2 2026)
+20260715060000_crm_contact_rework_reconcile     # INC-003 fix: safe because (1) the dropped columns are EMPTY in prod — verified 0 non-null Contact.companyId/lifecycleStage, and CrmDeal/Task/Note.contactId belong to a brand-new module with 1 test row; (2) NO deployed code reads them — the live v2 CRM code (commits 54fba94→ab96411) uses crmContactId/CrmContact/CrmDealContact, never the v1 columns this drops. Not rolling back to v1 (that's the pre-rework, differently-broken state).
