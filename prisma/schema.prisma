@@ -49,6 +49,7 @@ model Organization {
   crmTasks          CrmTask[]
   crmNotes          CrmNote[]
   crmActivities     CrmActivity[]
+  crmEmailTemplates CrmEmailTemplate[]
 }
 
 model User {
@@ -94,6 +95,7 @@ model User {
   ownedCrmTasks    CrmTask[] @relation("CrmTaskOwner")
   authoredCrmNotes CrmNote[] @relation("CrmNoteAuthor")
   crmActivities    CrmActivity[] @relation("CrmActivityActor")
+  createdCrmEmailTemplates CrmEmailTemplate[] @relation("CrmEmailTemplateCreator")
 
   @@index([organizationId])
   @@index([email])
@@ -2465,6 +2467,33 @@ model CrmActivity {
 
   @@index([organizationId, entityType, entityId, createdAt])
   @@index([organizationId, createdAt])
+}
+
+/// Reusable CRM email templates — the org's editable starting points for the
+/// sponsor blast + per-deal send. Org-wide shared (any CRM writer edits the same
+/// set); seeded on first use from the built-in constants. Soft-delete via
+/// archivedAt (a picker lists non-archived; the send substitutes {{tokens}} in the
+/// body at send time — the template just pre-fills subject + body).
+model CrmEmailTemplate {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name    String
+  subject String
+  /// HTML body fragment (no greeting/signature — the send pipeline adds those).
+  body    String @db.Text
+
+  sortOrder  Int       @default(0)
+  archivedAt DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("CrmEmailTemplateCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, sortOrder])
 }
 
 /// First-class Account. Today Contact.organization is a free-text string, which

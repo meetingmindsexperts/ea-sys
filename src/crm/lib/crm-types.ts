@@ -93,6 +93,19 @@ export interface SponsorRecipient {
   dealCount: number;
 }
 
+/** An editable CRM email template (org-wide), as returned by /api/crm/email-templates. */
+export interface CrmEmailTemplateRow {
+  id: string;
+  name: string;
+  subject: string;
+  /** HTML body fragment. */
+  body: string;
+  sortOrder: number;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** A person on a deal, with the role they play on THAT deal. */
 export interface CrmDealContactRef {
   role: CrmDealContactRole;

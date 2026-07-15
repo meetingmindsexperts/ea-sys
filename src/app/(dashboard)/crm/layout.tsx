@@ -15,7 +15,7 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, CheckSquare, Handshake, Users } from "lucide-react";
+import { BarChart3, Building2, CheckSquare, FileText, Handshake, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -25,6 +25,7 @@ const TABS = [
   { href: "/crm/contacts", label: "Contacts", icon: Users },
   { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
   { href: "/crm/reports", label: "Reports", icon: BarChart3 },
+  { href: "/crm/templates", label: "Templates", icon: FileText },
 ];
 
 export default function CrmLayout({ children }: { children: React.ReactNode }) {

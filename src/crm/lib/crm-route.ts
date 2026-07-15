@@ -142,6 +142,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   STAGE_NOT_FOUND: 404,
   NOTE_NOT_FOUND: 404,
   EVENT_CONTACT_NOT_FOUND: 404,
+  TEMPLATE_NOT_FOUND: 404,
   // forbidden — you may be in the CRM, but this row isn't yours to rewrite
   NOT_AUTHOR: 403,
   // conflict — someone else got there first, or the state moved under us
@@ -153,6 +154,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   // bad request
   NAME_REQUIRED: 400,
   EVENT_REQUIRED: 400,
+  SUBJECT_REQUIRED: 400,
   TITLE_REQUIRED: 400,
   BODY_REQUIRED: 400,
   EMAIL_REQUIRED: 400,

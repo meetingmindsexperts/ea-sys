@@ -31,6 +31,7 @@ import type {
   CrmNoteRow,
   CrmStage,
   CrmTaskRow,
+  CrmEmailTemplateRow,
   SponsorRecipient,
 } from "@/crm/lib/crm-types";
 
@@ -599,6 +600,54 @@ export function useCrmEmailRecipients(target: CrmEmailTarget | null | undefined)
     queryFn: () =>
       apiFetch<CrmEmailRecipientsResponse>(`/api/crm/sponsor-email/recipients?${param}`),
     enabled: !!target,
+  });
+}
+
+/**
+ * The org's reusable CRM email templates. `includeArchived` powers the "Show
+ * archived" toggle on the management page; the compose picker uses the default
+ * (active only). The GET seeds the built-in three on first use.
+ */
+export function useCrmEmailTemplates(includeArchived = false) {
+  return useQuery({
+    queryKey: ["crm", "email-templates", includeArchived],
+    queryFn: () =>
+      apiFetch<{ templates: CrmEmailTemplateRow[] }>(
+        `/api/crm/email-templates${includeArchived ? "?archived=1" : ""}`,
+      ).then((r) => r.templates),
+  });
+}
+
+export function useCreateCrmEmailTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; subject: string; body: string }) =>
+      apiPostJson<{ template: CrmEmailTemplateRow }>("/api/crm/email-templates", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "email-templates"] }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not create the template"),
+  });
+}
+
+export function useUpdateCrmEmailTemplate(templateId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name?: string; subject?: string; body?: string }) =>
+      apiPatchJson<{ template: CrmEmailTemplateRow }>(`/api/crm/email-templates/${templateId}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "email-templates"] }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the template"),
+  });
+}
+
+/** Archive (`true` → DELETE) or restore (`false` → PATCH) a template. */
+export function useSetCrmEmailTemplateArchived(templateId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (archived: boolean) =>
+      archived
+        ? apiDelete(`/api/crm/email-templates/${templateId}`)
+        : apiPatchJson(`/api/crm/email-templates/${templateId}`, { archived: false }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "email-templates"] }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the template"),
   });
 }
 

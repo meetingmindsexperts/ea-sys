@@ -72,6 +72,7 @@ src/crm/
     task-service.ts           tasks + the reminder stamp
     note-service.ts           author-only notes
     sponsor-email-service.ts  outbound email — an event's sponsors OR one deal's contacts (reuses core sendEmail)
+    crm-email-template-service.ts  editable per-org email templates (seed-once + CRUD; audits to core AuditLog)
   lib/
     crm-roles.ts        PURE role predicates (canViewCrm / canOwnDeals / canViewDealValues / canDeleteCrm)
     crm-visibility.ts   SERVER-ONLY HTTP guards (denyCrmAccess / denyCrmWrite / denyCrmDelete)
@@ -100,9 +101,10 @@ prisma/schema.prisma             the Crm* models
 __tests__/crm/*                  tests
 ```
 
-**Data model (8 models):** `CrmCompany`, `CrmPipelineStage`, `CrmDeal`, `CrmContact`,
-`CrmDealContact` (join, with a per-deal role), `CrmTask`, `CrmNote`, and `CrmActivity`
-(the change log — §3.6). `archivedAt` on company/deal/contact/task carries soft-delete.
+**Data model (9 models):** `CrmCompany`, `CrmPipelineStage`, `CrmDeal`, `CrmContact`,
+`CrmDealContact` (join, with a per-deal role), `CrmTask`, `CrmNote`, `CrmActivity`
+(the change log — §3.6), and `CrmEmailTemplate` (editable per-org email templates —
+§3.7). `archivedAt` carries soft-delete on company/deal/contact/task + email templates.
 Plus enums for deal/task status, lifecycle, deal-contact role, and the activity entity.
 See the `// CRM MODULE` block in `prisma/schema.prisma` — every model is heavily
 commented with *why* its FK policies are what they are.
@@ -229,6 +231,13 @@ the same logic + tests cover both). Each success writes an `EmailLog` row (entit
 + the crmContactId — `EmailLogEntityType` has no CRM value, so no schema change) and a
 CRM history row; the routes multiplex (`?eventId=` | `?dealId=`; send requires exactly
 one). Staff-only + a dedicated `crm-sponsor-email:org` 10/hr bucket.
+
+The **templates** the compose dialog offers are editable per-org rows (`CrmEmailTemplate`,
+managed on the **Templates** tab), **not** hardcoded — seeded once from the
+`crm-email-templates.ts` constants by `ensureCrmEmailTemplates` (the constants survive
+only as the seed). Templates are config, so they audit to the **core `AuditLog`** (like
+`pipeline-service`), not the entity-typed `CrmActivity`. Create/edit = write access;
+archive = `canDeleteCrm` (admin + CRM_USER).
 
 ---
 

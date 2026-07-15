@@ -107,7 +107,7 @@
 <h1>CRM — Build Status</h1>
 <p class="sub">
   What is built, what is wired to the rest of EA-SYS, and what is not.<br>
-  <span class="stamp">Last updated: <b>15 July 2026</b> (dedicated deal/account pages + CRM email + edit + soft-delete + change-log shipped) · HEAD <code>WORKING</code> ·
+  <span class="stamp">Last updated: <b>15 July 2026</b> (editable CRM email templates + dedicated deal/account pages + CRM email + edit + soft-delete + change-log shipped) · HEAD <code>WORKING</code> ·
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
@@ -134,11 +134,11 @@
 </div>
 
 <div class="kpis">
-  <div class="kpi"><b>6</b><span>services</span></div>
-  <div class="kpi"><b>17</b><span>API endpoints</span></div>
-  <div class="kpi"><b>6</b><span>pages</span></div>
+  <div class="kpi"><b>8</b><span>services</span></div>
+  <div class="kpi"><b>24</b><span>API routes</span></div>
+  <div class="kpi"><b>10</b><span>pages</span></div>
   <div class="kpi"><b>1</b><span>worker job</span></div>
-  <div class="kpi"><b>153</b><span>CRM tests</span></div>
+  <div class="kpi"><b>243</b><span>CRM tests</span></div>
   <div class="kpi"><b>0</b><span>rows in prod</span></div>
 </div>
 
@@ -153,7 +153,7 @@
     <tr>
       <td>Schema + migration</td>
       <td><span class="tag done">DONE</span></td>
-      <td>7 <code>Crm*</code> models, 5 enums. The event <code>Contact</code> table is UNTOUCHED (business contacts are their own table — see the note above). Migration verified byte-equal to Prisma's canonical DDL. <b>Not applied to prod.</b></td>
+      <td>9 <code>Crm*</code> models (incl. <code>CrmActivity</code>, <code>CrmEmailTemplate</code>), 6 enums. The event <code>Contact</code> table is UNTOUCHED (business contacts are their own table — see the note above). Migration verified byte-equal to Prisma's canonical DDL. <b>Not applied to prod.</b></td>
     </tr>
     <tr>
       <td>Import boundary (ESLint)</td>
@@ -428,6 +428,7 @@ exactly which of those exist today.</p>
   <ul>
     <li><b>The ask:</b> "email the sponsorship prospectus to all sponsors of an event" — a personalized cover email + attachment, in bulk. An <b>Email sponsors</b> button on the Deals board (honours the current event filter) opens a compose dialog. <b>Extended (same day):</b> an <b>Email</b> button on the deal detail sheet sends to just <b>that one deal's</b> contacts, and a <b>"Start from a template"</b> picker pre-fills the subject + body from 2–3 built-in templates (Prospectus / Follow-up / Thank you — pre-fill only, not a per-org CMS).</li>
     <li><b>Generalized, not duplicated:</b> the service grew <code>resolveDealRecipients()</code> + <code>sendDealEmail()</code> beside the event pair, both funnelling through one shared <code>dispatchCrmEmail()</code> (validate → narrow-never-widen → batch with per-recipient isolation). A single deal reuses the SAME <code>collectSponsorRecipients()</code> (one-element list). The routes multiplex (<code>?eventId=</code> | <code>?dealId=</code>; send requires exactly one), the hook/dialog take a <code>CrmEmailTarget</code>. A deal send also records one <b>summary row on the deal's History</b>.</li>
+    <li><b>Editable templates + a Templates tab (Jul 15):</b> the "Start from a template" picker is now backed by a per-org <code>CrmEmailTemplate</code> store (seeded once from the built-in three, then editable), managed on <b>CRM → Templates</b> (create / edit / archive / restore). Config, so it audits to core <code>AuditLog</code> like pipeline stages; archive is admin + CRM_USER. New migration <code>20260715160000</code> (additive, not yet on prod).</li>
     <li><b>Audience = the event's sponsors, computed in one place.</b> "Sponsors" = the deduped business contacts on the event's <b>non-lost, non-archived</b> deals (prospects being pitched + confirmed), via the <code>CrmDealContact</code> join. Deduped on the contact's canonical <code>emailKey</code>; archived / email-less contacts are dropped and <i>counted</i> for the preview.</li>
     <li><b>Narrow, never widen (the M7 lesson).</b> The dialog shows the resolved recipients with per-row deselect; the send carries an explicit selection which the server <b>intersects</b> with the resolved set — an invented contactId can't smuggle a stranger onto the send. Pure, unit-tested (<code>collectSponsorRecipients</code> / <code>narrowToSelected</code>).</li>
     <li><b>Reuses the core send primitives, not the event bulk-email pipeline.</b> The service lives in <code>src/crm/</code> and owns the audience + token logic, but renders + sends via core <code>sendEmail</code> / <code>renderAndWrap</code> / branding (crm→core is allowed). Per-recipient failure is isolated; each success writes an <code>EmailLog</code> row (Email History) and a <code>PROSPECTUS_SENT</code> row on the contact's CRM history.</li>

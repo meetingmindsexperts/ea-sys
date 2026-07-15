@@ -29,8 +29,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCrmEmailRecipients, useSendCrmEmail, type CrmEmailTarget } from "@/crm/hooks/use-crm-api";
-import { CRM_EMAIL_TEMPLATES } from "@/crm/lib/crm-email-templates";
+import {
+  useCrmEmailRecipients,
+  useSendCrmEmail,
+  useCrmEmailTemplates,
+  type CrmEmailTarget,
+} from "@/crm/hooks/use-crm-api";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => m.TiptapEditor),
@@ -62,6 +66,7 @@ export function CrmEmailDialog({
   target: CrmEmailTarget | null;
 }) {
   const { data, isLoading, isError } = useCrmEmailRecipients(open ? target : null);
+  const { data: templates = [] } = useCrmEmailTemplates();
   const send = useSendCrmEmail();
 
   const [subject, setSubject] = useState("");
@@ -96,7 +101,7 @@ export function CrmEmailDialog({
       setSubject("");
       setMessage("");
     } else {
-      const tpl = CRM_EMAIL_TEMPLATES.find((t) => t.id === id);
+      const tpl = templates.find((t) => t.id === id);
       if (!tpl) return;
       setSubject(tpl.subject);
       setMessage(tpl.body);
@@ -293,9 +298,9 @@ export function CrmEmailDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={BLANK}>Blank — write your own</SelectItem>
-                {CRM_EMAIL_TEMPLATES.map((t) => (
+                {templates.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    {t.label}
+                    {t.name}
                   </SelectItem>
                 ))}
               </SelectContent>
