@@ -40,6 +40,9 @@ export async function runTick(): Promise<CrmReminderTickResult> {
   const due = await db.crmTask.findMany({
     where: {
       status: "OPEN",
+      // Archived (soft-deleted) tasks must not fire — archiving a follow-up is a
+      // valid way to cancel its reminder.
+      archivedAt: null,
       remindedAt: null,
       remindAt: { not: null, lte: now },
       // No owner, no one to remind. These are surfaced in the UI as "Unassigned"

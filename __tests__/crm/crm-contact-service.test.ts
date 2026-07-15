@@ -23,6 +23,7 @@ vi.mock("@/lib/db", () => ({
     crmCompany: { findFirst: vi.fn() },
     contact: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
+    crmActivity: { create: vi.fn().mockResolvedValue({}) },
   },
 }));
 
@@ -41,6 +42,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.auditLog.create).mockResolvedValue({} as never);
   vi.mocked(db.crmCompany.findFirst).mockResolvedValue({ id: "c-1" } as never);
+  // updateCrmContact now snapshots the row before writing (for the change log's
+  // before→after diff), so give the pre-update read a default row.
+  vi.mocked(db.crmContact.findFirst).mockResolvedValue({
+    id: "cc-1", firstName: "Sara", lastName: "Khan", email: "old@abbott.com",
+    jobTitle: null, phone: null, country: null, notes: null, lifecycleStage: null, companyId: null,
+  } as never);
 });
 
 describe("population separation — a CRM contact NEVER touches the Contact table on create", () => {

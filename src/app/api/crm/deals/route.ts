@@ -47,6 +47,7 @@ export async function GET(req: Request) {
         to: searchParams.get("to"),
         min: searchParams.get("min"),
         max: searchParams.get("max"),
+        archived: searchParams.get("archived"),
       },
       { organizationId: ctx.organizationId, canSeeValues: canViewDealValues(ctx.role, ctx.fromApiKey) },
     );
@@ -65,6 +66,7 @@ export async function GET(req: Request) {
         lostAt: true,
         lostReason: true,
         sponsorSyncedAt: true,
+        archivedAt: true,
         createdAt: true,
         company: { select: { id: true, name: true } },
         contacts: {

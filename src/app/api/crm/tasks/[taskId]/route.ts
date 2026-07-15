@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
-import { updateTask, completeTask, reopenTask, deleteTask } from "@/crm/services/task-service";
+import { requireCrmWrite, requireCrmDelete, denyCrmDelete, crmErrorResponse } from "@/crm/lib/crm-route";
+import { updateTask, completeTask, reopenTask, setTaskArchived } from "@/crm/services/task-service";
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(255).optional(),
@@ -12,6 +12,8 @@ const updateTaskSchema = z.object({
   ownerId: z.string().min(1).nullable().optional(),
   /** Completion is a state transition, not a field write — it gets its own claim. */
   status: z.enum(["OPEN", "DONE"]).optional(),
+  /** Restore a soft-deleted task. Delete-gated separately below. */
+  archived: z.boolean().optional(),
 });
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ taskId: string }> }) {
@@ -24,13 +26,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ taskId
     return zodErrorResponse(parsed, { route: "crm/tasks/[taskId]:PATCH", organizationId: ctx.organizationId, taskId });
   }
 
-  const { status, ...fields } = parsed.data;
+  const { status, archived, ...fields } = parsed.data;
   const common = {
     taskId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
     source: (ctx.fromApiKey ? "api" : "rest") as "api" | "rest",
   };
+
+  // Archive / restore is delete-gated (ORGANIZER may edit but not archive).
+  if (archived !== undefined) {
+    const denied = denyCrmDelete(ctx);
+    if (denied) return denied;
+    const result = await setTaskArchived({ ...common, archived });
+    if (!result.ok) return crmErrorResponse(result);
+    return NextResponse.json({ task: result.task });
+  }
 
   // Route the status transition through its own conditional-claim helper rather
   // than writing `status` as a plain field — a double-clicked "Done" would
@@ -51,17 +62,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ taskId
   return NextResponse.json({ task: result.task });
 }
 
+/** DELETE /api/crm/tasks/[taskId] — archive (soft delete). Admin + CRM_USER only. */
 export async function DELETE(req: Request, { params }: { params: Promise<{ taskId: string }> }) {
-  const [{ error, ctx }, { taskId }] = await Promise.all([requireCrmWrite(req), params]);
+  const [{ error, ctx }, { taskId }] = await Promise.all([requireCrmDelete(req), params]);
   if (error) return error;
 
-  const result = await deleteTask({
+  const result = await setTaskArchived({
     taskId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
     source: ctx.fromApiKey ? "api" : "rest",
+    archived: true,
   });
 
   if (!result.ok) return crmErrorResponse(result);
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ task: result.task, archived: true });
 }

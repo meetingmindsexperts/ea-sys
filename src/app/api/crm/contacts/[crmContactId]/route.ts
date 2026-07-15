@@ -3,8 +3,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
-import { updateCrmContact, linkToEventContact } from "@/crm/services/crm-contact-service";
+import { requireCrmRead, requireCrmWrite, requireCrmDelete, denyCrmDelete, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
+import { updateCrmContact, linkToEventContact, setCrmContactArchived } from "@/crm/services/crm-contact-service";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -22,6 +22,8 @@ const updateSchema = z.object({
    * event Contact reaches the HCP marketing mirror). `null` unlinks.
    */
   contactId: z.string().min(1).nullable().optional(),
+  /** Restore a soft-deleted contact. Delete-gated separately below. */
+  archived: z.boolean().optional(),
 });
 
 export async function GET(req: Request, { params }: { params: Promise<{ crmContactId: string }> }) {
@@ -78,13 +80,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ crmCon
     return zodErrorResponse(parsed, { route: "crm/contacts/[id]:PATCH", organizationId: ctx.organizationId, crmContactId });
   }
 
-  const { contactId, ...fields } = parsed.data;
+  const { contactId, archived, ...fields } = parsed.data;
   const common = {
     crmContactId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
     source: (ctx.fromApiKey ? "api" : "rest") as "api" | "rest",
   };
+
+  // Archive / restore is delete-gated (ORGANIZER may edit but not archive).
+  if (archived !== undefined) {
+    const denied = denyCrmDelete(ctx);
+    if (denied) return denied;
+    const result = await setCrmContactArchived({ ...common, archived });
+    if (!result.ok) return crmErrorResponse(result);
+    return NextResponse.json({ contact: result.crmContact });
+  }
 
   // The event-contact link is its own operation (it validates against a different
   // table and audits differently), so route it rather than writing contactId as a
@@ -100,4 +111,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ crmCon
   const result = await updateCrmContact({ ...common, ...fields });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ contact: result.crmContact });
+}
+
+/** DELETE /api/crm/contacts/[crmContactId] — archive (soft delete). Admin + CRM_USER only. */
+export async function DELETE(req: Request, { params }: { params: Promise<{ crmContactId: string }> }) {
+  const [{ error, ctx }, { crmContactId }] = await Promise.all([requireCrmDelete(req), params]);
+  if (error) return error;
+
+  const result = await setCrmContactArchived({
+    crmContactId,
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    source: ctx.fromApiKey ? "api" : "rest",
+    archived: true,
+  });
+
+  if (!result.ok) return crmErrorResponse(result);
+  return NextResponse.json({ contact: result.crmContact, archived: true });
 }

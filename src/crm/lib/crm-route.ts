@@ -14,7 +14,11 @@ import { getOrgContext, type OrgContext } from "@/lib/api-auth";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { redactFinancialFields } from "@/lib/finance-visibility";
-import { canViewDealValues, denyCrmAccess, denyCrmWrite } from "@/crm/lib/crm-visibility";
+import { canViewDealValues, denyCrmAccess, denyCrmWrite, denyCrmDelete } from "@/crm/lib/crm-visibility";
+
+// Re-exported so route handlers have one import site (the PATCH restore branch
+// calls this inline after requireCrmWrite).
+export { denyCrmDelete } from "@/crm/lib/crm-visibility";
 
 /**
  * Resolve the caller and enforce the CRM read gate in one step.
@@ -89,6 +93,23 @@ export async function requireCrmWrite(
   }
 
   return { ctx: read.ctx };
+}
+
+/**
+ * As requireCrmWrite, plus the ARCHIVE/RESTORE gate (blocks ORGANIZER, who may edit
+ * but not archive). Used by the DELETE handlers. The restore branch of a PATCH,
+ * which has already run requireCrmWrite, calls `denyCrmDelete(ctx)` inline instead.
+ */
+export async function requireCrmDelete(
+  req: Request,
+): Promise<{ error: NextResponse; ctx?: never } | { error?: never; ctx: OrgContext }> {
+  const write = await requireCrmWrite(req);
+  if (write.error) return write;
+
+  const denied = denyCrmDelete(write.ctx); // logs its own refusal
+  if (denied) return { error: denied };
+
+  return { ctx: write.ctx };
 }
 
 /**

@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
+import { isArchivedView } from "@/crm/lib/deal-filters";
 import { findOrCreateCrmContact } from "@/crm/services/crm-contact-service";
 
 const createSchema = z.object({
@@ -39,6 +40,7 @@ export async function GET(req: Request) {
     const contacts = await db.crmContact.findMany({
       where: {
         organizationId: ctx.organizationId,
+        archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
         ...(companyId ? { companyId } : {}),
         ...(lifecycle && LIFECYCLE.has(lifecycle) ? { lifecycleStage: lifecycle as "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION" } : {}),
         ...(q
@@ -64,6 +66,7 @@ export async function GET(req: Request) {
         company: { select: { id: true, name: true } },
         // Non-null when this rep is ALSO in the event contact store (they attend).
         contactId: true,
+        archivedAt: true,
         _count: { select: { deals: true } },
       },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],

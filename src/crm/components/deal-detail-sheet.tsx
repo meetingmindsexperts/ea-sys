@@ -16,7 +16,7 @@
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { Building2, CalendarDays, Loader2, Phone, Trash2, Users } from "lucide-react";
+import { Archive, ArchiveRestore, Building2, CalendarDays, Loader2, Pencil, Phone, Trash2, Users } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -50,7 +50,11 @@ import {
   useCrmNotes,
   useDeleteNote,
   useRemoveDealContact,
+  useSetDealArchived,
 } from "@/crm/hooks/use-crm-api";
+import { canDeleteCrm } from "@/crm/lib/crm-roles";
+import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
+import { EditDealDialog } from "@/crm/components/edit-deal-dialog";
 
 export function DealDetailSheet({
   deal,
@@ -63,6 +67,7 @@ export function DealDetailSheet({
 }) {
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
+  const canDelete = canDeleteCrm(session?.user?.role);
 
   const [noteBody, setNoteBody] = useState("");
   const [noteType, setNoteType] = useState<CrmActivityType>("NOTE");
@@ -70,6 +75,7 @@ export function DealDetailSheet({
   const [taskDue, setTaskDue] = useState("");
   const [lostReason, setLostReason] = useState("");
   const [closing, setClosing] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data: notes = [], isLoading: notesLoading } = useCrmNotes(
     deal ? { dealId: deal.id } : {},
@@ -78,6 +84,7 @@ export function DealDetailSheet({
   const deleteNote = useDeleteNote();
   const createTask = useCreateTask();
   const closeDeal = useCloseDeal(deal?.id ?? "");
+  const setArchived = useSetDealArchived(deal?.id ?? "");
 
   if (!deal) return null;
 
@@ -135,11 +142,53 @@ export function DealDetailSheet({
                 {deal.status}
               </Badge>
               {deal.event && <Badge variant="outline">{deal.event.name}</Badge>}
+              {deal.archivedAt && (
+                <Badge variant="outline" className="bg-rose-100 text-rose-700 border-rose-200">
+                  Archived
+                </Badge>
+              )}
             </span>
           </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-6 px-4 pb-8">
+          {/* ── Record actions ──────────────────────────────────────────── */}
+          {(canWrite || canDelete) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {canWrite && (
+                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                  <Pencil className="mr-2 h-3.5 w-3.5" />
+                  Edit
+                </Button>
+              )}
+              {canDelete &&
+                (deal.archivedAt ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={setArchived.isPending}
+                    onClick={() => setArchived.mutate(false)}
+                  >
+                    <ArchiveRestore className="mr-2 h-3.5 w-3.5" />
+                    Restore
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive"
+                    disabled={setArchived.isPending}
+                    onClick={() => {
+                      if (!confirm("Archive this deal? It will be hidden from the board and the reports. You can restore it from the archived view.")) return;
+                      setArchived.mutate(true, { onSuccess: () => onOpenChange(false) });
+                    }}
+                  >
+                    <Archive className="mr-2 h-3.5 w-3.5" />
+                    Archive
+                  </Button>
+                ))}
+            </div>
+          )}
           {/* ── Summary ─────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-4 rounded-lg border p-4">
             <Field label="Value">
@@ -333,8 +382,15 @@ export function DealDetailSheet({
               ON THIS DEAL — the same rep can be PRIMARY here and INFLUENCER
               elsewhere, which is why the role lives on the link. */}
           <DealContacts deal={deal} canWrite={canWrite} />
+
+          <Separator />
+
+          {/* ── History (system change log) ─────────────────────────────── */}
+          <CrmActivityTimeline entityType="DEAL" entityId={deal.id} />
         </div>
       </SheetContent>
+
+      <EditDealDialog deal={deal} open={editOpen} onOpenChange={setEditOpen} />
     </Sheet>
   );
 }

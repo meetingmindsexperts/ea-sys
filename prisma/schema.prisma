@@ -48,6 +48,7 @@ model Organization {
   crmDeals          CrmDeal[]
   crmTasks          CrmTask[]
   crmNotes          CrmNote[]
+  crmActivities     CrmActivity[]
 }
 
 model User {
@@ -92,6 +93,7 @@ model User {
   ownedCrmDeals    CrmDeal[] @relation("CrmDealOwner")
   ownedCrmTasks    CrmTask[] @relation("CrmTaskOwner")
   authoredCrmNotes CrmNote[] @relation("CrmNoteAuthor")
+  crmActivities    CrmActivity[] @relation("CrmActivityActor")
 
   @@index([organizationId])
   @@index([email])
@@ -2418,6 +2420,53 @@ enum CrmActivityType {
   MEETING
 }
 
+/// Which CRM entity a CrmActivity row is about. Polymorphic (entityType +
+/// entityId) rather than four FK columns — one timeline table across all four
+/// record types, same shape as the core AuditLog.
+enum CrmActivityEntity {
+  DEAL
+  COMPANY
+  CONTACT
+  TASK
+}
+
+/// The CRM change log — the "detailed activity log" surfaced in every detail
+/// sheet. SYSTEM-generated (create / edit-with-field-diffs / archive / restore /
+/// stage-move / won / lost / contact-linked …), distinct from CrmNote which is a
+/// human-written note/call/meeting.
+///
+/// This is the CRM's OWN audit store, not the core AuditLog: it is org-scoped
+/// (trivial tenant-safe reads), it stores before→after field diffs purpose-built
+/// for a timeline, and — critically — it is actually READ in the UI, which the
+/// core AuditLog's CRM rows never were. One writer feeds it (recordCrmActivity),
+/// so the trail can't drift between callers.
+model CrmActivity {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  entityType CrmActivityEntity
+  entityId   String
+
+  /// CREATE | UPDATE | ARCHIVE | RESTORE | STAGE_MOVE | WON | LOST |
+  /// CONTACT_ADDED | CONTACT_REMOVED | COMPLETE | REOPEN | LINK_EVENT_CONTACT | …
+  action  String
+  /// { source, changes?: { field: { from, to } }, ...snapshot }. `dealValue` keys
+  /// here are stripped for money-blind callers by the same FINANCIAL_KEYS redactor
+  /// the board uses.
+  changes Json?
+
+  /// Nullable + SetNull: an activity row outlives the user who caused it (a rep
+  /// leaves, their account is deleted — the trail must not vanish with them).
+  actorId String?
+  actor   User?   @relation("CrmActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, entityType, entityId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
 /// First-class Account. Today Contact.organization is a free-text string, which
 /// is why "Cleveland Clinic" and "Cleveland Clinic Foundation" are two things.
 ///
@@ -2448,6 +2497,11 @@ model CrmCompany {
   deals    CrmDeal[]
   tasks    CrmTask[]
   notes_   CrmNote[]
+
+  /// Soft delete. Set = archived (hidden from lists/board/reports, restorable).
+  /// We never hard-delete a CRM record: the row and its CrmActivity trail survive
+  /// so "who archived this account, and when" stays answerable.
+  archivedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2551,6 +2605,10 @@ model CrmDeal {
   tasks CrmTask[]
   notes CrmNote[]
 
+  /// Soft delete — see CrmCompany.archivedAt. Archived deals drop out of the board,
+  /// the reports and the CSV export (pipeline totals must not count a dead deal).
+  archivedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2593,6 +2651,9 @@ model CrmTask {
 
   completedAt DateTime?
   createdById String?
+
+  /// Soft delete — see CrmCompany.archivedAt.
+  archivedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2736,6 +2797,9 @@ model CrmContact {
   deals    CrmDealContact[]
   tasks    CrmTask[]
   crmNotes CrmNote[]
+
+  /// Soft delete — see CrmCompany.archivedAt.
+  archivedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

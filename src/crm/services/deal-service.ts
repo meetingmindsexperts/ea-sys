@@ -29,7 +29,11 @@
 import { Prisma, type CrmDeal, type CrmDealStatus, type CrmDealContactRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
 import { resolveStage } from "./pipeline-service";
+
+/** Fields worth showing in the change log when a deal is edited. */
+const DEAL_DIFF_KEYS = ["name", "dealValue", "currency", "expectedClose", "companyId", "eventId", "ownerId"] as const;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -184,12 +188,12 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
       },
     });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "CREATE",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "DEAL",
       entityId: deal.id,
-      eventId: deal.eventId,
-      ipAddress: input.requestIp,
+      action: "CREATE",
+      actorId: input.userId,
       changes: { source: input.source, name, stage: stage.name, dealValue: input.dealValue ?? null },
     });
 
@@ -239,26 +243,33 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
   }
 
   try {
-    // Bound to the org IN THE WRITE, so a deal id from another tenant matches
-    // zero rows rather than being updated.
-    const res = await db.crmDeal.updateMany({
+    // Snapshot BEFORE the write so the change log can record real before→after
+    // values, not just which field names changed. Bound to the org, so a deal id
+    // from another tenant 404s here rather than being touched.
+    const before = await db.crmDeal.findFirst({
       where: { id: input.dealId, organizationId: input.organizationId },
-      data,
+      select: { name: true, dealValue: true, currency: true, expectedClose: true, companyId: true, eventId: true, ownerId: true },
     });
-    if (res.count === 0) {
+    if (!before) {
       apiLogger.warn({ msg: "crm-deal:update-not-found", dealId: input.dealId, organizationId: input.organizationId });
       return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
     }
 
+    await db.crmDeal.updateMany({
+      where: { id: input.dealId, organizationId: input.organizationId },
+      data,
+    });
+
     const deal = await db.crmDeal.findUniqueOrThrow({ where: { id: input.dealId } });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "UPDATE",
+    const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "DEAL",
       entityId: deal.id,
-      eventId: deal.eventId,
-      ipAddress: input.requestIp,
-      changes: { source: input.source, fields: Object.keys(data) },
+      action: "UPDATE",
+      actorId: input.userId,
+      changes: { source: input.source, ...(fieldChanges ? { changes: fieldChanges } : {}) },
     });
 
     apiLogger.info({ msg: "crm-deal:updated", dealId: deal.id, source: input.source });
@@ -338,11 +349,12 @@ export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDeal
 
     const deal = await db.crmDeal.findUniqueOrThrow({ where: { id: input.dealId } });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "STAGE_MOVE",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "DEAL",
       entityId: deal.id,
-      eventId: deal.eventId,
+      action: "STAGE_MOVE",
+      actorId: input.userId,
       changes: {
         source: input.source,
         fromStageId: input.fromStageId,
@@ -427,11 +439,12 @@ export async function closeDeal(input: CloseDealInput): Promise<CloseDealResult>
 
     const deal = await db.crmDeal.findUniqueOrThrow({ where: { id: input.dealId } });
 
-    void writeAudit({
-      userId: input.userId,
-      action: status === "WON" ? "DEAL_WON" : "DEAL_LOST",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "DEAL",
       entityId: deal.id,
-      eventId: deal.eventId,
+      action: status === "WON" ? "WON" : "LOST",
+      actorId: input.userId,
       changes: {
         source: input.source,
         status,
@@ -480,33 +493,74 @@ function closeStamps(status: CrmDealStatus | null) {
   return { wonAt: null, lostAt: null };
 }
 
-function writeAudit(entry: {
+// ── Archive / restore (soft delete) ──────────────────────────────────────────
+
+/**
+ * Archive or restore a deal (soft delete). We never hard-delete: the row and its
+ * change log survive, and an archived deal drops out of the board/reports/export
+ * (the list filters exclude `archivedAt != null`).
+ *
+ * Idempotent: archiving an already-archived deal (or restoring an active one) is a
+ * no-op success that records NOTHING, so a double-click can't spam the log or
+ * re-stamp `archivedAt`. RBAC (who may archive) is enforced at the route boundary.
+ */
+export async function setDealArchived(input: {
+  dealId: string;
+  organizationId: string;
   userId: string | null;
-  action: string;
-  entityId: string;
-  eventId?: string | null;
-  ipAddress?: string;
-  changes: Record<string, unknown>;
-}) {
-  return db.auditLog
-    .create({
-      data: {
-        userId: entry.userId,
-        eventId: entry.eventId ?? null,
-        action: entry.action,
-        entityType: "CrmDeal",
-        entityId: entry.entityId,
-        ipAddress: entry.ipAddress ?? null,
-        changes: entry.changes as Prisma.InputJsonValue,
-      },
-    })
-    .catch((err: unknown) => {
-      apiLogger.error({
-        msg: "crm-deal:audit-failed",
-        entityId: entry.entityId,
-        err: err instanceof Error ? err.message : String(err),
-      });
+  source: "rest" | "mcp" | "api";
+  archived: boolean;
+}): Promise<{ ok: true; deal: CrmDeal } | Fail> {
+  try {
+    const current = await db.crmDeal.findFirst({
+      where: { id: input.dealId, organizationId: input.organizationId },
     });
+    if (!current) {
+      apiLogger.warn({ msg: "crm-deal:archive-not-found", dealId: input.dealId, organizationId: input.organizationId });
+      return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
+    }
+
+    const alreadyInState = input.archived ? current.archivedAt !== null : current.archivedAt === null;
+    if (alreadyInState) {
+      // No-op — return the row unchanged, record nothing.
+      return { ok: true, deal: current };
+    }
+
+    const deal = await db.crmDeal.update({
+      where: { id: current.id },
+      data: { archivedAt: input.archived ? new Date() : null },
+    });
+
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "DEAL",
+      entityId: deal.id,
+      action: input.archived ? "ARCHIVE" : "RESTORE",
+      actorId: input.userId,
+      // Snapshot the name + value so the log line means something even for a deal
+      // that later stops being reachable in the active list.
+      changes: {
+        source: input.source,
+        name: deal.name,
+        dealValue: deal.dealValue ? Number(deal.dealValue) : null,
+        currency: deal.currency,
+      },
+    });
+
+    apiLogger.info({
+      msg: input.archived ? "crm-deal:archived" : "crm-deal:restored",
+      dealId: deal.id,
+      source: input.source,
+    });
+    return { ok: true, deal };
+  } catch (err) {
+    apiLogger.error({
+      msg: "crm-deal:archive-failed",
+      dealId: input.dealId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, code: "UNKNOWN", message: "Could not archive the deal" };
+  }
 }
 
 // ── Deal ↔ contacts (the people who actually decide) ─────────────────────────
@@ -559,11 +613,12 @@ export async function addDealContact(input: {
       update: { role: input.role ?? "PRIMARY" },
     });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "DEAL_CONTACT_ADDED",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "DEAL",
       entityId: deal.id,
-      eventId: deal.eventId,
+      action: "CONTACT_ADDED",
+      actorId: input.userId,
       changes: { source: input.source, crmContactId: contact.id, role: input.role ?? "PRIMARY" },
     });
 
@@ -614,11 +669,12 @@ export async function removeDealContact(input: {
       return { ok: false, code: "CONTACT_NOT_FOUND", message: "That person is not on this deal" };
     }
 
-    void writeAudit({
-      userId: input.userId,
-      action: "DEAL_CONTACT_REMOVED",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "DEAL",
       entityId: deal.id,
-      eventId: deal.eventId,
+      action: "CONTACT_REMOVED",
+      actorId: input.userId,
       changes: { source: input.source, crmContactId: input.crmContactId },
     });
 

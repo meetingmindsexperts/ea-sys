@@ -13,7 +13,7 @@
  */
 import { useState } from "react";
 import { useSession } from "next-auth/react";
-import { Building2, Loader2, Plus, Search, TriangleAlert } from "lucide-react";
+import { Archive, Building2, Loader2, Plus, Search, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,7 @@ export default function CrmCompaniesPage() {
   const [q, setQ] = useState("");
   const [industry, setIndustry] = useState<string>("");
   const [onlyReview, setOnlyReview] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -48,6 +49,7 @@ export default function CrmCompaniesPage() {
   const { data: companies = [], isLoading } = useCrmCompanies({
     q: q || undefined,
     industry: industry || undefined,
+    archived: showArchived ? "1" : undefined,
   });
   const rows = onlyReview ? companies.filter((c) => c.needsReview) : companies;
   const reviewCount = allCompanies.filter((c) => c.needsReview).length;
@@ -105,6 +107,14 @@ export default function CrmCompaniesPage() {
             Needs review ({reviewCount})
           </Button>
         )}
+        <Button
+          variant={showArchived ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowArchived((v) => !v)}
+        >
+          <Archive className="mr-2 h-4 w-4" />
+          {showArchived ? "Showing archived" : "Show archived"}
+        </Button>
       </div>
 
       {isLoading ? (

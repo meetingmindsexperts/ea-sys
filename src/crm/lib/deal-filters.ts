@@ -46,6 +46,13 @@ export interface DealFilterParams {
   to?: string | null;
   min?: string | null;
   max?: string | null;
+  /** "1"/"true" → show ONLY archived deals. Anything else → only active ones. */
+  archived?: string | null;
+}
+
+/** Whether an `archived` query param requests the archived view. */
+export function isArchivedView(v: string | null | undefined): boolean {
+  return v === "1" || v === "true";
 }
 
 /**
@@ -59,6 +66,11 @@ export function buildDealWhere(
   opts: { organizationId: string; canSeeValues: boolean },
 ): Prisma.CrmDealWhereInput {
   const where: Prisma.CrmDealWhereInput = { organizationId: opts.organizationId };
+
+  // Soft delete: default to ACTIVE deals only. Reports + export never pass
+  // `archived`, so a dead deal never counts toward a pipeline total. The archived
+  // VIEW (list only) flips this to show just the archived ones.
+  where.archivedAt = isArchivedView(params.archived) ? { not: null } : null;
 
   const ownerId = params.ownerId?.trim();
   if (ownerId) where.ownerId = ownerId;

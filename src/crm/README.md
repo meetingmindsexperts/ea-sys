@@ -175,6 +175,23 @@ written. An unbound nested id straight from the URL is this codebase's single
 most-repeated IDOR (accommodation H1, invoices H9, contacts H1). The services do this
 in `validateRelations` / `resolveStage`; don't skip it in a new path.
 
+### 3.6 There is no hard delete, and the change log has ONE writer
+
+Deal / company / contact / task **soft-delete only** — `archivedAt` is set, never a
+row removed, so the record and its history survive and it can be restored. Every list /
+board / report / CSV filters `archivedAt: null`; the reminder worker skips archived
+tasks. Archive/restore is **admin + CRM_USER only** (`canDeleteCrm`, narrower than the
+write predicate — ORGANIZER may edit but not archive).
+
+The "detailed activity log" (`CrmActivity`) is written by **exactly one function**,
+`recordCrmActivity` in [`lib/crm-activity.ts`](lib/crm-activity.ts) — every service
+calls it and nothing else writes the table, so the trail can't drift between callers
+(the no-cross-caller-duplication rule; the per-service `writeAudit` helpers this
+replaced were the smell). Edits record field-level before→after via `diffFields`. It is
+the CRM's own store, **not** the core `AuditLog` — org-scoped, diff-shaped, and actually
+read in the UI. Deal money in a log payload is redacted for MEMBER by the same
+`FINANCIAL_KEYS` machinery the board uses.
+
 ---
 
 ## 4. Code conventions

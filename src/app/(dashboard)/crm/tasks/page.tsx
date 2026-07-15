@@ -9,15 +9,15 @@
  */
 import { Suspense, useState } from "react";
 import { useSession } from "next-auth/react";
-import { CheckCircle2, Circle, Loader2, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, CheckCircle2, Circle, Loader2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
-import { useCrmTasks, useDeleteTask, useUpdateTask } from "@/crm/hooks/use-crm-api";
-import { canOwnDeals } from "@/crm/lib/crm-roles";
+import { useCrmTasks, useDeleteTask, useRestoreTask, useUpdateTask } from "@/crm/hooks/use-crm-api";
+import { canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 import { personName, type CrmTaskRow } from "@/crm/lib/crm-types";
 
 const TASK_FILTER_KEYS = ["owner", "dueFrom", "dueTo"];
@@ -25,21 +25,25 @@ const TASK_FILTER_KEYS = ["owner", "dueFrom", "dueTo"];
 function TasksPageInner() {
   const { data: session } = useSession();
   const canWrite = canOwnDeals(session?.user?.role);
+  const canDelete = canDeleteCrm(session?.user?.role);
 
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [status, setStatus] = useState<"OPEN" | "DONE">("OPEN");
+  const [showArchived, setShowArchived] = useState(false);
 
   const { get, set, clear, anyActive } = useCrmFilters();
   const taskFilters = {
     ownerId: get("owner") || undefined,
     dueFrom: get("dueFrom") || undefined,
     dueTo: get("dueTo") || undefined,
+    archived: showArchived ? "1" : undefined,
   };
   const filtersActive = anyActive(TASK_FILTER_KEYS);
 
   const { data: tasks = [], isLoading } = useCrmTasks(scope, status, taskFilters);
   const update = useUpdateTask();
   const del = useDeleteTask();
+  const restore = useRestoreTask();
 
   const now = new Date();
   const overdue = tasks.filter((t) => t.dueAt && new Date(t.dueAt) < now && t.status === "OPEN");
@@ -76,6 +80,14 @@ function TasksPageInner() {
           onFromChange={(v) => set({ dueFrom: v })}
           onToChange={(v) => set({ dueTo: v })}
         />
+        <Button
+          variant={showArchived ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowArchived((v) => !v)}
+        >
+          <Archive className="mr-2 h-3.5 w-3.5" />
+          {showArchived ? "Showing archived" : "Show archived"}
+        </Button>
         {filtersActive && (
           <Button variant="ghost" size="sm" onClick={() => clear(TASK_FILTER_KEYS)}>
             <X className="mr-1 h-3.5 w-3.5" />
@@ -107,10 +119,12 @@ function TasksPageInner() {
                   task={t}
                   overdue
                   canWrite={canWrite}
+                  canDelete={canDelete}
                   onToggle={() =>
                     update.mutate({ taskId: t.id, status: t.status === "OPEN" ? "DONE" : "OPEN" })
                   }
-                  onDelete={() => del.mutate(t.id)}
+                  onArchive={() => del.mutate(t.id)}
+                  onRestore={() => restore.mutate(t.id)}
                 />
               ))}
             </section>
@@ -126,10 +140,12 @@ function TasksPageInner() {
                   key={t.id}
                   task={t}
                   canWrite={canWrite}
+                  canDelete={canDelete}
                   onToggle={() =>
                     update.mutate({ taskId: t.id, status: t.status === "OPEN" ? "DONE" : "OPEN" })
                   }
-                  onDelete={() => del.mutate(t.id)}
+                  onArchive={() => del.mutate(t.id)}
+                  onRestore={() => restore.mutate(t.id)}
                 />
               ))}
             </section>
@@ -144,16 +160,21 @@ function TaskRow({
   task,
   overdue,
   canWrite,
+  canDelete,
   onToggle,
-  onDelete,
+  onArchive,
+  onRestore,
 }: {
   task: CrmTaskRow;
   overdue?: boolean;
   canWrite: boolean;
+  canDelete: boolean;
   onToggle: () => void;
-  onDelete: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
 }) {
   const done = task.status === "DONE";
+  const archived = !!task.archivedAt;
 
   return (
     <div className="flex items-start gap-3 rounded-lg border p-3">
@@ -187,16 +208,26 @@ function TaskRow({
         </div>
       </div>
 
-      {canWrite && (
-        <button
-          type="button"
-          aria-label="Delete task"
-          onClick={onDelete}
-          className="text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      )}
+      {canDelete &&
+        (archived ? (
+          <button
+            type="button"
+            aria-label="Restore task"
+            onClick={onRestore}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <ArchiveRestore className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            aria-label="Archive task"
+            onClick={onArchive}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <Archive className="h-4 w-4" />
+          </button>
+        ))}
     </div>
   );
 }

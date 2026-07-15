@@ -16,10 +16,10 @@
  */
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
-import { canViewCrm, canOwnDeals } from "@/crm/lib/crm-roles";
+import { canViewCrm, canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 
 // Re-exported so server code has one import site for both predicates and guards.
-export { canViewCrm, canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
+export { canViewCrm, canOwnDeals, canViewDealValues, canDeleteCrm } from "@/crm/lib/crm-roles";
 
 /**
  * Returns a 403 if the caller may not read the CRM, else null.
@@ -65,6 +65,30 @@ export function denyCrmWrite(ctx: {
   });
   return NextResponse.json(
     { error: "You do not have permission to modify CRM records", code: "CRM_WRITE_FORBIDDEN" },
+    { status: 403 },
+  );
+}
+
+/**
+ * Returns a 403 if the caller may not ARCHIVE/RESTORE a CRM record, else null.
+ *
+ * Narrower than denyCrmWrite: ORGANIZER can edit a deal but not archive it. Used by
+ * the DELETE handlers and the restore branch of PATCH. Logs its own refusal.
+ */
+export function denyCrmDelete(ctx: {
+  role: string | null;
+  userId: string | null;
+  fromApiKey: boolean;
+}) {
+  if (canDeleteCrm(ctx.role, ctx.fromApiKey)) return null;
+
+  apiLogger.warn({
+    msg: "auth-guard:crm-delete-denied",
+    role: ctx.role,
+    userId: ctx.userId,
+  });
+  return NextResponse.json(
+    { error: "Only admins and the sales team can archive CRM records", code: "CRM_DELETE_FORBIDDEN" },
     { status: 403 },
   );
 }

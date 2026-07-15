@@ -107,7 +107,7 @@
 <h1>CRM — Build Status</h1>
 <p class="sub">
   What is built, what is wired to the rest of EA-SYS, and what is not.<br>
-  <span class="stamp">Last updated: <b>15 July 2026</b> · HEAD <code>WORKING</code> ·
+  <span class="stamp">Last updated: <b>15 July 2026</b> (edit + soft-delete + change-log shipped) · HEAD <code>WORKING</code> ·
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
@@ -332,8 +332,8 @@ exactly which of those exist today.</p>
     <tr>
       <td><b>Edit a company</b></td>
       <td><span class="tag done">YES</span></td>
-      <td><span class="tag part">PARTIAL</span></td>
-      <td>The detail sheet can only dismiss the “needs review” flag. Name / industry / website / notes are <b>not editable after creation</b>.</td>
+      <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
+      <td>Edit dialog on the account detail sheet — name / industry / website / city / country / notes. Changes recorded in the account's History.</td>
     </tr>
     <tr>
       <td><b>Notes on a company or contact</b></td>
@@ -350,8 +350,26 @@ exactly which of those exist today.</p>
     <tr>
       <td><b>Edit a deal after creating it</b></td>
       <td><span class="tag done">YES</span></td>
-      <td><span class="tag none">NONE</span></td>
-      <td><code>PATCH /api/crm/deals/[id]</code> works; the detail sheet can only <i>close</i> a deal. You cannot fix a typo'd name or change the value.</td>
+      <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
+      <td>Edit dialog on the deal sheet — name / company (find-or-create) / value / currency / expected-close / event. (Stage moves on the board; won/lost is Close.)</td>
+    </tr>
+    <tr>
+      <td><b>Edit a contact</b></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
+      <td>New contact detail sheet (row click) with an edit dialog — name / email / company / lifecycle / job / phone / country / notes.</td>
+    </tr>
+    <tr>
+      <td><b>Delete a record</b><br><span class="why">deal · company · contact · task</span></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
+      <td><b>Soft delete (archive), never a hard delete.</b> Archive/Restore on each detail sheet + a "Show archived" toggle on every list. <b>ADMIN / SUPER_ADMIN / CRM_USER only</b> (ORGANIZER can edit but not archive; MEMBER read-only). Archived records drop out of the board / lists / reports / CSV; the reminder worker skips archived tasks.</td>
+    </tr>
+    <tr>
+      <td><b>Change log / activity history</b></td>
+      <td><span class="tag done">YES</span></td>
+      <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
+      <td>Every create / edit (with field-level before→after diffs) / archive / restore / stage-move / won / lost is recorded to the new <code>CrmActivity</code> table (one writer, <code>recordCrmActivity</code>) and rendered as a <b>History</b> timeline in each detail sheet. Deal money in the log is redacted for MEMBER, same as the board.</td>
     </tr>
     <tr>
       <td><b>Edit / delete a note</b></td>

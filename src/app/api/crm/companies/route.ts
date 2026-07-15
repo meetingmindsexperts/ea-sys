@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
+import { isArchivedView } from "@/crm/lib/deal-filters";
 import { findOrCreateCompany } from "@/crm/services/company-service";
 
 const createCompanySchema = z.object({
@@ -30,6 +31,8 @@ export async function GET(req: Request) {
     const companies = await db.crmCompany.findMany({
       where: {
         organizationId: ctx.organizationId,
+        // Soft delete: active only by default; ?archived=1 shows the archived view.
+        archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
         ...(needsReview ? { needsReview: true } : {}),
         ...(industry ? { industry: { equals: industry, mode: "insensitive" as const } } : {}),
         ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
@@ -42,6 +45,7 @@ export async function GET(req: Request) {
         country: true,
         city: true,
         needsReview: true,
+        archivedAt: true,
         createdAt: true,
         _count: { select: { contacts: true, deals: true } },
       },

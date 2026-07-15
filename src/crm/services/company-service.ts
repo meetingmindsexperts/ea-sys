@@ -26,6 +26,10 @@
 import { Prisma, type CrmCompany } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
+
+/** Fields worth showing in the change log when an account is edited. */
+const COMPANY_DIFF_KEYS = ["name", "industry", "website", "country", "city", "notes", "needsReview"] as const;
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -164,11 +168,12 @@ export async function findOrCreateCompany(
       });
     }
 
-    void writeAudit({
-      userId: input.userId,
-      action: "CREATE",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "COMPANY",
       entityId: company.id,
-      ipAddress: input.requestIp,
+      action: "CREATE",
+      actorId: input.userId,
       changes: {
         source: input.source,
         name,
@@ -234,14 +239,14 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
   }
 
   try {
-    // Bind the row to the caller's org IN THE WRITE — a company id from a request
-    // body is untrusted input, and an unbound update is this codebase's most
-    // repeated IDOR (see the accommodation + contacts reviews).
-    const result = await db.crmCompany.updateMany({
+    // Snapshot before the write for a real before→after log. Bind the row to the
+    // caller's org — a company id from a request body is untrusted input, and an
+    // unbound update is this codebase's most repeated IDOR (accommodation + contacts).
+    const before = await db.crmCompany.findFirst({
       where: { id: input.companyId, organizationId: input.organizationId },
-      data,
+      select: { name: true, industry: true, website: true, country: true, city: true, notes: true, needsReview: true },
     });
-    if (result.count === 0) {
+    if (!before) {
       apiLogger.warn({
         msg: "crm-company:update-not-found",
         companyId: input.companyId,
@@ -250,14 +255,21 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
       return { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
     }
 
+    await db.crmCompany.updateMany({
+      where: { id: input.companyId, organizationId: input.organizationId },
+      data,
+    });
+
     const company = await db.crmCompany.findUniqueOrThrow({ where: { id: input.companyId } });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "UPDATE",
+    const fieldChanges = diffFields(before, company, COMPANY_DIFF_KEYS);
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "COMPANY",
       entityId: company.id,
-      ipAddress: input.requestIp,
-      changes: { source: input.source, fields: Object.keys(data) },
+      action: "UPDATE",
+      actorId: input.userId,
+      changes: { source: input.source, ...(fieldChanges ? { changes: fieldChanges } : {}) },
     });
 
     apiLogger.info({ msg: "crm-company:updated", companyId: company.id, source: input.source });
@@ -280,39 +292,61 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
   }
 }
 
-// ── Audit ────────────────────────────────────────────────────────────────────
+// ── Archive / restore (soft delete) ──────────────────────────────────────────
 
 /**
- * Fire-and-forget WITH a logged catch — an audit-insert blip must never 500 a
- * write that already committed (the M13 class from the registrations review).
+ * Archive or restore an account (soft delete). Idempotent — a no-op state change
+ * records nothing. RBAC is enforced at the route boundary.
  *
- * NOTE: AuditLog has no organizationId column (it is event-scoped or global), so
- * org-level CRM rows carry `eventId: null` and rely on entityType + entityId.
- * The IP goes in the real `ipAddress` column, not the changes blob.
+ * NOTE: archiving a company does NOT touch its deals (they keep resolving the row,
+ * which still exists). This is intentional — a reversible hide, not a cascade. The
+ * `Restrict` FK that blocks a hard delete is therefore irrelevant here.
  */
-function writeAudit(entry: {
+export async function setCompanyArchived(input: {
+  companyId: string;
+  organizationId: string;
   userId: string | null;
-  action: string;
-  entityId: string;
-  ipAddress?: string;
-  changes: Record<string, unknown>;
-}) {
-  return db.auditLog
-    .create({
-      data: {
-        userId: entry.userId,
-        action: entry.action,
-        entityType: "CrmCompany",
-        entityId: entry.entityId,
-        ipAddress: entry.ipAddress ?? null,
-        changes: entry.changes as Prisma.InputJsonValue,
-      },
-    })
-    .catch((err: unknown) => {
-      apiLogger.error({
-        msg: "crm-company:audit-failed",
-        entityId: entry.entityId,
-        err: err instanceof Error ? err.message : String(err),
-      });
+  source: "rest" | "mcp" | "api";
+  archived: boolean;
+}): Promise<{ ok: true; company: CrmCompany } | { ok: false; code: CompanyErrorCode; message: string }> {
+  try {
+    const current = await db.crmCompany.findFirst({
+      where: { id: input.companyId, organizationId: input.organizationId },
     });
+    if (!current) {
+      apiLogger.warn({ msg: "crm-company:archive-not-found", companyId: input.companyId, organizationId: input.organizationId });
+      return { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
+    }
+
+    const alreadyInState = input.archived ? current.archivedAt !== null : current.archivedAt === null;
+    if (alreadyInState) return { ok: true, company: current };
+
+    const company = await db.crmCompany.update({
+      where: { id: current.id },
+      data: { archivedAt: input.archived ? new Date() : null },
+    });
+
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "COMPANY",
+      entityId: company.id,
+      action: input.archived ? "ARCHIVE" : "RESTORE",
+      actorId: input.userId,
+      changes: { source: input.source, name: company.name },
+    });
+
+    apiLogger.info({
+      msg: input.archived ? "crm-company:archived" : "crm-company:restored",
+      companyId: company.id,
+      source: input.source,
+    });
+    return { ok: true, company };
+  } catch (err) {
+    apiLogger.error({
+      msg: "crm-company:archive-failed",
+      companyId: input.companyId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, code: "UNKNOWN", message: "Could not archive the company" };
+  }
 }

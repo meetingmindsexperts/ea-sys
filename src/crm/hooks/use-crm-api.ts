@@ -20,10 +20,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, apiFetch, apiPostJson, apiPatchJson, apiDelete } from "@/lib/api-fetch";
 import type {
+  CrmActivityRow,
+  CrmActivityEntityType,
   CrmBoardDeal,
   CrmCompanyRow,
   CrmCompanyDetail,
   CrmContactRow,
+  CrmContactDetail,
   CrmDealContactRole,
   CrmNoteRow,
   CrmStage,
@@ -39,6 +42,7 @@ export interface CrmDealFilters {
   to?: string;
   min?: string;
   max?: string;
+  archived?: string;
 }
 
 export const crmKeys = {
@@ -169,6 +173,7 @@ export interface CrmCompanyFilters {
   q?: string;
   industry?: string;
   needsReview?: string;
+  archived?: string;
 }
 
 export function useCrmCompanies(arg?: string | CrmCompanyFilters) {
@@ -235,6 +240,7 @@ export interface CrmTaskFilters {
   ownerId?: string;
   dueFrom?: string;
   dueTo?: string;
+  archived?: string;
 }
 
 export function useCrmTasks(
@@ -274,11 +280,29 @@ export function useUpdateTask() {
   });
 }
 
+/** Archive a task (soft delete) — DELETE now archives rather than hard-deleting. */
 export function useDeleteTask() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (taskId: string) => apiDelete(`/api/crm/tasks/${taskId}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "tasks"] }),
+    onSuccess: (_data, taskId) => {
+      qc.invalidateQueries({ queryKey: ["crm", "tasks"] });
+      qc.invalidateQueries({ queryKey: ["crm", "activity", "TASK", taskId] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the task"),
+  });
+}
+
+/** Restore an archived task. */
+export function useRestoreTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => apiPatchJson(`/api/crm/tasks/${taskId}`, { archived: false }),
+    onSuccess: (_data, taskId) => {
+      qc.invalidateQueries({ queryKey: ["crm", "tasks"] });
+      qc.invalidateQueries({ queryKey: ["crm", "activity", "TASK", taskId] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not restore the task"),
   });
 }
 
@@ -328,6 +352,7 @@ export interface CrmContactFilters {
   q?: string;
   companyId?: string;
   lifecycle?: string;
+  archived?: string;
 }
 
 export function useCrmContacts(arg?: string | CrmContactFilters) {
@@ -339,6 +364,15 @@ export function useCrmContacts(arg?: string | CrmContactFilters) {
     queryKey: ["crm", "contacts", key],
     queryFn: () =>
       apiFetch<{ contacts: CrmContactRow[] }>(`/api/crm/contacts${key ? `?${key}` : ""}`).then((r) => r.contacts),
+  });
+}
+
+export function useCrmContactDetail(crmContactId: string | null) {
+  return useQuery({
+    queryKey: ["crm", "contact", crmContactId ?? ""],
+    queryFn: () =>
+      apiFetch<{ contact: CrmContactDetail }>(`/api/crm/contacts/${crmContactId}`).then((r) => r.contact),
+    enabled: !!crmContactId,
   });
 }
 
@@ -444,6 +478,73 @@ export function useCrmReport(filters: Record<string, string | undefined> = {}) {
   });
 }
 
+
+// ── Change log (system activity) ──────────────────────────────────────────────
+
+/** The change log for one record, newest first. Powers the History timeline. */
+export function useCrmActivity(entityType: CrmActivityEntityType, entityId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["crm", "activity", entityType, entityId ?? ""],
+    queryFn: () =>
+      apiFetch<{ activity: CrmActivityRow[] }>(
+        `/api/crm/activity?entityType=${entityType}&entityId=${entityId}`,
+      ).then((r) => r.activity),
+    enabled: !!entityId,
+  });
+}
+
+// ── Archive / restore (soft delete) ───────────────────────────────────────────
+// A single mutation per entity: `archived: true` hits DELETE (archive), `false`
+// hits PATCH { archived: false } (restore). Both invalidate the entity's lists AND
+// its activity log, so the History timeline picks up the ARCHIVE/RESTORE row.
+
+export function useSetDealArchived(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (archived: boolean) =>
+      archived
+        ? apiDelete(`/api/crm/deals/${dealId}`)
+        : apiPatchJson(`/api/crm/deals/${dealId}`, { archived: false }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm", "deals"] });
+      qc.invalidateQueries({ queryKey: crmKeys.deal(dealId) });
+      qc.invalidateQueries({ queryKey: ["crm", "activity", "DEAL", dealId] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the deal"),
+  });
+}
+
+export function useSetCompanyArchived(companyId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (archived: boolean) =>
+      archived
+        ? apiDelete(`/api/crm/companies/${companyId}`)
+        : apiPatchJson(`/api/crm/companies/${companyId}`, { archived: false }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm", "companies"] });
+      qc.invalidateQueries({ queryKey: crmKeys.company(companyId) });
+      qc.invalidateQueries({ queryKey: ["crm", "activity", "COMPANY", companyId] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the company"),
+  });
+}
+
+export function useSetCrmContactArchived(crmContactId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (archived: boolean) =>
+      archived
+        ? apiDelete(`/api/crm/contacts/${crmContactId}`)
+        : apiPatchJson(`/api/crm/contacts/${crmContactId}`, { archived: false }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm", "contacts"] });
+      qc.invalidateQueries({ queryKey: ["crm", "contact", crmContactId] });
+      qc.invalidateQueries({ queryKey: ["crm", "activity", "CONTACT", crmContactId] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the contact"),
+  });
+}
 
 /**
  * Org events as {id, name} for the CRM's event pickers. Uses the CRM-gated

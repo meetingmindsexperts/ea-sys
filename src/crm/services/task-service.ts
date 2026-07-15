@@ -14,6 +14,10 @@
 import { Prisma, type CrmTask } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
+
+/** Fields worth showing in the change log when a task is edited. */
+const TASK_DIFF_KEYS = ["title", "description", "dueAt", "remindAt", "ownerId"] as const;
 
 export interface CreateTaskInput {
   organizationId: string;
@@ -124,11 +128,12 @@ export async function createTask(input: CreateTaskInput): Promise<TaskResult> {
       },
     });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "CREATE",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "TASK",
       entityId: task.id,
-      ipAddress: input.requestIp,
+      action: "CREATE",
+      actorId: input.userId,
       changes: { source: input.source, title, dealId: task.dealId, ownerId: task.ownerId },
     });
 
@@ -173,22 +178,30 @@ export async function updateTask(input: UpdateTaskInput): Promise<TaskResult> {
   if (relFail) return relFail;
 
   try {
-    const res = await db.crmTask.updateMany({
+    const before = await db.crmTask.findFirst({
       where: { id: input.taskId, organizationId: input.organizationId },
-      data,
+      select: { title: true, description: true, dueAt: true, remindAt: true, ownerId: true },
     });
-    if (res.count === 0) {
+    if (!before) {
       apiLogger.warn({ msg: "crm-task:update-not-found", taskId: input.taskId, organizationId: input.organizationId });
       return { ok: false, code: "TASK_NOT_FOUND", message: "Task not found" };
     }
 
+    await db.crmTask.updateMany({
+      where: { id: input.taskId, organizationId: input.organizationId },
+      data,
+    });
+
     const task = await db.crmTask.findUniqueOrThrow({ where: { id: input.taskId } });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "UPDATE",
+    const fieldChanges = diffFields(before, task, TASK_DIFF_KEYS);
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "TASK",
       entityId: task.id,
-      changes: { source: input.source, fields: Object.keys(data) },
+      action: "UPDATE",
+      actorId: input.userId,
+      changes: { source: input.source, ...(fieldChanges ? { changes: fieldChanges } : {}) },
     });
 
     apiLogger.info({ msg: "crm-task:updated", taskId: task.id, source: input.source });
@@ -238,11 +251,13 @@ export async function completeTask(input: {
 
     const task = await db.crmTask.findUniqueOrThrow({ where: { id: input.taskId } });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "TASK_COMPLETED",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "TASK",
       entityId: task.id,
-      changes: { source: input.source, dealId: task.dealId },
+      action: "COMPLETE",
+      actorId: input.userId,
+      changes: { source: input.source, title: task.title, dealId: task.dealId },
     });
 
     apiLogger.info({ msg: "crm-task:completed", taskId: task.id, source: input.source });
@@ -275,11 +290,13 @@ export async function reopenTask(input: {
     }
     const task = await db.crmTask.findUniqueOrThrow({ where: { id: input.taskId } });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "TASK_REOPENED",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "TASK",
       entityId: task.id,
-      changes: { source: input.source, dealId: task.dealId },
+      action: "REOPEN",
+      actorId: input.userId,
+      changes: { source: input.source, title: task.title, dealId: task.dealId },
     });
 
     apiLogger.info({ msg: "crm-task:reopened", taskId: task.id, source: input.source });
@@ -294,63 +311,60 @@ export async function reopenTask(input: {
   }
 }
 
-export async function deleteTask(input: {
+/**
+ * Archive or restore a task (soft delete). Replaces the old hard `deleteTask` —
+ * the whole CRM now soft-deletes so the change log survives. Idempotent; RBAC at
+ * the route boundary.
+ *
+ * An archived task also drops out of the reminder worker's queue (the list + worker
+ * predicates exclude `archivedAt != null`), so archiving a follow-up is a valid way
+ * to cancel its reminder.
+ */
+export async function setTaskArchived(input: {
   taskId: string;
   organizationId: string;
   userId: string | null;
   source: "rest" | "mcp" | "api";
-}): Promise<{ ok: true } | Fail> {
+  archived: boolean;
+}): Promise<TaskResult> {
   try {
-    const res = await db.crmTask.deleteMany({
+    const current = await db.crmTask.findFirst({
       where: { id: input.taskId, organizationId: input.organizationId },
     });
-    if (res.count === 0) {
-      apiLogger.warn({ msg: "crm-task:delete-not-found", taskId: input.taskId, organizationId: input.organizationId });
+    if (!current) {
+      apiLogger.warn({ msg: "crm-task:archive-not-found", taskId: input.taskId, organizationId: input.organizationId });
       return { ok: false, code: "TASK_NOT_FOUND", message: "Task not found" };
     }
 
-    void writeAudit({
-      userId: input.userId,
-      action: "DELETE",
-      entityId: input.taskId,
-      changes: { source: input.source },
+    const alreadyInState = input.archived ? current.archivedAt !== null : current.archivedAt === null;
+    if (alreadyInState) return { ok: true, task: current };
+
+    const task = await db.crmTask.update({
+      where: { id: current.id },
+      data: { archivedAt: input.archived ? new Date() : null },
     });
 
-    apiLogger.info({ msg: "crm-task:deleted", taskId: input.taskId, source: input.source });
-    return { ok: true };
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "TASK",
+      entityId: task.id,
+      action: input.archived ? "ARCHIVE" : "RESTORE",
+      actorId: input.userId,
+      changes: { source: input.source, title: task.title },
+    });
+
+    apiLogger.info({
+      msg: input.archived ? "crm-task:archived" : "crm-task:restored",
+      taskId: task.id,
+      source: input.source,
+    });
+    return { ok: true, task };
   } catch (err) {
     apiLogger.error({
-      msg: "crm-task:delete-failed",
+      msg: "crm-task:archive-failed",
       taskId: input.taskId,
       err: err instanceof Error ? err.message : String(err),
     });
-    return { ok: false, code: "UNKNOWN", message: "Could not delete the task" };
+    return { ok: false, code: "UNKNOWN", message: "Could not archive the task" };
   }
-}
-
-function writeAudit(entry: {
-  userId: string | null;
-  action: string;
-  entityId: string;
-  ipAddress?: string;
-  changes: Record<string, unknown>;
-}) {
-  return db.auditLog
-    .create({
-      data: {
-        userId: entry.userId,
-        action: entry.action,
-        entityType: "CrmTask",
-        entityId: entry.entityId,
-        ipAddress: entry.ipAddress ?? null,
-        changes: entry.changes as Prisma.InputJsonValue,
-      },
-    })
-    .catch((err: unknown) => {
-      apiLogger.error({
-        msg: "crm-task:audit-failed",
-        entityId: entry.entityId,
-        err: err instanceof Error ? err.message : String(err),
-      });
-    });
 }

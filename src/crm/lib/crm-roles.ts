@@ -46,6 +46,21 @@ const CRM_READ_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "
 const CRM_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "CRM_USER"]);
 
 /**
+ * Roles that may ARCHIVE (soft-delete) or RESTORE a CRM record.
+ *
+ * Owner decision (July 15 2026): the admin tier PLUS the sales team — CRM_USER
+ * lives in the pipeline full-time and manages their own records, so they may
+ * archive. ORGANIZER can EDIT (it's in CRM_STAFF_ROLES) but NOT archive — a role
+ * that only dips into the CRM occasionally shouldn't be removing records. MEMBER
+ * is read-only and never reaches here.
+ *
+ * A deliberately-narrower set than CRM_STAFF_ROLES (write), which is why it's its
+ * own predicate rather than a reuse — the AGENTS.md "write a new predicate rather
+ * than bend a close-enough one" rule.
+ */
+const CRM_DELETE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "CRM_USER"]);
+
+/**
  * True when the role may read the CRM at all.
  * `isApiKey` callers are admin-equivalent (org-scoped, admin-minted).
  */
@@ -78,4 +93,13 @@ export function canViewDealValues(
 ): boolean {
   if (isApiKey) return true;
   return !!role && CRM_STAFF_ROLES.has(role);
+}
+
+/**
+ * True when the caller may archive (soft-delete) or restore a CRM record.
+ * Admin tier + CRM_USER only. API keys are admin-equivalent.
+ */
+export function canDeleteCrm(role: string | null | undefined, isApiKey = false): boolean {
+  if (isApiKey) return true;
+  return !!role && CRM_DELETE_ROLES.has(role);
 }

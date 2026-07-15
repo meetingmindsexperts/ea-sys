@@ -14,7 +14,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
-import { Link2, Loader2, Plus, Search, Users } from "lucide-react";
+import { Archive, Link2, Loader2, Plus, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
+import { CrmContactDetailSheet } from "@/crm/components/crm-contact-detail-sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies, useCrmContacts } from "@/crm/hooks/use-crm-api";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
@@ -41,12 +42,15 @@ export default function CrmContactsPage() {
   const [lifecycle, setLifecycle] = useState<string>("");
   const [companyId, setCompanyId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [openContactId, setOpenContactId] = useState<string | null>(null);
 
   const { data: companies = [] } = useCrmCompanies();
   const { data: contacts = [], isLoading } = useCrmContacts({
     q: q || undefined,
     lifecycle: lifecycle || undefined,
     companyId: companyId || undefined,
+    archived: showArchived ? "1" : undefined,
   });
 
   return (
@@ -109,6 +113,15 @@ export default function CrmContactsPage() {
             ))}
           </SelectContent>
         </Select>
+
+        <Button
+          variant={showArchived ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowArchived((v) => !v)}
+        >
+          <Archive className="mr-2 h-3.5 w-3.5" />
+          {showArchived ? "Showing archived" : "Show archived"}
+        </Button>
       </div>
 
       {isLoading ? (
@@ -137,7 +150,11 @@ export default function CrmContactsPage() {
             </TableHeader>
             <TableBody>
               {contacts.map((c) => (
-                <TableRow key={c.id}>
+                <TableRow
+                  key={c.id}
+                  className="cursor-pointer"
+                  onClick={() => setOpenContactId(c.id)}
+                >
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <div>
@@ -181,6 +198,11 @@ export default function CrmContactsPage() {
       )}
 
       <CreateCrmContactDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <CrmContactDetailSheet
+        crmContactId={openContactId}
+        onOpenChange={(o) => !o && setOpenContactId(null)}
+        canWrite={canWrite}
+      />
     </div>
   );
 }

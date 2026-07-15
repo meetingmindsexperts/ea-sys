@@ -33,6 +33,7 @@ vi.mock("@/lib/db", () => ({
     contact: { findFirst: vi.fn() },
     user: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
+    crmActivity: { create: vi.fn().mockResolvedValue({}) },
   },
 }));
 
@@ -47,6 +48,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.auditLog.create).mockResolvedValue({} as never);
   vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never);
+  // updateTask now snapshots the row before writing (for the change log), so give
+  // the pre-update read a default row.
+  vi.mocked(db.crmTask.findFirst).mockResolvedValue({
+    id: "t-1", title: "Chase Abbott", description: null, dueAt: null, remindAt: null, ownerId: null,
+  } as never);
 });
 
 describe("companyNameKey — the dedup key", () => {

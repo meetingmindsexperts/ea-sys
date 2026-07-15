@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
-import { buildTaskDueRange } from "@/crm/lib/deal-filters";
+import { buildTaskDueRange, isArchivedView } from "@/crm/lib/deal-filters";
 import { createTask } from "@/crm/services/task-service";
 
 const createTaskSchema = z.object({
@@ -34,6 +34,8 @@ export async function GET(req: Request) {
     const tasks = await db.crmTask.findMany({
       where: {
         organizationId: ctx.organizationId,
+        // Soft delete: active only by default; ?archived=1 shows the archived view.
+        archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
         // An explicit owner filter wins over the mine/all scope — picking a rep is
         // a deliberate "show me THEIR tasks" that shouldn't be re-narrowed to me.
         ...(ownerId ? { ownerId } : scope === "all" ? {} : ctx.userId ? { ownerId: ctx.userId } : {}),
@@ -48,6 +50,7 @@ export async function GET(req: Request) {
         remindAt: true,
         status: true,
         completedAt: true,
+        archivedAt: true,
         owner: { select: { id: true, firstName: true, lastName: true } },
         deal: { select: { id: true, name: true } },
         company: { select: { id: true, name: true } },

@@ -56,8 +56,27 @@ export interface CrmContactRow {
   company?: { id: string; name: string } | null;
   /** Non-null when this rep is ALSO in the event contact store (i.e. they attend). */
   contactId?: string | null;
+  archivedAt?: string | null;
   createdAt: string;
   _count?: { deals: number };
+}
+
+/** Full CRM contact, as returned by GET /api/crm/contacts/[id]. */
+export interface CrmContactDetail extends CrmContactRow {
+  notes?: string | null;
+  /** The linked EVENT contact (they also attend), if any. */
+  contact?: { id: string; firstName: string; lastName: string; email: string } | null;
+  deals: Array<{
+    role: CrmDealContactRole;
+    deal: {
+      id: string;
+      name: string;
+      dealValue?: string | number | null;
+      currency: string;
+      status: CrmDealStatus;
+      event?: { id: string; name: string } | null;
+    };
+  }>;
 }
 
 /** A person on a deal, with the role they play on THAT deal. */
@@ -86,6 +105,7 @@ export interface CrmBoardDeal {
   lostAt?: string | null;
   lostReason?: string | null;
   sponsorSyncedAt?: string | null;
+  archivedAt?: string | null;
   createdAt: string;
   company?: { id: string; name: string } | null;
   contacts?: CrmDealContactRef[];
@@ -102,6 +122,7 @@ export interface CrmCompanyRow {
   country?: string | null;
   city?: string | null;
   needsReview: boolean;
+  archivedAt?: string | null;
   createdAt: string;
   _count?: { contacts: number; deals: number };
 }
@@ -127,6 +148,7 @@ export interface CrmTaskRow {
   remindAt?: string | null;
   status: CrmTaskStatus;
   completedAt?: string | null;
+  archivedAt?: string | null;
   owner?: CrmPersonRef | null;
   deal?: { id: string; name: string } | null;
   company?: { id: string; name: string } | null;
@@ -141,6 +163,36 @@ export interface CrmNoteRow {
   updatedAt: string;
   authorId?: string | null;
   author?: { id: string; firstName: string; lastName: string } | null;
+}
+
+// ── Change log (system activity) ──────────────────────────────────────────────
+// Distinct from CrmNoteRow: a NOTE is a human writing "I called them"; a
+// CrmActivityRow is a system record of create / edit / archive / stage-move etc.
+
+export type CrmActivityEntityType = "DEAL" | "COMPANY" | "CONTACT" | "TASK";
+
+/** One field's before→after, as stored in `changes.changes[field]`. */
+export interface CrmFieldChange {
+  from: string | number | boolean | null;
+  to: string | number | boolean | null;
+}
+
+export interface CrmActivityChanges {
+  source?: string;
+  /** Field-level diff for UPDATE rows. */
+  changes?: Record<string, CrmFieldChange>;
+  /** Free-form extras (snapshot on ARCHIVE, stage names on STAGE_MOVE, …). */
+  [k: string]: unknown;
+}
+
+export interface CrmActivityRow {
+  id: string;
+  entityType: CrmActivityEntityType;
+  entityId: string;
+  action: string;
+  changes: CrmActivityChanges | null;
+  createdAt: string;
+  actor?: { id: string; firstName: string; lastName: string } | null;
 }
 
 // ── Display ──────────────────────────────────────────────────────────────────
@@ -213,4 +265,61 @@ export function sumStageValue(deals: CrmBoardDeal[], currency = "USD"): string |
   if (visible.length === 0) return null;
   const total = visible.reduce((acc, d) => acc + Number(d.dealValue ?? 0), 0);
   return formatDealValue(total, currency);
+}
+
+// ── Change-log display ────────────────────────────────────────────────────────
+
+/** Human verb for each activity action. Unknown actions fall back to the raw code. */
+export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
+  CREATE: "Created",
+  UPDATE: "Edited",
+  ARCHIVE: "Archived",
+  RESTORE: "Restored",
+  STAGE_MOVE: "Moved stage",
+  WON: "Marked won",
+  LOST: "Marked lost",
+  COMPLETE: "Completed",
+  REOPEN: "Reopened",
+  CONTACT_ADDED: "Linked a contact",
+  CONTACT_REMOVED: "Unlinked a contact",
+  LINK_EVENT_CONTACT: "Linked to an event contact",
+  UNLINK_EVENT_CONTACT: "Unlinked from the event contact",
+};
+
+/**
+ * Friendly labels for the fields we diff. Keys match the entity column names the
+ * services pass to `diffFields`. Anything unmapped renders its raw key rather than
+ * being hidden — a change you can't read is better than a change you can't see.
+ */
+export const CRM_FIELD_LABELS: Record<string, string> = {
+  name: "Name",
+  dealValue: "Value",
+  currency: "Currency",
+  expectedClose: "Expected close",
+  companyId: "Company",
+  eventId: "Event",
+  ownerId: "Owner",
+  industry: "Industry",
+  website: "Website",
+  country: "Country",
+  city: "City",
+  notes: "Notes",
+  firstName: "First name",
+  lastName: "Last name",
+  email: "Email",
+  jobTitle: "Job title",
+  phone: "Phone",
+  lifecycleStage: "Lifecycle",
+  title: "Title",
+  description: "Description",
+  dueAt: "Due date",
+  remindAt: "Reminder",
+}
+
+export function activityActionLabel(action: string): string {
+  return CRM_ACTIVITY_ACTION_LABELS[action] ?? action;
+}
+
+export function fieldLabel(key: string): string {
+  return CRM_FIELD_LABELS[key] ?? key;
 }

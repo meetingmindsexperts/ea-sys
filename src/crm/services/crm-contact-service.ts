@@ -27,6 +27,10 @@
 import { Prisma, type CrmContact, type CrmLifecycleStage } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
+
+/** Fields worth showing in the change log when a contact is edited. */
+const CONTACT_DIFF_KEYS = ["firstName", "lastName", "email", "jobTitle", "phone", "country", "notes", "lifecycleStage", "companyId"] as const;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -144,11 +148,12 @@ export async function findOrCreateCrmContact(
       },
     });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "CREATE",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "CONTACT",
       entityId: crmContact.id,
-      ipAddress: input.requestIp,
+      action: "CREATE",
+      actorId: input.userId,
       changes: { source: input.source, email: emailKey, companyId: crmContact.companyId },
     });
 
@@ -217,11 +222,11 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
   if (companyFail) return companyFail;
 
   try {
-    const res = await db.crmContact.updateMany({
+    const before = await db.crmContact.findFirst({
       where: { id: input.crmContactId, organizationId: input.organizationId },
-      data,
+      select: { firstName: true, lastName: true, email: true, jobTitle: true, phone: true, country: true, notes: true, lifecycleStage: true, companyId: true },
     });
-    if (res.count === 0) {
+    if (!before) {
       apiLogger.warn({
         msg: "crm-contact:update-not-found",
         crmContactId: input.crmContactId,
@@ -230,13 +235,21 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
       return { ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" };
     }
 
+    await db.crmContact.updateMany({
+      where: { id: input.crmContactId, organizationId: input.organizationId },
+      data,
+    });
+
     const crmContact = await db.crmContact.findUniqueOrThrow({ where: { id: input.crmContactId } });
 
-    void writeAudit({
-      userId: input.userId,
-      action: "UPDATE",
+    const fieldChanges = diffFields(before, crmContact, CONTACT_DIFF_KEYS);
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "CONTACT",
       entityId: crmContact.id,
-      changes: { source: input.source, fields: Object.keys(data) },
+      action: "UPDATE",
+      actorId: input.userId,
+      changes: { source: input.source, ...(fieldChanges ? { changes: fieldChanges } : {}) },
     });
 
     apiLogger.info({ msg: "crm-contact:updated", crmContactId: crmContact.id, source: input.source });
@@ -308,10 +321,12 @@ export async function linkToEventContact(input: {
 
     const crmContact = await db.crmContact.findUniqueOrThrow({ where: { id: input.crmContactId } });
 
-    void writeAudit({
-      userId: input.userId,
-      action: input.contactId ? "LINK_EVENT_CONTACT" : "UNLINK_EVENT_CONTACT",
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "CONTACT",
       entityId: crmContact.id,
+      action: input.contactId ? "LINK_EVENT_CONTACT" : "UNLINK_EVENT_CONTACT",
+      actorId: input.userId,
       changes: { source: input.source, contactId: input.contactId },
     });
 
@@ -331,29 +346,58 @@ export async function linkToEventContact(input: {
   }
 }
 
-function writeAudit(entry: {
+// ── Archive / restore (soft delete) ──────────────────────────────────────────
+
+/**
+ * Archive or restore a CRM contact (soft delete). Idempotent; RBAC at the route.
+ * Archiving does NOT touch deal links or the event-contact pointer — a reversible
+ * hide, not a cascade.
+ */
+export async function setCrmContactArchived(input: {
+  crmContactId: string;
+  organizationId: string;
   userId: string | null;
-  action: string;
-  entityId: string;
-  ipAddress?: string;
-  changes: Record<string, unknown>;
-}) {
-  return db.auditLog
-    .create({
-      data: {
-        userId: entry.userId,
-        action: entry.action,
-        entityType: "CrmContact",
-        entityId: entry.entityId,
-        ipAddress: entry.ipAddress ?? null,
-        changes: entry.changes as Prisma.InputJsonValue,
-      },
-    })
-    .catch((err: unknown) => {
-      apiLogger.error({
-        msg: "crm-contact:audit-failed",
-        entityId: entry.entityId,
-        err: err instanceof Error ? err.message : String(err),
-      });
+  source: "rest" | "mcp" | "api";
+  archived: boolean;
+}): Promise<CrmContactResult> {
+  try {
+    const current = await db.crmContact.findFirst({
+      where: { id: input.crmContactId, organizationId: input.organizationId },
     });
+    if (!current) {
+      apiLogger.warn({ msg: "crm-contact:archive-not-found", crmContactId: input.crmContactId, organizationId: input.organizationId });
+      return { ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" };
+    }
+
+    const alreadyInState = input.archived ? current.archivedAt !== null : current.archivedAt === null;
+    if (alreadyInState) return { ok: true, crmContact: current };
+
+    const crmContact = await db.crmContact.update({
+      where: { id: current.id },
+      data: { archivedAt: input.archived ? new Date() : null },
+    });
+
+    void recordCrmActivity({
+      organizationId: input.organizationId,
+      entityType: "CONTACT",
+      entityId: crmContact.id,
+      action: input.archived ? "ARCHIVE" : "RESTORE",
+      actorId: input.userId,
+      changes: { source: input.source, name: `${crmContact.firstName} ${crmContact.lastName}`.trim(), email: crmContact.emailKey },
+    });
+
+    apiLogger.info({
+      msg: input.archived ? "crm-contact:archived" : "crm-contact:restored",
+      crmContactId: crmContact.id,
+      source: input.source,
+    });
+    return { ok: true, crmContact };
+  } catch (err) {
+    apiLogger.error({
+      msg: "crm-contact:archive-failed",
+      crmContactId: input.crmContactId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, code: "UNKNOWN", message: "Could not archive the contact" };
+  }
 }

@@ -8,8 +8,10 @@
  * might genuinely not be "Cleveland Clinic". Confirming it distinct is a one-click
  * dismissal; merging is a human job (and a deliberate v1 gap — see ROADMAP).
  */
+import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
-import { Building2, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
+import { Archive, ArchiveRestore, Building2, ExternalLink, Loader2, Pencil, TriangleAlert } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -20,7 +22,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { useCrmCompany, useUpdateCompany } from "@/crm/hooks/use-crm-api";
+import { useCrmCompany, useUpdateCompany, useSetCompanyArchived } from "@/crm/hooks/use-crm-api";
+import { canDeleteCrm } from "@/crm/lib/crm-roles";
+import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
+import { EditCompanyDialog } from "@/crm/components/edit-company-dialog";
 import {
   DEAL_STATUS_COLORS,
   LIFECYCLE_COLORS,
@@ -37,8 +42,12 @@ export function CompanyDetailSheet({
   onOpenChange: (o: boolean) => void;
   canWrite: boolean;
 }) {
+  const { data: session } = useSession();
+  const canDelete = canDeleteCrm(session?.user?.role);
   const { data: company, isLoading } = useCrmCompany(companyId);
   const update = useUpdateCompany(companyId ?? "");
+  const setArchived = useSetCompanyArchived(companyId ?? "");
+  const [editOpen, setEditOpen] = useState(false);
 
   return (
     <Sheet open={!!companyId} onOpenChange={onOpenChange}>
@@ -58,12 +67,49 @@ export function CompanyDetailSheet({
               <SheetDescription asChild>
                 <span className="flex flex-wrap items-center gap-2">
                   {company.industry && <Badge variant="outline">{company.industry}</Badge>}
+                  {company.archivedAt && (
+                    <Badge variant="outline" className="bg-rose-100 text-rose-700 border-rose-200">
+                      Archived
+                    </Badge>
+                  )}
                   {[company.city, company.country].filter(Boolean).join(", ") || null}
                 </span>
               </SheetDescription>
             </SheetHeader>
 
             <div className="space-y-6 px-4 pb-8">
+              {(canWrite || canDelete) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {canWrite && (
+                    <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+                      <Pencil className="mr-2 h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                  )}
+                  {canDelete &&
+                    (company.archivedAt ? (
+                      <Button size="sm" variant="outline" disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)}>
+                        <ArchiveRestore className="mr-2 h-3.5 w-3.5" />
+                        Restore
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:text-destructive"
+                        disabled={setArchived.isPending}
+                        onClick={() => {
+                          if (!confirm("Archive this account? It will be hidden from the lists. Its deals are not affected. You can restore it from the archived view.")) return;
+                          setArchived.mutate(true, { onSuccess: () => onOpenChange(false) });
+                        }}
+                      >
+                        <Archive className="mr-2 h-3.5 w-3.5" />
+                        Archive
+                      </Button>
+                    ))}
+                </div>
+              )}
+
               {company.needsReview && (
                 <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
                   <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
@@ -183,7 +229,13 @@ export function CompanyDetailSheet({
                   </ul>
                 )}
               </section>
+
+              <Separator />
+
+              <CrmActivityTimeline entityType="COMPANY" entityId={company.id} />
             </div>
+
+            <EditCompanyDialog company={company} open={editOpen} onOpenChange={setEditOpen} />
           </>
         )}
       </SheetContent>

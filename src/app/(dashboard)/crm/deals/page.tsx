@@ -17,7 +17,7 @@
  */
 import { Suspense, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Plus, Loader2, X } from "lucide-react";
+import { Archive, Plus, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmEvents } from "@/crm/hooks/use-crm-api";
@@ -42,7 +42,7 @@ const DATE_FIELDS = [
 ];
 
 // The query keys this page owns — for the "Clear" affordance and the server query.
-const FILTER_KEYS = ["event", "owner", "status", "dateField", "from", "to", "min", "max"];
+const FILTER_KEYS = ["event", "owner", "status", "dateField", "from", "to", "min", "max", "archived"];
 
 function DealsPageInner() {
   const { data: session } = useSession();
@@ -56,6 +56,7 @@ function DealsPageInner() {
   const [createOpen, setCreateOpen] = useState(false);
 
   const eventId = get("event");
+  const archivedView = !!get("archived");
   const filters = {
     eventId: eventId || undefined,
     ownerId: get("owner") || undefined,
@@ -67,6 +68,7 @@ function DealsPageInner() {
     // this is just to keep the URL honest for a MEMBER.
     min: canSeeValues ? get("min") || undefined : undefined,
     max: canSeeValues ? get("max") || undefined : undefined,
+    archived: archivedView ? "1" : undefined,
   };
 
   const { data: stages = [], isLoading: stagesLoading } = useCrmStages();
@@ -141,6 +143,15 @@ function DealsPageInner() {
           />
         )}
 
+        <Button
+          variant={archivedView ? "default" : "outline"}
+          size="sm"
+          onClick={() => set({ archived: archivedView ? null : "1" })}
+        >
+          <Archive className="mr-2 h-3.5 w-3.5" />
+          {archivedView ? "Showing archived" : "Show archived"}
+        </Button>
+
         {filtersActive && (
           <Button variant="ghost" size="sm" onClick={() => clear(FILTER_KEYS)}>
             <X className="mr-1 h-3.5 w-3.5" />
@@ -168,7 +179,9 @@ function DealsPageInner() {
             deals={deals}
             onMove={(args) => move.mutate(args)}
             onOpenDeal={setOpenDeal}
-            readOnly={!canWrite}
+            // Archived deals are a read-only listing — you restore them from the
+            // card, you don't drag them around the pipeline.
+            readOnly={!canWrite || archivedView}
           />
         </>
       )}

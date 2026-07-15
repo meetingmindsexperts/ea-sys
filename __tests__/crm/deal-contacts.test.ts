@@ -17,6 +17,7 @@ vi.mock("@/lib/db", () => ({
     crmContact: { findFirst: vi.fn() },
     crmDealContact: { upsert: vi.fn(), deleteMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
+    crmActivity: { create: vi.fn().mockResolvedValue({}) },
   },
 }));
 
