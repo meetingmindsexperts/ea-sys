@@ -154,7 +154,7 @@ function StageColumn({
         {total && <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">{total}</span>}
       </div>
 
-      <div className="flex min-h-[6rem] flex-1 flex-col gap-2 p-2">
+      <div className="flex min-h-[500px] flex-1 flex-col gap-2 p-2">
         {deals.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground/70">
             No deals
