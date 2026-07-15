@@ -31,7 +31,13 @@ entire reason to exist, so `CrmDeal.eventId` is a first-class link and `CrmCompa
 
 - **Companies** — first-class accounts (today `Contact.organization` is a string).
 - **Deals** — a kanban pipeline: stages, value, owner, expected close, win/loss,
-  tied to an event.
+  tied to an event. **The event link is REQUIRED** (owner decision) — `createDeal`
+  returns `EVENT_REQUIRED` without one and `updateDeal` refuses to clear it; the DB
+  column stays nullable so a deal survives its event being deleted (`onDelete: SetNull`),
+  so the requirement is enforced at create/edit, not as a NOT-NULL constraint.
+- **Email** — outbound sends to an event's sponsors (the *Email sponsors* button on the
+  board) or to one deal's contacts (the *Email* button on a deal), with per-contact
+  personalization + attachments + built-in templates. See §3.7.
 - **CRM contacts** — the people we *negotiate with* (reps, exhibitor sales,
   procurement). See §3 — these are **not** the event contact store.
 - **Tasks** — follow-ups with email reminders.
@@ -60,40 +66,55 @@ unreferenced by any live path, so pausing costs nothing.
 src/crm/
   services/         domain logic — one file per aggregate, errors-as-values
     company-service.ts        find-or-create accounts (dedup)
-    pipeline-service.ts       seed + edit the org's stage list
-    deal-service.ts           THE important one — stage moves, close, deal↔contacts
+    pipeline-service.ts       seed + edit the org's stage list (DEFAULT_PIPELINE_STAGES)
+    deal-service.ts           THE important one — create/update, stage moves, close, deal↔contacts
     crm-contact-service.ts    business contacts + link-to-event-contact
     task-service.ts           tasks + the reminder stamp
     note-service.ts           author-only notes
+    sponsor-email-service.ts  outbound email — an event's sponsors OR one deal's contacts (reuses core sendEmail)
   lib/
-    crm-roles.ts        PURE, client-safe role predicates (canViewCrm / canOwnDeals / canViewDealValues)
-    crm-visibility.ts   SERVER-ONLY HTTP guards (denyCrmAccess / denyCrmWrite) — imports crm-roles
+    crm-roles.ts        PURE role predicates (canViewCrm / canOwnDeals / canViewDealValues / canDeleteCrm)
+    crm-visibility.ts   SERVER-ONLY HTTP guards (denyCrmAccess / denyCrmWrite / denyCrmDelete)
     crm-route.ts        shared route boundary: auth + redaction + error→HTTP + write rate limit
-    crm-types.ts        client-safe types + display constants (labels, colours)
+    crm-types.ts        client-safe types + display constants (labels, colours, activity-action labels)
+    crm-activity.ts     SERVER-ONLY: recordCrmActivity (the ONE change-log writer) + diffFields
     deal-filters.ts     pure filter → Prisma-where parsing (the finance gate lives here)
-    reports.ts          pure report math (pipeline/win-loss/leaderboard; keeps redacted values null, never 0)
+    reports.ts          pure report math (pipeline/win-loss/leaderboard; redacted values stay null, never 0)
+    sponsor-recipients.ts  PURE email-recipient resolution (dedup + narrow-never-widen intersection)
+    crm-email-templates.ts client-safe built-in email templates (pre-fill only)
+    pipeline-reconcile.ts  PURE planner: bring an org's stages to the canonical seed
+    record-layout.tsx   shared record-PAGE primitives (RecordHeader / RecordGrid / RecordCard / Facts)
     use-crm-filters.ts  URL-backed filter state hook
   hooks/
     use-crm-api.ts      all React Query hooks (queries + mutations)
-  components/           board, sheets, dialogs, filters/
+  components/           deal-board, *-detail-body (the record pages' content), create/edit/email dialogs,
+                        crm-activity-timeline, event/company comboboxes, filters/
   reminders-worker.ts   the CRM task-reminder tick (runTick)
 
-src/app/api/crm/*                REST surface (15 endpoints)
-src/app/(dashboard)/crm/*        pages: layout (tabs) + deals/companies/contacts/tasks
+src/app/api/crm/*                REST surface — deals/companies/contacts/tasks/notes/pipeline-stages
+                                 + activity, reps, events-lite, reports, sponsor-email/{recipients,send}
+src/app/(dashboard)/crm/*        tabbed shell + list pages + RECORD PAGES /{deals,companies,contacts}/[id]
+scripts/reconcile-crm-pipeline.ts  one-off: bring an org's pipeline to the current stage list
 worker/jobs/crm-reminders.ts     the cron shim that calls reminders-worker
-prisma/schema.prisma             the Crm* models (7 models, 5 enums)
+prisma/schema.prisma             the Crm* models
 __tests__/crm/*                  tests
 ```
 
-**Data model:** `CrmCompany`, `CrmPipelineStage`, `CrmDeal`, `CrmContact`,
-`CrmDealContact` (join, with a per-deal role), `CrmTask`, `CrmNote`. Plus two
-enums for status/lifecycle and one for deal-contact role. See the `// CRM MODULE`
-block in `prisma/schema.prisma` — every model is heavily commented with *why* its FK
-policies are what they are.
+**Data model (8 models):** `CrmCompany`, `CrmPipelineStage`, `CrmDeal`, `CrmContact`,
+`CrmDealContact` (join, with a per-deal role), `CrmTask`, `CrmNote`, and `CrmActivity`
+(the change log — §3.6). `archivedAt` on company/deal/contact/task carries soft-delete.
+Plus enums for deal/task status, lifecycle, deal-contact role, and the activity entity.
+See the `// CRM MODULE` block in `prisma/schema.prisma` — every model is heavily
+commented with *why* its FK policies are what they are.
+
+**Detail surfaces are PAGES, not sheets.** Deal, account and contact each have a
+dedicated record page (`/crm/{deals,companies,contacts}/[id]`) built from a `*-detail-body`
+component on the shared two-column `record-layout` shell; clicking a board card / list
+row navigates there. The old slide-out sheets are gone — no CRM detail sheet remains.
 
 ---
 
-## 3. The five things that are load-bearing
+## 3. The load-bearing things
 
 If you internalize nothing else, internalize these. Each exists because getting it
 wrong causes a real bug, and several were caught the hard way during the build.
@@ -192,6 +213,23 @@ the CRM's own store, **not** the core `AuditLog` — org-scoped, diff-shaped, an
 read in the UI. Deal money in a log payload is redacted for MEMBER by the same
 `FINANCIAL_KEYS` machinery the board uses.
 
+### 3.7 CRM email reuses the CORE send, never the event bulk-email pipeline
+
+Outbound CRM email (sponsor blast + per-deal send) lives in `sponsor-email-service.ts`
+and OWNS the audience + token logic, but it renders + sends through the **core**
+primitives — `sendEmail` / `renderAndWrap` / `brandingFrom` (crm→core, allowed). It does
+**not** touch the event `executeBulkEmail` pipeline (built around event recipient types —
+registrations/speakers — and importing it here would drag those concerns across the
+boundary the wrong way). Two entry points (`sendSponsorProspectus` for an event's
+sponsors, `sendDealEmail` for one deal) funnel through one shared `dispatchCrmEmail`
+(validate → **narrow-never-widen** intersection → batch with per-recipient failure
+isolation). The audience is the pure, unit-tested `sponsor-recipients.ts`
+(`collectSponsorRecipients` dedups on `emailKey`; a single deal is a one-element list, so
+the same logic + tests cover both). Each success writes an `EmailLog` row (entity `OTHER`
++ the crmContactId — `EmailLogEntityType` has no CRM value, so no schema change) and a
+CRM history row; the routes multiplex (`?eventId=` | `?dealId=`; send requires exactly
+one). Staff-only + a dedicated `crm-sponsor-email:org` 10/hr bucket.
+
 ---
 
 ## 4. Code conventions
@@ -257,17 +295,25 @@ npm run test && npm run build`.
 The current, honest state — done / pending / linked-vs-not — is in
 [`docs/CRM_STATUS.html`](../../docs/CRM_STATUS.html), and that is the page to keep
 current. As of this writing the module is **built and tested but NOT deployed** (the
-migration has not been applied to prod), and the notable open items are: the "API
-exists, UI doesn't" set (pipeline-stage management, deal edit, standalone task
-create), MCP tools, the `Contact.organization → CrmCompany` backfill, the won-deal →
+migration has not been applied to prod). Notable open items: **pipeline-stage
+management UI** (rename/add/reorder is script/seed only today — no in-app editor), **MCP
+tools**, the `Contact.organization → CrmCompany` backfill, the won-deal →
 `Event.settings.sponsors[]` handoff, and the **Week-4 adversarial review** — which,
-
-**Shipped surfaces of note.** The **sponsor prospectus email** (`sponsor-email-service.ts`
-+ `sponsor-recipients.ts` + `SponsorEmailDialog`, the *Email sponsors* button on the
-board) is the module's one outbound bulk send: it resolves an event's sponsors (the
-deduped contacts on its non-lost deals), then renders + sends via the **core**
-`sendEmail`/`renderAndWrap` primitives (crm→core), never the event `executeBulkEmail`
-pipeline. The audience is computed in the pure, unit-tested `sponsor-recipients.ts` and
-the send is an **intersection** with the reviewed selection — narrow, never widen.
 given that three separate guards (the build, a drift test, and an owner review) each
 caught things during the build, should be treated as required, not a formality.
+
+**Shipped surfaces (July 15 session).**
+
+- **Dedicated record pages** for deal, account AND contact (`/crm/{deals,companies,contacts}/[id]`)
+  on a shared **two-column record layout** (`record-layout.tsx`: header + main work area +
+  sticky facts sidebar). Replaced the slide-out sheets — **no CRM detail sheet remains**;
+  records cross-link (account→deals/people, contact→deals/company).
+- **Outbound email** — the sponsor blast + the per-deal send + built-in templates (§3.7).
+- **Pipeline stages** are now New → Proposal → Negotiation → Contract Signed → Purchase
+  Order → Invoice Sent → **Won** → **Lost** (Won/Lost keep those names — `closeDeal` is
+  name-bound). `ensurePipelineStages` never mutates an existing org's pipeline, so an
+  existing org is brought over by `scripts/reconcile-crm-pipeline.ts` (pure
+  `pipeline-reconcile.ts` planner; dry-run first; deals in dropped columns move to New).
+- **Deal requires an event** (§1) — enforced at create/edit.
+- **Reps picker excludes ORGANIZER** (`/api/crm/reps`) — sales team + admins only.
+- **Edit + soft-delete (archive) + change-log** on every record (§3.6).
