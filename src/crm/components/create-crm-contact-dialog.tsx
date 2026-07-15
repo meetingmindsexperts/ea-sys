@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CountrySelect } from "@/components/ui/country-select";
 import { useCreateCrmContact, useCrmCompanies } from "@/crm/hooks/use-crm-api";
 import { LIFECYCLE_LABELS, type CrmLifecycleStage } from "@/crm/lib/crm-types";
 
@@ -36,6 +37,7 @@ export function CreateCrmContactDialog({
   const [email, setEmail] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [phone, setPhone] = useState("");
+  const [country, setCountry] = useState("");
   const [companyId, setCompanyId] = useState(NO_COMPANY);
   const [stage, setStage] = useState(NO_STAGE);
 
@@ -44,7 +46,7 @@ export function CreateCrmContactDialog({
 
   function reset() {
     setFirstName(""); setLastName(""); setEmail("");
-    setJobTitle(""); setPhone("");
+    setJobTitle(""); setPhone(""); setCountry("");
     setCompanyId(NO_COMPANY); setStage(NO_STAGE);
   }
 
@@ -56,6 +58,7 @@ export function CreateCrmContactDialog({
       email: email.trim(),
       jobTitle: jobTitle.trim() || null,
       phone: phone.trim() || null,
+      country: country.trim() || null,
       companyId: companyId === NO_COMPANY ? null : companyId,
       lifecycleStage: stage === NO_STAGE ? null : (stage as CrmLifecycleStage),
     });
@@ -124,6 +127,11 @@ export function CreateCrmContactDialog({
               <Label htmlFor="cc-phone">Phone</Label>
               <Input id="cc-phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Country</Label>
+            <CountrySelect value={country} onChange={setCountry} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

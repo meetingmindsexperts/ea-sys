@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CountrySelect } from "@/components/ui/country-select";
 import { useCrmCompanies, useUpdateCrmContact } from "@/crm/hooks/use-crm-api";
 import { LIFECYCLE_LABELS, type CrmLifecycleStage } from "@/crm/lib/crm-types";
 
@@ -188,8 +189,8 @@ export function EditCrmContactDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-contact-country">Country</Label>
-            <Input id="edit-contact-country" value={country} onChange={(e) => setCountry(e.target.value)} />
+            <Label>Country</Label>
+            <CountrySelect value={country} onChange={setCountry} />
           </div>
 
           <div className="space-y-2">
