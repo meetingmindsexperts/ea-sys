@@ -32,6 +32,8 @@ import type {
   CrmStage,
   CrmTaskRow,
   CrmEmailTemplateRow,
+  CrmProductRow,
+  CrmDealProductRow,
   SponsorRecipient,
 } from "@/crm/lib/crm-types";
 
@@ -648,6 +650,99 @@ export function useSetCrmEmailTemplateArchived(templateId: string) {
         : apiPatchJson(`/api/crm/email-templates/${templateId}`, { archived: false }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "email-templates"] }),
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the template"),
+  });
+}
+
+// ── Products (catalog + deal line items) ──────────────────────────────────────
+
+export function useCrmProducts(includeArchived = false) {
+  return useQuery({
+    queryKey: ["crm", "products", includeArchived],
+    queryFn: () =>
+      apiFetch<{ products: CrmProductRow[] }>(
+        `/api/crm/products${includeArchived ? "?archived=1" : ""}`,
+      ).then((r) => r.products),
+  });
+}
+
+export function useCreateCrmProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiPostJson<{ product: CrmProductRow }>("/api/crm/products", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "products"] }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not create the product"),
+  });
+}
+
+export function useUpdateCrmProduct(productId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiPatchJson<{ product: CrmProductRow }>(`/api/crm/products/${productId}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "products"] }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the product"),
+  });
+}
+
+export function useSetCrmProductArchived(productId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (archived: boolean) =>
+      archived
+        ? apiDelete(`/api/crm/products/${productId}`)
+        : apiPatchJson(`/api/crm/products/${productId}`, { archived: false }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "products"] }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the product"),
+  });
+}
+
+// A deal's line items.
+export function useDealProducts(dealId: string) {
+  return useQuery({
+    queryKey: ["crm", "deal-products", dealId],
+    queryFn: () => apiFetch<{ lines: CrmDealProductRow[] }>(`/api/crm/deals/${dealId}/products`).then((r) => r.lines),
+    enabled: !!dealId,
+  });
+}
+
+export function useAddDealProduct(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { crmProductId: string; unitPrice?: number; quantity?: number }) =>
+      apiPostJson(`/api/crm/deals/${dealId}/products`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm", "deal-products", dealId] });
+      qc.invalidateQueries({ queryKey: ["crm", "activity", "DEAL", dealId] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not add the product"),
+  });
+}
+
+export function useUpdateDealProduct(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { lineId: string; unitPrice?: number; quantity?: number }) =>
+      apiPatchJson(`/api/crm/deals/${dealId}/products`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "deal-products", dealId] }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the line item"),
+  });
+}
+
+export function useRemoveDealProduct(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lineId: string) =>
+      apiFetch(`/api/crm/deals/${dealId}/products`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lineId }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm", "deal-products", dealId] });
+      qc.invalidateQueries({ queryKey: ["crm", "activity", "DEAL", dealId] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not remove the line item"),
   });
 }
 

@@ -73,6 +73,7 @@ src/crm/
     note-service.ts           author-only notes
     sponsor-email-service.ts  outbound email — an event's sponsors OR one deal's contacts (reuses core sendEmail)
     crm-email-template-service.ts  editable per-org email templates (seed-once + CRUD; audits to core AuditLog)
+    crm-product-service.ts    product/service catalog (seed-once + CRUD) + deal line items (add/edit/remove)
   lib/
     crm-roles.ts        PURE role predicates (canViewCrm / canOwnDeals / canViewDealValues / canDeleteCrm)
     crm-visibility.ts   SERVER-ONLY HTTP guards (denyCrmAccess / denyCrmWrite / denyCrmDelete)
@@ -101,10 +102,13 @@ prisma/schema.prisma             the Crm* models
 __tests__/crm/*                  tests
 ```
 
-**Data model (9 models):** `CrmCompany`, `CrmPipelineStage`, `CrmDeal`, `CrmContact`,
+**Data model (11 models):** `CrmCompany`, `CrmPipelineStage`, `CrmDeal`, `CrmContact`,
 `CrmDealContact` (join, with a per-deal role), `CrmTask`, `CrmNote`, `CrmActivity`
-(the change log — §3.6), and `CrmEmailTemplate` (editable per-org email templates —
-§3.7). `archivedAt` carries soft-delete on company/deal/contact/task + email templates.
+(the change log — §3.6), `CrmEmailTemplate` (editable per-org email templates — §3.7),
+`CrmProduct` (the product/service catalog) and `CrmDealProduct` (a deal line item —
+snapshots name/category/sku at add-time; `unitPrice` set on the deal, pre-filled from
+the catalog price; the deal Value stays MANUAL). `archivedAt` carries soft-delete on
+company/deal/contact/task + email templates + products.
 Plus enums for deal/task status, lifecycle, deal-contact role, and the activity entity.
 See the `// CRM MODULE` block in `prisma/schema.prisma` — every model is heavily
 commented with *why* its FK policies are what they are.
@@ -324,5 +328,14 @@ caught things during the build, should be treated as required, not a formality.
   existing org is brought over by `scripts/reconcile-crm-pipeline.ts` (pure
   `pipeline-reconcile.ts` planner; dry-run first; deals in dropped columns move to New).
 - **Deal requires an event** (§1) — enforced at create/edit.
+- **Product/service catalog + deal line items** (`crm-product-service.ts`, the **Products**
+  tab, the Products card on the deal page) — seeded from Meeting Minds' service list
+  (`crm-products-seed.ts`, 131 products); `category` = the functional group, `source` =
+  In-House/Out-Sourced. A deal is itemized from catalog products (qty × unit price, price
+  set on the deal); the deal **Value stays manual**. Line prices are finance-gated (`price`
+  / `unitPrice` in `FINANCIAL_KEYS` → redacted for MEMBER); line rows snapshot
+  name/category so a catalog edit never rewrites a deal.
+- **Editable email templates** — the compose picker is backed by a per-org store (§3.7),
+  managed on the **Templates** tab.
 - **Reps picker excludes ORGANIZER** (`/api/crm/reps`) — sales team + admins only.
 - **Edit + soft-delete (archive) + change-log** on every record (§3.6).

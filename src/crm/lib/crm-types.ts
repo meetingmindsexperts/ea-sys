@@ -93,6 +93,54 @@ export interface SponsorRecipient {
   dealCount: number;
 }
 
+// ── Products (catalog + deal line items) ──────────────────────────────────────
+
+export type CrmProductSourceType = "IN_HOUSE" | "OUTSOURCED";
+
+export const PRODUCT_SOURCE_LABELS: Record<CrmProductSourceType, string> = {
+  IN_HOUSE: "In-House",
+  OUTSOURCED: "Out-Sourced",
+};
+
+/** A catalog product/service. `price` is absent (redacted) for MEMBER. */
+export interface CrmProductRow {
+  id: string;
+  name: string;
+  sku?: string | null;
+  category: string;
+  source: CrmProductSourceType;
+  /** Catalog list price — absent for MEMBER (finance-gated). */
+  price?: string | number | null;
+  currency: string;
+  priceIncludesTax: boolean;
+  sortOrder: number;
+  archivedAt?: string | null;
+  createdAt: string;
+}
+
+/** A product on a deal (line item). `unitPrice` is absent (redacted) for MEMBER. */
+export interface CrmDealProductRow {
+  id: string;
+  crmProductId?: string | null;
+  productName: string;
+  category: string;
+  sku?: string | null;
+  /** Unit price set on the deal — absent for MEMBER (finance-gated). */
+  unitPrice?: string | number | null;
+  currency: string;
+  quantity: number;
+  createdAt: string;
+}
+
+/**
+ * Sum of a deal's line items (unitPrice × quantity). Returns null when any price is
+ * redacted (MEMBER) — a partial sum would be a lie — mirroring formatDealValue.
+ */
+export function sumDealProducts(lines: CrmDealProductRow[]): number | null {
+  if (lines.some((l) => l.unitPrice === null || l.unitPrice === undefined)) return null;
+  return lines.reduce((acc, l) => acc + Number(l.unitPrice ?? 0) * l.quantity, 0);
+}
+
 /** An editable CRM email template (org-wide), as returned by /api/crm/email-templates. */
 export interface CrmEmailTemplateRow {
   id: string;
@@ -315,6 +363,8 @@ export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   UNLINK_EVENT_CONTACT: "Unlinked from the event contact",
   PROSPECTUS_SENT: "Prospectus emailed",
   EMAIL_SENT: "Email sent",
+  PRODUCT_ADDED: "Added a product",
+  PRODUCT_REMOVED: "Removed a product",
 };
 
 /**

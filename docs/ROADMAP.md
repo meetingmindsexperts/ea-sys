@@ -210,6 +210,53 @@ The platform handles the entire event lifecycle — from public registration and
 
 ---
 
+## Deferred review findings
+
+### CRM products (catalog + deal line items) review (July 15, 2026) — H1 shipped, M/L deferred
+
+Adversarial review of the new CRM product-catalog + deal-line-items feature: **0 BLOCKER / 1 HIGH /
+3 MED / 5 LOW**. The core-correctness invariants were verified **solid** — IDOR/org-binding (every
+`productId`/`dealId`/`lineId` bound to the org; exploit paths traced to 404s), finance-gating
+(`price`/`unitPrice` redacted for MEMBER on every route; totals render "—", never a fake 0),
+snapshotting (line items snapshot name/category at add-time), RBAC (archive = admin+CRM_USER), and
+seed-once. **H1 was fixed in the same pass** (owner picked "just H1"); the rest are deferred here.
+
+- **H1 — silent business rejections** ✅ **SHIPPED** — the service returned `DEAL_NOT_FOUND` /
+  `PRODUCT_ALREADY_ON_DEAL` / `NAME_REQUIRED` etc. with no `apiLogger.warn` (violated the "every
+  failure path logs" rule; the sibling deal/task services all comply). Fixed via a `reject()` helper
+  that logs `crm-product:<code>` + context before every business `return { ok: false }`.
+- **M1 — seed can double-seed (deferred).** `CrmProduct` has no unique constraint, so two concurrent
+  first-loads (Products tab + a deal's product picker both firing `GET /api/crm/products` →
+  `ensureCrmProducts`) can both see `count 0` and both insert 131 rows → a silent 262-row duplicated
+  catalog; the "seed-race" catch can't fire. **Fix:** `@@unique([organizationId, sku])` + `skipDuplicates:
+  true` on the seed createMany (nullable sku → manual no-SKU products stay distinct), and/or an
+  advisory lock; correct the "never re-seeds" comment. Low real-world odds (one org, rarely first-loaded
+  twice at once) but a real gap.
+- **M2 — mixed-currency products total (deferred).** `sumDealProducts` adds `unitPrice × qty` across
+  line currencies and labels the total with line 0's currency; and the catalog defaults to **AED**
+  while a deal defaults to **USD**, so the products total (AED) sits beside the deal Value (USD) with no
+  distinction. **Fix:** constrain a deal's line items to one currency (validate on add against the
+  deal's), or have `sumDealProducts` return null / group-by-currency when currencies differ and surface
+  the currency. (MM Group is all-AED today, so low live impact.)
+- **M3 — product dialog keeps stale state (deferred).** `CrmProductDialog` (create) is always mounted;
+  Radix unmounts only the portal, so after creating a product and reopening "New product" the fields are
+  pre-filled with the last entry → easy accidental near-duplicate. **Fix:** remount on open via `key` or
+  reset state on the closed→open transition (same pattern used for the Tiptap editor in the email
+  template dialog).
+- **L1 — duplicate line-on-deal race (deferred).** The `PRODUCT_ALREADY_ON_DEAL` guard is `findFirst`
+  then `create` with no `@@unique([dealId, crmProductId])` → two concurrent adds of the same product
+  both pass. Add the unique index (tolerate nullable `crmProductId`) + translate P2002.
+- **L2 — line-item money rounds off cents (deferred).** Line rows reuse `formatDealValue`
+  (`maximumFractionDigits: 0`), so seed prices like `6422.5` render "AED 6,423". Add a 2-fraction-digit
+  money formatter for product/line-item prices (keep 0 digits for headline deal values).
+- **L3 — line qty/price edits not in the deal History (deferred).** `updateDealProduct` records no
+  `CrmActivity` (only add/remove do). Consider a `PRODUCT_UPDATED` entry (weigh against timeline noise).
+- **L4 — seed data quirks (deferred, source data).** All 65 Out-Sourced rows have placeholder `price: 1`
+  (the org fills the real price per deal — line price is manual anyway); "Communcation"/"Fullfilment" are
+  typos in the source names. Left faithful to the QuickBooks export; clean up during a catalog pass.
+- **L5 — line input goes stale after external refetch (deferred).** `LineItem`'s `qty`/`price` local
+  state is seeded once; a concurrent server-side change to the line isn't reflected until retyped. Minor.
+
 ## Current Release — July 10, 2026
 
 ### Check-in & badges review (July 10, 2026) — ALL 8 HIGHs SHIPPED (Phases 1-3), MEDs/LOWs deferred

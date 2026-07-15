@@ -50,6 +50,7 @@ model Organization {
   crmNotes          CrmNote[]
   crmActivities     CrmActivity[]
   crmEmailTemplates CrmEmailTemplate[]
+  crmProducts       CrmProduct[]
 }
 
 model User {
@@ -96,6 +97,7 @@ model User {
   authoredCrmNotes CrmNote[] @relation("CrmNoteAuthor")
   crmActivities    CrmActivity[] @relation("CrmActivityActor")
   createdCrmEmailTemplates CrmEmailTemplate[] @relation("CrmEmailTemplateCreator")
+  createdCrmProducts CrmProduct[] @relation("CrmProductCreator")
 
   @@index([organizationId])
   @@index([email])
@@ -2496,6 +2498,69 @@ model CrmEmailTemplate {
   @@index([organizationId, sortOrder])
 }
 
+/// In-house vs out-sourced — the sourcing axis, distinct from the functional category.
+enum CrmProductSource {
+  IN_HOUSE
+  OUTSOURCED
+}
+
+/// The org's product/service catalog (seeded from CrmProductSeed, then editable).
+/// `category` is the FUNCTIONAL group (Content, Sponsorship, …) — the deal-facing
+/// category; `source` is the In-House/Out-Sourced axis. `price` is the catalog list
+/// price (AED) that pre-fills a deal line item — the line price is set on the deal.
+model CrmProduct {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name     String
+  sku      String?
+  category String
+  source   CrmProductSource @default(IN_HOUSE)
+  price    Decimal          @default(0) @db.Decimal(12, 2)
+  currency String           @default("AED")
+  priceIncludesTax Boolean  @default(false)
+
+  sortOrder  Int       @default(0)
+  archivedAt DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("CrmProductCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  dealLines CrmDealProduct[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, category, sortOrder])
+}
+
+/// A product on a deal — a line item. The deal's Value stays MANUAL; this is the
+/// itemization (products total is informational). `unitPrice` is set on the deal
+/// (pre-filled from the catalog list price). name/category/sku are snapshotted at
+/// add-time so a later catalog edit never rewrites a deal's line.
+model CrmDealProduct {
+  id     String  @id @default(cuid())
+  dealId String
+  deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  crmProductId String?
+  crmProduct   CrmProduct? @relation(fields: [crmProductId], references: [id], onDelete: SetNull)
+
+  productName String
+  category    String
+  sku         String?
+
+  unitPrice Decimal @default(0) @db.Decimal(12, 2)
+  currency  String  @default("AED")
+  quantity  Int     @default(1)
+
+  createdAt DateTime @default(now())
+
+  @@index([dealId])
+  @@index([crmProductId])
+}
+
 /// First-class Account. Today Contact.organization is a free-text string, which
 /// is why "Cleveland Clinic" and "Cleveland Clinic Foundation" are two things.
 ///
@@ -2631,8 +2696,9 @@ model CrmDeal {
   /// so the "create sponsor entry" button is offered exactly once.
   sponsorSyncedAt DateTime?
 
-  tasks CrmTask[]
-  notes CrmNote[]
+  tasks    CrmTask[]
+  notes    CrmNote[]
+  products CrmDealProduct[]
 
   /// Soft delete — see CrmCompany.archivedAt. Archived deals drop out of the board,
   /// the reports and the CSV export (pipeline totals must not count a dead deal).

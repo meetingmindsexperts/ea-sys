@@ -107,7 +107,7 @@
 <h1>CRM — Build Status</h1>
 <p class="sub">
   What is built, what is wired to the rest of EA-SYS, and what is not.<br>
-  <span class="stamp">Last updated: <b>15 July 2026</b> (editable CRM email templates + dedicated deal/account pages + CRM email + edit + soft-delete + change-log shipped) · HEAD <code>WORKING</code> ·
+  <span class="stamp">Last updated: <b>15 July 2026</b> (product catalog + deal line items + editable CRM email templates + dedicated deal/account pages + CRM email + edit + soft-delete + change-log shipped) · HEAD <code>WORKING</code> ·
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
@@ -134,11 +134,11 @@
 </div>
 
 <div class="kpis">
-  <div class="kpi"><b>8</b><span>services</span></div>
-  <div class="kpi"><b>24</b><span>API routes</span></div>
-  <div class="kpi"><b>10</b><span>pages</span></div>
+  <div class="kpi"><b>9</b><span>services</span></div>
+  <div class="kpi"><b>27</b><span>API routes</span></div>
+  <div class="kpi"><b>11</b><span>pages</span></div>
   <div class="kpi"><b>1</b><span>worker job</span></div>
-  <div class="kpi"><b>243</b><span>CRM tests</span></div>
+  <div class="kpi"><b>268</b><span>CRM tests</span></div>
   <div class="kpi"><b>0</b><span>rows in prod</span></div>
 </div>
 
@@ -153,7 +153,7 @@
     <tr>
       <td>Schema + migration</td>
       <td><span class="tag done">DONE</span></td>
-      <td>9 <code>Crm*</code> models (incl. <code>CrmActivity</code>, <code>CrmEmailTemplate</code>), 6 enums. The event <code>Contact</code> table is UNTOUCHED (business contacts are their own table — see the note above). Migration verified byte-equal to Prisma's canonical DDL. <b>Not applied to prod.</b></td>
+      <td>11 <code>Crm*</code> models (incl. <code>CrmActivity</code>, <code>CrmEmailTemplate</code>, <code>CrmProduct</code>, <code>CrmDealProduct</code>), 7 enums. The event <code>Contact</code> table is UNTOUCHED (business contacts are their own table — see the note above). Migration verified byte-equal to Prisma's canonical DDL. <b>Not applied to prod.</b></td>
     </tr>
     <tr>
       <td>Import boundary (ESLint)</td>

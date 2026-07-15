@@ -23,6 +23,7 @@ import {
   Info,
   Loader2,
   Mail,
+  Package,
   Pencil,
   Phone,
   Trash2,
@@ -58,6 +59,7 @@ import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { EditDealDialog } from "@/crm/components/edit-deal-dialog";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
+import { DealProducts } from "@/crm/components/crm-deal-products";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
 
 export function DealDetailBody({
@@ -254,6 +256,11 @@ export function DealDetailBody({
             </div>
           </RecordCard>
         )}
+
+        {/* ── Products (line items) ──────────────────────────────────────── */}
+        <RecordCard icon={Package} title="Products">
+          <DealProducts dealId={deal.id} canWrite={canWrite} />
+        </RecordCard>
 
         {/* ── Follow-up ──────────────────────────────────────────────────── */}
         {canWrite && (
