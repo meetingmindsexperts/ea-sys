@@ -53,7 +53,7 @@ function contact(over: Partial<RawDealForRecipients["contacts"][number]["crmCont
       emailKey: over.emailKey ?? (over.email ?? "jane@abbott.com").toLowerCase(),
       archivedAt: over.archivedAt ?? null,
       // "company" in over lets a test pass an explicit null (distinct from "omitted").
-      company: "company" in over ? over.company : { name: "Abbott" },
+      company: "company" in over ? (over.company ?? null) : { name: "Abbott" },
     },
   };
 }
