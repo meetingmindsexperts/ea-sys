@@ -2137,12 +2137,23 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s19-deals">
         <div class="sub-title">Deals &mdash; the pipeline board</div>
-        <p>The <strong>Deals</strong> tab is a kanban board: one column per pipeline stage (Prospect &rarr; Contacted &rarr; Proposal &rarr; Negotiation &rarr; Won / Lost). <strong>Drag a card</strong> to move a deal along. If a colleague moved the same deal while you were dragging, you&rsquo;ll get a &ldquo;someone else moved this&rdquo; message and the board refreshes &mdash; nobody&rsquo;s change is silently lost.</p>
+        <p>The <strong>Deals</strong> tab is a kanban board: one column per pipeline stage (New &rarr; Proposal &rarr; Negotiation &rarr; Contract Signed &rarr; Purchase Order &rarr; Invoice Sent &rarr; Won / Lost). <strong>Drag a card</strong> to move a deal along. If a colleague moved the same deal while you were dragging, you&rsquo;ll get a &ldquo;someone else moved this&rdquo; message and the board refreshes &mdash; nobody&rsquo;s change is silently lost.</p>
         <ul>
-          <li><strong>New deal</strong> &mdash; give it a name (&ldquo;Abbott &mdash; BRIDGES 2026 Gold&rdquo;), a company, a value, and &mdash; importantly &mdash; the <strong>event</strong> it&rsquo;s for. Filter the board by event to see just that conference&rsquo;s pipeline.</li>
-          <li><strong>Open a deal</strong> to see its detail: link the <strong>people</strong> on it (the rep, plus marketing or procurement) each with their role; log <strong>notes</strong> (&ldquo;called Dr Khan, wants Gold, decides after the board meets&rdquo;); add <strong>follow-ups</strong>; and <strong>close</strong> it Won or Lost.</li>
-          <li><strong>Won a sponsorship?</strong> Close it Won &mdash; the value counts toward your win reports.</li>
+          <li><strong>New deal</strong> &mdash; give it a name (&ldquo;Abbott &mdash; BRIDGES 2026 Gold&rdquo;), a company, a value, and &mdash; <strong>required</strong> &mdash; the <strong>event (project)</strong> it&rsquo;s being sold against, chosen from the dropdown. A deal must always be tied to an event; you can re-point it to a different one later but not remove it. Filter the board by event to see just that conference&rsquo;s pipeline.</li>
+          <li><strong>Click a deal</strong> to open its own <strong>page</strong> (its own web address, so you can bookmark it or send a colleague the link). There you can <strong>edit</strong> its fields, link the <strong>people</strong> on it (the rep, plus marketing or procurement) each with their role, <strong>email</strong> those people (see below), log <strong>notes</strong> (&ldquo;called Dr Khan, wants Gold, decides after the board meets&rdquo;), add <strong>follow-ups</strong>, and <strong>close</strong> it Won or Lost. A <strong>History</strong> timeline at the bottom records every change.</li>
+          <li><strong>Won a sponsorship?</strong> Close it Won &mdash; the value counts toward your win reports. (Won and Lost are the last two columns; dragging a card into them, or using the Mark won / Mark lost buttons, does the same thing.)</li>
         </ul>
+        <p>Companies and CRM contacts each open their own page the same way &mdash; click a row to see the account (with all its deals and people) or the contact (with the deals they&rsquo;re on), edit it, and see its History.</p>
+      </div>
+
+      <div class="sub" id="s19-email">
+        <div class="sub-title">Emailing sponsors &amp; deal contacts</div>
+        <p>You can send a personalised email &mdash; a sponsorship prospectus, a follow-up &mdash; straight from the CRM, with an attachment:</p>
+        <ul>
+          <li><strong>Email all sponsors of an event</strong> &mdash; pick an event in the board&rsquo;s filter, then click <strong>Email sponsors</strong>. It gathers everyone on that event&rsquo;s active deals (prospects + won, never lost), removes duplicates, and shows you the list so you can <strong>un-tick anyone</strong> before sending.</li>
+          <li><strong>Email one deal&rsquo;s contacts</strong> &mdash; open a deal and click <strong>Email</strong> to write to just the people on that deal.</li>
+        </ul>
+        <p>In the compose window you can <strong>start from a built-in template</strong> (Sponsorship prospectus / Follow-up / Thank you) to pre-fill the subject and body, personalise with <code>{{firstName}}</code> / <code>{{companyName}}</code> / <code>{{eventName}}</code> (a greeting is added for you), and <strong>attach files</strong> (the prospectus PDF &mdash; up to 5 files, 10&nbsp;MB total). Each send is logged on that person&rsquo;s Email History and on the contact&rsquo;s CRM History.</p>
       </div>
 
       <div class="sub" id="s19-tasks">
@@ -2170,14 +2181,16 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <div class="sub-title">Who can see and do what</div>
         <ul>
           <li><strong>Admins &amp; Organizers</strong> &mdash; full access: own deals, edit everything, see values.</li>
+          <li><strong>CRM User</strong> (a dedicated sales-team role) &mdash; full run of the CRM (own deals, edit, see deal values), but <strong>walled off from the rest of the platform</strong>: no events, registrations, invoices or settings. Invite one from <strong>Settings &rarr; Users</strong> for a sponsorship salesperson who should only ever see the pipeline.</li>
           <li><strong>Members</strong> (read-only leadership / auditors) &mdash; can <strong>view</strong> the board and reports but not change anything, and <strong>deal values are hidden</strong> from them (shown as &ldquo;&mdash;&rdquo;, and the CSV they export has no value columns). This is deliberate: a member account handed to a sponsor-side stakeholder must not reveal every rival&rsquo;s deal size.</li>
           <li>Registration-desk (Onsite) staff, reviewers, submitters and registrants have <strong>no CRM access</strong>.</li>
         </ul>
+        <p><strong>Editing vs archiving.</strong> Anyone with write access (Admins, Organizers, CRM Users) can <strong>edit</strong> records. <strong>Archiving</strong> a record &mdash; hiding it from the lists &mdash; is limited to <strong>Admins and CRM Users</strong>; an Organizer can edit but not archive.</p>
       </div>
 
       <div class="sub" id="s19-scope">
         <div class="sub-title">Not in the CRM (v1)</div>
-        <p>Two-way email inbox sync, lead scoring, and hard-deleting deals or companies are intentionally out of scope for now &mdash; a mistaken deal is closed <em>Lost</em>, and a duplicate company is merged, so history is never destroyed.</p>
+        <p>Two-way email inbox sync and lead scoring are intentionally out of scope for now. Nothing is ever <strong>hard-deleted</strong> either: a mistaken deal is closed <em>Lost</em> or <strong>archived</strong> (hidden from the lists but restorable from the &ldquo;Show archived&rdquo; toggle), and a duplicate company is merged &mdash; so history is never destroyed. Every record keeps a full <strong>History</strong> log of who changed what and when.</p>
       </div>
     </div>
 
