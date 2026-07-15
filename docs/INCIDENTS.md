@@ -145,6 +145,36 @@ INC-001 was a **memory** freeze from an **on-box build**; its headline fix was *
 
 ---
 
+## INC-003 — CRM reads 500 in prod: an already-applied migration was edited in place (2026-07-15)
+
+| | |
+|---|---|
+| **Date** | 2026-07-15, first errors ~05:24 UTC |
+| **Duration** | Ongoing until the reconcile migration deploys (see below) |
+| **Severity** | SEV-3 — scoped to the CRM module (brand-new, not yet in operational use); no data loss; the rest of the app unaffected |
+| **Trigger** | A deploy shipped a Prisma Client expecting the *second* version of a migration whose *first* version was already applied to prod |
+| **Root cause** | The CRM migration `20260714120000_add_crm_module` was **edited in place** (commit `54fba94`, the CrmContact rework) after its **first** version (commit `7b4ff6b`) had already **auto-deployed** to prod. Prisma records an applied migration **by name** in `_prisma_migrations`; `prisma migrate deploy` applies only migrations whose *name* is not yet recorded and **does not re-run one whose content changed**. So the rewritten SQL never executed on prod — prod kept the v1 shape (`CrmDeal/Task/Note.contactId`, `Contact.companyId/lifecycleStage`, no `CrmContact`) while the new client expected v2 (`CrmContact`, `CrmDealContact`, `CrmTask.crmContactId`). Every CRM list query then 500'd: *"The table `public.CrmContact` does not exist"* / *"column `CrmTask.crmContactId` does not exist"*. |
+| **Contributing** | A wrong mental model: the build/commits were described as "NOT deployed", but **every code push to `main` auto-deploys** (established in the rollback drill, ROLLBACK.md §1.6). So editing the migration was a live-prod migration edit, not a pre-deploy tidy-up. |
+| **Fix** | A new guarded, idempotent migration `20260715060000_crm_contact_rework_reconcile` that brings a v1-shaped DB up to the datamodel (creates `CrmContact`/`CrmDealContact`, swaps `contactId → crmContactId` on Task/Note, drops the v1 `CrmDeal.contactId` + `Contact.companyId/lifecycleStage`) and is a **no-op on a fresh DB**. Deployed via the normal path (`prisma migrate deploy` runs it as the one pending migration). |
+| **Status** | Fix authored + verified; **deploys with the next release**. |
+
+### How it was diagnosed
+The Pino errors named the exact missing objects (`CrmContact`, `CrmDealContact`, `CrmTask.crmContactId`) while sibling base tables (`CrmDeal`, `CrmCompany`, `CrmTask`) resolved — the signature of "v1 tables present, v2 additions absent". Confirmed by diffing the two committed versions of the migration file in git, then reading prod's real shape read-only:
+```
+prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --script
+```
+That output is the authoritative reconcile. (It also surfaced **unrelated** pre-existing drift on `CertificateIssueRun` / `IssuedCertificate` / `CertificateIssueRunItem` / `AlertState` — deliberately left out of this fix; one incident, one concern.)
+
+### The rule and the prevention
+- **An applied migration file is immutable.** Once a migration is on `main` (⇒ auto-deployed), it is frozen. To change the schema you **add a new migration**, never edit the old one. Editing in place is only safe before the first commit.
+- **The trap is silent** because `migrate deploy` skips already-applied migrations by *name* and never re-checksums them — tsc/lint/build/tests all stay green while prod diverges.
+- **Durable guard (action item):** wire a pre-deploy drift check into CI —
+  `prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --exit-code`
+  exits non-zero when the DB and the schema disagree; halt the deploy on drift. Locally, `prisma migrate status` reports "edited after applied".
+- Full symptom→fix entry in the `ea-sys-debugging` skill (Migrations section).
+
+---
+
 ## Appendix — How to diagnose a frozen box
 
 When the site times out but the instance is "running" (the INC-001 pattern):
