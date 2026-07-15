@@ -24,11 +24,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCreateCompany, useCreateDeal, useCrmEvents } from "@/crm/hooks/use-crm-api";
+import { useCreateCompany, useCreateDeal } from "@/crm/hooks/use-crm-api";
 import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
+import { EventCombobox } from "@/crm/components/event-combobox";
 import type { CrmStage } from "@/crm/lib/crm-types";
-
-const NO_EVENT = "__none__";
 
 export function CreateDealDialog({
   open,
@@ -46,11 +45,10 @@ export function CreateDealDialog({
   const [dealValue, setDealValue] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [stageId, setStageId] = useState("");
-  const [eventId, setEventId] = useState(defaultEventId ?? NO_EVENT);
+  const [eventId, setEventId] = useState<string | null>(defaultEventId ?? null);
   const [expectedClose, setExpectedClose] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const { data: events = [] } = useCrmEvents();
   const createCompany = useCreateCompany();
   const createDeal = useCreateDeal();
 
@@ -65,7 +63,7 @@ export function CreateDealDialog({
     setDealValue("");
     setCurrency("USD");
     setStageId("");
-    setEventId(defaultEventId ?? NO_EVENT);
+    setEventId(defaultEventId ?? null);
     setExpectedClose("");
   }
 
@@ -101,7 +99,7 @@ export function CreateDealDialog({
         name: name.trim(),
         stageId: effectiveStage,
         companyId,
-        eventId: eventId === NO_EVENT ? null : eventId,
+        eventId,
         dealValue: parsedValue,
         currency,
         expectedClose: expectedClose || null,
@@ -204,20 +202,8 @@ export function CreateDealDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="deal-event">Event</Label>
-            <Select value={eventId} onValueChange={setEventId}>
-              <SelectTrigger id="deal-event" className="w-full">
-                <SelectValue placeholder="No event" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_EVENT}>No event</SelectItem>
-                {events.map((e: { id: string; name: string }) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Event</Label>
+            <EventCombobox value={eventId} onChange={setEventId} clearLabel="No event" className="w-full" />
           </div>
         </div>
 

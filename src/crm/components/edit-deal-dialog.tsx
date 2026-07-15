@@ -25,11 +25,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCreateCompany, useCrmEvents, useUpdateDeal } from "@/crm/hooks/use-crm-api";
+import { useCreateCompany, useUpdateDeal } from "@/crm/hooks/use-crm-api";
 import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
+import { EventCombobox } from "@/crm/components/event-combobox";
 import type { CrmBoardDeal } from "@/crm/lib/crm-types";
-
-const NO_EVENT = "__none__";
 
 function toDateInput(v?: string | null): string {
   if (!v) return "";
@@ -52,7 +51,7 @@ export function EditDealDialog({
   );
   const [dealValue, setDealValue] = useState(deal.dealValue != null ? String(deal.dealValue) : "");
   const [currency, setCurrency] = useState(deal.currency || "USD");
-  const [eventId, setEventId] = useState(deal.event?.id ?? NO_EVENT);
+  const [eventId, setEventId] = useState<string | null>(deal.event?.id ?? null);
   const [expectedClose, setExpectedClose] = useState(toDateInput(deal.expectedClose));
   const [saving, setSaving] = useState(false);
 
@@ -62,11 +61,10 @@ export function EditDealDialog({
     setCompany(deal.company ? { id: deal.company.id, name: deal.company.name } : null);
     setDealValue(deal.dealValue != null ? String(deal.dealValue) : "");
     setCurrency(deal.currency || "USD");
-    setEventId(deal.event?.id ?? NO_EVENT);
+    setEventId(deal.event?.id ?? null);
     setExpectedClose(toDateInput(deal.expectedClose));
   }, [deal]);
 
-  const { data: events = [] } = useCrmEvents();
   const createCompany = useCreateCompany();
   const update = useUpdateDeal(deal.id);
 
@@ -93,7 +91,7 @@ export function EditDealDialog({
       await update.mutateAsync({
         name: name.trim(),
         companyId,
-        eventId: eventId === NO_EVENT ? null : eventId,
+        eventId,
         dealValue: parsedValue,
         currency,
         expectedClose: expectedClose || null,
@@ -170,20 +168,8 @@ export function EditDealDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-deal-event">Event</Label>
-              <Select value={eventId} onValueChange={setEventId}>
-                <SelectTrigger id="edit-deal-event" className="w-full">
-                  <SelectValue placeholder="No event" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_EVENT}>No event</SelectItem>
-                  {events.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Event</Label>
+              <EventCombobox value={eventId} onChange={setEventId} clearLabel="No event" className="w-full" />
             </div>
           </div>
         </div>

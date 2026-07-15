@@ -24,15 +24,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { EventCombobox } from "@/crm/components/event-combobox";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
-import { useCrmEvents, useCrmReport } from "@/crm/hooks/use-crm-api";
+import { useCrmReport } from "@/crm/hooks/use-crm-api";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canViewDealValues } from "@/crm/lib/crm-roles";
 import { formatDealValue } from "@/crm/lib/crm-types";
 
-const ALL_EVENTS = "__all__";
 const REPORT_FILTER_KEYS = ["event", "owner", "dateField", "from", "to"];
 const DATE_FIELDS = [
   { value: "expectedClose", label: "Expected close" },
@@ -59,7 +58,6 @@ function ReportsInner() {
   };
 
   const { data: report, isLoading } = useCrmReport(filters);
-  const { data: events = [] } = useCrmEvents();
   const filtersActive = anyActive(REPORT_FILTER_KEYS);
 
   // The export honours the current URL filters — same params, plus status.
@@ -98,19 +96,12 @@ function ReportsInner() {
 
       {/* ── Filter bar ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-2">
-        <Select value={get("event") || ALL_EVENTS} onValueChange={(v) => set({ event: v === ALL_EVENTS ? null : v })}>
-          <SelectTrigger className="w-[14rem]">
-            <SelectValue placeholder="All events" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_EVENTS}>All events</SelectItem>
-            {events.map((e: { id: string; name: string }) => (
-              <SelectItem key={e.id} value={e.id}>
-                {e.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <EventCombobox
+          value={get("event") || null}
+          onChange={(v) => set({ event: v })}
+          clearLabel="All events"
+          className="w-[14rem]"
+        />
         <OwnerFilter value={get("owner")} onChange={(v) => set({ owner: v })} />
         <DateRangeFilter
           fields={DATE_FIELDS}

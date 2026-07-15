@@ -10,6 +10,10 @@ import { requireCrmRead } from "@/crm/lib/crm-route";
  * so a CRM_USER (confined to the CRM, zero event-API access) can still TAG a deal
  * to an event without being handed any event data beyond its name. Staff use it
  * too — it decouples the CRM from the heavy events API.
+ *
+ * Only PUBLISHED events are returned — i.e. events that have gone live to the world
+ * (PUBLISHED / LIVE / COMPLETED), not DRAFT or CANCELLED. You sell sponsorships
+ * against announced events; a draft isn't real yet and a cancelled one is off.
  */
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
@@ -17,7 +21,10 @@ export async function GET(req: Request) {
 
   try {
     const events = await db.event.findMany({
-      where: { organizationId: ctx.organizationId },
+      where: {
+        organizationId: ctx.organizationId,
+        status: { notIn: ["DRAFT", "CANCELLED"] },
+      },
       select: { id: true, name: true },
       orderBy: { startDate: "desc" },
       take: 1000,

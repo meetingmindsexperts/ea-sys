@@ -20,7 +20,7 @@ import { useSession } from "next-auth/react";
 import { Archive, Handshake, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCrmEvents } from "@/crm/hooks/use-crm-api";
+import { EventCombobox } from "@/crm/components/event-combobox";
 import { DealBoard } from "@/crm/components/deal-board";
 import { DealDetailSheet } from "@/crm/components/deal-detail-sheet";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
@@ -34,7 +34,6 @@ import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
 import { sumStageValue, type CrmBoardDeal } from "@/crm/lib/crm-types";
 
-const ALL_EVENTS = "__all__";
 const ALL_STATUS = "__all__";
 
 const DATE_FIELDS = [
@@ -76,7 +75,6 @@ function DealsPageInner() {
   const { data: stages = [], isLoading: stagesLoading } = useCrmStages();
   const { data: deals = [], isLoading: dealsLoading } = useCrmDeals(filters);
   const move = useMoveDealStage(filters);
-  const { data: events = [] } = useCrmEvents();
 
   const isLoading = stagesLoading || dealsLoading;
   const filtersActive = anyActive(FILTER_KEYS);
@@ -97,19 +95,12 @@ function DealsPageInner() {
 
       {/* ── Filter bar ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-2">
-        <Select value={eventId || ALL_EVENTS} onValueChange={(v) => set({ event: v === ALL_EVENTS ? null : v })}>
-          <SelectTrigger className="w-[14rem]">
-            <SelectValue placeholder="All events" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_EVENTS}>All events</SelectItem>
-            {events.map((e: { id: string; name: string }) => (
-              <SelectItem key={e.id} value={e.id}>
-                {e.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <EventCombobox
+          value={eventId || null}
+          onChange={(v) => set({ event: v })}
+          clearLabel="All events"
+          className="w-[14rem]"
+        />
 
         <OwnerFilter value={get("owner")} onChange={(v) => set({ owner: v })} />
 
