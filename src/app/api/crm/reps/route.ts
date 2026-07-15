@@ -5,15 +5,17 @@ import type { UserRole } from "@prisma/client";
 import { requireCrmRead } from "@/crm/lib/crm-route";
 
 /**
- * GET /api/crm/reps — the org's deal-OWNING staff as {id, firstName, lastName, role}.
+ * GET /api/crm/reps — the org's sales reps as {id, firstName, lastName, role}.
  *
- * A "rep" is anyone who can own a deal: the sales team (CRM_USER) and the admin
- * tier (ADMIN / SUPER_ADMIN / ORGANIZER) — the same set as `canOwnDeals`. The owner
- * filter uses this instead of the org-wide /api/organization/users so a CRM_USER
- * (confined to the CRM) can populate the picker without reaching a non-CRM endpoint,
- * and so the list is exactly the deal-owning roles rather than every team member.
+ * A "rep" is the sales team (CRM_USER) + the admin tier (ADMIN / SUPER_ADMIN).
+ * ORGANIZER is deliberately EXCLUDED (owner decision, July 15): organizers run
+ * events, not the sponsorship pipeline, so they'd only clutter the owner/rep picker
+ * — even though `canOwnDeals` still permits an organizer to own a deal if one is
+ * assigned by other means. The owner filter uses this instead of the org-wide
+ * /api/organization/users so a CRM_USER (confined to the CRM) can populate the
+ * picker without reaching a non-CRM endpoint.
  */
-const REP_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "CRM_USER"];
+const REP_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "CRM_USER"];
 
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
