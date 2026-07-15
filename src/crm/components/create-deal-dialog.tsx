@@ -24,7 +24,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCreateCompany, useCreateDeal, useCrmCompanies, useCrmEvents } from "@/crm/hooks/use-crm-api";
+import { useCreateCompany, useCreateDeal, useCrmEvents } from "@/crm/hooks/use-crm-api";
+import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
 import type { CrmStage } from "@/crm/lib/crm-types";
 
 const NO_EVENT = "__none__";
@@ -41,7 +42,7 @@ export function CreateDealDialog({
   defaultEventId?: string | null;
 }) {
   const [name, setName] = useState("");
-  const [companyName, setCompanyName] = useState("");
+  const [company, setCompany] = useState<CompanySelection | null>(null);
   const [dealValue, setDealValue] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [stageId, setStageId] = useState("");
@@ -50,7 +51,6 @@ export function CreateDealDialog({
   const [saving, setSaving] = useState(false);
 
   const { data: events = [] } = useCrmEvents();
-  const { data: companies = [] } = useCrmCompanies();
   const createCompany = useCreateCompany();
   const createDeal = useCreateDeal();
 
@@ -61,7 +61,7 @@ export function CreateDealDialog({
 
   function reset() {
     setName("");
-    setCompanyName("");
+    setCompany(null);
     setDealValue("");
     setCurrency("USD");
     setStageId("");
@@ -81,20 +81,13 @@ export function CreateDealDialog({
 
     setSaving(true);
     try {
-      // Find-or-create the account first, so the deal always hangs off a real
-      // company row rather than another free-text string (the thing this module
-      // exists to fix).
+      // The picker gives us either an existing account (id) or a to-be-created one
+      // (id null + name). Find-or-create the latter so the deal always hangs off a
+      // real company row rather than a free-text string (the thing this module
+      // exists to fix); the server dedups, so a typed name that already exists links.
       let companyId: string | null = null;
-      if (companyName.trim()) {
-        const existing = companies.find(
-          (c) => c.name.trim().toLowerCase() === companyName.trim().toLowerCase(),
-        );
-        if (existing) {
-          companyId = existing.id;
-        } else {
-          const res = await createCompany.mutateAsync({ name: companyName.trim() });
-          companyId = res.company.id;
-        }
+      if (company) {
+        companyId = company.id ?? (await createCompany.mutateAsync({ name: company.name })).company.id;
       }
 
       const parsedValue = dealValue.trim() ? Number(dealValue) : null;
@@ -148,21 +141,10 @@ export function CreateDealDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="deal-company">Company</Label>
-            <Input
-              id="deal-company"
-              list="crm-company-options"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="Abbott"
-            />
-            <datalist id="crm-company-options">
-              {companies.map((c) => (
-                <option key={c.id} value={c.name} />
-              ))}
-            </datalist>
+            <Label>Company</Label>
+            <CompanyCombobox value={company} onChange={setCompany} />
             <p className="text-xs text-muted-foreground">
-              Typing an existing name links to that account — it won&apos;t create a duplicate.
+              Pick an existing account, or type a new name to create one.
             </p>
           </div>
 

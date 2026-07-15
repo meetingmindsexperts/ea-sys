@@ -25,7 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCreateCompany, useCrmCompanies, useCrmEvents, useUpdateDeal } from "@/crm/hooks/use-crm-api";
+import { useCreateCompany, useCrmEvents, useUpdateDeal } from "@/crm/hooks/use-crm-api";
+import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
 import type { CrmBoardDeal } from "@/crm/lib/crm-types";
 
 const NO_EVENT = "__none__";
@@ -46,7 +47,9 @@ export function EditDealDialog({
   onOpenChange: (o: boolean) => void;
 }) {
   const [name, setName] = useState(deal.name);
-  const [companyName, setCompanyName] = useState(deal.company?.name ?? "");
+  const [company, setCompany] = useState<CompanySelection | null>(
+    deal.company ? { id: deal.company.id, name: deal.company.name } : null,
+  );
   const [dealValue, setDealValue] = useState(deal.dealValue != null ? String(deal.dealValue) : "");
   const [currency, setCurrency] = useState(deal.currency || "USD");
   const [eventId, setEventId] = useState(deal.event?.id ?? NO_EVENT);
@@ -56,7 +59,7 @@ export function EditDealDialog({
   // Re-seed the form whenever a different deal is opened.
   useEffect(() => {
     setName(deal.name);
-    setCompanyName(deal.company?.name ?? "");
+    setCompany(deal.company ? { id: deal.company.id, name: deal.company.name } : null);
     setDealValue(deal.dealValue != null ? String(deal.dealValue) : "");
     setCurrency(deal.currency || "USD");
     setEventId(deal.event?.id ?? NO_EVENT);
@@ -64,7 +67,6 @@ export function EditDealDialog({
   }, [deal]);
 
   const { data: events = [] } = useCrmEvents();
-  const { data: companies = [] } = useCrmCompanies();
   const createCompany = useCreateCompany();
   const update = useUpdateDeal(deal.id);
 
@@ -81,14 +83,11 @@ export function EditDealDialog({
 
     setSaving(true);
     try {
-      // Resolve the company to an id: reuse if it matches an existing account,
-      // else find-or-create so we never mint a duplicate.
+      // Existing account → its id; a to-be-created one → find-or-create (server
+      // dedups, so we never mint a duplicate).
       let companyId: string | null = null;
-      if (companyName.trim()) {
-        const existing = companies.find(
-          (c) => c.name.trim().toLowerCase() === companyName.trim().toLowerCase(),
-        );
-        companyId = existing ? existing.id : (await createCompany.mutateAsync({ name: companyName.trim() })).company.id;
+      if (company) {
+        companyId = company.id ?? (await createCompany.mutateAsync({ name: company.name })).company.id;
       }
 
       await update.mutateAsync({
@@ -128,19 +127,8 @@ export function EditDealDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-deal-company">Company</Label>
-            <Input
-              id="edit-deal-company"
-              list="crm-edit-company-options"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="Abbott"
-            />
-            <datalist id="crm-edit-company-options">
-              {companies.map((c) => (
-                <option key={c.id} value={c.name} />
-              ))}
-            </datalist>
+            <Label>Company</Label>
+            <CompanyCombobox value={company} onChange={setCompany} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
