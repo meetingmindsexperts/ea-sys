@@ -71,16 +71,22 @@
   </p>
 </header>
 
-<div class="note warn">
-  <strong>Status (July 16): ALL findings OPEN — this is the findings document; fixes are scheduled for the
-  next working session.</strong> This doc will be updated in place as fixes land (pills flip
-  OPEN → SHIPPED, with commit hashes). Context that matters for prioritisation: <strong>the CRM module is
-  NOT deployed</strong> — its migrations have not been applied to prod (see
-  <code>docs/CRM_STATUS.html</code>) — so schema-level fixes (H1) can still ship clean, with no
-  dedup backfill needed. Two earlier scoped reviews already ran on slices of this module
-  (products/line-items July 15 — H1/M1/M2/M3 shipped, L1–L5 deferred in ROADMAP; the edit/archive/activity
-  round July 15). This is the first <em>whole-module</em> pass; already-deferred products findings are not
-  re-listed here.
+<div class="note">
+  <strong>Status (July 16, same day): ALL 4 HIGHs + ALL 12 MEDs + 9 of 17 LOWs SHIPPED</strong>, in four
+  gated commits — batch 1 <code>adc14bf9</code> (schema + state machine: H1, H3+M10, M1, M5, M8, L2),
+  batch 2 <code>9bb318a1</code> (money + errors: H2, H4), batch 3 <code>7ccf12cb</code> (visibility +
+  email: M2, M3, M9+L12, M6, L15-naming), batch 4 <code>f7beb16d</code> (M4, M7, M11, M12, L1, L4, L9,
+  L11, L15-docs). Migration <code>20260716140000_crm_stage_outcome_and_uniques</code> is additive +
+  idempotent, with a dev-DB dedup pass; the CRM is not on prod, so it ships clean. Each batch gated on
+  tsc / eslint / vitest; the full suite + build ran before push.
+  <strong>Deferred to <code>docs/ROADMAP.md</code> §"CRM module review":</strong> L3 (archived
+  find-or-create reuse flag), L6 (export/board silent truncation), L7 (subject token asymmetry),
+  L8 (double greeting), L10 (PATCH archive+fields drops edits), L13 (MEMBER sees rival rep PII — owner
+  call, pairs with the shipped M2), L14 (lost-only reps), L16 (pipeline-service unit tests +
+  STATUS_BY_CODE test), L17 (deal-dialog duplication), plus two halves: the M4
+  <em>expectedUpdatedAt</em> optimistic lock (lost-update 409 — the misattribution half shipped) and the
+  L2 owner-less-due-task log line. Two earlier scoped reviews already ran on slices of this module
+  (products/line-items + edit/archive/activity, July 15); their deferred items remain in ROADMAP.
 </div>
 
 <h2 id="verdict">Verdict</h2>
@@ -107,23 +113,23 @@
 <div class="tbl-wrap">
 <table>
   <tr><th>#</th><th>Sev</th><th>Status</th><th>One-liner</th></tr>
-  <tr><td><a href="#h1">H1</a></td><td><span class="sev high">High</span></td><td><span class="pill open">Open</span></td><td>Pipeline-stage + email-template seeders can double-seed (no unique constraint) — the products M1 fix was never propagated; duplicate Won/Lost columns corrupt close &amp; reconcile</td></tr>
-  <tr><td><a href="#h2">H2</a></td><td><span class="sev high">High</span></td><td><span class="pill open">Open</span></td><td>Reports + board column totals silently sum mixed currencies and label everything USD</td></tr>
-  <tr><td><a href="#h3">H3</a></td><td><span class="sev high">High</span></td><td><span class="pill open">Open</span></td><td>Won/Lost is matched by stage NAME; renamed/custom/deleted terminal stages ⇒ deals double-counted, uncounted, or silently reopened by a routine drag</td></tr>
-  <tr><td><a href="#h4">H4</a></td><td><span class="sev high">High</span></td><td><span class="pill open">Open</span></td><td>Renaming a company/contact to a taken name/email ⇒ unlogged HTTP 500 (P2002 mapped to <code>UNKNOWN</code>)</td></tr>
-  <tr><td><a href="#m1">M1</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Archived records fully mutable via API — state-machine claims never include <code>archivedAt: null</code></td></tr>
-  <tr><td><a href="#m2">M2</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>MEMBER reads rival deal money out of free-text notes — prose bypasses the <code>canViewDealValues</code> redaction</td></tr>
-  <tr><td><a href="#m3">M3</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Sponsor/deal email blast has zero double-submit idempotency — a double-click re-emails the whole audience</td></tr>
-  <tr><td><a href="#m4">M4</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Record edits have no optimistic lock; the before-snapshot → write → re-read triple can misattribute changes in the History log</td></tr>
-  <tr><td><a href="#m5">M5</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Silent business rejections across 8 services — the products <code>reject()</code> helper was never propagated, and <code>crmErrorResponse</code> doesn't log either</td></tr>
-  <tr><td><a href="#m6">M6</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Frontend silent-failure cluster: every list page renders a failed fetch as "No deals yet"; three mutations fail with no toast</td></tr>
-  <tr><td><a href="#m7">M7</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Dead <code>contactId</code> field on the deal create/update schemas — accepted, validated, silently discarded</td></tr>
-  <tr><td><a href="#m8">M8</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Pipeline-stage hard DELETE is write-gated: ORGANIZER can remove a column but may not archive a single deal</td></tr>
-  <tr><td><a href="#m9">M9</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>MIME header injection via attachment <code>name</code>/<code>contentType</code> in core <code>buildRawMime</code> (CRM blast is the first user-supplied external fan-out)</td></tr>
-  <tr><td><a href="#m10">M10</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Stale <code>lostReason</code> survives a drag-reopen — a WON deal exports with a "Lost reason"</td></tr>
-  <tr><td><a href="#m11">M11</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>A task due <em>today</em> shows Overdue all day (UTC-midnight compare); report date ranges are server-TZ dependent</td></tr>
-  <tr><td><a href="#m12">M12</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Editing a task's due date does not move its reminder</td></tr>
-  <tr><td><a href="#lows">L1–L17</a></td><td><span class="sev low">Low</span></td><td><span class="pill open">Open</span></td><td>17 smaller items — false-atomicity comments, archived-row edge cases, doc drift, silent truncation, test gaps (full list below)</td></tr>
+  <tr><td><a href="#h1">H1</a></td><td><span class="sev high">High</span></td><td><span class="pill shipped">Shipped adc14bf9</span></td><td>Pipeline-stage + email-template seeders can double-seed (no unique constraint) — the products M1 fix was never propagated; duplicate Won/Lost columns corrupt close &amp; reconcile</td></tr>
+  <tr><td><a href="#h2">H2</a></td><td><span class="sev high">High</span></td><td><span class="pill shipped">Shipped 9bb318a1</span></td><td>Reports + board column totals silently sum mixed currencies and label everything USD</td></tr>
+  <tr><td><a href="#h3">H3</a></td><td><span class="sev high">High</span></td><td><span class="pill shipped">Shipped adc14bf9</span></td><td>Won/Lost is matched by stage NAME; renamed/custom/deleted terminal stages ⇒ deals double-counted, uncounted, or silently reopened by a routine drag</td></tr>
+  <tr><td><a href="#h4">H4</a></td><td><span class="sev high">High</span></td><td><span class="pill shipped">Shipped 9bb318a1</span></td><td>Renaming a company/contact to a taken name/email ⇒ unlogged HTTP 500 (P2002 mapped to <code>UNKNOWN</code>)</td></tr>
+  <tr><td><a href="#m1">M1</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped adc14bf9</span></td><td>Archived records fully mutable via API — state-machine claims never include <code>archivedAt: null</code></td></tr>
+  <tr><td><a href="#m2">M2</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped 7ccf12cb</span></td><td>MEMBER reads rival deal money out of free-text notes — prose bypasses the <code>canViewDealValues</code> redaction</td></tr>
+  <tr><td><a href="#m3">M3</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped 7ccf12cb</span></td><td>Sponsor/deal email blast has zero double-submit idempotency — a double-click re-emails the whole audience</td></tr>
+  <tr><td><a href="#m4">M4</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped f7beb16d</span></td><td>Record edits have no optimistic lock; the before-snapshot → write → re-read triple can misattribute changes in the History log</td></tr>
+  <tr><td><a href="#m5">M5</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped adc14bf9</span></td><td>Silent business rejections across 8 services — the products <code>reject()</code> helper was never propagated, and <code>crmErrorResponse</code> doesn't log either</td></tr>
+  <tr><td><a href="#m6">M6</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped 7ccf12cb</span></td><td>Frontend silent-failure cluster: every list page renders a failed fetch as "No deals yet"; three mutations fail with no toast</td></tr>
+  <tr><td><a href="#m7">M7</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped f7beb16d</span></td><td>Dead <code>contactId</code> field on the deal create/update schemas — accepted, validated, silently discarded</td></tr>
+  <tr><td><a href="#m8">M8</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped adc14bf9</span></td><td>Pipeline-stage hard DELETE is write-gated: ORGANIZER can remove a column but may not archive a single deal</td></tr>
+  <tr><td><a href="#m9">M9</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped 7ccf12cb</span></td><td>MIME header injection via attachment <code>name</code>/<code>contentType</code> in core <code>buildRawMime</code> (CRM blast is the first user-supplied external fan-out)</td></tr>
+  <tr><td><a href="#m10">M10</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped adc14bf9</span></td><td>Stale <code>lostReason</code> survives a drag-reopen — a WON deal exports with a "Lost reason"</td></tr>
+  <tr><td><a href="#m11">M11</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped f7beb16d</span></td><td>A task due <em>today</em> shows Overdue all day (UTC-midnight compare); report date ranges are server-TZ dependent</td></tr>
+  <tr><td><a href="#m12">M12</a></td><td><span class="sev medium">Med</span></td><td><span class="pill shipped">Shipped f7beb16d</span></td><td>Editing a task's due date does not move its reminder</td></tr>
+  <tr><td><a href="#lows">L1–L17</a></td><td><span class="sev low">Low</span></td><td><span class="pill shipped">9 shipped</span> <span class="pill deferred">8 deferred</span></td><td>Shipped: L1, L2 (claim+docs), L4, L5 (outcome-aware orphans), L9, L11, L12, L15; deferred to ROADMAP: L3, L6, L7, L8, L13, L14, L16, L17 (+ the M4 optimistic-lock half, the L2 owner-less-task log)</td></tr>
 </table>
 </div>
 
@@ -151,7 +157,7 @@
 <h2 id="high">HIGH</h2>
 
 <div class="finding high" id="h1">
-  <h3><span class="sev high">High</span> <span class="pill open">Open</span> H1 — Pipeline-stage and email-template seeders can double-seed: no unique constraint, so <code>skipDuplicates</code> is a no-op</h3>
+  <h3><span class="sev high">High</span> <span class="pill shipped">Shipped adc14bf9</span> H1 — Pipeline-stage and email-template seeders can double-seed: no unique constraint, so <code>skipDuplicates</code> is a no-op</h3>
   <p class="loc">src/crm/services/pipeline-service.ts:82–114 · src/crm/services/crm-email-template-service.ts:59–82 · prisma/schema.prisma (both models carry only <code>@@index([organizationId, sortOrder])</code>)</p>
 
   <p class="lbl">The code</p>
@@ -198,7 +204,7 @@ await db.crmPipelineStage.createMany({
 </div>
 
 <div class="finding high" id="h2">
-  <h3><span class="sev high">High</span> <span class="pill open">Open</span> H2 — Reports and board column totals silently mix currencies and label everything USD</h3>
+  <h3><span class="sev high">High</span> <span class="pill shipped">Shipped 9bb318a1</span> H2 — Reports and board column totals silently mix currencies and label everything USD</h3>
   <p class="loc">src/app/api/crm/reports/route.ts:51–77 · src/app/(dashboard)/crm/reports/page.tsx:42–45 · src/crm/lib/crm-types.ts:349–354 (<code>sumStageValue</code>) · src/crm/components/deal-board.tsx:136</p>
 
   <p class="lbl">The code</p>
@@ -239,7 +245,7 @@ export function sumStageValue(deals: CrmBoardDeal[], currency = "USD"): string |
 </div>
 
 <div class="finding high" id="h3">
-  <h3><span class="sev high">High</span> <span class="pill open">Open</span> H3 — Won/Lost is keyed on the stage NAME; divergence puts deals in the wrong (or no) report bucket, and a routine drag silently reopens a won deal</h3>
+  <h3><span class="sev high">High</span> <span class="pill shipped">Shipped adc14bf9</span> H3 — Won/Lost is keyed on the stage NAME; divergence puts deals in the wrong (or no) report bucket, and a routine drag silently reopens a won deal</h3>
   <p class="loc">src/crm/services/deal-service.ts:502–516 (<code>terminalStatusFor</code>) · :425–441 (<code>closeDeal</code>) · :329–343 (<code>moveDealStage</code>) · src/app/api/crm/reports/route.ts:84–94 + src/crm/lib/reports.ts:41–48</p>
 
   <p class="lbl">The code</p>
@@ -296,7 +302,7 @@ status: terminalStatusFor(toStage.name, toStage.isTerminal) ?? "OPEN",
 </div>
 
 <div class="finding high" id="h4">
-  <h3><span class="sev high">High</span> <span class="pill open">Open</span> H4 — Renaming a company/contact to a taken name/email returns an unlogged HTTP 500</h3>
+  <h3><span class="sev high">High</span> <span class="pill shipped">Shipped 9bb318a1</span> H4 — Renaming a company/contact to a taken name/email returns an unlogged HTTP 500</h3>
   <p class="loc">src/crm/services/company-service.ts:278–285 · src/crm/services/crm-contact-service.ts:258–265 · src/crm/lib/crm-route.ts:168 (<code>UNKNOWN: 500</code>)</p>
 
   <p class="lbl">The code</p>
@@ -333,7 +339,7 @@ if (err instanceof Prisma.PrismaClientKnownRequestError &amp;&amp; err.code === 
 <h2 id="med">MEDIUM</h2>
 
 <div class="finding medium" id="m1">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M1 — Archived records are fully mutable: no state-machine claim includes <code>archivedAt: null</code></h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped adc14bf9</span> M1 — Archived records are fully mutable: no state-machine claim includes <code>archivedAt: null</code></h3>
   <p class="loc">deal-service.ts:280 (update), :332–343 (move), :434–442 (close), :612 (addDealContact) · crm-product-service.ts:233 (addDealProduct) · task-service.ts:232/:283 (complete/reopen) · company/contact update paths</p>
   <p class="lbl">Failure scenario</p>
   <p>Admin A archives a deal; colleague B's board hasn't refetched and B drags the card. The claim checks
@@ -355,7 +361,7 @@ if (err instanceof Prisma.PrismaClientKnownRequestError &amp;&amp; err.code === 
 </div>
 
 <div class="finding medium" id="m2">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M2 — MEMBER can read rival deal money out of free-text notes, bypassing the structured redaction</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped 7ccf12cb</span> M2 — MEMBER can read rival deal money out of free-text notes, bypassing the structured redaction</h3>
   <p class="loc">src/app/api/crm/notes/route.ts (GET is <code>requireCrmRead</code>, returns raw <code>body</code>) · companies/[companyId]/route.ts + contacts/[crmContactId]/route.ts (return <code>notes</code> fields) · crm-roles.ts:81–96 (the stated goal)</p>
   <p class="lbl">Failure scenario</p>
   <p>The whole reason <code>canViewDealValues</code> is narrower than <code>canViewFinance</code> is
@@ -378,7 +384,7 @@ if (err instanceof Prisma.PrismaClientKnownRequestError &amp;&amp; err.code === 
 </div>
 
 <div class="finding medium" id="m3">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M3 — Sponsor/deal email blast: no double-submit idempotency</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped 7ccf12cb</span> M3 — Sponsor/deal email blast: no double-submit idempotency</h3>
   <p class="loc">src/app/api/crm/sponsor-email/send/route.ts:47 · src/crm/services/sponsor-email-service.ts:272–368</p>
   <p class="lbl">Failure scenario</p>
   <p>The send is synchronous in the request (batches of 25, attachments up to 10&nbsp;MB base64 — slow).
@@ -398,7 +404,7 @@ if (err instanceof Prisma.PrismaClientKnownRequestError &amp;&amp; err.code === 
 </div>
 
 <div class="finding medium" id="m4">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M4 — Record edits: no optimistic lock, and the snapshot → write → re-read triple can misattribute changes in the History log</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped f7beb16d</span> M4 — Record edits: no optimistic lock, and the snapshot → write → re-read triple can misattribute changes in the History log</h3>
   <p class="loc">deal-service.ts:271–295 · same shape in company-service.ts:245–273, crm-contact-service.ts:225–253, task-service.ts:181–205</p>
   <p class="lbl">The code</p>
 <pre><code>const before = await db.crmDeal.findFirst({ ... });                       // (1)
@@ -421,7 +427,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding medium" id="m5">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M5 — Silent business rejections across 8 services; <code>crmErrorResponse</code> doesn't log either</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped adc14bf9</span> M5 — Silent business rejections across 8 services; <code>crmErrorResponse</code> doesn't log either</h3>
   <p class="loc">deal-service.ts (:165, :170–172, :239, :250–252, :257–259) · company-service.ts (:111–113, :224–226, :237–239) · crm-contact-service.ts (:109–114, :192–208, :217–219, :318–320) · task-service.ts (:107, :157, :174, :177–178) · note-service.ts (:102, :179, :184–186) · crm-email-template-service.ts (:105–107, :151–165) · pipeline-service.ts (:140) · sponsor-email-service.ts (:231–249, :132–134, :197–199) · crm-route.ts:171–181</p>
   <p class="lbl">Failure scenario</p>
   <p>The route layer is clean (every <code>safeParse</code> failure logs via <code>zodErrorResponse</code>),
@@ -447,7 +453,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding medium" id="m6">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M6 — Frontend silent failures: every list page renders a failed fetch as an empty state; three mutations fail with no toast</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped 7ccf12cb</span> M6 — Frontend silent failures: every list page renders a failed fetch as an empty state; three mutations fail with no toast</h3>
   <p class="loc">deals/page.tsx:78 · companies/page.tsx:51–52 · contacts, tasks (:46), products, templates, reports pages (all ignore <code>isError</code>) · create-company-dialog.tsx:51–63 · deal-detail-body.tsx:106–117 (add follow-up) · company-detail-body.tsx:170–172 ("They're different" dismiss) · use-crm-api.ts:213–236, :272–281 (no <code>onError</code>)</p>
   <p class="lbl">Failure scenario</p>
   <p>A failed <code>GET /api/crm/deals</code> (session lapse, 500, network) renders as
@@ -468,7 +474,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding medium" id="m7">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M7 — Dead <code>contactId</code> field on the deal schemas: accepted, validated, silently discarded</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped f7beb16d</span> M7 — Dead <code>contactId</code> field on the deal schemas: accepted, validated, silently discarded</h3>
   <p class="loc">src/app/api/crm/deals/route.ts:16 · src/app/api/crm/deals/[dealId]/route.ts:13 · deal-service.ts:40–77 (<code>CreateDealInput</code>/<code>UpdateDealInput</code> have no such field)</p>
   <p class="lbl">Failure scenario</p>
   <p>Both Zod schemas declare <code>contactId: z.string().min(1).optional().nullable()</code>, but the
@@ -488,7 +494,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding medium" id="m8">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M8 — Pipeline-stage hard DELETE is write-gated: the RBAC gradient inverts</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped adc14bf9</span> M8 — Pipeline-stage hard DELETE is write-gated: the RBAC gradient inverts</h3>
   <p class="loc">src/app/api/crm/pipeline-stages/[stageId]/route.ts:15–16 (<code>requireCrmWrite</code>)</p>
   <p class="lbl">Failure scenario</p>
   <p>ORGANIZER may not archive a single deal (<code>denyCrmDelete</code>), but <em>may</em> hard-delete a
@@ -505,7 +511,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding medium" id="m9">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M9 — MIME header injection via attachment <code>name</code>/<code>contentType</code> in core <code>buildRawMime</code></h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped 7ccf12cb</span> M9 — MIME header injection via attachment <code>name</code>/<code>contentType</code> in core <code>buildRawMime</code></h3>
   <p class="loc">src/lib/email.ts:485, :488, :502, :504 · src/crm/services/sponsor-email-service.ts (<code>validateSend</code> checks count/size only)</p>
   <p class="lbl">The code</p>
 <pre><code>// email.ts — buildRawMime, interpolated raw:
@@ -529,7 +535,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding medium" id="m10">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M10 — Stale <code>lostReason</code> survives a drag-reopen; a WON deal exports with a "Lost reason"</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped adc14bf9</span> M10 — Stale <code>lostReason</code> survives a drag-reopen; a WON deal exports with a "Lost reason"</h3>
   <p class="loc">deal-service.ts:439 (closeDeal clears it) vs :338–342 (moveDealStage never touches it) · export/route.ts:109</p>
   <p class="lbl">Failure scenario</p>
   <p>Deal closed LOST ("budget cut") → the sponsor comes back → card dragged out of Lost (reopened) → later
@@ -545,7 +551,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding medium" id="m11">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M11 — A task due today shows Overdue all day; report date ranges are server-TZ dependent</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped f7beb16d</span> M11 — A task due today shows Overdue all day; report date ranges are server-TZ dependent</h3>
   <p class="loc">src/app/(dashboard)/crm/tasks/page.tsx:52 · src/crm/lib/deal-filters.ts:34–38</p>
   <p class="lbl">Failure scenario</p>
   <p><code>dueAt</code> is stored as UTC midnight of the picked date; the page renders
@@ -565,7 +571,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding medium" id="m12">
-  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M12 — Moving a task's due date does not move its reminder</h3>
+  <h3><span class="sev medium">Med</span> <span class="pill shipped">Shipped f7beb16d</span> M12 — Moving a task's due date does not move its reminder</h3>
   <p class="loc">src/crm/services/task-service.ts:164–171</p>
   <p class="lbl">Failure scenario</p>
   <p>The service re-arms (<code>remindedAt = null</code>) only when <code>remindAt</code> itself is edited.
@@ -587,7 +593,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 <h2 id="lows">LOW (L1–L17)</h2>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L1 — The sortOrder "transaction" provides no isolation; the comments teach a wrong pattern</h3>
+  <h3><span class="sev low">Low</span> <span class="pill shipped">Shipped f7beb16d</span> L1 — The sortOrder "transaction" provides no isolation; the comments teach a wrong pattern</h3>
   <p class="loc">pipeline-service.ts:143–159 · crm-email-template-service.ts:110–127 · crm-product-service.ts:129–145</p>
   <p>"Compute the next sortOrder inside a transaction so two concurrent adds can't both claim the same
   slot" — under READ COMMITTED both transactions read the same <code>_max</code> and both insert the same
@@ -598,7 +604,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L2 — Reminders worker: claim doesn't re-check <code>archivedAt</code>; owner-deleted due tasks vanish silently; "partial index" comment drift</h3>
+  <h3><span class="sev low">Low</span> <span class="pill shipped">Shipped adc14bf9</span> L2 — Reminders worker: claim doesn't re-check <code>archivedAt</code>; owner-deleted due tasks vanish silently; "partial index" comment drift</h3>
   <p class="loc">src/crm/reminders-worker.ts:74–77 · prisma/schema.prisma:2749 vs migration 20260714120000:168</p>
   <p>The claim is <code>{ id, remindedAt: null, status: "OPEN" }</code> — a task archived between the
   candidate read and the claim is still emailed (archiving is documented as the way to cancel a reminder);
@@ -608,7 +614,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L3 — Find-or-create silently reuses archived companies/contacts; relation validation accepts archived ids</h3>
+  <h3><span class="sev low">Low</span> <span class="pill deferred">Deferred</span> L3 — Find-or-create silently reuses archived companies/contacts; relation validation accepts archived ids</h3>
   <p class="loc">company-service.ts:121 · crm-contact-service.ts:122 · deal-service.ts:133–137</p>
   <p>Creating a deal for "Abbott" after Abbott was archived silently links it to an invisible account
   (<code>created: false</code>, no hint). Reuse is arguably the <em>correct</em> dedup answer (the unique
@@ -617,7 +623,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L4 — Find-then-delete double-remove surfaces <code>UNKNOWN</code> instead of a not-found code</h3>
+  <h3><span class="sev low">Low</span> <span class="pill shipped">Shipped f7beb16d</span> L4 — Find-then-delete double-remove surfaces <code>UNKNOWN</code> instead of a not-found code</h3>
   <p class="loc">crm-product-service.ts:309–311 · note-service.ts:248–263</p>
   <p>Concurrent double-remove → the loser's <code>.delete()</code> throws P2025 → generic catch →
   <code>UNKNOWN</code>. Use <code>deleteMany</code> + count check — the pattern
@@ -625,7 +631,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L5 — Reconcile script: an orphaned terminal-<em>named</em> column's WON deals land in "New"; plan computed outside the apply transaction</h3>
+  <h3><span class="sev low">Low</span> <span class="pill shipped">Shipped adc14bf9</span> L5 — Reconcile script: an orphaned terminal-<em>named</em> column's WON deals land in "New"; plan computed outside the apply transaction</h3>
   <p class="loc">scripts/reconcile-crm-pipeline.ts:86–119</p>
   <p>An orphan column named e.g. "Closed Won" (whose deals are <code>status=WON</code> via
   <code>terminalStatusFor</code>) doesn't name-match canonical "Won" → its WON deals are moved into
@@ -635,21 +641,21 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L6 — Silent truncation: export caps at 5000 rows, board at 1000, with no marker</h3>
+  <h3><span class="sev low">Low</span> <span class="pill deferred">Deferred</span> L6 — Silent truncation: export caps at 5000 rows, board at 1000, with no marker</h3>
   <p class="loc">export/route.ts:78 · deals list route</p>
   <p>A CSV that silently dropped rows reads as "everything". Append a marker row / log when the cap
   binds.</p>
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L7 — Subject-token asymmetry: <code>{{ eventName }}</code> (spaces) unresolved in subjects; <code>{{message}}</code> in a subject dumps the whole HTML body</h3>
+  <h3><span class="sev low">Low</span> <span class="pill deferred">Deferred</span> L7 — Subject-token asymmetry: <code>{{ eventName }}</code> (spaces) unresolved in subjects; <code>{{message}}</code> in a subject dumps the whole HTML body</h3>
   <p class="loc">sponsor-email-service.ts:46 (<code>BODY_TOKEN_RE</code> tolerates spaces) vs email.ts:805 (<code>renderTemplatePlain</code> doesn't) · :397–399 (subject rendered with the full vars map)</p>
   <p>Align the subject regex with the body's, and render subjects against the four contact/event tokens
   only.</p>
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L8 — Double-greeting is only hint-guarded</h3>
+  <h3><span class="sev low">Low</span> <span class="pill deferred">Deferred</span> L8 — Double-greeting is only hint-guarded</h3>
   <p class="loc">sponsor-email-service.ts:39 (<code>BODY_TEMPLATE</code> bakes "Dear {{firstName}},") · crm-email-dialog.tsx:342</p>
   <p>Seeded templates omit greetings, but DB templates are org-editable — a saved body starting "Dear Dr
   X," produces "Dear John, / Dear Dr X,". Detect a leading greeting and skip the baked one (or lint on
@@ -657,28 +663,28 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L9 — Archived contacts still render on the deal detail</h3>
+  <h3><span class="sev low">Low</span> <span class="pill shipped">Shipped f7beb16d</span> L9 — Archived contacts still render on the deal detail</h3>
   <p class="loc">deals/[dealId]/route.ts:35–39 (no <code>archivedAt</code> filter on included contacts) vs companies/[companyId]/route.ts:31–36 (filters)</p>
   <p>An archived rep lingers on deal pages (the email resolver correctly skips them). Add the filter for
   consistency.</p>
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L10 — PATCH <code>{ archived, ...fields }</code> silently drops the field edits</h3>
+  <h3><span class="sev low">Low</span> <span class="pill deferred">Deferred</span> L10 — PATCH <code>{ archived, ...fields }</code> silently drops the field edits</h3>
   <p class="loc">deals/[dealId]/route.ts:89–101 and the equivalent archive branches in company/contact/task/template PATCH handlers</p>
   <p>The archive branch early-returns without applying (or mentioning) the other fields. No UI sends both
   today; an API caller loses edits silently. Either apply both or 400 the combination.</p>
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L11 — Template update: no <code>NO_FIELDS</code> guard, no success logs</h3>
+  <h3><span class="sev low">Low</span> <span class="pill shipped">Shipped f7beb16d</span> L11 — Template update: no <code>NO_FIELDS</code> guard, no success logs</h3>
   <p class="loc">crm-email-template-service.ts:150–176</p>
   <p>An empty PATCH runs <code>updateMany</code> with <code>data: {}</code> and writes an audit row with
   <code>fields: []</code>; update/archive don't log success while create does. Sibling-parity cleanup.</p>
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L12 — No attachment content-type allowlist on the external sponsor blast</h3>
+  <h3><span class="sev low">Low</span> <span class="pill shipped">Shipped 7ccf12cb</span> L12 — No attachment content-type allowlist on the external sponsor blast</h3>
   <p class="loc">sponsor-email-service.ts (<code>validateSend</code>)</p>
   <p>A CRM writer can attach an executable/HTML payload to a blast reaching every sponsor of an event.
   Trusted-sender territory, but an allowlist (PDF/DOCX/images) is cheap given the external fan-out.
@@ -686,7 +692,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L13 — MEMBER sees rival reps' contact PII (email/phone) on deal detail — owner confirmation wanted</h3>
+  <h3><span class="sev low">Low</span> <span class="pill deferred">Deferred</span> L13 — MEMBER sees rival reps' contact PII (email/phone) on deal detail — owner confirmation wanted</h3>
   <p class="loc">deals/[dealId]/route.ts (returns <code>contacts.crmContact.{email, phone}</code>)</p>
   <p>Consistent with the stated design (only <em>money</em> is redacted for MEMBER), so an observation, not
   a defect — but if MEMBER can genuinely be a sponsor-side stakeholder, rival-rep PII is arguably as
@@ -694,14 +700,14 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L14 — Rep leaderboard: lost-only reps show 0 open / 0 won</h3>
+  <h3><span class="sev low">Low</span> <span class="pill deferred">Deferred</span> L14 — Rep leaderboard: lost-only reps show 0 open / 0 won</h3>
   <p class="loc">reports/route.ts:107–129</p>
   <p>A LOST groupBy row creates the rep entry but increments nothing — their losses are invisible in their
   own row. Cosmetic (the win/loss card exists).</p>
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L15 — Doc drift (4 items)</h3>
+  <h3><span class="sev low">Low</span> <span class="pill shipped">Shipped f7beb16d</span> L15 — Doc drift (4 items)</h3>
   <p class="loc">crm-email-templates.ts:7–9 · docs/CRM_STATUS.html:343, :337/:361, :445 · src/crm/README.md §2, §3.1</p>
   <p>(a) <code>crm-email-templates.ts</code> header still says templates are "NOT stored, per-org, or
   editable" — superseded by the DB-backed service that seeds from it. (b) CRM_STATUS still says "Sidebar:
@@ -715,7 +721,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L16 — Test gaps: pipeline-service has zero tests; <code>STATUS_BY_CODE</code> untested</h3>
+  <h3><span class="sev low">Low</span> <span class="pill deferred">Deferred</span> L16 — Test gaps: pipeline-service has zero tests; <code>STATUS_BY_CODE</code> untested</h3>
   <p class="loc">src/crm/services/pipeline-service.ts · src/crm/lib/crm-route.ts</p>
   <p>Seed idempotency, <code>createStage</code>, <code>deleteStage</code>'s <code>STAGE_HAS_DEALS</code> +
   P2003 race branch, and <code>reorderStages</code> org-binding are all untested (only the pure reconcile
@@ -724,7 +730,7 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L17 — The two deal dialogs duplicate the company find-or-create + value-parse block</h3>
+  <h3><span class="sev low">Low</span> <span class="pill deferred">Deferred</span> L17 — The two deal dialogs duplicate the company find-or-create + value-parse block</h3>
   <p class="loc">create-deal-dialog.tsx:90–100 · edit-deal-dialog.tsx:88–95</p>
   <p>Verbatim copy, both correct today; fold into a helper next time either is touched (the
   cross-caller-duplication rule, at dialog scale).</p>
@@ -843,10 +849,9 @@ const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ←
   false-positive checks; cross-agent duplicates merged; every HIGH and the load-bearing MEDs re-verified
   by hand against the code before recording (schema constraints, P2002 branches, report currency
   hardcodes, gate wiring, MIME interpolation).<br>
-  Findings tally after dedup: <strong>0 BLOCKER / 4 HIGH / 12 MED / 17 LOW</strong>. Browseable at
-  <code>/admin/docs/CODE_REVIEW_CRM.html</code>. Update this document in place as fixes land
-  (flip pills to <span class="pill shipped">Shipped</span> + commit hash), mirroring the
-  certificates/accommodation/contacts reports.
+  Findings tally after dedup: <strong>0 BLOCKER / 4 HIGH / 12 MED / 17 LOW</strong> — all HIGHs + MEDs
+  and 9 LOWs shipped same-day (see the status banner for the commit map); the remaining LOWs are in
+  ROADMAP. Browseable at <code>/admin/docs/CODE_REVIEW_CRM.html</code>.
 </footer>
 
 </div>

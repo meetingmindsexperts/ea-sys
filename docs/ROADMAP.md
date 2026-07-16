@@ -212,6 +212,49 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### CRM module whole-module review (July 16, 2026) — ALL HIGHs + MEDs shipped, 8 LOWs deferred
+
+First whole-module adversarial review (4 angles: RBAC/IDOR · concurrency/integrity · drift/logging ·
+lifecycle/correctness): **0 BLOCKER / 4 HIGH / 12 MED / 17 LOW**. Full teaching report at
+[docs/CODE_REVIEW_CRM.html](CODE_REVIEW_CRM.html) (browseable at `/admin/docs`). All 4 HIGHs, all 12
+MEDs and 9 LOWs shipped same-day across 4 gated commits (`adc14bf9`, `9bb318a1`, `7ccf12cb`,
+`f7beb16d` — see the report's status banner for the finding→commit map). Deferred here:
+
+- **L3 — find-or-create silently reuses ARCHIVED companies/contacts.** `findOrCreateCompany` /
+  `findOrCreateCrmContact` match on the normalized key regardless of `archivedAt` (correct dedup, but
+  the caller can't tell it just attached work to a hidden record), and `validateRelations` accepts
+  archived relation ids. Return an `archived: true` flag or auto-restore on reuse — product decision.
+- **L6 — silent truncation.** Deals CSV export caps at `take: 5000`, the board list at 1000, with no
+  marker — a capped CSV reads as "everything". Append a marker row / log when the cap binds.
+- **L7 — subject-token asymmetry in the CRM email.** Body tokens tolerate `{{ eventName }}` spaces;
+  the subject renders via `renderTemplatePlain` (no spaces) and receives the full vars map, so
+  `{{message}}` typed in a subject dumps the whole HTML body into the subject line. Align the regexes
+  and render subjects against the four contact/event tokens only.
+- **L8 — double-greeting only hint-guarded.** The send pipeline bakes "Dear {{firstName}}," and an
+  org-edited DB template starting with its own greeting produces two. Detect a leading greeting and
+  skip the baked one (or lint on template save).
+- **L10 — PATCH `{ archived, ...fields }` silently drops the field edits** in the archive branch of
+  every record PATCH handler (deal/company/contact/task/template). Either apply both or 400 the
+  combination. No UI sends both today; an API caller loses edits silently.
+- **L13 — MEMBER sees rival reps' contact PII (email/phone) on the deal detail** — consistent with
+  "only money is redacted", but if MEMBER can genuinely be a sponsor-side stakeholder, rival-rep PII
+  is arguably as sensitive as deal value. Owner call; pairs with the shipped M2 (notes are now
+  money-gated for MEMBER).
+- **L14 — rep leaderboard: lost-only reps show 0 open / 0 won** (their losses invisible in their own
+  row). Cosmetic — the win/loss card exists.
+- **L16 — test gaps.** `pipeline-service.ts` still has no unit tests (seed idempotency, `createStage`,
+  `deleteStage`'s `STAGE_HAS_DEALS` + P2003 race + the new `LAST_TERMINAL_STAGE` guard, `reorderStages`
+  org-binding); the `STATUS_BY_CODE` error→HTTP mapping has no test.
+- **L17 — the two deal dialogs carry a verbatim copy** of the company find-or-create + value-parse
+  block. Fold into a helper next time either is touched.
+- **M4 (second half) — no optimistic lock on record edits.** The shipped half computes History diffs
+  from the submitted patch (no misattribution); concurrent edits to the SAME field are still silent
+  last-write-wins. Adopt the house `expectedUpdatedAt` conditional claim (409 on a stale edit) when the
+  edit dialogs next get touched.
+- **L2 (second half) — a due task whose owner's User row was deleted never fires and never logs**
+  (excluded by the reminder query's `ownerId: { not: null }` predicate; only the UI "Unassigned"
+  surfacing mitigates). Add a periodic warn for owner-less due tasks.
+
 ### CRM products (catalog + deal line items) review (July 15, 2026) — H1 shipped, M/L deferred
 
 Adversarial review of the new CRM product-catalog + deal-line-items feature: **0 BLOCKER / 1 HIGH /
