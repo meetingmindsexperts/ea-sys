@@ -192,6 +192,7 @@ export default function RegistrationsPage() {
       "Tags",
       "Registration Type",
       "Pricing Tier",
+      "Payer",
       "Status",
       "Payment Status",
       "DTCM Barcode",
@@ -221,6 +222,9 @@ export default function RegistrationsPage() {
       r.attendee.tags.join(", "),
       displayRegistrationType({ ticketTypeName: r.ticketType?.name, isFaculty: r.ticketType?.isFaculty, attendeeRegistrationType: r.attendee.registrationType }, ""),
       r.pricingTier?.name ?? "",
+      // Third-party payer; blank = attendee self-pays. Redacted server-side
+      // for non-finance roles (the field simply isn't in their payload).
+      r.billingAccount?.name ?? "",
       r.status,
       r.paymentStatus,
       r.dtcmBarcode || "",
@@ -674,6 +678,7 @@ export default function RegistrationsPage() {
                   <TableHead>Tags</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Tier</TableHead>
+                  <TableHead>Payer</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Registered</TableHead>
@@ -740,6 +745,17 @@ export default function RegistrationsPage() {
                       {registration.pricingTier?.name ? (
                         <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
                           {registration.pricingTier.name}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {/* Third-party payer ("Charge to another account"). "—" =
+                          self-pay, or the field was finance-redacted server-side. */}
+                      {registration.billingAccount?.name ? (
+                        <Badge variant="outline" className="bg-sky-50 text-sky-800 border-sky-200">
+                          {registration.billingAccount.name}
                         </Badge>
                       ) : (
                         <span className="text-sm text-muted-foreground">—</span>

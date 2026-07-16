@@ -217,6 +217,12 @@ export async function GET(req: Request, { params }: RouteParams) {
               currency: true,
             },
           },
+          // Third-party payer ("Charge to another account") — powers the list
+          // Payer column + CSV. In FINANCIAL_KEYS, so redactFinancialFields
+          // strips it for non-finance roles automatically.
+          billingAccount: {
+            select: { id: true, name: true },
+          },
           payments: {
             select: {
               id: true,

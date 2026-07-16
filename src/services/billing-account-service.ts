@@ -290,3 +290,169 @@ export async function updateBillingAccount(
     return { ok: false, code: "UNKNOWN", message: "Failed to update billing account" };
   }
 }
+
+// ── Merge ────────────────────────────────────────────────────────────────────
+
+export interface MergeBillingAccountsInput {
+  /** The payer that survives (keeps its details + name). */
+  survivorId: string;
+  /** The duplicate to fold into the survivor and delete. */
+  duplicateId: string;
+  organizationId: string;
+  userId: string;
+  source: "rest" | "mcp" | "api";
+  requestIp?: string;
+}
+
+export type MergeBillingAccountsErrorCode =
+  | "NOT_FOUND"
+  | "SAME_ACCOUNT"
+  | "UNKNOWN";
+
+export type MergeBillingAccountsResult =
+  | {
+      ok: true;
+      merge: {
+        survivorId: string;
+        duplicateId: string;
+        registrationsRepointed: number;
+        eventsRepointed: number;
+      };
+    }
+  | { ok: false; code: MergeBillingAccountsErrorCode; message: string };
+
+/**
+ * Merge a duplicate payer into a survivor — the review action behind the
+ * `needsReview` flag that `findOrCreateBillingAccount` sets on near-duplicate
+ * names. Inside ONE transaction: every `Registration.billingAccountId` and
+ * every `EventBillingAccount` attachment is re-pointed from the duplicate to
+ * the survivor (attachments the survivor already has are dropped, not
+ * duplicated — the junction is unique per (event, payer)), the duplicate row
+ * is deleted, and the survivor's `needsReview` flag is cleared. The
+ * duplicate's own field values are intentionally NOT copied — the operator
+ * picked the survivor as the canonical record; its details win.
+ */
+export async function mergeBillingAccounts(
+  input: MergeBillingAccountsInput,
+): Promise<MergeBillingAccountsResult> {
+  const { survivorId, duplicateId, organizationId, userId, source, requestIp } = input;
+
+  if (survivorId === duplicateId) {
+    return { ok: false, code: "SAME_ACCOUNT", message: "Pick two different payers to merge." };
+  }
+
+  try {
+    const result = await db.$transaction(async (tx) => {
+      // Both rows must belong to the caller's org — a foreign id is a 404,
+      // never a cross-tenant merge.
+      const [survivor, duplicate] = await Promise.all([
+        tx.billingAccount.findFirst({
+          where: { id: survivorId, organizationId },
+          select: { id: true, name: true },
+        }),
+        tx.billingAccount.findFirst({
+          where: { id: duplicateId, organizationId },
+          select: { id: true, name: true },
+        }),
+      ]);
+      if (!survivor || !duplicate) return null;
+
+      // Re-point registrations billed to the duplicate.
+      const regs = await tx.registration.updateMany({
+        where: { billingAccountId: duplicateId },
+        data: { billingAccountId: survivorId },
+      });
+
+      // Re-point event attachments. Where the survivor is ALREADY attached to
+      // the same event, drop the duplicate's junction row instead (unique
+      // [eventId, billingAccountId] would reject the update).
+      const [dupJunctions, survivorJunctions] = await Promise.all([
+        tx.eventBillingAccount.findMany({
+          where: { billingAccountId: duplicateId },
+          select: { id: true, eventId: true },
+        }),
+        tx.eventBillingAccount.findMany({
+          where: { billingAccountId: survivorId },
+          select: { eventId: true },
+        }),
+      ]);
+      const survivorEventIds = new Set(survivorJunctions.map((j) => j.eventId));
+      const overlapping = dupJunctions.filter((j) => survivorEventIds.has(j.eventId));
+      const movable = dupJunctions.filter((j) => !survivorEventIds.has(j.eventId));
+      if (overlapping.length > 0) {
+        await tx.eventBillingAccount.deleteMany({
+          where: { id: { in: overlapping.map((j) => j.id) } },
+        });
+      }
+      if (movable.length > 0) {
+        await tx.eventBillingAccount.updateMany({
+          where: { id: { in: movable.map((j) => j.id) } },
+          data: { billingAccountId: survivorId },
+        });
+      }
+
+      // Delete the duplicate (registrations re-pointed above, so the Restrict
+      // FK can't fire) and clear the survivor's review flag — the merge IS the
+      // review.
+      await tx.billingAccount.delete({ where: { id: duplicateId } });
+      await tx.billingAccount.update({
+        where: { id: survivorId },
+        data: { needsReview: false },
+      });
+
+      return {
+        survivorName: survivor.name,
+        duplicateName: duplicate.name,
+        registrationsRepointed: regs.count,
+        eventsRepointed: movable.length,
+        attachmentsDropped: overlapping.length,
+      };
+    });
+
+    if (!result) {
+      apiLogger.warn({ msg: "billing-account:merge-not-found", survivorId, duplicateId, organizationId });
+      return { ok: false, code: "NOT_FOUND", message: "One of the payers was not found." };
+    }
+
+    db.auditLog
+      .create({
+        data: {
+          userId,
+          action: "MERGE",
+          entityType: "BillingAccount",
+          entityId: survivorId,
+          changes: auditChanges(source, requestIp, {
+            organizationId,
+            duplicateId,
+            duplicateName: result.duplicateName,
+            survivorName: result.survivorName,
+            registrationsRepointed: result.registrationsRepointed,
+            eventsRepointed: result.eventsRepointed,
+            attachmentsDropped: result.attachmentsDropped,
+          }),
+        },
+      })
+      .catch((err) => apiLogger.error({ err }, "billing-account-service:merge-audit-failed"));
+
+    apiLogger.info({
+      msg: "billing-account:merged",
+      survivorId, duplicateId, organizationId,
+      registrationsRepointed: result.registrationsRepointed,
+      eventsRepointed: result.eventsRepointed,
+      source,
+    });
+
+    return {
+      ok: true,
+      merge: {
+        survivorId,
+        duplicateId,
+        registrationsRepointed: result.registrationsRepointed,
+        eventsRepointed: result.eventsRepointed,
+      },
+    };
+  } catch (err) {
+    apiLogger.error({ err, survivorId, duplicateId }, "billing-account-service:merge-failed");
+    return { ok: false, code: "UNKNOWN", message: "Failed to merge billing accounts" };
+  }
+}

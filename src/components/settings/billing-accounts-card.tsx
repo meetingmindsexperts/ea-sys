@@ -16,7 +16,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Building2, Plus, Pencil, CalendarDays } from "lucide-react";
+import { Building2, Plus, Pencil, CalendarDays, GitMerge } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -68,6 +68,8 @@ export function BillingAccountsCard() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   // Manage which events a payer is attached to (per-event scoping).
   const [eventsDialogFor, setEventsDialogFor] = useState<Payer | null>(null);
+  // Merge a duplicate payer into a survivor (the needsReview review action).
+  const [mergeDialogFor, setMergeDialogFor] = useState<Payer | null>(null);
 
   const openCreate = () => {
     setEditing(null);
@@ -167,6 +169,7 @@ export function BillingAccountsCard() {
                 <TableHead className="text-center">Status</TableHead>
                 <TableHead className="w-10" />
                 <TableHead className="w-10" />
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -209,6 +212,16 @@ export function BillingAccountsCard() {
                       <Pencil className="h-4 w-4" />
                     </Button>
                   </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setMergeDialogFor(p)}
+                      title="Merge this payer into another (moves its registrations + events, then deletes it)"
+                    >
+                      <GitMerge className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -219,6 +232,12 @@ export function BillingAccountsCard() {
       <EventsAttachmentDialog
         payer={eventsDialogFor}
         onClose={() => setEventsDialogFor(null)}
+      />
+
+      <MergePayerDialog
+        duplicate={mergeDialogFor}
+        accounts={accounts as Payer[]}
+        onClose={() => setMergeDialogFor(null)}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -316,6 +335,102 @@ export function BillingAccountsCard() {
  * billingAccounts query so the row's "Events" count refreshes
  * immediately.
  */
+/**
+ * Merge a duplicate payer into a survivor — the review action for
+ * `needsReview` rows (near-duplicate names minted by inline payer create).
+ * The picked SURVIVOR keeps its details; the duplicate's registrations +
+ * event attachments are re-pointed to it in one transaction, then the
+ * duplicate is deleted. Irreversible, so the dialog spells that out.
+ */
+function MergePayerDialog({
+  duplicate,
+  accounts,
+  onClose,
+}: {
+  duplicate: Payer | null;
+  accounts: Payer[];
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [survivorId, setSurvivorId] = useState("");
+  const [merging, setMerging] = useState(false);
+  // Reset the picked survivor whenever a different duplicate opens the dialog
+  // (render-time sync — no effect).
+  const [prevDuplicateId, setPrevDuplicateId] = useState<string | null>(null);
+  if ((duplicate?.id ?? null) !== prevDuplicateId) {
+    setPrevDuplicateId(duplicate?.id ?? null);
+    setSurvivorId("");
+  }
+
+  const candidates = accounts.filter((a) => a.id !== duplicate?.id);
+
+  const merge = async () => {
+    if (!duplicate || !survivorId) return;
+    setMerging(true);
+    try {
+      const res = await fetch(`/api/billing-accounts/${survivorId}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duplicateId: duplicate.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Merge failed");
+      await queryClient.invalidateQueries({ queryKey: queryKeys.billingAccounts });
+      toast.success(
+        `Merged "${duplicate.name}" — ${data.registrationsRepointed ?? 0} registration(s) and ${data.eventsRepointed ?? 0} event attachment(s) moved.`,
+      );
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Merge failed");
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!duplicate} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Merge {duplicate?.name ?? "payer"} into…</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Every registration billed to <span className="font-medium">{duplicate?.name}</span> and
+          every event it&apos;s attached to will move to the payer you pick below, then{" "}
+          <span className="font-medium">{duplicate?.name}</span> is deleted. The surviving
+          payer&apos;s details (address, VAT number, contacts) are kept as-is. This cannot be
+          undone.
+        </p>
+        <div className="space-y-2">
+          <Label>Surviving payer</Label>
+          <Select value={survivorId} onValueChange={setSurvivorId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Pick the payer to keep" />
+            </SelectTrigger>
+            <SelectContent>
+              {candidates.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name} ({a.type}){a.isActive ? "" : " — inactive"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {candidates.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No other payers to merge into — add the canonical payer first.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={merging}>Cancel</Button>
+          <Button onClick={merge} disabled={!survivorId || merging} variant="destructive">
+            {merging ? "Merging…" : "Merge & delete duplicate"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function EventsAttachmentDialog({
   payer,
   onClose,

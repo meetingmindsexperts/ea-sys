@@ -93,6 +93,7 @@ import { toast } from "sonner";
 import type { Registration, TicketType } from "./types";
 import { displayRegistrationType } from "@/lib/faculty-filter";
 import { hasCustomBilling } from "./types";
+import { AddPayerDialog } from "@/components/billing/add-payer-dialog";
 import {
   EMPTY_REGISTRATION_EDIT_DATA,
   toEditData,
@@ -215,6 +216,9 @@ export function RegistrationDetailSheet({
   // edit form — lets "Custom…" show the free-text input even before a value is
   // typed. Reset when the sheet opens a different registration / starts editing.
   const [badgeCustomOpen, setBadgeCustomOpen] = useState(false);
+  // Inline "add a new payer" from the Charge-to reassign picker (same
+  // AddPayerDialog + org-level find-or-create as the Add Registration form).
+  const [addPayerOpen, setAddPayerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"details" | "billing" | "activity">("details");
   const headerPhotoRef = useRef<HTMLInputElement>(null);
 
@@ -1813,6 +1817,24 @@ export function RegistrationDetailSheet({
                       ))}
                     </SelectContent>
                   </Select>
+                  {/* Inline payer create — same AddPayerDialog + find-or-create
+                      flow as the full-page Add Registration form: exact-name
+                      reuse at the org level, auto-attached to this event. */}
+                  <button
+                    type="button"
+                    className="text-xs text-primary underline underline-offset-2 hover:text-primary/80"
+                    onClick={() => setAddPayerOpen(true)}
+                  >
+                    + Add a new payer
+                  </button>
+                  <AddPayerDialog
+                    eventId={eventId}
+                    open={addPayerOpen}
+                    onOpenChange={setAddPayerOpen}
+                    onCreated={(payer) =>
+                      setEditData((p) => ({ ...p, billingAccountId: payer.id }))
+                    }
+                  />
                   {editData.billingAccountId && (
                     <>
                       <Input

@@ -28,6 +28,7 @@ import {
   createBillingAccount,
   updateBillingAccount,
   findOrCreateBillingAccount,
+  mergeBillingAccounts,
 } from "@/services/billing-account-service";
 
 const CALLER = {
@@ -177,6 +178,108 @@ describe("findOrCreateBillingAccount — event-level entry, org consolidation", 
     if (res.ok) expect(res.flaggedReview).toBe(true);
     expect(mockDb.billingAccount.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ needsReview: true }) }),
+    );
+  });
+});
+
+describe("mergeBillingAccounts", () => {
+  // The merge runs inside one $transaction; route it to per-model tx mocks so
+  // the tests can control both lookups + count the re-points.
+  function setupMergeTx(opts: {
+    survivor?: { id: string; name: string } | null;
+    duplicate?: { id: string; name: string } | null;
+    dupJunctions?: Array<{ id: string; eventId: string }>;
+    survivorJunctions?: Array<{ eventId: string }>;
+    regCount?: number;
+  }) {
+    const tx = {
+      billingAccount: {
+        findFirst: vi.fn().mockImplementation(({ where }: { where: { id: string } }) => {
+          if (where.id === "ba-keep") return Promise.resolve(opts.survivor ?? { id: "ba-keep", name: "Keep" });
+          if (where.id === "ba-dup") return Promise.resolve(opts.duplicate ?? { id: "ba-dup", name: "Dup" });
+          return Promise.resolve(null);
+        }),
+        delete: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      registration: {
+        updateMany: vi.fn().mockResolvedValue({ count: opts.regCount ?? 0 }),
+      },
+      eventBillingAccount: {
+        findMany: vi.fn().mockImplementation(({ where }: { where: { billingAccountId: string } }) =>
+          Promise.resolve(
+            where.billingAccountId === "ba-dup"
+              ? opts.dupJunctions ?? []
+              : opts.survivorJunctions ?? [],
+          ),
+        ),
+        deleteMany: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({}),
+      },
+    };
+    (mockDb as unknown as { $transaction: ReturnType<typeof vi.fn> }).$transaction = vi
+      .fn()
+      .mockImplementation(async (cb: (t: unknown) => unknown) => cb(tx));
+    return tx;
+  }
+
+  it("SAME_ACCOUNT when survivor === duplicate", async () => {
+    const res = await mergeBillingAccounts({
+      ...CALLER, survivorId: "ba-1", duplicateId: "ba-1",
+    });
+    expect(res).toMatchObject({ ok: false, code: "SAME_ACCOUNT" });
+  });
+
+  it("NOT_FOUND when either payer is missing / foreign-org", async () => {
+    setupMergeTx({ duplicate: null });
+    const tx = setupMergeTx({});
+    tx.billingAccount.findFirst.mockResolvedValue(null);
+    const res = await mergeBillingAccounts({
+      ...CALLER, survivorId: "ba-keep", duplicateId: "ba-dup",
+    });
+    expect(res).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(tx.billingAccount.delete).not.toHaveBeenCalled();
+  });
+
+  it("re-points registrations + junctions, drops overlapping attachments, deletes the duplicate, clears needsReview", async () => {
+    const tx = setupMergeTx({
+      regCount: 3,
+      dupJunctions: [
+        { id: "j1", eventId: "ev-shared" }, // survivor already attached → drop
+        { id: "j2", eventId: "ev-only-dup" }, // move to survivor
+      ],
+      survivorJunctions: [{ eventId: "ev-shared" }],
+    });
+
+    const res = await mergeBillingAccounts({
+      ...CALLER, survivorId: "ba-keep", duplicateId: "ba-dup",
+    });
+
+    expect(res).toMatchObject({
+      ok: true,
+      merge: { registrationsRepointed: 3, eventsRepointed: 1 },
+    });
+    expect(tx.registration.updateMany).toHaveBeenCalledWith({
+      where: { billingAccountId: "ba-dup" },
+      data: { billingAccountId: "ba-keep" },
+    });
+    expect(tx.eventBillingAccount.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["j1"] } },
+    });
+    expect(tx.eventBillingAccount.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["j2"] } },
+      data: { billingAccountId: "ba-keep" },
+    });
+    expect(tx.billingAccount.delete).toHaveBeenCalledWith({ where: { id: "ba-dup" } });
+    expect(tx.billingAccount.update).toHaveBeenCalledWith({
+      where: { id: "ba-keep" },
+      data: { needsReview: false },
+    });
+    // Post-commit audit row on the survivor.
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "MERGE", entityId: "ba-keep" }),
+      }),
     );
   });
 });
