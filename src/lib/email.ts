@@ -482,10 +482,10 @@ export function buildRawMime(params: SendEmailParams, fromAddress: string): Uint
     for (const att of inlineAtts) {
       body.push(
         `--${related}`,
-        `Content-Type: ${att.contentType || "application/octet-stream"}; name="${att.name}"`,
+        `Content-Type: ${sanitizeMimeType(att.contentType)}; name="${sanitizeMimeFilename(att.name)}"`,
         "Content-Transfer-Encoding: base64",
         `Content-ID: <${att.contentId}>`,
-        `Content-Disposition: inline; filename="${att.name}"`,
+        `Content-Disposition: inline; filename="${sanitizeMimeFilename(att.name)}"`,
         "",
         att.content.replace(/(.{76})/g, "$1\r\n"),
       );
@@ -499,9 +499,9 @@ export function buildRawMime(params: SendEmailParams, fromAddress: string): Uint
   for (const att of regularAtts) {
     body.push(
       `--${mixed}`,
-      `Content-Type: ${att.contentType || "application/octet-stream"}; name="${att.name}"`,
+      `Content-Type: ${sanitizeMimeType(att.contentType)}; name="${sanitizeMimeFilename(att.name)}"`,
       "Content-Transfer-Encoding: base64",
-      `Content-Disposition: attachment; filename="${att.name}"`,
+      `Content-Disposition: attachment; filename="${sanitizeMimeFilename(att.name)}"`,
       "",
       att.content.replace(/(.{76})/g, "$1\r\n"),
     );
@@ -509,6 +509,28 @@ export function buildRawMime(params: SendEmailParams, fromAddress: string): Uint
   body.push(`--${mixed}--`);
 
   return new TextEncoder().encode(headers.join("\r\n") + "\r\n\r\n" + body.join("\r\n"));
+}
+
+/**
+ * Attachment metadata is interpolated into MIME headers, which makes it an
+ * injection surface exactly like HTML (CRM review M9): a filename carrying a
+ * quote or CRLF — or a contentType carrying CRLF — breaks the part framing and
+ * can smuggle arbitrary headers/parts into a message sent under the org's
+ * branded sender. Most callers pass fixed names (quote PDFs, agreements); the
+ * CRM sponsor blast passes user-supplied ones. Sanitize HERE so every caller,
+ * present and future, inherits the fix.
+ */
+export function sanitizeMimeFilename(name: string): string {
+  const cleaned = name.replace(/[\r\n"\\]/g, "").replace(/[\x00-\x1f\x7f]/g, "").trim();
+  return cleaned || "attachment";
+}
+
+const MIME_TYPE_RE = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/;
+
+/** A contentType that isn't a plain type/subtype token falls back to octet-stream. */
+export function sanitizeMimeType(contentType: string | undefined): string {
+  const t = contentType?.trim() ?? "";
+  return MIME_TYPE_RE.test(t) ? t : "application/octet-stream";
 }
 
 /** RFC 2047 encode non-ASCII characters in headers (subject lines). */

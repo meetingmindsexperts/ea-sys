@@ -56,7 +56,7 @@ import {
   useRemoveDealContact,
   useSetDealArchived,
 } from "@/crm/hooks/use-crm-api";
-import { canDeleteCrm } from "@/crm/lib/crm-roles";
+import { canDeleteCrm, canViewDealValues } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { EditDealDialog } from "@/crm/components/edit-deal-dialog";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
@@ -76,6 +76,10 @@ export function DealDetailBody({
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
   const canDelete = canDeleteCrm(session?.user?.role);
+  // Notes are money-adjacent prose (they routinely quote deal numbers), so they
+  // follow the deal-values predicate, not the read gate — CRM review M2. The
+  // server enforces this (403); hiding here just keeps the UI honest.
+  const canSeeNotes = canViewDealValues(session?.user?.role);
 
   const [noteBody, setNoteBody] = useState("");
   const [noteType, setNoteType] = useState<CrmActivityType>("NOTE");
@@ -86,7 +90,7 @@ export function DealDetailBody({
   const [editOpen, setEditOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
 
-  const { data: notes = [], isLoading: notesLoading } = useCrmNotes({ dealId: deal.id });
+  const { data: notes = [], isLoading: notesLoading } = useCrmNotes({ dealId: deal.id }, { enabled: canSeeNotes });
   const createNote = useCreateNote();
   const deleteNote = useDeleteNote();
   const createTask = useCreateTask();
@@ -99,19 +103,29 @@ export function DealDetailBody({
 
   async function handleAddNote() {
     if (!noteBody.trim()) return;
-    await createNote.mutateAsync({ body: noteBody.trim(), activityType: noteType, dealId: deal.id });
+    try {
+      await createNote.mutateAsync({ body: noteBody.trim(), activityType: noteType, dealId: deal.id });
+    } catch {
+      // Surfaced by the hook's onError toast; keep the typed note for a retry.
+      return;
+    }
     setNoteBody("");
     setNoteType("NOTE");
   }
 
   async function handleAddTask() {
     if (!taskTitle.trim()) return;
-    await createTask.mutateAsync({
-      title: taskTitle.trim(),
-      dealId: deal.id,
-      dueAt: taskDue || null,
-      remindAt: taskDue || null,
-    });
+    try {
+      await createTask.mutateAsync({
+        title: taskTitle.trim(),
+        dealId: deal.id,
+        dueAt: taskDue || null,
+        remindAt: taskDue || null,
+      });
+    } catch {
+      // Surfaced by the hook's onError toast; keep the typed title for a retry.
+      return;
+    }
     toast.success("Follow-up added");
     setTaskTitle("");
     setTaskDue("");
@@ -291,6 +305,7 @@ export function DealDetailBody({
         )}
 
         {/* ── Activity ───────────────────────────────────────────────────── */}
+        {canSeeNotes && (
         <RecordCard icon={Phone} title="Activity">
           <div className="space-y-4">
             {canWrite && (
@@ -361,6 +376,7 @@ export function DealDetailBody({
             )}
           </div>
         </RecordCard>
+        )}
 
         {/* ── History (renders its own heading) ──────────────────────────── */}
         <RecordCard>

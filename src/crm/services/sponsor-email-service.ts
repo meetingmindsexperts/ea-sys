@@ -245,8 +245,33 @@ function validateSend(
   if (totalBytes > MAX_ATTACHMENT_BYTES) {
     return { ok: false, code: "ATTACHMENT_TOO_LARGE", message: "Attachments exceed the 10MB limit" };
   }
+  // Document/image types only (CRM review L12): this blast fans out to EXTERNAL
+  // sponsor inboxes under the org's branded sender — an executable or HTML
+  // payload has no business riding it. The prospectus is a PDF/DOCX/image.
+  for (const a of attachments) {
+    const t = (a.contentType ?? "").trim().toLowerCase();
+    if (t && !ALLOWED_ATTACHMENT_TYPES.has(t)) {
+      return {
+        ok: false,
+        code: "ATTACHMENT_TYPE_NOT_ALLOWED",
+        message: `Attachment type "${t}" is not allowed — send PDF, Word, PowerPoint or image files`,
+      };
+    }
+  }
   return { ok: true, subject: s, message: m };
 }
+
+const ALLOWED_ATTACHMENT_TYPES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
 
 interface DispatchArgs {
   organizationId: string;

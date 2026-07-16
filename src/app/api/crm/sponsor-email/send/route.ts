@@ -7,6 +7,7 @@
  * the contact list). The audience + send live in the service; auth, rate limit,
  * validation and error→HTTP mapping stay here.
  */
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
@@ -14,6 +15,9 @@ import { checkRateLimit } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
 import { sendSponsorProspectus, sendDealEmail } from "@/crm/services/sponsor-email-service";
+
+/** Double-submit window: an identical blast inside this window is a repeat, not a new send. */
+const DEDUP_WINDOW_MS = 2 * 60 * 1000;
 
 const sendSchema = z
   .object({
@@ -67,6 +71,45 @@ export async function POST(req: Request) {
   const parsed = sendSchema.safeParse(body);
   if (!parsed.success) {
     return zodErrorResponse(parsed, { route: "crm/sponsor-email/send:POST", organizationId: ctx.organizationId });
+  }
+
+  // Double-submit idempotency (CRM review M3): the send is synchronous and slow
+  // (base64 attachments, batches of 25), so a double-click / browser retry /
+  // impatient second press used to re-email the WHOLE audience — the 10/hr
+  // bucket happily admits both halves of a double-click. A content+audience hash
+  // with a 2-minute window makes the identical request a 409, same posture as
+  // the event bulk-email dedup (comms review H2). Best-effort (in-memory, like
+  // every rate bucket) — the backstop, not the audit trail.
+  const dedupHash = createHash("sha256")
+    .update(
+      JSON.stringify({
+        target: parsed.data.dealId ? `deal:${parsed.data.dealId}` : `event:${parsed.data.eventId}`,
+        subject: parsed.data.subject,
+        message: parsed.data.message,
+        contactIds: [...(parsed.data.contactIds ?? [])].sort(),
+      }),
+    )
+    .digest("hex");
+  const dedup = checkRateLimit({
+    key: `crm-sponsor-email-dedup:${ctx.organizationId}:${dedupHash}`,
+    limit: 1,
+    windowMs: DEDUP_WINDOW_MS,
+  });
+  if (!dedup.allowed) {
+    apiLogger.warn({
+      msg: "crm/sponsor-email/send:duplicate-suppressed",
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      dedupHash: dedupHash.slice(0, 12),
+    });
+    return NextResponse.json(
+      {
+        error: "This exact email was just sent — it is not being sent twice. Wait a couple of minutes if you really mean to repeat it.",
+        code: "DUPLICATE_SEND",
+        retryAfterSeconds: dedup.retryAfterSeconds,
+      },
+      { status: 409 },
+    );
   }
 
   const common = {

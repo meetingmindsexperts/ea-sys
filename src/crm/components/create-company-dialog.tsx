@@ -50,14 +50,19 @@ export function CreateCompanyDialog({
 
   async function handleSubmit() {
     if (!name.trim()) return;
-    await create.mutateAsync({
-      name: name.trim(),
-      industry: industry.trim() || null,
-      website: website.trim() || null,
-      city: city.trim() || null,
-      country: country || null,
-      notes: notes.trim() || null,
-    });
+    try {
+      await create.mutateAsync({
+        name: name.trim(),
+        industry: industry.trim() || null,
+        website: website.trim() || null,
+        city: city.trim() || null,
+        country: country || null,
+        notes: notes.trim() || null,
+      });
+    } catch {
+      // Surfaced by the hook's onError toast; keep the dialog open for a retry.
+      return;
+    }
     reset();
     onOpenChange(false);
   }

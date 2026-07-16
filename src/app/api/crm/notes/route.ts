@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
-import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
+import { requireCrmRead, requireCrmWrite, crmErrorResponse, denyCrmProseRead } from "@/crm/lib/crm-route";
 import { createNote } from "@/crm/services/note-service";
 
 const createNoteSchema = z.object({
@@ -15,10 +15,19 @@ const createNoteSchema = z.object({
   crmContactId: z.string().min(1).optional().nullable(),
 });
 
-/** GET /api/crm/notes?dealId=|companyId=|contactId= — the activity log for one record. */
+/**
+ * GET /api/crm/notes?dealId=|companyId=|crmContactId= — the notes log for one record.
+ *
+ * Read-gated PLUS the prose gate (CRM review M2): notes routinely contain deal
+ * money in free text, so a money-blind MEMBER may not read them — key-based
+ * redaction can't strip a number out of a sentence.
+ */
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+
+  const proseDenied = denyCrmProseRead(ctx);
+  if (proseDenied) return proseDenied;
 
   const { searchParams } = new URL(req.url);
   const dealId = searchParams.get("dealId")?.trim();

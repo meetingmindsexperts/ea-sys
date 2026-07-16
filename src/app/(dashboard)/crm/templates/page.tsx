@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useCrmEmailTemplates, useSetCrmEmailTemplateArchived } from "@/crm/hooks/use-crm-api";
+import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmEmailTemplateDialog } from "@/crm/components/crm-email-template-dialog";
@@ -33,7 +34,7 @@ export default function CrmTemplatesPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: templates = [], isLoading } = useCrmEmailTemplates(showArchived);
+  const { data: templates = [], isLoading, isError, refetch } = useCrmEmailTemplates(showArchived);
 
   return (
     <div className="space-y-4 p-6">
@@ -65,6 +66,9 @@ export default function CrmTemplatesPage() {
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading templates…
         </div>
+      ) : isError ? (
+        // An error must never render as "no templates" — M6.
+        <CrmLoadError what="templates" onRetry={() => refetch()} />
       ) : templates.length === 0 ? (
         <CrmEmptyState
           icon={FileText}

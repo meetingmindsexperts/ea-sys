@@ -28,6 +28,7 @@ import { EventCombobox } from "@/crm/components/event-combobox";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmReport } from "@/crm/hooks/use-crm-api";
+import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canViewDealValues } from "@/crm/lib/crm-roles";
 import { formatDealValue } from "@/crm/lib/crm-types";
@@ -59,7 +60,7 @@ function ReportsInner() {
     to: get("to") || undefined,
   };
 
-  const { data: report, isLoading } = useCrmReport(filters);
+  const { data: report, isLoading, isError, refetch } = useCrmReport(filters);
   const filtersActive = anyActive(REPORT_FILTER_KEYS);
 
   // The export honours the current URL filters — same params, plus status.
@@ -122,7 +123,9 @@ function ReportsInner() {
         )}
       </div>
 
-      {isLoading || !report ? (
+      {isError ? (
+        <CrmLoadError what="the report" onRetry={() => refetch()} />
+      ) : isLoading || !report ? (
         <ReportSkeleton />
       ) : (
         <>

@@ -31,6 +31,7 @@ import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { ValueRangeFilter } from "@/crm/components/filters/value-range-filter";
 import { useCrmDeals, useCrmStages, useMoveDealStage } from "@/crm/hooks/use-crm-api";
+import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
 import { sumStageValue } from "@/crm/lib/crm-types";
@@ -74,8 +75,8 @@ function DealsPageInner() {
     archived: archivedView ? "1" : undefined,
   };
 
-  const { data: stages = [], isLoading: stagesLoading } = useCrmStages();
-  const { data: deals = [], isLoading: dealsLoading } = useCrmDeals(filters);
+  const { data: stages = [], isLoading: stagesLoading, isError: stagesError, refetch: refetchStages } = useCrmStages();
+  const { data: deals = [], isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useCrmDeals(filters);
   const move = useMoveDealStage(filters);
 
   const isLoading = stagesLoading || dealsLoading;
@@ -168,6 +169,15 @@ function DealsPageInner() {
 
       {isLoading ? (
         <CrmBoardSkeleton columns={stages.length || 5} />
+      ) : stagesError || dealsError ? (
+        // A failed board fetch must never render as an empty pipeline — M6.
+        <CrmLoadError
+          what="the deals board"
+          onRetry={() => {
+            void refetchStages();
+            void refetchDeals();
+          }}
+        />
       ) : stages.length === 0 ? (
         <CrmEmptyState
           icon={Handshake}

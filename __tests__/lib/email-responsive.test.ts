@@ -144,3 +144,40 @@ describe("wrapWithBranding + inlineCss — paragraph rhythm matches the editor",
     expect(inlined).toContain("margin-bottom: 0");
   });
 });
+
+// ── MIME header injection (CRM review M9) ─────────────────────────────────────
+// Attachment name/contentType are interpolated into MIME part headers — an
+// injection surface exactly like HTML. These pin the sanitizers buildRawMime uses.
+import { sanitizeMimeFilename, sanitizeMimeType } from "@/lib/email";
+
+describe("sanitizeMimeFilename — attachment names cannot break MIME framing", () => {
+  it("strips CRLF, quotes and control characters", () => {
+    // The CR/LF and quote are gone, so the "header" can never start a new line.
+    expect(sanitizeMimeFilename('evil"\r\nX-Injected: 1\r\n.pdf')).toBe("evilX-Injected: 1.pdf");
+    expect(sanitizeMimeFilename("report\nname.pdf")).toBe("reportname.pdf");
+    expect(sanitizeMimeFilename('quo"te.pdf')).toBe("quote.pdf");
+  });
+
+  it("never returns an empty name", () => {
+    expect(sanitizeMimeFilename('"\r\n')).toBe("attachment");
+    expect(sanitizeMimeFilename("   ")).toBe("attachment");
+  });
+
+  it("passes an ordinary filename through unchanged", () => {
+    expect(sanitizeMimeFilename("BRIDGES 2026 Prospectus.pdf")).toBe("BRIDGES 2026 Prospectus.pdf");
+  });
+});
+
+describe("sanitizeMimeType — contentType must be a plain type/subtype token", () => {
+  it("accepts real media types", () => {
+    expect(sanitizeMimeType("application/pdf")).toBe("application/pdf");
+    expect(sanitizeMimeType("image/png")).toBe("image/png");
+  });
+
+  it("falls back to octet-stream on CRLF or malformed input", () => {
+    expect(sanitizeMimeType("text/html\r\nX-Evil: 1")).toBe("application/octet-stream");
+    expect(sanitizeMimeType("not a type")).toBe("application/octet-stream");
+    expect(sanitizeMimeType(undefined)).toBe("application/octet-stream");
+    expect(sanitizeMimeType("")).toBe("application/octet-stream");
+  });
+});

@@ -239,6 +239,32 @@ describe("sendSponsorProspectus", () => {
     ).toMatchObject({ code: "ATTACHMENT_TOO_LARGE" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
+
+  it("refuses non-document attachment types on the external blast (L12)", async () => {
+    mockDeals([deal([contact()])]);
+    expect(
+      await sendSponsorProspectus({
+        ...SEND,
+        attachments: [{ name: "payload.html", content: "AAAA", contentType: "text/html" }],
+      }),
+    ).toMatchObject({ code: "ATTACHMENT_TYPE_NOT_ALLOWED" });
+    expect(
+      await sendSponsorProspectus({
+        ...SEND,
+        attachments: [{ name: "run.exe", content: "AAAA", contentType: "application/x-msdownload" }],
+      }),
+    ).toMatchObject({ code: "ATTACHMENT_TYPE_NOT_ALLOWED" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("accepts the prospectus PDF", async () => {
+    mockDeals([deal([contact()])]);
+    const res = await sendSponsorProspectus({
+      ...SEND,
+      attachments: [{ name: "prospectus.pdf", content: "AAAA", contentType: "application/pdf" }],
+    });
+    expect(res.ok).toBe(true);
+  });
 });
 
 // ── per-deal send ─────────────────────────────────────────────────────────────────

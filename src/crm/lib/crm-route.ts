@@ -113,16 +113,56 @@ export async function requireCrmDelete(
 }
 
 /**
+ * Free-text keys that routinely CONTAIN deal money ("Abbott came back at AED
+ * 480k…"). Key-based redaction protects fields, not facts — stripping dealValue
+ * while returning the negotiation prose hands a money-blind MEMBER the same
+ * number through the side door (CRM review M2). So the prose channels are
+ * stripped alongside the financial keys.
+ */
+const PROSE_KEYS = new Set(["notes", "crmNotes"]);
+
+function stripProseKeys<T>(payload: T): T {
+  if (Array.isArray(payload)) return payload.map((item) => stripProseKeys(item)) as T;
+  if (payload === null || typeof payload !== "object" || payload instanceof Date) return payload;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(payload as Record<string, unknown>)) {
+    if (PROSE_KEYS.has(k)) continue;
+    out[k] = stripProseKeys(v);
+  }
+  return out as T;
+}
+
+/**
  * Strip deal money for callers who may not see it (MEMBER).
  *
  * `dealValue` is in FINANCIAL_KEYS, so the existing recursive redactor does the
  * work — this just decides WHETHER to run it, using the CRM's own predicate
  * (narrower than canViewFinance(), which would let a sponsor-side MEMBER read
- * every rival's deal value).
+ * every rival's deal value). Prose fields (notes) are stripped too — see
+ * PROSE_KEYS above.
  */
 export function redactForCaller<T>(payload: T, ctx: OrgContext): T {
   if (canViewDealValues(ctx.role, ctx.fromApiKey)) return payload;
-  return redactFinancialFields(payload);
+  return stripProseKeys(redactFinancialFields(payload));
+}
+
+/**
+ * The note/activity-log READ gate (CRM review M2, owner-ratified option (a)):
+ * the negotiation log is money-adjacent, so reading it requires the same
+ * predicate as seeing deal values. Returns a 403 for MEMBER, null otherwise.
+ * Logs its own refusal, like every CRM guard.
+ */
+export function denyCrmProseRead(ctx: OrgContext) {
+  if (canViewDealValues(ctx.role, ctx.fromApiKey)) return null;
+  apiLogger.warn({
+    msg: "auth-guard:crm-notes-read-denied",
+    role: ctx.role,
+    userId: ctx.userId,
+  });
+  return NextResponse.json(
+    { error: "Notes are not available to your role", code: "CRM_NOTES_FORBIDDEN" },
+    { status: 403 },
+  );
 }
 
 /**
@@ -173,6 +213,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   BODY_REQUIRED: 400,
   EMAIL_REQUIRED: 400,
   NO_ATTACHMENT: 400,
+  ATTACHMENT_TYPE_NOT_ALLOWED: 400,
   NO_FIELDS: 400,
   // ours
   UNKNOWN: 500,

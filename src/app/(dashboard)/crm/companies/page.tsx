@@ -32,6 +32,7 @@ import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies } from "@/crm/hooks/use-crm-api";
+import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
 
 export default function CrmCompaniesPage() {
@@ -49,7 +50,7 @@ export default function CrmCompaniesPage() {
   // the review count — deriving the options from the filtered set would make them
   // vanish as you use them.
   const { data: allCompanies = [] } = useCrmCompanies();
-  const { data: companies = [], isLoading } = useCrmCompanies({
+  const { data: companies = [], isLoading, isError, refetch } = useCrmCompanies({
     q: q || undefined,
     industry: industry || undefined,
     archived: showArchived ? "1" : undefined,
@@ -122,6 +123,8 @@ export default function CrmCompaniesPage() {
 
       {isLoading ? (
         <CrmTableSkeleton rows={6} cols={5} />
+      ) : isError ? (
+        <CrmLoadError what="accounts" onRetry={() => refetch()} />
       ) : rows.length === 0 ? (
         <CrmEmptyState
           icon={Building2}

@@ -232,6 +232,8 @@ export function useCreateCompany() {
         toast.success(`Created "${res.company.name}"`);
       }
     },
+    // A failed create must never be a button that does nothing (CRM review M6).
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not create the company"),
   });
 }
 
@@ -244,6 +246,7 @@ export function useUpdateCompany(companyId: string) {
       qc.invalidateQueries({ queryKey: ["crm", "companies"] });
       qc.invalidateQueries({ queryKey: crmKeys.company(companyId) });
     },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the company"),
   });
 }
 
@@ -277,6 +280,7 @@ export function useCreateTask() {
       qc.invalidateQueries({ queryKey: ["crm", "tasks"] });
       qc.invalidateQueries({ queryKey: ["crm", "deal"] });
     },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not add the task"),
   });
 }
 
@@ -321,11 +325,16 @@ export function useRestoreTask() {
 
 // ── Notes ────────────────────────────────────────────────────────────────────
 
-export function useCrmNotes(attach: { dealId?: string; companyId?: string; contactId?: string }) {
+export function useCrmNotes(
+  // NB the filter param the route reads is `crmContactId` (NOT `contactId` — that
+  // naming drift was CRM review L15; the route, this hook and the docs now agree).
+  attach: { dealId?: string; companyId?: string; crmContactId?: string },
+  opts: { enabled?: boolean } = {},
+) {
   const qs = new URLSearchParams(
     Object.entries(attach).filter(([, v]) => !!v) as [string, string][],
   );
-  const enabled = qs.toString().length > 0;
+  const enabled = qs.toString().length > 0 && (opts.enabled ?? true);
 
   return useQuery({
     queryKey: crmKeys.notes(Object.fromEntries(qs) as Record<string, string>),

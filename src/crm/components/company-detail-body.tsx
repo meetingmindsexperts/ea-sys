@@ -168,7 +168,12 @@ export function CompanyDetailBody({
                   variant="outline"
                   className="mt-2"
                   onClick={async () => {
-                    await update.mutateAsync({ needsReview: false });
+                    try {
+                      await update.mutateAsync({ needsReview: false });
+                    } catch {
+                      // Surfaced by the hook's onError toast.
+                      return;
+                    }
                     toast.success("Marked as distinct");
                   }}
                   disabled={update.isPending}

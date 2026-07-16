@@ -19,6 +19,7 @@ import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { useCrmTasks, useDeleteTask, useRestoreTask, useUpdateTask } from "@/crm/hooks/use-crm-api";
+import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 import { personName, type CrmTaskRow } from "@/crm/lib/crm-types";
 import { cn } from "@/lib/utils";
@@ -43,7 +44,7 @@ function TasksPageInner() {
   };
   const filtersActive = anyActive(TASK_FILTER_KEYS);
 
-  const { data: tasks = [], isLoading } = useCrmTasks(scope, status, taskFilters);
+  const { data: tasks = [], isLoading, isError, refetch } = useCrmTasks(scope, status, taskFilters);
   const update = useUpdateTask();
   const del = useDeleteTask();
   const restore = useRestoreTask();
@@ -101,6 +102,8 @@ function TasksPageInner() {
 
       {isLoading ? (
         <CrmListSkeleton rows={5} />
+      ) : isError ? (
+        <CrmLoadError what="tasks" onRetry={() => refetch()} />
       ) : tasks.length === 0 ? (
         <CrmEmptyState
           icon={CheckSquare}

@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { useCrmProducts, useSetCrmProductArchived } from "@/crm/hooks/use-crm-api";
+import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
@@ -34,7 +35,7 @@ export default function CrmProductsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { data: products = [], isLoading } = useCrmProducts(showArchived);
+  const { data: products = [], isLoading, isError, refetch } = useCrmProducts(showArchived);
 
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category))].sort((a, b) => a.localeCompare(b)),
@@ -94,6 +95,8 @@ export default function CrmProductsPage() {
 
       {isLoading ? (
         <CrmTableSkeleton />
+      ) : isError ? (
+        <CrmLoadError what="products" onRetry={() => refetch()} />
       ) : rows.length === 0 ? (
         <CrmEmptyState
           icon={Package}

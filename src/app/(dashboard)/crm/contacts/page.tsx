@@ -33,6 +33,7 @@ import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies, useCrmContacts } from "@/crm/hooks/use-crm-api";
+import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { cn } from "@/lib/utils";
 import { LIFECYCLE_COLORS, LIFECYCLE_LABELS, type CrmLifecycleStage } from "@/crm/lib/crm-types";
@@ -49,7 +50,7 @@ export default function CrmContactsPage() {
   const router = useRouter();
 
   const { data: companies = [] } = useCrmCompanies();
-  const { data: contacts = [], isLoading } = useCrmContacts({
+  const { data: contacts = [], isLoading, isError, refetch } = useCrmContacts({
     q: q || undefined,
     lifecycle: lifecycle || undefined,
     companyId: companyId || undefined,
@@ -129,6 +130,8 @@ export default function CrmContactsPage() {
 
       {isLoading ? (
         <CrmTableSkeleton rows={6} cols={5} />
+      ) : isError ? (
+        <CrmLoadError what="contacts" onRetry={() => refetch()} />
       ) : contacts.length === 0 ? (
         <CrmEmptyState
           icon={Users}
