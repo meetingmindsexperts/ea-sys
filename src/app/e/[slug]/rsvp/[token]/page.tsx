@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EventBanner } from "@/components/public/event-banner";
+import { resolveTimezone, tzLabel } from "@/lib/event-time";
 import { toast } from "sonner";
 
 interface DinnerRow {
@@ -41,20 +42,27 @@ interface RsvpData {
     bannerImageMobile: string | null;
     startDate: string;
     endDate: string;
+    timezone: string | null;
   };
   invitee: { name: string; email: string; dietary: string };
   status: string;
   dinners: DinnerRow[];
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+// Dinner times render in the EVENT's timezone with a label — an invitee
+// abroad must not read the dinner time in their home clock (review M10).
+function fmtDate(iso: string, timezone: string | null | undefined): string {
+  const tz = resolveTimezone(timezone);
+  const d = new Date(iso);
+  const formatted = d.toLocaleString("en-US", {
     weekday: "short",
     day: "numeric",
     month: "short",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: tz,
   });
+  return `${formatted} ${tzLabel(d, tz)}`;
 }
 
 export default function RsvpPage() {
@@ -251,7 +259,7 @@ export default function RsvpPage() {
                         <div className="font-semibold text-slate-900">{d.name}</div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500 mt-0.5">
                           <span className="inline-flex items-center gap-1">
-                            <CalendarDays className="h-3.5 w-3.5" /> {fmtDate(d.dinnerAt)}
+                            <CalendarDays className="h-3.5 w-3.5" /> {fmtDate(d.dinnerAt, data?.event.timezone)}
                           </span>
                           {d.location && (
                             <span className="inline-flex items-center gap-1">

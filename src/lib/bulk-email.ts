@@ -28,6 +28,7 @@ import {
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { EXCLUDE_FACULTY_WHERE } from "./faculty-filter";
 import { getTitleLabel } from "./utils";
+import { resolveTimezone, formatTimeInTz, tzLabel } from "./event-time";
 import { buildPaymentReminderVars } from "./payment-reminder";
 import {
   DEFAULT_SURVEY_EXPIRY_DAYS,
@@ -621,6 +622,7 @@ const VIABILITY_EVENT_SELECT = {
   slug: true,
   name: true,
   startDate: true,
+  timezone: true,
   venue: true,
   address: true,
   settings: true,
@@ -1239,20 +1241,20 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         400,
       );
     }
+    // Render in the EVENT's timezone, not the server's clock — the box runs
+    // UTC, so a 10:00 Dubai webinar used to email "06:00 AM UTC" (review M10).
+    const eventTz = resolveTimezone(event.timezone);
     const webinarDate = anchorSession?.startTime
-      ? new Date(anchorSession.startTime).toLocaleDateString(undefined, {
+      ? new Date(anchorSession.startTime).toLocaleDateString("en-US", {
           weekday: "long",
           year: "numeric",
           month: "long",
           day: "numeric",
+          timeZone: eventTz,
         })
       : "TBA";
     const webinarTime = anchorSession?.startTime
-      ? new Date(anchorSession.startTime).toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZoneName: "short",
-        })
+      ? `${formatTimeInTz(new Date(anchorSession.startTime), eventTz)} ${tzLabel(new Date(anchorSession.startTime), eventTz)}`
       : "TBA";
     const passcode = zoomMeeting.passcode ?? "";
     // Recording URL is only populated once the webinar has ended AND the

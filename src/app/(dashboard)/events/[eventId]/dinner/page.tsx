@@ -40,8 +40,13 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { ImportInviteesDialog } from "@/components/dinner/import-invitees-dialog";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
-import { usePreviewEmailBySlug } from "@/hooks/use-api";
-import { toLocalDateTimeInput, fromLocalDateTimeInput } from "@/lib/datetime-local";
+import { usePreviewEmailBySlug, useEvent } from "@/hooks/use-api";
+import {
+  resolveTimezone,
+  localDateTimeInTz,
+  wallTimeInTzToDate,
+  tzLabel,
+} from "@/lib/event-time";
 import { toast } from "sonner";
 
 interface Dinner {
@@ -81,6 +86,17 @@ const emptyDinner = {
 
 export default function DinnerRsvpPage() {
   const { eventId } = useParams<{ eventId: string }>();
+  // Dinner times display AND edit in the EVENT's timezone (review M10) —
+  // same recipe as the agenda page, so both surfaces show one clock.
+  const { data: eventData } = useEvent(eventId);
+  const eventInfo = eventData as { timezone?: string | null; startDate?: string } | undefined;
+  const dinnerTz = resolveTimezone(eventInfo?.timezone);
+  // Label anchored to the event's start date (not "now") — deterministic
+  // under React render purity and DST-correct for the event window.
+  const dinnerTzName = tzLabel(
+    eventInfo?.startDate ? new Date(eventInfo.startDate) : new Date(0),
+    dinnerTz,
+  );
   const [slug, setSlug] = useState<string>("");
   const [dinners, setDinners] = useState<Dinner[]>([]);
   const [invites, setInvites] = useState<RosterInvite[]>([]);
@@ -150,18 +166,14 @@ export default function DinnerRsvpPage() {
     setEditingDinner(d);
     setDinnerForm({
       name: d.name,
-      // B2/TZ: `dinnerAt` is a UTC ISO instant. The old code did
-      // `.slice(0, 16)`, which drops the UTC WALL-CLOCK into a datetime-local
-      // input — and the browser reads that input as LOCAL time. Saving then did
-      // `new Date(local).toISOString()`, shifting the instant backwards by the
-      // UTC offset on EVERY save (a 19:00 Dubai gala opened showing 15:00, and
-      // saving moved it to 15:00; save again → 11:00). Convert UTC → local
-      // wall-clock properly, so the round-trip is lossless and matches the
-      // create path (which already goes local → ISO correctly).
-      dinnerAt: toLocalDateTimeInput(d.dinnerAt),
+      // The datetime-local inputs operate in the EVENT's timezone (review
+      // M10, agenda-page recipe): localDateTimeInTz on the way in,
+      // wallTimeInTzToDate on the way out — a lossless, DST-safe inverse
+      // pair. What the organizer types is the event-local wall clock.
+      dinnerAt: localDateTimeInTz(new Date(d.dinnerAt), dinnerTz),
       location: d.location ?? "",
       description: d.description ?? "",
-      rsvpDeadline: d.rsvpDeadline ? toLocalDateTimeInput(d.rsvpDeadline) : "",
+      rsvpDeadline: d.rsvpDeadline ? localDateTimeInTz(new Date(d.rsvpDeadline), dinnerTz) : "",
     });
     setDinnerDialog(true);
   };
@@ -172,15 +184,19 @@ export default function DinnerRsvpPage() {
     }
     setSavingDinner(true);
     try {
-      // Both directions go through src/lib/datetime-local so the read-back
-      // (toLocalDateTimeInput) and the write (fromLocalDateTimeInput) are
-      // provably inverse — that pairing is what makes the round-trip lossless.
+      // Event-TZ inverse of the read-back above — the pairing is what makes
+      // the round-trip lossless. Empty/invalid values write null.
+      const fromEventTzInput = (v: string): string | null => {
+        if (!v) return null;
+        const d = wallTimeInTzToDate(v, dinnerTz);
+        return Number.isNaN(d.getTime()) ? null : d.toISOString();
+      };
       const payload = {
         name: dinnerForm.name.trim(),
-        dinnerAt: fromLocalDateTimeInput(dinnerForm.dinnerAt),
+        dinnerAt: fromEventTzInput(dinnerForm.dinnerAt),
         location: dinnerForm.location.trim(),
         description: dinnerForm.description.trim(),
-        rsvpDeadline: fromLocalDateTimeInput(dinnerForm.rsvpDeadline),
+        rsvpDeadline: fromEventTzInput(dinnerForm.rsvpDeadline),
       };
       const res = await fetch(
         editingDinner
@@ -434,10 +450,11 @@ export default function DinnerRsvpPage() {
                         <div className="font-semibold truncate">{d.name}</div>
                         <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                           <CalendarDays className="h-3.5 w-3.5" />
-                          {new Date(d.dinnerAt).toLocaleString(undefined, {
+                          {`${new Date(d.dinnerAt).toLocaleString("en-US", {
                             weekday: "short", day: "numeric", month: "short",
                             hour: "numeric", minute: "2-digit",
-                          })}
+                            timeZone: dinnerTz,
+                          })} ${tzLabel(new Date(d.dinnerAt), dinnerTz)}`}
                         </div>
                         {d.location && <div className="text-xs text-muted-foreground mt-0.5">{d.location}</div>}
                       </div>
@@ -585,7 +602,7 @@ export default function DinnerRsvpPage() {
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <Label>Date &amp; time *</Label>
+                <Label>Date &amp; time * ({dinnerTzName})</Label>
                 <Input
                   type="datetime-local"
                   value={dinnerForm.dinnerAt}
@@ -593,7 +610,7 @@ export default function DinnerRsvpPage() {
                 />
               </div>
               <div>
-                <Label>RSVP deadline</Label>
+                <Label>RSVP deadline ({dinnerTzName})</Label>
                 <Input
                   type="datetime-local"
                   value={dinnerForm.rsvpDeadline}

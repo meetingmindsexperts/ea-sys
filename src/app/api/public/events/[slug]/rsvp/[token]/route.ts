@@ -47,6 +47,7 @@ async function loadInviteForSlug(slug: string, token: string) {
           bannerImageMobile: true,
           startDate: true,
           endDate: true,
+          timezone: true,
         },
       },
       responses: { select: { dinnerId: true, attending: true, guestCount: true } },

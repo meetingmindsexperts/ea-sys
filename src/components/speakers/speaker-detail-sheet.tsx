@@ -63,7 +63,8 @@ import {
   Ticket,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
-import { queryKeys, usePreviewEmailBySlug, useEventSpeakerTags } from "@/hooks/use-api";
+import { queryKeys, usePreviewEmailBySlug, useEventSpeakerTags, useEvent } from "@/hooks/use-api";
+import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
 import { fileToBase64 } from "@/lib/file-to-base64";
@@ -159,6 +160,10 @@ export function SpeakerDetailSheet({
   onOpenChange,
 }: SpeakerDetailSheetProps) {
   const queryClient = useQueryClient();
+  // Event timezone — session times render in the EVENT's clock (review M10:
+  // they used to render viewer-local, disagreeing with the agenda grid).
+  const { data: eventData } = useEvent(eventId);
+  const eventTz = resolveTimezone((eventData as { timezone?: string | null } | undefined)?.timezone);
   const [speaker, setSpeaker] = useState<Speaker | null>(null);
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -857,7 +862,7 @@ export function SpeakerDetailSheet({
                           <div>
                             <div className="font-medium">{s.session.name}</div>
                             <div className="text-muted-foreground">
-                              {new Date(s.session.startTime).toLocaleString()}
+                              {`${formatDateInTz(new Date(s.session.startTime), eventTz)}, ${formatTimeInTz(new Date(s.session.startTime), eventTz)} ${tzLabel(new Date(s.session.startTime), eventTz)}`}
                               {s.session.track && ` · ${s.session.track.name}`}
                             </div>
                           </div>

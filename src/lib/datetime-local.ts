@@ -22,10 +22,11 @@
  *
  * NOTE (deliberate, and a known limitation): this works in the *browser's* local
  * timezone, not the EVENT's timezone. An organizer in London editing a Dubai
- * event enters London wall-clock. That matches how these forms already behave
- * elsewhere in the app, so this helper preserves existing semantics rather than
- * silently changing them; unifying on the event timezone is the separate
- * program/agenda M7/M8 workstream (see docs/ROADMAP.md).
+ * event enters London wall-clock. Surfaces that have been unified onto the
+ * EVENT timezone (agenda page July 16 2026, dinner console review M10) use
+ * `localDateTimeInTz` / `wallTimeInTzToDate` from src/lib/event-time instead;
+ * the remaining consumers of this helper (event create/settings dates, promo
+ * windows, scheduled-email times) still operate browser-local.
  */
 
 /** UTC ISO instant → the `YYYY-MM-DDTHH:mm` string a datetime-local input expects (local wall-clock). */

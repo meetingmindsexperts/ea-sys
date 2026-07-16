@@ -59,6 +59,7 @@ import {
   useEmailTemplates,
 } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { SESSION_ROLE_OPTIONS } from "@/lib/session-enums";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { excludesCancelledByDefault } from "@/lib/bulk-email-audience";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
@@ -869,18 +870,14 @@ export default function CommunicationsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Roles</SelectItem>
-                    <SelectItem value="SPEAKER">
-                      Speaker ({speakers.filter((s) => s.sessions?.some((sx) => sx.role === "SPEAKER")).length})
-                    </SelectItem>
-                    <SelectItem value="MODERATOR">
-                      Moderator ({speakers.filter((s) => s.sessions?.some((sx) => sx.role === "MODERATOR")).length})
-                    </SelectItem>
-                    <SelectItem value="CHAIRPERSON">
-                      Chairperson ({speakers.filter((s) => s.sessions?.some((sx) => sx.role === "CHAIRPERSON")).length})
-                    </SelectItem>
-                    <SelectItem value="PANELIST">
-                      Panelist ({speakers.filter((s) => s.sessions?.some((sx) => sx.role === "PANELIST")).length})
-                    </SelectItem>
+                    {/* Enum-driven (review L7) — a new SessionRole value shows
+                        up here automatically instead of drifting. */}
+                    {SESSION_ROLE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label} (
+                        {speakers.filter((s) => s.sessions?.some((sx) => sx.role === opt.value)).length})
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

@@ -67,7 +67,9 @@ import { RegistrationTypeSelect } from "@/components/ui/registration-type-select
 import { TagInput } from "@/components/ui/tag-input";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { usePreviewEmailBySlug, useEventSpeakerTags } from "@/hooks/use-api";
+import { usePreviewEmailBySlug, useEventSpeakerTags, useEvent } from "@/hooks/use-api";
+import { SESSION_ROLE_COLORS, formatSessionRole } from "@/lib/session-enums";
+import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
 import { fileToBase64 } from "@/lib/file-to-base64";
@@ -210,6 +212,15 @@ export default function SpeakerDetailPage() {
   const previewMutation = usePreviewEmailBySlug(eventId);
   // Existing tags for the in-page edit autocomplete.
   const speakerTagsQuery = useEventSpeakerTags(eventId);
+  // Event timezone — session times on this page render in the EVENT's clock
+  // (review M10: they used to render viewer-local, disagreeing with the
+  // agenda grid + the SessionDetailSheet this page opens).
+  const { data: eventData } = useEvent(eventId);
+  const eventTz = resolveTimezone((eventData as { timezone?: string | null } | undefined)?.timezone);
+  const formatSessionWhen = (value: string | Date) => {
+    const d = new Date(value);
+    return `${formatDateInTz(d, eventTz)}, ${formatTimeInTz(d, eventTz)} ${tzLabel(d, eventTz)}`;
+  };
 
   const handlePreviewEmail = async () => {
     const slugMap: Record<string, string> = {
@@ -869,25 +880,21 @@ export default function SpeakerDetailPage() {
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-sm">{session.name}</p>
                             <p className="text-sm text-muted-foreground">
-                              {new Date(session.startTime).toLocaleString()}
+                              {formatSessionWhen(session.startTime)}
                               {session.track && ` · ${session.track.name}`}
                             </p>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            {session.role && (() => {
-                              const roleColors: Record<string, string> = {
-                                CHAIRPERSON: "bg-violet-100 text-violet-700 border-violet-200",
-                                MODERATOR: "bg-amber-100 text-amber-700 border-amber-200",
-                                PANELIST: "bg-sky-100 text-sky-700 border-sky-200",
-                                SPEAKER: "bg-emerald-100 text-emerald-700 border-emerald-200",
-                              };
-                              const colors = roleColors[session.role!] || "bg-slate-100 text-slate-700 border-slate-200";
-                              return (
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${colors}`}>
-                                  {session.role!.toLowerCase().replace("_", " ")}
-                                </span>
-                              );
-                            })()}
+                            {session.role && (
+                              <span
+                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${
+                                  SESSION_ROLE_COLORS[session.role as keyof typeof SESSION_ROLE_COLORS] ??
+                                  "bg-slate-100 text-slate-700 border-slate-200"
+                                }`}
+                              >
+                                {formatSessionRole(session.role)}
+                              </span>
+                            )}
                             <Pencil className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                           </div>
                         </div>
@@ -915,7 +922,7 @@ export default function SpeakerDetailPage() {
                       <p className="text-sm text-muted-foreground">
                         {ts.topic.session.name}
                         {" · "}
-                        {new Date(ts.topic.session.startTime).toLocaleString()}
+                        {formatSessionWhen(ts.topic.session.startTime)}
                         {ts.topic.duration && ` · ${ts.topic.duration} min`}
                       </p>
                     </div>
@@ -1327,6 +1334,7 @@ export default function SpeakerDetailPage() {
         open={sessionSheetOpen}
         onOpenChange={setSessionSheetOpen}
         onSessionUpdated={() => fetchSpeaker()}
+        timezone={(eventData as { timezone?: string | null } | undefined)?.timezone}
       />
 
       {speaker && (

@@ -7,7 +7,8 @@ import { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { apiLogger } from "./logger";
 import { hashVerificationToken } from "./security";
-import { formatPersonName, getTitleLabel, formatDate, formatDateTime, slugify } from "./utils";
+import { formatPersonName, getTitleLabel, formatDate, slugify } from "./utils";
+import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "./event-time";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "./default-terms";
 import { formatSessionRole } from "./session-enums";
 
@@ -194,6 +195,7 @@ interface SpeakerEmailContextRow {
     slug: string;
     startDate: Date;
     endDate: Date;
+    timezone: string | null;
     venue: string | null;
     address: string | null;
     city: string | null;
@@ -252,6 +254,7 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
         slug: true,
         startDate: true,
         endDate: true,
+        timezone: true,
         venue: true,
         address: true,
         city: true,
@@ -281,7 +284,13 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   const topicTitles = topicRows.map((t) => t.topic.title).join("\n");
 
   const firstSession = sessionRows[0]?.session ?? topicRows[0]?.topic.session ?? null;
-  const sessionDateTime = firstSession ? formatDateTime(firstSession.startTime) : "";
+  // Render in the EVENT's timezone — {sessionDateTime} lands inside the
+  // quasi-legal personalized agreement document, and the Dubai-fixed
+  // formatDateTime was wrong for any non-GST event (review M10).
+  const eventTz = resolveTimezone(row.event.timezone);
+  const sessionDateTime = firstSession
+    ? `${formatDateInTz(firstSession.startTime, eventTz)}, ${formatTimeInTz(firstSession.startTime, eventTz)} ${tzLabel(firstSession.startTime, eventTz)}`
+    : "";
 
   const trackSet = new Set<string>();
   for (const s of sessionRows) if (s.session.track?.name) trackSet.add(s.session.track.name);

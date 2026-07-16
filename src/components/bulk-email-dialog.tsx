@@ -35,6 +35,7 @@ import {
 } from "@/hooks/use-api";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
+import { formatSessionRole } from "@/lib/session-enums";
 import { stripDocumentWrapper } from "@/lib/email-utils";
 import { defaultCoverEmailFor } from "@/lib/certificates/email-tokens";
 import {
@@ -1238,7 +1239,7 @@ export function BulkEmailDialog({
               </p>
             )}
             {recipientType === "speakers" && sessionRoleFilter && sessionRoleFilter !== "all" && (
-              <p className="text-muted-foreground">Filtered by session role: {sessionRoleFilter}</p>
+              <p className="text-muted-foreground">Filtered by session role: {formatSessionRole(sessionRoleFilter)}</p>
             )}
             {isCertificate && certTemplateIds.length > 0 && (
               <p className="text-muted-foreground">
