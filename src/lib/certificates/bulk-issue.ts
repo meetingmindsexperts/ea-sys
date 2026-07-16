@@ -67,6 +67,18 @@ export interface CertificateBulkSendInput {
   customMessage?: string;
   organizationId?: string | null;
   triggeredByUserId?: string | null;
+  /**
+   * Per-recipient EMAIL idempotency (review A4, July 16, 2026). The
+   * issue-or-reuse path dedups the certificate ROW, not the email — without
+   * these, a crash mid-send + operator Retry re-emailed everyone already
+   * emailed (same serials re-attached) on the biggest fan-out in the system.
+   * Keys are recipient ids (registration/speaker ids — stable). A recipient
+   * whose email FAILED (incl. issued-but-send-failed) is deliberately NOT
+   * recorded, so a retry re-attempts them; the cert row itself is reused.
+   */
+  alreadyEmailedKeys?: string[];
+  /** Called after each batch with that batch's successfully-emailed ids. */
+  onBatchEmailed?: (keys: string[]) => Promise<void>;
 }
 
 interface PersonFacets {
@@ -159,13 +171,30 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
   const {
     eventId,
     recipientType,
-    recipients,
+    recipients: allRecipients,
     templates,
     customSubject,
     customMessage,
     organizationId,
     triggeredByUserId,
+    alreadyEmailedKeys,
+    onBatchEmailed,
   } = input;
+
+  // Resume idempotency (A4): skip recipients a prior run already emailed —
+  // mirrors executeBulkEmail's non-cert filter exactly.
+  const alreadyEmailed = new Set(alreadyEmailedKeys ?? []);
+  const recipients = alreadyEmailed.size
+    ? allRecipients.filter((r) => !alreadyEmailed.has(r.id))
+    : allRecipients;
+  if (alreadyEmailed.size) {
+    apiLogger.info({
+      msg: "cert-bulk:resume-skip",
+      eventId,
+      alreadyEmailed: alreadyEmailed.size,
+      remaining: recipients.length,
+    });
+  }
 
   const event = await loadBundleEmailEvent(eventId);
   // The event's editable bundle cover email — loaded ONCE per batch (not per
@@ -212,6 +241,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
         }
       }),
     );
+    const batchEmailedKeys: string[] = [];
     for (let j = 0; j < results.length; j++) {
       const r = results[j];
       // The inner try/catch means allSettled entries are always fulfilled;
@@ -219,12 +249,21 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       const outcome = r.status === "fulfilled" ? r.value : { ok: false as const, error: "Unexpected failure" };
       if (outcome.ok) {
         successCount++;
+        batchEmailedKeys.push(batch[j].id);
       } else if (outcome.skipped) {
         skippedCount++;
       } else {
         failureCount++;
         errors.push({ email: batch[j].email, error: outcome.error ?? "Unexpected failure" });
       }
+    }
+    // Persist resume progress (A4) — best-effort, same contract as the
+    // non-cert path: a failure to record must not fail the send (worst case
+    // a retry re-sends one batch).
+    if (onBatchEmailed && batchEmailedKeys.length) {
+      await onBatchEmailed(batchEmailedKeys).catch((err) =>
+        apiLogger.warn({ msg: "cert-bulk:record-emailed-failed", eventId, err }),
+      );
     }
   }
 

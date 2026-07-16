@@ -76,6 +76,36 @@ beforeEach(() => {
   mockPickAgreementMode.mockReturnValue(null);
 });
 
+describe("precheckBulkEmailViability — unsupported email types (review A2, July 16 2026)", () => {
+  // The 4 abstract-* types have no slug mapping and can NEVER send. Before
+  // this guard the routes returned 202 "queued" and the row flipped FAILED a
+  // minute later (success toast → error-level page). Rejected synchronously,
+  // BEFORE the event load.
+  it.each(["abstract-accepted", "abstract-rejected", "abstract-revision", "abstract-reminder"])(
+    "rejects %s up-front with a 400 pointing at the abstract detail page",
+    async (emailType) => {
+      await expect(
+        precheckBulkEmailViability({
+          eventId: "evt-1",
+          recipientType: "abstracts",
+          emailType: emailType as never,
+        }),
+      ).rejects.toMatchObject({ status: 400, message: expect.stringContaining("not supported") });
+      // Rejected before any DB work.
+      expect(mockDb.event.findFirst).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still allows every slug-mapped type through the guard", async () => {
+    const res = await precheckBulkEmailViability({
+      eventId: "evt-1",
+      recipientType: "registrations",
+      emailType: "reminder",
+    });
+    expect(res.event.id).toBe("evt-1");
+  });
+});
+
 describe("precheckBulkEmailViability", () => {
   it("returns event + nulls for a valid custom send", async () => {
     const res = await precheckBulkEmailViability({

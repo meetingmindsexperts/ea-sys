@@ -5,7 +5,12 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { bulkEmailSchema, precheckBulkEmailViability, BulkEmailError } from "@/lib/bulk-email";
+import {
+  bulkEmailSchema,
+  precheckBulkEmailViability,
+  findDuplicateQueuedSend,
+  BulkEmailError,
+} from "@/lib/bulk-email";
 
 const MIN_LEAD_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -111,6 +116,38 @@ export async function POST(req: Request, { params }: RouteParams) {
       throw err;
     }
 
+    // C3 (July 16, 2026): the send-now route got the H2 dedup guard; this
+    // enqueue door didn't — a 502'd / double-clicked schedule POST created
+    // two identical PENDING rows that BOTH fired at the scheduled time
+    // (whole audience twice, possibly days later, unattended). Same shared
+    // best-effort guard, scoped to rows with the IDENTICAL scheduledFor.
+    const duplicate = await findDuplicateQueuedSend({
+      eventId,
+      createdById: session.user.id,
+      recipientType: data.recipientType,
+      emailType: data.emailType,
+      customSubject: data.customSubject,
+      customMessage: data.customMessage,
+      recipientIds: data.recipientIds,
+      filters: data.filters,
+      scheduledFor: data.scheduledFor,
+    });
+    if (duplicate) {
+      apiLogger.info({
+        msg: "scheduled-email:dedup-hit",
+        eventId,
+        scheduledEmailId: duplicate.id,
+        userId: session.user.id,
+        emailType: data.emailType,
+      });
+      const existing = await db.scheduledEmail.findUnique({ where: { id: duplicate.id } });
+      return NextResponse.json({
+        success: true,
+        deduplicated: true,
+        scheduledEmail: existing,
+      });
+    }
+
     const created = await db.scheduledEmail.create({
       data: {
         eventId,
@@ -169,6 +206,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // R1 (July 16, 2026): this was the ONE comms read with no role guard —
+    // org-bound restricted roles (CRM_USER, who is walled off from every
+    // event surface; ONSITE desk temps; read-only MEMBER) could pull every
+    // scheduled campaign's subject, body and filters for any event in the
+    // org. Matches the guard on the POST/PATCH/DELETE/retry siblings.
+    const denied = denyReviewer(session);
+    if (denied) return denied;
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },

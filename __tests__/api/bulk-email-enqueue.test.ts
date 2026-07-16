@@ -61,11 +61,18 @@ vi.mock("@/lib/auth-guards", () => ({
     return null;
   },
 }));
-vi.mock("@/lib/bulk-email", () => ({
-  bulkEmailSchema: { safeParse: mockSafeParse },
-  precheckBulkEmailViability: mockPrecheck,
-  BulkEmailError,
-}));
+vi.mock("@/lib/bulk-email", async (importOriginal) => {
+  // The dedup guard is the REAL implementation (against the mocked db) so the
+  // H2 value-matching tests below exercise the actual shared helper — the
+  // same one the schedule POST uses since review C3.
+  const actual = await importOriginal<typeof import("@/lib/bulk-email")>();
+  return {
+    bulkEmailSchema: { safeParse: mockSafeParse },
+    precheckBulkEmailViability: mockPrecheck,
+    findDuplicateQueuedSend: actual.findDuplicateQueuedSend,
+    BulkEmailError,
+  };
+});
 
 import { POST } from "@/app/api/events/[eventId]/emails/bulk/route";
 

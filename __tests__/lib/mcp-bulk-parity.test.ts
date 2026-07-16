@@ -185,6 +185,10 @@ describe("send_bulk_email — routed through executeBulkEmail", () => {
         emailType: "custom",
         customSubject: "Hi",
         customMessage: "<p>Body</p>",
+        // A1 (July 16, 2026): the tool contract is an HTML body — without
+        // this flag the pipeline escapes {{message}} and the audience
+        // receives literal markup.
+        customMessageIsHtml: true,
         filters: { status: "CONFIRMED", paymentStatus: "UNPAID" },
         organizerName: "Org Anizer",
         organizerSignature: "<p>sig</p>",

@@ -159,3 +159,26 @@ describe("executeBulkEmail — per-recipient idempotency (H1)", () => {
     expect(res.successCount).toBe(2);
   });
 });
+
+describe("executeBulkEmail — customMessageIsHtml (review A1, July 16 2026)", () => {
+  // The MCP/agent send_bulk_email contract is a sanitized-HTML body. The
+  // 6f5f6e9 pipeline rewire routed it through {{message}}, which renders
+  // ESCAPED by default — every agent/n8n bulk email with markup reached the
+  // whole audience as literal source code. The flag opts {{message}} into the
+  // raw-HTML key set; the dashboard's plain-Textarea message stays escaped.
+  const renderKeys = (call: number) => mockRenderAndWrap.mock.calls[call][3] as Set<string>;
+
+  it("adds 'message' to the raw-HTML keys when the flag is set", async () => {
+    await executeBulkEmail({ ...INPUT, customMessageIsHtml: true });
+    expect(mockRenderAndWrap).toHaveBeenCalled();
+    expect(renderKeys(0).has("message")).toBe(true);
+    // The pre-existing raw keys are untouched.
+    expect(renderKeys(0).has("personalMessage")).toBe(true);
+  });
+
+  it("keeps 'message' ESCAPED (not in the raw set) by default — the dashboard path", async () => {
+    await executeBulkEmail({ ...INPUT });
+    expect(mockRenderAndWrap).toHaveBeenCalled();
+    expect(renderKeys(0).has("message")).toBe(false);
+  });
+});

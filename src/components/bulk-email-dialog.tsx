@@ -183,11 +183,12 @@ const registrationEmailTypes: EmailTypeOption[] = [
   { value: "custom", label: "Custom Email", description: "Write a custom message" },
 ];
 
+// The four abstract-* status types were removed (review A2, July 16, 2026):
+// the bulk pipeline has never supported them (no slug mapping — it cannot
+// enrich per-recipient abstract context), so offering them produced a
+// success toast followed by a FAILED row a minute later. Status updates are
+// sent from the abstract detail page; bulk sends to submitters are custom.
 const abstractEmailTypes: EmailTypeOption[] = [
-  { value: "abstract-accepted", label: "Abstract Accepted", description: "Notify that abstract has been accepted" },
-  { value: "abstract-rejected", label: "Abstract Rejected", description: "Notify that abstract has been rejected" },
-  { value: "abstract-revision", label: "Revision Requested", description: "Request revisions to abstract" },
-  { value: "abstract-reminder", label: "Submission Reminder", description: "Remind to submit or revise abstract" },
   { value: "custom", label: "Custom Email", description: "Write a custom message" },
 ];
 
@@ -251,12 +252,6 @@ function emailTypeToSlug(emailType: string, recipientType: RecipientType): strin
       return "event-reminder";
     case "custom":
       return "custom-notification";
-    case "abstract-accepted":
-    case "abstract-rejected":
-    case "abstract-revision":
-      return "abstract-status-update";
-    case "abstract-reminder":
-      return "abstract-submission-confirmation";
     case "survey-invitation":
       return "survey-invitation";
     default:

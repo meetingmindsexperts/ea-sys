@@ -15,7 +15,7 @@ const { mockAuth, mockDb, mockCheckRateLimit } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
-    scheduledEmail: { create: vi.fn() },
+    scheduledEmail: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
   mockCheckRateLimit: vi.fn(
@@ -41,9 +41,19 @@ vi.mock("@/lib/security", () => ({
   getClientIp: () => "127.0.0.1",
 }));
 vi.mock("@/lib/auth-guards", () => ({
+  // Mirror the real guard's restricted set — MEMBER/ONSITE/CRM_USER must be
+  // blocked too (the schedule GET now routes through denyReviewer per review
+  // R1; a mock that omits them would let a regression slip past this suite).
   denyReviewer: (session: { user?: { role?: string } } | null) => {
     const role = session?.user?.role;
-    if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT") {
+    if (
+      role === "REVIEWER" ||
+      role === "SUBMITTER" ||
+      role === "REGISTRANT" ||
+      role === "MEMBER" ||
+      role === "ONSITE" ||
+      role === "CRM_USER"
+    ) {
       return { status: 403, json: async () => ({ error: "Forbidden" }) };
     }
     return null;
@@ -52,7 +62,7 @@ vi.mock("@/lib/auth-guards", () => ({
 // NOTE: bulk-email is intentionally NOT mocked — the route extends the real
 // bulkEmailSchema, so we exercise real validation.
 
-import { POST } from "@/app/api/events/[eventId]/emails/schedule/route";
+import { POST, GET } from "@/app/api/events/[eventId]/emails/schedule/route";
 
 function makeReq(body: unknown) {
   return { json: async () => body } as unknown as Request;
@@ -79,6 +89,9 @@ beforeEach(() => {
   mockCheckRateLimit.mockReturnValue({ allowed: true });
   mockDb.event.findFirst.mockResolvedValue({ id: "ev_1" });
   mockDb.scheduledEmail.create.mockResolvedValue({ id: "se_new", status: "PENDING" });
+  // Default: no dedup candidate (C3 guard finds nothing).
+  mockDb.scheduledEmail.findMany.mockResolvedValue([]);
+  mockDb.scheduledEmail.findUnique.mockResolvedValue(null);
 });
 
 describe("POST /emails/schedule — create", () => {
@@ -121,5 +134,67 @@ describe("POST /emails/schedule — create", () => {
     const res = await POST(makeReq(validBody()), { params });
     expect(res.status).toBe(404);
     expect(mockDb.scheduledEmail.create).not.toHaveBeenCalled();
+  });
+
+  // C3 (July 16, 2026): the send-now route got the H2 dedup guard; this door
+  // didn't — a 502'd/double-clicked schedule POST created two identical
+  // PENDING rows that BOTH fired at the scheduled time.
+  it("dedups an identical schedule POST — returns the existing row, no new row", async () => {
+    const when = futureWhen();
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      {
+        id: "se_existing",
+        customSubject: "Hi",
+        customMessage: "Body",
+        // Different order on purpose — the guard sorts before comparing.
+        recipientIds: ["r2", "r1"],
+        filters: null,
+      },
+    ]);
+    mockDb.scheduledEmail.findUnique.mockResolvedValue({ id: "se_existing", status: "PENDING" });
+
+    const res = await POST(makeReq(validBody({ scheduledFor: when })), { params });
+    const body = await res.json();
+    expect(body).toMatchObject({ success: true, deduplicated: true });
+    expect(body.scheduledEmail.id).toBe("se_existing");
+    expect(mockDb.scheduledEmail.create).not.toHaveBeenCalled();
+    // The candidate query is scoped to the IDENTICAL scheduledFor — two
+    // deliberate sends at different times must never collide.
+    const where = mockDb.scheduledEmail.findMany.mock.calls[0][0].where;
+    expect(where.scheduledFor).toEqual({ equals: new Date(when) });
+  });
+
+  it("does NOT dedup when content differs — enqueues a new row", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([
+      { id: "se_other", customSubject: "Different", customMessage: "Body", recipientIds: ["r1", "r2"], filters: null },
+    ]);
+    const res = await POST(makeReq(validBody()), { params });
+    expect((await res.json()).success).toBe(true);
+    expect(mockDb.scheduledEmail.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GET /emails/schedule — list (review R1, July 16 2026)", () => {
+  // This was the ONE comms read with no role guard: org-bound restricted
+  // roles (CRM_USER — walled off from every event surface; ONSITE desk
+  // temps; read-only MEMBER) could pull every scheduled campaign's subject,
+  // body and filters for any event in their org.
+  const getReq = () => ({} as unknown as Request);
+
+  it.each(["CRM_USER", "ONSITE", "MEMBER", "REVIEWER", "REGISTRANT"])(
+    "403s %s before any DB read",
+    async (role) => {
+      mockAuth.mockResolvedValue({ user: { id: "u1", organizationId: "org_1", role } });
+      const res = await GET(getReq(), { params });
+      expect(res.status).toBe(403);
+      expect(mockDb.scheduledEmail.findMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows ADMIN and returns the list", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([]);
+    const res = await GET(getReq(), { params });
+    expect(res.status).toBe(200);
+    expect(mockDb.scheduledEmail.findMany).toHaveBeenCalledTimes(1);
   });
 });

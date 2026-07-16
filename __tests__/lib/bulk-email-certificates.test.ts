@@ -259,3 +259,60 @@ describe("executeCertificateBulkSend", () => {
     expect(res.errors[0].error).toContain("no longer exists");
   });
 });
+
+describe("executeCertificateBulkSend — resume idempotency (review A4, July 16 2026)", () => {
+  // The issue-or-reuse path dedups the certificate ROW, not the EMAIL — before
+  // A4, a worker crash mid-send + operator Retry re-emailed everyone already
+  // emailed on the post-event certificate fan-out (the largest send in the
+  // system). Same alreadyEmailedKeys/onBatchEmailed contract as the non-cert
+  // path in executeBulkEmail.
+  const REG2 = { id: "reg-2", email: "bob@x.com", firstName: "Bob", lastName: "Ray", title: null };
+
+  it("skips already-emailed recipients — only the remainder is processed and counted", async () => {
+    const onBatchEmailed = vi.fn().mockResolvedValue(undefined);
+    const res = await executeCertificateBulkSend({
+      ...BASE,
+      recipients: [REG_RECIPIENT, REG2],
+      alreadyEmailedKeys: ["reg-1"],
+      onBatchEmailed,
+    });
+
+    // reg-1 was emailed by the crashed prior run — never re-sent.
+    expect(mockBundleSend).toHaveBeenCalledTimes(1);
+    expect(mockBundleSend.mock.calls[0][0].recipientEmail).toBe("bob@x.com");
+    expect(res.total).toBe(1);
+    const recorded = onBatchEmailed.mock.calls.flatMap((c) => c[0]);
+    expect(recorded).toEqual(["reg-2"]);
+  });
+
+  it("records only successfully-emailed ids — a failed send is retried next run", async () => {
+    const onBatchEmailed = vi.fn().mockResolvedValue(undefined);
+    // Fail Bob's email, succeed Jane's (keyed on recipient, not call order —
+    // the batch runs recipients concurrently).
+    mockBundleSend.mockImplementation((args: { recipientEmail: string }) =>
+      Promise.resolve(
+        args.recipientEmail === "bob@x.com"
+          ? { success: false, error: "SES down" }
+          : { success: true, messageId: "m1" },
+      ),
+    );
+
+    const res = await executeCertificateBulkSend({
+      ...BASE,
+      recipients: [REG_RECIPIENT, REG2],
+      onBatchEmailed,
+    });
+
+    expect(res).toMatchObject({ successCount: 1, failureCount: 1 });
+    // Only Jane's id is persisted — a retry re-attempts Bob (his cert row is
+    // reused via findOrIssueCertificate, so no duplicate serial is minted).
+    const recorded = onBatchEmailed.mock.calls.flatMap((c) => c[0]);
+    expect(recorded).toEqual(["reg-1"]);
+  });
+
+  it("a record failure does not fail the send", async () => {
+    const onBatchEmailed = vi.fn().mockRejectedValue(new Error("db blip"));
+    const res = await executeCertificateBulkSend({ ...BASE, onBatchEmailed });
+    expect(res.successCount).toBe(1);
+  });
+});

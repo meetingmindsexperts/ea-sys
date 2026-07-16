@@ -585,6 +585,75 @@ cert-bundle send paths (no orphan EmailLog rows); the `email-template-slugs.ts` 
 a real drift test against `DEFAULT_TEMPLATES`; the atomic PENDING→PROCESSING claim + FAILED-only retry + org-bound
 edit/cancel/retry all hold; MCP `send_bulk_email` sending inline (not jobified) is intended.
 
+### Communications / bulk-email review ROUND 2 — 3 HIGH + R1 + C3 SHIPPED; rest deferred (July 16, 2026)
+
+A fresh 3-angle pass (send lifecycle/audience · worker concurrency/idempotency · RBAC/injection/
+logging/drift) over the post-July-13 state. **The July 11 anti-double-send batch verified solid under
+adversarial interleaving** (claim/heartbeat/sweep/conditional-completion/emailedKeys compose
+correctly; registrations count==send parity clean incl. the newer filters; the survey check-in-gate
+removal consistent; body-injection escaping clean; cross-caller send/viability consolidation held).
+New findings: **0 BLOCKER / 3 HIGH / 9 MED / ~12 LOW**.
+
+**SHIPPED July 16:**
+- **A1 (HIGH, regression in `6f5f6e9`)** — MCP/agent `send_bulk_email` HTML-escaped the HTML body:
+  the pipeline rewire routed the tool's sanitized-HTML `htmlMessage` through `{{message}}`, which is
+  not a raw-HTML key → **every agent/n8n bulk email with markup rendered as literal source code**,
+  audience-wide, with `success: true`. New server-internal `BulkEmailInput.customMessageIsHtml`
+  (deliberately NOT in the Zod schema) adds `message` to the raw-key set; only the MCP executor sets
+  it — the dashboard's plain-Textarea message stays escaped. The parity test had mocked
+  `executeBulkEmail` and asserted only the call shape (the contacts-H4 "assert the effect" lesson,
+  re-instanced); effect-level raw-key tests added.
+- **A4 (HIGH)** — certificate bulk sends had **no email-level idempotency** (issue-or-reuse dedups
+  the cert ROW, not the email): a worker crash mid-send + operator Retry re-emailed everyone already
+  emailed on the post-event cert fan-out — the exact class H1 closed for every other type.
+  `executeCertificateBulkSend` now takes the same `alreadyEmailedKeys`/`onBatchEmailed` contract
+  (skip-filter + per-batch progress reporting; a failed send — incl. issued-but-send-failed — is
+  deliberately NOT recorded so a retry re-attempts it and the cert row is reused). Zero worker
+  changes needed — the worker already threads `emailedKeys` through `executeBulkEmail`.
+- **A2 (HIGH, fails-safe)** — the four `abstract-*` email types offered by the dialog can never send
+  (no slug mapping) and since jobification failed AFTER a 202 success toast (FAILED row + error page
+  a minute later). The slug map is hoisted (`BULK_EMAIL_TEMPLATE_SLUGS`) and
+  `precheckBulkEmailViability` rejects unsupported types synchronously at both enqueue doors;
+  the dialog no longer offers them (abstract audiences keep Custom Email; status updates are sent
+  from the abstract detail page). Legacy persisted rows still fail loudly at fire time.
+- **R1 (MED)** — `GET /emails/schedule` was the ONE comms read with no role guard (bare
+  `organizationId!`): **CRM_USER** (walled off from every event surface), **ONSITE**, and **MEMBER**
+  could read every scheduled campaign's subject/body/filters org-wide via direct API call (the
+  "guard on the write, not the read" class again). Now `denyReviewer`, matching its four siblings.
+- **C3 (MED)** — the schedule POST never got H2's enqueue dedup: a 502'd/double-clicked schedule
+  request created two identical PENDING rows that BOTH fired at the scheduled time. The guard is now
+  the shared `findDuplicateQueuedSend()` in [bulk-email.ts](../src/lib/bulk-email.ts) (one
+  implementation, both enqueue doors; schedule mode matches only rows with the IDENTICAL
+  `scheduledFor`).
+
+**NEW — deferred (round 2):**
+
+| # | Sev | Finding |
+|---|---|---|
+| C1 | MED | **Completion writes prove *status*, not *ownership*** — no claim token/nonce, so a zombie sender surviving a DB-write outage (heartbeat+key-pushes failing, SES succeeding) can be swept FAILED, Retry'd, and then mark the re-claimed row SENT with its own counts while worker B is mid-send; both email the un-persisted tail. Fix shape: a claim token stamped at claim time, conditioned on by heartbeat/completion/failure writes. |
+| C5 | MED | **A send cannot be cancelled once PROCESSING** — cancel is PENDING-only and `executeBulkEmail`'s batch loop never re-checks status between batches (the cert worker got `transitionRunStatus` for this class; the email worker didn't). A between-batches ownership/status check would close C1 and C5 with one mechanism. |
+| C6 | MED | **MCP `send_bulk_email` writes no AuditLog row** (every other MCP write tool + both REST enqueue paths do) — an agent-triggered 500-recipient blast is reconstructible only from EmailLog rows + pino lines. |
+| A3 | MED | **`precheckBulkEmailViability` does not validate `filters.templateSlug`** — the route + worker comments claim a deactivated saved template 400s synchronously; it actually 202s then FAILs at fire time (fails safe, no silent fallback — but the M2 contract and two in-code comments are wrong). |
+| A6 | MED | **The "Cancelled Re-engagement" tile is 2 clicks from surveying/dunning cancelled registrants** — the tile seeds explicit `status=CANCELLED`, the email-type dropdown stays switchable, and only `certificate` got the unconditional CANCELLED rejection; survey-invitation and payment-reminder go through (the reminder computes a live amount from raw price columns, not cancel-zeroed financials). Owner call: extend the unconditional block to those two types. |
+| A12 | MED | **MCP inline send has neither dedup nor resume** — an n8n timeout + auto-retry re-sends the entire audience (the 2-min dedup lives only on the REST route; `emailedKeys` aren't passed inline). Accepted residual of the inline-send decision — now written down. |
+| A5 | MED | **`emailedKeys` is unstable for abstracts recipients** — recipient key = first-seen abstract id from an un-`orderBy`'d query; a resume can re-key a multi-abstract speaker and re-email them. One-line `orderBy: { id: "asc" }` (or key on speaker id). |
+| C4 | LOW-MED | Send-now dedup's effective window is ≤~60s (PENDING-only — the worker claims within a minute), and its `filters` JSON comparison deterministically misses under Postgres jsonb key reordering (fails safe: duplicate possible, never a wrong merge). |
+| R2 | LOW | Bulk + schedule **attachments bypass `validateManualAttachments`** (magic-byte/MIME/filename checks used by the single-send speaker route); the schedule-edit PATCH has no size check at all. Route both through the shared validator. |
+| R3 | LOW | **CRLF injection into the raw-MIME `To:` header** via self-registered names on attachment sends (`formatAddress` doesn't strip CR/LF; Subject is RFC-2047-encoded, names aren't). Bounded (injects into the recipient's own message); strip CR/LF or RFC-2047-encode names in `buildRawMime`. |
+| A7 | LOW | MCP `paymentStatusFilter` hand-list omits `INCLUSIVE` (the H5 enum-drift class — the `6f5f6e9` rewire also removed the derived `ALL_PAYMENT_STATUSES` validation). "Email all sponsor-paid registrants" is impossible via MCP; fails closed. |
+| A8 | LOW | The advertised MCP `INVALID_FILTER` coded error is unreachable for enum-invalid values — the pre-cap count query runs `status as never` BEFORE `executeBulkEmail`, so Prisma throws first → opaque generic error. Also the executor ignores `input.emailType` (always sends "custom") while the schema offers 4 types. |
+| A9 | LOW | Resumed-run counters overwrite instead of accumulate — crash at 1500/2000 + Retry → the row terminally reads "Sent 500 / total 500" (EmailLog keeps the truth). |
+| A10 | LOW | Selected-mode dialog count ignores in-dialog filters + the server's cancelled-default guard — "Send to 10 selected" can mail ≤8. |
+| A11 | LOW | `payment-reminder` has no `emailTypeToSlug` mapping → "Preview isn't available" for a first-class money email whose slug exists. |
+| C10 | LOW | The retry route bypasses the 20/hr `bulk-email:org` bucket; rate-limit slots burn before Zod/precheck (20 rejected attempts lock out legitimate sends); MCP 10/hr + REST 20/hr are independent budgets (30/hr combined) — by design but undocumented. |
+| C11 | LOW | A backlog tick can burst ~250 concurrent SES sends (10 parallel rows × 25-recipient batches) vs the 14/s SES rate — throttles surface as per-recipient failures that self-heal on retry, but produce spurious failureCount noise. |
+| C8 | LOW (sharpened KNOWN) | The advisory-lock unlock's `false` return is silently discarded, and a wedged lock makes every tick skip at **debug** — scheduled sends stop with no alert. Given the over-alerting preference: escalate N-consecutive `skip-tick-locked` to warn. |
+
+**Known-deferred re-verified unchanged:** M4 (email-preview org-null collapse), M5 (count-predicate
+triplication — speakers copy still missing `sessionRole`), preview rate limit, `presentationDetails`
+raw HTML, the unlogged post-auth 4xx cluster (schedule lead-time 400, event-not-found 404s, the
+email-templates 404/409 set), the legacy cron shim, P3 pooler advisory-lock.
+
 
 ### Program / agenda / sessions review (July 10, 2026) — deferred findings
 

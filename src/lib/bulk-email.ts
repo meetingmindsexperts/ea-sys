@@ -220,6 +220,17 @@ export interface BulkEmailInput {
   emailType: BulkEmailType;
   customSubject?: string;
   customMessage?: string;
+  /**
+   * True when `customMessage` is trusted, already-sanitized HTML (the MCP /
+   * in-app-agent `send_bulk_email` contract — the tool schema asks for "HTML
+   * content" and the executor runs it through sanitizeHtml). Renders
+   * `{{message}}` raw instead of escaped. The dashboard dialog's message is a
+   * plain Textarea, so it stays escaped (the default). Review A1, July 16,
+   * 2026: the MCP pipeline rewire (`6f5f6e9`) dropped the raw-HTML behavior
+   * and every agent/n8n bulk email with markup rendered as literal source.
+   * Server-internal flag — deliberately NOT in bulkEmailSchema.
+   */
+  customMessageIsHtml?: boolean;
   attachments?: BulkEmailAttachment[];
   filters?: BulkEmailFilters;
   organizerName: string;
@@ -229,11 +240,11 @@ export interface BulkEmailInput {
   organizationId?: string | null;
   triggeredByUserId?: string | null;
   /**
-   * Per-recipient send idempotency (review H1). Recipient ids already emailed
-   * by a prior run of this send — skipped here so a retry after a crash resumes
-   * instead of re-emailing everyone. Also means an already-emailed recipient's
-   * survey token is never re-minted (review M6). Non-cert paths only; the
-   * certificate send has its own issue-or-reuse idempotency.
+   * Per-recipient send idempotency (review H1; extended to certificate sends
+   * July 16, 2026 — review A4). Recipient ids already emailed by a prior run
+   * of this send — skipped so a retry after a crash resumes instead of
+   * re-emailing everyone. Also means an already-emailed recipient's survey
+   * token is never re-minted (review M6).
    */
   alreadyEmailedKeys?: string[];
   /**
@@ -278,6 +289,95 @@ export class BulkEmailError extends Error {
 
 /** Error code set on BulkEmailError when recipient resolution yields zero rows. */
 export const NO_RECIPIENTS_CODE = "NO_RECIPIENTS";
+
+/**
+ * emailType → system template slug. Every sendable non-template, non-cert
+ * type must appear here — a type accepted by the schema but absent from this
+ * map cannot send and is rejected by precheckBulkEmailViability (review A2).
+ *
+ * The 4 abstract-* types are deliberately ABSENT: the bulk helper cannot
+ * enrich per-recipient abstract context (abstractTitle, newStatus,
+ * reviewNotes…), so sending them here would render emails with empty
+ * placeholders. They stay in the schema for backward compat with persisted
+ * ScheduledEmail rows, but new sends are rejected up-front. Send abstract
+ * status updates from the abstract detail route instead.
+ */
+const BULK_EMAIL_TEMPLATE_SLUGS: Partial<Record<BulkEmailType, string>> = {
+  invitation: "speaker-invitation",
+  agreement: "speaker-agreement",
+  confirmation: "registration-confirmation",
+  reminder: "event-reminder",
+  "payment-reminder": "payment-reminder",
+  custom: "custom-notification",
+  "webinar-confirmation": "webinar-confirmation",
+  "webinar-reminder-24h": "webinar-reminder-24h",
+  "webinar-reminder-1h": "webinar-reminder-1h",
+  "webinar-live-now": "webinar-live-now",
+  "webinar-thank-you": "webinar-thank-you",
+  "survey-invitation": "survey-invitation",
+};
+
+const UNSUPPORTED_EMAIL_TYPE_MESSAGE = (emailType: string) =>
+  `Bulk send for "${emailType}" is not supported — send abstract status updates from the abstract detail page instead`;
+
+/**
+ * Enqueue-time idempotency guard shared by the send-now + schedule routes
+ * (review H2 for send-now; review C3 extended it to the schedule POST, which
+ * previously had no dedup — a 502'd/double-clicked schedule request created
+ * two identical PENDING rows that BOTH fired at the scheduled time).
+ *
+ * Best-effort value-equality match on a same-creator, same-content PENDING
+ * row created in the last 2 minutes. Key-order differences in `filters` can
+ * miss a dedup, but never merge two genuinely-different sends. Send-now mode
+ * (scheduledFor: null) matches only send-now rows (scheduledFor ≈ now);
+ * schedule mode matches only rows with the IDENTICAL scheduledFor — a retry
+ * of the same POST carries the same timestamp, while two deliberate sends at
+ * different times never collide.
+ */
+export async function findDuplicateQueuedSend(input: {
+  eventId: string;
+  createdById: string;
+  recipientType: string;
+  emailType: string;
+  customSubject?: string | null;
+  customMessage?: string | null;
+  recipientIds?: string[] | null;
+  filters?: unknown;
+  /** null/undefined = send-now; a Date = a future-scheduled send. */
+  scheduledFor?: Date | null;
+}): Promise<{ id: string } | null> {
+  const DEDUP_WINDOW_MS = 2 * 60 * 1000;
+  const canonical = (v: unknown) => JSON.stringify(v ?? null);
+  const incomingRecipientIds = canonical([...(input.recipientIds ?? [])].sort());
+  const incomingFilters = canonical(input.filters ?? null);
+
+  const dupCandidates = await db.scheduledEmail.findMany({
+    where: {
+      eventId: input.eventId,
+      createdById: input.createdById,
+      status: "PENDING",
+      recipientType: input.recipientType,
+      emailType: input.emailType,
+      createdAt: { gte: new Date(Date.now() - DEDUP_WINDOW_MS) },
+      scheduledFor: input.scheduledFor
+        ? { equals: input.scheduledFor }
+        : // Send-now rows only (scheduledFor ≈ now) — never dedup against a
+          // genuinely future-scheduled row that happens to match content.
+          { lte: new Date(Date.now() + 60 * 1000) },
+    },
+    select: { id: true, customSubject: true, customMessage: true, recipientIds: true, filters: true },
+  });
+
+  return (
+    dupCandidates.find(
+      (r) =>
+        (r.customSubject ?? null) === (input.customSubject ?? null) &&
+        (r.customMessage ?? null) === (input.customMessage ?? null) &&
+        canonical([...r.recipientIds].sort()) === incomingRecipientIds &&
+        canonical(r.filters) === incomingFilters,
+    ) ?? null
+  );
+}
 
 // Shared Zod schema reused by both immediate-send and schedule routes
 export const bulkEmailSchema = z.object({
@@ -543,6 +643,18 @@ export async function precheckBulkEmailViability(
   // — dropping them silently widened the audience to everyone.
   assertValidBulkEmailFilters(recipientType, filters);
 
+  // A2 (July 16, 2026): a type with no slug mapping (the 4 abstract-* types)
+  // can NEVER send — reject it here, synchronously at the routes, instead of
+  // returning 202 "queued" and flipping the row FAILED a minute later with an
+  // error-level page. executeBulkEmail keeps its own check as the backstop.
+  if (
+    emailType !== "template" &&
+    emailType !== "certificate" &&
+    !BULK_EMAIL_TEMPLATE_SLUGS[emailType]
+  ) {
+    throw new BulkEmailError(UNSUPPORTED_EMAIL_TYPE_MESSAGE(emailType), 400);
+  }
+
   // Speaker-agreement bulk sends need either an uploaded .docx template OR
   // inline agreement HTML on the event — fail fast before resolving
   // recipients so we don't half-process and stress email rate limits.
@@ -678,6 +790,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     emailType,
     customSubject,
     customMessage,
+    customMessageIsHtml,
     attachments,
     filters,
     organizerName,
@@ -900,35 +1013,22 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       customMessage,
       organizationId,
       triggeredByUserId,
+      // A4 (July 16, 2026): the cert send previously had NO email-level
+      // idempotency (issue-or-reuse dedups the cert ROW, not the email) — a
+      // crash + Retry re-emailed everyone already emailed on the biggest
+      // fan-out in the system. Same resume contract as the non-cert path.
+      alreadyEmailedKeys,
+      onBatchEmailed,
     });
   }
 
   // ── Load template ──
-  // The 5 supported types map directly to template slugs.
-  //
-  // The 4 abstract-* types are accepted by the schema for forward-compat with
-  // the abstracts-list page, but the bulk helper cannot enrich per-recipient
-  // abstract context (abstractTitle, newStatus, reviewNotes…). Sending them
-  // through this path would render emails with empty {{abstractTitle}}
-  // placeholders, so we reject them explicitly. Send abstract status updates
-  // from the abstract detail route instead, where the Abstract row is in scope.
-  const slugMap: Partial<Record<BulkEmailType, string>> = {
-    invitation: "speaker-invitation",
-    agreement: "speaker-agreement",
-    confirmation: "registration-confirmation",
-    reminder: "event-reminder",
-    "payment-reminder": "payment-reminder",
-    custom: "custom-notification",
-    "webinar-confirmation": "webinar-confirmation",
-    "webinar-reminder-24h": "webinar-reminder-24h",
-    "webinar-reminder-1h": "webinar-reminder-1h",
-    "webinar-live-now": "webinar-live-now",
-    "webinar-thank-you": "webinar-thank-you",
-    "survey-invitation": "survey-invitation",
-  };
   // Resolve the template slug. A "template" send carries a custom slug in
   // filters.templateSlug and loads the active EmailTemplate directly; every
-  // other type maps to a fixed system slug.
+  // other type maps to a fixed system slug via BULK_EMAIL_TEMPLATE_SLUGS
+  // (module-scope so precheckBulkEmailViability rejects unsupported types
+  // synchronously at the routes — review A2 — and this stays the backstop
+  // for direct callers).
   const isCustomTemplate = emailType === "template";
   let templateSlug: string;
   if (isCustomTemplate) {
@@ -939,12 +1039,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     }
     templateSlug = filters.templateSlug;
   } else {
-    const mapped = slugMap[emailType];
+    const mapped = BULK_EMAIL_TEMPLATE_SLUGS[emailType];
     if (!mapped) {
-      throw new BulkEmailError(
-        `Bulk send for "${emailType}" is not supported — send from the abstract detail page instead`,
-        400
-      );
+      throw new BulkEmailError(UNSUPPORTED_EMAIL_TYPE_MESSAGE(emailType), 400);
     }
     templateSlug = mapped;
   }
@@ -1256,19 +1353,20 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       }
     }
 
+    const rawHtmlKeys = new Set([
+      "presentationDetails",
+      "organizerSignature",
+      "personalMessage",
+      "passcodeBlock",
+      "recordingBlock",
+    ]);
+    // A1 (July 16, 2026): only a caller that KNOWS its message is trusted,
+    // sanitized HTML (the MCP/agent executor) opts in — the dashboard's
+    // plain-Textarea message stays escaped.
+    if (customMessageIsHtml) rawHtmlKeys.add("message");
+
     return {
-      ...renderAndWrap(
-        tpl,
-        vars,
-        branding,
-        new Set([
-          "presentationDetails",
-          "organizerSignature",
-          "personalMessage",
-          "passcodeBlock",
-          "recordingBlock",
-        ]),
-      ),
+      ...renderAndWrap(tpl, vars, branding, rawHtmlKeys),
       barcodeAttachment,
     };
   };
@@ -1279,8 +1377,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // everyone. A fresh send has an empty set, so `toSend === recipients`. This
   // also means an already-emailed recipient's survey token is never re-minted
   // (review M6 — the mint lives inside generateEmailForRecipient, below the
-  // filter). Certificate sends returned early above and are unaffected (they
-  // have their own issue-or-reuse idempotency).
+  // filter). Certificate sends returned early above with the same keys passed
+  // through — executeCertificateBulkSend applies the identical skip (A4).
   const alreadyEmailed = new Set(alreadyEmailedKeys ?? []);
   const toSend = alreadyEmailed.size
     ? recipients.filter((r) => !alreadyEmailed.has(r.id))

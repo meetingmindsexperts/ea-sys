@@ -108,6 +108,11 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
       emailType: "custom",
       customSubject: subject,
       customMessage: htmlMessage,
+      // The tool contract is an HTML body (sanitized above via sanitizeHtml).
+      // Without this flag the shared pipeline escapes {{message}} and the
+      // whole audience receives literal markup (review A1 — regression in
+      // the 6f5f6e9 pipeline rewire).
+      customMessageIsHtml: true,
       filters,
       organizerName,
       organizerEmail,

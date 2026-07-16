@@ -4,7 +4,12 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { bulkEmailSchema, precheckBulkEmailViability, BulkEmailError } from "@/lib/bulk-email";
+import {
+  bulkEmailSchema,
+  precheckBulkEmailViability,
+  findDuplicateQueuedSend,
+  BulkEmailError,
+} from "@/lib/bulk-email";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -117,36 +122,18 @@ export async function POST(req: Request, { params }: RouteParams) {
     // non-idempotent enqueue. Without it, two identical "send now" POSTs create
     // two ScheduledEmail rows and the worker drains BOTH → the whole audience
     // is emailed twice (the 20/hr limit is no defense — both fit under it).
-    // Best-effort: match a same-creator, same-content PENDING send-now row
-    // created in the last 2 min and return its jobId instead of enqueueing
-    // again. (Value-equality only — key-order differences can miss a dedup, but
-    // never merge two genuinely-different sends. Not bulletproof under true
-    // simultaneity; a unique idempotency key would be, at the cost of a column.)
-    const DEDUP_WINDOW_MS = 2 * 60 * 1000;
-    const canonical = (v: unknown) => JSON.stringify(v ?? null);
-    const incomingRecipientIds = canonical([...(recipientIds ?? [])].sort());
-    const incomingFilters = canonical(filters ?? null);
-    const dupCandidates = await db.scheduledEmail.findMany({
-      where: {
-        eventId,
-        createdById: session.user.id,
-        status: "PENDING",
-        recipientType,
-        emailType,
-        createdAt: { gte: new Date(Date.now() - DEDUP_WINDOW_MS) },
-        // Send-now rows only (scheduledFor ≈ now) — never dedup against a
-        // genuinely future-scheduled row that happens to match content.
-        scheduledFor: { lte: new Date(Date.now() + 60 * 1000) },
-      },
-      select: { id: true, customSubject: true, customMessage: true, recipientIds: true, filters: true },
+    // Shared with the schedule POST (review C3) — one guard, two enqueue doors.
+    const duplicate = await findDuplicateQueuedSend({
+      eventId,
+      createdById: session.user.id,
+      recipientType,
+      emailType,
+      customSubject,
+      customMessage,
+      recipientIds,
+      filters,
+      scheduledFor: null, // send-now mode
     });
-    const duplicate = dupCandidates.find(
-      (r) =>
-        (r.customSubject ?? null) === (customSubject ?? null) &&
-        (r.customMessage ?? null) === (customMessage ?? null) &&
-        canonical([...r.recipientIds].sort()) === incomingRecipientIds &&
-        canonical(r.filters) === incomingFilters,
-    );
     if (duplicate) {
       apiLogger.info({
         msg: "bulk-email:dedup-hit",
