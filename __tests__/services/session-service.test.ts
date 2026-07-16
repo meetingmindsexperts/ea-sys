@@ -6,12 +6,14 @@
  * capacity + zero-duration rules disagreed between REST and MCP).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Prisma } from "@prisma/client";
 
 const { mockDb, mockTx, mockApiLogger, mockNotify, mockRefreshStats } = vi.hoisted(() => {
   const mockTx = {
     eventSession: { updateMany: vi.fn() },
     sessionSpeaker: { deleteMany: vi.fn(), createMany: vi.fn() },
-    sessionTopic: { deleteMany: vi.fn(), create: vi.fn() },
+    sessionTopic: { findMany: vi.fn(), deleteMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    topicSpeaker: { deleteMany: vi.fn(), createMany: vi.fn() },
   };
   return {
     mockTx,
@@ -73,6 +75,8 @@ beforeEach(() => {
   mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
   mockNotify.mockReturnValue({ catch: () => {} });
   mockTx.eventSession.updateMany.mockResolvedValue({ count: 1 });
+  mockTx.sessionTopic.findMany.mockResolvedValue([]);
+  mockTx.topicSpeaker.deleteMany.mockResolvedValue({ count: 0 });
 });
 
 describe("createSession — H4: side effects the MCP path used to skip", () => {
@@ -231,5 +235,129 @@ describe("updateSession — H1: the lock is claimed BEFORE anything is mutated",
     const res = await updateSession({ ...BASE_UPDATE, capacity: -5 });
     expect(res.ok).toBe(false);
     expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateSession — M2: topic ids are stable across saves", () => {
+  it("updates an existing topic in place instead of delete-and-recreate", async () => {
+    mockTx.sessionTopic.findMany.mockResolvedValue([{ id: "t1" }, { id: "t2" }]);
+    await updateSession({
+      ...BASE_UPDATE,
+      topics: [{ id: "t1", title: "Renamed", speakerIds: ["sp-a"] }],
+    });
+    // t1 kept + updated; t2 (absent from payload) deleted via notIn.
+    expect(mockTx.sessionTopic.deleteMany).toHaveBeenCalledWith({
+      where: { sessionId: "s1", id: { notIn: ["t1"] } },
+    });
+    expect(mockTx.sessionTopic.update).toHaveBeenCalledTimes(1);
+    const upd = mockTx.sessionTopic.update.mock.calls[0][0];
+    expect(upd.where).toEqual({ id: "t1" });
+    expect(upd.data.title).toBe("Renamed");
+    expect(mockTx.sessionTopic.create).not.toHaveBeenCalled();
+    // Per-topic speakers replaced on the kept row.
+    expect(mockTx.topicSpeaker.deleteMany).toHaveBeenCalledWith({ where: { topicId: "t1" } });
+    expect(mockTx.topicSpeaker.createMany).toHaveBeenCalledWith({
+      data: [{ topicId: "t1", speakerId: "sp-a" }],
+    });
+  });
+
+  it("ignores a foreign topic id (not this session's) and creates the topic fresh", async () => {
+    mockTx.sessionTopic.findMany.mockResolvedValue([{ id: "t1" }]);
+    await updateSession({
+      ...BASE_UPDATE,
+      topics: [{ id: "someone-elses-topic", title: "New here" }],
+    });
+    expect(mockTx.sessionTopic.update).not.toHaveBeenCalled();
+    expect(mockTx.sessionTopic.create).toHaveBeenCalledTimes(1);
+    // Nothing was kept, so every existing topic goes.
+    expect(mockTx.sessionTopic.deleteMany).toHaveBeenCalledWith({
+      where: { sessionId: "s1", id: { notIn: [] } },
+    });
+  });
+
+  it("a duplicated id in the payload consumes the row once (second occurrence creates)", async () => {
+    mockTx.sessionTopic.findMany.mockResolvedValue([{ id: "t1" }]);
+    await updateSession({
+      ...BASE_UPDATE,
+      topics: [
+        { id: "t1", title: "First" },
+        { id: "t1", title: "Second" },
+      ],
+    });
+    expect(mockTx.sessionTopic.update).toHaveBeenCalledTimes(1);
+    expect(mockTx.sessionTopic.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("updateSession — L1: dropped session speakers drop off the topics too", () => {
+  it("removes per-topic rows for speakers no longer on the session", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp-keep" }]);
+    await updateSession({
+      ...BASE_UPDATE,
+      sessionRoles: [{ speakerId: "sp-keep", role: "SPEAKER" }],
+    });
+    expect(mockTx.topicSpeaker.deleteMany).toHaveBeenCalledWith({
+      where: { topic: { sessionId: "s1" }, speakerId: { notIn: ["sp-keep"] } },
+    });
+  });
+
+  it("clearing all session speakers clears every per-topic row", async () => {
+    await updateSession({ ...BASE_UPDATE, sessionRoles: [] });
+    expect(mockTx.topicSpeaker.deleteMany).toHaveBeenCalledWith({
+      where: { topic: { sessionId: "s1" }, speakerId: { notIn: [] } },
+    });
+  });
+
+  it("skips the roster cleanup when the payload replaces topics explicitly", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp-keep" }]);
+    await updateSession({
+      ...BASE_UPDATE,
+      sessionRoles: [{ speakerId: "sp-keep", role: "SPEAKER" }],
+      topics: [],
+    });
+    // The only topicSpeaker.deleteMany calls allowed here are the per-kept-
+    // topic replaces (none, since topics=[]), not the roster-diff cleanup.
+    const cleanupCalls = mockTx.topicSpeaker.deleteMany.mock.calls.filter(
+      (c) => c[0]?.where?.speakerId,
+    );
+    expect(cleanupCalls).toHaveLength(0);
+  });
+});
+
+describe("L3: an abstract-uniqueness race maps to ABSTRACT_ALREADY_ASSIGNED, not UNKNOWN", () => {
+  const p2002 = () =>
+    new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+      code: "P2002",
+      clientVersion: "test",
+      meta: { target: ["abstractId"] },
+    });
+
+  it("on create", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ id: "ab1" });
+    mockDb.eventSession.findFirst.mockResolvedValue(null); // pre-check passes
+    mockDb.eventSession.create.mockRejectedValue(p2002());
+    const res = await createSession({ ...BASE_CREATE, abstractId: "ab1" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("ABSTRACT_ALREADY_ASSIGNED");
+  });
+
+  it("on update (thrown inside the transaction)", async () => {
+    mockDb.$transaction.mockRejectedValueOnce(p2002());
+    const res = await updateSession({ ...BASE_UPDATE, name: "X" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("ABSTRACT_ALREADY_ASSIGNED");
+  });
+
+  it("an unrelated P2002 still maps to UNKNOWN", async () => {
+    mockDb.eventSession.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+        meta: { target: ["somethingElse"] },
+      }),
+    );
+    const res = await createSession(BASE_CREATE);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("UNKNOWN");
   });
 });

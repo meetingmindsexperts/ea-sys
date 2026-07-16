@@ -33,6 +33,7 @@
  * imports from `next/server`).
  */
 
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -56,6 +57,13 @@ export const SESSION_ROLES: readonly SessionRole[] = [
 ];
 
 export interface SessionTopicInput {
+  /**
+   * Existing topic id — an update payload carrying it keeps the row (and its
+   * cuid) instead of delete-and-recreate, so deep links / external syncs to a
+   * topic id survive a session save (M2, program/agenda review). An id that
+   * doesn't belong to this session is ignored and the topic created fresh.
+   */
+  id?: string | null;
   title: string;
   abstractId?: string | null;
   duration?: number | null;
@@ -179,6 +187,19 @@ function fail(
   meta?: Record<string, unknown>,
 ): { ok: false; code: SessionServiceErrorCode; message: string; meta?: Record<string, unknown> } {
   return { ok: false, code, message, ...(meta ? { meta } : {}) };
+}
+
+/**
+ * `EventSession.abstractId` and `SessionTopic.abstractId` are both @unique.
+ * The pre-check in `validate` gives the friendly error, but two concurrent
+ * writes can both pass it — the loser's P2002 used to surface as an opaque
+ * 500 (L3, program/agenda review). Map it to the same domain error instead.
+ */
+function isAbstractUniqueViolation(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== "P2002") return false;
+  const target = err.meta?.target;
+  const fields = Array.isArray(target) ? target.join(",") : String(target ?? "");
+  return fields.includes("abstractId");
 }
 
 /** Collect every speaker id referenced by the payload (session-level + per-topic). */
@@ -346,6 +367,13 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
       select: { id: true },
     });
   } catch (err) {
+    if (isAbstractUniqueViolation(err)) {
+      apiLogger.warn(
+        { msg: "session-service:abstract-unique-race", eventId, userId, source },
+        "Abstract was assigned to another session concurrently",
+      );
+      return fail("ABSTRACT_ALREADY_ASSIGNED", "Abstract is already assigned to another session");
+    }
     apiLogger.error({ err, eventId, userId, source }, "session-service:create-failed");
     return fail("UNKNOWN", err instanceof Error ? err.message : "Failed to create session");
   }
@@ -460,27 +488,77 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
             data: rows.map((r) => ({ sessionId, ...r })),
           });
         }
-      }
 
-      // 3. Topics (cascades to TopicSpeaker). A mid-loop failure now rolls the
-      //    deleteMany back instead of truncating the agenda.
-      if (input.topics !== undefined) {
-        await tx.sessionTopic.deleteMany({ where: { sessionId } });
-        for (let i = 0; i < input.topics.length; i++) {
-          const t = input.topics[i];
-          await tx.sessionTopic.create({
-            data: {
-              sessionId,
-              title: t.title,
-              abstractId: t.abstractId || null,
-              duration: t.duration || null,
-              sortOrder: t.sortOrder ?? i,
-              speakers:
-                t.speakerIds && t.speakerIds.length > 0
-                  ? { create: t.speakerIds.map((speakerId) => ({ speakerId })) }
-                  : undefined,
+        // L1 (program/agenda review): a speaker dropped from the session must
+        // also drop off this session's TOPICS, or they keep appearing on the
+        // public agenda under the topic. When the payload replaces topics too,
+        // step 3 writes the exact requested per-topic rosters instead.
+        if (input.topics === undefined) {
+          await tx.topicSpeaker.deleteMany({
+            where: {
+              topic: { sessionId },
+              speakerId: { notIn: rows.map((r) => r.speakerId) },
             },
           });
+        }
+      }
+
+      // 3. Topics. Payload rows carrying an id that belongs to this session
+      //    are UPDATED in place (stable topic ids — M2); rows without one (or
+      //    with a foreign id, which is ignored) are created; existing topics
+      //    absent from the payload are deleted (cascades to TopicSpeaker).
+      //    A mid-loop failure rolls the whole replace back.
+      if (input.topics !== undefined) {
+        const existingTopics = await tx.sessionTopic.findMany({
+          where: { sessionId },
+          select: { id: true },
+        });
+        const existingIds = new Set(existingTopics.map((t) => t.id));
+        // Each existing id is consumed at most once — a duplicated id in the
+        // payload updates the row on first use and creates a topic after.
+        const availableIds = new Set(existingIds);
+        const keptIds: string[] = [];
+        const plan = input.topics.map((t) => {
+          const keep = t.id && availableIds.has(t.id) ? t.id : null;
+          if (keep) {
+            availableIds.delete(keep);
+            keptIds.push(keep);
+          }
+          return { topic: t, existingId: keep };
+        });
+
+        await tx.sessionTopic.deleteMany({
+          where: { sessionId, id: { notIn: keptIds } },
+        });
+
+        for (let i = 0; i < plan.length; i++) {
+          const { topic: t, existingId } = plan[i];
+          const fields = {
+            title: t.title,
+            abstractId: t.abstractId || null,
+            duration: t.duration || null,
+            sortOrder: t.sortOrder ?? i,
+          };
+          if (existingId) {
+            await tx.sessionTopic.update({ where: { id: existingId }, data: fields });
+            await tx.topicSpeaker.deleteMany({ where: { topicId: existingId } });
+            if (t.speakerIds && t.speakerIds.length > 0) {
+              await tx.topicSpeaker.createMany({
+                data: t.speakerIds.map((speakerId) => ({ topicId: existingId, speakerId })),
+              });
+            }
+          } else {
+            await tx.sessionTopic.create({
+              data: {
+                sessionId,
+                ...fields,
+                speakers:
+                  t.speakerIds && t.speakerIds.length > 0
+                    ? { create: t.speakerIds.map((speakerId) => ({ speakerId })) }
+                    : undefined,
+              },
+            });
+          }
         }
       }
     });
@@ -491,6 +569,13 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
         "STALE_WRITE",
         "This session was modified by someone else after you opened it. Reload the latest version and try again.",
       );
+    }
+    if (isAbstractUniqueViolation(err)) {
+      apiLogger.warn(
+        { msg: "session-service:abstract-unique-race", sessionId, eventId, userId, source },
+        "Abstract was assigned to another session concurrently",
+      );
+      return fail("ABSTRACT_ALREADY_ASSIGNED", "Abstract is already assigned to another session");
     }
     apiLogger.error({ err, sessionId, eventId, userId, source }, "session-service:update-failed");
     return fail("UNKNOWN", err instanceof Error ? err.message : "Failed to update session");

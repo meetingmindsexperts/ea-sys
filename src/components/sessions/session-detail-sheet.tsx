@@ -78,6 +78,9 @@ interface SpeakerOption {
 }
 
 interface TopicForm {
+  /** Existing topic id — kept so a save updates the topic in place instead
+   *  of regenerating its id (M2, program/agenda review). */
+  id?: string;
   title: string;
   speakerIds: string[];
   duration: string;
@@ -150,6 +153,7 @@ export function SessionDetailSheet({
       setSession(sessionData);
       setTopicForms(
         sessionData.topics.map((t) => ({
+          id: t.id,
           title: t.title,
           speakerIds: t.speakers.map((ts) => ts.speaker.id),
           duration: t.duration?.toString() || "",
@@ -196,6 +200,7 @@ export function SessionDetailSheet({
           // wrote since this sheet was opened.
           expectedUpdatedAt: session.updatedAt,
           topics: topicForms.map((t, i) => ({
+            ...(t.id ? { id: t.id } : {}),
             title: t.title,
             duration: t.duration ? parseInt(t.duration) : undefined,
             sortOrder: i,
@@ -219,6 +224,7 @@ export function SessionDetailSheet({
       setSession(updated);
       setTopicForms(
         updated.topics.map((t) => ({
+          id: t.id,
           title: t.title,
           speakerIds: t.speakers.map((ts) => ts.speaker.id),
           duration: t.duration?.toString() || "",
@@ -370,6 +376,7 @@ export function SessionDetailSheet({
                         // Reset to original
                         setTopicForms(
                           session.topics.map((t) => ({
+                            id: t.id,
                             title: t.title,
                             speakerIds: t.speakers.map((ts) => ts.speaker.id),
                             duration: t.duration?.toString() || "",

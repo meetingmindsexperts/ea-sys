@@ -8,6 +8,11 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { denyReviewer } from "@/lib/auth-guards";
 import { updateEventSettings } from "@/lib/event-settings";
+import {
+  isSessionWithinEventDates,
+  localDateInTz,
+  resolveTimezone,
+} from "@/lib/event-time";
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { surveyConfigSchema } from "@/lib/survey/schema";
@@ -138,7 +143,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Verify event belongs to user's organization (use select for minimal data)
     const existingEvent = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, slug: true, status: true, settings: true },
+      select: {
+        id: true,
+        slug: true,
+        status: true,
+        settings: true,
+        startDate: true,
+        endDate: true,
+        timezone: true,
+      },
     });
 
     if (!existingEvent) {
@@ -213,6 +226,59 @@ export async function PUT(req: Request, { params }: RouteParams) {
         return NextResponse.json(
           { error: "An event with this slug already exists" },
           { status: 400 }
+        );
+      }
+    }
+
+    // M9 (program/agenda review): narrowing the event's dates (or moving its
+    // timezone) used to silently orphan out-of-range sessions — they kept
+    // rendering on the public agenda while any edit to them was rejected by
+    // isSessionWithinEventDates. Block the save with a clear error naming the
+    // sessions instead; the organizer moves or deletes them first.
+    if (startDate || endDate || timezone) {
+      const effectiveStart = startDate ? new Date(startDate) : existingEvent.startDate;
+      const effectiveEnd = endDate ? new Date(endDate) : existingEvent.endDate;
+      const effectiveTz = resolveTimezone(timezone ?? existingEvent.timezone);
+
+      const eventSessions = await db.eventSession.findMany({
+        where: { eventId },
+        select: { id: true, name: true, startTime: true, endTime: true },
+      });
+      const outOfRange = eventSessions.filter(
+        (s) =>
+          !isSessionWithinEventDates(
+            s.startTime,
+            s.endTime,
+            effectiveStart,
+            effectiveEnd,
+            effectiveTz,
+          ),
+      );
+      if (outOfRange.length > 0) {
+        const listed = outOfRange
+          .slice(0, 5)
+          .map((s) => `"${s.name}" (${localDateInTz(s.startTime, effectiveTz)})`)
+          .join(", ");
+        const more = outOfRange.length > 5 ? ` and ${outOfRange.length - 5} more` : "";
+        apiLogger.warn({
+          msg: "event-update:sessions-outside-new-dates",
+          eventId,
+          userId: session.user.id,
+          outOfRangeCount: outOfRange.length,
+          sessionIds: outOfRange.map((s) => s.id),
+        });
+        return NextResponse.json(
+          {
+            error: `Cannot change the event dates: ${outOfRange.length} session(s) would fall outside the new date range — ${listed}${more}. Move or delete them first (Agenda page).`,
+            code: "SESSIONS_OUTSIDE_NEW_DATES",
+            sessions: outOfRange.map((s) => ({
+              id: s.id,
+              name: s.name,
+              startTime: s.startTime,
+              endTime: s.endTime,
+            })),
+          },
+          { status: 400 },
         );
       }
     }

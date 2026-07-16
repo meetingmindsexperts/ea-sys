@@ -227,7 +227,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     return NextResponse.json(result.session);
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error updating session" });    apiLogger.error({ err: error, msg: "Error updating session" });
+    apiLogger.error({ err: error, msg: "Error updating session" });
     return NextResponse.json(
       { error: "Failed to update session" },
       { status: 500 }

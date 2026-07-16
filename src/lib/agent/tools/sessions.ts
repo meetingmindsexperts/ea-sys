@@ -146,7 +146,7 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
     // Verify session belongs to this event
     const session = await db.eventSession.findFirst({
       where: { id: sessionId, eventId: ctx.eventId },
-      select: { id: true, name: true, _count: { select: { topics: true } } },
+      select: { id: true, name: true },
     });
     if (!session) return { error: `Session ${sessionId} not found in this event` };
 
@@ -167,22 +167,33 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
       }
     }
 
-    const topic = await db.sessionTopic.create({
-      data: {
-        sessionId,
-        title,
-        duration: input.duration ? Number(input.duration) : null,
-        sortOrder: session._count.topics, // append at end
-        speakers: rawSpeakerIds.length > 0
-          ? { create: rawSpeakerIds.map((sid) => ({ speakerId: sid })) }
-          : undefined,
-      },
-      select: {
-        id: true,
-        title: true,
-        duration: true,
-        speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } },
-      },
+    // Append-at-end sortOrder is computed INSIDE the same transaction as the
+    // create so two concurrent add_topic calls (MCP/n8n) can't read the same
+    // count and tie (M10, program/agenda review — same shape as the
+    // certificate templates fix). max+1 instead of count() so a payload that
+    // supplied explicit sortOrders earlier still appends after them.
+    const topic = await db.$transaction(async (tx) => {
+      const maxOrder = await tx.sessionTopic.aggregate({
+        where: { sessionId },
+        _max: { sortOrder: true },
+      });
+      return tx.sessionTopic.create({
+        data: {
+          sessionId,
+          title,
+          duration: input.duration ? Number(input.duration) : null,
+          sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
+          speakers: rawSpeakerIds.length > 0
+            ? { create: rawSpeakerIds.map((sid) => ({ speakerId: sid })) }
+            : undefined,
+        },
+        select: {
+          id: true,
+          title: true,
+          duration: true,
+          speakers: { select: { speaker: { select: { firstName: true, lastName: true } } } },
+        },
+      });
     });
 
     return {
@@ -269,7 +280,7 @@ const updateSession: ToolExecutor = async (input, ctx) => {
       ? (input.sessionRoles as { speakerId: string; role: string }[]).slice(0, 50)
       : undefined;
     const rawTopics = Array.isArray(input.topics)
-      ? (input.topics as { title: string; duration?: number; abstractId?: string; sortOrder?: number; speakerIds?: string[] }[]).slice(0, 50)
+      ? (input.topics as { id?: string; title: string; duration?: number; abstractId?: string; sortOrder?: number; speakerIds?: string[] }[]).slice(0, 50)
       : undefined;
 
     // Delegates to the shared service (review H4/H1): the lock-first atomic
@@ -294,6 +305,9 @@ const updateSession: ToolExecutor = async (input, ctx) => {
       ...(rawRoles && { sessionRoles: rawRoles.map((r) => ({ speakerId: r.speakerId, role: normalizeRole(r.role) })) }),
       ...(rawTopics && {
         topics: rawTopics.map((t) => ({
+          // Existing topic ids are preserved (updated in place) — see M2 in
+          // the session service.
+          ...(t.id != null && { id: String(t.id) }),
           title: t.title,
           abstractId: t.abstractId ?? null,
           duration: t.duration ?? null,
@@ -569,10 +583,21 @@ const removeSpeakerFromSession: ToolExecutor = async (input, ctx) => {
     const session = await findSessionInEvent(sessionId, ctx.eventId);
     if (!session) return { error: `Session ${sessionId} not found in this event`, code: "SESSION_NOT_FOUND" };
 
-    const result = await db.sessionSpeaker.deleteMany({
-      where: { sessionId, speakerId },
+    // L1 (program/agenda review): removing a speaker from the session must
+    // also remove their per-topic rows in THIS session, or they keep
+    // appearing on the public agenda under the topic. One transaction so the
+    // two deletes can't half-apply.
+    const { removed, topicRowsRemoved } = await db.$transaction(async (tx) => {
+      const del = await tx.sessionSpeaker.deleteMany({
+        where: { sessionId, speakerId },
+      });
+      if (del.count === 0) return { removed: false, topicRowsRemoved: 0 };
+      const topicDel = await tx.topicSpeaker.deleteMany({
+        where: { speakerId, topic: { sessionId } },
+      });
+      return { removed: true, topicRowsRemoved: topicDel.count };
     });
-    if (result.count === 0) {
+    if (!removed) {
       return { success: false, message: "Speaker was not assigned to this session", alreadyRemoved: true };
     }
 
@@ -583,11 +608,11 @@ const removeSpeakerFromSession: ToolExecutor = async (input, ctx) => {
         action: "DELETE",
         entityType: "SessionSpeaker",
         entityId: `${sessionId}:${speakerId}`,
-        changes: { source: "mcp" },
+        changes: { source: "mcp", topicRowsRemoved },
       },
     }).catch((err) => apiLogger.error({ err }, "agent:remove_speaker_from_session audit-log-failed"));
 
-    return { success: true, sessionId, speakerId };
+    return { success: true, sessionId, speakerId, topicAssignmentsRemoved: topicRowsRemoved };
   } catch (err) {
     apiLogger.error({ err }, "agent:remove_speaker_from_session failed");
     return { error: err instanceof Error ? err.message : "Failed to remove speaker from session" };
@@ -668,7 +693,16 @@ const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
           data: normalised.map((n) => ({ sessionId, speakerId: n.speakerId, role: n.role as never })),
         });
       }
-      return { before: beforeRows, after: normalised };
+      // L1: "Replace ALL speakers" now really means all — speakers dropped
+      // from the session also drop off this session's topics, so they stop
+      // appearing on the public agenda under a topic they no longer present.
+      const topicDel = await tx.topicSpeaker.deleteMany({
+        where: {
+          topic: { sessionId },
+          speakerId: { notIn: normalised.map((n) => n.speakerId) },
+        },
+      });
+      return { before: beforeRows, after: normalised, topicRowsRemoved: topicDel.count };
     });
 
     db.auditLog.create({
@@ -686,6 +720,7 @@ const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
       sessionId,
       assignments: result.after,
       previousAssignmentCount: result.before.length,
+      topicAssignmentsRemoved: result.topicRowsRemoved,
     };
   } catch (err) {
     apiLogger.error({ err }, "agent:replace_session_speakers failed");

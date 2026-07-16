@@ -134,6 +134,9 @@ interface Session {
 }
 
 interface TopicForm {
+  /** Existing topic id — kept so a session save updates the topic in place
+   *  instead of regenerating its id (M2, program/agenda review). */
+  id?: string;
   title: string;
   speakerIds: string[];
   duration: string;
@@ -397,6 +400,7 @@ export default function AgendaPage() {
             : { sessionRoles: [] }),
         topics: topics.length > 0
           ? topics.map((t, i) => ({
+              ...(t.id ? { id: t.id } : {}),
               title: t.title,
               duration: t.duration ? parseInt(t.duration) : undefined,
               sortOrder: i,
@@ -449,6 +453,7 @@ export default function AgendaPage() {
         role: sp.role as SessionRoleForm["role"],
       })),
       topics: (s.topics || []).map((t) => ({
+        id: t.id,
         title: t.title,
         speakerIds: t.speakers.map((ts) => ts.speaker.id),
         duration: t.duration?.toString() || "",

@@ -95,47 +95,51 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { name, description, color, sortOrder } = validated.data;
 
-    // Parallelize event validation and max sort order fetch
-    const [event, maxTrack] = await Promise.all([
-      db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: session.user.organizationId!,
-        },
-        select: { id: true },
-      }),
-      sortOrder === undefined
-        ? db.track.findFirst({
-            where: { eventId },
-            orderBy: { sortOrder: "desc" },
-            select: { sortOrder: true },
-          })
-        : Promise.resolve(null),
-    ]);
+    // L4: org-scope via buildEventAccessWhere like the GET (denyReviewer has
+    // already blocked restricted roles) — the hand-rolled organizationId
+    // filter 404'd a SUPER_ADMIN with no org.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true },
+    });
 
     if (!event) {
       apiLogger.warn({ msg: "tracks-post:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const finalSortOrder = sortOrder ?? (maxTrack ? maxTrack.sortOrder + 1 : 0);
+    // sortOrder defaults to max+1, computed INSIDE the same transaction as
+    // the create so two concurrent track creates can't read the same max and
+    // tie (M10, program/agenda review — same shape as the certificate
+    // templates fix). Ties aren't fatal (no unique constraint) but make the
+    // agenda's track ordering non-deterministic.
+    const track = await db.$transaction(async (tx) => {
+      const finalSortOrder =
+        sortOrder ??
+        ((
+          await tx.track.aggregate({
+            where: { eventId },
+            _max: { sortOrder: true },
+          })
+        )._max.sortOrder ?? -1) + 1;
 
-    const track = await db.track.create({
-      data: {
-        eventId,
-        name,
-        description: description || null,
-        color,
-        sortOrder: finalSortOrder,
-      },
-      include: {
-        _count: {
-          select: {
-            eventSessions: true,
-            abstracts: true,
+      return tx.track.create({
+        data: {
+          eventId,
+          name,
+          description: description || null,
+          color,
+          sortOrder: finalSortOrder,
+        },
+        include: {
+          _count: {
+            select: {
+              eventSessions: true,
+              abstracts: true,
+            },
           },
         },
-      },
+      });
     });
 
     // Log the action (non-blocking for better response time)

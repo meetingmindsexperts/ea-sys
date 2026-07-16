@@ -18,6 +18,9 @@ const { mockAuth, mockDb, mockUpdateEventSettings } = vi.hoisted(() => ({
     // event-delete-financial-guard.test.ts.
     invoice: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
     payment: { count: vi.fn().mockResolvedValue(0) },
+    // M9 date-narrowing guard on PUT — default to "no sessions" so tests
+    // that change dates proceed unless they set this up explicitly.
+    eventSession: { findMany: vi.fn().mockResolvedValue([]) },
   },
   // Settings now merge through the atomic helper (its own test covers the merge);
   // here we just assert the route hands it the right patch.
@@ -187,6 +190,88 @@ describe("PUT /api/events/[eventId]", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.name).toBe("Updated Event");
+  });
+
+  // M9 (program/agenda review): narrowing the event's dates used to silently
+  // orphan out-of-range sessions — they kept rendering on the public agenda
+  // while any edit to them was rejected. The PUT now blocks with a clear
+  // error naming the sessions.
+  it("blocks a date change that would orphan out-of-range sessions", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "evt-1",
+      slug: "test",
+      settings: {},
+      startDate: new Date("2026-06-01T00:00:00Z"),
+      endDate: new Date("2026-06-03T00:00:00Z"),
+      timezone: "Asia/Dubai",
+    });
+    // A day-3 session (June 3, Dubai) that the shortened window drops.
+    mockDb.eventSession.findMany.mockResolvedValue([
+      {
+        id: "sess-3",
+        name: "Day 3 Closing",
+        startTime: new Date("2026-06-03T05:00:00Z"),
+        endTime: new Date("2026-06-03T06:00:00Z"),
+      },
+    ]);
+
+    const res = await PUT(
+      makePutRequest({
+        startDate: "2026-06-01T00:00:00.000Z",
+        endDate: "2026-06-02T00:00:00.000Z", // 3 days → 2
+      }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("SESSIONS_OUTSIDE_NEW_DATES");
+    expect(body.error).toContain("Day 3 Closing");
+    expect(body.sessions).toHaveLength(1);
+    expect(mockDb.event.update).not.toHaveBeenCalled();
+  });
+
+  it("allows a date change when every session still fits the new window", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "evt-1",
+      slug: "test",
+      settings: {},
+      startDate: new Date("2026-06-01T00:00:00Z"),
+      endDate: new Date("2026-06-03T00:00:00Z"),
+      timezone: "Asia/Dubai",
+    });
+    mockDb.eventSession.findMany.mockResolvedValue([
+      {
+        id: "sess-1",
+        name: "Day 1 Opening",
+        startTime: new Date("2026-06-01T05:00:00Z"),
+        endTime: new Date("2026-06-01T06:00:00Z"),
+      },
+    ]);
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+
+    const res = await PUT(
+      makePutRequest({
+        startDate: "2026-06-01T00:00:00.000Z",
+        endDate: "2026-06-02T00:00:00.000Z",
+      }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+    expect(mockDb.event.update).toHaveBeenCalled();
+  });
+
+  it("does not run the session check when dates are untouched", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", slug: "test", settings: {} });
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+
+    const res = await PUT(makePutRequest({ name: "Renamed Event" }), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+    expect(mockDb.eventSession.findMany).not.toHaveBeenCalled();
   });
 
   it("rejects duplicate slug", async () => {
