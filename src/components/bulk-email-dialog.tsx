@@ -253,8 +253,19 @@ function emailTypeToSlug(emailType: string, recipientType: RecipientType): strin
       return "event-reminder";
     case "custom":
       return "custom-notification";
+    // Slug-identical types — mirrors the server's BULK_EMAIL_TEMPLATE_SLUGS
+    // (bulk-email.ts). payment-reminder was missing here (comms-R2 A11): a
+    // first-class money email whose slug exists showed "Preview isn't
+    // available" — e.g. selecting a single registration → Email → Payment
+    // Reminder → Preview.
+    case "payment-reminder":
     case "survey-invitation":
-      return "survey-invitation";
+    case "webinar-confirmation":
+    case "webinar-reminder-24h":
+    case "webinar-reminder-1h":
+    case "webinar-live-now":
+    case "webinar-thank-you":
+      return emailType;
     default:
       return null;
   }
