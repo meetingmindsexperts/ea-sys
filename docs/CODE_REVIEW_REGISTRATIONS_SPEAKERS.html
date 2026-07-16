@@ -543,7 +543,9 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
 </div>
 
 <div class="finding low">
-  <h3><span class="sev low">Low</span> &nbsp;L3 — <code>cancelRegistration</code> lost-race returns success and writes a misleading audit row</h3>
+  <h3><span class="sev low">Low</span> &nbsp;L3 — <code>cancelRegistration</code> lost-race returns success and writes a misleading audit row
+    <em style="font-weight:400">(✅ fixed July 16, <code>a461420e</code>: the cancel tx returns a <code>claimed</code> flag —
+    the loser warn-logs <code>cancel:lost-race</code> and returns ok without the audit row)</em></h3>
   <p class="loc"><code>src/services/payment-service.ts:475-506</code></p>
   <p>
     The early return on a lost claim (<code>claim.count === 0</code>) is inside the transaction callback; the
@@ -617,7 +619,10 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
 <h2 id="visibility">6. Failure visibility</h2>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Medium</span> &nbsp;M12 — REST boundaries return service rejections as 4xx without logging</h3>
+  <h3><span class="sev medium">Medium</span> &nbsp;M12 — REST boundaries return service rejections as 4xx without logging
+    <em style="font-weight:400">(✅ fixed July 16, <code>f985a747</code>: registrations POST + speakers POST log every
+    service rejection at warn — UNKNOWN at error — and the public register route logs the tier/sales-window/sold-out
+    400s plus the sentinel-mapped business rejections, incl. all four promo codes, at warn with the event slug)</em></h3>
   <p class="loc"><code>registrations/route.ts:351-357</code> · <code>speakers/route.ts:186-192</code> · <code>public/register/route.ts:241-267</code></p>
 <pre><code>if (!result.ok) {
   const status = HTTP_STATUS_FOR_REGISTRATION_ERROR[result.code] ?? 500;
@@ -638,7 +643,10 @@ const paidTotal = registration.payments.reduce((s, p) =&gt; s + Number(p.amount)
 </div>
 
 <div class="finding medium">
-  <h3><span class="sev medium">Medium</span> &nbsp;M13 — Awaited audit writes turn insert blips into 500s on already-committed operations</h3>
+  <h3><span class="sev medium">Medium</span> &nbsp;M13 — Awaited audit writes turn insert blips into 500s on already-committed operations
+    <em style="font-weight:400">(✅ fixed July 16, <code>f985a747</code>: registration DELETE, speaker DELETE and the
+    speaker single-send EMAIL_SENT audit writes are fire-and-forget with a logged catch; the check-in pair + both PUTs
+    were already covered by the July 10–13 rounds)</em></h3>
   <p class="loc"><code>[registrationId]/route.ts:690, 945</code> · <code>check-in/route.ts:94, 225</code> · <code>speakers/[speakerId]/route.ts:318</code></p>
   <p>
     Every service and MCP tool treats the audit write as fire-and-forget with a logged <code>.catch</code>.

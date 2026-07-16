@@ -1339,6 +1339,25 @@ const regTotal = netPrice + regTaxAmount;</code></pre>
   micro-edges logged as L4/L5 in <code>docs/ROADMAP.md</code>.
 </div>
 
+<div class="note">
+  <strong>July 16, 2026 follow-up (<code>a461420e</code> + <code>f985a747</code>):</strong>
+  <strong>L4 closed</strong> — the manual-capture RECOVERY branch now takes the registration-row
+  <code>FOR UPDATE</code> lock before its payment-count race check (the <code>createCreditNote</code>
+  pattern), so two concurrent recovery clicks can no longer double-insert. The adjacent
+  <strong>July-7 / July-8 review clusters</strong> also closed in the same round:
+  <code>createCreditNote</code> caps + defaults against the SAME Σ-settled-payments collected-truth the
+  refund uses (July-7 M1 / July-8 M3 — a post-payment re-price can no longer make the CN document and
+  the refundable amount disagree; the parent invoice now flips REFUNDED on the <em>running</em>
+  credited total), a cancel-tx failure after a committed refund returns the distinct
+  <code>CANCEL_FAILED_AFTER_REFUND</code> (July-8 M2), the fully-refunded cancel short-circuits the
+  spurious auto-CN (July-8 L2), the lost cancel race no longer writes a phantom audit row
+  (registrations-review L3), and a cap-rejected out-of-band webhook credit note now fires an admin
+  notification (July-7 L2). July-7 <strong>M3 was verified STALE</strong> — the <code>b579bbe</code>
+  RefundAttempt rework already made the Stripe-error rollback verify-first with a guarded decrement.
+  Remaining open here: <strong>L5</strong> (zero-decimal-currency CN math) and July-7 <strong>L1</strong>
+  (<code>refundedAmount</code> never rebased on re-payment).
+</div>
+
 <footer>
   Produced by four independent review passes (money-flow lifecycle · concurrency &amp; idempotency ·
   RBAC/security · drift &amp; failure-visibility) with lead-reviewer source verification of the
