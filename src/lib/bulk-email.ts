@@ -1111,6 +1111,27 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     recipientType === "speakers" &&
     templateUsesAgreementBlock(tpl.subject, tpl.htmlContent, tpl.textContent);
 
+  // Attach-when-possible (owner decision July 16): a NON-agreement speaker
+  // send whose template carries an agreement token (e.g. the invitation's
+  // {{agreementBlock}}) also gets the personalized agreement attached — but
+  // only when the event has agreement content configured. No content just
+  // sends the CTA alone; the strict agreement type keeps its hard precheck
+  // (`agreementMode`, 400 at enqueue time).
+  const softAgreementMode =
+    !agreementMode && templateWantsAgreement
+      ? pickAgreementAttachmentMode({
+          hasDocxTemplate: Boolean(event.speakerAgreementTemplate),
+          hasInlineHtml: Boolean(event.speakerAgreementHtml?.trim()),
+        })
+      : null;
+  if (templateWantsAgreement && !agreementMode && !softAgreementMode) {
+    apiLogger.info({
+      msg: "bulk-email:agreement-attachment-skipped-no-content",
+      eventId,
+      emailType,
+    });
+  }
+
   // Entry-barcode token: render the per-recipient {{entryBarcode}} image only
   // when the template body carries the token (organizer opt-in). For
   // non-registration audiences the token can't resolve (they have no qrCode),
@@ -1536,38 +1557,53 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
               emailContent.barcodeAttachment,
             ];
           }
-          if (agreementMode === "docx") {
-            const doc = await generateSpeakerAgreementDocx({
-              eventId,
-              speakerId: recipient.id,
-            });
-            if (!doc) {
-              throw new Error("Failed to generate agreement document");
+          // Strict mode (agreement type) always attaches; soft mode
+          // (attach-when-possible on e.g. invitations) skips speakers who
+          // already signed — their {{agreementBlock}} shows the accepted
+          // note, so re-attaching the document would only confuse.
+          const effectiveAgreementMode =
+            agreementMode ??
+            (softAgreementMode && !recipient.agreementAcceptedAt
+              ? softAgreementMode
+              : null);
+          if (effectiveAgreementMode) {
+            try {
+              const doc =
+                effectiveAgreementMode === "docx"
+                  ? await generateSpeakerAgreementDocx({ eventId, speakerId: recipient.id })
+                  : await generateSpeakerAgreementPdf({ eventId, speakerId: recipient.id });
+              if (!doc) {
+                throw new Error(
+                  effectiveAgreementMode === "docx"
+                    ? "Failed to generate agreement document"
+                    : "Failed to generate agreement PDF",
+                );
+              }
+              const personalizedAttachment: BulkEmailAttachment = {
+                name: doc.filename,
+                content: doc.buffer.toString("base64"),
+                contentType:
+                  effectiveAgreementMode === "docx"
+                    ? SPEAKER_AGREEMENT_DOCX_MIME
+                    : SPEAKER_AGREEMENT_PDF_MIME,
+              };
+              recipientAttachments = [
+                ...(recipientAttachments ?? []),
+                personalizedAttachment,
+              ];
+            } catch (docErr) {
+              // Strict agreement send: a generation failure fails this
+              // recipient (existing behavior). Soft mode: best-effort —
+              // the CTA still works, so send without the attachment.
+              if (agreementMode) throw docErr;
+              apiLogger.error({
+                err: docErr,
+                msg: "bulk-email:soft-agreement-attach-failed",
+                eventId,
+                speakerId: recipient.id,
+                emailType,
+              });
             }
-            const personalizedAttachment: BulkEmailAttachment = {
-              name: doc.filename,
-              content: doc.buffer.toString("base64"),
-              contentType: SPEAKER_AGREEMENT_DOCX_MIME,
-            };
-            recipientAttachments = attachments
-              ? [...attachments, personalizedAttachment]
-              : [personalizedAttachment];
-          } else if (agreementMode === "pdf") {
-            const doc = await generateSpeakerAgreementPdf({
-              eventId,
-              speakerId: recipient.id,
-            });
-            if (!doc) {
-              throw new Error("Failed to generate agreement PDF");
-            }
-            const personalizedAttachment: BulkEmailAttachment = {
-              name: doc.filename,
-              content: doc.buffer.toString("base64"),
-              contentType: SPEAKER_AGREEMENT_PDF_MIME,
-            };
-            recipientAttachments = attachments
-              ? [...attachments, personalizedAttachment]
-              : [personalizedAttachment];
           }
 
           const bulkEntityType =

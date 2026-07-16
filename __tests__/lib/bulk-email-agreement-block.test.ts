@@ -19,6 +19,7 @@ const {
   mockGetDefaultTemplate,
   mockGetEventTemplate,
   mockMintAgreementLink,
+  mockGenAgreementPdf,
 } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
@@ -29,6 +30,7 @@ const {
   mockGetDefaultTemplate: vi.fn(),
   mockGetEventTemplate: vi.fn(),
   mockMintAgreementLink: vi.fn(),
+  mockGenAgreementPdf: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -50,8 +52,9 @@ vi.mock("@/lib/speaker-agreement", async (importOriginal) => {
     ...actual,
     buildSpeakerEmailContext: vi.fn().mockResolvedValue(null),
     generateSpeakerAgreementDocx: vi.fn(),
-    generateSpeakerAgreementPdf: vi.fn(),
-    pickAgreementAttachmentMode: vi.fn().mockReturnValue("pdf"),
+    generateSpeakerAgreementPdf: (...args: unknown[]) => mockGenAgreementPdf(...args),
+    // Real pickAgreementAttachmentMode (from importOriginal) so the soft
+    // attach-when-possible gate reads the EVENT fixture's actual content.
     mintSpeakerAgreementLink: (...args: unknown[]) => mockMintAgreementLink(...args),
   };
 });
@@ -129,6 +132,7 @@ beforeEach(() => {
   mockRenderAndWrap.mockReturnValue({ subject: "S", htmlContent: "<p>H</p>", textContent: "T" });
   mockSendEmail.mockResolvedValue({ success: true });
   mockMintAgreementLink.mockResolvedValue("https://x.com/e/osh/speaker-agreement?token=tok1");
+  mockGenAgreementPdf.mockResolvedValue({ filename: "agreement.pdf", buffer: Buffer.from("pdf") });
 });
 
 function varsHandedToRenderer(): Record<string, unknown> {
@@ -184,5 +188,55 @@ describe("executeBulkEmail — {{agreementBlock}} minting", () => {
     const res = await executeBulkEmail(BASE_INPUT);
     expect(res.successCount).toBe(1);
     expect(res.failureCount).toBe(1);
+  });
+});
+
+describe("executeBulkEmail — attach-when-possible agreement document (owner decision)", () => {
+  it("an invitation whose template uses {{agreementBlock}} attaches the personalized agreement", async () => {
+    const res = await executeBulkEmail(BASE_INPUT);
+    expect(res.successCount).toBe(1);
+    expect(mockGenAgreementPdf).toHaveBeenCalledWith({ eventId: "evt-1", speakerId: "spk-1" });
+    const sent = mockSendEmail.mock.calls[0][0] as { attachments?: { name: string }[] };
+    expect(sent.attachments?.map((a) => a.name)).toContain("agreement.pdf");
+  });
+
+  it("skips the attachment for a speaker who already signed", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([speaker("spk-1", new Date("2026-07-01"))]);
+    const res = await executeBulkEmail(BASE_INPUT);
+    expect(res.successCount).toBe(1);
+    expect(mockGenAgreementPdf).not.toHaveBeenCalled();
+  });
+
+  it("sends CTA-only (no failure) when the event has no agreement content configured", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      ...EVENT,
+      speakerAgreementHtml: null,
+      speakerAgreementTemplate: null,
+    });
+    const res = await executeBulkEmail(BASE_INPUT);
+    expect(res.successCount).toBe(1);
+    expect(mockGenAgreementPdf).not.toHaveBeenCalled();
+  });
+
+  it("a soft-attach generation failure still sends the email (CTA works without the PDF)", async () => {
+    mockGenAgreementPdf.mockRejectedValue(new Error("pdfkit blip"));
+    const res = await executeBulkEmail(BASE_INPUT);
+    expect(res.successCount).toBe(1);
+    expect(res.failureCount).toBe(0);
+    const sent = mockSendEmail.mock.calls[0][0] as { attachments?: { name: string }[] };
+    expect(sent.attachments ?? []).toEqual([]);
+  });
+
+  it("a STRICT agreement-type generation failure still fails the recipient (unchanged)", async () => {
+    mockGenAgreementPdf.mockRejectedValue(new Error("pdfkit blip"));
+    const res = await executeBulkEmail({ ...BASE_INPUT, emailType: "agreement" });
+    expect(res.failureCount).toBe(1);
+  });
+
+  it("a template with no agreement token attaches nothing on an invitation", async () => {
+    mockGetDefaultTemplate.mockReturnValue(TPL_WITHOUT_TOKENS);
+    const res = await executeBulkEmail(BASE_INPUT);
+    expect(res.successCount).toBe(1);
+    expect(mockGenAgreementPdf).not.toHaveBeenCalled();
   });
 });

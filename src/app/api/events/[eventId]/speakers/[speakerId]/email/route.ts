@@ -204,11 +204,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     // hasn't signed yet — an unrelated send must never rotate (invalidate) a
     // previously-emailed agreement link. A signed speaker gets a green
     // "already accepted" note instead of a re-ask.
-    if (
-      !agreementLink &&
-      !speaker.agreementAcceptedAt &&
-      templateUsesAgreementBlock(tpl.subject, tpl.htmlContent, tpl.textContent)
-    ) {
+    const templateWantsAgreement = templateUsesAgreementBlock(
+      tpl.subject,
+      tpl.htmlContent,
+      tpl.textContent,
+    );
+    if (!agreementLink && !speaker.agreementAcceptedAt && templateWantsAgreement) {
       try {
         agreementLink = await mintSpeakerAgreementLink(speaker.id, event.slug);
         vars.agreementLink = agreementLink;
@@ -252,56 +253,70 @@ export async function POST(req: Request, { params }: RouteParams) {
       ...manualAttachments.attachments,
     ];
 
-    // For agreement emails, attach a personalized agreement.
-    // Precedence: explicit .docx upload wins; else inline HTML → PDF.
-    if (type === "agreement") {
-      const mode = pickAgreementAttachmentMode({
-        hasDocxTemplate: Boolean(event.speakerAgreementTemplate),
-        hasInlineHtml: Boolean(event.speakerAgreementHtml?.trim()),
+    // Personalized agreement attachment. Precedence: explicit .docx upload
+    // wins; else inline HTML → PDF. Two intensities (owner decision July 16):
+    //   - agreement type: STRICT — no configured content is a 400, a
+    //     generation failure fails the send (unchanged behavior).
+    //   - any other type whose template carries an agreement token (e.g. the
+    //     invitation's {{agreementBlock}}), for an UNSIGNED speaker: attach
+    //     when possible — no content or a generation failure just sends the
+    //     email with the CTA alone (the acceptance page shows the full text).
+    const agreementAttachMode = pickAgreementAttachmentMode({
+      hasDocxTemplate: Boolean(event.speakerAgreementTemplate),
+      hasInlineHtml: Boolean(event.speakerAgreementHtml?.trim()),
+    });
+    const strictAgreement = type === "agreement";
+    const wantsAgreementAttachment =
+      strictAgreement || (templateWantsAgreement && !speaker.agreementAcceptedAt);
+    if (strictAgreement && !agreementAttachMode) {
+      return NextResponse.json(
+        {
+          error:
+            "Upload a .docx template or add inline agreement HTML (Event → Content → Speaker Agreement) first.",
+        },
+        { status: 400 },
+      );
+    }
+    if (wantsAgreementAttachment && !agreementAttachMode) {
+      apiLogger.info({
+        msg: "speaker-email:agreement-attachment-skipped-no-content",
+        eventId,
+        speakerId,
+        type,
       });
-      if (!mode) {
-        return NextResponse.json(
-          {
-            error:
-              "Upload a .docx template or add inline agreement HTML (Event → Content → Speaker Agreement) first.",
-          },
-          { status: 400 },
-        );
-      }
+    }
+    if (wantsAgreementAttachment && agreementAttachMode) {
       try {
-        if (mode === "docx") {
-          const doc = await generateSpeakerAgreementDocx({ eventId, speakerId });
-          if (!doc) {
-            return NextResponse.json(
-              { error: "Failed to generate agreement document" },
-              { status: 500 },
-            );
-          }
-          attachments.push({
-            name: doc.filename,
-            content: doc.buffer.toString("base64"),
-            contentType: SPEAKER_AGREEMENT_DOCX_MIME,
-          });
-        } else {
-          const doc = await generateSpeakerAgreementPdf({ eventId, speakerId });
-          if (!doc) {
-            return NextResponse.json(
-              { error: "Failed to generate agreement PDF" },
-              { status: 500 },
-            );
-          }
-          attachments.push({
-            name: doc.filename,
-            content: doc.buffer.toString("base64"),
-            contentType: SPEAKER_AGREEMENT_PDF_MIME,
-          });
-        }
+        const doc =
+          agreementAttachMode === "docx"
+            ? await generateSpeakerAgreementDocx({ eventId, speakerId })
+            : await generateSpeakerAgreementPdf({ eventId, speakerId });
+        if (!doc) throw new Error("Failed to generate agreement document");
+        attachments.push({
+          name: doc.filename,
+          content: doc.buffer.toString("base64"),
+          contentType:
+            agreementAttachMode === "docx"
+              ? SPEAKER_AGREEMENT_DOCX_MIME
+              : SPEAKER_AGREEMENT_PDF_MIME,
+        });
       } catch (docErr) {
-        apiLogger.error({ err: docErr, msg: "speaker-agreement:generate-failed", eventId, speakerId, mode });
-        return NextResponse.json(
-          { error: docErr instanceof Error ? docErr.message : "Failed to generate agreement document" },
-          { status: 500 },
-        );
+        if (strictAgreement) {
+          apiLogger.error({ err: docErr, msg: "speaker-agreement:generate-failed", eventId, speakerId, mode: agreementAttachMode });
+          return NextResponse.json(
+            { error: docErr instanceof Error ? docErr.message : "Failed to generate agreement document" },
+            { status: 500 },
+          );
+        }
+        // Best-effort on non-agreement types: the CTA still works.
+        apiLogger.error({
+          err: docErr,
+          msg: "speaker-email:soft-agreement-attach-failed",
+          eventId,
+          speakerId,
+          type,
+          mode: agreementAttachMode,
+        });
       }
     }
 
