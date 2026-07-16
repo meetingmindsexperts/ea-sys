@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — CRM Module (July 2026)</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+    --ok:#15803d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:960px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.75rem 0}
+  pre code{background:none;padding:0}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)}
+  .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .pill{font-weight:700;font-size:.72rem;letter-spacing:.04em;padding:.14em .5em;border-radius:3px;white-space:nowrap}
+  .pill.shipped{background:var(--ok);color:#fff} .pill.deferred{background:var(--muted);color:#fff}
+  .pill.open{background:var(--accent);color:#fff}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.25rem 0}
+  .finding.blocker{border-left-color:var(--blocker)}
+  .finding.high{border-left-color:var(--high)} .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .finding h3{margin-top:0;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .loc{color:var(--muted);font-size:.87rem;margin:.1rem 0 .8rem}
+  .lbl{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.9rem 0 .2rem}
+  .learn{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:.7rem 1rem;margin:.9rem 0 0;font-size:.93rem}
+  .learn strong{color:var(--ok)}
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1.25rem 0}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+  ul,ol{padding-left:1.4rem} li{margin:.3rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf;--ok:#22c55e}
+    .sev{color:#14171a} .pill.shipped{color:#14171a} .pill.deferred{color:#14171a} .pill.open{color:#14171a}
+    .note{background:#0c2b3a;border-color:#1e4a5f}
+    .note.warn{background:#33290c;border-color:#66551a}
+    .learn{background:#0c2e1a;border-color:#1a5c34}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — CRM Module</h1>
+  <p class="sub">
+    Production review · July 16, 2026 · <strong>0 BLOCKER / 4 HIGH / 12 MED / 17 LOW</strong><br>
+    Angles run: <em>RBAC / IDOR / info-exposure</em> · <em>concurrency &amp; data-integrity</em> ·
+    <em>drift / duplication / failure-visibility</em> · <em>lifecycle &amp; business-logic correctness</em>
+    (four independent adversarial passes, findings cross-verified against source before recording).
+    Scope: all 9 services under <code>src/crm/services/</code>, all 22 route files under
+    <code>src/app/api/crm/</code>, <code>src/crm/lib/*</code> (gates, filters, activity, reconcile planner),
+    <code>src/crm/reminders-worker.ts</code> + its worker shim, all 9 dashboard pages + components/hooks,
+    the 11 <code>Crm*</code> Prisma models + 4 CRM migrations, and the 10 CRM test files.
+  </p>
+</header>
+
+<div class="note warn">
+  <strong>Status (July 16): ALL findings OPEN — this is the findings document; fixes are scheduled for the
+  next working session.</strong> This doc will be updated in place as fixes land (pills flip
+  OPEN → SHIPPED, with commit hashes). Context that matters for prioritisation: <strong>the CRM module is
+  NOT deployed</strong> — its migrations have not been applied to prod (see
+  <code>docs/CRM_STATUS.html</code>) — so schema-level fixes (H1) can still ship clean, with no
+  dedup backfill needed. Two earlier scoped reviews already ran on slices of this module
+  (products/line-items July 15 — H1/M1/M2/M3 shipped, L1–L5 deferred in ROADMAP; the edit/archive/activity
+  round July 15). This is the first <em>whole-module</em> pass; already-deferred products findings are not
+  re-listed here.
+</div>
+
+<h2 id="verdict">Verdict</h2>
+<p>
+  The CRM's <strong>structural skeleton is genuinely good</strong> — better than most of the older domains
+  were at first review. The centralized route boundary (<code>requireCrmRead/Write/Delete</code> in
+  <code>crm-route.ts</code>) makes an unguarded or un-rate-limited route structurally hard to write; every
+  cross-org exploit attempt failed (all id paths bind <code>organizationId</code>, including nested ids);
+  the conditional-claim pattern is used correctly on the transitions that matter (stage move, close,
+  task complete, reminder claim); there is exactly one <code>CrmActivity</code> writer; the crm→core import
+  boundary is ESLint-enforced; and CSV export, token escaping, and the sponsor-email
+  "narrow-never-widen" audience math all held up under attack.
+</p>
+<p>
+  The findings cluster in four shapes: <strong>(1) a fixed bug class not propagated to its siblings</strong>
+  (the products seed-race fix exists one file away from two seeders that still have it, and the products
+  <code>reject()</code> logging helper exists one file away from eight services that don't log rejections);
+  <strong>(2) name-keyed semantics</strong> (Won/Lost stage matching by string) that let a deal's stage and
+  status silently diverge and corrupt every report; <strong>(3) money math that isn't currency-aware</strong>;
+  and <strong>(4) soft-delete that state machines don't check</strong>.
+</p>
+
+<h2 id="summary">Findings at a glance</h2>
+<div class="tbl-wrap">
+<table>
+  <tr><th>#</th><th>Sev</th><th>Status</th><th>One-liner</th></tr>
+  <tr><td><a href="#h1">H1</a></td><td><span class="sev high">High</span></td><td><span class="pill open">Open</span></td><td>Pipeline-stage + email-template seeders can double-seed (no unique constraint) — the products M1 fix was never propagated; duplicate Won/Lost columns corrupt close &amp; reconcile</td></tr>
+  <tr><td><a href="#h2">H2</a></td><td><span class="sev high">High</span></td><td><span class="pill open">Open</span></td><td>Reports + board column totals silently sum mixed currencies and label everything USD</td></tr>
+  <tr><td><a href="#h3">H3</a></td><td><span class="sev high">High</span></td><td><span class="pill open">Open</span></td><td>Won/Lost is matched by stage NAME; renamed/custom/deleted terminal stages ⇒ deals double-counted, uncounted, or silently reopened by a routine drag</td></tr>
+  <tr><td><a href="#h4">H4</a></td><td><span class="sev high">High</span></td><td><span class="pill open">Open</span></td><td>Renaming a company/contact to a taken name/email ⇒ unlogged HTTP 500 (P2002 mapped to <code>UNKNOWN</code>)</td></tr>
+  <tr><td><a href="#m1">M1</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Archived records fully mutable via API — state-machine claims never include <code>archivedAt: null</code></td></tr>
+  <tr><td><a href="#m2">M2</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>MEMBER reads rival deal money out of free-text notes — prose bypasses the <code>canViewDealValues</code> redaction</td></tr>
+  <tr><td><a href="#m3">M3</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Sponsor/deal email blast has zero double-submit idempotency — a double-click re-emails the whole audience</td></tr>
+  <tr><td><a href="#m4">M4</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Record edits have no optimistic lock; the before-snapshot → write → re-read triple can misattribute changes in the History log</td></tr>
+  <tr><td><a href="#m5">M5</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Silent business rejections across 8 services — the products <code>reject()</code> helper was never propagated, and <code>crmErrorResponse</code> doesn't log either</td></tr>
+  <tr><td><a href="#m6">M6</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Frontend silent-failure cluster: every list page renders a failed fetch as "No deals yet"; three mutations fail with no toast</td></tr>
+  <tr><td><a href="#m7">M7</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Dead <code>contactId</code> field on the deal create/update schemas — accepted, validated, silently discarded</td></tr>
+  <tr><td><a href="#m8">M8</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Pipeline-stage hard DELETE is write-gated: ORGANIZER can remove a column but may not archive a single deal</td></tr>
+  <tr><td><a href="#m9">M9</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>MIME header injection via attachment <code>name</code>/<code>contentType</code> in core <code>buildRawMime</code> (CRM blast is the first user-supplied external fan-out)</td></tr>
+  <tr><td><a href="#m10">M10</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Stale <code>lostReason</code> survives a drag-reopen — a WON deal exports with a "Lost reason"</td></tr>
+  <tr><td><a href="#m11">M11</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>A task due <em>today</em> shows Overdue all day (UTC-midnight compare); report date ranges are server-TZ dependent</td></tr>
+  <tr><td><a href="#m12">M12</a></td><td><span class="sev medium">Med</span></td><td><span class="pill open">Open</span></td><td>Editing a task's due date does not move its reminder</td></tr>
+  <tr><td><a href="#lows">L1–L17</a></td><td><span class="sev low">Low</span></td><td><span class="pill open">Open</span></td><td>17 smaller items — false-atomicity comments, archived-row edge cases, doc drift, silent truncation, test gaps (full list below)</td></tr>
+</table>
+</div>
+
+<h2 id="shapes">The four recurring shapes (read this before the findings)</h2>
+<p>Most of what follows is not 33 unrelated bugs — it is four mistakes, each repeated:</p>
+<ol>
+  <li><strong>A fix is not done until it's applied to every sibling of the pattern.</strong> The seed-race
+    fix (<code>@@unique</code> + <code>skipDuplicates</code>) shipped for <code>CrmProduct</code>; the two
+    sibling seeders (<code>CrmPipelineStage</code>, <code>CrmEmailTemplate</code>) still race (H1). The
+    <code>reject()</code> logging helper shipped for the product service; eight sibling services still
+    return silent rejections (M5). When a review fix lands, grep for the pattern, not the file.</li>
+  <li><strong>Names are not semantics.</strong> <code>closeDeal</code> and <code>terminalStatusFor</code>
+    key the WON/LOST outcome on a stage being literally named "Won"/"Lost". The moment an org renames,
+    deletes, or adds a terminal column, stage and status diverge and the reports lie (H3). Load-bearing
+    semantics belong in a column, not a string match.</li>
+  <li><strong>Soft-delete is only real if the state machines check it.</strong> Every write claim binds
+    <code>{ id, organizationId }</code> — none binds <code>archivedAt: null</code>, so an archived deal can
+    be dragged, closed, and reopened through the API (M1).</li>
+  <li><strong>A null total is honest; a fabricated one is not.</strong> The module already knows this —
+    <code>sumDealProducts</code> returns null on mixed currencies — but the deal-value aggregates
+    (reports, board columns, rep leaderboard) sum AED and USD together and print "$" (H2).</li>
+</ol>
+
+<!-- ══════════════════════════ HIGH ══════════════════════════ -->
+<h2 id="high">HIGH</h2>
+
+<div class="finding high" id="h1">
+  <h3><span class="sev high">High</span> <span class="pill open">Open</span> H1 — Pipeline-stage and email-template seeders can double-seed: no unique constraint, so <code>skipDuplicates</code> is a no-op</h3>
+  <p class="loc">src/crm/services/pipeline-service.ts:82–114 · src/crm/services/crm-email-template-service.ts:59–82 · prisma/schema.prisma (both models carry only <code>@@index([organizationId, sortOrder])</code>)</p>
+
+  <p class="lbl">The code</p>
+<pre><code>// pipeline-service.ts — ensurePipelineStages
+const existing = await db.crmPipelineStage.findMany({ where: { organizationId }, ... });
+if (existing.length &gt; 0) return existing;
+await db.crmPipelineStage.createMany({
+  data: DEFAULT_PIPELINE_STAGES.map(...),
+  skipDuplicates: true,          // ← skips only rows that violate a UNIQUE constraint.
+});                              //   CrmPipelineStage has none. It skips nothing.
+// "Two concurrent first-loads can both try to seed. Losing that race is harmless" ← FALSE:
+// with no unique constraint there is no loser. Both writers succeed.</code></pre>
+  <p><code>ensureCrmEmailTemplates</code> is the same shape and doesn't even pass
+  <code>skipDuplicates</code>. Verified in the schema and in migrations <code>20260714120000</code> /
+  <code>20260715160000</code>: both create a plain <code>CREATE INDEX</code>, not a unique one.</p>
+
+  <p class="lbl">Failure scenario</p>
+  <p>A brand-new org's first CRM visit fires parallel requests (two tabs, board + reports SSR + client
+  hydration, or two users on day one). Both <code>GET /api/crm/pipeline-stages</code> calls see
+  <code>0 rows</code>, both insert 8 stages → a <strong>16-column board with two "Won" and two "Lost"
+  terminal columns</strong>. Corruption then compounds: <code>closeDeal</code> finds its landing column
+  with <code>findFirst</code> by name, so won deals split arbitrarily across two identical columns; and
+  <code>planPipelineReconciliation</code> consumes each canonical name once, so the second "Won" becomes
+  an <em>orphan</em> — running the reconcile script moves its WON deals into <strong>"New"</strong> and
+  deletes the column. Templates: two of each seeded template; a CRM user edits one copy and the compose
+  picker keeps offering the stale twin. The existing "seed-once idempotency" tests test <em>sequential</em>
+  re-calls — they cannot catch this, because the bug only exists when the <code>count === 0</code>
+  fast-path is passed concurrently.</p>
+
+  <p class="lbl">Suggested fix</p>
+  <p>One additive migration: <code>@@unique([organizationId, name])</code> on
+  <code>CrmPipelineStage</code> and <code>CrmEmailTemplate</code>, plus <code>skipDuplicates: true</code>
+  on the template seed — literally the <code>20260715180000</code> products fix applied to the two siblings
+  it skipped. The name is already the load-bearing key (closeDeal and the reconcile planner both match by
+  name), so uniqueness is semantically required anyway — and it also blocks a <em>manual</em> second "Won"
+  via <code>createStage</code> (see L-list). Ship <strong>before</strong> the CRM migrations go to prod so
+  no dedup backfill is ever needed.</p>
+
+  <div class="learn"><strong>What to learn:</strong> <code>skipDuplicates</code> is not a dedup mechanism —
+  it is a unique-constraint conflict handler, and without a constraint it is dead code that makes the
+  read-then-insert race <em>look</em> handled. And when a review fixes a bug class ("seed can double-seed"),
+  the fix isn't finished until every code path with the same shape is swept — grep for the pattern
+  (<code>count === 0 → createMany</code>), not the file.</div>
+</div>
+
+<div class="finding high" id="h2">
+  <h3><span class="sev high">High</span> <span class="pill open">Open</span> H2 — Reports and board column totals silently mix currencies and label everything USD</h3>
+  <p class="loc">src/app/api/crm/reports/route.ts:51–77 · src/app/(dashboard)/crm/reports/page.tsx:42–45 · src/crm/lib/crm-types.ts:349–354 (<code>sumStageValue</code>) · src/crm/components/deal-board.tsx:136</p>
+
+  <p class="lbl">The code</p>
+<pre><code>// reports/route.ts — every aggregate:
+_sum: { dealValue: true }        // grouped by stageId / status / ownerId — NEVER by currency
+
+// reports/page.tsx
+function money(v: number | null): string {
+  return v === null ? "—" : formatDealValue(v, "USD") ?? "—";   // ← hardcoded dollars
+}
+
+// crm-types.ts — board column totals, same hole
+export function sumStageValue(deals: CrmBoardDeal[], currency = "USD"): string | null {
+  ...
+  return formatDealValue(total, currency);   // callers pass nothing → "USD"
+}</code></pre>
+
+  <p class="lbl">Failure scenario</p>
+  <p>Per-deal currency is a first-class input (the create dialog has a currency select; the catalog seeds
+  AED prices while a new deal defaults USD). Org holds an AED 500,000 Abbott deal and a USD 50,000 Pfizer
+  deal → reports show <strong>"Open value $550,000"</strong> — a fabricated number (~$186k real). The
+  win/loss KPIs, the per-rep leaderboard (and its <em>sort order</em> — reps are ranked by the raw mixed
+  sum), and every board column total are wrong the moment a second currency exists. The module already
+  solved this exact class for line items: <code>sumDealProducts</code> returns null on mixed currencies and
+  the UI prints "— (mixed currencies)". The deal-value aggregates got no equivalent treatment.</p>
+
+  <p class="lbl">Suggested fix</p>
+  <p>Group every aggregate by <code>currency</code> as well; when a bucket contains &gt;1 currency, return
+  null + a "mixed currencies" marker (mirror <code>sumDealProducts</code>) or emit per-currency rows. At
+  minimum, thread the deals' actual (uniform) currency into <code>formatDealValue</code> instead of the
+  "USD" literal, and make <code>sumStageValue</code> return null when its column mixes currencies.</p>
+
+  <div class="learn"><strong>What to learn:</strong> the instant a money field carries a sibling
+  <code>currency</code> column, every <code>SUM()</code> over it is only meaningful <em>per currency</em>.
+  "—" (unknown) is a fact; "$550,000" (AED+USD added and stamped with a dollar sign) is fiction that
+  finance will act on. Prefer honest nulls — the codebase already established this rule in
+  <code>sumDealProducts</code>; extend rules like this to every aggregate the day they're invented.</div>
+</div>
+
+<div class="finding high" id="h3">
+  <h3><span class="sev high">High</span> <span class="pill open">Open</span> H3 — Won/Lost is keyed on the stage NAME; divergence puts deals in the wrong (or no) report bucket, and a routine drag silently reopens a won deal</h3>
+  <p class="loc">src/crm/services/deal-service.ts:502–516 (<code>terminalStatusFor</code>) · :425–441 (<code>closeDeal</code>) · :329–343 (<code>moveDealStage</code>) · src/app/api/crm/reports/route.ts:84–94 + src/crm/lib/reports.ts:41–48</p>
+
+  <p class="lbl">The code</p>
+<pre><code>// terminalStatusFor — outcome derived from the NAME
+const n = stageName.trim().toLowerCase();          // "won"/"closed won" → WON, "lost"/... → LOST
+                                                   // anything else → null → status "OPEN"
+// closeDeal — landing column found by NAME
+const terminal = await db.crmPipelineStage.findFirst({
+  where: { organizationId, isTerminal: true,
+           name: { equals: status === "WON" ? "Won" : "Lost", mode: "insensitive" } } });
+...(terminal ? { stageId: terminal.id } : {}),     // no "Won" column → card stays where it is
+
+// moveDealStage — EVERY move unconditionally rewrites status + stamps
+status: terminalStatusFor(toStage.name, toStage.isTerminal) ?? "OPEN",
+...closeStamps(...)                                // non-terminal target → wonAt/lostAt WIPED</code></pre>
+
+  <p class="lbl">Failure scenario — three verified consequences</p>
+  <ul>
+    <li><strong>(a) Close with no "Won" column ⇒ double-counted.</strong> The org renamed/deleted "Won"
+      (the API allows both — <code>POST /pipeline-stages</code> accepts any name with
+      <code>isTerminal: true</code>, and DELETE on an empty Won column succeeds). The Won button sets
+      <code>status: WON</code> but leaves the card in e.g. Negotiation. The pipeline report computes
+      <code>openValue</code> from <em>non-terminal stage buckets with no status filter</em> — so this
+      deal's value appears in <strong>both</strong> "Open value" and "Won". Fictional pipeline money.</li>
+    <li><strong>(b) Drag into a custom terminal stage ("Signed &amp; Done") ⇒ counted nowhere.</strong>
+      <code>terminalStatusFor</code> returns null → status is written <code>OPEN</code>; the stage is
+      terminal so it's excluded from open counts; the deal is neither WON nor LOST. A rep's closed business
+      vanishes from all four KPIs and the leaderboard.</li>
+    <li><strong>(c) An innocent drag reopens a divergent WON deal.</strong> Take the deal from (a) —
+      <code>WON</code>, parked in Negotiation. A colleague tidies the board and drags it to Proposal: the
+      claim passes (it checks only <code>stageId</code>, never <code>status</code>), status flips
+      WON→OPEN, and <code>wonAt</code> is <strong>wiped</strong>. July's won-revenue quietly shrinks; the
+      only trace is a generic <code>STAGE_MOVE</code> activity row. (Dragging out of a <em>terminal</em>
+      column reopening is a documented decision; two <em>ordinary</em> columns reopening a deal is not —
+      the user had no idea the card was closed.)</li>
+  </ul>
+
+  <p class="lbl">Suggested fix</p>
+  <p>Stop deriving the outcome from a string: add a <code>terminalOutcome</code>
+  (<code>WON | LOST | null</code>) column on <code>CrmPipelineStage</code>, seeded onto Won/Lost (module is
+  not deployed — clean migration). <code>closeDeal</code> lands on the outcome-mapped stage (and refuses,
+  or returns a <code>meta.stageUnchanged</code> warning, when none exists rather than minting a divergent
+  deal); <code>moveDealStage</code> only rewrites status/stamps when the move actually crosses a
+  terminality boundary, and records an explicit <code>REOPENED</code> activity whenever it clears a
+  <code>wonAt</code>/<code>lostAt</code>. Refuse deleting the last WON-mapped stage. (Related: M10 —
+  <code>lostReason</code> is not cleared on these paths either.)</p>
+
+  <div class="learn"><strong>What to learn:</strong> when a comment says a name is "LOAD-BEARING, not
+  decorative" (pipeline-service.ts:55), that's the design telling you the semantic is stored in the wrong
+  place. A rename should never be able to change what a state machine does — put the semantic in a typed
+  column and let the name be decoration. And a state transition must be conditioned on the state it changes:
+  <code>moveDealStage</code> claims on <code>stageId</code> but rewrites <code>status</code> — the claim
+  guards the wrong field.</div>
+</div>
+
+<div class="finding high" id="h4">
+  <h3><span class="sev high">High</span> <span class="pill open">Open</span> H4 — Renaming a company/contact to a taken name/email returns an unlogged HTTP 500</h3>
+  <p class="loc">src/crm/services/company-service.ts:278–285 · src/crm/services/crm-contact-service.ts:258–265 · src/crm/lib/crm-route.ts:168 (<code>UNKNOWN: 500</code>)</p>
+
+  <p class="lbl">The code</p>
+<pre><code>// company-service.ts — updateCompany's catch
+if (err instanceof Prisma.PrismaClientKnownRequestError &amp;&amp; err.code === "P2002") {
+  return { ok: false, code: "UNKNOWN",                      // ← a business conflict...
+           message: "Another company already uses that name",
+           meta: { conflict: "name" } };                     //   ...mapped to HTTP 500, unlogged
+}</code></pre>
+
+  <p class="lbl">Failure scenario</p>
+  <p>A completely ordinary action — editing "Cleveland Clinic Foundation" to "Cleveland Clinic" when that
+  account already exists, or fixing a CRM contact's email to one already on file — hits the
+  <code>@@unique</code> and returns <strong>HTTP 500</strong> (<code>STATUS_BY_CODE</code> maps
+  <code>UNKNOWN → 500</code>, whose own comment says a business rejection must <em>never</em> land on 500:
+  "defaulting to 500 would page us for it"). It is also the only rejection in either function with
+  <strong>no log line</strong> — the P2002 early-return sits above the generic
+  <code>update-failed</code> error log, so nothing reaches <code>/logs</code>. It corrupts 500-rate
+  monitoring and violates the "every failure path logs" rule. Note the <em>create</em> paths handle P2002
+  correctly (race → re-read winner → reuse); only the two <em>update</em> paths are wrong.</p>
+
+  <p class="lbl">Suggested fix</p>
+  <p>Dedicated codes <code>NAME_TAKEN</code> / <code>EMAIL_TAKEN</code> mapped to <strong>409</strong> in
+  <code>STATUS_BY_CODE</code>, logged at warn (the message text is already right — only the code and the
+  log are missing). The edit dialogs already toast the server message, so the UI improves for free.</p>
+
+  <div class="learn"><strong>What to learn:</strong> <code>UNKNOWN</code> is for the unforeseen. The moment
+  you can write a human-readable message for a failure ("another company already uses that name"), it is a
+  <em>known</em> business rejection and deserves its own code, its own 4xx status, and a warn log. A
+  P2002 on an update is a user action, not a server fault.</div>
+</div>
+
+<!-- ══════════════════════════ MED ══════════════════════════ -->
+<h2 id="med">MEDIUM</h2>
+
+<div class="finding medium" id="m1">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M1 — Archived records are fully mutable: no state-machine claim includes <code>archivedAt: null</code></h3>
+  <p class="loc">deal-service.ts:280 (update), :332–343 (move), :434–442 (close), :612 (addDealContact) · crm-product-service.ts:233 (addDealProduct) · task-service.ts:232/:283 (complete/reopen) · company/contact update paths</p>
+  <p class="lbl">Failure scenario</p>
+  <p>Admin A archives a deal; colleague B's board hasn't refetched and B drags the card. The claim checks
+  only <code>{ id, organizationId, stageId }</code> — it <strong>succeeds</strong>: the archived deal's
+  stage, status and <code>wonAt</code>/<code>lostAt</code> are rewritten (dragging it out of a terminal
+  column even <em>reopens an archived closed deal</em>). B gets a 200, the card vanishes on refetch, and a
+  later restore surfaces state nobody consciously chose — the only clue is a <code>STAGE_MOVE</code>
+  activity row <em>after</em> the <code>ARCHIVE</code> row. An archived OPEN deal can likewise be closed
+  WON. The board disabling drag on the archived view is a UI courtesy; the API and any api-key caller go
+  straight through.</p>
+  <p class="lbl">Suggested fix</p>
+  <p>Add <code>archivedAt: null</code> to the conditional-claim <code>where</code> of every
+  <em>state-changing</em> write (stage move, close, complete, reopen, add contact/product), and extend each
+  path's existing zero-row disambiguation read to return a distinct <code>DEAL_ARCHIVED</code>-style 409.
+  Whether plain field edits on archived rows stay allowed is a product call — state machines should not.</p>
+  <div class="learn"><strong>What to learn:</strong> a soft-delete flag is part of the record's state, so it
+  belongs in every conditional claim exactly like the state being transitioned. "The UI can't reach it" is
+  never the guard — the API is.</div>
+</div>
+
+<div class="finding medium" id="m2">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M2 — MEMBER can read rival deal money out of free-text notes, bypassing the structured redaction</h3>
+  <p class="loc">src/app/api/crm/notes/route.ts (GET is <code>requireCrmRead</code>, returns raw <code>body</code>) · companies/[companyId]/route.ts + contacts/[crmContactId]/route.ts (return <code>notes</code> fields) · crm-roles.ts:81–96 (the stated goal)</p>
+  <p class="lbl">Failure scenario</p>
+  <p>The whole reason <code>canViewDealValues</code> is narrower than <code>canViewFinance</code> is
+  documented in crm-roles.ts: a sponsor-side MEMBER "must not be able to read every RIVAL sponsor's deal
+  value off the board." The structured redaction is airtight (<code>dealValue</code> stripped, value filter
+  dropped so it can't be binary-searched, CSV omits the column). But MEMBER passes
+  <code>requireCrmRead</code>, deal ids are visible on the board, and
+  <code>GET /api/crm/notes?dealId=&lt;rivalDealId&gt;</code> returns a rep's note verbatim —
+  <em>"Abbott came back at AED 480k, they'll sign if we hold at 500k."</em> Same leak through
+  <code>CrmCompany.notes</code> / <code>CrmContact.notes</code> on the detail GETs
+  (<code>redactForCaller</code> strips financial <em>keys</em>; prose passes through).</p>
+  <p class="lbl">Suggested fix (owner decision)</p>
+  <p>(a) Treat the negotiation log as money-adjacent: gate note reads + the <code>notes</code> fields to
+  <code>canViewDealValues</code> (consistent with the stated goal), or (b) explicitly accept prose leakage
+  and document it next to the crm-roles.ts comment so the boundary's real shape is honest. (a) is the
+  consistent choice.</p>
+  <div class="learn"><strong>What to learn:</strong> key-based redaction protects fields, not facts. If a
+  fact is sensitive enough to strip from a column, assume it also lives in prose next door — the boundary
+  must cover the channel (notes, activity payloads, exports), not just the schema key.</div>
+</div>
+
+<div class="finding medium" id="m3">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M3 — Sponsor/deal email blast: no double-submit idempotency</h3>
+  <p class="loc">src/app/api/crm/sponsor-email/send/route.ts:47 · src/crm/services/sponsor-email-service.ts:272–368</p>
+  <p class="lbl">Failure scenario</p>
+  <p>The send is synchronous in the request (batches of 25, attachments up to 10&nbsp;MB base64 — slow).
+  The only repeat-guard is the 10/hr rate bucket, which happily admits both halves of a double-click, a
+  browser retry of a slow POST, or an operator pressing Send again mid-flight → all ~40 sponsors get the
+  prospectus <strong>twice</strong>, with doubled <code>PROSPECTUS_SENT</code> History rows. A mid-send
+  crash has the same recovery trap: "send again" re-emails the delivered half. The event bulk-email
+  pipeline got exactly this fix (comms H2: content-hash + 2-minute window; comms H1:
+  <code>emailedKeys</code> resume) — the CRM path got neither.</p>
+  <p class="lbl">Suggested fix</p>
+  <p>Copy the comms-H2 dedup: best-effort content+audience hash with a ~2-minute window returning the prior
+  result (no schema needed); optionally skip recipients with a <code>PROSPECTUS_SENT</code> activity /
+  <code>EmailLog</code> row in the same window on a re-run.</p>
+  <div class="learn"><strong>What to learn:</strong> a rate limit is abuse control, not idempotency. Any
+  fan-out send needs an answer to "what happens when this exact request arrives twice?" — and the codebase
+  already has the reference implementation to copy.</div>
+</div>
+
+<div class="finding medium" id="m4">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M4 — Record edits: no optimistic lock, and the snapshot → write → re-read triple can misattribute changes in the History log</h3>
+  <p class="loc">deal-service.ts:271–295 · same shape in company-service.ts:245–273, crm-contact-service.ts:225–253, task-service.ts:181–205</p>
+  <p class="lbl">The code</p>
+<pre><code>const before = await db.crmDeal.findFirst({ ... });                       // (1)
+await db.crmDeal.updateMany({ where: { id, organizationId }, data });     // (2)
+const deal = await db.crmDeal.findUniqueOrThrow({ where: { id } });       // (3)
+const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);            // ← diff of a racy re-read</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>Users A and B edit the same deal. A shared field is silent last-write-wins with no 409 (no
+  <code>expectedUpdatedAt</code>, unlike the registration PUT). Worse for the audit trail: if B's write
+  commits between A's steps (2) and (3), A's diff records <strong>B's change under A's
+  <code>actorId</code></strong> in <code>CrmActivity</code> — the change log, whose entire purpose is "who
+  changed what", attributes the wrong author; the mirror-image window hides B's change entirely.</p>
+  <p class="lbl">Suggested fix</p>
+  <p>Wrap (1)–(3) in a <code>$transaction</code> (kills the misattribution window), or better, adopt the
+  house <code>expectedUpdatedAt</code> conditional claim so a concurrent edit is a 409. Cheapest correct
+  option: compute the diff from <code>before</code> + the <em>submitted patch</em>, not a re-read.</p>
+  <div class="learn"><strong>What to learn:</strong> three sequential awaits are three transactions. If a
+  derived artifact (a diff, an audit row) is built from reads on both sides of a write, another writer can
+  sit in between — derive it from data you already hold, or hold the whole triple in one transaction.</div>
+</div>
+
+<div class="finding medium" id="m5">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M5 — Silent business rejections across 8 services; <code>crmErrorResponse</code> doesn't log either</h3>
+  <p class="loc">deal-service.ts (:165, :170–172, :239, :250–252, :257–259) · company-service.ts (:111–113, :224–226, :237–239) · crm-contact-service.ts (:109–114, :192–208, :217–219, :318–320) · task-service.ts (:107, :157, :174, :177–178) · note-service.ts (:102, :179, :184–186) · crm-email-template-service.ts (:105–107, :151–165) · pipeline-service.ts (:140) · sponsor-email-service.ts (:231–249, :132–134, :197–199) · crm-route.ts:171–181</p>
+  <p class="lbl">Failure scenario</p>
+  <p>The route layer is clean (every <code>safeParse</code> failure logs via <code>zodErrorResponse</code>),
+  but <code>crmErrorResponse()</code> does not log — so any service rejection the service doesn't log
+  itself leaves <strong>no trace</strong>. The products review's H1 added a <code>reject()</code> helper
+  that logs before every <code>return { ok: false }</code> — to the product service only. Every other
+  service still has unlogged rejections, including fully reachable ones: the sponsor-email
+  <code>EVENT_NOT_FOUND</code>/<code>DEAL_NOT_FOUND</code> 404s and all of <code>validateSend</code>
+  (<code>TOO_MANY_ATTACHMENTS</code>, <code>ATTACHMENT_TOO_LARGE</code>…); the <code>*_REQUIRED</code>
+  codes are reachable past Zod with whitespace-only strings; <code>NO_FIELDS</code> with a bare
+  <code>{}</code> PATCH. Internal drift too: <code>createTask</code> logs its relation failure,
+  <code>updateTask</code> doesn't. Directly contradicts <code>src/crm/README.md</code> §4 ("every failure
+  path logs").</p>
+  <p class="lbl">Suggested fix</p>
+  <p>The structural option: one warn line inside <code>crmErrorResponse()</code>
+  (code + message + route context) — it catches everything any service ever misses, exactly the same move
+  as gate-owned refusal logging. Optionally also lift <code>reject()</code> into a shared helper for
+  services that want richer context.</p>
+  <div class="learn"><strong>What to learn:</strong> logging at each rejection site is a per-developer
+  discipline; logging at the boundary the rejections all flow through is a structural guarantee. When one
+  choke point exists (<code>crmErrorResponse</code>), put the rule there — then forgetting becomes
+  impossible instead of likely.</div>
+</div>
+
+<div class="finding medium" id="m6">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M6 — Frontend silent failures: every list page renders a failed fetch as an empty state; three mutations fail with no toast</h3>
+  <p class="loc">deals/page.tsx:78 · companies/page.tsx:51–52 · contacts, tasks (:46), products, templates, reports pages (all ignore <code>isError</code>) · create-company-dialog.tsx:51–63 · deal-detail-body.tsx:106–117 (add follow-up) · company-detail-body.tsx:170–172 ("They're different" dismiss) · use-crm-api.ts:213–236, :272–281 (no <code>onError</code>)</p>
+  <p class="lbl">Failure scenario</p>
+  <p>A failed <code>GET /api/crm/deals</code> (session lapse, 500, network) renders as
+  <strong>"No deals yet"</strong> — the sales team concludes the pipeline is empty. This is the exact class
+  fixed in core for the registrant portal on June 26; only the deal detail page handles
+  <code>isError</code>. Mutations: creating a company (a 429 from the 100/hr cap is realistic), adding a
+  deal follow-up task, and dismissing a payer-review flag all <code>await mutateAsync</code> with no
+  try/catch and no hook-level <code>onError</code> — the button does nothing, no toast, no log. This is
+  drift <em>within</em> the module: the deal/contact/template dialogs all handle errors correctly.</p>
+  <p class="lbl">Suggested fix</p>
+  <p>Per list page: branch on <code>isError</code> → a "Couldn't load — your data is safe, try again"
+  card with a <code>refetch</code> button (copy the registrant-portal fix). Per mutation: try/catch +
+  <code>toast.error</code> in the three handlers (or <code>onError</code> in the two hooks).</p>
+  <div class="learn"><strong>What to learn:</strong> an error state rendered as an empty state is the most
+  expensive UI bug per byte — it doesn't just hide the failure, it asserts a false fact ("you have no
+  deals"). <code>{ data = [], isLoading }</code> destructuring is the tell: the <code>= []</code> default
+  is what converts the error into the lie.</div>
+</div>
+
+<div class="finding medium" id="m7">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M7 — Dead <code>contactId</code> field on the deal schemas: accepted, validated, silently discarded</h3>
+  <p class="loc">src/app/api/crm/deals/route.ts:16 · src/app/api/crm/deals/[dealId]/route.ts:13 · deal-service.ts:40–77 (<code>CreateDealInput</code>/<code>UpdateDealInput</code> have no such field)</p>
+  <p class="lbl">Failure scenario</p>
+  <p>Both Zod schemas declare <code>contactId: z.string().min(1).optional().nullable()</code>, but the
+  service input types don't carry it — the spread into <code>createDeal(...)</code> drops it. No dialog
+  sends it (verified), so the victim is the supported <code>source: "api"</code> caller: create a deal with
+  its primary contact → 201, <em>no link, no log</em> — and that person is then <strong>skipped by the
+  next sponsor-prospectus blast</strong> (audience = deal contacts only). Leftover of the
+  pre-<code>CrmDealContact</code>-join design; the matching <code>docs/CRM_STATUS.html</code> §4 row is
+  stale on both columns (the model moved to the join table, and a people-on-deal picker now exists). Same
+  class as the MCP <code>conflictFlag</code> H8: an advertised param with a no-op executor.</p>
+  <p class="lbl">Suggested fix</p>
+  <p>Either wire it through <code>addDealContact</code> after create, or delete the field from both schemas
+  (and fix the CRM_STATUS row). Deleting is the honest minimum; wiring is a ~10-line nicety.</p>
+  <div class="learn"><strong>What to learn:</strong> a validated-but-unconsumed schema field is an API
+  contract lie — worse than no field, because the caller gets a 201 and believes it worked. When a design
+  migrates (scalar FK → join table), grep the Zod schemas for the old shape before calling it done.</div>
+</div>
+
+<div class="finding medium" id="m8">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M8 — Pipeline-stage hard DELETE is write-gated: the RBAC gradient inverts</h3>
+  <p class="loc">src/app/api/crm/pipeline-stages/[stageId]/route.ts:15–16 (<code>requireCrmWrite</code>)</p>
+  <p class="lbl">Failure scenario</p>
+  <p>ORGANIZER may not archive a single deal (<code>denyCrmDelete</code>), but <em>may</em> hard-delete a
+  pipeline column — org-wide config, a real <code>db.crmPipelineStage.delete</code>, in a module whose
+  README §3.6 headline is "There is no hard delete." Deletion is blocked while deals exist (Restrict FK +
+  <code>STAGE_HAS_DEALS</code>), so no data loss — but the privilege gradient is inverted: the destructive,
+  org-wide, irreversible action sits at a looser gate than the reversible, single-record one.</p>
+  <p class="lbl">Suggested fix</p>
+  <p>One-line: <code>requireCrmDelete</code> on the stage DELETE (create/reorder staying write-gated is
+  defensible).</p>
+  <div class="learn"><strong>What to learn:</strong> audit gates by <em>blast radius</em>, not by HTTP verb
+  or entity type. "Config" deletion is still deletion — when a module defines a narrower delete tier, every
+  destructive verb in the module must sit at or above it.</div>
+</div>
+
+<div class="finding medium" id="m9">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M9 — MIME header injection via attachment <code>name</code>/<code>contentType</code> in core <code>buildRawMime</code></h3>
+  <p class="loc">src/lib/email.ts:485, :488, :502, :504 · src/crm/services/sponsor-email-service.ts (<code>validateSend</code> checks count/size only)</p>
+  <p class="lbl">The code</p>
+<pre><code>// email.ts — buildRawMime, interpolated raw:
+`Content-Type: ${att.contentType || "application/octet-stream"}; name="${att.name}"`,
+`Content-Disposition: attachment; filename="${att.name}"`,</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>A <code>name</code> containing <code>"</code> or CRLF, or a <code>contentType</code> containing CRLF,
+  breaks the MIME part framing and can inject arbitrary headers/parts into the outgoing message. The sender
+  is an authenticated CRM writer (self-inflicted-adjacent), but the recipients are <em>external
+  sponsors</em> at fan-out scale, under the org's branded sender — and this is the first path where a user
+  supplies arbitrary attachment names/types. Core, pre-existing issue shared by every attachment path
+  (quote PDF, agreement .docx use fixed names); best fixed once in <code>email.ts</code>. (Subject-header
+  injection is already mitigated — <code>encodeRfc2047</code> base64-encodes control characters. Verified.)</p>
+  <p class="lbl">Suggested fix</p>
+  <p>In <code>buildRawMime</code>: strip CRLF and <code>"</code> from (or RFC 2047/2231-encode)
+  <code>att.name</code>; validate <code>contentType</code> against a <code>type/subtype</code> regex.
+  Optionally an attachment-type allowlist on the sponsor blast specifically (see L12).</p>
+  <div class="learn"><strong>What to learn:</strong> anything interpolated into a protocol header (MIME,
+  HTTP, SMTP) is an injection surface exactly like HTML — same reflex, different escaper. Validate at the
+  protocol boundary so every future caller inherits the fix.</div>
+</div>
+
+<div class="finding medium" id="m10">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M10 — Stale <code>lostReason</code> survives a drag-reopen; a WON deal exports with a "Lost reason"</h3>
+  <p class="loc">deal-service.ts:439 (closeDeal clears it) vs :338–342 (moveDealStage never touches it) · export/route.ts:109</p>
+  <p class="lbl">Failure scenario</p>
+  <p>Deal closed LOST ("budget cut") → the sponsor comes back → card dragged out of Lost (reopened) → later
+  dragged into Won. Result: <code>status: WON</code>, <code>lostReason: "budget cut"</code> — printed in
+  the CSV export and the deal sidebar. <code>closeDeal</code> handles the reason;
+  <code>closeStamps</code> only handles timestamps, and the move path forgot the third field.</p>
+  <p class="lbl">Suggested fix</p>
+  <p>Include <code>lostReason: null</code> in the move payload whenever the computed next status is WON or
+  OPEN (mirroring <code>closeDeal</code>); folds naturally into the H3 rework.</p>
+  <div class="learn"><strong>What to learn:</strong> when two paths can produce the same state transition,
+  they must write the same field set. The fix for that is structural — one function owns the transition's
+  payload (as <code>closeStamps</code> almost does) — not two hand-synced copies.</div>
+</div>
+
+<div class="finding medium" id="m11">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M11 — A task due today shows Overdue all day; report date ranges are server-TZ dependent</h3>
+  <p class="loc">src/app/(dashboard)/crm/tasks/page.tsx:52 · src/crm/lib/deal-filters.ts:34–38</p>
+  <p class="lbl">Failure scenario</p>
+  <p><code>dueAt</code> is stored as UTC midnight of the picked date; the page renders
+  <code>new Date(t.dueAt) &lt; now</code> → a task due July 16 turns red "Overdue" at 00:00 UTC on July 16
+  itself (04:00 Dubai) — the entire due day is reported as missed. (Contrast
+  <code>buildTaskDueRange</code>, which correctly treats <code>to</code> as inclusive end-of-day.)
+  Separately, <code>endOfDay</code> in the deal filters uses server-<em>local</em>
+  <code>setHours(23,59,59)</code> while <code>parseDate</code> yields UTC midnight — symmetric only because
+  prod runs UTC; and "won in July" is a UTC July for a Dubai org (a deal won 22:00 UTC Jul 31 = 02:00 Aug 1
+  Dubai lands in July). The codebase already has <code>event-time.ts</code> TZ helpers to borrow.</p>
+  <p class="lbl">Suggested fix</p>
+  <p>Compare against end-of-day of <code>dueAt</code> for the Overdue badge; build filter boundaries in
+  UTC (or the org TZ) explicitly rather than server-local.</p>
+  <div class="learn"><strong>What to learn:</strong> a date (no time) compared against a timestamp is
+  always a boundary decision — decide "due <em>through</em> the end of that day" once, in a helper, and
+  never call bare <code>&lt; now</code> on a date-derived value.</div>
+</div>
+
+<div class="finding medium" id="m12">
+  <h3><span class="sev medium">Med</span> <span class="pill open">Open</span> M12 — Moving a task's due date does not move its reminder</h3>
+  <p class="loc">src/crm/services/task-service.ts:164–171</p>
+  <p class="lbl">Failure scenario</p>
+  <p>The service re-arms (<code>remindedAt = null</code>) only when <code>remindAt</code> itself is edited.
+  The only create surface (deal follow-up) sets <code>remindAt = dueAt</code> — so an edit that pushes
+  <code>dueAt</code> out a week (API today; edit UI is a documented pending item) leaves the reminder at
+  the old date: it either already fired (none will come at the new due date) or fires a week early. The
+  product promise on the deal page is "you'll get an email when it's due" — a due-date edit silently
+  breaks it.</p>
+  <p class="lbl">Suggested fix</p>
+  <p>When <code>dueAt</code> changes and the caller didn't pass <code>remindAt</code>: if
+  <code>remindAt</code> equaled the old <code>dueAt</code>, shift it to the new one and clear
+  <code>remindedAt</code>.</p>
+  <div class="learn"><strong>What to learn:</strong> when field B is derived from field A at creation
+  ("remind when due"), an update to A must decide what happens to B — silence is a decision too, and
+  usually the wrong one.</div>
+</div>
+
+<!-- ══════════════════════════ LOW ══════════════════════════ -->
+<h2 id="lows">LOW (L1–L17)</h2>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L1 — The sortOrder "transaction" provides no isolation; the comments teach a wrong pattern</h3>
+  <p class="loc">pipeline-service.ts:143–159 · crm-email-template-service.ts:110–127 · crm-product-service.ts:129–145</p>
+  <p>"Compute the next sortOrder inside a transaction so two concurrent adds can't both claim the same
+  slot" — under READ COMMITTED both transactions read the same <code>_max</code> and both insert the same
+  slot; an aggregate takes no lock and there is no unique on the pair. Consequence is mild (ties;
+  <strong>stages order by <code>sortOrder</code> alone</strong>, so racing stage adds render in
+  nondeterministic order per load). Fix the comments (they'll teach the next reader false atomicity — the
+  accommodation review's exact lesson) and add <code>createdAt</code> as a secondary orderBy on stages.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L2 — Reminders worker: claim doesn't re-check <code>archivedAt</code>; owner-deleted due tasks vanish silently; "partial index" comment drift</h3>
+  <p class="loc">src/crm/reminders-worker.ts:74–77 · prisma/schema.prisma:2749 vs migration 20260714120000:168</p>
+  <p>The claim is <code>{ id, remindedAt: null, status: "OPEN" }</code> — a task archived between the
+  candidate read and the claim is still emailed (archiving is documented as the way to cancel a reminder);
+  add <code>archivedAt: null</code> for free. A due task whose owner's User row was deleted
+  (<code>ownerId</code> SetNull) is excluded by the query and <em>never logs</em>. And the schema comment
+  says "partial index below serves it" while the migration created a plain index — doc drift.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L3 — Find-or-create silently reuses archived companies/contacts; relation validation accepts archived ids</h3>
+  <p class="loc">company-service.ts:121 · crm-contact-service.ts:122 · deal-service.ts:133–137</p>
+  <p>Creating a deal for "Abbott" after Abbott was archived silently links it to an invisible account
+  (<code>created: false</code>, no hint). Reuse is arguably the <em>correct</em> dedup answer (the unique
+  keys demand it), but the caller can't tell — return an <code>archived: true</code> flag or auto-restore
+  on reuse (product decision).</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L4 — Find-then-delete double-remove surfaces <code>UNKNOWN</code> instead of a not-found code</h3>
+  <p class="loc">crm-product-service.ts:309–311 · note-service.ts:248–263</p>
+  <p>Concurrent double-remove → the loser's <code>.delete()</code> throws P2025 → generic catch →
+  <code>UNKNOWN</code>. Use <code>deleteMany</code> + count check — the pattern
+  <code>removeDealContact</code> (deal-service.ts:682–692) already uses correctly.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L5 — Reconcile script: an orphaned terminal-<em>named</em> column's WON deals land in "New"; plan computed outside the apply transaction</h3>
+  <p class="loc">scripts/reconcile-crm-pipeline.ts:86–119</p>
+  <p>An orphan column named e.g. "Closed Won" (whose deals are <code>status=WON</code> via
+  <code>terminalStatusFor</code>) doesn't name-match canonical "Won" → its WON deals are moved into
+  <strong>"New"</strong> with status untouched — the exact stage/status disagreement the runtime prevents.
+  Warn in dry-run output (or carry terminal orphans into the canonical terminal column). The
+  plan-outside-tx race is closed for free by H1's unique constraint.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L6 — Silent truncation: export caps at 5000 rows, board at 1000, with no marker</h3>
+  <p class="loc">export/route.ts:78 · deals list route</p>
+  <p>A CSV that silently dropped rows reads as "everything". Append a marker row / log when the cap
+  binds.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L7 — Subject-token asymmetry: <code>{{ eventName }}</code> (spaces) unresolved in subjects; <code>{{message}}</code> in a subject dumps the whole HTML body</h3>
+  <p class="loc">sponsor-email-service.ts:46 (<code>BODY_TOKEN_RE</code> tolerates spaces) vs email.ts:805 (<code>renderTemplatePlain</code> doesn't) · :397–399 (subject rendered with the full vars map)</p>
+  <p>Align the subject regex with the body's, and render subjects against the four contact/event tokens
+  only.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L8 — Double-greeting is only hint-guarded</h3>
+  <p class="loc">sponsor-email-service.ts:39 (<code>BODY_TEMPLATE</code> bakes "Dear {{firstName}},") · crm-email-dialog.tsx:342</p>
+  <p>Seeded templates omit greetings, but DB templates are org-editable — a saved body starting "Dear Dr
+  X," produces "Dear John, / Dear Dr X,". Detect a leading greeting and skip the baked one (or lint on
+  template save).</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L9 — Archived contacts still render on the deal detail</h3>
+  <p class="loc">deals/[dealId]/route.ts:35–39 (no <code>archivedAt</code> filter on included contacts) vs companies/[companyId]/route.ts:31–36 (filters)</p>
+  <p>An archived rep lingers on deal pages (the email resolver correctly skips them). Add the filter for
+  consistency.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L10 — PATCH <code>{ archived, ...fields }</code> silently drops the field edits</h3>
+  <p class="loc">deals/[dealId]/route.ts:89–101 and the equivalent archive branches in company/contact/task/template PATCH handlers</p>
+  <p>The archive branch early-returns without applying (or mentioning) the other fields. No UI sends both
+  today; an API caller loses edits silently. Either apply both or 400 the combination.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L11 — Template update: no <code>NO_FIELDS</code> guard, no success logs</h3>
+  <p class="loc">crm-email-template-service.ts:150–176</p>
+  <p>An empty PATCH runs <code>updateMany</code> with <code>data: {}</code> and writes an audit row with
+  <code>fields: []</code>; update/archive don't log success while create does. Sibling-parity cleanup.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L12 — No attachment content-type allowlist on the external sponsor blast</h3>
+  <p class="loc">sponsor-email-service.ts (<code>validateSend</code>)</p>
+  <p>A CRM writer can attach an executable/HTML payload to a blast reaching every sponsor of an event.
+  Trusted-sender territory, but an allowlist (PDF/DOCX/images) is cheap given the external fan-out.
+  Pairs with M9.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L13 — MEMBER sees rival reps' contact PII (email/phone) on deal detail — owner confirmation wanted</h3>
+  <p class="loc">deals/[dealId]/route.ts (returns <code>contacts.crmContact.{email, phone}</code>)</p>
+  <p>Consistent with the stated design (only <em>money</em> is redacted for MEMBER), so an observation, not
+  a defect — but if MEMBER can genuinely be a sponsor-side stakeholder, rival-rep PII is arguably as
+  sensitive as deal value. Decide alongside M2.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L14 — Rep leaderboard: lost-only reps show 0 open / 0 won</h3>
+  <p class="loc">reports/route.ts:107–129</p>
+  <p>A LOST groupBy row creates the rep entry but increments nothing — their losses are invisible in their
+  own row. Cosmetic (the win/loss card exists).</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L15 — Doc drift (4 items)</h3>
+  <p class="loc">crm-email-templates.ts:7–9 · docs/CRM_STATUS.html:343, :337/:361, :445 · src/crm/README.md §2, §3.1</p>
+  <p>(a) <code>crm-email-templates.ts</code> header still says templates are "NOT stored, per-org, or
+  editable" — superseded by the DB-backed service that seeds from it. (b) CRM_STATUS still says "Sidebar:
+  one CRM entry" (stale since <code>b152f45</code> hid it) and two §4 rows still say "detail sheet" while
+  §UI correctly says sheets are retired. (c) README places <code>record-layout.tsx</code> under
+  <code>lib/</code>; it lives in <code>components/</code>. (d) README says "three permitted core-side touch
+  points"; the ESLint exemption list has four entries. Also the notes-filter naming drift:
+  the route reads <code>?crmContactId=</code> while its own docblock, the hook type, and CRM_STATUS all say
+  <code>contactId</code> — whoever wires "notes on a contact" (a documented pending item) will follow the
+  docs and get an empty panel. Align on <code>crmContactId</code> everywhere.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L16 — Test gaps: pipeline-service has zero tests; <code>STATUS_BY_CODE</code> untested</h3>
+  <p class="loc">src/crm/services/pipeline-service.ts · src/crm/lib/crm-route.ts</p>
+  <p>Seed idempotency, <code>createStage</code>, <code>deleteStage</code>'s <code>STAGE_HAS_DEALS</code> +
+  P2003 race branch, and <code>reorderStages</code> org-binding are all untested (only the pure reconcile
+  planner is covered); the error→status mapping (where H4 lives) has no test. Where CRM tests exist they
+  are honest — they assert effects (where-clause shapes, written data, result codes), not call counts.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> <span class="pill open">Open</span> L17 — The two deal dialogs duplicate the company find-or-create + value-parse block</h3>
+  <p class="loc">create-deal-dialog.tsx:90–100 · edit-deal-dialog.tsx:88–95</p>
+  <p>Verbatim copy, both correct today; fold into a helper next time either is touched (the
+  cross-caller-duplication rule, at dialog scale).</p>
+</div>
+
+<!-- ══════════════════════════ SOLID ══════════════════════════ -->
+<h2 id="solid">Verified SOLID (attacked, not assumed)</h2>
+<ul>
+  <li><strong>Cross-tenant IDOR: no path lands.</strong> Concrete cross-org exploits were constructed for
+    every route; all fail. Every mutation binds <code>{ id, organizationId }</code>; every bare-id
+    <code>findUniqueOrThrow</code> executes only after an org-bound check; nested ids
+    (deal+contact, deal+product, line→deal, stage, event-contact link) all bind both ends; foreign filter
+    ids on the notes/activity GETs return empty, not a leak.</li>
+  <li><strong>Gate centralization is real.</strong> Every handler goes through
+    <code>requireCrmRead/Write/Delete</code> (enforced by a source-level drift test); the write rate limit
+    lives inside <code>requireCrmWrite</code>, so an unlimited write route is structurally inexpressible;
+    all three deny guards log their own refusals; every Zod failure logs via
+    <code>zodErrorResponse</code>.</li>
+  <li><strong>Structured finance redaction holds.</strong> <code>redactForCaller</code> on board, detail,
+    products, company/contact deal lists, activity payloads, and reports (<code>val()</code> nulls);
+    the value filter is dropped for redacted callers (no binary search); the CSV <em>omits</em> value
+    columns rather than blanking. CRM_USER sees values but stays out of <code>FINANCE_ROLES</code>. CSV
+    cells all pass through <code>escapeCsvCell</code>.</li>
+  <li><strong>The conditional-claim pattern is used where it matters.</strong> Stage move claims
+    <code>fromStageId</code> (captured at drag start) with a disambiguating loser read
+    (<code>STAGE_CHANGED</code> 409); close claims <code>status: "OPEN"</code> (no double-close);
+    complete/reopen claim task status; the reminders worker claims <code>remindedAt: null</code>
+    <em>before</em> sending, with an explicitly-reasoned no-unclaim-on-failure — two containers cannot
+    double-email.</li>
+  <li><strong>Find-or-create races are properly constrained.</strong>
+    <code>@@unique([organizationId, nameKey])</code> / <code>[organizationId, emailKey]</code> with P2002
+    loser-reuses-winner branches; <code>CrmDealContact</code> upserts on its compound key. Textbook.</li>
+  <li><strong>Archive exclusion is centralized where claimed.</strong> <code>buildDealWhere</code> defaults
+    to <code>archivedAt: null</code> and reports/export never override it — archived deals cannot count
+    toward pipeline/win-rate/export; the reminders worker and sponsor audience exclude archived; stage
+    deletion counts archived deals too (a restored deal can never point at a deleted stage — Restrict FK +
+    P2003 translation backstop the check-then-act).</li>
+  <li><strong>One <code>CrmActivity</code> writer</strong> (grepped src/, worker/, scripts/) —
+    fire-and-forget with a logged catch, called only after the mutation commits.</li>
+  <li><strong>The module boundary is mechanically enforced.</strong> ESLint <code>no-restricted-imports</code>
+    with a named exemption list; the only core→crm imports are the sidebar and the worker shim. No
+    <code>"use client"</code> CRM file imports server-only modules (the crm-roles/crm-visibility split is
+    respected — no Node-builtin-in-client-bundle instances). No <code>.catch(()=&gt;{})</code> anywhere in
+    the module.</li>
+  <li><strong>Sponsor-email audience math.</strong> Dedup on <code>emailKey</code>; archived/email-less
+    skipped and counted; <code>narrowToSelected</code> is a strict intersection with dropped-id logging
+    (an invented contactId cannot add a recipient); exactly-one-of eventId/dealId enforced by Zod refine;
+    per-recipient failure isolation via <code>Promise.allSettled</code>; body tokens HTML-escaped; the
+    deal-summary <code>EMAIL_SENT</code> row is skipped when every recipient fails; subject header
+    injection blocked by <code>encodeRfc2047</code>.</li>
+  <li><strong>CRM_USER confinement.</strong> <code>buildEventAccessWhere</code> → zero events; proxy
+    redirects to <code>/crm</code>; in the restricted write set; events-lite/reps are name-only.</li>
+  <li><strong>Lifecycle basics.</strong> EVENT_REQUIRED on create + can-re-point-can't-clear on edit,
+    enforced in the service AND Zod; born-closed deals get matching status + stamps; WON/LOST activity
+    snapshots value+currency at close; no code path substitutes the products total for the deal value;
+    bad filter values narrow, never widen; win-rate is null (not NaN) on zero decided.</li>
+</ul>
+
+<!-- ══════════════════════════ PLAN ══════════════════════════ -->
+<h2 id="plan">Suggested fix order (for the implementation session)</h2>
+<ol>
+  <li><strong>Batch 1 — schema + state machine (before the CRM migrations reach prod):</strong>
+    H1 (one additive migration: <code>@@unique([organizationId, name])</code> ×2 + template
+    <code>skipDuplicates</code>) · H3 (+ M10 folds in: <code>terminalOutcome</code> column,
+    boundary-crossing-only status writes, closeDeal refusal, REOPENED activity, lostReason clear) ·
+    M1 (<code>archivedAt: null</code> in the state-machine claims).</li>
+  <li><strong>Batch 2 — money + errors:</strong> H2 (currency-aware aggregates, null-on-mixed) ·
+    H4 (<code>NAME_TAKEN</code>/<code>EMAIL_TAKEN</code> → 409 + warn) · M5 (one warn line in
+    <code>crmErrorResponse</code>).</li>
+  <li><strong>Batch 3 — visibility + email:</strong> M2 + L13 (owner decision on notes/PII for MEMBER) ·
+    M3 (send dedup window, copy comms-H2) · M9 (+ L12) MIME sanitization in <code>email.ts</code> ·
+    M6 (isError cards + three onError handlers).</li>
+  <li><strong>Batch 4 — the rest:</strong> M4 (edit transaction / diff-from-patch) · M7 (delete or wire
+    <code>contactId</code>) · M8 (stage DELETE gate) · M11/M12 (tasks) · LOWs opportunistically, doc drift
+    (L15) alongside whatever batch touches the files.</li>
+</ol>
+
+<!-- ══════════════════════════ LESSONS ══════════════════════════ -->
+<h2 id="lessons">Lessons index — what a developer should take from this review</h2>
+<ol>
+  <li><strong>Fix the pattern, not the file</strong> (H1, M5). Two review-shipped fixes — the seed-race
+    unique constraint and the <code>reject()</code> logging helper — each stopped at the one service the
+    finding named, while identical siblings sat one file away. After any review fix: grep for the shape.</li>
+  <li><strong>Semantics live in columns, not names</strong> (H3, L5). If renaming a row changes what a
+    state machine does, the design is storing meaning in a string. The comment "this name is load-bearing"
+    is the bug report.</li>
+  <li><strong>Claims must guard the fields they change</strong> (H3c, M1). <code>moveDealStage</code>
+    conditions on <code>stageId</code> but rewrites <code>status</code>; nothing conditions on
+    <code>archivedAt</code>. A conditional claim is only as good as its <code>where</code>.</li>
+  <li><strong>An honest null beats a fabricated number</strong> (H2). The module invented this rule itself
+    (<code>sumDealProducts</code>) and then didn't apply it to the aggregates finance will actually read.</li>
+  <li><strong>Known failures get codes, not <code>UNKNOWN</code></strong> (H4, L4). If you can phrase the
+    message, you know the case — give it a 4xx and a warn line. <code>UNKNOWN → 500</code> is for the
+    genuinely unforeseen.</li>
+  <li><strong>Log at the choke point</strong> (M5). Per-site logging discipline decays; one warn line in
+    <code>crmErrorResponse</code> makes silent rejections structurally impossible — the same move as
+    gate-owned refusal logging.</li>
+  <li><strong>Error ≠ empty</strong> (M6). <code>{ data = [], isLoading }</code> silently converts a failed
+    fetch into "you have no deals". Every list needs the <code>isError</code> branch.</li>
+  <li><strong>Redaction must cover channels, not just keys</strong> (M2). Money stripped from
+    <code>dealValue</code> walks straight out through <code>notes</code> prose.</li>
+  <li><strong>A validated-but-unconsumed schema field is a contract lie</strong> (M7). The 201 tells the
+    caller it worked. When a model migrates, sweep the Zod schemas for the old shape.</li>
+  <li><strong>Fan-out sends need idempotency, not rate limits</strong> (M3). "What happens when this exact
+    request arrives twice?" must have a better answer than "everyone gets two emails".</li>
+  <li><strong><code>$transaction</code> is not isolation</strong> (L1, M4). Aggregates take no locks under
+    READ COMMITTED; three awaits are three transactions. Comments claiming otherwise teach the next reader
+    a false pattern — the accommodation review's lesson, recurring.</li>
+  <li><strong>Gate by blast radius</strong> (M8). An org-wide hard delete at a looser gate than a
+    single-record soft archive is an inverted privilege gradient, whatever the entity is called.</li>
+</ol>
+
+<footer>
+  Review method: four independent adversarial review agents (RBAC/IDOR · concurrency/integrity ·
+  drift/logging · lifecycle/correctness), each instructed to verify findings against source and report
+  false-positive checks; cross-agent duplicates merged; every HIGH and the load-bearing MEDs re-verified
+  by hand against the code before recording (schema constraints, P2002 branches, report currency
+  hardcodes, gate wiring, MIME interpolation).<br>
+  Findings tally after dedup: <strong>0 BLOCKER / 4 HIGH / 12 MED / 17 LOW</strong>. Browseable at
+  <code>/admin/docs/CODE_REVIEW_CRM.html</code>. Update this document in place as fixes land
+  (flip pills to <span class="pill shipped">Shipped</span> + commit hash), mirroring the
+  certificates/accommodation/contacts reports.
+</footer>
+
+</div>
+</body>
+</html>
