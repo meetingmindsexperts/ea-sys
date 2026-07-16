@@ -31,12 +31,15 @@ async function getAuthenticatedUser() {
   return { session, unauthorized: null };
 }
 
-async function validateEventAccess(eventId: string, organizationId: string) {
+// L4: org-scope via buildEventAccessWhere like the GET (denyReviewer has
+// already blocked restricted roles) — the hand-rolled organizationId filter
+// 404'd an org-null SUPER_ADMIN.
+async function validateEventAccess(
+  eventId: string,
+  user: { id: string; role: string; organizationId?: string | null },
+) {
   const event = await db.event.findFirst({
-    where: {
-      id: eventId,
-      organizationId,
-    },
+    where: buildEventAccessWhere(user, eventId),
     select: { id: true },
   });
 
@@ -123,7 +126,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const eventError = await validateEventAccess(eventId, session.user.organizationId!);
+    const eventError = await validateEventAccess(eventId, session.user);
     if (eventError) {
       return eventError;
     }
@@ -209,7 +212,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const eventError = await validateEventAccess(eventId, session.user.organizationId!);
+    const eventError = await validateEventAccess(eventId, session.user);
     if (eventError) {
       return eventError;
     }

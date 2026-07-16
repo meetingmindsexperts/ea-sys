@@ -233,8 +233,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Authorization stays at the boundary: the service validates that the event
     // EXISTS, not that this org owns it. 404 (not 403) to avoid enumeration.
+    // L4: buildEventAccessWhere instead of a hand-rolled organizationId filter
+    // (denyReviewer already blocked restricted roles; the hand-rolled filter
+    // 404'd an org-null SUPER_ADMIN).
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {

@@ -158,9 +158,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // L4: buildEventAccessWhere instead of a hand-rolled organizationId filter
+    // (denyReviewer already blocked restricted roles).
     const [event, existingSession] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true, startDate: true, endDate: true, timezone: true },
       }),
       db.eventSession.findFirst({
@@ -248,7 +250,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: buildEventAccessWhere(session.user, eventId),
       // `settings` carries the webinar anchor pointer we must protect below.
       select: { id: true, organizationId: true, settings: true },
     });

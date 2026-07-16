@@ -23,6 +23,13 @@ import {
   Save,
 } from "lucide-react";
 import { formatDateInTz, formatTimeInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
+import {
+  SESSION_ROLE_COLORS,
+  formatSessionRole,
+  formatSessionStatus,
+  sessionStatusColor,
+} from "@/lib/session-enums";
+import type { SessionRole } from "@prisma/client";
 import { toast } from "sonner";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -98,25 +105,10 @@ interface SessionDetailSheetProps {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_COLORS: Record<string, string> = {
-  DRAFT: "bg-gray-100 text-gray-800",
-  SCHEDULED: "bg-blue-100 text-blue-800",
-  LIVE: "bg-green-100 text-green-800",
-  COMPLETED: "bg-slate-100 text-slate-800",
-  CANCELLED: "bg-red-100 text-red-800",
-};
-
 const SPEAKER_STATUS_COLORS: Record<string, string> = {
   CONFIRMED: "bg-green-100 text-green-700",
   INVITED: "bg-yellow-100 text-yellow-700",
   DECLINED: "bg-red-100 text-red-700",
-};
-
-const ROLE_COLORS: Record<string, string> = {
-  SPEAKER: "bg-blue-100 text-blue-700",
-  MODERATOR: "bg-purple-100 text-purple-700",
-  CHAIRPERSON: "bg-amber-100 text-amber-700",
-  PANELIST: "bg-teal-100 text-teal-700",
 };
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -275,8 +267,8 @@ export function SessionDetailSheet({
           <div className="space-y-6 mt-4">
             {/* ── Status & Track ────────────────────────────────────── */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Badge className={STATUS_COLORS[session.status] ?? "bg-gray-100 text-gray-800"}>
-                {session.status}
+              <Badge className={sessionStatusColor(session.status)}>
+                {formatSessionStatus(session.status)}
               </Badge>
               {session.track && (
                 <Badge
@@ -333,9 +325,9 @@ export function SessionDetailSheet({
                     >
                       <Badge
                         variant="outline"
-                        className={`text-xs ${ROLE_COLORS[sp.role] ?? ""}`}
+                        className={`text-xs ${SESSION_ROLE_COLORS[sp.role as SessionRole] ?? ""}`}
                       >
-                        {sp.role}
+                        {formatSessionRole(sp.role)}
                       </Badge>
                       <span>
                         {sp.speaker.firstName} {sp.speaker.lastName}

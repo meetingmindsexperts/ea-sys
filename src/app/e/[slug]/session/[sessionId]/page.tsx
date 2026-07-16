@@ -34,6 +34,7 @@ import {
   resolveTimezone,
   tzLabel,
 } from "@/lib/event-time";
+import { formatSessionRole } from "@/lib/session-enums";
 
 /**
  * "9:00 AM GST on Jun 15" — join-availability timestamps must render in the
@@ -882,7 +883,7 @@ export default function PublicSessionPage() {
                       <div className="flex-1 min-w-0">
                         {speaker.role && speaker.role !== "SPEAKER" && (
                           <span className="inline-block mb-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                            {speaker.role.charAt(0) + speaker.role.slice(1).toLowerCase()}
+                            {formatSessionRole(speaker.role)}
                           </span>
                         )}
                         <p className="font-medium">

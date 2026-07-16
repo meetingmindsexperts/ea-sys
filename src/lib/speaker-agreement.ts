@@ -8,6 +8,7 @@ import { db } from "./db";
 import { apiLogger } from "./logger";
 import { formatPersonName, getTitleLabel, formatDate, formatDateTime, slugify } from "./utils";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "./default-terms";
+import { formatSessionRole } from "./session-enums";
 
 export interface SpeakerAgreementTemplateMeta {
   url: string;
@@ -15,13 +16,6 @@ export interface SpeakerAgreementTemplateMeta {
   uploadedAt: string;
   uploadedBy: string;
 }
-
-const SESSION_ROLE_LABELS: Record<string, string> = {
-  SPEAKER: "Speaker",
-  MODERATOR: "Moderator",
-  CHAIRPERSON: "Chairperson",
-  PANELIST: "Panelist",
-};
 
 export interface SpeakerEmailContext {
   // Speaker identity
@@ -195,7 +189,7 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
 
   const roleSet = new Set<string>();
   for (const s of sessionRows) {
-    const label = SESSION_ROLE_LABELS[s.role] ?? s.role;
+    const label = formatSessionRole(s.role);
     if (label) roleSet.add(label);
   }
   const role = Array.from(roleSet).join(", ");

@@ -63,6 +63,13 @@ import {
   tzLabel,
   wallTimeInTzToDate,
 } from "@/lib/event-time";
+import {
+  SESSION_ROLE_OPTIONS,
+  SESSION_STATUS_LABELS,
+  formatSessionRole,
+  formatSessionStatus,
+  sessionStatusColor,
+} from "@/lib/session-enums";
 import { useSessions, useTracks, useSpeakers, useEvent, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -162,14 +169,6 @@ const TIME_SLOTS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
 
 const GRID_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
 
-const STATUS_COLORS: Record<string, string> = {
-  DRAFT: "bg-gray-100 text-gray-700",
-  SCHEDULED: "bg-blue-100 text-blue-700",
-  LIVE: "bg-green-100 text-green-700",
-  COMPLETED: "bg-purple-100 text-purple-700",
-  CANCELLED: "bg-red-100 text-red-700",
-};
-
 const SPEAKER_STATUS_COLORS: Record<string, string> = {
   CONFIRMED: "bg-green-100 text-green-700",
   INVITED: "bg-yellow-100 text-yellow-700",
@@ -189,13 +188,6 @@ const DEFAULT_SESSION_FORM = {
   sessionRoles: [] as SessionRoleForm[],
   topics: [] as TopicForm[],
 };
-
-const SESSION_ROLE_OPTIONS = [
-  { value: "MODERATOR", label: "Moderator" },
-  { value: "CHAIRPERSON", label: "Chairperson" },
-  { value: "PANELIST", label: "Panelist" },
-  { value: "SPEAKER", label: "Speaker" },
-] as const;
 
 const DEFAULT_TRACK_FORM = { name: "", description: "", color: "#3B82F6" };
 
@@ -1064,11 +1056,11 @@ export default function AgendaPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="DRAFT">Draft</SelectItem>
-                      <SelectItem value="SCHEDULED">Scheduled</SelectItem>
-                      <SelectItem value="LIVE">Live</SelectItem>
-                      <SelectItem value="COMPLETED">Completed</SelectItem>
-                      <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                      {Object.entries(SESSION_STATUS_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1445,9 +1437,9 @@ export default function AgendaPage() {
                           <div className="flex items-start justify-between gap-2">
                             <p className="font-medium leading-snug">{s.name}</p>
                             <span
-                              className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLORS[s.status] ?? "bg-gray-100 text-gray-700"}`}
+                              className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${sessionStatusColor(s.status)}`}
                             >
-                              {s.status.charAt(0) + s.status.slice(1).toLowerCase()}
+                              {formatSessionStatus(s.status)}
                             </span>
                           </div>
 
@@ -1634,7 +1626,7 @@ function SessionCard({
               <div className="space-y-0.5">
                 {session.speakers.map((s, i) => (
                   <div key={i}>
-                    <span className="font-medium text-foreground/80">{s.role !== "SPEAKER" ? `${s.role}: ` : ""}</span>
+                    <span className="font-medium text-foreground/80">{s.role !== "SPEAKER" ? `${formatSessionRole(s.role)}: ` : ""}</span>
                     {formatPersonName(s.speaker.title, s.speaker.firstName, s.speaker.lastName)}
                   </div>
                 ))}
@@ -1654,10 +1646,10 @@ function SessionCard({
             )}
           </div>
           <Badge
-            className={`${STATUS_COLORS[session.status]} text-xs`}
+            className={`${sessionStatusColor(session.status)} text-xs`}
             variant="outline"
           >
-            {session.status.charAt(0) + session.status.slice(1).toLowerCase()}
+            {formatSessionStatus(session.status)}
           </Badge>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="italic">Click to edit</span>

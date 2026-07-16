@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn, formatPersonName } from "@/lib/utils";
 import { formatTimeInTz, localDateInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
+import { formatSessionRole } from "@/lib/session-enums";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -518,7 +519,7 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
                         )}
                         {role && role !== "SPEAKER" && (
                           <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-                            {role.charAt(0) + role.slice(1).toLowerCase()}
+                            {formatSessionRole(role)}
                           </span>
                         )}
                         <span className="text-xs text-slate-700 font-medium">
