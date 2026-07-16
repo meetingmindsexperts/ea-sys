@@ -10,8 +10,13 @@ import { describe, it, expect } from "vitest";
 import { planPipelineReconciliation } from "@/crm/lib/pipeline-reconcile";
 import { DEFAULT_PIPELINE_STAGES } from "@/crm/services/pipeline-service";
 
-function stage(name: string, sortOrder: number, isTerminal = false) {
-  return { id: `id-${name.toLowerCase().replace(/\s+/g, "-")}`, name, sortOrder, isTerminal };
+function stage(
+  name: string,
+  sortOrder: number,
+  isTerminal = false,
+  terminalOutcome: "WON" | "LOST" | null = null,
+) {
+  return { id: `id-${name.toLowerCase().replace(/\s+/g, "-")}`, name, sortOrder, isTerminal, terminalOutcome };
 }
 
 // The old seed this feature replaces.
@@ -56,11 +61,29 @@ describe("planPipelineReconciliation — old seed → canonical", () => {
 
 describe("planPipelineReconciliation — idempotency & edges", () => {
   it("is a clean no-op against an already-canonical pipeline", () => {
-    const canonical = DEFAULT_PIPELINE_STAGES.map((s, i) => stage(s.name, i, s.isTerminal));
+    const canonical = DEFAULT_PIPELINE_STAGES.map((s, i) => stage(s.name, i, s.isTerminal, s.terminalOutcome));
     const plan = planPipelineReconciliation(canonical, DEFAULT_PIPELINE_STAGES);
     expect(plan.toCreate).toEqual([]);
     expect(plan.toUpdate).toEqual([]);
     expect(plan.toRemove).toEqual([]);
+  });
+
+  it("backfills the terminalOutcome onto a matched Won/Lost that predates the column", () => {
+    // An existing pipeline snapshotted before terminalOutcome existed: the plan
+    // must stamp the outcome so drag-to-close keeps working after reconcile.
+    const existing = [stage("New", 0), stage("Won", 1, true), stage("Lost", 2, true)];
+    const plan = planPipelineReconciliation(existing, DEFAULT_PIPELINE_STAGES);
+    expect(plan.toUpdate.find((u) => u.id === "id-won")).toMatchObject({ terminalOutcome: "WON" });
+    expect(plan.toUpdate.find((u) => u.id === "id-lost")).toMatchObject({ terminalOutcome: "LOST" });
+  });
+
+  it("reports a terminal orphan's outcome so its closed deals land in the matching terminal column", () => {
+    const existing = [
+      ...DEFAULT_PIPELINE_STAGES.map((s, i) => stage(s.name, i, s.isTerminal, s.terminalOutcome)),
+      stage("Closed Won", 8, true, "WON"),
+    ];
+    const plan = planPipelineReconciliation(existing, DEFAULT_PIPELINE_STAGES);
+    expect(plan.toRemove).toEqual([{ id: "id-closed-won", name: "Closed Won", terminalOutcome: "WON" }]);
   });
 
   it("matches case-insensitively and normalizes to the canonical casing", () => {

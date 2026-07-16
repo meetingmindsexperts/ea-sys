@@ -49,7 +49,7 @@ async function main() {
     const existing = await db.crmPipelineStage.findMany({
       where: { organizationId: org.id },
       orderBy: { sortOrder: "asc" },
-      select: { id: true, name: true, sortOrder: true, isTerminal: true },
+      select: { id: true, name: true, sortOrder: true, isTerminal: true, terminalOutcome: true },
     });
 
     // An org that never opened the CRM has no pipeline yet — nothing to reconcile
@@ -77,8 +77,14 @@ async function main() {
     for (const r of plan.toRemove) {
       const dealCount = await db.crmDeal.count({ where: { stageId: r.id } });
       orgDealsToMove += dealCount;
+      // A terminal orphan's deals belong in the matching canonical terminal column,
+      // not the open fallback — a WON deal landing in "New" would be the exact
+      // stage/status divergence the runtime code prevents (CRM review L5).
+      const dest = r.terminalOutcome
+        ? DEFAULT_PIPELINE_STAGES.find((c) => c.terminalOutcome === r.terminalOutcome)?.name ?? plan.fallbackStageName
+        : plan.fallbackStageName;
       console.log(
-        `  - remove  ${r.name}${dealCount ? ` (moves ${dealCount} deal${dealCount === 1 ? "" : "s"} → ${plan.fallbackStageName})` : " (empty)"}`,
+        `  - remove  ${r.name}${dealCount ? ` (moves ${dealCount} deal${dealCount === 1 ? "" : "s"} → ${dest})` : " (empty)"}`,
       );
     }
 
@@ -91,18 +97,24 @@ async function main() {
               name: c.name,
               sortOrder: c.sortOrder,
               isTerminal: c.isTerminal,
+              terminalOutcome: c.terminalOutcome,
             })),
+            // @@unique([organizationId, name]) backstops a stage created
+            // concurrently (live board use during --write) colliding by name.
+            skipDuplicates: true,
           });
         }
         for (const u of plan.toUpdate) {
           await tx.crmPipelineStage.update({
             where: { id: u.id },
-            data: { name: u.name, sortOrder: u.sortOrder, isTerminal: u.isTerminal },
+            data: { name: u.name, sortOrder: u.sortOrder, isTerminal: u.isTerminal, terminalOutcome: u.terminalOutcome },
           });
         }
 
         // The fallback ("New") is canonical[0] — never an orphan, so it exists now
-        // (created above or matched). Deals from removed columns land here.
+        // (created above or matched). Deals from removed OPEN columns land here;
+        // deals from a terminal orphan land in the canonical column with the SAME
+        // outcome, so a WON deal never surfaces in an open column (CRM review L5).
         const fallback = await tx.crmPipelineStage.findFirst({
           where: { organizationId: org.id, name: plan.fallbackStageName },
           select: { id: true },
@@ -111,7 +123,16 @@ async function main() {
 
         let dealsMoved = 0;
         for (const r of plan.toRemove) {
-          const res = await tx.crmDeal.updateMany({ where: { stageId: r.id }, data: { stageId: fallback.id } });
+          let destId = fallback.id;
+          if (r.terminalOutcome) {
+            const terminalDest = await tx.crmPipelineStage.findFirst({
+              where: { organizationId: org.id, terminalOutcome: r.terminalOutcome, id: { not: r.id } },
+              orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              select: { id: true },
+            });
+            destId = terminalDest?.id ?? fallback.id;
+          }
+          const res = await tx.crmDeal.updateMany({ where: { stageId: r.id }, data: { stageId: destId } });
           dealsMoved += res.count;
           await tx.crmPipelineStage.delete({ where: { id: r.id } });
         }

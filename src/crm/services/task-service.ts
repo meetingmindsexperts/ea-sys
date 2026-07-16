@@ -51,6 +51,7 @@ export interface UpdateTaskInput {
 export type TaskErrorCode =
   | "TITLE_REQUIRED"
   | "TASK_NOT_FOUND"
+  | "TASK_ARCHIVED"
   | "OWNER_NOT_FOUND"
   | "DEAL_NOT_FOUND"
   | "COMPANY_NOT_FOUND"
@@ -230,18 +231,24 @@ export async function completeTask(input: {
 }): Promise<TaskResult> {
   try {
     const claim = await db.crmTask.updateMany({
-      where: { id: input.taskId, organizationId: input.organizationId, status: "OPEN" },
+      // archivedAt: null — an archived task is frozen (CRM review M1): completing
+      // it from a stale list would stamp completedAt on a record nobody can see.
+      where: { id: input.taskId, organizationId: input.organizationId, status: "OPEN", archivedAt: null },
       data: { status: "DONE", completedAt: new Date() },
     });
 
     if (claim.count === 0) {
       const current = await db.crmTask.findFirst({
         where: { id: input.taskId, organizationId: input.organizationId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, archivedAt: true },
       });
       if (!current) {
         apiLogger.warn({ msg: "crm-task:complete-not-found", taskId: input.taskId });
         return { ok: false, code: "TASK_NOT_FOUND", message: "Task not found" };
+      }
+      if (current.archivedAt) {
+        apiLogger.warn({ msg: "crm-task:complete-archived", taskId: input.taskId });
+        return { ok: false, code: "TASK_ARCHIVED", message: "This task was archived — restore it first" };
       }
       // Idempotent from the user's point of view — it IS done — but we report it
       // rather than pretend we just did it.
@@ -281,7 +288,7 @@ export async function reopenTask(input: {
 }): Promise<TaskResult> {
   try {
     const claim = await db.crmTask.updateMany({
-      where: { id: input.taskId, organizationId: input.organizationId, status: "DONE" },
+      where: { id: input.taskId, organizationId: input.organizationId, status: "DONE", archivedAt: null },
       data: { status: "OPEN", completedAt: null },
     });
     if (claim.count === 0) {

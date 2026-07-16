@@ -2537,6 +2537,11 @@ model CrmEmailTemplate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Makes the first-use seed race-safe (CRM review H1): with the unique in place,
+  // the seed's createMany({ skipDuplicates: true }) actually skips when two
+  // concurrent first-loads both pass the count===0 fast-path — without it,
+  // skipDuplicates is a no-op and both writers insert the full template set.
+  @@unique([organizationId, name])
   @@index([organizationId, sortOrder])
 }
 
@@ -2669,6 +2674,14 @@ model CrmPipelineStage {
   sortOrder  Int
   isTerminal Boolean @default(false)
 
+  /// The business outcome a TERMINAL stage implies (CRM review H3). Stored on the
+  /// row, NOT derived from the stage name, so renaming "Won" can never silently
+  /// stop drag-to-close/closeDeal() from closing deals. Null on open stages, and
+  /// on a custom terminal stage the org hasn't mapped — deals dragged into an
+  /// unmapped terminal stage keep their current status rather than having an
+  /// outcome invented from the column name.
+  terminalOutcome CrmStageOutcome?
+
   /// Deals are Restrict-protected: you cannot delete a stage that still holds
   /// deals — move them first. Silently vaporising a pipeline column's contents
   /// is not a thing we let an errant click do.
@@ -2677,7 +2690,19 @@ model CrmPipelineStage {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Stage names are load-bearing lookup keys (the board, the reconcile planner) —
+  // and the unique is what makes the seed's createMany skipDuplicates actually
+  // skip under a concurrent first-load (CRM review H1). Case-sensitive; the seed
+  // always writes identical strings, so both racers collide as intended.
+  @@unique([organizationId, name])
   @@index([organizationId, sortOrder])
+}
+
+/// The outcome a terminal CrmPipelineStage maps a deal to. See
+/// CrmPipelineStage.terminalOutcome.
+enum CrmStageOutcome {
+  WON
+  LOST
 }
 
 /// A sponsorship / exhibitor deal.
@@ -2787,7 +2812,8 @@ model CrmTask {
   /// Reminder job (worker/jobs/crm-reminders.ts, every 5 min):
   ///   remindAt <= now AND remindedAt IS NULL AND status = OPEN
   /// `remindedAt` is the idempotency stamp — written in the same claim as the
-  /// send so a crash mid-tick can't double-email. Partial index below serves it.
+  /// send so a crash mid-tick can't double-email. Served by the plain @@index on
+  /// remindAt below (a regular index, not a partial one).
   remindAt   DateTime?
   remindedAt DateTime?
 

@@ -10,7 +10,7 @@
  * always binds to the caller's org. Nothing else in the CRM should look a stage up
  * by bare id.
  */
-import { Prisma, type CrmPipelineStage } from "@prisma/client";
+import { Prisma, type CrmPipelineStage, type CrmStageOutcome } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
@@ -49,27 +49,50 @@ function writeAudit(entry: {
 }
 
 /**
- * The seed pipeline (§9 decision 3). Won/Lost are terminal — a deal in a terminal
- * stage has a matching CrmDeal.status, and closeDeal() keeps the two in step.
+ * The seed pipeline (§9 decision 3). Won/Lost are terminal, and each terminal
+ * stage carries a `terminalOutcome` — the deal status it maps a card to.
  *
- * The names "Won" and "Lost" are LOAD-BEARING, not decorative: closeDeal() finds
- * the terminal column by name, and terminalStatusFor() maps a terminal stage to
- * WON/LOST only when it is literally called won/lost. Rename either and dragging a
- * card into it stops closing the deal — so keep them, and put any new columns
- * BEFORE them.
+ * The OUTCOME lives on the row, not in the name (CRM review H3): closeDeal()
+ * finds its landing column by `terminalOutcome`, and the stage-move state machine
+ * reads the same column. Renaming "Won" to anything at all no longer breaks
+ * drag-to-close. The names stay unique per org (`@@unique([organizationId, name])`)
+ * because the board and the reconcile planner still look stages up by name.
  */
-export const DEFAULT_PIPELINE_STAGES: ReadonlyArray<{ name: string; isTerminal: boolean }> = [
-  { name: "New", isTerminal: false },
-  { name: "Proposal", isTerminal: false },
-  { name: "Negotiation", isTerminal: false },
-  { name: "Contract Signed", isTerminal: false },
-  { name: "Purchase Order", isTerminal: false },
-  { name: "Invoice Sent", isTerminal: false },
-  { name: "Won", isTerminal: true },
-  { name: "Lost", isTerminal: true },
+export const DEFAULT_PIPELINE_STAGES: ReadonlyArray<{
+  name: string;
+  isTerminal: boolean;
+  terminalOutcome: CrmStageOutcome | null;
+}> = [
+  { name: "New", isTerminal: false, terminalOutcome: null },
+  { name: "Proposal", isTerminal: false, terminalOutcome: null },
+  { name: "Negotiation", isTerminal: false, terminalOutcome: null },
+  { name: "Contract Signed", isTerminal: false, terminalOutcome: null },
+  { name: "Purchase Order", isTerminal: false, terminalOutcome: null },
+  { name: "Invoice Sent", isTerminal: false, terminalOutcome: null },
+  { name: "Won", isTerminal: true, terminalOutcome: "WON" },
+  { name: "Lost", isTerminal: true, terminalOutcome: "LOST" },
 ];
 
-export type PipelineErrorCode = "STAGE_NOT_FOUND" | "STAGE_HAS_DEALS" | "NAME_REQUIRED" | "UNKNOWN";
+/**
+ * Best-effort outcome for a stage created WITHOUT an explicit terminalOutcome —
+ * an org adding a column called "Closed Won" obviously means WON. Used only at
+ * stage-creation time (and mirrored by the migration backfill); the runtime deal
+ * state machine reads the stored column, never the name.
+ */
+export function deriveStageOutcome(name: string): CrmStageOutcome | null {
+  const n = name.trim().toLowerCase();
+  if (n === "won" || n === "closed won") return "WON";
+  if (n === "lost" || n === "closed lost") return "LOST";
+  return null;
+}
+
+export type PipelineErrorCode =
+  | "STAGE_NOT_FOUND"
+  | "STAGE_HAS_DEALS"
+  | "NAME_REQUIRED"
+  | "NAME_TAKEN"
+  | "LAST_TERMINAL_STAGE"
+  | "UNKNOWN";
 
 /**
  * Idempotently ensure the org has a pipeline. Safe to call on every board load:
@@ -82,7 +105,7 @@ export type PipelineErrorCode = "STAGE_NOT_FOUND" | "STAGE_HAS_DEALS" | "NAME_RE
 export async function ensurePipelineStages(organizationId: string): Promise<CrmPipelineStage[]> {
   const existing = await db.crmPipelineStage.findMany({
     where: { organizationId },
-    orderBy: { sortOrder: "asc" },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
   if (existing.length > 0) return existing;
 
@@ -93,13 +116,17 @@ export async function ensurePipelineStages(organizationId: string): Promise<CrmP
         name: s.name,
         sortOrder: i,
         isTerminal: s.isTerminal,
+        terminalOutcome: s.terminalOutcome,
       })),
+      // Real, not decorative: @@unique([organizationId, name]) backs this, so when
+      // two concurrent first-loads both pass the count===0 fast-path the second
+      // createMany skips every row instead of inserting a duplicate pipeline
+      // (CRM review H1 — skipDuplicates without a unique constraint skips nothing).
       skipDuplicates: true,
     });
     apiLogger.info({ msg: "crm-pipeline:seeded", organizationId, count: DEFAULT_PIPELINE_STAGES.length });
   } catch (err) {
-    // Two concurrent first-loads can both try to seed. Losing that race is
-    // harmless — re-read below and use whatever landed.
+    // Anything else that raced us is settled by the re-read below.
     apiLogger.warn({
       msg: "crm-pipeline:seed-race",
       organizationId,
@@ -109,7 +136,7 @@ export async function ensurePipelineStages(organizationId: string): Promise<CrmP
 
   return db.crmPipelineStage.findMany({
     where: { organizationId },
-    orderBy: { sortOrder: "asc" },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
 }
 
@@ -133,16 +160,26 @@ export async function createStage(input: {
   userId: string | null;
   name: string;
   isTerminal?: boolean;
+  /** Explicit outcome for a terminal stage; defaults from the name ("Closed Won" → WON). */
+  terminalOutcome?: CrmStageOutcome | null;
 }): Promise<
   { ok: true; stage: CrmPipelineStage } | { ok: false; code: PipelineErrorCode; message: string }
 > {
   const name = input.name?.trim() ?? "";
-  if (!name) return { ok: false, code: "NAME_REQUIRED", message: "Stage name is required" };
+  if (!name) {
+    apiLogger.warn({ msg: "crm-pipeline:create-name-required", organizationId: input.organizationId });
+    return { ok: false, code: "NAME_REQUIRED", message: "Stage name is required" };
+  }
+
+  const isTerminal = input.isTerminal ?? false;
+  const terminalOutcome = isTerminal ? (input.terminalOutcome ?? deriveStageOutcome(name)) : null;
 
   try {
-    // Compute the next sortOrder inside a transaction so two concurrent adds
-    // can't both claim the same slot (the sortOrder race from the certificates
-    // review, H3 — same fix).
+    // NOTE this transaction does NOT serialize concurrent adds — under READ
+    // COMMITTED both racers can read the same _max and insert the same slot (an
+    // aggregate takes no lock). A duplicate sortOrder is tolerable: the list reads
+    // order by [sortOrder, createdAt], so ties render deterministically. What IS
+    // hard-guarded is the name: @@unique([organizationId, name]) → P2002 below.
     const stage = await db.$transaction(async (tx) => {
       const agg = await tx.crmPipelineStage.aggregate({
         where: { organizationId: input.organizationId },
@@ -153,7 +190,8 @@ export async function createStage(input: {
           organizationId: input.organizationId,
           name,
           sortOrder: (agg._max.sortOrder ?? -1) + 1,
-          isTerminal: input.isTerminal ?? false,
+          isTerminal,
+          terminalOutcome,
         },
       });
     });
@@ -162,12 +200,18 @@ export async function createStage(input: {
       userId: input.userId,
       action: "CREATE",
       entityId: stage.id,
-      changes: { name: stage.name, sortOrder: stage.sortOrder, isTerminal: stage.isTerminal },
+      changes: { name: stage.name, sortOrder: stage.sortOrder, isTerminal: stage.isTerminal, terminalOutcome: stage.terminalOutcome },
     });
 
     apiLogger.info({ msg: "crm-pipeline:stage-created", stageId: stage.id, organizationId: input.organizationId });
     return { ok: true, stage };
   } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      // A second "Won" (or any duplicate name) would make every name-keyed lookup
+      // (board rendering, the reconcile planner) pick one arbitrarily.
+      apiLogger.warn({ msg: "crm-pipeline:stage-name-taken", organizationId: input.organizationId, name });
+      return { ok: false, code: "NAME_TAKEN", message: "A stage with that name already exists" };
+    }
     apiLogger.error({
       msg: "crm-pipeline:stage-create-failed",
       organizationId: input.organizationId,
@@ -220,7 +264,7 @@ export async function reorderStages(input: {
       ok: true,
       stages: await db.crmPipelineStage.findMany({
         where: { organizationId: input.organizationId },
-        orderBy: { sortOrder: "asc" },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       }),
     };
   } catch (err) {
@@ -260,6 +304,24 @@ export async function deleteStage(input: {
     };
   }
 
+  // Never delete the LAST stage mapped to an outcome (CRM review H3): with no
+  // WON-mapped column, closeDeal() has nowhere to land a won deal and refuses —
+  // the org would lose the ability to close deals with one errant click.
+  if (stage.terminalOutcome) {
+    const siblings = await db.crmPipelineStage.count({
+      where: { organizationId: input.organizationId, terminalOutcome: stage.terminalOutcome, id: { not: stage.id } },
+    });
+    if (siblings === 0) {
+      apiLogger.warn({ msg: "crm-pipeline:delete-blocked-last-terminal", stageId: stage.id, outcome: stage.terminalOutcome });
+      return {
+        ok: false,
+        code: "LAST_TERMINAL_STAGE",
+        message: `This is the only ${stage.terminalOutcome === "WON" ? "Won" : "Lost"} column — deals could no longer be closed ${stage.terminalOutcome.toLowerCase()}. Add a replacement first.`,
+        meta: { terminalOutcome: stage.terminalOutcome },
+      };
+    }
+  }
+
   try {
     await db.crmPipelineStage.delete({ where: { id: stage.id } });
 
@@ -269,7 +331,7 @@ export async function deleteStage(input: {
       entityId: stage.id,
       // Snapshot the deleted row — after the delete there is nothing left to
       // diff against, so the audit entry IS the only record it ever existed.
-      changes: { name: stage.name, sortOrder: stage.sortOrder, isTerminal: stage.isTerminal },
+      changes: { name: stage.name, sortOrder: stage.sortOrder, isTerminal: stage.isTerminal, terminalOutcome: stage.terminalOutcome },
     });
 
     apiLogger.info({ msg: "crm-pipeline:stage-deleted", stageId: stage.id, organizationId: input.organizationId });

@@ -16,9 +16,10 @@
  * someone's inbox with the same nag.
  *
  * The predicate (`remindAt <= now AND remindedAt IS NULL AND status = OPEN`) is
- * served by the partial index added in the CRM migration. A COMPLETED task drops
- * out of the queue via status alone — which is exactly why completeTask() must not
- * clear `remindedAt`.
+ * served by the plain index on CrmTask.remindAt (a regular index, not a partial
+ * one — the migration created `CREATE INDEX` on the column). A COMPLETED task
+ * drops out of the queue via status alone — which is exactly why completeTask()
+ * must not clear `remindedAt`.
  */
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -70,9 +71,11 @@ export async function runTick(): Promise<CrmReminderTickResult> {
 
   for (const task of due) {
     // CLAIM FIRST. If another tick beat us to this row, count===0 and we skip —
-    // no email, no double-nag.
+    // no email, no double-nag. archivedAt is re-checked at claim time: archiving a
+    // task between the candidate read and this claim cancels its reminder too
+    // (CRM review L2).
     const claim = await db.crmTask.updateMany({
-      where: { id: task.id, remindedAt: null, status: "OPEN" },
+      where: { id: task.id, remindedAt: null, status: "OPEN", archivedAt: null },
       data: { remindedAt: new Date() },
     });
 

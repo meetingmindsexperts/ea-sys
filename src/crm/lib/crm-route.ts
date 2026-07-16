@@ -154,6 +154,16 @@ const STATUS_BY_CODE: Record<string, number> = {
   STAGE_HAS_DEALS: 409,
   CONTACT_ALREADY_ON_DEAL: 409,
   PRODUCT_ALREADY_ON_DEAL: 409,
+  // archived records are frozen — restore before mutating (CRM review M1)
+  DEAL_ARCHIVED: 409,
+  TASK_ARCHIVED: 409,
+  // a business conflict, not a server fault (CRM review H4 — these used to fall
+  // through as UNKNOWN → an unlogged 500 on an ordinary rename collision)
+  NAME_TAKEN: 409,
+  EMAIL_TAKEN: 409,
+  // pipeline shape guards (CRM review H3)
+  NO_TERMINAL_STAGE: 409,
+  LAST_TERMINAL_STAGE: 409,
   // bad request
   NAME_REQUIRED: 400,
   EVENT_REQUIRED: 400,
@@ -174,6 +184,17 @@ export function crmErrorResponse(fail: {
   meta?: Record<string, unknown>;
 }): NextResponse {
   const status = STATUS_BY_CODE[fail.code] ?? 400;
+  // Log at the choke point (CRM review M5): every service rejection flows through
+  // here, so a service that forgets its own warn line still leaves a trace —
+  // per-site logging is a discipline, boundary logging is a guarantee. Real
+  // faults (UNKNOWN → 500) log at error; business rejections at warn.
+  apiLogger[status >= 500 ? "error" : "warn"]({
+    msg: "crm:business-rejection",
+    code: fail.code,
+    status,
+    message: fail.message,
+    ...(fail.meta ? { meta: fail.meta } : {}),
+  });
   return NextResponse.json(
     { error: fail.message, code: fail.code, ...(fail.meta ? { meta: fail.meta } : {}) },
     { status },

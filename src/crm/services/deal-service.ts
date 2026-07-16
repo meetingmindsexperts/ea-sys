@@ -26,7 +26,7 @@
  *
  * Conventions: src/services/README.md.
  */
-import { Prisma, type CrmDeal, type CrmDealStatus, type CrmDealContactRole } from "@prisma/client";
+import { Prisma, type CrmDeal, type CrmDealStatus, type CrmDealContactRole, type CrmStageOutcome } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
@@ -99,7 +99,9 @@ export type DealErrorCode =
   | "NAME_REQUIRED"
   | "EVENT_REQUIRED"
   | "DEAL_NOT_FOUND"
+  | "DEAL_ARCHIVED"
   | "STAGE_NOT_FOUND"
+  | "NO_TERMINAL_STAGE"
   | "COMPANY_NOT_FOUND"
   | "CONTACT_NOT_FOUND"
   | "CONTACT_ALREADY_ON_DEAL"
@@ -196,9 +198,10 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
         currency: input.currency?.trim() || "USD",
         expectedClose: input.expectedClose ?? null,
         // A deal created directly INTO a terminal stage is born closed, so the
-        // stage and the status can't disagree from the very first write.
-        status: terminalStatusFor(stage.name, stage.isTerminal) ?? "OPEN",
-        ...(stage.isTerminal ? closeStamps(terminalStatusFor(stage.name, stage.isTerminal)) : {}),
+        // stage and the status can't disagree from the very first write. The
+        // outcome comes from the stage's stored terminalOutcome, never its name.
+        status: stageOutcome(stage) ?? "OPEN",
+        ...(stageOutcome(stage) ? closeStamps(stageOutcome(stage)) : {}),
       },
     });
 
@@ -318,15 +321,51 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
  * clobbering a colleague's decision.
  */
 export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDealStageResult> {
-  const toStage = await resolveStage(input.toStageId, input.organizationId);
+  // Resolve BOTH ends of the move. The from-stage's terminality decides whether
+  // this drag crosses a close/reopen boundary — a move between two ordinary
+  // columns must NOT touch status (CRM review H3c: it used to unconditionally
+  // write status OPEN, silently reopening a divergent WON deal on a tidy-up drag).
+  const [toStage, fromStage] = await Promise.all([
+    resolveStage(input.toStageId, input.organizationId),
+    resolveStage(input.fromStageId, input.organizationId),
+  ]);
   if (!toStage) {
     apiLogger.warn({ msg: "crm-deal:move-unknown-stage", stageId: input.toStageId, organizationId: input.organizationId });
     return { ok: false, code: "STAGE_NOT_FOUND", message: "Pipeline stage not found" };
   }
 
-  // Moving INTO a terminal column IS closing the deal — keep stage and status in
-  // step, so the board and the reports can never disagree about what's won.
-  const nextStatus: CrmDealStatus = terminalStatusFor(toStage.name, toStage.isTerminal) ?? "OPEN";
+  const toOutcome = stageOutcome(toStage);
+  const fromOutcome = fromStage ? stageOutcome(fromStage) : null;
+
+  // Status/stamps change ONLY when the move crosses a terminality boundary.
+  let statusData: Record<string, unknown> = {};
+  let reopened = false;
+  if (toOutcome) {
+    // Into a mapped terminal column = closing the deal. Clear a stale lostReason
+    // when the outcome is WON (CRM review M10 — closeDeal already does this).
+    statusData = {
+      status: toOutcome,
+      ...closeStamps(toOutcome),
+      ...(toOutcome === "WON" ? { lostReason: null } : {}),
+    };
+  } else if (toStage.isTerminal) {
+    // A terminal column the org hasn't mapped to WON/LOST: never invent an
+    // outcome from a column name — leave the status alone, loudly.
+    apiLogger.warn({
+      msg: "crm-deal:terminal-stage-no-outcome",
+      dealId: input.dealId,
+      toStageId: toStage.id,
+      toStage: toStage.name,
+    });
+  } else if (fromStage?.isTerminal) {
+    // Out of a terminal column into an open one = reopening.
+    statusData = { status: "OPEN" as CrmDealStatus, wonAt: null, lostAt: null, lostReason: null };
+    // Only call it a REOPEN when the source column actually implied a close —
+    // dragging an (erroneously) OPEN deal out of an unmapped terminal column
+    // isn't a reopen event.
+    reopened = fromOutcome !== null;
+  }
+  // (non-terminal → non-terminal: statusData stays empty — status untouched.)
 
   try {
     const claim = await db.crmDeal.updateMany({
@@ -334,25 +373,30 @@ export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDeal
         id: input.dealId,
         organizationId: input.organizationId,
         stageId: input.fromStageId, // ← the precondition. This is the whole fix.
+        archivedAt: null, // an archived deal is frozen — a stale board can't move it (CRM review M1)
       },
       data: {
         stageId: toStage.id,
-        status: nextStatus,
-        ...closeStamps(nextStatus),
+        ...statusData,
       },
     });
 
     if (claim.count === 0) {
-      // Distinguish "someone beat me to it" from "that deal doesn't exist",
-      // because they mean very different things to the person at the board.
+      // Distinguish "someone beat me to it" from "archived under me" from "that
+      // deal doesn't exist" — they mean very different things at the board.
       const current = await db.crmDeal.findFirst({
         where: { id: input.dealId, organizationId: input.organizationId },
-        select: { id: true, stageId: true },
+        select: { id: true, stageId: true, archivedAt: true },
       });
 
       if (!current) {
         apiLogger.warn({ msg: "crm-deal:move-not-found", dealId: input.dealId, organizationId: input.organizationId });
         return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
+      }
+
+      if (current.archivedAt) {
+        apiLogger.warn({ msg: "crm-deal:move-archived", dealId: input.dealId });
+        return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before moving it" };
       }
 
       apiLogger.warn({
@@ -382,16 +426,29 @@ export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDeal
         fromStageId: input.fromStageId,
         toStageId: toStage.id,
         toStage: toStage.name,
-        status: nextStatus,
+        status: deal.status,
       },
     });
+    if (reopened) {
+      // An explicit trail entry for the close being undone — "why did July's won
+      // number shrink?" must be answerable from the deal's History.
+      void recordCrmActivity({
+        organizationId: input.organizationId,
+        entityType: "DEAL",
+        entityId: deal.id,
+        action: "REOPENED",
+        actorId: input.userId,
+        changes: { source: input.source, fromStage: fromStage?.name ?? null, toStage: toStage.name },
+      });
+    }
 
     apiLogger.info({
       msg: "crm-deal:stage-moved",
       dealId: deal.id,
       fromStageId: input.fromStageId,
       toStageId: toStage.id,
-      status: nextStatus,
+      status: deal.status,
+      reopened,
       source: input.source,
     });
     return { ok: true, deal };
@@ -419,36 +476,53 @@ export async function closeDeal(input: CloseDealInput): Promise<CloseDealResult>
   const status: CrmDealStatus = input.outcome;
 
   try {
-    // Land it in the matching terminal stage if the org has one, so the board
-    // reflects the close. If the org deleted its Won/Lost columns, the status is
-    // still authoritative — we just leave the card where it is.
+    // Land it in the outcome-mapped terminal stage — matched by terminalOutcome,
+    // never by name (CRM review H3: name-matching meant renaming "Won" silently
+    // broke closing). Multiple stages can share an outcome; take the first by
+    // board order so the landing column is deterministic.
     const terminal = await db.crmPipelineStage.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        isTerminal: true,
-        name: { equals: status === "WON" ? "Won" : "Lost", mode: "insensitive" },
-      },
+      where: { organizationId: input.organizationId, terminalOutcome: status },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { id: true },
     });
 
+    // No mapped column → REFUSE rather than close the deal in place. Closing
+    // without a landing column mints a stage/status divergence: the deal counts
+    // as open (it sits in an open column's report bucket) AND as won — fictional
+    // pipeline money. deleteStage() guards the last mapped column, so this only
+    // fires on hand-built pipelines.
+    if (!terminal) {
+      apiLogger.warn({ msg: "crm-deal:close-no-terminal-stage", dealId: input.dealId, outcome: status, organizationId: input.organizationId });
+      return {
+        ok: false,
+        code: "NO_TERMINAL_STAGE",
+        message: `This pipeline has no ${status === "WON" ? "Won" : "Lost"} column — add one before closing deals`,
+        meta: { outcome: status },
+      };
+    }
+
     const claim = await db.crmDeal.updateMany({
-      where: { id: input.dealId, organizationId: input.organizationId, status: "OPEN" },
+      where: { id: input.dealId, organizationId: input.organizationId, status: "OPEN", archivedAt: null },
       data: {
         status,
         ...closeStamps(status),
         lostReason: status === "LOST" ? (input.lostReason?.trim() || null) : null,
-        ...(terminal ? { stageId: terminal.id } : {}),
+        stageId: terminal.id,
       },
     });
 
     if (claim.count === 0) {
       const current = await db.crmDeal.findFirst({
         where: { id: input.dealId, organizationId: input.organizationId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, archivedAt: true },
       });
       if (!current) {
         apiLogger.warn({ msg: "crm-deal:close-not-found", dealId: input.dealId });
         return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
+      }
+      if (current.archivedAt) {
+        apiLogger.warn({ msg: "crm-deal:close-archived", dealId: input.dealId });
+        return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before closing it" };
       }
       apiLogger.warn({ msg: "crm-deal:already-closed", dealId: input.dealId, status: current.status });
       return {
@@ -491,20 +565,15 @@ export async function closeDeal(input: CloseDealInput): Promise<CloseDealResult>
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Map a terminal STAGE to the deal STATUS it implies, so dragging a card into
- * "Won" and pressing the Won button converge on the same state.
- *
- * A terminal stage that isn't recognisably Won/Lost (an org could rename them)
- * closes the deal as LOST only if it literally says so; otherwise we leave the
- * deal OPEN rather than guess an outcome — inventing a "won" from an ambiguous
- * column name would put fictional money in a revenue report.
+ * The deal STATUS a terminal stage implies — read from the stage's stored
+ * `terminalOutcome`, never derived from its name (CRM review H3: name-keying
+ * meant a renamed "Won" column silently stopped closing deals, and any stage/
+ * status divergence corrupted the reports). A terminal stage with no mapped
+ * outcome returns null: we never invent a close from a column name.
  */
-function terminalStatusFor(stageName: string, isTerminal: boolean): CrmDealStatus | null {
-  if (!isTerminal) return null;
-  const n = stageName.trim().toLowerCase();
-  if (n === "won" || n === "closed won") return "WON";
-  if (n === "lost" || n === "closed lost") return "LOST";
-  return null;
+function stageOutcome(stage: { isTerminal: boolean; terminalOutcome: CrmStageOutcome | null }): CrmDealStatus | null {
+  if (!stage.isTerminal) return null;
+  return stage.terminalOutcome; // "WON" | "LOST" ⊂ CrmDealStatus
 }
 
 function closeStamps(status: CrmDealStatus | null) {
@@ -612,7 +681,7 @@ export async function addDealContact(input: {
     const [deal, contact] = await Promise.all([
       db.crmDeal.findFirst({
         where: { id: input.dealId, organizationId: input.organizationId },
-        select: { id: true, eventId: true },
+        select: { id: true, eventId: true, archivedAt: true },
       }),
       db.crmContact.findFirst({
         where: { id: input.crmContactId, organizationId: input.organizationId },
@@ -623,6 +692,10 @@ export async function addDealContact(input: {
     if (!deal) {
       apiLogger.warn({ msg: "crm-deal:add-contact-deal-not-found", dealId: input.dealId });
       return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
+    }
+    if (deal.archivedAt) {
+      apiLogger.warn({ msg: "crm-deal:add-contact-deal-archived", dealId: input.dealId });
+      return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before adding people" };
     }
     if (!contact) {
       apiLogger.warn({ msg: "crm-deal:add-contact-not-found", crmContactId: input.crmContactId });

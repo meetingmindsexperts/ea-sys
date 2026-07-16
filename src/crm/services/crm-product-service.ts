@@ -26,6 +26,7 @@ export type CrmProductErrorCode =
   | "CATEGORY_REQUIRED"
   | "PRODUCT_NOT_FOUND"
   | "DEAL_NOT_FOUND"
+  | "DEAL_ARCHIVED"
   | "PRODUCT_ALREADY_ON_DEAL"
   | "LINE_NOT_FOUND"
   | "UNKNOWN";
@@ -231,10 +232,11 @@ export async function addDealProduct(input: {
 }): Promise<{ ok: true; line: CrmDealProduct } | Fail> {
   // Bind BOTH the deal and the product to the caller's org before writing.
   const [deal, product] = await Promise.all([
-    db.crmDeal.findFirst({ where: { id: input.dealId, organizationId: input.organizationId }, select: { id: true } }),
+    db.crmDeal.findFirst({ where: { id: input.dealId, organizationId: input.organizationId }, select: { id: true, archivedAt: true } }),
     db.crmProduct.findFirst({ where: { id: input.crmProductId, organizationId: input.organizationId } }),
   ]);
   if (!deal) return reject("DEAL_NOT_FOUND", "Deal not found", { organizationId: input.organizationId, dealId: input.dealId });
+  if (deal.archivedAt) return reject("DEAL_ARCHIVED", "This deal was archived — restore it before adding products", { organizationId: input.organizationId, dealId: input.dealId });
   if (!product) return reject("PRODUCT_NOT_FOUND", "Product not found", { organizationId: input.organizationId, crmProductId: input.crmProductId });
 
   const existing = await db.crmDealProduct.findFirst({ where: { dealId: input.dealId, crmProductId: input.crmProductId }, select: { id: true } });

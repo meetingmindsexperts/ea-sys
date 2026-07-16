@@ -8,6 +8,9 @@ import { ensurePipelineStages, createStage, reorderStages } from "@/crm/services
 const createStageSchema = z.object({
   name: z.string().min(1).max(100),
   isTerminal: z.boolean().optional(),
+  // The deal status this terminal column maps a card to. Optional — when omitted
+  // it is derived from the name ("Closed Won" → WON); ignored on open stages.
+  terminalOutcome: z.enum(["WON", "LOST"]).nullable().optional(),
 });
 
 const reorderSchema = z.object({

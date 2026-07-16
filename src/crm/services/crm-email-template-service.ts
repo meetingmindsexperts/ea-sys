@@ -69,10 +69,15 @@ export async function ensureCrmEmailTemplates(organizationId: string): Promise<v
         body: t.body,
         sortOrder: i,
       })),
+      // Real, not decorative: @@unique([organizationId, name]) backs this, so when
+      // two concurrent first-loads both pass the count===0 fast-path the second
+      // createMany skips every built-in instead of seeding a duplicate set
+      // (CRM review H1 — skipDuplicates without a unique constraint skips nothing).
+      skipDuplicates: true,
     });
     apiLogger.info({ msg: "crm-email-template:seeded", organizationId, count: CRM_EMAIL_TEMPLATES.length });
   } catch (err) {
-    // Two concurrent first-loads can both try to seed. Losing that race is harmless.
+    // Anything else that raced us is settled by the caller's list read.
     apiLogger.warn({
       msg: "crm-email-template:seed-race",
       organizationId,
