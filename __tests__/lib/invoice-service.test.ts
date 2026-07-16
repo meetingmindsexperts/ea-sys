@@ -155,6 +155,7 @@ const fakeRegistration = {
 function setupTxMock(
   onData?: (data: Record<string, unknown>) => void,
   txExistingCns: Array<{ total: string }> = [],
+  txSettledPayments: Array<{ amount: string | number }> = [],
 ) {
   mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
     const txMock = {
@@ -162,6 +163,10 @@ function setupTxMock(
       // sum INSIDE the tx (atomic cap). $queryRaw is the FOR UPDATE lock.
       $queryRaw: vi.fn().mockResolvedValue([]),
       invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 1 }) },
+      // In-lock collected-truth read (July-7 M1): the CN caps against Σ
+      // settled payments when Payment rows exist, else the computed total.
+      // Default = no rows so existing tests exercise the computed fallback.
+      payment: { findMany: vi.fn().mockResolvedValue(txSettledPayments) },
       invoice: {
         // `createPaidInvoice` probes for an existing SENT/DRAFT/OVERDUE
         // invoice before minting a fresh one. Default to "none" so
@@ -645,6 +650,7 @@ describe("createCreditNote", () => {
       const txMock = {
         $queryRaw: vi.fn().mockResolvedValue([]),
         invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 1 }) },
+        payment: { findMany: vi.fn().mockResolvedValue([]) }, // no Payment rows → computed-total fallback
         invoice: {
           findFirst: vi.fn().mockResolvedValue(null),
           findMany: vi.fn().mockResolvedValue([]), // no prior credit notes
@@ -702,12 +708,69 @@ describe("createCreditNote", () => {
     ).rejects.toMatchObject({ code: "INVALID_AMOUNT" });
   });
 
+  it("caps against Σ SETTLED PAYMENTS when Payment rows exist — not computed pricing (July-7 M1)", async () => {
+    // Computed total is 105 (100 + 5% tax) but only 80 was actually collected
+    // (post-payment re-price). The full CN defaults to the COLLECTED 80 —
+    // the same base refundRegistration caps against, so the credit-note
+    // document and the refundable amount can no longer disagree.
+    let captured: Record<string, unknown> = {};
+    setupTxMock((data) => { captured = data; }, [], [{ amount: "80.00" }]);
+
+    const result = await createCreditNote({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", // amount omitted → full outstanding
+    });
+
+    expect(result.paidTotal).toBe(80);
+    expect(result.creditedAfter).toBe(80);
+    expect(captured.total).toBe(80);
+  });
+
+  it("rejects an amount above the COLLECTED total even when computed pricing would allow it", async () => {
+    setupTxMock(undefined, [], [{ amount: "80.00" }]); // collected 80, computed 105
+    await expect(
+      createCreditNote({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", amount: 90 }),
+    ).rejects.toMatchObject({ code: "CREDIT_LIMIT_EXCEEDED" });
+  });
+
+  it("marks the parent invoice REFUNDED when the RUNNING credited total covers the collected total", async () => {
+    // 60 already credited + this 45 = 105 = the full total. The old
+    // `amt >= fullTotal` check ignored prior partials, so two partial CNs
+    // never flipped the parent invoice.
+    mockFindFirst.mockResolvedValue({ id: "inv-original" });
+    let parentMarkedRefunded = false;
+    mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
+      const txMock = {
+        $queryRaw: vi.fn().mockResolvedValue([]),
+        invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 2 }) },
+        payment: { findMany: vi.fn().mockResolvedValue([]) }, // computed fallback: 105
+        invoice: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([{ total: "60.00" }]),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          update: vi.fn().mockImplementation(() => { parentMarkedRefunded = true; return {}; }),
+          create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => ({ id: "inv-2", ...args.data })),
+        },
+      };
+      return cb(txMock);
+    });
+
+    const result = await createCreditNote({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", amount: 45,
+    });
+
+    expect(result.creditedAfter).toBe(105);
+    expect(parentMarkedRefunded).toBe(true);
+  });
+
   it("acquires a FOR UPDATE row lock inside the tx before re-reading the credited sum (H1)", async () => {
     const calls: string[] = [];
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
       const txMock = {
         $queryRaw: vi.fn().mockImplementation(() => { calls.push("lock"); return Promise.resolve([]); }),
         invoiceCounter: { upsert: vi.fn().mockResolvedValue({ lastSequence: 1 }) },
+        payment: {
+          findMany: vi.fn().mockImplementation(() => { calls.push("read-collected"); return Promise.resolve([]); }),
+        },
         invoice: {
           findFirst: vi.fn().mockResolvedValue(null),
           findMany: vi.fn().mockImplementation(() => { calls.push("read-credited"); return Promise.resolve([]); }),
@@ -724,9 +787,9 @@ describe("createCreditNote", () => {
 
     await createCreditNote({ registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1", amount: 42 });
 
-    // Lock BEFORE the credited-sum read BEFORE the create — the ordering that
-    // makes the cap atomic under concurrent issues.
-    expect(calls).toEqual(["lock", "read-credited", "create"]);
+    // Lock BEFORE the collected + credited reads BEFORE the create — the
+    // ordering that makes the cap atomic under concurrent issues.
+    expect(calls).toEqual(["lock", "read-collected", "read-credited", "create"]);
   });
 });
 

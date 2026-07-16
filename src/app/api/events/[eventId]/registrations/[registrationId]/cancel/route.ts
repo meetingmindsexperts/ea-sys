@@ -28,6 +28,10 @@ const HTTP_STATUS_FOR_CODE: Record<CancelRegistrationErrorCode, number> = {
   REGISTRATION_NOT_FOUND: 404,
   ALREADY_CANCELLED: 409,
   REFUND_FAILED: 502,
+  // The refund COMPLETED before the cancel transaction failed (review M2,
+  // July 8) — the message tells the operator to retry the cancel; the refund
+  // is idempotently skipped on retry.
+  CANCEL_FAILED_AFTER_REFUND: 500,
   UNKNOWN: 500,
 };
 

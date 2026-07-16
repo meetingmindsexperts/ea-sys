@@ -588,11 +588,27 @@ export async function createCreditNote(params: {
   // the registration, so two concurrent Issue-Credit-Note calls (double-click, or
   // organizer + webhook) serialize — the sum-of-existing-credit-notes cap is
   // re-read after the lock, so they can never both slip past it and over-credit.
-  const { creditNote, creditedBefore, amt } = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+  const { creditNote, creditedBefore, amt, collectedTotal } = await db.$transaction(async (tx: Prisma.TransactionClient) => {
     // Serialize concurrent credit-note issues for this registration. The lock is
     // held for the duration of the tx (works through the pgbouncer transaction
     // pooler — single backend per tx), same pattern as updateEventSettings.
     await tx.$queryRaw`SELECT id FROM "Registration" WHERE id = ${registrationId} FOR UPDATE`;
+
+    // ONE source of truth for "what was collected" (July-7 review M1 + July-8
+    // M3): Σ settled payments when Payment rows exist, else the computed
+    // registration total — the SAME rule refundRegistration uses for its
+    // `paidTotal`. Before this, the CN cap used computed CURRENT pricing while
+    // the refund capped against captured payments, so a post-payment re-tier /
+    // re-price made the credit-note document and the refundable amount
+    // disagree (and cancel-with-refund minted a CN for a different figure than
+    // it refunded). Read inside the lock, alongside the credited sum.
+    const settled = await tx.payment.findMany({
+      where: { registrationId, status: { in: ["PAID", "REFUNDED"] } },
+      select: { amount: true },
+    });
+    const collectedTotal = settled.length
+      ? round2(settled.reduce((s, p) => s + Number(p.amount), 0))
+      : fullTotal;
 
     // Re-read the already-credited sum INSIDE the lock to cap the total.
     const existingCns = await tx.invoice.findMany({
@@ -600,32 +616,38 @@ export async function createCreditNote(params: {
       select: { total: true },
     });
     const creditedBefore = round2(existingCns.reduce((s, c) => s + Number(c.total), 0));
-    const outstanding = round2(fullTotal - creditedBefore);
+    const outstanding = round2(collectedTotal - creditedBefore);
 
     const amt = amount != null ? round2(amount) : outstanding;
     if (amt <= 0) {
       throw new CreditNoteAmountError(
         "INVALID_AMOUNT",
         "Credit note amount must be greater than zero.",
-        { paidTotal: fullTotal, creditedBefore, outstanding, currency },
+        { paidTotal: collectedTotal, creditedBefore, outstanding, currency },
       );
     }
     if (amt > outstanding + 0.005) {
       throw new CreditNoteAmountError(
         "CREDIT_LIMIT_EXCEEDED",
         `Credit note amount ${currency} ${amt.toFixed(2)} exceeds the outstanding ${currency} ${outstanding.toFixed(2)}.`,
-        { paidTotal: fullTotal, creditedBefore, outstanding, currency },
+        { paidTotal: collectedTotal, creditedBefore, outstanding, currency },
       );
     }
 
     // Scale the frozen pricing components proportionally for a partial credit.
     // Reconcile the last component (tax) to the remainder so subtotal − discount
     // + tax === total to the cent, even when independent rounding would drift.
+    // The ratio denominator stays the COMPUTED total — components describe the
+    // pricing breakdown, so a CN for collected-money that diverges from current
+    // pricing still carries proportionally consistent subtotal/discount/tax.
     const ratio = fullTotal > 0 ? amt / fullTotal : 0;
     const cnSubtotal = round2(price * ratio);
     const cnDiscount = round2(discount * ratio);
     const cnTax = round2(amt - (cnSubtotal - cnDiscount));
-    const coversFull = amt >= fullTotal - 0.005;
+    // "Covers full" = the running credited total now covers everything
+    // collected (was `amt >= fullTotal`, which both used the wrong base AND
+    // ignored prior partial credits — two 50% CNs never flipped the parent).
+    const coversFull = round2(creditedBefore + amt) >= collectedTotal - 0.005;
 
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
       tx, eventId, "CREDIT_NOTE", eventCode
@@ -662,7 +684,7 @@ export async function createCreditNote(params: {
         notes: reason || (coversFull ? "Full refund" : `Partial credit ${currency} ${amt.toFixed(2)}`),
       },
     });
-    return { creditNote, creditedBefore, amt };
+    return { creditNote, creditedBefore, amt, collectedTotal };
   });
 
   const creditedAfter = round2(creditedBefore + amt);
@@ -672,10 +694,10 @@ export async function createCreditNote(params: {
     registrationId,
     amount: amt,
     creditedAfter,
-    paidTotal: fullTotal,
+    paidTotal: collectedTotal,
     currency,
   });
-  return { invoice: creditNote, created: true, creditedBefore, creditedAfter, paidTotal: fullTotal };
+  return { invoice: creditNote, created: true, creditedBefore, creditedAfter, paidTotal: collectedTotal };
 }
 
 // ── Generate PDF ────────────────────────────────────────────────────────────

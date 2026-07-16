@@ -535,4 +535,46 @@ describe("cancelRegistration", () => {
     expect(r).toMatchObject({ ok: true, cancel: { refunded: false } });
     expect(mockDb.$transaction).toHaveBeenCalled(); // still cancelled
   });
+
+  it("L2: nothing-left-to-refund SKIPS the credit-note issue entirely (no spurious CN)", async () => {
+    // Settled 100, already refunded 100 → the CN issue used to run first and
+    // could mint a spurious credit note before the refund reported
+    // ALREADY_FULLY_REFUNDED. The short-circuit skips both.
+    mockDb.registration.findUnique.mockResolvedValue(cancelReg({ refundedAmount: 100 }));
+    const r = await cancelRegistration({ registrationId: "reg1", eventId: "ev1", organizationId: "org1", refund: true, source: "rest" });
+    expect(r).toMatchObject({ ok: true, cancel: { refunded: false } });
+    expect(createCreditNoteSpy).not.toHaveBeenCalled();
+    expect(stripeRefundsCreate).not.toHaveBeenCalled();
+  });
+
+  it("M2: refund completes but the cancel tx fails → CANCEL_FAILED_AFTER_REFUND (not UNKNOWN)", async () => {
+    // Manual payment → the refund succeeds without Stripe. The FIRST
+    // $transaction is the refund's claim; the SECOND is the cancel — fail it.
+    mockDb.registration.findUnique.mockResolvedValue(cancelReg());
+    let txCall = 0;
+    mockDb.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) => {
+      txCall++;
+      if (txCall === 2) throw new Error("pool timeout");
+      return cb({
+        registration: { updateMany: mockDb.registration.updateMany, findUnique: mockDb.registration.findUnique },
+        refundAttempt: { create: mockDb.refundAttempt.create },
+        promoCode: { update: mockDb.promoCode.update },
+      });
+    });
+    const r = await cancelRegistration({ registrationId: "reg1", eventId: "ev1", organizationId: "org1", refund: true, source: "rest" });
+    expect(r).toMatchObject({
+      ok: false,
+      code: "CANCEL_FAILED_AFTER_REFUND",
+      meta: { refunded: true },
+    });
+  });
+
+  it("L3: a lost cancel race returns ok WITHOUT writing an audit row for a cancel it didn't perform", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(cancelReg({ paymentStatus: "UNPAID", payments: [] }));
+    mockDb.registration.updateMany.mockResolvedValue({ count: 0 }); // claim lost
+    const r = await cancelRegistration({ registrationId: "reg1", eventId: "ev1", organizationId: "org1", refund: false, source: "rest" });
+    expect(r).toMatchObject({ ok: true, cancel: { status: "CANCELLED" } });
+    expect(applyRegistrationTransitionSpy).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
 });

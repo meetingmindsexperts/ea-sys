@@ -540,6 +540,17 @@ export async function POST(req: Request) {
               code: result.code,
               detail: result.message,
             });
+            // L2 (July 7 review): a cap-rejected out-of-band credit note means
+            // the books show a refund with no matching credit-note document —
+            // surface it to the organizer instead of only a log line.
+            notifyEventAdmins(payment.registration.eventId, {
+              type: "PAYMENT",
+              title: "⚠ Credit note could not be recorded for a Stripe refund",
+              message: `A ${deltaFormatted} refund for ${attendeeName} was reconciled from Stripe, but the automatic credit note was rejected (${result.code}). Review the registration's credit notes and issue one manually if needed.`,
+              link: `/events/${payment.registration.eventId}/registrations`,
+            }).catch((err: unknown) =>
+              apiLogger.error({ err, msg: "charge.refunded:cn-rejected-notify-failed", registrationId: payment.registrationId }),
+            );
           }
         } catch (err) {
           apiLogger.error({ err, msg: "Failed to auto-create credit note", registrationId: payment.registrationId });

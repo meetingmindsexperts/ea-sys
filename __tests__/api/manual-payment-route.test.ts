@@ -20,6 +20,8 @@ const {
     registration: { findFirst: vi.fn(), updateMany: vi.fn() },
     payment: { create: vi.fn(), count: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
+    // The recovery path takes a FOR UPDATE row lock before its race-check (L4).
+    $queryRaw: vi.fn().mockResolvedValue([]),
     $transaction: vi.fn(),
   },
   mockIssueDocs: vi.fn(),

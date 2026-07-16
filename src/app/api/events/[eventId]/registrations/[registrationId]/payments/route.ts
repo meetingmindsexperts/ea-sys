@@ -322,9 +322,15 @@ export async function POST(req: Request, { params }: RouteParams) {
           throw new ManualPaymentRaceError();
         }
       } else if (wasAlreadyPaid) {
-        // Recovery path: re-check that no Payment row landed between
-        // our findFirst and now. If one slipped in via a concurrent
-        // admin click, abort to avoid duplicating it.
+        // Recovery path (L4, July 10 review): serialize concurrent recovery
+        // clicks with a row lock on the registration BEFORE the count —
+        // without it two simultaneous recoveries both count 0 and both
+        // insert, double-recording the payment. The lock holds through the
+        // pgbouncer transaction pooler (single backend per tx), same pattern
+        // as createCreditNote.
+        await tx.$queryRaw`SELECT id FROM "Registration" WHERE id = ${registrationId} FOR UPDATE`;
+        // Re-check that no Payment row landed between our findFirst and now
+        // (a concurrent admin click, now serialized by the lock above).
         const existing = await tx.payment.count({ where: { registrationId } });
         if (existing > 0) {
           throw new ManualPaymentRaceError();

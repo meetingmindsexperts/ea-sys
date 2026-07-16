@@ -657,6 +657,9 @@ export type CancelRegistrationErrorCode =
   | "REGISTRATION_NOT_FOUND"
   | "ALREADY_CANCELLED"
   | "REFUND_FAILED"
+  /** The refund completed but the cancel transaction failed — retry the
+   *  cancel; the refund will not run twice (review M2, July 8). */
+  | "CANCEL_FAILED_AFTER_REFUND"
   | "UNKNOWN";
 
 export interface CancelSummary {
@@ -695,6 +698,12 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
         pricingTierId: true,
         createdSource: true,
         promoCodeId: true,
+        // For the nothing-left-to-refund short-circuit (review L2, July 8).
+        refundedAmount: true,
+        payments: {
+          where: { status: { in: ["PAID", "REFUNDED"] } },
+          select: { amount: true },
+        },
       },
     });
     if (!reg || reg.eventId !== eventId) {
@@ -709,7 +718,18 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
     // ── Refund first (only a PAID reg has collected money to return) ──────────
     let refundSummary: RefundSummary | undefined;
     let refunded = false;
-    if (refund && reg.paymentStatus === "PAID") {
+    // L2 (July 8): when the settled payments are already fully refunded, skip
+    // the CN + refund entirely — issuing the auto-CN first could mint a
+    // spurious credit note a moment before the refund reports
+    // ALREADY_FULLY_REFUNDED. Only decidable from Payment rows; a PAID reg
+    // with none (hand-flipped) keeps the normal flow.
+    const settledSum = round2(reg.payments.reduce((s, p) => s + Number(p.amount), 0));
+    const nothingLeftToRefund =
+      reg.payments.length > 0 && round2(Number(reg.refundedAmount)) >= settledSum - 0.005;
+    if (refund && reg.paymentStatus === "PAID" && nothingLeftToRefund) {
+      apiLogger.info({ msg: "cancel:nothing-left-to-refund — skipping CN + refund", registrationId, eventId, settledSum });
+    }
+    if (refund && reg.paymentStatus === "PAID" && !nothingLeftToRefund) {
       // Auto-issue a credit note for the outstanding credit. Tolerate "already
       // fully credited" (INVALID_AMOUNT / CREDIT_LIMIT_EXCEEDED) — a credit note
       // already exists, which is all the refund gate needs.
@@ -739,31 +759,58 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
     }
 
     // ── Cancel: claim the transition, then apply the shared seat+promo release ─
-    await db.$transaction(async (tx) => {
-      // Claim first so a concurrent cancel can't double-release the seat/promo.
-      // RE-READ the seat-relevant fields INSIDE the transaction (review M2):
-      // the pre-refund snapshot is seconds old by now — a concurrent type/tier
-      // change during the CN + Stripe phase would make us release the WRONG
-      // counter (double-release the old type, leak the new one).
-      const fresh = await tx.registration.findUnique({
-        where: { id: registrationId },
-        select: { status: true, attendanceMode: true, ticketTypeId: true, pricingTierId: true, createdSource: true, promoCodeId: true },
-      });
-      if (!fresh || fresh.status === "CANCELLED") return; // gone / already cancelled
+    // Own try/catch (review M2, July 8): the refund committed BEFORE this
+    // transaction — a tx failure here must not surface as a generic UNKNOWN
+    // 500 that hides the fact real money already moved.
+    let claimed = false;
+    try {
+      claimed = await db.$transaction(async (tx) => {
+        // Claim first so a concurrent cancel can't double-release the seat/promo.
+        // RE-READ the seat-relevant fields INSIDE the transaction (review M2):
+        // the pre-refund snapshot is seconds old by now — a concurrent type/tier
+        // change during the CN + Stripe phase would make us release the WRONG
+        // counter (double-release the old type, leak the new one).
+        const fresh = await tx.registration.findUnique({
+          where: { id: registrationId },
+          select: { status: true, attendanceMode: true, ticketTypeId: true, pricingTierId: true, createdSource: true, promoCodeId: true },
+        });
+        if (!fresh || fresh.status === "CANCELLED") return false; // gone / already cancelled
 
-      const claim = await tx.registration.updateMany({
-        where: { id: registrationId, status: { not: "CANCELLED" } },
-        data: { status: "CANCELLED" },
+        const claim = await tx.registration.updateMany({
+          where: { id: registrationId, status: { not: "CANCELLED" } },
+          data: { status: "CANCELLED" },
+        });
+        if (claim.count === 0) return false; // lost the race — someone else cancelled
+        // Single source of truth for seat + promo release (shared with the REST PUT
+        // + MCP update paths) — see src/services/README.md "THE RULE".
+        await applyRegistrationTransition(tx, {
+          prev: { status: fresh.status, attendanceMode: fresh.attendanceMode, ticketTypeId: fresh.ticketTypeId, pricingTierId: fresh.pricingTierId, createdSource: fresh.createdSource },
+          next: { status: "CANCELLED", attendanceMode: fresh.attendanceMode, ticketTypeId: fresh.ticketTypeId, pricingTierId: fresh.pricingTierId, createdSource: fresh.createdSource },
+          promoCodeId: fresh.promoCodeId,
+        });
+        return true;
       });
-      if (claim.count === 0) return; // lost the race — someone else cancelled
-      // Single source of truth for seat + promo release (shared with the REST PUT
-      // + MCP update paths) — see src/services/README.md "THE RULE".
-      await applyRegistrationTransition(tx, {
-        prev: { status: fresh.status, attendanceMode: fresh.attendanceMode, ticketTypeId: fresh.ticketTypeId, pricingTierId: fresh.pricingTierId, createdSource: fresh.createdSource },
-        next: { status: "CANCELLED", attendanceMode: fresh.attendanceMode, ticketTypeId: fresh.ticketTypeId, pricingTierId: fresh.pricingTierId, createdSource: fresh.createdSource },
-        promoCodeId: fresh.promoCodeId,
-      });
-    });
+    } catch (cancelErr) {
+      if (refunded) {
+        apiLogger.error({ err: cancelErr, msg: "cancel:tx-failed-after-refund", registrationId, eventId, refundAmount: refundSummary?.amount ?? null });
+        return {
+          ok: false,
+          code: "CANCEL_FAILED_AFTER_REFUND",
+          message: "The refund completed, but cancelling the registration failed. Retry the cancel — the refund will not run twice.",
+          meta: { refunded: true, refundAmount: refundSummary?.amount ?? null, currency: refundSummary?.currency ?? null },
+        };
+      }
+      throw cancelErr; // no money moved — the outer catch maps it to UNKNOWN
+    }
+
+    // L3 (registrations review, July 10): the lost-race path used to fall
+    // through to the audit write + success — recording a cancel this call
+    // didn't perform. The outcome is still "cancelled" (idempotent), but only
+    // the winner writes the audit row.
+    if (!claimed) {
+      apiLogger.warn({ msg: "cancel:lost-race — already cancelled by a concurrent caller", registrationId, eventId, source });
+      return { ok: true, cancel: { status: "CANCELLED", refunded, refund: refundSummary } };
+    }
 
     refreshEventStats(eventId);
 
