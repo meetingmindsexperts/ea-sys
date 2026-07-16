@@ -294,8 +294,8 @@ exactly which of those exist today.</p>
     </tr>
     <tr>
       <td><b>CRM → MCP / AI agent</b></td>
-      <td><span class="tag none">NOT WIRED</span></td>
-      <td>No <code>src/crm/agent-tools.ts</code>. n8n / claude.ai cannot read or write the pipeline.</td>
+      <td><span class="tag done">WIRED</span></td>
+      <td><b>13 MCP tools (Jul 16)</b> — <code>src/crm/agent-tools.ts</code>, registered from the exempted <code>register-mcp-tools.ts</code> touch point (pkg 0.4.21 — MCP clients reconnect to see them): list/create/update/move/close deals (move is race-safe: the glue reads the current stage org-bound and uses it as the claim precondition), pipeline + report (currency-aware), companies (find-or-create), tasks (create arms the reminder; owner resolved by org-bound email), notes, complete-task. n8n / claude.ai can now work the pipeline.</td>
     </tr>
     <tr>
       <td><b>Overdue tasks → dashboard tile</b></td>
@@ -322,13 +322,13 @@ exactly which of those exist today.</p>
       <td><b>Manage pipeline stages</b><br><span class="why">create / reorder / delete</span></td>
       <td><span class="tag done">YES</span></td>
       <td><span class="tag none">NONE</span></td>
-      <td>The pipeline was made org-editable <i>on purpose</i> (§9 d3) so sales could change it without a migration — and there is <b>no screen to edit it</b>. The 6 seeded stages are, in practice, fixed. <b>This most undercuts a locked decision.</b></td>
+      <td><span class="tag done">DONE Jul 16</span> — “Manage stages” on the deals board: rename (safe — the state machine reads <code>terminalOutcome</code>, never names), reorder, add (with a Closes-as Won/Lost mapping), delete (delete-gated; the server refuses a column holding deals or the last Won/Lost column). New PATCH <code>/api/crm/pipeline-stages/[stageId]</code>.</td>
     </tr>
     <tr>
       <td><b>Create a standalone task</b></td>
       <td><span class="tag done">YES</span></td>
-      <td><span class="tag part">DEAL ONLY</span></td>
-      <td>Tasks can only be added <i>from a deal</i>. The Tasks tab has no “New task” button, so a follow-up not tied to a deal cannot be created.</td>
+      <td><span class="tag done">DONE Jul 16</span></td>
+      <td>A “New task” button + dialog on the Tasks tab — title/details/due/owner (defaults to the creator; reps list or Unassigned). Same reminder contract as deal follow-ups: the due date arms the email reminder.</td>
     </tr>
     <tr>
       <td><b>Edit a company</b></td>
@@ -473,14 +473,14 @@ exactly which of those exist today.</p>
       <td>Nothing above is reachable until this happens.</td>
     </tr>
     <tr>
-      <td><b>Pipeline-stage management UI</b></td>
-      <td>~half day</td>
-      <td>Restores the org-editable pipeline that was <i>chosen</i> in §9 d3 and is currently unreachable.</td>
+      <td><b>Pipeline-stage management UI</b> <span class="tag done">DONE Jul 16</span></td>
+      <td>—</td>
+      <td>“Manage stages” dialog on the board (see §4). The org-editable-pipeline decision is delivered.</td>
     </tr>
     <tr>
-      <td><b>The §4 UI gaps</b><br><span class="why">deal edit · standalone task · company edit · deal↔contact · note edit</span></td>
-      <td>~1 day</td>
-      <td>Forms over endpoints that already work, are tested and are gated.</td>
+      <td><b>The §4 UI gaps</b> <span class="tag done">CLOSED Jul 15–16</span><br><span class="why">deal edit · standalone task · company edit · deal↔contact · notes on account/contact</span></td>
+      <td>—</td>
+      <td>All closed: edit dialogs (Jul 15), standalone task + notes on the account/contact pages via the shared <code>CrmNotesCard</code> (Jul 16). Also new: “New deal” / “Add contact” on the account page, pre-linked to that account.</td>
     </tr>
     <tr>
       <td><b>Adversarial review (Week-4 gate)</b></td>
@@ -488,14 +488,14 @@ exactly which of those exist today.</p>
       <td>4-angle: lifecycle · RBAC/finance leaks · concurrency · drift/logging. <b>Do not skip</b> — see §7.</td>
     </tr>
     <tr>
-      <td><b>Backfill: <code>Contact.organization</code> → <code>CrmCompany</code></b></td>
-      <td>~half day</td>
-      <td>Until this runs, Companies is an empty room. Dry-run default, <code>--write</code>, reusing the runtime's own <code>companyNameKey()</code> so script and app can't disagree.</td>
+      <td><b>Backfill: <code>Contact.organization</code> → <code>CrmCompany</code></b> <span class="tag part">SCRIPT READY Jul 16</span></td>
+      <td>owner runs <code>--write</code></td>
+      <td><code>scripts/backfill-crm-companies.ts</code> — dry-run default, <code>--write</code>, <code>--org</code>, <code>--min N</code>; dedup on the runtime's own <code>companyNameKey()</code> + <code>createMany skipDuplicates</code> (idempotent). Prod dry-run: 1180 distinct names, <b>266 at <code>--min 2</code></b> (the 1-contact tail is mostly typos). Creates companies only — no CrmContacts, no <code>needsReview</code> flood.</td>
     </tr>
     <tr>
-      <td><b>MCP / agent tools</b></td>
-      <td>~1 day</td>
-      <td>Makes the pipeline automatable from n8n / claude.ai, like every other domain.</td>
+      <td><b>MCP / agent tools</b> <span class="tag done">DONE Jul 16</span></td>
+      <td>—</td>
+      <td>13 tools in <code>src/crm/agent-tools.ts</code> (see §3). Package bumped to <b>0.4.21</b> — connected MCP clients must reconnect to see them.</td>
     </tr>
     <tr>
       <td><b>Won deal → sponsor entry</b></td>

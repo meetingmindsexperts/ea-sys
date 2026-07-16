@@ -6,6 +6,7 @@
  */
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { registerCrmMcpTools } from "@/crm/agent-tools"; // permitted core-side touch point (ESLint exemption)
 import { z } from "zod";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -959,4 +960,9 @@ export function registerAllMcpTools(
       }],
     })
   );
+
+  // ── CRM (sponsorship pipeline) ──
+  // Registered from inside the CRM module (src/crm/agent-tools.ts) so the tool
+  // logic stays behind the import boundary; this file is the named exemption.
+  registerCrmMcpTools(server, organizationId, SYSTEM_USER_ID);
 }
