@@ -36,14 +36,17 @@ vi.mock("@/lib/email", () => ({
   brandingFrom: vi.fn().mockReturnValue({ email: "from@x.com", name: "From" }),
   brandingCc: vi.fn().mockReturnValue([]),
 }));
-vi.mock("@/lib/speaker-agreement", () => ({
-  buildSpeakerEmailContext: (...args: unknown[]) => mockBuildSpeakerEmailContext(...args),
-  generateSpeakerAgreementDocx: vi.fn(),
-  generateSpeakerAgreementPdf: vi.fn(),
-  pickAgreementAttachmentMode: vi.fn(),
-  SPEAKER_AGREEMENT_DOCX_MIME: "application/vnd.docx",
-  SPEAKER_AGREEMENT_PDF_MIME: "application/pdf",
-}));
+vi.mock("@/lib/speaker-agreement", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/speaker-agreement")>();
+  return {
+    ...actual,
+    buildSpeakerEmailContext: (...args: unknown[]) => mockBuildSpeakerEmailContext(...args),
+    generateSpeakerAgreementDocx: vi.fn(),
+    generateSpeakerAgreementPdf: vi.fn(),
+    pickAgreementAttachmentMode: vi.fn(),
+    mintSpeakerAgreementLink: vi.fn().mockResolvedValue("https://x.com/agree"),
+  };
+});
 vi.mock("@/lib/email-barcode", () => ({
   buildEntryBarcode: vi.fn(),
   templateUsesEntryBarcode: vi.fn().mockReturnValue(false),

@@ -765,6 +765,9 @@ const DEFAULT_RAW_HTML_KEYS = new Set([
   "taxBlock",
   // Speaker email helper — see buildSpeakerEmailContext().
   "presentationDetails",
+  // Pre-rendered agreement CTA (our own markup + our own minted URL) —
+  // see buildAgreementBlock() in speaker-agreement.ts.
+  "agreementBlock",
   // Webinar enrichment in bulk-email.ts.
   "passcodeBlock",
   "recordingBlock",
@@ -1055,6 +1058,9 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventVenue", description: "Event venue" },
     { key: "personalMessage", description: "Personal message from organizer" },
     { key: "presentationDetails", description: "Pre-rendered presentation details block (HTML)" },
+    { key: "agreementBlock", description: "Pre-rendered agreement one-liner + Review & Agree button (HTML); shows an already-signed note for speakers who accepted" },
+    { key: "agreementBlockText", description: "Plain-text variant of the agreement block (for the text part)" },
+    { key: "agreementLink", description: "Bare one-time agreement URL (minted when the template uses an agreement token)" },
     { key: "organizerName", description: "Organizer name" },
     { key: "organizerEmail", description: "Organizer email" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML)" },
@@ -1284,6 +1290,7 @@ See you at the event!`,
       </table>
     </div>
     <p>Please let us know if you&apos;re interested in speaking at our event. We look forward to hearing from you!</p>
+    {{agreementBlock}}
     <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong><br><a href="mailto:{{organizerEmail}}" style="color: #00aade;">{{organizerEmail}}</a></p>
     {{organizerSignature}}
   </div>`,
@@ -1301,6 +1308,8 @@ Event Details:
 - Event: {{eventName}}
 - Date: {{eventDate}}
 - Venue: {{eventVenue}}
+
+{{agreementBlockText}}
 
 Best regards,
 {{organizerName}}
@@ -2309,6 +2318,11 @@ export function getSamplePreviewVariables(
     personalMessage: "We're excited to have you!",
     sessionDetails: "Opening Keynote - Main Hall",
     agreementLink: "#",
+    // {{agreementBlock}} preview — representative CTA; real sends mint a
+    // one-time per-speaker link (see buildAgreementBlock in speaker-agreement.ts).
+    agreementBlock:
+      '<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;"><p style="margin: 0 0 14px 0; color: #374151; font-size: 14px;">Your participation is covered by our <strong>speaker agreement</strong> — please take a moment to review and accept it.</p><div style="text-align: center;"><a href="#" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Agree</a></div></div>',
+    agreementBlockText: "Review and accept the speaker agreement: #",
     abstractTitle: "Sample Abstract Title",
     presentationType: "Oral",
     theme: "Cardiology",

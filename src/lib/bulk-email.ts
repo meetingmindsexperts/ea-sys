@@ -15,10 +15,13 @@ import {
   type EmailBranding,
 } from "./email";
 import {
+  buildAgreementBlock,
   buildSpeakerEmailContext,
   generateSpeakerAgreementDocx,
   generateSpeakerAgreementPdf,
+  mintSpeakerAgreementLink,
   pickAgreementAttachmentMode,
+  templateUsesAgreementBlock,
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "./speaker-agreement";
@@ -581,6 +584,11 @@ interface ResolvedRecipient {
   discountAmount?: unknown;
   pricingTier?: { price: unknown; currency: string } | null;
   ticketTypePricing?: { price: unknown; currency: string } | null;
+  /**
+   * Speakers recipients only — drives the {{agreementBlock}} token (signed
+   * speakers get an "already accepted" note instead of a Review & Agree CTA).
+   */
+  agreementAcceptedAt?: Date | null;
 }
 
 /** The subset of a bulk-email request needed to validate its config viability. */
@@ -882,7 +890,17 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         ...agreementWhere,
         ...sessionWhere,
       },
-      select: { id: true, email: true, additionalEmail: true, firstName: true, lastName: true, title: true },
+      select: {
+        id: true,
+        email: true,
+        additionalEmail: true,
+        firstName: true,
+        lastName: true,
+        title: true,
+        // Drives {{agreementBlock}} — signed speakers get an "already
+        // accepted" note instead of a fresh Review & Agree CTA.
+        agreementAcceptedAt: true,
+      },
     });
     recipients = speakers.map((s) => ({
       id: s.id,
@@ -891,6 +909,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       firstName: s.firstName,
       lastName: s.lastName,
       title: s.title,
+      agreementAcceptedAt: s.agreementAcceptedAt,
     }));
   } else if (recipientType === "abstracts") {
     // Validated by assertValidBulkEmailFilters (via the precheck) — the old
@@ -1063,6 +1082,16 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     );
   }
 
+  // Agreement tokens ({{agreementBlock}} / {{agreementLink}}): minted
+  // per-recipient only when the template actually uses one — an unrelated
+  // send must never rotate (invalidate) a previously-emailed agreement link.
+  // This also fixes a latent bug: bulk AGREEMENT sends never minted
+  // {{agreementLink}}, so the default agreement template's CTA button href
+  // stayed the literal token.
+  const templateWantsAgreement =
+    recipientType === "speakers" &&
+    templateUsesAgreementBlock(tpl.subject, tpl.htmlContent, tpl.textContent);
+
   // Entry-barcode token: render the per-recipient {{entryBarcode}} image only
   // when the template body carries the token (organizer opt-in). For
   // non-registration audiences the token can't resolve (they have no qrCode),
@@ -1233,6 +1262,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       presentationDetails: "",
       presentationDetailsText: "",
       sessionDetails: "",
+      // Agreement tokens — populated below for speaker recipients when the
+      // template uses them; empty so the placeholders disappear otherwise.
+      agreementLink: "",
+      agreementBlock: "",
+      agreementBlockText: "",
       // Entry-barcode token defaults — overridden below for registrations
       // recipients when the template uses {{entryBarcode}} and the recipient
       // has a qrCode. Empty otherwise so the placeholder disappears.
@@ -1249,6 +1283,23 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         vars.presentationDetailsText = ctx.presentationDetailsText;
         vars.sessionDetails = ctx.sessionTitles.replace(/\n/g, ", ");
       }
+    }
+
+    if (templateWantsAgreement) {
+      // Signed speakers get the "already accepted" note; unsigned speakers
+      // get a freshly-minted one-time link + Review & Agree CTA. A mint
+      // failure throws and is captured by the per-recipient error handling —
+      // one bad row never sinks the batch.
+      const link = recipient.agreementAcceptedAt
+        ? ""
+        : await mintSpeakerAgreementLink(recipient.id, event.slug || event.id);
+      vars.agreementLink = link;
+      const block = buildAgreementBlock({
+        agreementLink: link,
+        agreementAcceptedAt: recipient.agreementAcceptedAt ?? null,
+      });
+      vars.agreementBlock = block.html;
+      vars.agreementBlockText = block.text;
     }
 
     if (emailType === "custom") {

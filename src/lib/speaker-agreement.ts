@@ -1,11 +1,12 @@
 import fs from "fs/promises";
 import path from "path";
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
 import { apiLogger } from "./logger";
+import { hashVerificationToken } from "./security";
 import { formatPersonName, getTitleLabel, formatDate, formatDateTime, slugify } from "./utils";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "./default-terms";
 import { formatSessionRole } from "./session-enums";
@@ -15,6 +16,94 @@ export interface SpeakerAgreementTemplateMeta {
   filename: string;
   uploadedAt: string;
   uploadedBy: string;
+}
+
+// ── Agreement link + {{agreementBlock}} (July 16, 2026, owner request) ──────
+//
+// "Merge invitation + agreement": the speaker-invitation email now carries a
+// one-liner about the agreement plus a "Review & Agree" CTA, exposed as the
+// pre-rendered `{{agreementBlock}}` / `{{agreementBlockText}}` template
+// variables. The separate agreement email type stays (re-sends/chasers). The
+// helpers below are the ONE implementation shared by the single-send route
+// and the bulk pipeline — which also fixes a latent bulk bug: bulk agreement
+// sends never minted `{{agreementLink}}`, so the default agreement template's
+// CTA button href stayed the literal token.
+
+const AGREEMENT_TOKEN_RE = /\{\{(agreementBlock|agreementBlockText|agreementLink)\}\}/;
+
+/** True when any template part references an agreement token — the mint is
+ *  gated on this so a send whose template ignores the agreement never rotates
+ *  (and thereby invalidates) a previously-emailed agreement link. */
+export function templateUsesAgreementBlock(
+  ...parts: Array<string | null | undefined>
+): boolean {
+  return parts.some((p) => !!p && AGREEMENT_TOKEN_RE.test(p));
+}
+
+/**
+ * Mint (rotate) the speaker's one-time agreement link: delete any existing
+ * token for the speaker, create a fresh 30-day one, return the public URL.
+ * NOTE: rotation invalidates previously-emailed links for this speaker —
+ * the latest email always wins (pre-existing semantics of agreement sends).
+ */
+export async function mintSpeakerAgreementLink(
+  speakerId: string,
+  eventSlug: string,
+): Promise<string> {
+  const identifier = `speaker-agreement:${speakerId}`;
+  const rawToken = randomBytes(32).toString("hex");
+  const hashedToken = hashVerificationToken(rawToken);
+
+  await db.$transaction([
+    db.verificationToken.deleteMany({ where: { identifier } }),
+    db.verificationToken.create({
+      data: {
+        identifier,
+        token: hashedToken,
+        expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    }),
+  ]);
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  return `${appUrl}/e/${eventSlug}/speaker-agreement?token=${rawToken}`;
+}
+
+/**
+ * Pre-rendered agreement CTA block. Three states:
+ *   - already accepted  → green confirmation line, no CTA (re-inviting a
+ *     signed speaker must not ask them to sign again)
+ *   - link available    → one-liner + "Review & Agree" button
+ *   - neither           → empty (the token disappears from the email)
+ * The HTML is our own generated markup (rendered via rawHtmlKeys); the only
+ * interpolated value is our own minted URL.
+ */
+export function buildAgreementBlock(opts: {
+  agreementLink: string;
+  agreementAcceptedAt?: Date | string | null;
+}): { html: string; text: string } {
+  if (opts.agreementAcceptedAt) {
+    const when = new Date(opts.agreementAcceptedAt).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    return {
+      html: `<p style="background: #f0fdf4; border-left: 4px solid #16a34a; padding: 12px 16px; color: #166534; font-size: 14px; margin: 20px 0;">&#10003; You have already reviewed and accepted the speaker agreement (${when}).</p>`,
+      text: `You have already reviewed and accepted the speaker agreement (${when}).`,
+    };
+  }
+  if (!opts.agreementLink) return { html: "", text: "" };
+  return {
+    html: `<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+      <p style="margin: 0 0 14px 0; color: #374151; font-size: 14px;">Your participation is covered by our <strong>speaker agreement</strong> — please take a moment to review and accept it.</p>
+      <div style="text-align: center;">
+        <a href="${opts.agreementLink}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Agree</a>
+      </div>
+      <p style="margin: 14px 0 0 0; color: #6b7280; font-size: 12px; text-align: center;">This link is unique to you and expires in 30 days.</p>
+    </div>`,
+    text: `Your participation is covered by our speaker agreement — please review and accept it here (link unique to you, expires in 30 days):\n${opts.agreementLink}`,
+  };
 }
 
 export interface SpeakerEmailContext {

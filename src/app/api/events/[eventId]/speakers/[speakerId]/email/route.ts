@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -7,13 +6,16 @@ import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
-import { getClientIp, checkRateLimit, hashVerificationToken } from "@/lib/security";
+import { getClientIp, checkRateLimit } from "@/lib/security";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
 import {
+  buildAgreementBlock,
   buildSpeakerEmailContext,
   generateSpeakerAgreementDocx,
   generateSpeakerAgreementPdf,
+  mintSpeakerAgreementLink,
   pickAgreementAttachmentMode,
+  templateUsesAgreementBlock,
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "@/lib/speaker-agreement";
@@ -135,27 +137,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? speaker.sessions.map((s) => s.session.name).join(", ") : "";
 
     // Generate a hashed, one-time verification token for agreement emails
+    // (shared helper — the bulk pipeline mints through the same code).
     let agreementLink = "";
     if (type === "agreement" || includeAgreementLink) {
       try {
-        const identifier = `speaker-agreement:${speaker.id}`;
-        const rawToken = crypto.randomBytes(32).toString("hex");
-        const hashedToken = hashVerificationToken(rawToken);
-
-        // Atomically rotate the token: delete any existing tokens, then create new one
-        await db.$transaction([
-          db.verificationToken.deleteMany({ where: { identifier } }),
-          db.verificationToken.create({
-            data: {
-              identifier,
-              token: hashedToken,
-              expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-            },
-          }),
-        ]);
-
-        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-        agreementLink = `${appUrl}/e/${event.slug}/speaker-agreement?token=${rawToken}`;
+        agreementLink = await mintSpeakerAgreementLink(speaker.id, event.slug);
       } catch (tokenErr) {
         apiLogger.error({ err: tokenErr, msg: "Failed to create speaker agreement token", speakerId: speaker.id, eventId });
         return NextResponse.json({ error: "Failed to generate agreement link" }, { status: 500 });
@@ -211,6 +197,32 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!tpl) {
       return NextResponse.json({ error: "Email template not found" }, { status: 500 });
     }
+
+    // {{agreementBlock}} — the invitation (or any speaker template) can carry
+    // a one-liner + "Review & Agree" CTA. The link is minted ON DEMAND, only
+    // when the template actually uses an agreement token and the speaker
+    // hasn't signed yet — an unrelated send must never rotate (invalidate) a
+    // previously-emailed agreement link. A signed speaker gets a green
+    // "already accepted" note instead of a re-ask.
+    if (
+      !agreementLink &&
+      !speaker.agreementAcceptedAt &&
+      templateUsesAgreementBlock(tpl.subject, tpl.htmlContent, tpl.textContent)
+    ) {
+      try {
+        agreementLink = await mintSpeakerAgreementLink(speaker.id, event.slug);
+        vars.agreementLink = agreementLink;
+      } catch (tokenErr) {
+        apiLogger.error({ err: tokenErr, msg: "Failed to create speaker agreement token", speakerId: speaker.id, eventId });
+        return NextResponse.json({ error: "Failed to generate agreement link" }, { status: 500 });
+      }
+    }
+    const agreementBlock = buildAgreementBlock({
+      agreementLink,
+      agreementAcceptedAt: speaker.agreementAcceptedAt,
+    });
+    vars.agreementBlock = agreementBlock.html;
+    vars.agreementBlockText = agreementBlock.text;
 
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
 
