@@ -148,8 +148,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     // Email is immutable via the general-purpose update path. Return a
     // clear error code rather than silently stripping the field so clients
-    // know to route through the dedicated email-change endpoint.
+    // know to route through the dedicated email-change endpoint. Logged:
+    // this branch was silent while the full-page edit form sent `email` on
+    // every save — the page was broken for ~3 months with nothing in /logs.
     if (body && typeof body === "object" && "email" in body) {
+      apiLogger.warn({
+        msg: "contacts:update-email-immutable-rejected",
+        contactId,
+        userId: ctx.userId,
+        role: ctx.role,
+      });
       return NextResponse.json(
         {
           error: "Email cannot be changed via this endpoint. Use PATCH /api/contacts/[contactId]/email instead — it performs the collision check + User.email cascade + Contact re-sync atomically.",

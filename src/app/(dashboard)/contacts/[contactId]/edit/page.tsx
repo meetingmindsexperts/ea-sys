@@ -87,11 +87,15 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Email is deliberately NOT sent — it is immutable via the general PUT
+      // (the server 400s EMAIL_IMMUTABLE on any payload carrying `email`;
+      // sending it here made every save from this page fail, silently, from
+      // April 24 to July 16 2026). Email changes go through the Change Email
+      // dialog on the contact page.
       await updateContact.mutateAsync({
         title: form.title || null,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
-        email: form.email.trim().toLowerCase(),
         organization: form.organization.trim() || null,
         jobTitle: form.jobTitle.trim() || null,
         specialty: form.specialty || null,
@@ -168,14 +172,17 @@ function EditContactForm({ contactId, contact }: { contactId: string; contact: a
                     />
                   </FormField>
                 </div>
-                <FormField label="Email Address" required>
+                <FormField label="Email Address">
                   <Input
                     type="email"
                     value={form.email}
-                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                    className={inputCls}
-                    required
+                    disabled
+                    className={`${inputCls} bg-gray-50 text-gray-500`}
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Email is changed from the contact page&apos;s &quot;Change&quot; action (it
+                    runs the collision check and re-links safely).
+                  </p>
                 </FormField>
               </div>
               <div className="shrink-0">
