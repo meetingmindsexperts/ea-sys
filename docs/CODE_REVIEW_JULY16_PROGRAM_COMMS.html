@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Code Review — July 16 Batch: Program/Agenda R2 + Speaker Comms + Speaker Documents</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+    --ok:#15803d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:960px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.75rem 0}
+  pre code{background:none;padding:0}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)}
+  .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .pill{font-weight:700;font-size:.72rem;letter-spacing:.04em;padding:.14em .5em;border-radius:3px;white-space:nowrap}
+  .pill.shipped{background:var(--ok);color:#fff} .pill.deferred{background:var(--muted);color:#fff}
+  .pill.open{background:var(--accent);color:#fff}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.25rem 0}
+  .finding.blocker{border-left-color:var(--blocker)}
+  .finding.high{border-left-color:var(--high)} .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .finding h3{margin-top:0;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .loc{color:var(--muted);font-size:.87rem;margin:.1rem 0 .8rem}
+  .lbl{font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.9rem 0 .2rem}
+  .learn{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:.7rem 1rem;margin:.9rem 0 0;font-size:.93rem}
+  .learn strong{color:var(--ok)}
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1.25rem 0}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+  ul,ol{padding-left:1.4rem} li{margin:.3rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf;--ok:#22c55e}
+    .sev{color:#14171a} .pill.shipped{color:#14171a} .pill.deferred{color:#14171a} .pill.open{color:#14171a}
+    .note{background:#0c2b3a;border-color:#1e4a5f}
+    .note.warn{background:#33290c;border-color:#66551a}
+    .learn{background:#0c2e1a;border-color:#1a5c34}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — July 16 Batch<br><span style="font-size:1.1rem;font-weight:500;color:var(--muted)">Program/Agenda deferred-findings round 2 · speaker comms (agreementBlock / attach / presentationDetails / p-spacing) · SpeakerDocument</span></h1>
+  <p class="sub">
+    Post-ship adversarial review · July 16, 2026 · <strong>0 BLOCKER / 1 HIGH / 9 MED / 8 LOW</strong><br>
+    Angles run: <em>correctness &amp; concurrency</em> · <em>security / RBAC / injection / info-exposure</em> ·
+    <em>drift / failure-visibility / UX-truthfulness</em> (three independent adversarial passes; every recorded
+    finding re-verified against source before inclusion; unverifiable candidates discarded).<br>
+    Scope: commits <code>15bb3e88</code> (event-timezone rendering), <code>bf678930</code> (topic-id stability,
+    M9 date guard, sortOrder tx, TopicSpeaker cleanup, P2002 mapping), <code>d2e749b2</code> (session-enums +
+    org-scoping), the speaker-comms cluster (<code>a44273fe</code> {{agreementBlock}}, <code>3dce8e7a</code>
+    attach-when-possible, the presentationDetails fix, <code>5ac09e7a</code> p-spacing) and
+    <code>56093369</code> (SpeakerDocument).
+  </p>
+</header>
+
+<div class="note warn">
+  <strong>Status: ALL findings OPEN.</strong> This is the findings document — the batch itself deployed green
+  (tsc / eslint / vitest 3139 / build, per-commit) and nothing here is a rollback candidate; these are the
+  defects and drift the three post-ship passes surfaced. Fix selection is an owner decision; pills flip
+  OPEN → SHIPPED in place as fixes land. The single HIGH (H1) deserves a same-day look: it can lock the
+  Settings → General tab for any live event that already has an out-of-range session.
+</div>
+
+<h2 id="summary">1. Summary</h2>
+<div class="tbl-wrap"><table>
+  <tr><th>#</th><th>Sev</th><th>Finding</th><th>Where</th><th>Status</th></tr>
+  <tr><td>H1</td><td><span class="sev high">High</span></td><td>M9 date guard fires on EVERY General-tab save and counts CANCELLED sessions → events with a legacy out-of-range session can't save any General setting</td><td>events route PUT + settings page</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M1</td><td><span class="sev medium">Med</span></td><td>Invitation sends rotate the agreement link BEFORE the send — a failed send kills the previously-delivered link; parallel scheduled sends race to a dead link</td><td>bulk-email per-recipient mint</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M2</td><td><span class="sev medium">Med</span></td><td>No UI disclosure that "Send Invitation" now mints/rotates the agreement link and attaches the agreement document</td><td>speaker dialogs + bulk dialog copy</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M3</td><td><span class="sev medium">Med</span></td><td>Bulk agreement send to an already-signed speaker renders a dead <code>href=""</code> "Review &amp; Accept" button; single-send mints them a working link (cross-caller drift)</td><td>bulk-email vs single-send</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M4</td><td><span class="sev medium">Med</span></td><td>Moving/swapping an abstract between topics of the SAME session fails with a false "assigned to another session" (P2002 ordering)</td><td>session-service topics loop</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M5</td><td><span class="sev medium">Med</span></td><td>SpeakerDocument signed-agreement replace race → generic 500 + orphaned file (file written before the transaction)</td><td>documents route POST</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M6</td><td><span class="sev medium">Med</span></td><td>M10's "transactional" aggregate+create does NOT serialize under READ COMMITTED — the tie it claims to close still happens (same flaw in the cert-template pattern it copied)</td><td>tracks POST + add_topic tool</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M7</td><td><span class="sev medium">Med</span></td><td>Signed agreement PDFs are downloadable with no auth via the public <code>/uploads</code> catch-all (inherited pattern; new higher-sensitivity document class)</td><td>uploads catch-all</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M8</td><td><span class="sev medium">Med</span></td><td>MCP <code>update_session</code> declared schemas omit <code>topics</code>/<code>sessionRoles</code> — HTTP MCP silently drops them and returns success; the executor's id-threading is unreachable from the declared surface</td><td>agent tools + MCP registration</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M9</td><td><span class="sev medium">Med</span></td><td>A FIFTH hand-rolled SessionRole colour map on the speaker page — colours swapped vs session-enums, lowercase labels (M11 extraction missed it)</td><td>speaker detail page</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>M10</td><td><span class="sev medium">Med</span></td><td>Remaining timezone drift cluster: speaker page/sheet viewer-local session times (and no tz prop on their SessionDetailSheet mount), webinar emails render server-TZ, <code>{sessionDateTime}</code> merge field Dubai-fixed, dinner-RSVP times viewer-local</td><td>5 surfaces</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>L1</td><td><span class="sev low">Low</span></td><td><code>wallTimeInTzToDate</code> doc comment wrong about the spring-forward gap direction</td><td>event-time.ts</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>L2</td><td><span class="sev low">Low</span></td><td>M9 guard is check-then-act vs concurrent session writes (narrow window, best-effort)</td><td>events route PUT</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>L3</td><td><span class="sev low">Low</span></td><td>A kept topic's <code>abstractId</code> + per-topic speakers are still wiped when the payload omits them (pre-existing class; M2's "external refs survive" only half-true)</td><td>session-service</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>L4</td><td><span class="sev low">Low</span></td><td><code>{{agreementBlock}}</code> typed into a CUSTOM bulk message silently renders empty (mint gate inspects only the template)</td><td>bulk-email</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>L5</td><td><span class="sev low">Low</span></td><td>The SIGNED_AGREEMENT partial-unique index exists only in SQL — <code>prisma db push</code> would see drift and drop it</td><td>migration vs schema</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>L6</td><td><span class="sev low">Low</span></td><td>Document DELETE is findFirst-then-delete — a double-click race 500s (use deleteMany + idempotent count 0)</td><td>documents [documentId] route</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>L7</td><td><span class="sev low">Low</span></td><td>Role-label stragglers: Communications page hardcodes the 4 role SelectItems; bulk dialog recap prints the raw enum ("MODERATOR")</td><td>2 components</td><td><span class="pill open">OPEN</span></td></tr>
+  <tr><td>L8</td><td><span class="sev low">Low</span></td><td>Docs/discoverability: TEMPLATE_VARIABLES omits the agreement tokens on speaker-agreement/custom-notification; per-speaker preview always shows the unsigned CTA; detail sheet has no Documents view; DOMAIN_MAP/user-guide not updated for SpeakerDocument</td><td>several</td><td><span class="pill open">OPEN</span></td></tr>
+</table></div>
+
+<h2 id="high">2. The HIGH</h2>
+
+<div class="finding high">
+  <h3><span class="sev high">High</span> H1 — The M9 date guard runs on every General-tab save, so an event that already has an out-of-range session can't save ANY General setting</h3>
+  <p class="loc">src/app/api/events/[eventId]/route.ts (the <code>if (startDate || endDate || timezone)</code> gate) · src/app/(dashboard)/events/[eventId]/settings/page.tsx (handleSaveGeneral)</p>
+  <pre><code>// route: gate is PRESENCE in the body, not actual change
+if (startDate || endDate || timezone) { ... sweep ALL sessions (no status filter) ... }
+
+// settings page: General save ALWAYS sends the dates (and timezone via ...generalFormData)
+body: JSON.stringify({
+  ...generalFormData,
+  startDate: fromDatetimeLocal(generalFormData.startDate),
+  endDate: fromDatetimeLocal(generalFormData.endDate),
+})</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>M9's motivating population is events whose dates were narrowed <em>before</em> the guard existed — they
+  already have orphaned out-of-range sessions. On any such live event, the organizer now edits the venue, or
+  the tax rate, or renames the event → the General save 400s with <em>"Cannot change the event dates: 1
+  session(s) would fall outside the new date range"</em> although no date changed. Second scenario: the
+  organizer does the right thing — CANCELS the day-3 session — then shortens the event; the guard still blocks,
+  because CANCELLED sessions are counted even though the public agenda already excludes them. The only way out
+  is hard-deleting the session (losing its record).</p>
+  <p class="lbl">Fix</p>
+  <p>Run the sweep only when the effective window/timezone actually CHANGES
+  (<code>getTime() !==</code> against the existing row), and exclude <code>status: CANCELLED</code> from the
+  out-of-range check (decide DRAFT explicitly — recommendation: count DRAFT, it still renders in the dashboard).</p>
+  <div class="learn"><strong>What to learn:</strong> "the field is in the request body" is not "the field is
+  changing". Full-form clients resubmit everything; a guard keyed on presence turns into a guard on every save.
+  Gate mutations-with-side-conditions on a computed diff against the stored row, and always ask "which rows
+  should this predicate ignore?" (here: cancelled sessions).</div>
+</div>
+
+<h2 id="med">3. Mediums</h2>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M1 — Invitation sends rotate the agreement link BEFORE the send; a failed send kills the previously-delivered link</h3>
+  <p class="loc">src/lib/bulk-email.ts (per-recipient mint inside generateEmailForRecipient) · src/lib/speaker-agreement.ts (mintSpeakerAgreementLink = delete-all + create)</p>
+  <pre><code>const link = recipient.agreementAcceptedAt
+  ? ""
+  : await mintSpeakerAgreementLink(recipient.id, event.slug || event.id); // rotates NOW
+// ... sendEmail happens later, and can fail</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>A speaker received an agreement email last week (link valid 30 days). This week the organizer bulk-sends
+  <em>invitations</em> — the default invitation template now carries <code>{{agreementBlock}}</code>, so every
+  unsigned speaker is re-minted. One speaker's send bounces (SES transient): their old link is now dead and no
+  new email arrived — clicking last week's button says "invalid or already used". Separately, the
+  scheduled-emails worker processes due rows in parallel: an invitation and an agreement chaser due the same
+  minute both mint for the same speaker, and whichever mints second invalidates the other email's link before
+  it is even delivered. Pre-feature, invitation sends never touched agreement tokens — this is a new exposure.</p>
+  <p class="lbl">Fix</p>
+  <p>Reuse-not-rotate for the soft path: mint only when no unexpired token exists (requires storing the raw
+  token or deriving the link differently), or simplest — rotate only on the strict <code>agreement</code> type
+  and have <code>{{agreementBlock}}</code> reuse the existing token when one is live, minting only when none
+  exists.</p>
+  <div class="learn"><strong>What to learn:</strong> a "rotate on every send" token policy is only safe while
+  exactly one email type can send it. The moment a second sender appears, rotation becomes cross-email
+  interference — the invariant to design for is "the newest DELIVERED link works", not "the newest minted".</div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M2 — Nothing in the UI says an invitation now mints/rotates the agreement link and attaches the agreement document</h3>
+  <p class="loc">speakers/[speakerId]/page.tsx + speaker-detail-sheet.tsx (invitation dialog copy) · components/bulk-email-dialog.tsx ("Invite speakers to your event")</p>
+  <p class="lbl">Failure scenario</p>
+  <p>The organizer sent a formal Agreement email on Monday; on Thursday they send a friendly invitation chaser.
+  The invitation silently rotates the agreement token (killing Monday's link — see M1) and attaches the
+  personalized agreement PDF. Every dialog still describes the send as "a speaker invitation email with event
+  details and a request to confirm participation". For an email that changes quasi-legal state, the description
+  must say what the send actually does — the Agreement type's own description already meets this bar.</p>
+  <p class="lbl">Fix</p>
+  <p>One sentence in the three dialogs: "Includes a Review &amp; Agree link (rotates any previously-emailed
+  agreement link) and attaches the personalized agreement when configured."</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M3 — Bulk agreement sends give already-signed speakers a dead button; single-send gives them a working link</h3>
+  <p class="loc">src/lib/bulk-email.ts (signed → <code>link = ""</code>) vs speakers/[speakerId]/email/route.ts (agreement type mints unconditionally) · default speaker-agreement template hardcodes <code>&lt;a href="{{agreementLink}}"&gt;</code></p>
+  <p class="lbl">Failure scenario</p>
+  <p>"Email All → Speaker Agreement" with no signed/unsigned filter includes signed speakers. They receive the
+  full "confirm your participation by clicking the button below" copy with <code>href=""</code> — a button that
+  goes nowhere — while the same speaker emailed individually gets a working link. Cross-caller behavioral drift
+  inside the feature whose whole point was ONE implementation, and it misleads signed recipients about their
+  own agreement state. (Pre-fix bulk was equally broken — literal <code>{{agreementLink}}</code> — so not a
+  regression, but the paths now deliberately disagree.)</p>
+  <p class="lbl">Fix</p>
+  <p>Pick one semantic: mint for signed speakers in bulk too (single-send parity — a re-send is an explicit
+  operator act), or teach the agreement template to branch on signed state the way
+  <code>{{agreementBlock}}</code> does. Recommendation: parity (mint), since the agreement TYPE is an explicit
+  "send them the agreement" action.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M4 — Moving an abstract between topics of the SAME session fails with a false "assigned to another session"</h3>
+  <p class="loc">src/services/session-service.ts (topics reconciliation loop) + <code>SessionTopic.abstractId @unique</code></p>
+  <pre><code>for (let i = 0; i &lt; plan.length; i++) {           // payload order
+  // create at i=0 assigns abstract A while kept topic t1 (updated later) still holds A
+  //   → P2002 → whole tx rolls back → "Abstract is already assigned to another session"</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>MCP <code>update_session</code> (the only topic-abstract writer) with
+  <code>[{title:"New", abstractId:"A"}, {id:"t1", abstractId:null}]</code> where t1 currently holds A: the
+  create runs before t1's update clears A → unique violation → the agent is told the abstract belongs to
+  <em>another</em> session and goes hunting for an assignment that doesn't exist. A swap between two kept
+  topics fails in any order. Clean rollback (no corruption), but a legitimate operation is impossible and the
+  error text is wrong on both counts.</p>
+  <p class="lbl">Fix</p>
+  <p>Two-phase within the tx: first null <code>abstractId</code> on every kept row that is losing/moving one,
+  then apply assignments. And special-case the error message for the same-session collision.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M5 — SpeakerDocument replace race → generic 500 + a permanently orphaned file on disk</h3>
+  <p class="loc">src/app/api/events/[eventId]/speakers/[speakerId]/documents/route.ts (fs.writeFile BEFORE the transaction)</p>
+  <p class="lbl">Failure scenario</p>
+  <p>Two staff replace the signed agreement concurrently. Loser paths: both see no previous → B's create hits
+  the partial unique index (P2002, thrown in-tx) → outer catch → 500 "Failed to upload document"; or both see
+  the same previous → B's delete-by-id hits P2025 → 500. In both cases B's freshly-written file under
+  <code>public/uploads/speaker-docs/</code> is never unlinked (the only unlink covers the <em>replaced</em>
+  file after a successful commit) — a disk orphan on every lost race or tx failure, and the operator gets no
+  hint it was a race.</p>
+  <p class="lbl">Fix</p>
+  <p>Catch P2002/P2025 → 409 "replaced concurrently — reload and retry", and unlink the just-written file in a
+  tx-failure handler (or write the file only after commit: buffer → tx → write → row update is overkill here;
+  unlink-on-failure is enough).</p>
+  <div class="learn"><strong>What to learn:</strong> when a filesystem write and a DB transaction must both
+  happen, the failure of either must clean up the other. "Write file, then tx" needs unlink-on-tx-failure;
+  "tx, then write file" needs a repair path for missing files. Pick one and handle its failure leg.</div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M6 — M10's "transactional" aggregate+create doesn't actually close the sortOrder race</h3>
+  <p class="loc">src/app/api/events/[eventId]/tracks/route.ts · src/lib/agent/tools/sessions.ts (add_topic_to_session) — and the certificate-templates POST this pattern was copied from</p>
+  <pre><code>await db.$transaction(async (tx) =&gt; {
+  const max = await tx.track.aggregate({ _max: { sortOrder: true }, where: { eventId } });
+  return tx.track.create({ ... sortOrder: (max._max.sortOrder ?? -1) + 1 ... });
+});</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>Prisma interactive transactions run READ COMMITTED on Postgres. Two concurrent creates both read max=5,
+  both insert 6, both commit — a transaction with no row lock, no SERIALIZABLE, and no unique constraint
+  serializes nothing. The observable impact is unchanged from pre-fix (a rare ordering tie), but the code and
+  the commit now <em>assert</em> the race is closed, and the certificate-templates "reference pattern" has the
+  identical flaw.</p>
+  <p class="lbl">Fix</p>
+  <p>Honest options: <code>@@unique([eventId, sortOrder])</code> + retry on P2002; or a
+  <code>SELECT … FOR UPDATE</code> on the parent Event row; or accept the tie and correct the comments (ties
+  are cosmetic — orderBy falls back non-deterministically). Whichever is chosen, fix the cert-templates comment
+  too.</p>
+  <div class="learn"><strong>What to learn:</strong> wrapping read-then-insert in <code>$transaction</code>
+  changes atomicity, not isolation. Under READ COMMITTED, two transactions still read the same max. Serializing
+  requires a lock, a unique constraint, or SERIALIZABLE — a transaction alone is a no-op for this race.</div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M7 — Signed agreements download with no auth via the public /uploads catch-all</h3>
+  <p class="loc">src/app/uploads/[...path]/route.ts (no auth() at all) serving /uploads/speaker-docs/{eventId}/{uuid}.pdf</p>
+  <p class="lbl">Exposure scenario</p>
+  <p>The documents LIST route is properly RBAC-gated, but the bytes are served by the public catch-all — the
+  only protection is the unguessable v4 UUID. Anyone who obtains a URL out-of-band (proxy/access logs, browser
+  history on a shared machine, a screen-share, a Referer leak) fetches the signed legal document with no
+  session. This is the repo-wide pattern (issued certificate PDFs and agreement .docx templates are served the
+  same way), so it's an inherited posture, not a regression — but this commit added the most sensitive document
+  class yet to it.</p>
+  <p class="lbl">Fix</p>
+  <p>Either serve <code>/uploads/speaker-docs/**</code> through an authenticated streaming route that re-checks
+  event access (and consider migrating certificates/agreements to it later), or record an explicit
+  accepted-risk decision that signed agreements rely on UUID-obscurity like the rest of /uploads.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M8 — MCP <code>update_session</code>'s declared schemas omit topics/sessionRoles: HTTP MCP silently drops them and reports success</h3>
+  <p class="loc">src/lib/agent/tools/sessions.ts (executor handles <code>topics</code> incl. <code>id</code>; input_schema says "Does NOT touch topics or speakers") · src/lib/agent/register-mcp-tools.ts (Zod params: no topics)</p>
+  <p class="lbl">Failure scenario</p>
+  <p>An n8n/claude.ai caller sends <code>update_session { topics: [...] }</code>. The HTTP registration's Zod
+  shape strips the undeclared key; the call returns <code>success: true</code>; the topics are untouched —
+  success-claimed-nothing-happened, agent flavor. Meanwhile the M2 commit message says "MCP update_session
+  threads the id through", but that path is only reachable by the in-app agent (which bypasses the Zod shape),
+  not the declared MCP surface. The description/schema/executor triple now disagrees three ways.</p>
+  <p class="lbl">Fix</p>
+  <p>Either expose <code>topics</code>/<code>sessionRoles</code>/<code>speakerIds</code> in both the tool
+  definition and the MCP Zod registration (+ package version bump for the client-cache hint) and update the
+  descriptions — or delete the executor's dead branches and keep the "does not touch" contract true.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M9 — A fifth hand-rolled SessionRole map survived the M11 extraction, with SWAPPED colours</h3>
+  <p class="loc">src/app/(dashboard)/events/[eventId]/speakers/[speakerId]/page.tsx (~878)</p>
+  <pre><code>const roleColors: Record&lt;string, string&gt; = {
+  CHAIRPERSON: "bg-violet-100…", MODERATOR: "bg-amber-100…", ...   // session-enums says the OPPOSITE
+};
+{session.role!.toLowerCase().replace("_", " ")}                     // "chairperson", lowercase</code></pre>
+  <p class="lbl">Failure scenario</p>
+  <p>session-enums: MODERATOR = purple, CHAIRPERSON = amber. This page: MODERATOR = amber, CHAIRPERSON =
+  violet. The same role badge swaps colours as the organizer navigates agenda → speaker page, and the label
+  renders lowercase. Plain string-keyed Record, so a future enum value silently falls to slate instead of
+  failing the build — the exact M11 defect class, one file over from where it was fixed.</p>
+  <p class="lbl">Fix</p>
+  <p>Replace with <code>SESSION_ROLE_COLORS</code>/<code>formatSessionRole</code> imports.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="sev medium">Med</span> M10 — The timezone unification stopped at the agenda: five surfaces still show a different clock</h3>
+  <p class="loc">speakers/[speakerId]/page.tsx (viewer-local <code>toLocaleString()</code> ×2 + SessionDetailSheet mounted without the timezone prop) · speaker-detail-sheet.tsx (viewer-local) · bulk-email.ts webinar vars (SERVER timezone — "06:00 AM UTC" for a 10:00 Dubai webinar) · speaker-agreement.ts <code>{sessionDateTime}</code> (Dubai-fixed <code>formatDateTime</code>, lands in the personalized agreement document) · dinner RSVP public page + console (viewer-local, no label) · (LOW) webinar console window</p>
+  <p class="lbl">Failure scenario</p>
+  <p>One session can now show three different times on one screen: the agenda grid (event TZ), the speaker
+  page's sessions list (viewer-local), and the SessionDetailSheet it opens (Dubai default). Worse, two
+  attendee-facing producers of the same fact disagree with the fixed surfaces: webinar confirmation/reminder
+  emails render the server's UTC clock, and the <code>{sessionDateTime}</code> merge field inside the
+  quasi-legal agreement PDF is hardcoded GST. The RSVP invitee reads the dinner time in their home timezone
+  with no label.</p>
+  <p class="lbl">Fix</p>
+  <p>Same recipe as the agenda pass: thread <code>event.timezone</code> + <code>formatTimeInTz</code>/<code>
+  formatDateInTz</code>/<code>tzLabel</code> through the five surfaces (the webinar email + agreement merge
+  field are the two that matter most — they're attendee/legal-facing).</p>
+  <div class="learn"><strong>What to learn:</strong> timezone fixes don't stay fixed by surface — they stay
+  fixed by PRODUCER. Fixing where a fact is displayed while another code path still formats the same fact with
+  a different clock just relocates the disagreement. Sweep by grep for the formatter
+  (<code>formatTime</code>/<code>formatDateTime</code>/<code>toLocaleString</code>), not by page.</div>
+</div>
+
+<h2 id="low">4. Lows</h2>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> L1 — <code>wallTimeInTzToDate</code>'s spring-forward doc claim is wrong</h3>
+  <p class="loc">src/lib/event-time.ts</p>
+  <p>The comment says a nonexistent local time "resolves to the instant the clocks skipped to"; empirically a
+  02:30 New-York gap input resolves one hour <em>before</em> the gap (01:30 EST), and the direction varies by
+  zone (Lord Howe resolves forward). Deterministic, round-trips visibly in the form, and Dubai (the default)
+  has no DST — so impact is a rare silent ≤1h shift. Fix the comment; optionally normalize gap inputs.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> L2 — M9 guard is check-then-act</h3>
+  <p class="loc">src/app/api/events/[eventId]/route.ts</p>
+  <p>The session sweep and the event.update are separate statements; a session created/retimed in the window
+  (or racing the narrow) still produces the orphan M9 blocks. Best-effort is acceptable here — just don't
+  describe the guard as airtight.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> L3 — Kept topics still lose <code>abstractId</code> + speakers when the payload omits them</h3>
+  <p class="loc">src/services/session-service.ts (<code>abstractId: t.abstractId || null</code>; unconditional TopicSpeaker replace on kept rows)</p>
+  <p>The dashboard form never sends <code>abstractId</code>, so any dashboard save of a session whose topics
+  were abstract-linked silently nulls the links; an MCP payload keeping a topic by id but omitting
+  <code>speakerIds</code> clears its roster. Byte-identical to the pre-M2 behavior (not a regression), but M2's
+  stated goal was that external references survive a save — the row survives, its content doesn't. Follow-up:
+  treat <code>undefined</code> as "keep" on kept rows.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> L4 — <code>{{agreementBlock}}</code> in a custom bulk MESSAGE never mints</h3>
+  <p class="loc">src/lib/bulk-email.ts (gate inspects tpl.subject/htmlContent/textContent only)</p>
+  <p>An organizer typing the token into a custom bulk compose gets an empty render with no warning (the
+  single-send path at least has the explicit includeAgreementLink flag). Either include the customMessage in
+  the gate or document the token as template-body-only.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> L5 — The partial-unique backstop lives only in SQL</h3>
+  <p class="loc">prisma/migrations/20260716130000/migration.sql vs prisma/schema.prisma</p>
+  <p>Prisma can't express the partial index, so <code>prisma db push</code> (in the documented dev commands)
+  treats it as drift and would drop it — silently removing the DB-level defense M5 relies on. Add a loud
+  comment beside the model and/or a drift check; prod (migrate deploy) is unaffected.</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> L6 — Document DELETE double-click → 500</h3>
+  <p class="loc">documents/[documentId]/route.ts (findFirst-then-delete)</p>
+  <p>The loser of two concurrent DELETEs throws P2025 → generic 500 although the row is gone. Use
+  <code>deleteMany</code> and treat count 0 as idempotent success (the repo's check-in/undo pattern).</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> L7 — Role-label stragglers</h3>
+  <p class="loc">communications/page.tsx (4 hardcoded SelectItems) · bulk-email-dialog.tsx (recap prints raw "MODERATOR")</p>
+  <p>Map over <code>SESSION_ROLE_LABELS</code> / use <code>formatSessionRole</code> so a new enum value shows
+  up (or fails the build) and the recap reads "Moderator".</p>
+</div>
+
+<div class="finding low">
+  <h3><span class="sev low">Low</span> L8 — Discoverability/docs cluster</h3>
+  <p class="loc">src/lib/email.ts TEMPLATE_VARIABLES · speaker preview · speaker-detail-sheet.tsx · docs/DOMAIN_MAP.html · public/user-guide.html</p>
+  <p>(a) TEMPLATE_VARIABLES documents the agreement tokens on speaker-invitation only — speaker-agreement and
+  custom-notification resolve them too but don't list them. (b) The per-speaker Preview always renders the
+  unsigned "Review &amp; Agree" sample even for signed speakers — add a "(sample)" hint. (c) The speakers-list
+  quick-view sheet shows agreement STATUS but not the stored signed copy — page-only is fine for v1, noted as
+  divergence. (d) Neither DOMAIN_MAP.html nor user-guide.html mentions SpeakerDocument or its routes; the help
+  chatbot can't answer "where do I store the signed agreement?".</p>
+</div>
+
+<h2 id="clean">5. Verified clean (the load-bearing checks that passed)</h2>
+<ul>
+  <li><strong>RBAC did not widen:</strong> every <code>buildEventAccessWhere</code> swap on the sessions/tracks
+  write routes sits behind <code>denyReviewer</code> (verified line-order per route); ADMIN/ORGANIZER get the
+  byte-identical predicate; the only behavior change is org-null SUPER_ADMIN (intended).</li>
+  <li><strong>Timezone math:</strong> <code>wallTimeInTzToDate</code> round-trips with
+  <code>localDateTimeInTz</code>; fall-back ambiguity resolves deterministically (first occurrence); the grid's
+  pre-6AM clipping class is unchanged from the old code; day buckets + rendered times now share one clock on
+  the public agenda + preview; the lexical YYYY-MM-DD contract holds.</li>
+  <li><strong>Topic reconciliation:</strong> foreign ids can't hijack another session's topic (scoped inside
+  the lock-first tx); duplicated ids consume once; <code>notIn: []</code> semantics correct; L1 roster cleanup
+  correctly skipped when topics are in the payload; all child writes share the transaction.</li>
+  <li><strong>Agreement tokens:</strong> 256-bit random, stored peppered-hashed, never persisted raw; the mint
+  gate means unrelated sends never rotate; the crash-resume path (<code>alreadyEmailedKeys</code>) filters
+  BEFORE the mint, so resumed sends never invalidate delivered links; <code>buildAgreementBlock</code>
+  interpolates only server-built values (raw-HTML key is safe).</li>
+  <li><strong>SpeakerDocument:</strong> path traversal blocked (route params can't carry <code>/</code>; disk
+  name is server-generated uuid; user filename never reaches the fs path); magic-byte + MIME allowlist + 10MB
+  enforced before any disk write; DELETE binds <code>{ id, speakerId, speaker: { eventId } }</code>; the GET
+  blocks org-null attendee roles while admitting MEMBER; <code>agreementAcceptedAt</code> provably untouched;
+  the /uploads handler serves with <code>nosniff</code> + script-blocking CSP + frame DENY (no stored-XSS
+  path); migration additive + idempotent; files land under the DR-synced <code>public/uploads/</code>.</li>
+  <li><strong>p-spacing:</strong> the injected shorthand lands before any element inline style, so an explicit
+  <code>margin-bottom: 0</code> still wins under juice; previews and sends share the exact
+  renderAndWrap→wrapWithBranding→inlineCss pipeline — no divergence.</li>
+  <li><strong>Attach-when-possible:</strong> strict agreement semantics unchanged (400 on no content,
+  per-recipient failure on generation error); soft mode is best-effort with distinct log keys; the rewrite also
+  fixed a latent bug where the per-recipient agreement attach dropped a barcode attachment.</li>
+  <li><strong>M9 reachability:</strong> MCP <code>update_event</code> rejects date/timezone changes entirely
+  (FIELD_NOT_ALLOWED), so the guard can't be bypassed from the agent surface; the settings page surfaces the
+  server's message verbatim; the rejection warn-logs with the session ids.</li>
+  <li><strong>session-enums:</strong> the five migrated surfaces are consistent; zoom-session-badge + event
+  statusConfig are different enums (correctly untouched).</li>
+</ul>
+
+<h2 id="lessons">6. Lessons index</h2>
+<ol>
+  <li><strong>Presence ≠ change (H1).</strong> Full-form clients resubmit every field; guards with side
+  conditions must diff against the stored row.</li>
+  <li><strong>Token rotation is a cross-sender contract (M1/M2/M3).</strong> Adding a second sender to a
+  rotate-on-send token turns rotation into interference; design for "newest delivered link works", and say so
+  in the UI when a friendly-looking send mutates legal state.</li>
+  <li><strong>$transaction ≠ serialization (M6).</strong> READ COMMITTED lets two transactions read the same
+  max. Locks, unique constraints, or SERIALIZABLE serialize; transactions alone don't.</li>
+  <li><strong>fs + DB need two-way cleanup (M5).</strong> Whichever side commits first, the other side's
+  failure leg must undo it.</li>
+  <li><strong>Fix producers, not surfaces (M9/M10).</strong> Grep for the formatter/label map when unifying a
+  concern — the sixth copy is always the one that keeps the bug alive.</li>
+  <li><strong>Tool schema, executor, and description must move together (M8).</strong> An executor capability
+  the schema strips is worse than absent: callers get success for a no-op.</li>
+</ol>
+
+<footer>
+  Generated July 16, 2026 · three independent adversarial passes over commits
+  <code>15bb3e88</code> / <code>bf678930</code> / <code>d2e749b2</code> / <code>a44273fe</code> /
+  <code>5ac09e7a</code> / <code>3dce8e7a</code> / <code>56093369</code> (+ the presentationDetails fix that
+  rode in <code>aaf1e79e</code>) · all findings re-verified against source · browseable at
+  <code>/admin/docs/CODE_REVIEW_JULY16_PROGRAM_COMMS.html</code>
+</footer>
+
+</div>
+</body>
+</html>
