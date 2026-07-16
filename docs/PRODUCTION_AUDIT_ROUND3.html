@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EA-SYS Production Audit — Round 3 (July 16, 2026)</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1a1f2b; --muted:#5b6472; --line:#e3e7ee; --card:#f7f9fc;
+    --code-bg:#f2f4f8; --code-fg:#0b3d5c;
+    --blocker:#b91c1c; --high:#c2410c; --med:#b45309; --low:#0369a1; --ok:#047857; --known:#6b7280;
+    --accent:#00aade;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0f141b; --fg:#e6ebf2; --muted:#9aa4b2; --line:#232b36; --card:#151b23;
+      --code-bg:#111821; --code-fg:#7fd6ff;
+      --blocker:#f87171; --high:#fb923c; --med:#fbbf24; --low:#38bdf8; --ok:#34d399; --known:#9ca3af;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1000px;margin:0 auto;padding:32px 22px 80px}
+  h1{font-size:28px;margin:0 0 4px;line-height:1.2}
+  h2{font-size:21px;margin:44px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+  h3{font-size:17px;margin:26px 0 6px}
+  p,li{color:var(--fg)}
+  .sub{color:var(--muted);margin:0 0 20px}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  code{background:var(--code-bg);color:var(--code-fg);padding:1px 5px;border-radius:4px;font-size:0.86em}
+  pre{background:var(--code-bg);color:var(--code-fg);padding:12px 14px;border-radius:8px;overflow-x:auto;font-size:13px;line-height:1.5;border:1px solid var(--line)}
+  pre code{background:none;padding:0}
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:999px;color:#fff;vertical-align:middle}
+  .p-blocker{background:var(--blocker)} .p-high{background:var(--high)} .p-med{background:var(--med)} .p-low{background:var(--low)} .p-known{background:var(--known)} .p-info{background:#64748b}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;padding:16px 18px;margin:16px 0}
+  .finding.high{border-left-color:var(--high)} .finding.med{border-left-color:var(--med)} .finding.low{border-left-color:var(--low)}
+  .finding h3{margin-top:0}
+  .meta{font-size:13px;color:var(--muted);margin:2px 0 10px}
+  .meta code{font-size:12px}
+  .label{font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:12px 0 2px}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+  .summary{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+  .stat{flex:1 1 120px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-align:center}
+  .stat .n{font-size:26px;font-weight:800;line-height:1}
+  .stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:4px}
+  .callout{border:1px solid var(--high);background:color-mix(in srgb,var(--high) 8%,transparent);border-radius:10px;padding:14px 16px;margin:18px 0}
+  .callout .t{font-weight:700;color:var(--high)}
+  .muted{color:var(--muted)}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border:1px solid var(--line);border-radius:999px;color:var(--muted);margin-left:6px}
+  a{color:var(--accent)}
+  hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+  .fix{border-left:3px solid var(--ok);padding-left:10px;margin-top:8px}
+  .fix .label{color:var(--ok)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>EA-SYS Production Audit — Round 3</h1>
+<p class="sub">
+  July 16, 2026 · read-only multi-lens review of code shipped since Round 2 (June 23, 2026) ·
+  scope: July-2026 remediation batches, speaker documents, dinner RSVP, CRM module, billing-account merge,
+  scheduled-email claim tokens, certificate resend/preview, plus a full sweep of the money paths and REST↔MCP parity.
+  Four lenses (security · money · concurrency · drift) fanned across the whole API surface.
+</p>
+
+<div class="summary">
+  <div class="stat"><div class="n">0</div><div class="l">Blocker (new)</div></div>
+  <div class="stat"><div class="n" style="color:var(--high)">5</div><div class="l">High</div></div>
+  <div class="stat"><div class="n" style="color:var(--med)">17</div><div class="l">Medium</div></div>
+  <div class="stat"><div class="n" style="color:var(--low)">9</div><div class="l">Low</div></div>
+</div>
+
+<div class="callout">
+  <div class="t">⚠ Escalate before the next paid event with refunds — R3-H1</div>
+  <p style="margin:6px 0 0">
+    The refund double-count (<code>payment-service.ts:549-558</code>) was found <strong>independently by the money
+    and concurrency lenses</strong> and <strong>confirmed against source</strong>. It corrupts the money books in the
+    <em>normal</em> path (no crash needed) and can permanently wedge a partially-refunded registration in
+    <code>REFUNDED</code>, blocking the remaining refund forever. It is the one item that changes what money is safe to do today.
+  </p>
+</div>
+
+<p class="muted" style="font-size:14px">
+  <strong>Verdict:</strong> the new July-2026 surface is well-built — every nested-id route is org-bound, the six
+  deliberately-distinct visibility predicates are applied correctly, and no new XSS/SSRF/CSV-injection/enumeration was
+  introduced (security lens: <strong>0 blocker / 0 high / 0 med / 1 low</strong>). The material findings cluster in
+  <strong>money-flow integrity</strong> (refund/webhook counter races, partial-capture invisibility) and
+  <strong>surface drift</strong> (a bulk email rendering a literal token, MCP schemas silently dropping fields,
+  and two dead components that received "shipped" fixes as recently as July 16). Nothing here is a fresh
+  cross-tenant breach; the worst is money booked wrong and effort spent on code no user reaches.
+</p>
+
+<!-- ============================================================ -->
+<h2>HIGH</h2>
+
+<div class="finding high">
+  <h3><span class="pill p-high">High</span> R3-H1 — Route-initiated refunds double-count <code>Registration.refundedAmount</code> (normal path) and lose the refund entirely on a crash <span class="tag">money + concurrency · VERIFIED at source</span></h3>
+  <div class="meta">
+    <code>src/services/payment-service.ts:373-409, 467-558</code> ·
+    <code>src/app/api/webhooks/stripe/route.ts:420-462</code> ·
+    <code>src/lib/refund-reconciliation.ts:112-121</code>
+  </div>
+  <p>
+    The pre-Stripe claim transaction books <strong>only</strong> <code>Registration.refundedAmount</code> + the
+    <code>RefundAttempt</code> rows. The per-payment counter — the very field the webhook uses to dedup — is written
+    <strong>after</strong> the Stripe call, outside that transaction, as an absolute <code>SET</code> from a start-of-call snapshot:
+  </p>
+<pre><code>// payment-service.ts:549-558 — written AFTER stripe.refunds.create, outside the claim tx
+const paymentRefundedAfter = round2(Number(slice.payment.refundedAmount ?? 0) + slice.take);
+await db.payment.update({
+  where: { id: slice.payment.id },
+  data: { refundedAmount: paymentRefundedAfter, ... },   // absolute SET from a stale read
+});</code></pre>
+  <p>The <code>charge.refunded</code> webhook's entire dedup for route-initiated refunds is that counter's delta, and it never inspects <code>refund.metadata.refundAttemptId</code> (which the service <em>does</em> set at line 478):</p>
+<pre><code>// stripe/route.ts:420-462
+const delta = round2(cumulativeRefunded - Number(payment.refundedAmount));
+if (delta &lt;= 0) { /* "already accounted for" */ return; }
+...
+await db.registration.update({
+  where: { id: payment.registrationId },
+  data: { refundedAmount: { increment: delta } },   // NOT in a tx with the claim
+});</code></pre>
+  <p class="label">Failure scenario A — normal path, no crash</p>
+  <p>
+    Partial refund of 250 on a 500 payment. Claim tx books <code>Registration.refundedAmount</code> 0→250 without touching
+    <code>Payment</code>. <code>stripe.refunds.create</code> succeeds and Stripe dispatches <code>charge.refunded</code>
+    (cumulative 250) within the same second — routinely <em>before</em> the service reaches line 550. The webhook reads
+    <code>Payment.refundedAmount = 0</code> → <code>delta = 250</code> → increments the registration 250→<strong>500</strong>
+    → <code>isFull</code> → flips the reg <code>REFUNDED</code> → mints a <strong>spurious 250 credit note</strong>. A
+    half-refunded registration is now permanently <code>REFUNDED</code>; <code>refundRegistration</code> refuses
+    <code>NOT_PAID</code>, so the real remaining 250 <strong>can never be refunded through the app</strong>.
+  </p>
+  <p class="label">Failure scenario B — crash window becomes permanent</p>
+  <p>
+    Process dies between the Stripe call (line 473) and the counter write (line 550). The reconciliation sweep confirms the
+    <code>RefundAttempt</code> SUCCEEDED but <strong>never bumps <code>Payment.refundedAmount</code></strong>
+    (<code>refund-reconciliation.ts:112-121</code> touches only the attempt row). Stripe's retried <code>charge.refunded</code>
+    (retries for days) is then guaranteed to double-count. For a full Dashboard refund with the reg roll-up crashing on a
+    pooler blip, the opposite happens: <code>Registration.refundedAmount = 0</code>, <code>PAID</code>, no credit note — the
+    books say the attendee still holds a paid registration while Stripe returned the money.
+  </p>
+  <p class="label">Related interleaving (same root cause — concurrent Dashboard refund)</p>
+  <p>
+    Because line 550 is an absolute <code>SET</code> from a stale snapshot, a concurrent Dashboard refund that advances the
+    <code>Payment</code> counter via the webhook is silently clobbered → the next <code>charge.refunded</code> re-applies its
+    delta and mints a second phantom credit note.
+  </p>
+  <div class="fix">
+    <div class="label">Fix</div>
+    Pre-book each slice's <code>Payment.refundedAmount</code> (guarded <code>increment</code>) <em>inside</em> the pre-Stripe
+    claim transaction that books the registration counter (and un-book it in <code>abortRemainder</code>/the sweep rollback),
+    so the webhook's <code>delta ≤ 0</code> invariant holds before Stripe can dispatch. Make line 550 a guarded
+    <code>increment</code>, not a snapshot <code>SET</code>. Additionally, have the webhook skip refunds whose
+    <code>metadata.refundAttemptId</code> matches a known <code>RefundAttempt</code>.
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="pill p-high">High</span> R3-H2 — A partially-captured registrant who clicks "Pay Now" is silently charged the full total again <span class="tag">money</span></h3>
+  <div class="meta">
+    <code>src/app/api/public/events/[slug]/checkout/route.ts:90-118</code> ·
+    <code>src/lib/payment-reminder.ts:42</code> ·
+    <code>src/app/e/[slug]/my-registration/page.tsx:425</code> ·
+    <code>src/app/api/public/events/[slug]/payment-status/[registrationId]/route.ts:65</code>
+  </div>
+  <p>
+    The July-10 H7 remediation deliberately keeps a partially-captured registration <code>UNPAID</code> so the balance stays
+    chaseable — but <strong>no public surface nets the captured payments</strong>, and checkout charges the full computed total
+    (<code>totalPaid</code> is hardcoded 0 in the reminder and the portal). The dashboard detail sheet <em>does</em> net PAID
+    payments, so the organizer sees "balance due $200" while the attendee's reminder email, portal, and Stripe charge all say $500.
+  </p>
+  <p class="label">Scenario</p>
+  <p>
+    $500 total; desk records a $300 bank-transfer deposit (reg stays UNPAID). A payment-reminder fires: "Amount due: USD 500.00 —
+    Pay Now". Attendee pays; checkout creates a $500 session; the webhook records a second $500 Payment and flips PAID.
+    <strong>Attendee over-pays $300.</strong> It is fully silent — the webhook divergence guard computes <code>owedNow</code> with
+    <code>totalPaid: 0</code> too, so no warn fires, and the duplicate-charge branch doesn't fire (the reg wasn't PAID). $800 collected
+    for a $500 registration, zero alerts.
+  </p>
+  <div class="fix">
+    <div class="label">Fix</div>
+    Thread Σ settled same-currency payments into the checkout's charged amount (<code>total − priorCaptured</code>, floor 0, reject
+    if ≤ 0) and into the reminder / portal / payment-status <code>totalPaid</code> — or block self-service checkout when any settled
+    Payment row exists (<code>PARTIAL_PAYMENT_ON_FILE</code> → contact organizer).
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="pill p-high">High</span> R3-H3 — Bulk "Registration Confirmation" send renders a literal <code>{{paymentBlock}}</code> to every recipient <span class="tag">drift · VERIFIED at source</span></h3>
+  <div class="meta">
+    <code>src/lib/bulk-email.ts:1302-1339</code> (base vars) vs <code>:1397-1411</code> (gated set) ·
+    template <code>src/lib/email.ts:1294,1312</code>
+  </div>
+  <p>
+    <code>generateEmailForRecipient</code>'s base <code>vars</code> object never sets <code>paymentBlock</code>; the only place it is
+    set is gated to the other slug (<code>templateSlug === "payment-reminder"</code>). The <code>registration-confirmation</code>
+    template body carries <code>{{paymentBlock}}</code> in both the HTML and text parts, and <code>renderAndWrap</code> leaves any
+    unmatched token <strong>literal</strong> (<code>email.ts:820-825</code>).
+  </p>
+  <p class="label">Reachability — real recipients</p>
+  <p>
+    <code>confirmation</code> is the <strong>default emailType for the registrations audience</strong>
+    (<code>bulk-email-dialog.tsx:209</code>) and the type behind the Communications <strong>"Welcome Paid" tile</strong>
+    (<code>communications/page.tsx:219</code>). Every bulk confirmation send — e.g. Welcome Paid to all PAID/COMPLIMENTARY/INCLUSIVE
+    registrants — delivers raw <code>{{paymentBlock}}</code> mid-email. The transactional path
+    (<code>sendRegistrationConfirmation</code>) always sets the var, which is why single/automated confirmations look fine and only
+    bulk bites.
+  </p>
+  <div class="fix">
+    <div class="label">Fix</div>
+    Add <code>paymentBlock: ""</code> to the base vars in <code>generateEmailForRecipient</code> (paid audiences need no block), or
+    reuse <code>buildPaymentReminderVars</code> when the resolved slug is <code>registration-confirmation</code> and the recipient owes money.
+  </div>
+</div>
+
+<div class="finding high">
+  <h3><span class="pill p-high">High</span> R3-H4 — <code>SpeakerDetailSheet</code> is dead code that keeps receiving "shipped" fixes and is documented as live <span class="tag">record integrity</span></h3>
+  <div class="meta"><code>src/components/speakers/speaker-detail-sheet.tsx</code> · zero importers repo-wide</div>
+  <p>
+    The speakers list dropped this component in <code>58712b35</code> (2026-03-30). Since then it has been maintained as if live:
+    <code>2bd30ae</code> (June 25) added the "compact Registration block" and <code>f056daab</code> (<strong>July 16</strong>) applied the
+    M9/M10/L7 timezone/role-label fixes — and CLAUDE.md's July-16 entry explicitly names "the speakers-list quick-view sheet" as one of
+    the five fixed surfaces. No user can reach it.
+  </p>
+  <div class="fix"><div class="label">Fix</div>Re-wire it into the speakers list (if quick-view is wanted) or delete the file and strip the CLAUDE.md "Key Files" entry + the July-16 changelog claim.</div>
+</div>
+
+<div class="finding high">
+  <h3><span class="pill p-high">High</span> R3-H5 — <code>SpeakersAndAgendaPreview</code> orphaned since April 21 but "fixed" twice since, including yesterday's timezone batch <span class="tag">record integrity</span></h3>
+  <div class="meta"><code>src/components/public/speakers-agenda-preview.tsx:77</code> · zero importers repo-wide</div>
+  <p>
+    The public registration page removed the preview cards in <code>e6424ede</code> (2026-04-21). The component was nonetheless modified by
+    <code>53c8c52</code> (June 10) and <code>15bb3e88</code> (<strong>July 16</strong>, M7/M8) — CLAUDE.md claims "the registration-page agenda
+    preview" now buckets days in the event TZ. That fix is a no-op; the surface has not rendered since April.
+  </p>
+  <div class="fix"><div class="label">Fix</div>Delete the file (the register page deliberately dropped preview cards) or restore the mount if the removal was accidental. Correct CLAUDE.md's M7/M8 surface list either way.</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>MEDIUM</h2>
+
+<h3 style="margin-top:8px">Money integrity</h3>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M1 — Manual capture counts <em>refunded</em> money as "captured" → a small deposit after a full refund flips PAID and emails false full-total documents</h3>
+  <div class="meta"><code>src/app/api/events/[eventId]/registrations/[registrationId]/payments/route.ts:178-182, 261-267</code></div>
+  <p>
+    The capture route sums <code>status IN (PAID, REFUNDED)</code> without netting <code>refundedAmount</code> to answer "does money on
+    hand cover what's owed" — but refunded money is no longer on hand. A $500 reg fully refunded then given a $100 desk deposit computes
+    <code>priorCaptured = 500</code>, <code>capturedAfter = 600 ≥ 500</code> → flips PAID and emails a PAID invoice/receipt asserting $500
+    settled with only $100 net held. Books overstate collections by $400 — the exact false-documents harm H7 was shipped to prevent.
+  </p>
+  <div class="fix"><div class="label">Fix</div>Net per-payment: <code>priorCaptured = Σ (amount − refundedAmount)</code> (select <code>refundedAmount</code>), or exclude fully-REFUNDED rows and subtract partial refunds.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M2 — Detail-sheet <code>financials</code> counts PAID-only while the whole money domain counts PAID+REFUNDED → a partially-refunded reg shows a phantom balance due</h3>
+  <div class="meta"><code>src/app/api/events/[eventId]/registrations/[registrationId]/route.ts:223-247</code></div>
+  <p>
+    $500 paid as $300 Stripe + $200 desk; organizer refunds the $300 Stripe charge (that Payment → REFUNDED, reg stays PAID). The detail
+    sheet computes <code>totalPaid = 200</code> → the Billing tab reads <strong>"Refunded 300 of 200 · Outstanding 300"</strong> on a
+    registration that owes nothing. The refund dialog's client cap <code>credited − refunded</code> goes negative; an operator trusting
+    "Outstanding 300" chases or captures money the attendee doesn't owe (and R3-H2 means the portal would agree). The July-16 "one
+    collected-truth" unification missed this reader.
+  </p>
+  <div class="fix"><div class="label">Fix</div>Compute <code>paidTotal</code> from PAID+REFUNDED (the service rule) and <code>balanceDue = total − paidTotal</code> — a refund is not an un-payment.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M3 — <code>paidTotal</code>/<code>collectedTotal</code> sum <code>Payment.amount</code> across mixed currencies</h3>
+  <div class="meta"><code>src/services/payment-service.ts:270-272, 726</code> · <code>src/lib/invoice-service.ts:605-611</code></div>
+  <p>
+    The manual-capture route explicitly permits foreign-currency captures and stores them — but the refund service, the July-16
+    collected-truth in <code>createCreditNote</code>, and cancel's <code>settledSum</code> all sum those rows unit-blind. A USD-500 event
+    with a USD-500 Stripe payment + an AED-500 desk capture reads <code>paidTotal = 1000</code>; a "USD 1000" refund books 500 of AED money
+    as USD, and the credit note document states a 1000 "collected total" that never existed in any single currency.
+  </p>
+  <div class="fix"><div class="label">Fix</div>Filter settled sums to the registration's resolved currency (the manual route's exact rule); surface foreign-currency rows as not-refundable-via-this-flow.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M4 — Partial manual captures have no duplicate guard at all — a double-click records the cash twice</h3>
+  <div class="meta"><code>src/app/api/events/[eventId]/registrations/[registrationId]/payments/route.ts:312-361</code></div>
+  <p>
+    The 409 duplicate guard only fires when <code>paymentStatus === "PAID" &amp;&amp; payments &gt; 0</code>. The partial branch
+    (<code>!wasAlreadyPaid &amp;&amp; !coversTotal</code>) falls through with no lock, no claim, no dedup check. Two clicks of "Record $300
+    partial" both insert → $600 captured for $300 handed over.
+  </p>
+  <div class="fix"><div class="label">Fix</div>Run the partial branch under the same <code>FOR UPDATE</code> lock with a short-window same-amount/method dedup, or require an idempotency token from the dialog.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M5 — Deleting a speaker (or event) cascades <code>SpeakerDocument</code> rows with no file cleanup: signed agreements orphan on disk, world-readable, with no pointer left</h3>
+  <div class="meta"><code>prisma/migrations/20260716130000_add_speaker_document/migration.sql</code> (<code>ON DELETE CASCADE</code>) · <code>src/app/api/events/[eventId]/speakers/[speakerId]/route.ts</code> (DELETE — no <code>fs</code>/<code>speakerDocument</code> refs)</div>
+  <p>
+    A DB cascade fires no application code, so deleting a speaker removes the <code>SpeakerDocument</code> rows but leaves the uploaded
+    files at <code>/uploads/speaker-docs/{eventId}/{uuid}.pdf</code> — world-readable via the <code>/uploads</code> catch-all (compounding
+    known M7), UUID-named, with <strong>no DB pointer anywhere</strong>, so they can never be found or removed from the app. Same class as
+    the July-13 accommodation-counter cascade fix, here as unbounded retention of quasi-legal PII documents + a slow disk leak.
+  </p>
+  <div class="fix"><div class="label">Fix</div>In the speaker DELETE transaction (and the event-delete path), read the speaker's document URLs first and best-effort-unlink after commit — the pattern the document DELETE route already uses.</div>
+</div>
+
+<h3>REST ↔ MCP parity &amp; agent surface</h3>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M6 — MCP <code>create_registration</code> schema silently strips 14 fields the executor honors, incl. <code>pricingTierId</code></h3>
+  <div class="meta">executor <code>src/lib/agent/tools/registrations.ts:197+</code> · MCP schema <code>src/lib/agent/register-mcp-tools.ts:343-354</code></div>
+  <p>
+    The MCP SDK parses input against the Zod raw shape, which strips unknown keys — so an n8n/claude.ai caller passing
+    <code>phone</code>/<code>country</code>/<code>pricingTierId</code>/<code>role</code>/etc. gets silent success with the fields dropped:
+    husk attendee rows (blank badge country — the class fixed for <code>create_registrations_bulk</code> in <code>6f5f6e9</code>), husk
+    contact-store mirrors, and <strong>no way to record an Early-Bird tier via MCP</strong>. The <em>bulk</em> MCP schema already carries the
+    full field set — single-create is the outlier.
+  </p>
+  <div class="fix"><div class="label">Fix</div>Mirror the in-app <code>create_registration</code> definition's field set into the MCP writeTools params (+ pkg bump for client cache).</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M7 — MCP <code>create_speaker</code> schema silently strips 10 fields the executor honors (profession, phone, photo, country…)</h3>
+  <div class="meta">executor <code>src/lib/agent/tools/speakers.ts</code> (<code>createSpeakerTool</code>) · MCP schema <code>src/lib/agent/register-mcp-tools.ts:324-330</code></div>
+  <p>
+    Agent/n8n single speaker creates lose profession/phone/country/photo silently (companion registration + contact sync inherit the
+    blanks; <code>role</code> also becomes the companion's profession). <code>create_speakers_bulk</code> carries the full set — 1 speaker
+    via single-create behaves worse than 100 via bulk.
+  </p>
+  <div class="fix"><div class="label">Fix</div>Copy the in-app definition's properties into the MCP registration.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M8 — The in-app agent is missing ~25 tools that have executors + MCP registrations</h3>
+  <div class="meta"><code>TOOL_EXECUTOR_MAP</code> (<code>src/lib/agent/event-tools.ts:46-61</code>) vs the various <code>*_TOOL_DEFINITIONS</code></div>
+  <p>
+    Executors present + MCP-registered but with no in-app tool definition, so the dashboard agent at <code>/events/[id]/agent</code> can't
+    discover them while claude.ai/n8n can: <strong>all 4 promo-code tools</strong>, invoice create/send/status, email-template
+    update/reset + scheduled-email list/cancel, <code>update_contact</code>, <strong>all 6 accommodation/room tools</strong> (the in-app
+    agent literally cannot book a room), registration update/bulk/bulk-create/unpaid, speaker update/bulk/agreements, dashboard
+    get/search, <code>update_event</code>. Same class fixed for sessions June 10 and recorded for abstracts (ROADMAP M9 — the 5 abstract
+    executors are the only <em>tracked</em> subset).
+  </p>
+  <div class="fix"><div class="label">Fix</div>Add the missing tool definitions to the per-domain <code>*_TOOL_DEFINITIONS</code> arrays (the executors + MCP side already exist).</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M9 — Reverse gap: <code>list_zoom_meetings</code> + <code>create_zoom_meeting</code> are in-app-agent-only, absent from MCP</h3>
+  <div class="meta">executors + in-app defs in <code>src/lib/agent/tools/webinar.ts</code>; not in <code>register-mcp-tools.ts</code> (readTools/writeTools/inline)</div>
+  <p>MCP/n8n automations cannot create or list Zoom meetings although the org-scoped code path exists.</p>
+  <div class="fix"><div class="label">Fix</div>Register both in the MCP writeTools/readTools arrays.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M10 — REST promo-code POST/PUT never validate <code>ticketTypeIds</code> belong to the event; MCP does → cross-tenant name leak + integrity corruption</h3>
+  <div class="meta"><code>src/app/api/events/[eventId]/promo-codes/route.ts:139-147</code> + <code>[promoCodeId]/route.ts:166-177</code> vs MCP <code>tools/promo-codes.ts:84-91</code></div>
+  <p>
+    REST attaches <code>ticketTypeIds</code> with no event binding, so a dashboard caller can attach <strong>another org's</strong>
+    <code>ticketTypeId</code> to their promo code; the response then echoes that foreign ticket type's <strong>name</strong> back (small
+    cross-tenant info leak), and the code silently applies to nothing in this event.
+  </p>
+  <div class="fix"><div class="label">Fix</div>Add the MCP-side <code>count({ id: { in }, eventId })</code> check to both REST handlers.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M11 — MCP promo-code CRUD writes no AuditLog rows; REST audits all three</h3>
+  <div class="meta"><code>src/lib/agent/tools/promo-codes.ts</code> (create/update/delete — zero <code>auditLog.create</code>) vs REST which audits all three</div>
+  <p>An agent creating/deactivating a money-affecting discount code leaves no audit trail (same class as known comms C6, but for promo codes — untracked).</p>
+  <div class="fix"><div class="label">Fix</div>Add the audit rows to the three MCP executors (source: "mcp").</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M12 — MCP <code>update_promo_code</code> cannot change <code>maxUsesPerEmail</code>/<code>currency</code>/<code>ticketTypeIds</code>/<code>code</code>; REST PUT can</h3>
+  <div class="meta">MCP <code>tools/promo-codes.ts:126-196</code> + schema <code>register-mcp-tools.ts:540-549</code> vs REST <code>[promoCodeId]/route.ts:8-26</code></div>
+  <p>"Restrict this code to the Physician type" / "raise the per-email limit" via agent is impossible; the agent will delete+recreate (losing <code>usedCount</code> history) to do what REST does in one PUT.</p>
+  <div class="fix"><div class="label">Fix</div>Widen the MCP update schema + executor to the REST field set.</div>
+</div>
+
+<h3>Template variables &amp; documentation</h3>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M13 — <code>TEMPLATE_VARIABLES</code> advertises <code>ctaText</code>/<code>ctaLink</code> that no real sender provides</h3>
+  <div class="meta"><code>src/lib/email.ts:1211-1212</code> (UI reference) vs <code>:2449-2450</code> (only provider = sample preview vars)</div>
+  <p>An organizer who adds a CTA button per the in-UI variable reference sees it work in preview/test-send (sample vars fill it), then every real custom send renders literal <code>{{ctaText}}</code>/<code>{{ctaLink}}</code> to recipients.</p>
+  <div class="fix"><div class="label">Fix</div>Remove the two rows from <code>TEMPLATE_VARIABLES["custom-notification"]</code>, or default both to <code>""</code> in the custom-send vars.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M14 — <code>{{receiptUrl}}</code> renders literally on offline-payment confirmations (advertised in the UI, conditionally undefined)</h3>
+  <div class="meta"><code>src/lib/payment-confirmation-email.ts:170</code> (<code>receiptUrl || undefined</code>) vs <code>src/lib/email.ts:1226</code> (UI reference)</div>
+  <p>Cash/bank-transfer/card-onsite captures have no Stripe receipt, so a customized <code>payment-confirmation</code> template using <code>{{receiptUrl}}</code> emails the literal token to the payer.</p>
+  <div class="fix"><div class="label">Fix</div>Default <code>receiptUrl: receiptUrl || ""</code> (token collapses) and/or annotate the UI row "Stripe payments only".</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M15 — <code>worker/README.md</code> documents 6 of 11 registered jobs; the July-16 <code>email-log-prune</code> (JOB 1011) is missing</h3>
+  <div class="meta"><code>worker/README.md:18-23</code> vs <code>worker/index.ts:48-58, 85-89</code></div>
+  <p>The table + tree diagram + <code>/worker/health</code> example omit <code>crm-reminders</code>, <code>contacts-central-sync</code>, <code>contacts-central-reconcile</code>, <code>log-archive</code>, <code>email-log-prune</code>. CLAUDE.md says the prune "needs a worker redeploy to start" — an operator verifying that against the README has no cadence or job name to check for.</p>
+  <div class="fix"><div class="label">Fix</div>Add the 5 missing rows + update the tree diagram and health example.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M16 — <code>docs/CERTIFICATES.md</code> documents the deleted <code>/issued/[certId]/resend</code> route as live</h3>
+  <div class="meta"><code>docs/CERTIFICATES.md:296-308</code> — route deleted July 13 (<code>05f0695</code>); only <code>/reissue</code> exists</div>
+  <p>An operator/integrator scripting a resend from the doc's canonical section gets a 404.</p>
+  <div class="fix"><div class="label">Fix</div>Rewrite the section to point at <code>POST .../issued/[certId]/reissue</code> and mark the old route removed July 13.</div>
+</div>
+
+<div class="finding med">
+  <h3><span class="pill p-med">Med</span> R3-M17 — Dead-code cluster: 14 unused hooks in <code>use-api.ts</code> + 2 orphaned Zoom components + 1 orphaned scoring editor</h3>
+  <div class="meta"><code>src/hooks/use-api.ts</code> (14 hooks, ~300 LOC) · <code>zoom-join-button.tsx</code>, <code>zoom-series-schedule.tsx</code>, <code>abstracts/criteria-score-editor.tsx</code></div>
+  <p>
+    14 exported hooks have zero consumers (verified per-name across <code>src/</code>/<code>__tests__/</code>/<code>e2e/</code>) — notably
+    <code>useRegistrationInvoices</code>, which <code>invoice-download-buttons.tsx</code> duplicates with a raw fetch (cache-invalidation
+    drift risk); <code>useHotels</code>/<code>useAccommodations</code> are still advertised in CLAUDE.md's hooks list. Three components are
+    superseded orphans. (This is separate from R3-H4/H5, which are dead components still receiving <em>fixes</em>.)
+  </p>
+  <div class="fix"><div class="label">Fix</div>Delete the dead hooks/components (or converge <code>invoice-download-buttons</code> onto <code>useRegistrationInvoices</code>); prune CLAUDE.md's hooks list.</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>LOW</h2>
+<table>
+  <thead><tr><th>ID</th><th>Finding</th><th>Location</th><th>Fix</th></tr></thead>
+  <tbody>
+    <tr><td>R3-L1</td><td>Dinner-RSVP bulk-add stores client-supplied <code>registrationId</code>/<code>speakerId</code> without event/org validation (soft-ref columns, no FK). Inert today — never selected/rendered — but a latent cross-tenant reference the moment a "linked invitee" UI ships.</td><td><code>rsvp-invites/route.ts:216-223</code></td><td>Resolve both ids against <code>{ id, eventId }</code>; null out foreign ids.</td></tr>
+    <tr><td>R3-L2</td><td>Two different-intent <code>checkout.session.completed</code> events racing both dodge the "⚠ Possible double payment" alert and both email PAID docs (dup decided by an unlocked read).</td><td><code>stripe/route.ts:187-217</code></td><td>Claim with <code>updateMany({ where:{ id, paymentStatus:{ not:"PAID" }}})</code>; treat <code>count===0</code> as the dup branch.</td></tr>
+    <tr><td>R3-L3</td><td>Refund's credit-note gate is check-then-act: a concurrent CN cancel between the read and the claim tx bypasses the credit-note-first control (July-11 M2). No counter corruption — a policy-gate race.</td><td><code>payment-service.ts:246-258, 308-320</code></td><td>Re-read the CN sum inside the claim tx under the same registration <code>FOR UPDATE</code> lock.</td></tr>
+    <tr><td>R3-L4</td><td>Auto-issue sweep's manual-run suppression is a plain read under READ COMMITTED — a manual Issue run committed between check and insert leaves two live runs → duplicate cert delivery (variant of cert-review L3, auto side).</td><td><code>certificates/auto-issue.ts:329-354</code></td><td>Unique constraint or advisory/row lock on (template, recipient) run creation.</td></tr>
+    <tr><td>R3-L5</td><td><code>mergeBillingAccounts</code> junction re-point can silently swallow a concurrently-created attachment (Cascade) or abort on P2002.</td><td><code>billing-account-service.ts:369-397</code></td><td><code>FOR UPDATE</code> both BillingAccount rows at the top of the merge tx; lock the payer in the attach route.</td></tr>
+    <tr><td>R3-L6</td><td><code>createCreditNote</code> on a zero-computed-total registration books the entire credit as tax (<code>ratio=0 → cnTax=amt</code>), overstating the tax ledger.</td><td><code>invoice-service.ts:643-646</code></td><td>Mirror the PAID-invoice rule: when <code>fullTotal ≤ 0.005</code>, put <code>amt</code> in subtotal, tax 0.</td></tr>
+    <tr><td>R3-L7</td><td>Local <code>round2</code> in the manual-payment route lacks the shared <code>Number.EPSILON</code> — at the x.xx5 boundary <code>coversTotal</code> can flip vs <code>fin.total</code> (M9 rounding-drift re-appeared).</td><td><code>payments/route.ts:243</code></td><td>Import the shared <code>round2</code> from <code>registration-financials.ts</code>.</td></tr>
+    <tr><td>R3-L8</td><td><code>validate-promo</code> preview never got the July-16 clamp: a negative stored <code>discountValue</code> previews a surcharge the (clamped) apply path won't charge.</td><td><code>public/.../validate-promo/route.ts:116-123</code></td><td>Apply the same <code>Math.min(100, Math.max(0, …))</code> clamp.</td></tr>
+    <tr><td>R3-L9</td><td><code>refund-confirmation</code> is a dead template (no sender since July 7) still fully editable + documented in the UI — an organizer trap, not a token risk.</td><td><code>email.ts:1798, 1228-1238</code></td><td>Hide from the Email Templates list or badge "not currently sent automatically".</td></tr>
+  </tbody>
+</table>
+<p class="muted" style="font-size:13px">Also noted by the parity lens as LOW/INFO drift (not runtime bugs): dashboard certificate-template mutations write no AuditLog while MCP does (reverse of R3-M11); sponsors REST PUT no audit + MCP no array cap; ticket-type/track MCP creates skip the REST audit row + a <code>refreshEventStats</code> asymmetry; MCP <code>create_invoice</code> no audit + decorative <code>eventId</code>; MCP <code>update_invoice_status</code> CANCELLED bypasses <code>cancelInvoice()</code>; MCP <code>create_promo_code</code> misses the FIXED_AMOUNT-requires-currency refine.</p>
+
+<!-- ============================================================ -->
+<h2>Verified clean (no new finding)</h2>
+<ul>
+  <li><strong>Security:</strong> every new nested-id route binds child→parent/org; the six visibility predicates (finance / barcode / zoom-host / contacts read+export / CRM roles) are applied correctly; dinner-roster/email-body/cert reads block MEMBER via <code>denyReviewer</code>; the RSVP roster H2 fix holds; two <code>srcDoc</code> email renderers are both <code>sandbox=""</code>; MCP org binding comes from the key/token, never tool input.</li>
+  <li><strong>Concurrency:</strong> the July-16 <code>claimToken</code> machinery (heartbeat/SENT/SENT-0/FAILED all condition on <code>status=PROCESSING AND claimToken</code>; retry clears it; cancel covers PROCESSING atomically); <code>mintSpeakerAgreementLink</code> rotate/additive semantics; bulk-email <code>emailedKeys</code> resume + 25-batch abort; dinner RSVP public submit (row lock + server-authoritative replace-all); <code>createCreditNote</code>/<code>createPaidInvoice</code>/<code>createPaidReceipt</code> FOR-UPDATE locks; invoice numbering; email-log-prune; AlertState claims; CRM deal-stage conditional claims; cert issue-worker <code>transitionRunStatus</code>. All 32 post-June-23 migrations are additive+idempotent; the <code>SpeakerDocument</code> partial-unique index enforces one-signed-agreement-per-speaker.</li>
+  <li><strong>Drift:</strong> the drift-guarded mirror sets all pass — <code>email-template-slugs.ts</code> (25==25), <code>CANCELLED_EXCLUDED_EMAIL_TYPES</code> (single shared def), payment-status Records (exhaustive + <code>assertCovers</code>), session-enums adoption (no hand-rolled role/status maps remain).</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>KNOWN — already tracked in <code>docs/ROADMAP.md</code> (not re-counted)</h2>
+<ul style="font-size:14px">
+  <li><strong>Survey/RSVP review</strong> — <span class="pill p-known" style="background:var(--blocker)">Open BLOCKER B1</span> forgeable share-link survey → CME cert; M2 stamp-on-wrong-facet; M4/M6 replace-all vs closed/deactivated dinners; RSVP-send <code>target:"all"</code> re-mail.</li>
+  <li><strong>July-16 review remediation</strong> — M5 SpeakerDocument concurrent-replace race; M6 sortOrder under READ COMMITTED; <strong>M7 signed agreements world-readable via <code>/uploads</code></strong> (the new speaker-docs <code>SIGNED_AGREEMENT</code> + <code>OTHER</code> paths extend this surface — fold them into the M7 decision).</li>
+  <li><strong>Registrations &amp; speakers review</strong> — seat/soldCount cluster (PricingTier vs TicketType reconciliation, detail-sheet inline TOCTOU, MED-1 legacy rows), M5 pre-tx seat/promo snapshots in MCP bulk + bulk-type, M2 companion-create race, M6 CSV CANCELLED seat claim, M10/M11 hand-rolled claim copies.</li>
+  <li><strong>Payments / Cancel-with-refund</strong> — Jul-7 L1 <code>refundedAmount</code> never rebased on re-payment; payments L5 zero-decimal CN math (checked — not worse); Jul-8 M1 Cancel-&amp;-refund drops staged edits; Jul-8 L3 PUT-cancel <code>expectedUpdatedAt</code> reliance; promo MEMBER-sees-code product call; CSV/EventsAir <code>originalPrice</code> stamping.</li>
+  <li><strong>Communications ROUND 2</strong> — C6 MCP bulk-send audit row; A3 templateSlug precheck; A12 MCP inline no-dedup/no-resume; A5 abstracts <code>emailedKeys</code> instability; A7/A8 paymentStatus/emailType drift; INCLUSIVE enum LOW.</li>
+  <li><strong>Contacts / Accommodation / Abstracts / Certificates / CRM reviews</strong> — contacts audit 2-of-9 paths + normalizeTag skips; accommodation M8/M9 hardcoded status Sets + MCP <code>create_hotel</code> no audit + H7 unlogged paths + H8/M10 dashboard swallows; abstracts M9 (5 tools absent from in-app defs — the tracked subset of R3-M8) + M10 dead feedback re-wire + M8 MCP <code>update_session</code> omits topics; certificates M6 send-crash windows, L3 issue-run non-mutual-exclusion, L4 serial burn, M9 no duplicate MCP tool; CRM products L1 duplicate-line race.</li>
+  <li><strong>Security (PRODUCTION_AUDIT Rounds 1–2 / ROADMAP)</strong> — <code>getOrgContext</code> SUPER_ADMIN <code>x-org-id</code> override; <code>GET /api/organization</code> billing with no finance gate (#65, intentionally deferred); public by-id document/payment-status cuid+slug design; RSVP/survey bearer tokens non-expiring; MCP finance boundary / OAuth 90-day role snapshot; MCP CORS credentials LOW; EventsAir photo <code>.supabase.co</code> substring fast-path.</li>
+  <li><strong>Program</strong> — provisionWebinar double-anchor (M1); retime-vs-Zoom re-sync (M6); <code>refreshEventStats</code> lost-update; split-settings PUT cross-field atomicity; <code>settings.webinar</code> sub-key last-write-wins.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>Coverage</h2>
+<p style="font-size:14px">
+  <strong>Examined in depth:</strong> speaker documents (both routes), billing-account merge (route + service), dinner RSVP (dinners,
+  rsvp-invites, send, public token), email-log body + list, CRM (<code>/api/crm/**</code> gate chain, roles, deals/products/reports/export,
+  sponsor-email, money redaction), scheduled-email schedule/PATCH/DELETE + worker claim-token machinery, certificate resend/preview/reissue,
+  onsite-staff, public check-email/payment-status/presence/speaker-agreement, MCP auth + org binding, the full money spine
+  (<code>payment-service</code>, <code>invoice-service</code>, <code>registration-financials</code>, <code>stripe.ts</code>,
+  <code>refund-reconciliation</code>, Stripe webhook, checkout, manual-payments, payment-reminder/confirmation emails, promo/validate-promo,
+  <code>finance-visibility</code>, detail-route financials, portal), REST↔MCP diff across promo/invoices/templates/certs/sponsors/contacts/hotels/tracks/tickets/themes/criteria/bulk-email/registration, all 32 post-June-23 migrations, and the full dead-code/doc-drift sweep of <code>src/components</code> + <code>src/hooks</code> + <code>docs/</code>.
+</p>
+<p style="font-size:14px">
+  <strong>Lighter / skipped:</strong> the server-side "silent-failure grep" sub-lens did not produce a distinct report (its scope was
+  substantially covered by the parity + dead-code lenses); webinar attendance/engagement/recording syncs (re-checked only for new movers —
+  none since Round 2); the checkout <code>checkout.session.completed</code> internals (unchanged since the July-10 review); CRM sponsor-email
+  dispatch dedup (human-triggered; module not deployed); frontend <code>dangerouslySetInnerHTML</code> in public <code>/e/[slug]</code> pages
+  (pre-existing server-config HTML, out of new-code scope); the <code>/uploads</code> M7 capability-URL class (owner decision pending).
+</p>
+
+<hr>
+<p class="muted" style="font-size:13px">
+  This is a documentation artifact — no code was changed. All BLOCKER/HIGH claims were verified against source before inclusion; R3-H1 and
+  R3-H3 were re-verified line-by-line in this session. Findings are candidates for scheduling, not an instruction to patch — pick the batch
+  and the fixes will follow the usual gate (tsc / lint / vitest / build) one commit at a time.
+</p>
+
+</div>
+</body>
+</html>
