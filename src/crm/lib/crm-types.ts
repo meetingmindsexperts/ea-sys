@@ -20,6 +20,8 @@ export interface CrmStage {
   name: string;
   sortOrder: number;
   isTerminal: boolean;
+  /** WON/LOST for mapped terminal stages — what the deal state machine reads. */
+  terminalOutcome?: "WON" | "LOST" | null;
 }
 
 export interface CrmPersonRef {

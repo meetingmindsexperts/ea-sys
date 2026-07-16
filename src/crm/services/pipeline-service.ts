@@ -222,6 +222,99 @@ export async function createStage(input: {
 }
 
 /**
+ * Rename a stage and/or change a terminal stage's outcome mapping.
+ *
+ * Safe to expose BECAUSE the deal state machine reads `terminalOutcome`, never
+ * the name (CRM review H3) — renaming "Won" to "Closed 🎉" cannot break closing.
+ * Guards: the name stays unique per org (P2002 → NAME_TAKEN), and the last
+ * WON/LOST-mapped column cannot have its outcome cleared or flipped away
+ * (LAST_TERMINAL_STAGE) — closeDeal() would then refuse every close.
+ */
+export async function updateStage(input: {
+  organizationId: string;
+  userId: string | null;
+  stageId: string;
+  name?: string;
+  terminalOutcome?: CrmStageOutcome | null;
+}): Promise<
+  { ok: true; stage: CrmPipelineStage } | { ok: false; code: PipelineErrorCode; message: string; meta?: Record<string, unknown> }
+> {
+  const stage = await resolveStage(input.stageId, input.organizationId);
+  if (!stage) {
+    apiLogger.warn({ msg: "crm-pipeline:update-not-found", stageId: input.stageId, organizationId: input.organizationId });
+    return { ok: false, code: "STAGE_NOT_FOUND", message: "Stage not found" };
+  }
+
+  const data: { name?: string; terminalOutcome?: CrmStageOutcome | null } = {};
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) {
+      apiLogger.warn({ msg: "crm-pipeline:update-name-required", stageId: stage.id });
+      return { ok: false, code: "NAME_REQUIRED", message: "Stage name is required" };
+    }
+    data.name = name;
+  }
+  if (input.terminalOutcome !== undefined) {
+    // Only a terminal column carries an outcome.
+    data.terminalOutcome = stage.isTerminal ? input.terminalOutcome : null;
+
+    // Never orphan an outcome: if this is the last stage mapped to WON (or LOST)
+    // and the edit takes that mapping away, every future close of that outcome
+    // would be refused (NO_TERMINAL_STAGE).
+    if (stage.terminalOutcome && data.terminalOutcome !== stage.terminalOutcome) {
+      const siblings = await db.crmPipelineStage.count({
+        where: { organizationId: input.organizationId, terminalOutcome: stage.terminalOutcome, id: { not: stage.id } },
+      });
+      if (siblings === 0) {
+        apiLogger.warn({ msg: "crm-pipeline:update-blocked-last-terminal", stageId: stage.id, outcome: stage.terminalOutcome });
+        return {
+          ok: false,
+          code: "LAST_TERMINAL_STAGE",
+          message: `This is the only ${stage.terminalOutcome === "WON" ? "Won" : "Lost"} column — map another stage to ${stage.terminalOutcome.toLowerCase()} first`,
+          meta: { terminalOutcome: stage.terminalOutcome },
+        };
+      }
+    }
+  }
+
+  if (Object.keys(data).length === 0) {
+    return { ok: false, code: "NAME_REQUIRED", message: "Nothing to update" };
+  }
+
+  try {
+    await db.crmPipelineStage.updateMany({
+      where: { id: stage.id, organizationId: input.organizationId },
+      data,
+    });
+    const updated = await db.crmPipelineStage.findUniqueOrThrow({ where: { id: stage.id } });
+
+    void writeAudit({
+      userId: input.userId,
+      action: "UPDATE",
+      entityId: stage.id,
+      changes: {
+        from: { name: stage.name, terminalOutcome: stage.terminalOutcome },
+        to: { name: updated.name, terminalOutcome: updated.terminalOutcome },
+      },
+    });
+
+    apiLogger.info({ msg: "crm-pipeline:stage-updated", stageId: stage.id, organizationId: input.organizationId });
+    return { ok: true, stage: updated };
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      apiLogger.warn({ msg: "crm-pipeline:stage-name-taken", organizationId: input.organizationId, name: data.name });
+      return { ok: false, code: "NAME_TAKEN", message: "A stage with that name already exists" };
+    }
+    apiLogger.error({
+      msg: "crm-pipeline:stage-update-failed",
+      stageId: input.stageId,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, code: "UNKNOWN", message: "Could not update the stage" };
+  }
+}
+
+/**
  * Reorder the whole pipeline in one atomic write. The client sends the full
  * ordered id list; we re-derive sortOrder from the array index (never trusting a
  * client-supplied sortOrder), and every id is bound to the org.

@@ -70,6 +70,54 @@ export function useCrmStages() {
   });
 }
 
+/** Stage edits reshape the whole board, so every mutation refetches stages AND deals. */
+function useInvalidatePipeline() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: crmKeys.stages });
+    qc.invalidateQueries({ queryKey: ["crm", "deals"] });
+  };
+}
+
+export function useCreateStage() {
+  const invalidate = useInvalidatePipeline();
+  return useMutation({
+    mutationFn: (body: { name: string; isTerminal?: boolean; terminalOutcome?: "WON" | "LOST" | null }) =>
+      apiPostJson<{ stage: CrmStage }>("/api/crm/pipeline-stages", body),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not add the stage"),
+  });
+}
+
+export function useUpdateStage() {
+  const invalidate = useInvalidatePipeline();
+  return useMutation({
+    mutationFn: ({ stageId, ...body }: { stageId: string; name?: string; terminalOutcome?: "WON" | "LOST" | null }) =>
+      apiPatchJson<{ stage: CrmStage }>(`/api/crm/pipeline-stages/${stageId}`, body),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the stage"),
+  });
+}
+
+export function useReorderStages() {
+  const invalidate = useInvalidatePipeline();
+  return useMutation({
+    mutationFn: (orderedStageIds: string[]) =>
+      apiPatchJson<{ stages: CrmStage[] }>("/api/crm/pipeline-stages", { orderedStageIds }),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not reorder the pipeline"),
+  });
+}
+
+export function useDeleteStage() {
+  const invalidate = useInvalidatePipeline();
+  return useMutation({
+    mutationFn: (stageId: string) => apiDelete<{ success: true }>(`/api/crm/pipeline-stages/${stageId}`),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not delete the stage"),
+  });
+}
+
 // ── Deals ────────────────────────────────────────────────────────────────────
 
 export function useCrmDeals(filters: CrmDealFilters = {}) {

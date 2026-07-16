@@ -1,6 +1,43 @@
 import { NextResponse } from "next/server";
-import { requireCrmDelete, crmErrorResponse } from "@/crm/lib/crm-route";
-import { deleteStage } from "@/crm/services/pipeline-service";
+import { z } from "zod";
+import { zodErrorResponse } from "@/lib/api-errors";
+import { requireCrmWrite, requireCrmDelete, crmErrorResponse } from "@/crm/lib/crm-route";
+import { deleteStage, updateStage } from "@/crm/services/pipeline-service";
+
+const updateStageSchema = z
+  .object({
+    name: z.string().min(1).max(100).optional(),
+    terminalOutcome: z.enum(["WON", "LOST"]).nullable().optional(),
+  })
+  .refine((d) => d.name !== undefined || d.terminalOutcome !== undefined, {
+    message: "Provide a name or a terminalOutcome",
+  });
+
+/**
+ * PATCH /api/crm/pipeline-stages/[stageId] — rename a stage / remap a terminal
+ * stage's WON/LOST outcome. Write-gated (an edit, not a removal). Renaming is
+ * safe by design: the deal state machine reads terminalOutcome, never the name
+ * (CRM review H3); the service refuses to orphan the last WON/LOST mapping.
+ */
+export async function PATCH(req: Request, { params }: { params: Promise<{ stageId: string }> }) {
+  const [{ error, ctx }, { stageId }] = await Promise.all([requireCrmWrite(req), params]);
+  if (error) return error;
+
+  const body = await req.json().catch(() => null);
+  const parsed = updateStageSchema.safeParse(body);
+  if (!parsed.success) {
+    return zodErrorResponse(parsed, { route: "crm/pipeline-stages/[stageId]:PATCH", organizationId: ctx.organizationId, stageId });
+  }
+
+  const result = await updateStage({
+    stageId,
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    ...parsed.data,
+  });
+  if (!result.ok) return crmErrorResponse(result);
+  return NextResponse.json({ stage: result.stage });
+}
 
 /**
  * DELETE /api/crm/pipeline-stages/[stageId]
