@@ -78,6 +78,7 @@ interface TicketType {
   description: string | null;
   isDefault: boolean;
   isActive: boolean;
+  requiresApproval: boolean;
   sortOrder: number;
   pricingTiers: PricingTier[];
   _count: { registrations: number };
@@ -121,6 +122,9 @@ export default function TicketsPage() {
   const [editingType, setEditingType] = useState<TicketType | null>(null);
   const [typeName, setTypeName] = useState("");
   const [typeDesc, setTypeDesc] = useState("");
+  // Type-level approval gate — previously only exposed inside the pricing-tier
+  // dialog, so a type with NO tiers couldn't enable it from the UI.
+  const [typeApproval, setTypeApproval] = useState(false);
 
   const [tierDialogOpen, setTierDialogOpen] = useState(false);
   const [editingTier, setEditingTier] = useState<PricingTier | null>(null);
@@ -140,6 +144,7 @@ export default function TicketsPage() {
     setEditingType(null);
     setTypeName("");
     setTypeDesc("");
+    setTypeApproval(false);
     setTypeDialogOpen(true);
   };
 
@@ -147,6 +152,7 @@ export default function TicketsPage() {
     setEditingType(tt);
     setTypeName(tt.name);
     setTypeDesc(tt.description || "");
+    setTypeApproval(!!tt.requiresApproval);
     setTypeDialogOpen(true);
   };
 
@@ -154,10 +160,10 @@ export default function TicketsPage() {
     if (!typeName.trim()) { toast.error("Name is required"); return; }
     try {
       if (editingType) {
-        await updateTicket.mutateAsync({ ticketId: editingType.id, data: { name: typeName, description: typeDesc } });
+        await updateTicket.mutateAsync({ ticketId: editingType.id, data: { name: typeName, description: typeDesc, requiresApproval: typeApproval } });
         toast.success("Registration type updated");
       } else {
-        await createTicket.mutateAsync({ name: typeName, description: typeDesc });
+        await createTicket.mutateAsync({ name: typeName, description: typeDesc, requiresApproval: typeApproval });
         toast.success("Registration type created");
       }
       setTypeDialogOpen(false);
@@ -551,6 +557,20 @@ export default function TicketsPage() {
             <div className="space-y-2">
               <Label>Description</Label>
               <TiptapEditor content={typeDesc} onChange={setTypeDesc} />
+            </div>
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id="type-approval"
+                checked={typeApproval}
+                onCheckedChange={(checked) => setTypeApproval(!!checked)}
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="type-approval" className="cursor-pointer">Requires approval</Label>
+                <p className="text-xs text-muted-foreground">
+                  New registrations on this type start as Pending until an organizer confirms them.
+                  A pricing tier&apos;s own approval setting overrides this when a tier is picked.
+                </p>
+              </div>
             </div>
           </div>
           <DialogFooter>

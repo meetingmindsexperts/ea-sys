@@ -104,6 +104,23 @@ describe("applyPromoCodeToRegistration", () => {
     expect(r.financials).toMatchObject({ originalPrice: 40, discountAmount: 40, finalPrice: 0, currency: "EUR" });
   });
 
+  it("clamps a NEGATIVE discountValue to a 0 discount (never a surcharge)", async () => {
+    // Bad admin/MCP data — the apply must not increase the price.
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...PROMO, discountType: "FIXED_AMOUNT", discountValue: -50 });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.financials).toMatchObject({ discountAmount: 0, finalPrice: 100 });
+  });
+
+  it("caps a PERCENTAGE above 100 at 100% (discount never exceeds the base price)", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue({ ...PROMO, discountType: "PERCENTAGE", discountValue: 500 });
+    const r = await applyPromoCodeToRegistration(BASE);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.financials).toMatchObject({ discountAmount: 100, finalPrice: 0 });
+  });
+
   it("refuses when the registration is already settled", async () => {
     mockDb.registration.findFirst.mockResolvedValue({ ...REG, paymentStatus: "PAID" });
     const r = await applyPromoCodeToRegistration(BASE);

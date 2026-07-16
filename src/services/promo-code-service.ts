@@ -164,14 +164,26 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
         }
       }
 
-      const discountAmount =
+      // Defensive clamp (July-1 review LOW): bad admin/MCP data — a negative
+      // discountValue or a percentage above 100 — must never produce a
+      // negative discount (a surcharge) or a discount above the base price.
+      // The write paths validate too; this is the last line of defense.
+      const rawValue = Number(promo.discountValue);
+      const discountAmount = Math.max(
+        0,
         Math.round(
           (promo.discountType === "PERCENTAGE"
-            ? (basePrice * Number(promo.discountValue)) / 100
-            : Math.min(Number(promo.discountValue), basePrice)) * 100,
-        ) / 100;
+            ? (basePrice * Math.min(100, Math.max(0, rawValue))) / 100
+            : Math.min(Math.max(0, rawValue), basePrice)) * 100,
+        ) / 100,
+      );
       const finalPrice = Math.max(0, Math.round((basePrice - discountAmount) * 100) / 100);
 
+      // Each branch owns its own `replaced` value (July-1 review MED): deriving
+      // it after the fact from the pre-apply snapshot was correct but fragile —
+      // a future branch edit could silently desync the flag from what the
+      // branch actually did.
+      let replaced = false;
       if (sameCodeAlreadyApplied) {
         // Idempotent refresh — the base price may have changed (tier/type edit);
         // keep the same redemption + usedCount, just re-sync the numbers.
@@ -184,6 +196,7 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
         // Replace-not-stack: release any DIFFERENT existing promo first.
         if (reg.promoCodeId) {
           await releaseExistingRedemption(tx, reg.id, reg.promoCodeId);
+          replaced = true;
         }
         // Atomic usedCount increment (maxUses guard — same pattern as soldCount).
         if (promo.maxUses !== null) {
@@ -220,7 +233,7 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
 
       return {
         code: promo.code,
-        replaced: !sameCodeAlreadyApplied && !!reg.promoCodeId,
+        replaced,
         financials: { code: promo.code, originalPrice: basePrice, discountAmount, finalPrice, currency },
       };
     });

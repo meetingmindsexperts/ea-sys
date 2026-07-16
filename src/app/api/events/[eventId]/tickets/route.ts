@@ -22,6 +22,10 @@ const createTicketTypeSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(2000).optional(),
   isActive: z.boolean().default(true),
+  // Type-level approval gate (PENDING registrations) — previously only
+  // settable per pricing tier, so a type with NO tiers couldn't enable it
+  // from the UI even though every create path honors it.
+  requiresApproval: z.boolean().default(false),
   sortOrder: z.number().int().optional(),
   // Optional: create initial pricing tiers alongside the registration type
   pricingTiers: z
@@ -136,7 +140,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { name, description, isActive, sortOrder, pricingTiers } = validated.data;
+    const { name, description, isActive, requiresApproval, sortOrder, pricingTiers } = validated.data;
 
     // Check for duplicate name within the event
     const existing = await db.ticketType.findFirst({
@@ -156,6 +160,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         name,
         description: description || null,
         isActive,
+        requiresApproval,
         sortOrder: sortOrder ?? 99,
         ...(pricingTiers && pricingTiers.length > 0
           ? {

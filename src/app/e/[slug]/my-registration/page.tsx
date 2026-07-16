@@ -436,6 +436,18 @@ export default function EventMyRegistrationPage() {
               const isConfirmed = reg.status === "CONFIRMED";
               const showPayment =
                 !isPaid && !isComplimentary && !isSponsored && !isRefunded && reg.status !== "CANCELLED";
+              // A promo discounting to net 0 hides the payment block, but the
+              // reg is still OUTSTANDING (paymentStatus stays UNPAID) — keep
+              // the Remove control reachable so the registrant can undo a
+              // mistaken code themselves (July-1 review MED). True
+              // COMPLIMENTARY / PAID / sponsored / refunded regs never show it.
+              const promoRemovableWhileFree =
+                !!reg.promoCode &&
+                !showPayment &&
+                netPrice === 0 &&
+                reg.paymentStatus !== "COMPLIMENTARY" &&
+                !isPaid && !isSponsored && !isRefunded &&
+                reg.status !== "CANCELLED";
               const regTaxRate = regFin.taxRate;
               const regTaxAmount = regFin.taxAmount;
               const regTotal = regFin.total;
@@ -477,6 +489,21 @@ export default function EventMyRegistrationPage() {
                             registrationId={reg.id}
                             eventSlug={slug}
                           />
+                        )}
+                        {promoRemovableWhileFree && (
+                          <div className="text-sm text-right shrink-0">
+                            <p className="font-medium text-emerald-700">
+                              Promo code {reg.promoCode!.code} applied
+                            </p>
+                            <button
+                              type="button"
+                              className="text-green-700 underline underline-offset-2 hover:text-green-900 disabled:opacity-50"
+                              disabled={promoBusy === reg.id}
+                              onClick={() => handleRemovePromo(reg.id)}
+                            >
+                              Remove
+                            </button>
+                          </div>
                         )}
                       </div>
                     )}

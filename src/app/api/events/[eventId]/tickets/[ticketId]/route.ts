@@ -11,6 +11,8 @@ const updateTicketTypeSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(2000).optional(),
   isActive: z.boolean().optional(),
+  // Type-level approval gate — editable so a tier-less type can toggle it.
+  requiresApproval: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 });
 
@@ -125,6 +127,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.name && { name: data.name }),
         ...(data.description !== undefined && { description: data.description || null }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
+        ...(data.requiresApproval !== undefined && { requiresApproval: data.requiresApproval }),
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
       },
       include: {

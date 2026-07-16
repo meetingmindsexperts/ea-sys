@@ -413,6 +413,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         // row lock, auto-released at commit; same fix as the promo-code-service.
         await tx.$queryRaw`SELECT id FROM "PromoCode" WHERE id = ${promo.id} FOR UPDATE`;
 
+        // Per-email limit FIRST (July-1 review LOW): checking before the
+        // usedCount increment means the counter never moves for a rejected
+        // apply. Inside this $transaction a throw rolled the increment back
+        // anyway, but the old order was one non-transactional refactor away
+        // from leaking usedCount on every EMAIL_LIMIT rejection.
+        if (promo.maxUsesPerEmail !== null) {
+          const emailUses = await tx.promoCodeRedemption.count({
+            where: { promoCodeId: promo.id, email },
+          });
+          if (emailUses >= promo.maxUsesPerEmail) throw new Error("PROMO_CODE_EMAIL_LIMIT");
+        }
+
         // Atomic usedCount increment (same pattern as soldCount)
         if (promo.maxUses !== null) {
           const updated = await tx.promoCode.updateMany({
@@ -427,19 +439,14 @@ export async function POST(req: Request, { params }: RouteParams) {
           });
         }
 
-        // Per-email limit
-        if (promo.maxUsesPerEmail !== null) {
-          const emailUses = await tx.promoCodeRedemption.count({
-            where: { promoCodeId: promo.id, email },
-          });
-          if (emailUses >= promo.maxUsesPerEmail) throw new Error("PROMO_CODE_EMAIL_LIMIT");
-        }
-
-        // Calculate discount
+        // Calculate discount. Same defensive clamp as promo-code-service: bad
+        // stored data (negative value / percentage > 100) never yields a
+        // surcharge or a discount above the base price.
+        const promoValue = Number(promo.discountValue);
         if (promo.discountType === "PERCENTAGE") {
-          discountAmount = originalPrice * Number(promo.discountValue) / 100;
+          discountAmount = originalPrice * Math.min(100, Math.max(0, promoValue)) / 100;
         } else {
-          discountAmount = Math.min(Number(promo.discountValue), originalPrice);
+          discountAmount = Math.min(Math.max(0, promoValue), originalPrice);
         }
         discountAmount = Math.round(discountAmount * 100) / 100;
         promoCodeRecord = promo;

@@ -130,7 +130,7 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
 
     const existing = await db.promoCode.findFirst({
       where: { id: promoCodeId, event: { organizationId: ctx.organizationId } },
-      select: { id: true, eventId: true },
+      select: { id: true, eventId: true, discountType: true, discountValue: true },
     });
     if (!existing) return { error: `Promo code ${promoCodeId} not found or access denied` };
 
@@ -149,6 +149,16 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
       const dv = Number(input.discountValue);
       if (isNaN(dv) || dv <= 0) return { error: "discountValue must be positive" };
       updates.discountValue = dv;
+    }
+    // A percentage above 100 would compute a discount larger than the base
+    // price (REST parity — its Zod refine already rejects this). Checked
+    // against the EFFECTIVE type/value pair so "flip type to PERCENTAGE while
+    // the stored value is 500" is caught too.
+    const effectiveType = (updates.discountType as string | undefined) ?? existing.discountType;
+    const effectiveValue =
+      updates.discountValue !== undefined ? Number(updates.discountValue) : Number(existing.discountValue);
+    if (effectiveType === "PERCENTAGE" && effectiveValue > 100) {
+      return { error: "PERCENTAGE discountValue must be <= 100" };
     }
     if (input.maxUses !== undefined) {
       updates.maxUses = input.maxUses == null ? null : Math.max(1, Number(input.maxUses));

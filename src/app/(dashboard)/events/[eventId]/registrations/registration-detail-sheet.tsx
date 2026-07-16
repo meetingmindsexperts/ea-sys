@@ -215,9 +215,6 @@ export function RegistrationDetailSheet({
   // edit form — lets "Custom…" show the free-text input even before a value is
   // typed. Reset when the sheet opens a different registration / starts editing.
   const [badgeCustomOpen, setBadgeCustomOpen] = useState(false);
-  // Staged pricing-tier selection for the Payment Summary's Apply button (the
-  // tier is the one field that keeps its own explicit Apply instead of the
-  // Save-button form). null = untouched; otherwise the picked tier id or "".
   const [activeTab, setActiveTab] = useState<"details" | "billing" | "activity">("details");
   const headerPhotoRef = useRef<HTMLInputElement>(null);
 
