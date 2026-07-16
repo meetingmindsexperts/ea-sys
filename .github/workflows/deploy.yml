@@ -90,16 +90,18 @@ jobs:
       # what the ecosystem happens to have disclosed today, which is not something
       # a deploy should be blocked on.
 
-      # `next build` here uploads source maps to Sentry (has the auth token) AND
-      # fails fast on any build error before we bother building the Docker image.
-      # The build-push job below builds the runtime image separately; source maps
-      # continue to come from THIS step (the Docker build has no Sentry token).
-      - name: Build
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-        run: npx next build
+      # The `next build` CI step was REMOVED (owner decision, July 16, 2026):
+      # `npm run build` is part of the local verification gate run before every
+      # push, so building again here only added ~3-5 min to every deploy. The
+      # runtime image is still built by the build-push job below — a genuinely
+      # broken build still fails there, before deploy.
+      #
+      # ⚠ Known trade-off: that step was ALSO the Sentry source-map upload (it
+      # ran with SENTRY_AUTH_TOKEN; the Docker build deliberately has no
+      # token). Client stack traces in Sentry are minified for deploys after
+      # this change. If maps are wanted back, re-add the step as a PARALLEL,
+      # non-gating job (needs: ci, not in the deploy dependency chain) so it
+      # costs no deploy latency.
 
   # ── Build + push images to ECR ───────────────────────────────────────────────
   # Builds the web (Dockerfile) + worker (Dockerfile.worker) images on GitHub's
