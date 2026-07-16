@@ -955,10 +955,44 @@ export default function SpeakerDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Certificates (with Resend) + the unified activity timeline.
+              These are the two LONGEST blocks on the page, so they live in
+              the wide main column (record-layout convention: work area =
+              lists/activity, sidebar = compact key facts). Speakers receive
+              APPRECIATION certs; the IssuedCertificatesCard surfaces the
+              per-row Resend so an organizer can re-fire delivery without
+              leaving this page. The ActivityTimelineCard below picks up the
+              new EmailLog row written by the resend, so the action appears
+              in two places (status row + timeline row) — the desired
+              feedback loop. */}
+          <IssuedCertificatesCard
+            eventId={eventId}
+            speakerId={speaker.id}
+            recipientLabel={
+              `${[speaker.title, speaker.firstName, speaker.lastName].filter(Boolean).join(" ")} <${speaker.email}>`
+            }
+            // Speaker tags drive the Issue dialog's "no tag, no certificate"
+            // gate (non-matching templates disabled).
+            recipientTags={speaker.tags ?? []}
+          />
+          {/* Unified activity timeline — subsumes the old email-history card
+              (it includes emails) and adds AuditLog events, issued
+              certificates (with Open), and the linked registration's activity
+              (pointed, not duplicated). */}
+          <ActivityTimelineCard
+            endpoint={`/api/events/${eventId}/speakers/${speaker.id}/activity`}
+            anchor="speaker"
+            queryKey={[eventId, "speaker", speaker.id]}
+          />
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
+        {/* Sidebar — compact key facts (agreement / documents / registration /
+            socials). The long work blocks (certificates, activity timeline)
+            live in the main column. Sticky so the facts stay in view while
+            scrolling a long timeline; max-h + overflow guard keeps a
+            taller-than-viewport sidebar reachable. */}
+        <div className="space-y-6 lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           {/* Speaker Agreement */}
           <Card>
             <CardHeader>
@@ -1172,34 +1206,35 @@ export default function SpeakerDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Social Links */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Social Links</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 text-sm">
-                {speaker.socialLinks?.twitter && (
-                  <a href={`https://twitter.com/${speaker.socialLinks.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline">
-                    Twitter: {speaker.socialLinks.twitter}
-                  </a>
-                )}
-                {speaker.socialLinks?.linkedin && (
-                  <a href={speaker.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline">
-                    LinkedIn
-                  </a>
-                )}
-                {speaker.socialLinks?.github && (
-                  <a href={`https://github.com/${speaker.socialLinks.github.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline">
-                    GitHub: {speaker.socialLinks.github}
-                  </a>
-                )}
-                {!speaker.socialLinks?.twitter && !speaker.socialLinks?.linkedin && !speaker.socialLinks?.github && (
-                  <p className="text-muted-foreground">No social links added.</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Social Links — display-only (edited via the Info card's edit
+              form), so the card hides entirely when there are none instead
+              of spending sidebar height on "No social links added." */}
+          {(speaker.socialLinks?.twitter || speaker.socialLinks?.linkedin || speaker.socialLinks?.github) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Social Links</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-sm">
+                  {speaker.socialLinks?.twitter && (
+                    <a href={`https://twitter.com/${speaker.socialLinks.twitter.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline">
+                      Twitter: {speaker.socialLinks.twitter}
+                    </a>
+                  )}
+                  {speaker.socialLinks?.linkedin && (
+                    <a href={speaker.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline">
+                      LinkedIn
+                    </a>
+                  )}
+                  {speaker.socialLinks?.github && (
+                    <a href={`https://github.com/${speaker.socialLinks.github.replace("@", "")}`} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline">
+                      GitHub: {speaker.socialLinks.github}
+                    </a>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Added-on footer — a plain row, not a whole Card, so the compact
               facts sidebar stays short. */}
