@@ -122,11 +122,22 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const sampleVars = buildEventPreviewVariables(event, session.user, {
       ...(customSubject ? { subject: customSubject } : {}),
-      ...(customMessage ? { message: customMessage } : {}),
+      // The typed message must reach BOTH message-shaped tokens — templates
+      // like dinner-rsvp-invitation and the speaker templates render
+      // {{personalMessage}}, not {{message}}. Before this, the preview showed
+      // the canned sample ("We're excited to have you!") instead of what the
+      // organizer typed (review R2 M7).
+      ...(customMessage ? { message: customMessage, personalMessage: customMessage } : {}),
     });
 
     const renderedBody = renderTemplate(eventTemplate.htmlContent, sampleVars);
-    const renderedSubject = renderTemplatePlain(eventTemplate.subject, sampleVars);
+    // A typed subject previews as the subject — before this it was ignored
+    // unless the template's own subject happened to contain {{subject}}
+    // (review R2 M7). Tokens typed into it resolve, matching the send.
+    const renderedSubject = renderTemplatePlain(
+      customSubject || eventTemplate.subject,
+      sampleVars,
+    );
     const wrappedHtml = inlineCss(wrapWithBranding(renderedBody, eventTemplate.branding));
 
     return NextResponse.json({ subject: renderedSubject, htmlContent: wrappedHtml });

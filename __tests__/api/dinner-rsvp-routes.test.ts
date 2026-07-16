@@ -9,16 +9,21 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockRateLimit } = vi.hoisted(() => ({
+const { mockDb, mockRateLimit, mockSendEmail, mockGetEventTemplate, mockRenderAndWrap } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     rsvpInvite: { findUnique: vi.fn(), findMany: vi.fn(), createMany: vi.fn(), update: vi.fn() },
-    rsvpDinner: { findMany: vi.fn() },
+    rsvpDinner: { findMany: vi.fn(), count: vi.fn() },
     rsvpDinnerResponse: { deleteMany: vi.fn(), createMany: vi.fn(), upsert: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
+    user: { findUnique: vi.fn() },
+    emailLog: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
   mockRateLimit: vi.fn(() => ({ allowed: true, retryAfterSeconds: 0 })),
+  mockSendEmail: vi.fn(),
+  mockGetEventTemplate: vi.fn(),
+  mockRenderAndWrap: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -37,8 +42,22 @@ vi.mock("@/lib/security", () => ({
   getClientIp: () => "127.0.0.1",
   checkRateLimit: mockRateLimit,
 }));
-vi.mock("@/lib/auth", () => ({ auth: vi.fn().mockResolvedValue({ user: { id: "u1", organizationId: "org1" } }) }));
+vi.mock("@/lib/auth", () => ({ auth: vi.fn().mockResolvedValue({ user: { id: "u1", organizationId: "org1", role: "ADMIN" } }) }));
 vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null }));
+// Partial mock: sendEmail/getEventTemplate/renderAndWrap/branding stubbed;
+// renderMessageValue and friends stay REAL so the M8 token-substitution
+// assertion exercises the actual renderer.
+vi.mock("@/lib/email", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/email")>();
+  return {
+    ...actual,
+    sendEmail: (...a: unknown[]) => mockSendEmail(...a),
+    getEventTemplate: (...a: unknown[]) => mockGetEventTemplate(...a),
+    renderAndWrap: (...a: unknown[]) => mockRenderAndWrap(...a),
+    brandingFrom: () => ({ email: "from@x.com", name: "From" }),
+    brandingCc: () => [],
+  };
+});
 
 import {
   POST as sendlessInvitesPost,
@@ -46,6 +65,7 @@ import {
 } from "@/app/api/events/[eventId]/rsvp-invites/route";
 import { POST as publicSubmit } from "@/app/api/public/events/[slug]/rsvp/[token]/route";
 import { POST as dinnersPost } from "@/app/api/events/[eventId]/dinners/route";
+import { POST as sendPost } from "@/app/api/events/[eventId]/rsvp-invites/send/route";
 
 const FUTURE = new Date(Date.now() + 7 * 24 * 3600_000);
 const PAST = new Date(Date.now() - 24 * 3600_000);
@@ -283,5 +303,82 @@ describe("POST /dinners — cross-field deadline validation (R2 L7)", () => {
     const res = await dinnersPost(req, { params: Promise.resolve({ eventId: "ev1" }) });
     expect(res.status).toBe(400);
     expect((await res.json()).code).toBe("DEADLINE_AFTER_DINNER");
+  });
+});
+
+// ── R2 M6/M8/L15 — the send route's retry-safety + message tokens ─────
+describe("POST /rsvp-invites/send — batch retry-safety + message tokens (R2 M6/M8/L15)", () => {
+  function wireSend() {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1",
+      name: "Gala",
+      slug: "gala",
+      organization: { name: "MMG" },
+    });
+    mockDb.rsvpInvite.findMany.mockResolvedValue([
+      { id: "i1", inviteeName: "Alice A", inviteeEmail: "a@x.com", token: "tokA" },
+      { id: "i2", inviteeName: "Bob B", inviteeEmail: "b@x.com", token: "tokB" },
+    ]);
+    mockDb.user.findUnique.mockResolvedValue({ firstName: "Org", lastName: "Anizer", emailSignature: null });
+    mockDb.rsvpDinner.count.mockResolvedValue(2);
+    mockDb.emailLog.findMany.mockResolvedValue([]);
+    mockGetEventTemplate.mockResolvedValue({
+      subject: "You're invited",
+      htmlContent: "<p>{{personalMessage}}</p>",
+      textContent: "{{personalMessage}}",
+      branding: {},
+    });
+    mockRenderAndWrap.mockReturnValue({ subject: "S", htmlContent: "<p>H</p>", textContent: "T" });
+    mockSendEmail.mockResolvedValue({ success: true });
+  }
+  const sendReq = (body: Record<string, unknown>) =>
+    ({ json: async () => body }) as unknown as Request;
+
+  it("400 NO_DINNERS when the event has no active dinner (L15)", async () => {
+    wireSend();
+    mockDb.rsvpDinner.count.mockResolvedValue(0);
+    const res = await sendPost(sendReq({ target: "all" }), { params: Promise.resolve({ eventId: "ev1" }) });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("NO_DINNERS");
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("a batch retry skips invitees already emailed in the last 10 minutes (M6)", async () => {
+    wireSend();
+    // i1 was mailed successfully moments ago (a crashed/retried batch).
+    mockDb.emailLog.findMany.mockResolvedValue([{ entityId: "i1" }]);
+    const res = await sendPost(sendReq({ target: "all" }), { params: Promise.resolve({ eventId: "ev1" }) });
+    const body = await res.json();
+    expect(body.sent).toBe(1);
+    expect(body.skippedRecentlyInvited).toBe(1);
+    expect(mockSendEmail).toHaveBeenCalledTimes(1);
+    const sentTo = (mockSendEmail.mock.calls[0][0] as { to: { email: string }[] }).to[0].email;
+    expect(sentTo).toBe("b@x.com");
+  });
+
+  it("a single-invitee send is an intentional resend — never skipped (M6)", async () => {
+    wireSend();
+    mockDb.rsvpInvite.findMany.mockResolvedValue([
+      { id: "i1", inviteeName: "Alice A", inviteeEmail: "a@x.com", token: "tokA" },
+    ]);
+    const res = await sendPost(sendReq({ inviteId: "i1" }), { params: Promise.resolve({ eventId: "ev1" }) });
+    const body = await res.json();
+    expect(body.sent).toBe(1);
+    expect(body.skippedRecentlyInvited).toBe(0);
+    // The recently-sent lookup is batch-only.
+    expect(mockDb.emailLog.findMany).not.toHaveBeenCalled();
+  });
+
+  it("tokens typed into the message resolve per recipient (M8) — {{firstName}} becomes the invitee's name", async () => {
+    wireSend();
+    await sendPost(sendReq({ target: "all", message: "Hi {{firstName}}, dress code is black tie" }), {
+      params: Promise.resolve({ eventId: "ev1" }),
+    });
+    // renderAndWrap received the PRE-RENDERED personalMessage (real
+    // renderMessageValue ran) — per recipient.
+    const varsA = mockRenderAndWrap.mock.calls[0][1] as Record<string, string>;
+    const varsB = mockRenderAndWrap.mock.calls[1][1] as Record<string, string>;
+    expect(varsA.personalMessage).toBe("Hi Alice, dress code is black tie");
+    expect(varsB.personalMessage).toBe("Hi Bob, dress code is black tie");
   });
 });

@@ -355,7 +355,15 @@ export default function DinnerRsvpPage() {
         toast.error(json.error || "Failed to send");
         return;
       }
-      toast.success(`Sent ${json.sent}${json.failed ? `, ${json.failed} failed` : ""}`);
+      const skippedNote = json.skippedRecentlyInvited
+        ? ` (${json.skippedRecentlyInvited} skipped — already emailed in the last 10 minutes)`
+        : "";
+      // R2 L1: a total failure ("Sent 0, 3 failed") must not toast green.
+      if (json.sent === 0 && json.failed > 0) {
+        toast.error(`No emails sent — ${json.failed} failed${skippedNote}`);
+        return;
+      }
+      toast.success(`Sent ${json.sent}${json.failed ? `, ${json.failed} failed` : ""}${skippedNote}`);
       setSendDialog(false);
       await loadRoster();
     } catch (err) {
