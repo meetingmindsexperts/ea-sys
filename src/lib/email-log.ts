@@ -16,11 +16,15 @@ export interface EmailLogContext {
   templateSlug?: string | null;
   triggeredByUserId?: string | null;
   /**
-   * When true, sendEmail persists the final rendered HTML body onto the
-   * EmailLog row (`htmlBody`) as an audit copy of exactly what was sent.
-   * Opt-in per caller — certificate deliveries set it (organizer request
-   * 2026-07-10: "save the html body"); most transactional mail doesn't,
-   * keeping the table lean.
+   * Controls persisting the final rendered HTML body onto the EmailLog row
+   * (`htmlBody`) as an audit copy of exactly what was sent.
+   *
+   * DEFAULT IS ON since July 16, 2026 (owner decision: "store the email body
+   * so the Activity view shows exactly what was sent") — every send stores
+   * its body; pass `false` to opt a caller out. Storage growth is bounded by
+   * the email-log-prune worker job, which nulls `htmlBody` on rows older
+   * than EMAIL_BODY_RETENTION_DAYS (the log row itself is kept). Originally
+   * opt-in for certificate deliveries only (2026-07-10).
    */
   storeBody?: boolean;
 }
@@ -34,7 +38,7 @@ export interface EmailLogRecord {
   providerMessageId?: string | null;
   status: "SENT" | "FAILED";
   errorMessage?: string | null;
-  /** Final rendered HTML — persisted only when context.storeBody is set. */
+  /** Final rendered HTML — persisted unless context.storeBody === false. */
   htmlBody?: string | null;
   context?: EmailLogContext;
 }
@@ -60,7 +64,9 @@ export async function logEmail(record: EmailLogRecord): Promise<void> {
         providerMessageId: record.providerMessageId ?? null,
         status: record.status,
         errorMessage: record.errorMessage ?? null,
-        htmlBody: record.context?.storeBody ? (record.htmlBody ?? null) : null,
+        // Store-by-default (opt-out with storeBody: false). A caller with no
+        // logContext at all still stores — "all sent emails" is the contract.
+        htmlBody: record.context?.storeBody === false ? null : (record.htmlBody ?? null),
         triggeredByUserId: record.context?.triggeredByUserId ?? null,
       },
     });
@@ -134,8 +140,9 @@ export async function getEmailLogsFor(
   }).then((rows) =>
     rows.map(({ htmlBody, ...rest }) => ({
       ...rest,
-      /** True when the final rendered HTML was stored (opt-in senders —
-       *  certificate deliveries). Fetch it via GET /api/email-logs/[id]/body. */
+      /** True when the final rendered HTML was stored (all senders since
+       *  July 16, 2026; older rows only for opt-in senders, and pruned rows
+       *  past retention). Fetch it via GET /api/email-logs/[id]/body. */
       hasBody: htmlBody != null,
     })),
   );

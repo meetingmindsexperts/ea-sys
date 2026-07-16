@@ -27,6 +27,7 @@ export const EXPECTED_JOBS: ExpectedJob[] = [
   { name: "oauth-cleanup", cadence: "hourly (:00)" },
   { name: "contacts-central-reconcile", cadence: "daily 02:24 UTC" },
   { name: "log-archive", cadence: "monthly (1st, 03:30)" },
+  { name: "email-log-prune", cadence: "daily 03:45 UTC" },
 ];
 
 export const EXPECTED_JOB_NAMES: ReadonlySet<string> = new Set(EXPECTED_JOBS.map((j) => j.name));

@@ -89,7 +89,7 @@ describe("getEmailLogsFor — relaxed organizationId filter", () => {
   });
 });
 
-describe("logEmail — htmlBody audit copy (storeBody opt-in)", () => {
+describe("logEmail — htmlBody audit copy (store-by-default since July 16, 2026)", () => {
   const BASE = {
     to: "jane@x.com",
     subject: "Your certificates",
@@ -98,13 +98,23 @@ describe("logEmail — htmlBody audit copy (storeBody opt-in)", () => {
     htmlBody: "<html><body>final rendered</body></html>",
   };
 
-  it("persists htmlBody when context.storeBody is set", async () => {
+  it("persists htmlBody when context.storeBody is explicitly set", async () => {
     await logEmail({ ...BASE, context: { organizationId: "org-1", storeBody: true } });
     expect(mockDb.emailLog.create.mock.calls[0][0].data.htmlBody).toBe(BASE.htmlBody);
   });
 
-  it("drops htmlBody when storeBody is NOT set (default lean rows)", async () => {
+  it("persists htmlBody by DEFAULT (storeBody unset) — every send stores its audit copy", async () => {
     await logEmail({ ...BASE, context: { organizationId: "org-1" } });
+    expect(mockDb.emailLog.create.mock.calls[0][0].data.htmlBody).toBe(BASE.htmlBody);
+  });
+
+  it("persists htmlBody even with NO logContext at all", async () => {
+    await logEmail({ ...BASE });
+    expect(mockDb.emailLog.create.mock.calls[0][0].data.htmlBody).toBe(BASE.htmlBody);
+  });
+
+  it("drops htmlBody only on the explicit opt-out (storeBody: false)", async () => {
+    await logEmail({ ...BASE, context: { organizationId: "org-1", storeBody: false } });
     expect(mockDb.emailLog.create.mock.calls[0][0].data.htmlBody).toBeNull();
   });
 
