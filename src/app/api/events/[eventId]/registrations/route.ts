@@ -223,6 +223,18 @@ export async function GET(req: Request, { params }: RouteParams) {
           billingAccount: {
             select: { id: true, name: true },
           },
+          // Applied promo code — powers the list detail-sheet seed + the CSV
+          // "Promo Code" column. Not in FINANCIAL_KEYS (product decision), so
+          // it is NOT redacted; the amounts alongside it are.
+          promoCode: {
+            select: { code: true },
+          },
+          // ALL settled payments (not just the latest) so the CSV "Total Paid"
+          // column sums correctly across partial bank-transfer captures. Kept
+          // orderBy desc, so `payments[0]` is still the latest for any consumer
+          // that seeds the detail sheet from this list. Redacted for non-finance
+          // roles via redactFinancialFields (every list-capable role is
+          // finance-capable today, so in practice always present).
           payments: {
             select: {
               id: true,
@@ -244,7 +256,6 @@ export async function GET(req: Request, { params }: RouteParams) {
               metadata: true,
             },
             orderBy: { createdAt: "desc" },
-            take: 1,
           },
           accommodation: {
             select: {

@@ -186,6 +186,9 @@ export interface Registration {
   // Applied promo code (organizer can apply/remove while payment is
   // outstanding). discountAmount is the stored per-registration discount.
   discountAmount?: string | number | null;
+  // Stamped base (pre-discount) price at create time — authoritative for
+  // financials so tier-priced (base 0) + VIRTUAL rows don't read as free.
+  originalPrice?: string | number | null;
   promoCode?: { code: string } | null;
   // Computed money breakdown from the detail GET. Absent for the MEMBER
   // role (redacted server-side) — UI must treat it as optional.

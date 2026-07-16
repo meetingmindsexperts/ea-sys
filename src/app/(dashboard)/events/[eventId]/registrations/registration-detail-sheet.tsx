@@ -1597,19 +1597,25 @@ export function RegistrationDetailSheet({
                   Balance Due. */}
               {showFinance && selectedRegistration.financials && selectedRegistration.financials.total > 0 && (() => {
                 const f = selectedRegistration.financials!;
-                const pending = f.hasOutstandingBalance;
+                // A cancelled registration owes nothing — it must never read as
+                // "Paid in Full" (organizer feedback). Show a neutral Cancelled
+                // state with Amount Due 0; any money actually collected stays
+                // visible as "Collected — retained" so a paid-then-cancelled
+                // (no refund) reg doesn't look like the money vanished.
+                const cancelled = selectedRegistration.status === "CANCELLED";
+                const pending = !cancelled && f.hasOutstandingBalance;
                 return (
                   <div className={cn(
                     "rounded-xl border px-5 py-4 space-y-2",
-                    pending ? "border-amber-300 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/50",
+                    cancelled ? "border-slate-300 bg-slate-50" : pending ? "border-amber-300 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/50",
                   )}>
                     <div className="flex items-center justify-between">
                       <h3 className={cn(
                         "flex items-center gap-2 text-sm font-semibold uppercase tracking-wide",
-                        pending ? "text-amber-800" : "text-emerald-700",
+                        cancelled ? "text-slate-600" : pending ? "text-amber-800" : "text-emerald-700",
                       )}>
                         <CreditCard className="h-4 w-4" />
-                        {pending ? "Payment Pending" : "Paid in Full"}
+                        {cancelled ? "Cancelled" : pending ? "Payment Pending" : "Paid in Full"}
                       </h3>
                       <Badge
                         className={cn(
@@ -1654,13 +1660,25 @@ export function RegistrationDetailSheet({
                       </div>
                       {f.totalPaid > 0 && (
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Paid</span>
+                          <span className="text-muted-foreground">{cancelled ? "Collected" : "Paid"}</span>
                           <span className="font-medium text-emerald-600">
                             {formatCurrency(f.totalPaid, f.currency)}
                           </span>
                         </div>
                       )}
-                      {pending && (
+                      {cancelled ? (
+                        <>
+                          <div className="flex justify-between border-t pt-1.5">
+                            <span className="font-semibold text-slate-600">Amount Due</span>
+                            <span className="font-bold text-slate-600">{formatCurrency(0, f.currency)}</span>
+                          </div>
+                          {f.totalPaid > 0 && (
+                            <p className="pt-0.5 text-xs text-slate-500">
+                              Registration cancelled — payment retained. Issue a refund separately if it&apos;s owed back.
+                            </p>
+                          )}
+                        </>
+                      ) : pending && (
                         <div className="flex justify-between border-t pt-1.5">
                           <span className="font-semibold text-amber-800">Outstanding</span>
                           <span className="font-bold text-amber-800">
@@ -1871,6 +1889,9 @@ export function RegistrationDetailSheet({
                 // (and the quote/invoice PDF) can never disagree on VAT.
                 const f = selectedRegistration.financials;
                 const showFinancials = !!f && (f.total > 0 || f.totalPaid > 0);
+                // Cancelled → Amount Due 0, "Collected" (retained) not "Paid",
+                // never an amber Outstanding (mirrors the Details-tab block).
+                const cancelled = selectedRegistration.status === "CANCELLED";
                 return (
                   <section className={cn(
                     "rounded-xl border border-slate-200 bg-white px-5 py-4 space-y-4",
@@ -1922,13 +1943,26 @@ export function RegistrationDetailSheet({
                         </div>
                         {f.totalPaid > 0 && (
                           <div className="flex justify-between">
-                            <span className="text-muted-foreground">Paid</span>
+                            <span className="text-muted-foreground">{cancelled ? "Collected" : "Paid"}</span>
                             <span className="font-medium text-emerald-600">{formatCurrency(f.totalPaid, f.currency)}</span>
                           </div>
                         )}
                         {/* Final outstanding amount — always shown when money is
-                            still owed, prominent so it's unmissable. */}
-                        {f.hasOutstandingBalance && (
+                            still owed, prominent so it's unmissable. A cancelled
+                            reg owes nothing: show Amount Due 0 + a retained note. */}
+                        {cancelled ? (
+                          <>
+                            <div className="flex justify-between border-t pt-2">
+                              <span className="font-semibold text-slate-600">Amount Due</span>
+                              <span className="font-bold text-slate-600">{formatCurrency(0, f.currency)}</span>
+                            </div>
+                            {f.totalPaid > 0 && (
+                              <p className="text-xs text-slate-500">
+                                Cancelled — payment retained. Issue a refund separately if it&apos;s owed back.
+                              </p>
+                            )}
+                          </>
+                        ) : f.hasOutstandingBalance && (
                           <div className="flex justify-between border-t pt-2">
                             <span className="font-semibold text-amber-800">Outstanding</span>
                             <span className="font-bold text-amber-800">{formatCurrency(f.balanceDue, f.currency)}</span>

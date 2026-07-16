@@ -61,6 +61,7 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { Registration, TicketType } from "./types";
 import { isWebinar } from "@/lib/webinar";
 import {
+  NO_PAYMENT_DUE_STATUSES,
   PAYMENT_STATUS_COLORS,
   PAYMENT_STATUS_DISPLAY_ORDER,
   PAYMENT_STATUS_LABELS,
@@ -68,6 +69,7 @@ import {
   REGISTRATION_STATUS_DISPLAY_ORDER,
   REGISTRATION_STATUS_LABELS,
 } from "./registration-enums";
+import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
@@ -195,6 +197,10 @@ export default function RegistrationsPage() {
       "Payer",
       "Status",
       "Payment Status",
+      "Amount Due",
+      "Total Paid",
+      "Discount",
+      "Promo Code",
       "DTCM Barcode",
       "Registered Date",
       "Checked In Date",
@@ -204,7 +210,31 @@ export default function RegistrationsPage() {
       "Referrer",
     ];
 
-    const rows = filteredRegistrations.map((r) => [
+    // Tax rate/label come from the event (finance-visible to every role that
+    // can reach this list). Amounts computed via the same shared helper the
+    // detail sheet + quote/invoice PDFs use, so the CSV can't disagree on VAT.
+    const eventTaxRate = event?.taxRate != null ? Number(event.taxRate) : null;
+    const eventTaxLabel = (event?.taxLabel as string | null | undefined) ?? null;
+
+    const rows = filteredRegistrations.map((r) => {
+      const subtotal = readRegistrationBasePrice(r);
+      const totalPaid = (r.payments ?? [])
+        .filter((p) => p.status === "PAID" || String(p.status).toLowerCase() === "succeeded")
+        .reduce((sum, p) => sum + Number(p.amount), 0);
+      const fin = computeRegistrationFinancials({
+        subtotal,
+        discount: r.discountAmount != null ? Number(r.discountAmount) : 0,
+        taxRate: eventTaxRate,
+        taxLabel: eventTaxLabel,
+        currency: r.pricingTier?.currency ?? r.ticketType?.currency,
+        totalPaid,
+      });
+      // A CANCELLED registration owes nothing (organizer decision — matches the
+      // detail-sheet display + the server-side financials override); a settled
+      // status (PAID/COMPLIMENTARY/INCLUSIVE/REFUNDED) owes nothing either.
+      const noPaymentDue = r.status === "CANCELLED" || NO_PAYMENT_DUE_STATUSES.includes(r.paymentStatus);
+      const amountDue = noPaymentDue ? 0 : fin.balanceDue;
+      return [
       r.id,
       formatSerialId(r.serialId),
       r.attendee.title || "",
@@ -227,6 +257,10 @@ export default function RegistrationsPage() {
       r.billingAccount?.name ?? "",
       r.status,
       r.paymentStatus,
+      amountDue.toFixed(2),
+      totalPaid.toFixed(2),
+      fin.discount.toFixed(2),
+      r.promoCode?.code ?? "",
       r.dtcmBarcode || "",
       formatDate(r.createdAt),
       r.checkedInAt ? formatDate(r.checkedInAt) : "",
@@ -234,7 +268,8 @@ export default function RegistrationsPage() {
       r.utmMedium || "",
       r.utmCampaign || "",
       r.referrer || "",
-    ]);
+      ];
+    });
 
     const csvContent = [headers.join(","), ...rows.map((row) => toCsvRow(row))].join("\n");
 
