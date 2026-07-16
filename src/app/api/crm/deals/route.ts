@@ -13,7 +13,6 @@ const createDealSchema = z.object({
   name: z.string().min(1).max(255),
   stageId: z.string().min(1),
   companyId: z.string().min(1).optional().nullable(),
-  contactId: z.string().min(1).optional().nullable(),
   // Required — a sponsorship deal must be sold against an event (project).
   eventId: z.string().min(1, "Select the event (project) this deal is for"),
   ownerId: z.string().min(1).optional().nullable(),

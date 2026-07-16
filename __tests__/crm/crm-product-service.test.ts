@@ -14,7 +14,7 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     crmProduct: { count: vi.fn(), createMany: vi.fn(), findMany: vi.fn(), aggregate: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn() },
-    crmDealProduct: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn(), delete: vi.fn() },
+    crmDealProduct: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
     crmDeal: { findFirst: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
@@ -164,7 +164,7 @@ describe("removeDealProduct", () => {
   it("deletes and records PRODUCT_REMOVED on the deal", async () => {
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1" } as never);
     vi.mocked(db.crmDealProduct.findFirst).mockResolvedValue({ id: "line-1", productName: "Gold" } as never);
-    vi.mocked(db.crmDealProduct.delete).mockResolvedValue({} as never);
+    vi.mocked(db.crmDealProduct.deleteMany).mockResolvedValue({ count: 1 } as never);
     const res = await removeDealProduct({ ...base, dealId: "d-1", lineId: "line-1" });
     expect(res.ok).toBe(true);
     expect(recordCrmActivity).toHaveBeenCalledWith(expect.objectContaining({ action: "PRODUCT_REMOVED" }));

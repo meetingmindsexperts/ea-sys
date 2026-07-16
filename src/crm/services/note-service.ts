@@ -260,7 +260,13 @@ export async function deleteNote(input: {
       return { ok: false, code: "NOT_AUTHOR", message: "Only the author or an admin can delete a note" };
     }
 
-    await db.crmNote.delete({ where: { id: existing.id } });
+    // deleteMany, not delete (CRM review L4): a concurrent double-delete's loser
+    // gets NOTE_NOT_FOUND instead of a P2025 falling through as UNKNOWN.
+    const res = await db.crmNote.deleteMany({ where: { id: existing.id, organizationId: input.organizationId } });
+    if (res.count === 0) {
+      apiLogger.warn({ msg: "crm-note:delete-raced", noteId: input.noteId });
+      return { ok: false, code: "NOTE_NOT_FOUND", message: "Note not found" };
+    }
 
     void writeAudit({
       userId: input.userId,

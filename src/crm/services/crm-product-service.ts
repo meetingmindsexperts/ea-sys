@@ -310,7 +310,13 @@ export async function removeDealProduct(input: {
   try {
     const line = await db.crmDealProduct.findFirst({ where: { id: input.lineId, dealId: input.dealId } });
     if (!line) return reject("LINE_NOT_FOUND", "Line item not found", { organizationId: input.organizationId, dealId: input.dealId, lineId: input.lineId });
-    await db.crmDealProduct.delete({ where: { id: line.id } });
+    // deleteMany, not delete (CRM review L4): a concurrent double-remove's loser
+    // must surface as LINE_NOT_FOUND, not a P2025 falling through as UNKNOWN —
+    // the pattern removeDealContact already uses.
+    const res = await db.crmDealProduct.deleteMany({ where: { id: line.id, dealId: input.dealId } });
+    if (res.count === 0) {
+      return reject("LINE_NOT_FOUND", "Line item not found", { organizationId: input.organizationId, dealId: input.dealId, lineId: input.lineId });
+    }
     void recordCrmActivity({
       organizationId: input.organizationId,
       entityType: "DEAL",

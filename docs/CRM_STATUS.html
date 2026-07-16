@@ -270,7 +270,7 @@ exactly which of those exist today.</p>
     <tr>
       <td><b>Deal → CrmContacts (many, with roles)</b></td>
       <td><span class="tag done">WIRED</span></td>
-      <td>Join table <code>CrmDealContact</code> with a per-deal role. The deal detail sheet has an add/remove people section.</td>
+      <td>Join table <code>CrmDealContact</code> with a per-deal role. The deal page has an add/remove people section.</td>
     </tr>
     <tr>
       <td><b>CrmContact → event Contact (the rep who also attends)</b></td>
@@ -334,19 +334,19 @@ exactly which of those exist today.</p>
       <td><b>Edit a company</b></td>
       <td><span class="tag done">YES</span></td>
       <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
-      <td>Edit dialog on the account detail sheet — name / industry / website / city / country / notes. Changes recorded in the account's History.</td>
+      <td>Edit dialog on the account page — name / industry / website / city / country / notes. Changes recorded in the account's History.</td>
     </tr>
     <tr>
       <td><b>Notes on a company or contact</b></td>
       <td><span class="tag done">YES</span></td>
       <td><span class="tag part">DEAL ONLY</span></td>
-      <td>The API accepts <code>companyId</code> / <code>contactId</code>; only the deal sheet renders notes.</td>
+      <td>The API accepts <code>companyId</code> / <code>crmContactId</code> (NB not <code>contactId</code> — review L15); only the deal page renders notes. Since the July 16 review (M2), note reads are money-gated: MEMBER gets 403 (notes routinely quote deal numbers).</td>
     </tr>
     <tr>
       <td><b>Link a contact to a deal</b></td>
       <td><span class="tag done">YES</span></td>
-      <td><span class="tag none">NONE</span></td>
-      <td><code>CrmDeal.contactId</code> exists and is validated, but no picker sets it. Deals have a company, never a named person.</td>
+      <td><span class="tag done">YES</span></td>
+      <td>Via the <code>CrmDealContact</code> join — the deal page has an add/remove people picker with per-deal roles. The legacy scalar <code>contactId</code> field on the deal create/update schemas (accepted-but-silently-dropped) was DELETED in the July 16 review (M7).</td>
     </tr>
     <tr>
       <td><b>Edit a deal after creating it</b></td>
@@ -358,19 +358,19 @@ exactly which of those exist today.</p>
       <td><b>Edit a contact</b></td>
       <td><span class="tag done">YES</span></td>
       <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
-      <td>New contact detail sheet (row click) with an edit dialog — name / email / company / lifecycle / job / phone / country / notes.</td>
+      <td>Contact page (row click) with an edit dialog — name / email / company / lifecycle / job / phone / country / notes.</td>
     </tr>
     <tr>
       <td><b>Delete a record</b><br><span class="why">deal · company · contact · task</span></td>
       <td><span class="tag done">YES</span></td>
       <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
-      <td><b>Soft delete (archive), never a hard delete.</b> Archive/Restore on each detail sheet + a "Show archived" toggle on every list. <b>ADMIN / SUPER_ADMIN / CRM_USER only</b> (ORGANIZER can edit but not archive; MEMBER read-only). Archived records drop out of the board / lists / reports / CSV; the reminder worker skips archived tasks.</td>
+      <td><b>Soft delete (archive), never a hard delete.</b> Archive/Restore on each record page + a "Show archived" toggle on every list. <b>ADMIN / SUPER_ADMIN / CRM_USER only</b> (ORGANIZER can edit but not archive; MEMBER read-only). Archived records drop out of the board / lists / reports / CSV; the reminder worker skips archived tasks.</td>
     </tr>
     <tr>
       <td><b>Change log / activity history</b></td>
       <td><span class="tag done">YES</span></td>
       <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
-      <td>Every create / edit (with field-level before→after diffs) / archive / restore / stage-move / won / lost is recorded to the new <code>CrmActivity</code> table (one writer, <code>recordCrmActivity</code>) and rendered as a <b>History</b> timeline in each detail sheet. Deal money in the log is redacted for MEMBER, same as the board.</td>
+      <td>Every create / edit (with field-level before→after diffs) / archive / restore / stage-move / won / lost is recorded to the new <code>CrmActivity</code> table (one writer, <code>recordCrmActivity</code>) and rendered as a <b>History</b> timeline on each record page. Deal money in the log is redacted for MEMBER, same as the board.</td>
     </tr>
     <tr>
       <td><b>Edit / delete a note</b></td>
@@ -442,9 +442,9 @@ exactly which of those exist today.</p>
   <summary>UI — 4 pages <span class="tag part">PARTIAL — see §4</span></summary>
   <ul>
     <li><b>Dedicated record pages (Jul 15):</b> deal, account AND contact each have their OWN page — <code>/crm/deals/[dealId]</code>, <code>/crm/companies/[companyId]</code>, <code>/crm/contacts/[crmContactId]</code> (deep-linkable, back-button-friendly). <b>All detail sheets are retired.</b> The pages use a shared <b>two-column record layout</b> (identity header + main work area + sticky facts sidebar, grouped into cards) via <code>record-layout.tsx</code> primitives; records cross-link (account→deals/people, contact→deals/company).</li>
-    <li><b>Sidebar:</b> one <b>CRM</b> entry. Deals / Companies / Tasks are tabs in the right pane (real routes, so deep links and the back button work).</li>
+    <li><b>Sidebar:</b> the CRM entry is HIDDEN for everyone except CRM_USER since <code>b152f45</code> (parked / not deployed — <code>CRM_IN_SIDEBAR = false</code> in sidebar.tsx). Inside the module, Deals / Companies / Tasks are tabs in the right pane (real routes, so deep links and the back button work).</li>
     <li><b>Deals board</b> — drag-and-drop kanban. The drag captures the card's stage at <i>drag start</i> and sends it, so the server's race check holds. The optimistic move has a real rollback: on 409 it restores <i>and refetches</i>, because “put it back where it was” is wrong if the colleague moved it somewhere else.</li>
-    <li><b>Companies</b> — list, search, “Needs review” duplicate worklist, detail sheet.</li>
+    <li><b>Companies</b> — list, search, “Needs review” duplicate worklist, account page.</li>
     <li><b>Tasks</b> — overdue surfaced first.</li>
     <li><b>Deal detail</b> — notes, follow-ups, close won/lost.</li>
     <li><b>Money is optional everywhere.</b> MEMBER gets <code>dealValue</code> stripped server-side, so every surface renders an em dash — never <code>$0</code>. A redacted value and a genuinely-zero deal are different facts.</li>

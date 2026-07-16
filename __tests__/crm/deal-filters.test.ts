@@ -76,8 +76,10 @@ describe("buildDealWhere — date range", () => {
       { organizationId: ORG, canSeeValues: true },
     );
     const range = where.createdAt as { lte: Date };
-    expect(range.lte.getHours()).toBe(23);
-    expect(range.lte.getMinutes()).toBe(59);
+    // UTC, deliberately (M11): parseDate yields UTC midnight, so the inclusive
+    // end-of-day bound must be UTC too — server-local hours would drift per host.
+    expect(range.lte.getUTCHours()).toBe(23);
+    expect(range.lte.getUTCMinutes()).toBe(59);
   });
 
   it("ignores an unparseable date rather than narrowing to nothing", () => {
@@ -121,6 +123,6 @@ describe("buildTaskDueRange", () => {
   it("builds an inclusive-to range", () => {
     const range = buildTaskDueRange({ from: "2026-07-01", to: "2026-07-07" });
     expect(range?.gte).toBeInstanceOf(Date);
-    expect((range?.lte as Date).getHours()).toBe(23);
+    expect((range?.lte as Date).getUTCHours()).toBe(23);
   });
 });

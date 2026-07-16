@@ -287,7 +287,11 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
 
     const deal = await db.crmDeal.findUniqueOrThrow({ where: { id: input.dealId } });
 
-    const fieldChanges = diffFields(before, deal, DEAL_DIFF_KEYS);
+    // Diff BEFORE + the submitted patch — NOT the post-write re-read (CRM review
+    // M4): a concurrent writer landing between our write and a re-read would have
+    // ITS change recorded under THIS actor's name in the History log. The patch
+    // is what this actor actually did; diff exactly that.
+    const fieldChanges = diffFields(before, { ...before, ...data } as typeof before, DEAL_DIFF_KEYS);
     void recordCrmActivity({
       organizationId: input.organizationId,
       entityType: "DEAL",

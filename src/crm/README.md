@@ -85,12 +85,12 @@ src/crm/
     sponsor-recipients.ts  PURE email-recipient resolution (dedup + narrow-never-widen intersection)
     crm-email-templates.ts client-safe built-in email templates (pre-fill only)
     pipeline-reconcile.ts  PURE planner: bring an org's stages to the canonical seed
-    record-layout.tsx   shared record-PAGE primitives (RecordHeader / RecordGrid / RecordCard / Facts)
     use-crm-filters.ts  URL-backed filter state hook
   hooks/
     use-crm-api.ts      all React Query hooks (queries + mutations)
   components/           deal-board, *-detail-body (the record pages' content), create/edit/email dialogs,
-                        crm-activity-timeline, event/company comboboxes, filters/
+                        record-layout.tsx (RecordHeader/RecordGrid/RecordCard/Facts — the shared record-page shell),
+                        crm-activity-timeline, crm-load-error, event/company comboboxes, filters/
   reminders-worker.ts   the CRM task-reminder tick (runTick)
 
 src/app/api/crm/*                REST surface — deals/companies/contacts/tasks/notes/pipeline-stages
@@ -132,11 +132,12 @@ wrong causes a real bug, and several were caught the hard way during the build.
 an ESLint `no-restricted-imports` rule in `eslint.config.mjs`, not by discipline —
 "we'll remember" is exactly how the webinar module's namespace started leaking.
 
-There are exactly **three** permitted core-side touch points (listed by name in the
-ESLint config): the sidebar entry, the MCP registration line, and the worker job
-shim. Adding a fourth is a deliberate act — you edit that exemption list, and you
-should have a reason. (One was added and then reverted during the CrmContact rework;
-that's the bar.)
+The permitted core-side touch points are listed BY NAME in the ESLint config's
+exemption list — that list is the source of truth, count them there (it has grown
+past the original three: the sidebar entry, the MCP registration line, the worker
+job shim, plus the MCP builder entries reserved for the future tools). Adding one
+is a deliberate act — you edit that exemption list, and you should have a reason.
+(One was added and then reverted during the CrmContact rework; that's the bar.)
 
 ### 3.2 CRM contacts are a DIFFERENT population from event contacts
 

@@ -26,6 +26,14 @@ import { cn } from "@/lib/utils";
 
 const TASK_FILTER_KEYS = ["owner", "dueFrom", "dueTo"];
 
+
+/** The last instant of a due date's day — a task is overdue only past this. */
+function endOfDueDay(dueAt: string): Date {
+  const e = new Date(dueAt);
+  e.setHours(23, 59, 59, 999);
+  return e;
+}
+
 function TasksPageInner() {
   const { data: session } = useSession();
   const canWrite = canOwnDeals(session?.user?.role);
@@ -50,7 +58,10 @@ function TasksPageInner() {
   const restore = useRestoreTask();
 
   const now = new Date();
-  const overdue = tasks.filter((t) => t.dueAt && new Date(t.dueAt) < now && t.status === "OPEN");
+  // Overdue = the due DAY has fully passed (CRM review M11). dueAt is stored as
+  // midnight of the picked date, so a bare `< now` painted a task red for its
+  // entire due day — "due today" was reported as "missed" all day.
+  const overdue = tasks.filter((t) => t.dueAt && endOfDueDay(t.dueAt) < now && t.status === "OPEN");
   const rest = tasks.filter((t) => !overdue.includes(t));
 
   return (

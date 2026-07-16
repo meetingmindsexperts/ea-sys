@@ -30,10 +30,15 @@ function parseDate(v: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** A `to` date is inclusive of the whole day — bump it to the end of that day. */
+/**
+ * A `to` date is inclusive of the whole day — bump it to the end of that day.
+ * In UTC, deliberately (CRM review M11): parseDate() yields UTC midnight, so a
+ * server-LOCAL setHours would make from/to asymmetric on any non-UTC host —
+ * symmetric today only because prod happens to run UTC.
+ */
 function endOfDay(d: Date): Date {
   const e = new Date(d);
-  e.setHours(23, 59, 59, 999);
+  e.setUTCHours(23, 59, 59, 999);
   return e;
 }
 

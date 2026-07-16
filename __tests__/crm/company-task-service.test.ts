@@ -182,6 +182,59 @@ describe("task reminder stamp", () => {
     expect(data.remindedAt).toBeNull();
   });
 
+  it("moving the DUE date moves a due-date-armed reminder with it (M12)", async () => {
+    // The only create surface arms remindAt = dueAt ("email me when it's due").
+    const due = new Date("2026-08-01T00:00:00Z");
+    vi.mocked(db.crmTask.findFirst).mockResolvedValue({
+      id: "t-1", title: "Chase Abbott", description: null, dueAt: due, remindAt: due, ownerId: null,
+    } as never);
+    vi.mocked(db.crmTask.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmTask.findUniqueOrThrow).mockResolvedValue({ id: "t-1" } as never);
+
+    const newDue = new Date("2026-08-08T00:00:00Z");
+    await updateTask({ ...base, taskId: "t-1", dueAt: newDue });
+
+    const data = vi.mocked(db.crmTask.updateMany).mock.calls[0]![0]!.data as Record<string, unknown>;
+    // The reminder follows the due date and is re-armed — otherwise "you'll get
+    // an email when it's due" silently breaks on the first reschedule.
+    expect(data.remindAt).toEqual(newDue);
+    expect(data.remindedAt).toBeNull();
+  });
+
+  it("a due-date move leaves an INDEPENDENTLY-set reminder alone", async () => {
+    vi.mocked(db.crmTask.findFirst).mockResolvedValue({
+      id: "t-1", title: "Chase Abbott", description: null,
+      dueAt: new Date("2026-08-01T00:00:00Z"), remindAt: new Date("2026-07-25T00:00:00Z"), ownerId: null,
+    } as never);
+    vi.mocked(db.crmTask.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmTask.findUniqueOrThrow).mockResolvedValue({ id: "t-1" } as never);
+
+    await updateTask({ ...base, taskId: "t-1", dueAt: new Date("2026-08-08T00:00:00Z") });
+
+    const data = vi.mocked(db.crmTask.updateMany).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data).not.toHaveProperty("remindAt");
+    expect(data).not.toHaveProperty("remindedAt");
+  });
+
+  it("the History diff is computed from the SUBMITTED patch, never a post-write re-read (M4)", async () => {
+    vi.mocked(db.crmTask.updateMany).mockResolvedValue({ count: 1 } as never);
+    // Simulate a concurrent writer landing between our write and the re-read:
+    // the re-read shows THEIR title. The activity diff must still record OURS.
+    vi.mocked(db.crmTask.findUniqueOrThrow).mockResolvedValue({
+      id: "t-1", title: "SOMEONE ELSES EDIT",
+    } as never);
+
+    await updateTask({ ...base, taskId: "t-1", title: "Chase Abbott (mine)" });
+
+    const activity = vi.mocked(db.crmActivity.create).mock.calls[0]![0] as unknown as {
+      data: { changes: { changes: Record<string, { from: unknown; to: unknown }> } };
+    };
+    expect(activity.data.changes.changes.title).toEqual({
+      from: "Chase Abbott",
+      to: "Chase Abbott (mine)", // ← the patch, not the racy re-read
+    });
+  });
+
   it("an unrelated edit does NOT clear remindedAt (that would re-send the email)", async () => {
     vi.mocked(db.crmTask.updateMany).mockResolvedValue({ count: 1 } as never);
     vi.mocked(db.crmTask.findUniqueOrThrow).mockResolvedValue({ id: "t-1" } as never);

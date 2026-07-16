@@ -188,6 +188,22 @@ export async function updateTask(input: UpdateTaskInput): Promise<TaskResult> {
       return { ok: false, code: "TASK_NOT_FOUND", message: "Task not found" };
     }
 
+    // Moving the DUE date moves the reminder with it (CRM review M12) — when the
+    // reminder was armed AT the old due date (the only create surface sets
+    // remindAt = dueAt) and the caller didn't set remindAt explicitly. Otherwise
+    // the promise "you'll get an email when it's due" silently breaks: the old
+    // reminder either already fired (none comes at the new date) or fires early.
+    if (
+      input.dueAt !== undefined &&
+      input.remindAt === undefined &&
+      before.dueAt &&
+      before.remindAt &&
+      before.remindAt.getTime() === before.dueAt.getTime()
+    ) {
+      data.remindAt = input.dueAt;
+      data.remindedAt = null; // re-arm — the worker skips rows already stamped
+    }
+
     await db.crmTask.updateMany({
       where: { id: input.taskId, organizationId: input.organizationId },
       data,
@@ -195,7 +211,11 @@ export async function updateTask(input: UpdateTaskInput): Promise<TaskResult> {
 
     const task = await db.crmTask.findUniqueOrThrow({ where: { id: input.taskId } });
 
-    const fieldChanges = diffFields(before, task, TASK_DIFF_KEYS);
+    // Diff BEFORE + the submitted patch — NOT the post-write re-read (CRM review
+    // M4): a concurrent writer landing between our write and a re-read would have
+    // ITS change recorded under THIS actor's name in the History log. The patch
+    // is what this actor actually did; diff exactly that.
+    const fieldChanges = diffFields(before, { ...before, ...data } as typeof before, TASK_DIFF_KEYS);
     void recordCrmActivity({
       organizationId: input.organizationId,
       entityType: "TASK",

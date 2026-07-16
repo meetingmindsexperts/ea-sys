@@ -17,6 +17,7 @@ import { apiLogger } from "@/lib/logger";
 import { CRM_EMAIL_TEMPLATES } from "@/crm/lib/crm-email-templates";
 
 export type CrmEmailTemplateErrorCode =
+  | "NO_FIELDS"
   | "NAME_REQUIRED"
   | "SUBJECT_REQUIRED"
   | "BODY_REQUIRED"
@@ -112,8 +113,10 @@ export async function createCrmEmailTemplate(input: {
   if (!body) return { ok: false, code: "BODY_REQUIRED", message: "A message body is required" };
 
   try {
-    // Next sortOrder inside a transaction so two concurrent adds can't claim the
-    // same slot (the sortOrder race pattern from the certificates review).
+    // NOTE this transaction does NOT serialize concurrent adds — under READ
+    // COMMITTED both racers can read the same _max and insert the same slot (an
+    // aggregate takes no lock; CRM review L1). A duplicate sortOrder is tolerable
+    // here: the list read tie-breaks on createdAt.
     const template = await db.$transaction(async (tx) => {
       const agg = await tx.crmEmailTemplate.aggregate({
         where: { organizationId: input.organizationId },
@@ -169,6 +172,12 @@ export async function updateCrmEmailTemplate(input: {
     data.body = body;
   }
 
+  // An empty PATCH must not run an updateMany with data:{} and mint an audit
+  // row with fields: [] (CRM review L11 — the sibling services all guard this).
+  if (Object.keys(data).length === 0) {
+    return { ok: false, code: "NO_FIELDS", message: "No fields to update" };
+  }
+
   try {
     // Org-bound update (never trust the id alone).
     const res = await db.crmEmailTemplate.updateMany({
@@ -181,6 +190,7 @@ export async function updateCrmEmailTemplate(input: {
     }
     const template = await db.crmEmailTemplate.findUniqueOrThrow({ where: { id: input.templateId } });
     void writeAudit({ userId: input.userId, action: "UPDATE", entityId: template.id, changes: { fields: Object.keys(data) } });
+    apiLogger.info({ msg: "crm-email-template:updated", templateId: template.id, organizationId: input.organizationId });
     return { ok: true, template };
   } catch (err) {
     apiLogger.error({

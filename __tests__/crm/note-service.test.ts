@@ -20,6 +20,7 @@ vi.mock("@/lib/db", () => ({
       findUniqueOrThrow: vi.fn(),
       updateMany: vi.fn(),
       delete: vi.fn(),
+      deleteMany: vi.fn(),
     },
     crmDeal: { findFirst: vi.fn() },
     crmCompany: { findFirst: vi.fn() },
@@ -130,7 +131,7 @@ describe("updateNote — author-only", () => {
 describe("deleteNote", () => {
   it("lets the author delete their own note", async () => {
     vi.mocked(db.crmNote.findFirst).mockResolvedValue({ id: "n-1", authorId: AUTHOR, activityType: "NOTE" } as never);
-    vi.mocked(db.crmNote.delete).mockResolvedValue({} as never);
+    vi.mocked(db.crmNote.deleteMany).mockResolvedValue({ count: 1 } as never);
 
     const res = await deleteNote({ ...base, noteId: "n-1", isAdmin: false });
 
@@ -145,7 +146,7 @@ describe("deleteNote", () => {
 
   it("lets an ADMIN delete someone else's note (delete, unlike rewrite, is legitimate)", async () => {
     vi.mocked(db.crmNote.findFirst).mockResolvedValue({ id: "n-1", authorId: AUTHOR, activityType: "NOTE" } as never);
-    vi.mocked(db.crmNote.delete).mockResolvedValue({} as never);
+    vi.mocked(db.crmNote.deleteMany).mockResolvedValue({ count: 1 } as never);
 
     const res = await deleteNote({ ...base, userId: "u-admin", isAdmin: true, noteId: "n-1" });
 
@@ -163,6 +164,6 @@ describe("deleteNote", () => {
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
     expect(res.code).toBe("NOT_AUTHOR");
-    expect(db.crmNote.delete).not.toHaveBeenCalled();
+    expect(db.crmNote.deleteMany).not.toHaveBeenCalled();
   });
 });

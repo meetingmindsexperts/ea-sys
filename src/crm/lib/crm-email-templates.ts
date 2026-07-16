@@ -2,11 +2,12 @@
  * Built-in CRM email templates — a small, fixed set of starting points for the
  * compose dialog (sponsor blast + per-deal email). Client-safe (no `db`).
  *
- * These are PRE-FILL only: picking one drops its subject + body into the editable
- * fields, and those fields drive the send (same pattern as the certificate
- * cover-email source picker). They are NOT stored, per-org, or editable — the ask
- * was "2 or 3", not a template CMS. If per-org editable templates are ever wanted,
- * that's a table + CRUD, not this.
+ * SINCE JULY 15 these constants are the SEED, not the source of truth: the
+ * templates are stored per-org in `CrmEmailTemplate` (editable under CRM →
+ * Templates; `crm-email-template-service.ts` seeds the three below on first use,
+ * once). The compose dialog reads the DB set via useCrmEmailTemplates(). Picking
+ * one is still PRE-FILL only: it drops subject + body into the editable fields,
+ * and those fields drive the send.
  *
  * Bodies deliberately DON'T repeat the "Dear {{firstName}}," greeting — the send
  * pipeline bakes that in, so a template starts at the first real sentence. The only
