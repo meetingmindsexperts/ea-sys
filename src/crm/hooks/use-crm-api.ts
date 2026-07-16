@@ -150,6 +150,7 @@ export function useCreateDeal() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["crm", "deals"] });
       qc.invalidateQueries({ queryKey: ["crm", "companies"] });
+      qc.invalidateQueries({ queryKey: ["crm", "company"] }); // detail pages (deal list)
     },
   });
 }
@@ -454,6 +455,7 @@ export function useCreateCrmContact() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["crm", "contacts"] });
       qc.invalidateQueries({ queryKey: ["crm", "companies"] });
+      qc.invalidateQueries({ queryKey: ["crm", "company"] }); // detail pages (People list)
       // find-or-create: say what actually happened.
       toast[res.created ? "success" : "info"](
         res.created

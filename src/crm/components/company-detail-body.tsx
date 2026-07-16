@@ -24,6 +24,7 @@ import {
   Loader2,
   Pencil,
   TriangleAlert,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,10 @@ import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { EditCompanyDialog } from "@/crm/components/edit-company-dialog";
 import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
+import { CrmNotesCard } from "@/crm/components/crm-notes-card";
+import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
+import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
+import { useCrmStages } from "@/crm/hooks/use-crm-api";
 
 export function CompanyDetailBody({
   companyId,
@@ -49,6 +54,9 @@ export function CompanyDetailBody({
   const { data: company, isLoading, isError } = useCrmCompany(companyId);
   const update = useUpdateCompany(companyId);
   const setArchived = useSetCompanyArchived(companyId);
+  const { data: stages = [] } = useCrmStages();
+  const [newDealOpen, setNewDealOpen] = useState(false);
+  const [addContactOpen, setAddContactOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
   if (isLoading) {
@@ -95,6 +103,18 @@ export function CompanyDetailBody({
         actions={
           (canWrite || canDelete) && (
             <>
+              {canWrite && !company.archivedAt && (
+                <>
+                  <Button size="sm" onClick={() => setNewDealOpen(true)}>
+                    <Handshake className="mr-2 h-3.5 w-3.5" />
+                    New deal
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setAddContactOpen(true)}>
+                    <UserPlus className="mr-2 h-3.5 w-3.5" />
+                    Add contact
+                  </Button>
+                </>
+              )}
               {canWrite && (
                 <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
                   <Pencil className="mr-2 h-3.5 w-3.5" />
@@ -191,6 +211,13 @@ export function CompanyDetailBody({
           </RecordCard>
         )}
 
+        {/* Logged calls/meetings — the shared notes card (money-gated; null for MEMBER). */}
+        <CrmNotesCard
+          attach={{ companyId: company.id }}
+          canWrite={canWrite}
+          placeholder="Spoke to their events team — budget confirmed for two Gold packages next year."
+        />
+
         <RecordCard
           icon={Handshake}
           title="Deals"
@@ -272,6 +299,22 @@ export function CompanyDetailBody({
       </RecordGrid>
 
       <EditCompanyDialog company={company} open={editOpen} onOpenChange={setEditOpen} />
+      {/* keyed by open state so each open remounts with THIS company pre-selected */}
+      {newDealOpen && (
+        <CreateDealDialog
+          open={newDealOpen}
+          onOpenChange={setNewDealOpen}
+          stages={stages}
+          defaultCompany={{ id: company.id, name: company.name }}
+        />
+      )}
+      {addContactOpen && (
+        <CreateCrmContactDialog
+          open={addContactOpen}
+          onOpenChange={setAddContactOpen}
+          defaultCompanyId={company.id}
+        />
+      )}
     </div>
   );
 }

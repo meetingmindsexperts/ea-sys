@@ -9,7 +9,7 @@
  */
 import { Suspense, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Archive, ArchiveRestore, CheckCircle2, CheckSquare, Circle, X } from "lucide-react";
+import { Archive, ArchiveRestore, CheckCircle2, CheckSquare, Circle, Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,6 +20,7 @@ import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { useCrmTasks, useDeleteTask, useRestoreTask, useUpdateTask } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
+import { CreateTaskDialog } from "@/crm/components/create-task-dialog";
 import { canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
 import { personName, type CrmTaskRow } from "@/crm/lib/crm-types";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,7 @@ function TasksPageInner() {
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [status, setStatus] = useState<"OPEN" | "DONE">("OPEN");
   const [showArchived, setShowArchived] = useState(false);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
 
   const { get, set, clear, anyActive } = useCrmFilters();
   const taskFilters = {
@@ -69,6 +71,12 @@ function TasksPageInner() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">Follow-ups on deals and accounts</p>
         <div className="flex items-center gap-2">
+          {canWrite && (
+            <Button size="sm" onClick={() => setNewTaskOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New task
+            </Button>
+          )}
           <Tabs value={scope} onValueChange={(v) => setScope(v as "mine" | "all")}>
             <TabsList>
               <TabsTrigger value="mine">Mine</TabsTrigger>
@@ -110,6 +118,8 @@ function TasksPageInner() {
           </Button>
         )}
       </div>
+
+      {newTaskOpen && <CreateTaskDialog open={newTaskOpen} onOpenChange={setNewTaskOpen} />}
 
       {isLoading ? (
         <CrmListSkeleton rows={5} />

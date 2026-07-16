@@ -34,14 +34,17 @@ export function CreateDealDialog({
   onOpenChange,
   stages,
   defaultEventId,
+  defaultCompany,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   stages: CrmStage[];
   defaultEventId?: string | null;
+  /** Pre-select the account — the "New deal" button on a company page. */
+  defaultCompany?: CompanySelection | null;
 }) {
   const [name, setName] = useState("");
-  const [company, setCompany] = useState<CompanySelection | null>(null);
+  const [company, setCompany] = useState<CompanySelection | null>(defaultCompany ?? null);
   const [dealValue, setDealValue] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [stageId, setStageId] = useState("");
@@ -59,7 +62,7 @@ export function CreateDealDialog({
 
   function reset() {
     setName("");
-    setCompany(null);
+    setCompany(defaultCompany ?? null);
     setDealValue("");
     setCurrency("USD");
     setStageId("");

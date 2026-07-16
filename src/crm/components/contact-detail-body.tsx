@@ -32,6 +32,7 @@ import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { EditCrmContactDialog } from "@/crm/components/edit-crm-contact-dialog";
 import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
+import { CrmNotesCard } from "@/crm/components/crm-notes-card";
 
 export function ContactDetailBody({
   crmContactId,
@@ -217,6 +218,13 @@ export function ContactDetailBody({
             </ul>
           )}
         </RecordCard>
+
+        {/* Logged calls/meetings — the shared notes card (money-gated; null for MEMBER). */}
+        <CrmNotesCard
+          attach={{ crmContactId: contact.id }}
+          canWrite={canWrite}
+          placeholder="Called Sarah — she owns the sponsorship budget, wants the prospectus by Friday."
+        />
 
         <RecordCard>
           <CrmActivityTimeline entityType="CONTACT" entityId={contact.id} />

@@ -28,9 +28,12 @@ const NO_STAGE = "__none__";
 export function CreateCrmContactDialog({
   open,
   onOpenChange,
+  defaultCompanyId,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  /** Pre-select the account — the "Add contact" button on a company page. */
+  defaultCompanyId?: string;
 }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -38,7 +41,7 @@ export function CreateCrmContactDialog({
   const [jobTitle, setJobTitle] = useState("");
   const [phone, setPhone] = useState("");
   const [country, setCountry] = useState("");
-  const [companyId, setCompanyId] = useState(NO_COMPANY);
+  const [companyId, setCompanyId] = useState(defaultCompanyId ?? NO_COMPANY);
   const [stage, setStage] = useState(NO_STAGE);
 
   const { data: companies = [] } = useCrmCompanies();
@@ -47,7 +50,7 @@ export function CreateCrmContactDialog({
   function reset() {
     setFirstName(""); setLastName(""); setEmail("");
     setJobTitle(""); setPhone(""); setCountry("");
-    setCompanyId(NO_COMPANY); setStage(NO_STAGE);
+    setCompanyId(defaultCompanyId ?? NO_COMPANY); setStage(NO_STAGE);
   }
 
   async function handleSubmit() {
