@@ -21,6 +21,7 @@ const { mockAuth, mockGetOrgContext, mockDb, mockRateLimit } = vi.hoisted(() => 
     attendee: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     user: { findFirst: vi.fn(), update: vi.fn() },
     contact: { findFirst: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    crmContact: { updateMany: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
     $transaction: vi.fn(),
   },
@@ -88,6 +89,8 @@ beforeEach(() => {
   mockDb.$transaction.mockImplementation(async (fn: (tx: typeof mockDb) => unknown) => fn(mockDb));
   // Default: attendee is not shared across registrations (direct-update path).
   mockDb.registration.count.mockResolvedValue(0);
+  // Default: the losing contact in a merge has no CRM links to re-point.
+  mockDb.crmContact.updateMany.mockResolvedValue({ count: 0 });
 });
 
 // ─── Speaker PATCH ──────────────────────────────────────────────────────────
@@ -372,8 +375,8 @@ describe("PATCH /api/events/[eventId]/registrations/[registrationId]/email", () 
     });
     mockDb.attendee.update.mockResolvedValueOnce({ id: "att-1", email: "new@x.com" });
     mockDb.contact.findFirst
-      .mockResolvedValueOnce({ id: "c-old" })
-      .mockResolvedValueOnce({ id: "c-new" }); // collision → merge
+      .mockResolvedValueOnce({ id: "c-old", email: "old@x.com", tags: [], eventIds: [], notes: null })
+      .mockResolvedValueOnce({ id: "c-new", email: "new@x.com", tags: [], eventIds: [], notes: null }); // collision → merge
     mockDb.contact.delete.mockResolvedValueOnce({ id: "c-old" });
 
     const res = await regPatch(makeReq({ newEmail: "new@x.com" }), regParams);
@@ -381,6 +384,12 @@ describe("PATCH /api/events/[eventId]/registrations/[registrationId]/email", () 
     const body = await res.json();
     expect(body.contactAction).toBe("merged");
     expect(mockDb.contact.delete).toHaveBeenCalledWith({ where: { id: "c-old" } });
+    // CRM "rep is also registered" links must follow the surviving row —
+    // the FK is SetNull, so without the explicit re-point they'd be severed.
+    expect(mockDb.crmContact.updateMany).toHaveBeenCalledWith({
+      where: { contactId: "c-old" },
+      data: { contactId: "c-new" },
+    });
   });
 
   // ── Speaker-facet cascade (review H4 — reciprocal of the speaker PATCH's
