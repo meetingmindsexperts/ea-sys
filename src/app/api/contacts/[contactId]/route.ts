@@ -22,6 +22,15 @@ const updateContactSchema = z.object({
   role: attendeeRoleEnum.optional().nullable(),
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
+  // Secondary/secretary inbox — unlike `email` this is NOT identity-keyed, so
+  // it is freely editable here. Was missing from this schema entirely, so the
+  // detail sheet's Additional Email field was a DEAD WRITE: Zod stripped the
+  // key, the update "succeeded", the value silently reverted (review R2-M3,
+  // July 16 2026). Empty string = clear (→ null).
+  additionalEmail: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+    z.string().email().max(255).nullable(),
+  ).optional(),
   organization: z.string().max(255).optional().nullable(),
   jobTitle: z.string().max(255).optional().nullable(),
   specialty: z.string().max(255).optional().nullable(),

@@ -150,22 +150,28 @@ export function ContactDetailSheet({
 
   const saveEdits = async () => {
     try {
+      // EVERY optional field sends `value || null` — an emptied input CLEARS
+      // the stored value. Half of these used to send `|| undefined` (= "leave
+      // unchanged"), so clearing a phone/org/bio/notes showed a success toast
+      // and silently kept the old value, with NO working UI path to clear
+      // them at all (review R2-M4, July 16 2026 — the full-page edit form,
+      // the only other clearer, was itself broken until the same review).
       await updateContact.mutateAsync({
-        title: editData.title || undefined,
+        title: editData.title || null,
         role: editData.role || null,
         firstName: editData.firstName,
         lastName: editData.lastName,
-        additionalEmail: editData.additionalEmail || undefined,
-        phone: editData.phone || undefined,
-        organization: editData.organization || undefined,
-        jobTitle: editData.jobTitle || undefined,
+        additionalEmail: editData.additionalEmail.trim() || null,
+        phone: editData.phone.trim() || null,
+        organization: editData.organization.trim() || null,
+        jobTitle: editData.jobTitle.trim() || null,
         photo: editData.photo ?? null,
-        city: editData.city || undefined,
-        country: editData.country || undefined,
-        bio: editData.bio || undefined,
-        specialty: editData.specialty || undefined,
+        city: editData.city.trim() || null,
+        country: editData.country || null,
+        bio: editData.bio.trim() || null,
+        specialty: editData.specialty || null,
         tags: editData.tags,
-        notes: editData.notes || undefined,
+        notes: editData.notes.trim() || null,
         associationName: editData.associationName || null,
         memberId: editData.memberId || null,
         studentId: editData.studentId || null,

@@ -26,6 +26,7 @@ const { mockGetOrgContext, mockDb, mockRateLimit } = vi.hoisted(() => ({
       findUnique: vi.fn(),
       count: vi.fn(),
       create: vi.fn(),
+      update: vi.fn(),
     },
     speaker: { findMany: vi.fn() },
     registration: { findMany: vi.fn() },
@@ -63,7 +64,7 @@ vi.mock("@/lib/security", () => ({
 import { GET as listContacts, POST as createContact } from "@/app/api/contacts/route";
 import { GET as exportContacts } from "@/app/api/contacts/export/route";
 import { GET as listTags } from "@/app/api/contacts/tags/route";
-import { GET as getContact } from "@/app/api/contacts/[contactId]/route";
+import { GET as getContact, PUT as updateContact } from "@/app/api/contacts/[contactId]/route";
 
 const ORG = "org_1";
 
@@ -288,5 +289,59 @@ describe("H2 — contact create normalizes the email", () => {
 
     expect(res.status).toBe(409);
     expect(json.detail).toBeUndefined();
+  });
+});
+
+describe("contact PUT — honest saves (review R2-M3 + R2-M4, July 16 2026)", () => {
+  // additionalEmail was missing from the update schema entirely — Zod stripped
+  // the key, so the detail sheet's field was a dead write (success toast, value
+  // reverts). And clears (null) must actually persist.
+  function putWith(body: Record<string, unknown>) {
+    const r = new Request("http://x/api/contacts/c1", {
+      method: "PUT",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+    });
+    return updateContact(r, { params: Promise.resolve({ contactId: "c1" }) });
+  }
+
+  beforeEach(() => {
+    mockGetOrgContext.mockResolvedValue(ctxFor("ADMIN"));
+    mockDb.contact.findFirst.mockResolvedValue({ id: "c1" });
+    mockDb.contact.update.mockResolvedValue({ id: "c1" });
+  });
+
+  it("persists additionalEmail (was silently stripped by the schema)", async () => {
+    const res = await putWith({ additionalEmail: "assistant@x.com" });
+    expect(res.status).toBe(200);
+    expect(mockDb.contact.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ additionalEmail: "assistant@x.com" }),
+      }),
+    );
+  });
+
+  it("clears additionalEmail on empty string (→ null) and on explicit null", async () => {
+    await putWith({ additionalEmail: "" });
+    expect(mockDb.contact.update.mock.calls[0][0].data.additionalEmail).toBeNull();
+
+    await putWith({ additionalEmail: null });
+    expect(mockDb.contact.update.mock.calls[1][0].data.additionalEmail).toBeNull();
+  });
+
+  it("rejects an invalid additionalEmail with a 400", async () => {
+    const res = await putWith({ additionalEmail: "not-an-email" });
+    expect(res.status).toBe(400);
+    expect(mockDb.contact.update).not.toHaveBeenCalled();
+  });
+
+  it("a null clear on phone/bio/notes persists null (the sheet now sends null, not undefined)", async () => {
+    const res = await putWith({ phone: null, bio: null, notes: null });
+    expect(res.status).toBe(200);
+    expect(mockDb.contact.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ phone: null, bio: null, notes: null }),
+      }),
+    );
   });
 });
