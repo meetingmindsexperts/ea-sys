@@ -45,6 +45,10 @@ import {
   GET as rosterGet,
 } from "@/app/api/events/[eventId]/rsvp-invites/route";
 import { POST as publicSubmit } from "@/app/api/public/events/[slug]/rsvp/[token]/route";
+import { POST as dinnersPost } from "@/app/api/events/[eventId]/dinners/route";
+
+const FUTURE = new Date(Date.now() + 7 * 24 * 3600_000);
+const PAST = new Date(Date.now() - 24 * 3600_000);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -111,10 +115,11 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
       event: { slug: "gala", name: "Gala", bannerImage: null, bannerImageMobile: null, startDate: new Date(), endDate: new Date() },
       responses: [{ dinnerId: "A", attending: true, guestCount: 1 }],
     });
-    // Dinners A and B both open (no deadline).
+    // Dinners A and B both open (no deadline, dinner in the future — since
+    // R2 M1 a deadline-less dinner closes when the dinner starts).
     mockDb.rsvpDinner.findMany.mockResolvedValue([
-      { id: "A", rsvpDeadline: null },
-      { id: "B", rsvpDeadline: null },
+      { id: "A", rsvpDeadline: null, dinnerAt: FUTURE },
+      { id: "B", rsvpDeadline: null, dinnerAt: FUTURE },
     ]);
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: "inv1" }]), // FOR UPDATE row lock
@@ -176,5 +181,107 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
     expect(tx.rsvpDinnerResponse.deleteMany).toHaveBeenCalledTimes(1);
     expect(tx.rsvpDinnerResponse.createMany).not.toHaveBeenCalled(); // nothing attending
     expect(tx.rsvpInvite.update).toHaveBeenCalled();
+  });
+
+  // ── R2 M1 — a deadline-less dinner closes when the dinner starts ────
+  it("a dinner with no deadline whose start has passed is CLOSED — its answer is ignored and reported", async () => {
+    const tx = wireInvite();
+    // A already happened (no deadline); B still open.
+    mockDb.rsvpDinner.findMany.mockResolvedValue([
+      { id: "A", rsvpDeadline: null, dinnerAt: PAST },
+      { id: "B", rsvpDeadline: null, dinnerAt: FUTURE },
+    ]);
+    const req = {
+      json: async () => ({
+        dinners: [
+          { dinnerId: "A", attending: true, guestCount: 2 }, // closed — must be ignored
+          { dinnerId: "B", attending: true, guestCount: 1 },
+        ],
+      }),
+    } as unknown as Request;
+
+    const res = await publicSubmit(req, { params: Promise.resolve({ slug: "gala", token: "tok" }) });
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    // R2 M2: the dropped answer is REPORTED, not silently swallowed.
+    expect(body.ignoredDinnerIds).toEqual(["A"]);
+    // The replace-all only touches the open dinner.
+    expect(tx.rsvpDinnerResponse.deleteMany.mock.calls[0][0].where.dinnerId.in).toEqual(["B"]);
+    expect(tx.rsvpDinnerResponse.createMany.mock.calls[0][0].data).toEqual([
+      { inviteId: "inv1", dinnerId: "B", attending: true, guestCount: 1 },
+    ]);
+  });
+
+  // ── R2 M3 — a stale form addressing ZERO open dinners is rejected ───
+  it("409 STALE_FORM when the payload addresses no open dinner (open dinners exist) — no destructive replace", async () => {
+    const tx = wireInvite();
+    // The form was loaded before B existed; A has since closed.
+    mockDb.rsvpDinner.findMany.mockResolvedValue([
+      { id: "A", rsvpDeadline: PAST, dinnerAt: FUTURE },
+      { id: "B", rsvpDeadline: null, dinnerAt: FUTURE },
+    ]);
+    const req = {
+      json: async () => ({
+        dinners: [{ dinnerId: "A", attending: true, guestCount: 0 }],
+      }),
+    } as unknown as Request;
+
+    const res = await publicSubmit(req, { params: Promise.resolve({ slug: "gala", token: "tok" }) });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("STALE_FORM");
+    // The concurrent tab's answers on B are untouched; the invite is not
+    // stamped RESPONDED.
+    expect(tx.rsvpDinnerResponse.deleteMany).not.toHaveBeenCalled();
+    expect(tx.rsvpInvite.update).not.toHaveBeenCalled();
+  });
+
+  it("400 all-closed when every dinner is closed", async () => {
+    wireInvite();
+    mockDb.rsvpDinner.findMany.mockResolvedValue([
+      { id: "A", rsvpDeadline: null, dinnerAt: PAST },
+    ]);
+    const req = {
+      json: async () => ({ dinners: [{ dinnerId: "A", attending: true, guestCount: 0 }] }),
+    } as unknown as Request;
+    const res = await publicSubmit(req, { params: Promise.resolve({ slug: "gala", token: "tok" }) });
+    expect(res.status).toBe(400);
+  });
+
+  // ── R2 M10 — the public submit leaves an audit trail ────────────────
+  it("writes a fire-and-forget AuditLog row with before→after + IP", async () => {
+    wireInvite();
+    const req = {
+      json: async () => ({
+        dinners: [{ dinnerId: "B", attending: true, guestCount: 2 }],
+      }),
+    } as unknown as Request;
+
+    const res = await publicSubmit(req, { params: Promise.resolve({ slug: "gala", token: "tok" }) });
+    expect((await res.json()).ok).toBe(true);
+    expect(mockDb.auditLog.create).toHaveBeenCalledTimes(1);
+    const audit = mockDb.auditLog.create.mock.calls[0][0].data;
+    expect(audit.action).toBe("RESPOND");
+    expect(audit.entityType).toBe("RSVP_INVITE");
+    expect(audit.userId).toBeNull();
+    expect(audit.ipAddress).toBe("127.0.0.1");
+    expect(audit.changes.before).toEqual([{ dinnerId: "A", attending: true, guestCount: 1 }]);
+    expect(audit.changes.after).toEqual([{ dinnerId: "B", attending: true, guestCount: 2 }]);
+  });
+});
+
+// ── R2 L7 — RSVP deadline cannot be after the dinner itself ──────────
+describe("POST /dinners — cross-field deadline validation (R2 L7)", () => {
+  it("400 DEADLINE_AFTER_DINNER when rsvpDeadline > dinnerAt", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
+    const req = {
+      json: async () => ({
+        name: "Gala",
+        dinnerAt: FUTURE.toISOString(),
+        rsvpDeadline: new Date(FUTURE.getTime() + 3600_000).toISOString(),
+      }),
+    } as unknown as Request;
+    const res = await dinnersPost(req, { params: Promise.resolve({ eventId: "ev1" }) });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("DEADLINE_AFTER_DINNER");
   });
 });

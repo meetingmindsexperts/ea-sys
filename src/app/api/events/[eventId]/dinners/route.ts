@@ -13,7 +13,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
-import { rsvpDinnerInputSchema } from "@/lib/rsvp/rsvp";
+import { rsvpDinnerInputSchema, isDeadlineAfterDinner } from "@/lib/rsvp/rsvp";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -89,6 +89,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const d = parsed.data;
+    if (isDeadlineAfterDinner(d.dinnerAt, d.rsvpDeadline)) {
+      apiLogger.warn({ eventId, userId: session.user.id }, "dinners:create-deadline-after-dinner");
+      return NextResponse.json(
+        { error: "The RSVP deadline cannot be after the dinner itself.", code: "DEADLINE_AFTER_DINNER" },
+        { status: 400 },
+      );
+    }
     const dinner = await db.rsvpDinner.create({
       data: {
         eventId,

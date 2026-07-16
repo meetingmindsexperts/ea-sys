@@ -29,7 +29,9 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
 
     const invite = await db.rsvpInvite.findFirst({
       where: { id: inviteId, eventId },
-      select: { id: true },
+      // Snapshot for the audit row (review R2 L13) — an empty `{}` couldn't
+      // even answer WHO was removed from the guest list. Token excluded.
+      select: { id: true, inviteeName: true, inviteeEmail: true, status: true, respondedAt: true },
     });
     if (!invite) {
       apiLogger.warn({ eventId, inviteId, userId: session.user.id }, "rsvp-invites:invite-not-found");
@@ -46,7 +48,14 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
           action: "DELETE",
           entityType: "RSVP_INVITE",
           entityId: inviteId,
-          changes: {},
+          changes: {
+            deleted: {
+              inviteeName: invite.inviteeName,
+              inviteeEmail: invite.inviteeEmail,
+              status: invite.status,
+              respondedAt: invite.respondedAt,
+            },
+          },
         },
       })
       .catch((err) => apiLogger.error({ err }, "rsvp-invites:audit-failed"));

@@ -129,8 +129,29 @@ export default function RsvpPage() {
       const json = await res.json();
       if (!res.ok) {
         console.error("rsvp-form:submit-failed", res.status, json?.error);
+        if (json?.code === "STALE_FORM") {
+          // The dinners changed since this form was loaded — reload so the
+          // invitee answers against the current list (review R2 M3).
+          toast.error(json.error);
+          window.location.reload();
+          return;
+        }
         toast.error(json.error || "Failed to submit RSVP");
         return;
+      }
+      // A dinner that closed while the form was open is NOT recorded — say
+      // so instead of a false full success (review R2 M2).
+      const ignored: string[] = Array.isArray(json?.ignoredDinnerIds) ? json.ignoredDinnerIds : [];
+      if (ignored.length > 0) {
+        const names = dinners
+          .filter((d) => ignored.includes(d.id) && d.attending)
+          .map((d) => d.name);
+        if (names.length > 0) {
+          toast.warning(
+            `RSVP for ${names.join(", ")} closed before you submitted and was not recorded. Please contact the organizer.`,
+            { duration: 12000 },
+          );
+        }
       }
       setDone(true);
     } catch (err) {

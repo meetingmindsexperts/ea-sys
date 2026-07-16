@@ -9,7 +9,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { rsvpDinnerInputSchema } from "@/lib/rsvp/rsvp";
+import { rsvpDinnerInputSchema, isDeadlineAfterDinner } from "@/lib/rsvp/rsvp";
 
 type RouteParams = { params: Promise<{ eventId: string; dinnerId: string }> };
 
@@ -19,7 +19,23 @@ async function loadDinner(eventId: string, dinnerId: string, organizationId: str
     select: { id: true },
   });
   if (!event) return null;
-  return db.rsvpDinner.findFirst({ where: { id: dinnerId, eventId }, select: { id: true } });
+  // Full row — the PUT validates the effective deadline/dinnerAt pair against
+  // stored values, and both mutations audit a before-snapshot (review R2 L13:
+  // "fields-only" UPDATE audits and `{}` DELETE audits couldn't answer what
+  // changed or what was deleted).
+  return db.rsvpDinner.findFirst({
+    where: { id: dinnerId, eventId },
+    select: {
+      id: true,
+      name: true,
+      dinnerAt: true,
+      location: true,
+      description: true,
+      rsvpDeadline: true,
+      sortOrder: true,
+      isActive: true,
+    },
+  });
 }
 
 export async function PUT(req: Request, { params }: RouteParams) {
@@ -46,6 +62,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const d = parsed.data;
+    // Effective (merged) cross-field check — the PUT is partial, so either
+    // side of the pair may come from the stored row (review R2 L7).
+    const effectiveDinnerAt = d.dinnerAt !== undefined ? d.dinnerAt : dinner.dinnerAt;
+    const effectiveDeadline = d.rsvpDeadline !== undefined ? d.rsvpDeadline : dinner.rsvpDeadline;
+    if (isDeadlineAfterDinner(effectiveDinnerAt, effectiveDeadline)) {
+      apiLogger.warn({ eventId, dinnerId, userId: session.user.id }, "dinners:update-deadline-after-dinner");
+      return NextResponse.json(
+        { error: "The RSVP deadline cannot be after the dinner itself.", code: "DEADLINE_AFTER_DINNER" },
+        { status: 400 },
+      );
+    }
     const updated = await db.rsvpDinner.update({
       where: { id: dinnerId },
       data: {
@@ -69,7 +96,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           action: "UPDATE",
           entityType: "RSVP_DINNER",
           entityId: dinnerId,
-          changes: { fields: Object.keys(d) },
+          changes: { before: dinner, after: d },
         },
       })
       .catch((err) => apiLogger.error({ err }, "dinners:audit-failed"));
@@ -104,7 +131,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
           action: "DELETE",
           entityType: "RSVP_DINNER",
           entityId: dinnerId,
-          changes: {},
+          changes: { deleted: dinner },
         },
       })
       .catch((err) => apiLogger.error({ err }, "dinners:audit-failed"));

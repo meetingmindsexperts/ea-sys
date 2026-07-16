@@ -58,6 +58,20 @@ export const rsvpInviteBulkSchema = z.object({
   invitees: z.array(rsvpInviteInputSchema).min(1).max(500),
 });
 
+/**
+ * Cross-field guard (review R2 L7): an RSVP deadline AFTER the dinner itself
+ * would keep the roster editable after the meal is served. Enforced in both
+ * dinner routes against the EFFECTIVE (merged) values, because the PUT is
+ * partial — a schema-level refine can't see the stored counterpart field.
+ */
+export function isDeadlineAfterDinner(
+  dinnerAt: Date | string,
+  rsvpDeadline: Date | string | null | undefined,
+): boolean {
+  if (!rsvpDeadline) return false;
+  return new Date(rsvpDeadline).getTime() > new Date(dinnerAt).getTime();
+}
+
 /** The public submit body: per-dinner attendance + guests, one dietary note. */
 export const rsvpSubmitSchema = z.object({
   token: z.string().min(1).max(200),

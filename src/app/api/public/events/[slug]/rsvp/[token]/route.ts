@@ -28,6 +28,16 @@ type RouteParams = { params: Promise<{ slug: string; token: string }> };
 
 const submitBodySchema = rsvpSubmitSchema.omit({ token: true });
 
+/**
+ * Effective close for a dinner (review R2 M1): the explicit rsvpDeadline
+ * wins; a dinner with NO deadline closes when the dinner starts — the
+ * deadline field is optional in the console, so "no deadline" must not
+ * mean "the roster is editable forever, including after the gala".
+ */
+function isDinnerOpen(d: { rsvpDeadline: Date | null; dinnerAt: Date }, now: number): boolean {
+  return (d.rsvpDeadline ?? d.dinnerAt).getTime() >= now;
+}
+
 /** Load the invite by token and assert it belongs to the URL's event. */
 async function loadInviteForSlug(slug: string, token: string) {
   const invite = await db.rsvpInvite.findUnique({
@@ -99,7 +109,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         location: d.location,
         description: d.description,
         rsvpDeadline: d.rsvpDeadline,
-        closed: d.rsvpDeadline ? d.rsvpDeadline.getTime() < now : false,
+        closed: !isDinnerOpen(d, now),
         attending: selection.get(d.id)?.attending ?? false,
         guestCount: selection.get(d.id)?.guestCount ?? 0,
       })),
@@ -114,12 +124,24 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const { slug, token } = await params;
     const ip = getClientIp(req);
-    const { allowed, retryAfterSeconds } = checkRateLimit({
+    // Two buckets (review R2 L11): a generous per-IP ceiling so a committee
+    // room behind one hotel NAT ("please RSVP now") isn't false-blocked, plus
+    // a tight per-token bucket so a single link can't spam submits.
+    const ipLimit = checkRateLimit({
       key: `rsvp-submit:${ip}`,
-      limit: 30,
+      limit: 120,
       windowMs: 3600_000,
     });
-    if (!allowed) {
+    const tokenLimit = checkRateLimit({
+      key: `rsvp-submit-token:${token.slice(0, 16)}`,
+      limit: 20,
+      windowMs: 3600_000,
+    });
+    if (!ipLimit.allowed || !tokenLimit.allowed) {
+      const retryAfterSeconds = Math.max(
+        ipLimit.retryAfterSeconds ?? 0,
+        tokenLimit.retryAfterSeconds ?? 0,
+      );
       apiLogger.warn({ slug, ip, stage: "submit" }, "rsvp-public:rate-limited");
       return NextResponse.json(
         { error: "Too many requests" },
@@ -141,19 +163,45 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Only accept responses for the event's active, still-open dinners.
+    // "Open" = before the explicit rsvpDeadline, else before the dinner
+    // itself starts (review R2 M1 — a deadline-less dinner must not stay
+    // editable after the gala).
     const openDinners = await db.rsvpDinner.findMany({
       where: { eventId: invite.eventId, isActive: true },
-      select: { id: true, rsvpDeadline: true },
+      select: { id: true, rsvpDeadline: true, dinnerAt: true },
     });
     const now = Date.now();
-    const openIds = new Set(
-      openDinners.filter((d) => !d.rsvpDeadline || d.rsvpDeadline.getTime() >= now).map((d) => d.id),
-    );
+    const openIds = new Set(openDinners.filter((d) => isDinnerOpen(d, now)).map((d) => d.id));
     const accepted = parsed.data.dinners.filter((d) => openIds.has(d.dinnerId));
+    // R2 M2: an answer for a dinner that closed between form-load and submit
+    // must not vanish behind a 200 — report the ids so the form can say so.
+    const ignoredDinnerIds = parsed.data.dinners
+      .filter((d) => !openIds.has(d.dinnerId))
+      .map((d) => d.dinnerId);
 
-    if (accepted.length === 0 && openIds.size === 0) {
+    if (openIds.size === 0) {
       apiLogger.warn({ slug, inviteId: invite.id, stage: "closed" }, "rsvp-public:all-closed");
       return NextResponse.json({ error: "RSVP is now closed for this event." }, { status: 400 });
+    }
+    // R2 M3: a payload that addresses ZERO open dinners is a stale form
+    // (loaded before a new dinner appeared / after every submitted one
+    // closed) — running the replace-all would wipe answers made from a
+    // fresher tab, create nothing, and stamp RESPONDED. Reject instead.
+    // A legitimate decline-all is unaffected: the form submits an explicit
+    // attending:false row for every open dinner, so accepted > 0.
+    if (accepted.length === 0) {
+      apiLogger.warn(
+        { slug, inviteId: invite.id, ignoredDinnerIds, stage: "stale-form" },
+        "rsvp-public:stale-form-rejected",
+      );
+      return NextResponse.json(
+        {
+          error:
+            "This form is out of date — the event's dinners have changed since you opened it. Please reload the page and submit again.",
+          code: "STALE_FORM",
+        },
+        { status: 409 },
+      );
     }
 
     // Server-authoritative REPLACE-ALL over the OPEN dinners: the submit is the
@@ -195,11 +243,45 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
     });
 
+    // R2 M10: the replace-all destroys the previous answer, and a dinner RSVP
+    // drives paid catering headcounts — record before→after with the IP, the
+    // same shape as the public speaker-agreement acceptance audit (the other
+    // externally-meaningful token-based write). Fire-and-forget: an audit
+    // blip must never fail a committed RSVP.
+    db.auditLog
+      .create({
+        data: {
+          eventId: invite.eventId,
+          userId: null,
+          action: "RESPOND",
+          entityType: "RSVP_INVITE",
+          entityId: invite.id,
+          changes: {
+            actor: "INVITEE",
+            before: invite.responses.map((r) => ({
+              dinnerId: r.dinnerId,
+              attending: r.attending,
+              guestCount: r.guestCount,
+            })),
+            after: attendingRows.map((d) => ({
+              dinnerId: d.dinnerId,
+              attending: true,
+              guestCount: d.guestCount,
+            })),
+            ignoredDinnerIds,
+            dietary: parsed.data.dietary ? parsed.data.dietary.trim() : null,
+            ip,
+          },
+          ipAddress: ip,
+        },
+      })
+      .catch((err) => apiLogger.error({ err, inviteId: invite.id }, "rsvp-public:audit-failed"));
+
     apiLogger.info(
-      { slug, inviteId: invite.id, dinners: accepted.length },
+      { slug, inviteId: invite.id, dinners: accepted.length, ignored: ignoredDinnerIds.length },
       "rsvp-public:submitted",
     );
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ignoredDinnerIds });
   } catch (err) {
     apiLogger.error({ err }, "rsvp-public:submit-failed");
     return NextResponse.json({ error: "Failed to submit RSVP" }, { status: 500 });
