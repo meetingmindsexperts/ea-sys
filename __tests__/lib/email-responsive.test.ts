@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { normalizeBodyImages, wrapWithBranding } from "@/lib/email";
+import { inlineCss, normalizeBodyImages, wrapWithBranding } from "@/lib/email";
 
 describe("normalizeBodyImages", () => {
   it("adds width=600 + border=0 + responsive style to a bare <img>", () => {
@@ -121,5 +121,26 @@ describe("wrapWithBranding — responsive header + footer images", () => {
     // The body's <img> should also have width="600" after normalization.
     expect(out).toMatch(/<img[^>]+src="https:\/\/cdn\.test\/inline\.png"[^>]+width="600"/);
     expect(out).not.toMatch(/width="2000"/);
+  });
+});
+
+describe("wrapWithBranding + inlineCss — paragraph rhythm matches the editor", () => {
+  it("inlines margin 0 0 16px onto style-less <p> tags (kills the doubled email-client gap)", () => {
+    const wrapped = wrapWithBranding("<p>First</p><p>Second</p>", { eventName: "Ev" });
+    const inlined = inlineCss(wrapped);
+    // Both body paragraphs carry the editor's rhythm; without this, email
+    // clients apply default 1em top+bottom margins — the organizer-reported
+    // "space between two p tags".
+    const matches = inlined.match(/<p style="[^"]*margin: 0 0 16px 0/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps an explicit inline margin already present in the template markup", () => {
+    const wrapped = wrapWithBranding(
+      '<p style="margin-bottom: 0;">Signature line</p>',
+      { eventName: "Ev" },
+    );
+    const inlined = inlineCss(wrapped);
+    expect(inlined).toContain("margin-bottom: 0");
   });
 });
