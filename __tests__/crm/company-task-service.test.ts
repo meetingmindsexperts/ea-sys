@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     crmCompany: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn(),
       create: vi.fn(),
       updateMany: vi.fn(),
@@ -37,8 +38,9 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { findOrCreateCompany, companyNameKey } from "@/crm/services/company-service";
+import { findOrCreateCompany, updateCompany, companyNameKey } from "@/crm/services/company-service";
 import { updateTask, completeTask } from "@/crm/services/task-service";
 
 const ORG = "org-1";
@@ -134,6 +136,34 @@ describe("findOrCreateCompany", () => {
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
     expect(res.code).toBe("NAME_REQUIRED");
+  });
+});
+
+describe("updateCompany — rename collision is a 409-class business rejection, not a 500 (H4)", () => {
+  it("maps P2002 on the rename to NAME_TAKEN and logs it", async () => {
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue({
+      id: "c-1", name: "Cleveland Clinic Foundation", industry: null, website: null,
+      country: null, city: null, notes: null, needsReview: false,
+    } as never);
+    vi.mocked(db.crmCompany.updateMany).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      }) as never,
+    );
+
+    const res = await updateCompany({
+      organizationId: "org-1", userId: "u-1", source: "rest",
+      companyId: "c-1", name: "Cleveland Clinic",
+    });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("NAME_TAKEN");
+    const { apiLogger } = await import("@/lib/logger");
+    expect(vi.mocked(apiLogger.warn)).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "crm-company:update-name-taken" }),
+    );
   });
 });
 

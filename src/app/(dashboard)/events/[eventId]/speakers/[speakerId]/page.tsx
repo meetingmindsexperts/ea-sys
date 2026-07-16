@@ -1201,45 +1201,14 @@ export default function SpeakerDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Timeline */}
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3 text-sm">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="text-muted-foreground">Added</div>
-                  <div className="font-medium">{formatDate(speaker.createdAt)}</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Certificates (with Resend) + the unified activity timeline.
-              Speakers receive APPRECIATION certs; the IssuedCertificatesCard
-              surfaces the per-row Resend so an organizer can re-fire delivery
-              without leaving this page. The ActivityTimelineCard below picks
-              up the new EmailLog row written by the resend, so the action
-              appears in two places (status row + timeline row) — the desired
-              feedback loop. */}
-          <IssuedCertificatesCard
-            eventId={eventId}
-            speakerId={speaker.id}
-            recipientLabel={
-              `${[speaker.title, speaker.firstName, speaker.lastName].filter(Boolean).join(" ")} <${speaker.email}>`
-            }
-            // Speaker tags drive the Issue dialog's "no tag, no certificate"
-            // gate (non-matching templates disabled).
-            recipientTags={speaker.tags ?? []}
-          />
-          {/* Unified activity timeline — subsumes the old email-history card
-              (it includes emails) and adds AuditLog events, issued
-              certificates (with Open), and the linked registration's activity
-              (pointed, not duplicated). */}
-          <ActivityTimelineCard
-            endpoint={`/api/events/${eventId}/speakers/${speaker.id}/activity`}
-            anchor="speaker"
-            queryKey={[eventId, "speaker", speaker.id]}
-          />
+          {/* Added-on footer — a plain row, not a whole Card, so the compact
+              facts sidebar stays short. */}
+          <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
+            <Calendar className="h-4 w-4" />
+            <span>
+              Added <span className="font-medium text-foreground">{formatDate(speaker.createdAt)}</span>
+            </span>
+          </div>
         </div>
       </div>
 

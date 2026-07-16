@@ -60,6 +60,7 @@ export interface UpdateCompanyInput extends Partial<CompanyFields> {
 }
 
 export type CompanyErrorCode =
+  | "NAME_TAKEN"
   | "NAME_REQUIRED"
   | "COMPANY_NOT_FOUND"
   | "NO_FIELDS"
@@ -276,9 +277,12 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
     return { ok: true, company };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      // A rename collision is an ordinary user action, not a server fault —
+      // as UNKNOWN it surfaced as an unlogged HTTP 500 (CRM review H4).
+      apiLogger.warn({ msg: "crm-company:update-name-taken", companyId: input.companyId, organizationId: input.organizationId });
       return {
         ok: false,
-        code: "UNKNOWN",
+        code: "NAME_TAKEN",
         message: "Another company already uses that name",
         meta: { conflict: "name" },
       };

@@ -39,9 +39,11 @@ const DATE_FIELDS = [
   { value: "closed", label: "Closed (won/lost)" },
 ];
 
-function money(v: number | null): string {
-  // A redacted value and a zero are different facts.
-  return v === null ? "—" : formatDealValue(v, "USD") ?? "—";
+function money(v: number | null, currency: string | null, mixed?: boolean): string {
+  // Mixed-currency buckets are called out, never summed into a fake number (H2),
+  // and a redacted value and a zero stay different facts.
+  if (mixed) return "— (mixed currencies)";
+  return v === null ? "—" : formatDealValue(v, currency ?? "USD") ?? "—";
 }
 
 function ReportsInner() {
@@ -127,8 +129,8 @@ function ReportsInner() {
           {/* ── KPI strip ────────────────────────────────────────────────────── */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard icon={Layers} label="Open deals" value={String(report.pipeline.openCount)} />
-            <KpiCard icon={TrendingUp} label="Open value" value={money(report.pipeline.openValue)} />
-            <KpiCard icon={Trophy} label="Won" value={String(report.winLoss.wonCount)} sub={money(report.winLoss.wonValue)} tone="win" />
+            <KpiCard icon={TrendingUp} label="Open value" value={money(report.pipeline.openValue, report.pipeline.openCurrency, report.pipeline.openMixed)} />
+            <KpiCard icon={Trophy} label="Won" value={String(report.winLoss.wonCount)} sub={money(report.winLoss.wonValue, report.winLoss.wonCurrency ?? null, report.winLoss.wonMixed)} tone="win" />
             <KpiCard
               icon={Percent}
               label="Win rate"
@@ -144,7 +146,7 @@ function ReportsInner() {
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Pipeline by stage</h2>
               <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-                {report.pipeline.openCount} open · {money(report.pipeline.openValue)}
+                {report.pipeline.openCount} open · {money(report.pipeline.openValue, report.pipeline.openCurrency, report.pipeline.openMixed)}
               </span>
             </header>
             <Table>
@@ -178,7 +180,7 @@ function ReportsInner() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{s.count}</TableCell>
-                      <TableCell className="text-right tabular-nums">{money(s.value)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{money(s.value, s.currency, s.mixed)}</TableCell>
                     </TableRow>
                   ));
                 })()}
@@ -196,8 +198,8 @@ function ReportsInner() {
               </span>
             </header>
             <div className="grid grid-cols-2 gap-px bg-border">
-              <Stat label="Won" count={report.winLoss.wonCount} value={money(report.winLoss.wonValue)} tone="win" />
-              <Stat label="Lost" count={report.winLoss.lostCount} value={money(report.winLoss.lostValue)} tone="loss" />
+              <Stat label="Won" count={report.winLoss.wonCount} value={money(report.winLoss.wonValue, report.winLoss.wonCurrency ?? null, report.winLoss.wonMixed)} tone="win" />
+              <Stat label="Lost" count={report.winLoss.lostCount} value={money(report.winLoss.lostValue, report.winLoss.lostCurrency ?? null, report.winLoss.lostMixed)} tone="loss" />
             </div>
           </section>
 
@@ -225,9 +227,9 @@ function ReportsInner() {
                     <TableRow key={r.ownerId ?? "none"}>
                       <TableCell className="font-medium">{r.ownerName}</TableCell>
                       <TableCell className="text-right tabular-nums">{r.openCount}</TableCell>
-                      <TableCell className="text-right tabular-nums">{money(r.openValue)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{money(r.openValue, r.openCurrency, r.openMixed)}</TableCell>
                       <TableCell className="text-right tabular-nums">{r.wonCount}</TableCell>
-                      <TableCell className="text-right font-medium tabular-nums">{money(r.wonValue)}</TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">{money(r.wonValue, r.wonCurrency, r.wonMixed)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

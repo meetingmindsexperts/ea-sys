@@ -459,15 +459,29 @@ export function useRemoveDealContact(dealId: string) {
 export interface CrmReport {
   canSeeValues: boolean;
   pipeline: {
-    stages: Array<{ stageId: string; stageName: string; isTerminal: boolean; count: number; value: number | null }>;
+    stages: Array<{
+      stageId: string;
+      stageName: string;
+      isTerminal: boolean;
+      count: number;
+      value: number | null;
+      currency: string | null;
+      mixed: boolean;
+    }>;
     openCount: number;
     openValue: number | null;
+    openCurrency: string | null;
+    openMixed: boolean;
   };
   winLoss: {
     wonCount: number;
     lostCount: number;
     wonValue: number | null;
     lostValue: number | null;
+    wonCurrency: string | null;
+    lostCurrency: string | null;
+    wonMixed: boolean;
+    lostMixed: boolean;
     winRate: number | null;
   };
   reps: Array<{
@@ -475,8 +489,12 @@ export interface CrmReport {
     ownerName: string;
     openCount: number;
     openValue: number | null;
+    openCurrency: string | null;
+    openMixed: boolean;
     wonCount: number;
     wonValue: number | null;
+    wonCurrency: string | null;
+    wonMixed: boolean;
   }>;
   generatedAt: string;
 }

@@ -27,6 +27,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
   findOrCreateCrmContact,
@@ -118,6 +119,29 @@ describe("findOrCreateCrmContact", () => {
     if (res.ok) throw new Error("unreachable");
     expect(res.code).toBe("COMPANY_NOT_FOUND");
     expect(db.crmContact.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateCrmContact — email collision is a 409-class business rejection, not a 500 (H4)", () => {
+  it("maps P2002 on the email edit to EMAIL_TAKEN and logs it", async () => {
+    vi.mocked(db.crmContact.updateMany).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      }) as never,
+    );
+
+    const res = await updateCrmContact({ ...base, crmContactId: "cc-1", email: "taken@abbott.com" });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    // EMAIL_TAKEN maps to 409 in STATUS_BY_CODE — as UNKNOWN this surfaced as an
+    // unlogged HTTP 500 on an ordinary rename.
+    expect(res.code).toBe("EMAIL_TAKEN");
+    const { apiLogger } = await import("@/lib/logger");
+    expect(vi.mocked(apiLogger.warn)).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "crm-contact:update-email-taken" }),
+    );
   });
 });
 

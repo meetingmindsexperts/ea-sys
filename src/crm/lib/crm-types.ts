@@ -345,12 +345,19 @@ export function formatDealValue(
   }).format(n);
 }
 
-/** Sum of visible deal values in a column. Null when money is redacted. */
-export function sumStageValue(deals: CrmBoardDeal[], currency = "USD"): string | null {
+/**
+ * Sum of visible deal values in a column. Null when money is redacted; the
+ * literal "Mixed currencies" when the column holds more than one currency —
+ * adding AED to USD and stamping the result "$" would be a fabricated number
+ * (CRM review H2, same rule as sumDealProducts).
+ */
+export function sumStageValue(deals: CrmBoardDeal[]): string | null {
   const visible = deals.filter((d) => d.dealValue !== null && d.dealValue !== undefined);
   if (visible.length === 0) return null;
+  const currencies = new Set(visible.map((d) => d.currency || "USD"));
+  if (currencies.size > 1) return "Mixed currencies";
   const total = visible.reduce((acc, d) => acc + Number(d.dealValue ?? 0), 0);
-  return formatDealValue(total, currency);
+  return formatDealValue(total, [...currencies][0]!);
 }
 
 // ── Change-log display ────────────────────────────────────────────────────────

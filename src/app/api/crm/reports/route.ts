@@ -8,7 +8,9 @@ import {
   summarizePipeline,
   computeWinLoss,
   sortReps,
-  sumValues,
+  foldMoney,
+  REDACTED_MONEY,
+  type MoneySum,
   type StageBucketInput,
   type RepRow,
 } from "@/crm/lib/reports";
@@ -42,6 +44,10 @@ export async function GET(req: Request) {
       { organizationId: ctx.organizationId, canSeeValues },
     );
 
+    // Every aggregate ALSO groups by currency (CRM review H2): deals carry
+    // per-row currencies, so a sum is only meaningful per currency — the folds
+    // below return null + mixed:true rather than adding AED to USD and stamping
+    // the result "$".
     const [stages, byStage, wonAgg, lostAgg, byOwner, users] = await Promise.all([
       db.crmPipelineStage.findMany({
         where: { organizationId: ctx.organizationId },
@@ -49,23 +55,25 @@ export async function GET(req: Request) {
         select: { id: true, name: true, isTerminal: true },
       }),
       db.crmDeal.groupBy({
-        by: ["stageId"],
+        by: ["stageId", "currency"],
         where,
         _count: { _all: true },
         _sum: { dealValue: true },
       }),
-      db.crmDeal.aggregate({
+      db.crmDeal.groupBy({
+        by: ["currency"],
         where: { ...where, status: "WON" },
         _count: { _all: true },
         _sum: { dealValue: true },
       }),
-      db.crmDeal.aggregate({
+      db.crmDeal.groupBy({
+        by: ["currency"],
         where: { ...where, status: "LOST" },
         _count: { _all: true },
         _sum: { dealValue: true },
       }),
       db.crmDeal.groupBy({
-        by: ["ownerId", "status"],
+        by: ["ownerId", "status", "currency"],
         where,
         _count: { _all: true },
         _sum: { dealValue: true },
@@ -77,57 +85,80 @@ export async function GET(req: Request) {
     ]);
 
     const num = (d: unknown) => (d == null ? 0 : Number(d));
-    const val = (d: unknown) => (canSeeValues ? num(d) : null);
+    const fold = (rows: Array<{ currency: string; _sum: { dealValue: unknown } }>): MoneySum =>
+      canSeeValues
+        ? foldMoney(rows.map((r) => ({ currency: r.currency, amount: num(r._sum.dealValue) })))
+        : REDACTED_MONEY;
 
     // ── Pipeline by stage ─────────────────────────────────────────────────────
-    const countByStage = new Map(byStage.map((r) => [r.stageId, r]));
+    const rowsByStage = new Map<string, typeof byStage>();
+    for (const r of byStage) {
+      const list = rowsByStage.get(r.stageId) ?? [];
+      list.push(r);
+      rowsByStage.set(r.stageId, list);
+    }
     const stageBuckets: StageBucketInput[] = stages.map((s) => {
-      const row = countByStage.get(s.id);
+      const rows = rowsByStage.get(s.id) ?? [];
+      const money = fold(rows);
       return {
         stageId: s.id,
         stageName: s.name,
         isTerminal: s.isTerminal,
-        count: row?._count._all ?? 0,
-        value: row ? val(row._sum.dealValue) : canSeeValues ? 0 : null,
+        count: rows.reduce((a, r) => a + r._count._all, 0),
+        value: money.amount,
+        currency: money.currency,
+        mixed: money.mixed,
       };
     });
     const pipeline = summarizePipeline(stageBuckets);
 
     // ── Win / loss ────────────────────────────────────────────────────────────
+    const wonMoney = fold(wonAgg);
+    const lostMoney = fold(lostAgg);
     const winLoss = computeWinLoss({
-      wonCount: wonAgg._count._all,
-      lostCount: lostAgg._count._all,
-      wonValue: val(wonAgg._sum.dealValue),
-      lostValue: val(lostAgg._sum.dealValue),
+      wonCount: wonAgg.reduce((a, r) => a + r._count._all, 0),
+      lostCount: lostAgg.reduce((a, r) => a + r._count._all, 0),
+      wonValue: wonMoney.amount,
+      lostValue: lostMoney.amount,
+      wonCurrency: wonMoney.currency,
+      lostCurrency: lostMoney.currency,
+      wonMixed: wonMoney.mixed,
+      lostMixed: lostMoney.mixed,
     });
 
     // ── By rep ────────────────────────────────────────────────────────────────
     const nameById = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`]));
-    const repMap = new Map<string, RepRow>();
+    const repAgg = new Map<string, { ownerId: string | null; openCount: number; wonCount: number; open: typeof byOwner; won: typeof byOwner }>();
     for (const r of byOwner) {
       const key = r.ownerId ?? "__none__";
-      const existing =
-        repMap.get(key) ??
-        ({
-          ownerId: r.ownerId,
-          ownerName: r.ownerId ? nameById.get(r.ownerId) ?? "(unknown)" : "Unassigned",
-          openCount: 0,
-          openValue: canSeeValues ? 0 : null,
-          wonCount: 0,
-          wonValue: canSeeValues ? 0 : null,
-        } as RepRow);
-
-      const v = val(r._sum.dealValue);
+      const agg = repAgg.get(key) ?? { ownerId: r.ownerId, openCount: 0, wonCount: 0, open: [], won: [] };
       if (r.status === "OPEN") {
-        existing.openCount += r._count._all;
-        existing.openValue = sumValues([existing.openValue, v]);
+        agg.openCount += r._count._all;
+        agg.open.push(r);
       } else if (r.status === "WON") {
-        existing.wonCount += r._count._all;
-        existing.wonValue = sumValues([existing.wonValue, v]);
+        agg.wonCount += r._count._all;
+        agg.won.push(r);
       }
-      repMap.set(key, existing);
+      repAgg.set(key, agg);
     }
-    const reps = sortReps([...repMap.values()]);
+    const reps = sortReps(
+      [...repAgg.values()].map((agg): RepRow => {
+        const open = fold(agg.open);
+        const won = fold(agg.won);
+        return {
+          ownerId: agg.ownerId,
+          ownerName: agg.ownerId ? nameById.get(agg.ownerId) ?? "(unknown)" : "Unassigned",
+          openCount: agg.openCount,
+          openValue: open.amount,
+          openCurrency: open.currency,
+          openMixed: open.mixed,
+          wonCount: agg.wonCount,
+          wonValue: won.amount,
+          wonCurrency: won.currency,
+          wonMixed: won.mixed,
+        };
+      }),
+    );
 
     return NextResponse.json({
       canSeeValues,

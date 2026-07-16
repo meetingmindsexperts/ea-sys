@@ -61,6 +61,7 @@ export interface UpdateCrmContactInput extends Partial<ContactFields> {
 }
 
 export type CrmContactErrorCode =
+  | "EMAIL_TAKEN"
   | "NAME_REQUIRED"
   | "EMAIL_REQUIRED"
   | "CONTACT_NOT_FOUND"
@@ -256,9 +257,12 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
     return { ok: true, crmContact };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      // An email collision on edit is an ordinary user action, not a server
+      // fault — as UNKNOWN it surfaced as an unlogged HTTP 500 (CRM review H4).
+      apiLogger.warn({ msg: "crm-contact:update-email-taken", crmContactId: input.crmContactId, organizationId: input.organizationId });
       return {
         ok: false,
-        code: "UNKNOWN",
+        code: "EMAIL_TAKEN",
         message: "Another CRM contact already uses that email",
         meta: { conflict: "email" },
       };
