@@ -774,6 +774,11 @@ const DEFAULT_RAW_HTML_KEYS = new Set([
   // Organizer-controlled entry-barcode token (see src/lib/email-barcode.ts).
   // The value is always our own generated <img cid:reg-barcode> block or "".
   "entryBarcode",
+  // The sender's personal signature — always their OWN profile Tiptap HTML
+  // (User.emailSignature, edited at /profile), never recipient-controlled.
+  // Promoted from per-caller rawHtmlKeys to the default set July 16, 2026,
+  // when the token was rolled out to (almost) every default template.
+  "organizerSignature",
 ]);
 
 /**
@@ -1056,6 +1061,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "registrationId", description: "Confirmation number" },
     { key: "paymentBlock", description: "Payment pending block (auto-generated for paid tickets)" },
     { key: "entryBarcode", description: "Attendee entry barcode image — in-person registrations only (omit to exclude it)" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "speaker-invitation": [
     { key: "title", description: "Speaker title prefix (e.g. Dr.)" },
@@ -1115,6 +1121,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventAddress", description: "Event address" },
     { key: "daysUntilEvent", description: "Number of days until event" },
     { key: "entryBarcode", description: "Attendee entry barcode image — in-person registrations only (omit to exclude it)" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "abstract-submission-confirmation": [
     { key: "title", description: "Submitter title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
@@ -1127,6 +1134,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "authorName", description: "Submitting author's full name (with title)" },
     { key: "coAuthorNames", description: "Co-author names, comma-separated — blank if none" },
     { key: "managementLink", description: "Abstract management link" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "abstract-status-update": [
     { key: "title", description: "Submitter title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
@@ -1144,6 +1152,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "reviewNotes", description: "Reviewer notes" },
     { key: "reviewScore", description: "Review score (0-10)" },
     { key: "managementLink", description: "Abstract management link" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "submitter-welcome": [
     { key: "title", description: "Submitter title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
@@ -1151,6 +1160,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "lastName", description: "Submitter last name" },
     { key: "eventName", description: "Event name" },
     { key: "loginLink", description: "Login page link" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "reviewer-assignment": [
     { key: "firstName", description: "Reviewer first name" },
@@ -1159,12 +1169,14 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "abstractTitle", description: "Title of the assigned abstract" },
     { key: "role", description: "Reviewer role (e.g. Primary reviewer)" },
     { key: "reviewLink", description: "Link to the reviewer's My Reviews portal" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "reviewer-pool-invitation": [
     { key: "firstName", description: "Reviewer first name" },
     { key: "lastName", description: "Reviewer last name" },
     { key: "eventName", description: "Event name" },
     { key: "reviewLink", description: "Link to the reviewer's My Reviews portal" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "custom-notification": [
     { key: "title", description: "Recipient title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
@@ -1213,6 +1225,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "amount", description: "Amount due (e.g. USD 100.00)" },
     { key: "paymentBlock", description: "Pay Now button (auto-generated)" },
     { key: "entryBarcode", description: "Attendee entry barcode image — in-person registrations only (omit to exclude it)" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "dinner-rsvp-invitation": [
     { key: "firstName", description: "Invitee first name" },
@@ -1259,6 +1272,7 @@ export const DEFAULT_TEMPLATES: DefaultTemplate[] = [
     {{paymentBlock}}
     <p>If you have any questions, please don&apos;t hesitate to contact us.</p>
     <p style="margin-bottom: 0;">See you at the event!</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Registration Confirmed - {{eventName}}
 
@@ -1275,7 +1289,9 @@ Registration Details:
 
 {{paymentBlock}}
 
-See you at the event!`,
+See you at the event!
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1322,7 +1338,9 @@ Event Details:
 
 Best regards,
 {{organizerName}}
-{{organizerEmail}}`,
+{{organizerEmail}}
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1398,7 +1416,9 @@ If you have any questions about the Agreement, please reach out before confirmin
 
 Best regards,
 {{organizerName}}
-{{organizerEmail}}`,
+{{organizerEmail}}
+
+{{organizerSignature}}`,
   },
   {
     slug: "presenter-agreement",
@@ -1444,7 +1464,9 @@ If you have any questions about the Agreement, please reach out before confirmin
 
 Best regards,
 {{organizerName}}
-{{organizerEmail}}`,
+{{organizerEmail}}
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1466,6 +1488,7 @@ Best regards,
     </div>
     <p>Don&apos;t forget to bring your registration confirmation or QR code for check-in.</p>
     <p style="margin-bottom: 0;">We look forward to seeing you!</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Reminder: {{eventName}} is coming up!
 
@@ -1477,7 +1500,9 @@ Event Details:
 - Date: {{eventDate}}
 - Venue: {{eventVenue}}
 
-We look forward to seeing you!`,
+We look forward to seeing you!
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1502,6 +1527,7 @@ We look forward to seeing you!`,
       <a href="{{managementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
     </div>
     <p style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 14px;"><strong>Important:</strong> Save this email! The link above is your personal access link to manage your submission.</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Abstract Submitted - {{eventName}}
 
@@ -1515,7 +1541,9 @@ Submission Details:
 
 View Your Abstract: {{managementLink}}
 
-Important: Save this email! The link above is your personal access link to manage your submission.`,
+Important: Save this email! The link above is your personal access link to manage your submission.
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1539,6 +1567,7 @@ Important: Save this email! The link above is your personal access link to manag
     <div style="text-align: center; margin: 30px 0;">
       <a href="{{managementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstract</a>
     </div>
+    {{organizerSignature}}
   </div>`,
     textContent: `{{statusHeading}} - {{eventName}}
 
@@ -1552,7 +1581,9 @@ Abstract Details:
 
 {{reviewNotes}}
 
-View Your Abstract: {{managementLink}}`,
+View Your Abstract: {{managementLink}}
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1569,6 +1600,7 @@ View Your Abstract: {{managementLink}}`,
       <a href="{{loginLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Log In &amp; Submit Abstract</a>
     </div>
     <p style="color: #6b7280; font-size: 14px;">If you did not create this account, you can safely ignore this email.</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Welcome to {{eventName}} - Account Created
 
@@ -1576,7 +1608,9 @@ Dear {{title}} {{lastName}},
 
 Your account has been created successfully for {{eventName}}. You can now log in to submit your abstracts.
 
-Log In: {{loginLink}}`,
+Log In: {{loginLink}}
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1597,6 +1631,7 @@ Log In: {{loginLink}}`,
       <a href="{{reviewLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Review Abstract</a>
     </div>
     <p style="color: #6b7280; font-size: 14px;">If you believe you have a conflict of interest with this abstract, please let the event organizer know.</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Abstract Review Assignment - {{eventName}}
 
@@ -1610,7 +1645,9 @@ Please log in to your reviewer portal to read the abstract and submit your score
 
 Review Abstract: {{reviewLink}}
 
-If you believe you have a conflict of interest with this abstract, please let the event organizer know.`,
+If you believe you have a conflict of interest with this abstract, please let the event organizer know.
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1627,6 +1664,7 @@ If you believe you have a conflict of interest with this abstract, please let th
       <a href="{{reviewLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Go to My Reviews</a>
     </div>
     <p style="color: #6b7280; font-size: 14px;">If you have any questions, please contact the event organizer.</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `You've been added as a reviewer - {{eventName}}
 
@@ -1636,7 +1674,9 @@ You have been added as a reviewer for {{eventName}}. You can now review the abst
 
 Go to My Reviews: {{reviewLink}}
 
-If you have any questions, please contact the event organizer.`,
+If you have any questions, please contact the event organizer.
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1654,6 +1694,7 @@ If you have any questions, please contact the event organizer.`,
       <a href="{{managementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Abstracts</a>
     </div>
     <p style="color: #6b7280; font-size: 14px;">If you have any questions, please contact the event organizer.</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Abstract Submission Reminder - {{eventName}}
 
@@ -1663,7 +1704,9 @@ This is a friendly reminder to submit your abstract for {{eventName}}.
 
 If you have already submitted, please check your dashboard for any updates or revision requests.
 
-View Your Abstracts: {{managementLink}}`,
+View Your Abstracts: {{managementLink}}
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1676,12 +1719,15 @@ View Your Abstracts: {{managementLink}}`,
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <div style="white-space: pre-wrap;">{{message}}</div>
+    {{organizerSignature}}
   </div>`,
     textContent: `{{subject}}
 
 Dear {{title}} {{lastName}},
 
-{{message}}`,
+{{message}}
+
+{{organizerSignature}}`,
   },
   {
     slug: "payment-confirmation",
@@ -1785,6 +1831,7 @@ If you have any questions, please contact the event organizer.`,
     </table>
     {{paymentBlock}}
     <p style="color: #6b7280; font-size: 13px;">If you have already made the payment, please disregard this email. For any questions, contact the event organizer.</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Payment Reminder — {{eventName}}
 
@@ -1799,7 +1846,9 @@ Amount Due: {{amount}}
 
 {{paymentBlock}}
 
-If you have already made the payment, please disregard this email.`,
+If you have already made the payment, please disregard this email.
+
+{{organizerSignature}}`,
   },
 
   // ── Webinar sequence ──────────────────────────────────────────────────────
@@ -1823,6 +1872,7 @@ If you have already made the payment, please disregard this email.`,
     {{passcodeBlock}}
     <p style="color: #6b7280; font-size: 13px;">You can join up to 15 minutes before the scheduled start time. We'll also send you reminders 24 hours and 1 hour before the webinar begins.</p>
     <p style="margin-bottom: 0;">See you online!</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `You're registered for {{eventName}}
 
@@ -1836,7 +1886,9 @@ Time: {{webinarTime}}
 Join link: {{joinUrl}}
 {{passcodeBlock}}
 
-You can join up to 15 minutes before the scheduled start time. We'll send reminders 24 hours and 1 hour before the webinar begins.`,
+You can join up to 15 minutes before the scheduled start time. We'll send reminders 24 hours and 1 hour before the webinar begins.
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1857,6 +1909,7 @@ You can join up to 15 minutes before the scheduled start time. We'll send remind
     </div>
     {{passcodeBlock}}
     <p style="color: #6b7280; font-size: 13px;">Add it to your calendar so you don't miss it.</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Tomorrow: {{eventName}}
 
@@ -1868,7 +1921,9 @@ Date: {{webinarDate}}
 Time: {{webinarTime}}
 
 Join link: {{joinUrl}}
-{{passcodeBlock}}`,
+{{passcodeBlock}}
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1883,6 +1938,7 @@ Join link: {{joinUrl}}
     </div>
     {{passcodeBlock}}
     <p style="color: #6b7280; font-size: 13px;">Doors open 15 minutes before the scheduled start. See you there.</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Starting in 1 hour: {{eventName}}
 
@@ -1893,7 +1949,9 @@ Hi {{firstName}},
 Join link: {{joinUrl}}
 {{passcodeBlock}}
 
-Doors open 15 minutes before the scheduled start.`,
+Doors open 15 minutes before the scheduled start.
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1907,6 +1965,7 @@ Doors open 15 minutes before the scheduled start.`,
       <a href="{{joinUrl}}" style="display: inline-block; background: #dc2626; color: #ffffff; padding: 16px 40px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 18px;">Join Now</a>
     </div>
     {{passcodeBlock}}
+    {{organizerSignature}}
   </div>`,
     textContent: `We're live: {{eventName}}
 
@@ -1915,7 +1974,9 @@ Hi {{firstName}},
 {{eventName}} is starting now.
 
 Join now: {{joinUrl}}
-{{passcodeBlock}}`,
+{{passcodeBlock}}
+
+{{organizerSignature}}`,
   },
 
   {
@@ -1928,6 +1989,7 @@ Join now: {{joinUrl}}
     {{recordingBlock}}
     <p>If you have any feedback, we'd love to hear from you.</p>
     <p style="margin-bottom: 0;">See you at the next one!</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Thank you for joining {{eventName}}
 
@@ -1937,7 +1999,9 @@ Thank you for joining {{eventName}}. We hope you found it valuable.
 
 {{recordingBlock}}
 
-If you have any feedback, we'd love to hear from you.`,
+If you have any feedback, we'd love to hear from you.
+
+{{organizerSignature}}`,
   },
 
   {
@@ -2027,6 +2091,7 @@ Best regards,
     <p>Dear <strong>{{firstName}}</strong>,</p>
     <p>Thank you for completing the post-event survey for <strong>{{eventName}}</strong>. Your feedback has been recorded and will help us shape future events.</p>
     <p style="margin-bottom: 0;">— The {{eventName}} team</p>
+    {{organizerSignature}}
   </div>`,
     textContent: `Thank you for your feedback — {{eventName}}
 
@@ -2034,7 +2099,9 @@ Dear {{firstName}},
 
 Thank you for completing the post-event survey for {{eventName}}. Your feedback has been recorded and will help us shape future events.
 
-— The {{eventName}} team`,
+— The {{eventName}} team
+
+{{organizerSignature}}`,
   },
 
   {
@@ -2324,6 +2391,10 @@ export function getSamplePreviewVariables(
     registrationId: "ABCD1234",
     organizerName: "Event Organizer",
     organizerEmail: "organizer@example.com",
+    // {{organizerSignature}} preview — real sends use the triggering user's
+    // profile signature (Profile → Email Signature), or nothing when the
+    // sender has none / the send is automated.
+    organizerSignature: "<p><strong>Event Organizer</strong><br/>Sample Conference Team</p>",
     personalMessage: "We're excited to have you!",
     sessionDetails: "Opening Keynote - Main Hall",
     agreementLink: "#",
@@ -2522,11 +2593,19 @@ export function renderAndWrap(
   branding: EmailBranding,
   rawHtmlKeys?: Set<string>
 ): { subject: string; htmlContent: string; textContent: string } {
-  const subject = renderTemplatePlain(template.subject, variables);
-  const bodyHtml = renderTemplate(template.htmlContent, variables, rawHtmlKeys);
+  // {{organizerSignature}} lives in (almost) every default template since
+  // July 16, 2026, but only human-triggered send paths thread a real value —
+  // automated senders (cron sequences, submission confirmations) have no
+  // sender whose signature it would be. Default it to "" so the token renders
+  // as NOTHING on those paths instead of as the literal `{{organizerSignature}}`
+  // text (renderTemplate deliberately leaves unknown tokens in place). A
+  // caller-provided value always wins via the spread.
+  const vars = { organizerSignature: "", ...variables };
+  const subject = renderTemplatePlain(template.subject, vars);
+  const bodyHtml = renderTemplate(template.htmlContent, vars, rawHtmlKeys);
   const wrapped = wrapWithBranding(bodyHtml, branding);
   const htmlContent = inlineCss(wrapped);
-  const textContent = renderTemplatePlain(template.textContent, variables);
+  const textContent = renderTemplatePlain(template.textContent, vars);
   return { subject, htmlContent, textContent };
 }
 
@@ -2766,6 +2845,11 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
     // below once the template + barcode are resolved.
     entryBarcode: "",
     entryBarcodeText: "",
+    // This sender renders via renderTemplate directly (not renderAndWrap, so
+    // no global default): {{organizerSignature}} collapses to nothing —
+    // confirmations fire from automated paths (public register, webhook,
+    // service) with no human sender whose signature it could be.
+    organizerSignature: "",
   };
 
   // Try DB template first, fall back to default
