@@ -987,13 +987,37 @@ adversarial review (no BLOCKER/HIGH; M2 + M3 fixed). See
   ADMIN/ORGANIZER-only; no invitee-controlled value hits an unescaped sink). It's a
   plain `<textarea>` (not Tiptap), so multi-line notes currently collapse. Optional
   hardening: `escapeHtml` + `nl2br` the plain-text message.
-- **L2 (accepted-as-is)** — the roster GET is org-scoped but not role-narrowed, so a
-  MEMBER (read-only viewer) can read every invitee's capability `token` + email. No
-  finance data. Revisit (narrow the GET to non-MEMBER, or strip tokens for MEMBER) if
-  RSVP links ever become sensitive.
+- ~~**L2 (accepted-as-is)** — the roster GET is org-scoped but not role-narrowed …~~
+  **SUPERSEDED**: the Survey/RSVP review's **H2 fix** locked the roster GET down
+  (`denyReviewer` + `buildEventAccessWhere` — MEMBER/ONSITE/REGISTRANT 403), and
+  Round 2 extended the same policy to `GET /dinners` (M4) and the in-app agent's
+  `list_dinner_rsvps` (M5, `ROSTER_PII_AGENT_TOOLS`).
 - **MCP write tools** — only the read tool `list_dinner_rsvps` exists; creating dinners
   / adding invitees / sending stays in the organizer UI. Add write tools if agent-driven
   RSVP management is wanted.
+
+**Round 2 remaining LOWs (July 16, 2026 — [docs/CODE_REVIEW_DINNER_RSVP_R2.html](CODE_REVIEW_DINNER_RSVP_R2.html);
+all 12 MEDs + 7 LOW riders shipped same-day in 4 batches `2716baf7`/`3966a6d4`/`c54addef`/`e41d4692`):**
+
+- **L3** — rate-limit buckets on the three organizer routes are consumed BEFORE the
+  event-ownership check, so any staff user can burn another event's 10/hr send budget
+  with 404ing posts. Same-team nuisance today; DoS-shaped under multi-tenancy. Key the
+  bucket on `${eventId}:${userId}` or move the check after the event lookup.
+- **L4** — embedded CRLF survives into the email subject + recipient display name
+  (mitigated by structured provider APIs) — fold into the existing "To-header CRLF" item.
+- **L5** — the invitation HTML (containing the live RSVP token twice) is stored in
+  `EmailLog.htmlBody` for 180 days by default. Audience currently matches the roster
+  GET's; if email-log-body access is ever widened, pass `storeBody: false` here.
+- **L6** — console TZ race: `dinnerTz` falls back to Dubai while `useEvent` is in
+  flight; a dialog opened pre-resolve and saved post-resolve shifts `dinnerAt` by the
+  offset delta. Capture the tz at dialog-open into form state.
+- **L8** — `isActive` is honored everywhere server-side but unreachable from the
+  console (no toggle) — add the toggle or note it as API-only.
+- **L10** — CSV export columns are keyed by dinner NAME; duplicate names collide.
+- **L12** — no rate limit on dinner PUT/DELETE + invite DELETE (the header comment
+  over-claims "writes are rate-limited").
+- **L14** — the CSV export is a bare `<a href>`; an expired session navigates to raw
+  401 JSON (the quote.json class) — fetch-then-blob like the invoice buttons.
 
 ### Per-event ONSITE staff (shipped) — deferred review follow-ups
 
