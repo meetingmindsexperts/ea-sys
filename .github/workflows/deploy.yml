@@ -90,18 +90,57 @@ jobs:
       # what the ecosystem happens to have disclosed today, which is not something
       # a deploy should be blocked on.
 
-      # The `next build` CI step was REMOVED (owner decision, July 16, 2026):
-      # `npm run build` is part of the local verification gate run before every
-      # push, so building again here only added ~3-5 min to every deploy. The
-      # runtime image is still built by the build-push job below — a genuinely
-      # broken build still fails there, before deploy.
-      #
-      # ⚠ Known trade-off: that step was ALSO the Sentry source-map upload (it
-      # ran with SENTRY_AUTH_TOKEN; the Docker build deliberately has no
-      # token). Client stack traces in Sentry are minified for deploys after
-      # this change. If maps are wanted back, re-add the step as a PARALLEL,
-      # non-gating job (needs: ci, not in the deploy dependency chain) so it
-      # costs no deploy latency.
+      # The gating `next build` CI step was removed (owner decision, July 16,
+      # 2026): `npm run build` is part of the local verification gate run
+      # before every push, so building again here only added ~3-5 min to every
+      # deploy. The runtime image is still built by the build-push job below —
+      # a genuinely broken build still fails there, before deploy. The Sentry
+      # source-map upload that step carried lives on in the PARALLEL,
+      # non-gating `sourcemaps` job below (same owner decision: keep readable
+      # stack traces without paying deploy latency for them).
+
+  # ── Sentry source maps (parallel, non-gating) ────────────────────────────────
+  # Runs `next build` with the Sentry auth token purely to upload source maps
+  # for this commit — the Docker image build deliberately has NO Sentry token,
+  # so without this job client stack traces in Sentry are minified. It runs in
+  # parallel with build-push and NOTHING depends on it, so it adds zero deploy
+  # latency; a failure here shows red in the Actions tab but neither blocks the
+  # deploy nor fires the deploy-failed page (that alert says "the box may be
+  # half-deployed", which would be false for a map-upload hiccup).
+  sourcemaps:
+    name: Sentry source maps
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build + upload source maps
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: npx next build
 
   # ── Build + push images to ECR ───────────────────────────────────────────────
   # Builds the web (Dockerfile) + worker (Dockerfile.worker) images on GitHub's
