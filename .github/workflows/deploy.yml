@@ -90,14 +90,12 @@ jobs:
       # what the ecosystem happens to have disclosed today, which is not something
       # a deploy should be blocked on.
 
-      # The gating `next build` CI step was removed (owner decision, July 16,
-      # 2026): `npm run build` is part of the local verification gate run
-      # before every push, so building again here only added ~3-5 min to every
-      # deploy. The runtime image is still built by the build-push job below —
-      # a genuinely broken build still fails there, before deploy. The Sentry
-      # source-map upload that step carried lives on in the PARALLEL,
-      # non-gating `sourcemaps` job below (same owner decision: keep readable
-      # stack traces without paying deploy latency for them).
+      # Gating build (restored by owner request, July 16, 2026): fail fast on
+      # any build error before images are built or anything deploys. No Sentry
+      # token here — the source-map upload lives in the PARALLEL, non-gating
+      # `sourcemaps` job below.
+      - name: Build
+        run: npx next build
 
   # ── Sentry source maps (parallel, non-gating) ────────────────────────────────
   # Runs `next build` with the Sentry auth token purely to upload source maps
