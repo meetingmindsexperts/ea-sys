@@ -149,13 +149,19 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    // Atomic cancel — only succeeds if the row is still PENDING.
+    // Atomic cancel. PENDING rows cancel outright. PROCESSING rows can now be
+    // cancelled too (review C5, July 16 2026): the sender re-checks
+    // status+claimToken between 25-recipient batches and stops at the next
+    // boundary — before this, a mistaken 2,000-recipient send had NO stop
+    // lever once the worker claimed it. Already-sent emails are not recalled;
+    // emailedKeys keeps what went out, so a later Retry would resume, not
+    // re-send.
     const result = await db.scheduledEmail.updateMany({
       where: {
         id,
         eventId,
         organizationId: session.user.organizationId!,
-        status: "PENDING",
+        status: { in: ["PENDING", "PROCESSING"] },
       },
       data: { status: "CANCELLED" },
     });

@@ -2088,6 +2088,13 @@ model ScheduledEmail {
 
   scheduledFor DateTime
   status       ScheduledEmailStatus @default(PENDING)
+  /// Ownership nonce stamped by the PENDING→PROCESSING claim (review C1,
+  /// July 16 2026). Heartbeat + completion/failure writes are conditioned on
+  /// status AND this token, so a zombie sender (swept FAILED mid-outage, then
+  /// Retry'd and re-claimed by another worker) can no longer mark the
+  /// re-claimed row SENT with its own counts — `status = PROCESSING` alone
+  /// proves liveness, not ownership. Cleared on retry; overwritten per claim.
+  claimToken   String?
   sentAt       DateTime?
   successCount Int?
   failureCount Int?

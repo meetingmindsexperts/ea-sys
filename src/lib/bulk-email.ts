@@ -258,6 +258,16 @@ export interface BulkEmailInput {
    * the send (worst case: a retry re-sends a batch).
    */
   onBatchEmailed?: (keys: string[]) => Promise<void>;
+  /**
+   * Checked between batches (review C5, July 16 2026). Return false to stop
+   * the send at the next 25-recipient batch boundary — the worker uses it to
+   * honor a mid-flight cancel and to stand down when its row was re-claimed
+   * (C1). The partial result comes back with `aborted: true`; everything sent
+   * so far was already reported via onBatchEmailed, so a later retry resumes.
+   * A check that THROWS is treated as "keep going" — a transient read blip
+   * must not kill a live send.
+   */
+  shouldContinue?: () => Promise<boolean>;
 }
 
 export interface BulkEmailResult {
@@ -271,6 +281,12 @@ export interface BulkEmailResult {
    * not a failure, so they appear in neither successCount nor failureCount.
    */
   skippedCount?: number;
+  /**
+   * True when the send stopped early because `shouldContinue` returned false
+   * (mid-flight cancel / row re-claimed). Counts cover only what this run
+   * attempted before stopping; the caller must NOT write a terminal status.
+   */
+  aborted?: boolean;
   errors: Array<{ email: string; error: string }>;
 }
 
@@ -809,6 +825,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     triggeredByUserId,
     alreadyEmailedKeys,
     onBatchEmailed,
+    shouldContinue,
   } = input;
 
   // Config viability — recipient-type/emailType compatibility, custom
@@ -1039,6 +1056,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       // fan-out in the system. Same resume contract as the non-cert path.
       alreadyEmailedKeys,
       onBatchEmailed,
+      // C5: same between-batch cancel/ownership check as the non-cert path.
+      shouldContinue,
     });
   }
 
@@ -1475,9 +1494,30 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   const BATCH_SIZE = 25;
   let successCount = 0;
   let failureCount = 0;
+  let aborted = false;
   const errors: Array<{ email: string; error: string }> = [];
 
   for (let i = 0; i < toSend.length; i += BATCH_SIZE) {
+    // C5: honor a mid-flight cancel / lost ownership at each batch boundary.
+    // Skipped for the first batch (the caller claimed the row moments ago);
+    // a throwing check means "keep going" — a read blip must not kill a send.
+    if (i > 0 && shouldContinue) {
+      const keepGoing = await shouldContinue().catch((err) => {
+        apiLogger.warn({ msg: "bulk-email:should-continue-check-failed", eventId, err });
+        return true;
+      });
+      if (!keepGoing) {
+        aborted = true;
+        apiLogger.warn({
+          msg: "bulk-email:aborted-between-batches",
+          eventId,
+          emailType,
+          sentSoFar: successCount,
+          remaining: toSend.length - i,
+        });
+        break;
+      }
+    }
     const batch = toSend.slice(i, i + BATCH_SIZE);
 
     const batchResults = await Promise.allSettled(
@@ -1624,6 +1664,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     total: toSend.length,
     successCount,
     failureCount,
+    ...(aborted ? { aborted } : {}),
     errors,
   };
 }

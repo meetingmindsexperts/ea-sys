@@ -79,6 +79,12 @@ export interface CertificateBulkSendInput {
   alreadyEmailedKeys?: string[];
   /** Called after each batch with that batch's successfully-emailed ids. */
   onBatchEmailed?: (keys: string[]) => Promise<void>;
+  /**
+   * Checked between batches (review C5) — same contract as
+   * executeBulkEmail's: return false to stop at the next batch boundary
+   * (mid-flight cancel / row re-claimed); a throwing check means keep going.
+   */
+  shouldContinue?: () => Promise<boolean>;
 }
 
 interface PersonFacets {
@@ -166,6 +172,8 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
   /** Recipients holding NONE of the selected templates' tags — not emailed
    *  by design ("no tag, no certificate"), so neither success nor failure. */
   skippedCount: number;
+  /** True when the send stopped early via shouldContinue (C5). */
+  aborted?: boolean;
   errors: Array<{ email: string; error: string }>;
 }> {
   const {
@@ -179,6 +187,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
     triggeredByUserId,
     alreadyEmailedKeys,
     onBatchEmailed,
+    shouldContinue,
   } = input;
 
   // Resume idempotency (A4): skip recipients a prior run already emailed —
@@ -218,9 +227,28 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
   let successCount = 0;
   let failureCount = 0;
   let skippedCount = 0;
+  let aborted = false;
   const errors: Array<{ email: string; error: string }> = [];
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+    // C5: honor a mid-flight cancel / lost ownership at each batch boundary
+    // (same contract as executeBulkEmail; a throwing check means keep going).
+    if (i > 0 && shouldContinue) {
+      const keepGoing = await shouldContinue().catch((err) => {
+        apiLogger.warn({ msg: "cert-bulk:should-continue-check-failed", eventId, err });
+        return true;
+      });
+      if (!keepGoing) {
+        aborted = true;
+        apiLogger.warn({
+          msg: "cert-bulk:aborted-between-batches",
+          eventId,
+          sentSoFar: successCount,
+          remaining: recipients.length - i,
+        });
+        break;
+      }
+    }
     const batch = recipients.slice(i, i + BATCH_SIZE);
     const results = await Promise.allSettled(
       batch.map(async (recipient) => {
@@ -277,7 +305,14 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
     failureCount,
     skippedCount,
   });
-  return { total: recipients.length, successCount, failureCount, skippedCount, errors };
+  return {
+    total: recipients.length,
+    successCount,
+    failureCount,
+    skippedCount,
+    ...(aborted ? { aborted } : {}),
+    errors,
+  };
 
   async function processRecipient(
     recipient: CertificateBulkRecipient,

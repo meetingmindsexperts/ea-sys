@@ -25,7 +25,7 @@ const { mockDb, mockExecuteBulkEmail, mockNotify, mockLogger, BulkEmailError, NO
     }
     return {
       mockDb: {
-        scheduledEmail: { updateMany: vi.fn(), findMany: vi.fn(), update: vi.fn() },
+        scheduledEmail: { updateMany: vi.fn(), findMany: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
         user: { findMany: vi.fn() },
         auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
       },
@@ -109,13 +109,32 @@ describe("scheduled-emails worker — recipientIds passthrough", () => {
     await runScheduledEmailsTick();
 
     // Completion is a conditional updateMany — only writes if we still own the
-    // row (review M1: a superseded zombie must not clobber a reclaimed row).
+    // row: status=PROCESSING AND our claimToken (review M1 + C1: a superseded
+    // zombie must not clobber a reclaimed row; status alone matches a row a
+    // retry re-claimed, the token cannot).
     expect(mockDb.scheduledEmail.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "se_1", status: "PROCESSING" },
+        where: { id: "se_1", status: "PROCESSING", claimToken: expect.any(String) },
         data: expect.objectContaining({ status: "SENT", successCount: 2, totalCount: 2 }),
       }),
     );
+  });
+
+  it("C1: the claim stamps a fresh ownership token; completion conditions on the SAME token", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ recipientIds: ["r1"] })]);
+
+    await runScheduledEmailsTick();
+
+    // Call order: [0] sweep, [1] claim, [2] completion.
+    const claimCall = mockDb.scheduledEmail.updateMany.mock.calls[1][0];
+    expect(claimCall.where).toEqual({ id: "se_1", status: "PENDING" });
+    expect(claimCall.data.status).toBe("PROCESSING");
+    const stamped = claimCall.data.claimToken;
+    expect(typeof stamped).toBe("string");
+    expect(stamped.length).toBeGreaterThan(10);
+
+    const completionCall = mockDb.scheduledEmail.updateMany.mock.calls[2][0];
+    expect(completionCall.where.claimToken).toBe(stamped);
   });
 
   it("does NOT clobber or re-notify when the completion claim is superseded", async () => {
@@ -171,7 +190,7 @@ describe("scheduled-emails worker — empty audience is a benign skip", () => {
     // the conditional (status=PROCESSING) write.
     expect(mockDb.scheduledEmail.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "se_1", status: "PROCESSING" },
+        where: { id: "se_1", status: "PROCESSING", claimToken: expect.any(String) },
         data: expect.objectContaining({
           status: "SENT",
           totalCount: 0,
@@ -201,13 +220,77 @@ describe("scheduled-emails worker — empty audience is a benign skip", () => {
     expect(report.failed).toBe(1);
     expect(mockDb.scheduledEmail.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "se_1", status: "PROCESSING" },
+        where: { id: "se_1", status: "PROCESSING", claimToken: expect.any(String) },
         data: expect.objectContaining({ status: "FAILED", lastError: "SES throttled" }),
       }),
     );
     expect(mockLogger.error).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "scheduled-email:send-failed", id: "se_1" }),
     );
+  });
+});
+
+describe("scheduled-emails worker — mid-send cancel / lost ownership (C1 + C5)", () => {
+  it("passes a shouldContinue check through to executeBulkEmail", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ recipientIds: ["r1"] })]);
+
+    await runScheduledEmailsTick();
+
+    const input = mockExecuteBulkEmail.mock.calls[0][0];
+    expect(typeof input.shouldContinue).toBe("function");
+  });
+
+  it("an aborted send writes NO terminal status, fires no audit/notify, and logs the abort", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ recipientIds: ["r1"] })]);
+    // Cancelled mid-flight: 25 of 30 went out before the stop.
+    mockExecuteBulkEmail.mockResolvedValue({
+      total: 30,
+      successCount: 25,
+      failureCount: 0,
+      aborted: true,
+      errors: [],
+    });
+
+    const report = await runScheduledEmailsTick();
+
+    expect(report.results[0]).toMatchObject({ id: "se_1", status: "skipped", sent: 25 });
+    // No SENT/FAILED write FOR OUR ROW — whoever owns the row (the cancel, a
+    // re-claim) owns its terminal state. (The tick-level stuck-sweep also
+    // writes FAILED, but with a row-less where — exclude it by id.)
+    const terminalWrite = mockDb.scheduledEmail.updateMany.mock.calls.find(
+      (c: unknown[]) => {
+        const call = c[0] as { where?: { id?: string }; data?: { status?: string } };
+        const status = call?.data?.status;
+        return call?.where?.id === "se_1" && (status === "SENT" || status === "FAILED");
+      },
+    );
+    expect(terminalWrite).toBeUndefined();
+    expect(mockNotify).not.toHaveBeenCalled();
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "scheduled-email:send-aborted", id: "se_1", sentBeforeAbort: 25 }),
+    );
+  });
+
+  it("the worker's shouldContinue returns true only while the row is PROCESSING with OUR token", async () => {
+    mockDb.scheduledEmail.findMany.mockResolvedValue([dueRow({ recipientIds: ["r1"] })]);
+    const findUnique = mockDb.scheduledEmail.findUnique;
+
+    await runScheduledEmailsTick();
+
+    const claimCall = mockDb.scheduledEmail.updateMany.mock.calls[1][0];
+    const ourToken = claimCall.data.claimToken as string;
+    const shouldContinue = mockExecuteBulkEmail.mock.calls[0][0].shouldContinue as () => Promise<boolean>;
+
+    // Still ours → keep going.
+    findUnique.mockResolvedValueOnce({ status: "PROCESSING", claimToken: ourToken });
+    await expect(shouldContinue()).resolves.toBe(true);
+    // Cancelled mid-send → stop.
+    findUnique.mockResolvedValueOnce({ status: "CANCELLED", claimToken: ourToken });
+    await expect(shouldContinue()).resolves.toBe(false);
+    // Swept + re-claimed by a retry (different token) → stand down (C1).
+    findUnique.mockResolvedValueOnce({ status: "PROCESSING", claimToken: "someone-else" });
+    await expect(shouldContinue()).resolves.toBe(false);
   });
 });
 

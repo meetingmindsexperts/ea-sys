@@ -98,10 +98,16 @@ async function processRow(
     | { firstName: string; lastName: string; email: string; emailSignature: string | null }
     | null,
 ): Promise<TickResult> {
-  // Atomic claim — only proceed if we flipped PENDING→PROCESSING.
+  // Atomic claim — only proceed if we flipped PENDING→PROCESSING. The claim
+  // stamps a per-claim ownership token (review C1): `status = PROCESSING`
+  // alone proves the row is live, not that WE own it — after a DB-write
+  // outage a zombie sender can survive a stuck-sweep + operator Retry, and
+  // both the zombie and the re-claimant then hold "PROCESSING". Every write
+  // below conditions on the token so only the current owner can commit.
+  const claimToken = globalThis.crypto.randomUUID();
   const claim = await db.scheduledEmail.updateMany({
     where: { id: row.id, status: "PENDING" },
-    data: { status: "PROCESSING" },
+    data: { status: "PROCESSING", claimToken },
   });
   if (claim.count === 0) {
     return { id: row.id, status: "skipped" };
@@ -112,12 +118,13 @@ async function processRow(
   // long send (thousands of recipients / per-recipient PDF generation) to FAILED
   // MID-FLIGHT and let a retry start a second concurrent send (review M1). The
   // no-op `retryCount` increment triggers Prisma's @updatedAt. Scoped to
-  // status=PROCESSING so it's a no-op once the row completes. unref'd so a
-  // lingering timer can't block worker shutdown.
+  // status=PROCESSING AND our claimToken so it's a no-op once the row
+  // completes, is cancelled, or is re-claimed by someone else (C1). unref'd so
+  // a lingering timer can't block worker shutdown.
   const heartbeat = setInterval(() => {
     db.scheduledEmail
       .updateMany({
-        where: { id: row.id, status: "PROCESSING" },
+        where: { id: row.id, status: "PROCESSING", claimToken },
         data: { retryCount: { increment: 0 } },
       })
       .catch((err) => apiLogger.warn({ err, msg: "scheduled-email:heartbeat-failed", id: row.id }));
@@ -149,21 +156,56 @@ async function processRow(
       // instead of re-emailing. A fresh send starts with an empty list.
       alreadyEmailedKeys: row.emailedKeys,
       onBatchEmailed: async (keys) => {
+        // Deliberately NOT token-scoped: "these ids were emailed" is true
+        // regardless of who owns the row now, and recording it is what lets
+        // a retry resume instead of double-sending. Harmless union.
         await db.scheduledEmail.update({
           where: { id: row.id },
           data: { emailedKeys: { push: keys } },
         });
       },
+      // C5: between batches, keep sending only while we still own a live
+      // PROCESSING row. Lets an operator cancel a mid-flight send (it stops
+      // at the next 25-recipient batch boundary) and shrinks the C1 zombie
+      // overlap window to at most one batch.
+      shouldContinue: async () => {
+        const current = await db.scheduledEmail.findUnique({
+          where: { id: row.id },
+          select: { status: true, claimToken: true },
+        });
+        return current?.status === "PROCESSING" && current.claimToken === claimToken;
+      },
     });
 
-    // Conditional completion claim — only write SENT if we still OWN the row
-    // (status === PROCESSING). If a stuck-sweep flipped it to FAILED and a retry
-    // re-claimed it, count === 0: the emails still went out, but the row's state
-    // is owned by whoever holds it now, so we must NOT clobber it or re-fire the
-    // audit + admin notification (which would double-notify). Defense-in-depth
-    // behind the heartbeat above (review M1).
+    if (result.aborted) {
+      // Cancelled mid-send or superseded by a re-claim — whoever owns the row
+      // now owns its terminal state; we just report what this run sent before
+      // stopping (already persisted to emailedKeys per batch).
+      apiLogger.warn({
+        msg: "scheduled-email:send-aborted",
+        id: row.id,
+        eventId: row.eventId,
+        sentBeforeAbort: result.successCount,
+        failedBeforeAbort: result.failureCount,
+      });
+      return {
+        id: row.id,
+        status: "skipped",
+        total: result.total,
+        sent: result.successCount,
+        failed: result.failureCount,
+      };
+    }
+
+    // Conditional completion claim — only write SENT if we still OWN the row:
+    // status === PROCESSING AND the claimToken is OURS (review C1 — status
+    // alone matches a row a retry has re-claimed; the token cannot). If a
+    // stuck-sweep flipped it to FAILED, or a retry re-claimed it, count === 0:
+    // the emails still went out, but the row's state is owned by whoever holds
+    // it now, so we must NOT clobber it or re-fire the audit + admin
+    // notification (which would double-notify).
     const committed = await db.scheduledEmail.updateMany({
-      where: { id: row.id, status: "PROCESSING" },
+      where: { id: row.id, status: "PROCESSING", claimToken },
       data: {
         status: "SENT",
         sentAt: new Date(),
@@ -263,7 +305,7 @@ async function processRow(
     // superseded zombie can't clobber a reclaimed row (review M1).
     if (err instanceof BulkEmailError && err.code === NO_RECIPIENTS_CODE) {
       await db.scheduledEmail.updateMany({
-        where: { id: row.id, status: "PROCESSING" },
+        where: { id: row.id, status: "PROCESSING", claimToken },
         data: {
           status: "SENT",
           sentAt: new Date(),
@@ -284,7 +326,7 @@ async function processRow(
 
     const message = err instanceof Error ? err.message : "Unknown error";
     await db.scheduledEmail.updateMany({
-      where: { id: row.id, status: "PROCESSING" },
+      where: { id: row.id, status: "PROCESSING", claimToken },
       data: {
         status: "FAILED",
         sentAt: new Date(),

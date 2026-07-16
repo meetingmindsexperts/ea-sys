@@ -34,6 +34,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         retryCount: { increment: 1 },
         lastError: null,
         sentAt: null,
+        // Hygiene (review C1): the next claim mints its own ownership token;
+        // clearing the stale one makes "who owns this row" unambiguous.
+        claimToken: null,
       },
     });
 

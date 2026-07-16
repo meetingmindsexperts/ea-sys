@@ -166,6 +166,50 @@ describe("executeBulkEmail — per-recipient idempotency (H1)", () => {
   });
 });
 
+describe("executeBulkEmail — shouldContinue between batches (review C5, July 16 2026)", () => {
+  // 26 recipients = 2 batches (BATCH_SIZE 25). The check runs BEFORE every
+  // batch after the first, so a cancel/lost-ownership stops the send at the
+  // next batch boundary with everything already-sent reported for resume.
+  const manyRegs = Array.from({ length: 26 }, (_, i) => reg(`reg${i}`, `u${i}@x.com`));
+
+  it("stops at the next batch boundary when shouldContinue returns false", async () => {
+    mockDb.registration.findMany.mockResolvedValue(manyRegs);
+    const onBatchEmailed = vi.fn().mockResolvedValue(undefined);
+    const shouldContinue = vi.fn().mockResolvedValue(false);
+
+    const res = await executeBulkEmail({ ...INPUT, onBatchEmailed, shouldContinue });
+
+    // First batch (25) sent; the check then stopped batch 2.
+    expect(mockSendEmail).toHaveBeenCalledTimes(25);
+    expect(res).toMatchObject({ successCount: 25, aborted: true, total: 26 });
+    expect(shouldContinue).toHaveBeenCalledTimes(1);
+    // The sent batch WAS recorded — a later retry resumes from recipient 26.
+    const recorded = onBatchEmailed.mock.calls.flatMap((c) => c[0]);
+    expect(recorded).toHaveLength(25);
+  });
+
+  it("sends everything and reports no abort when shouldContinue stays true", async () => {
+    mockDb.registration.findMany.mockResolvedValue(manyRegs);
+    const shouldContinue = vi.fn().mockResolvedValue(true);
+
+    const res = await executeBulkEmail({ ...INPUT, shouldContinue });
+
+    expect(mockSendEmail).toHaveBeenCalledTimes(26);
+    expect(res.aborted).toBeUndefined();
+  });
+
+  it("a THROWING check means keep going — a read blip must not kill a live send", async () => {
+    mockDb.registration.findMany.mockResolvedValue(manyRegs);
+    const shouldContinue = vi.fn().mockRejectedValue(new Error("pooler blip"));
+
+    const res = await executeBulkEmail({ ...INPUT, shouldContinue });
+
+    expect(mockSendEmail).toHaveBeenCalledTimes(26);
+    expect(res.aborted).toBeUndefined();
+    expect(res.successCount).toBe(26);
+  });
+});
+
 describe("executeBulkEmail — message rendering (reviews A1 + SIG-1, July 16 2026)", () => {
   // {{message}} is pre-rendered to FINAL HTML via renderMessageValue and the
   // key rendered raw: the MCP/agent path (customMessageIsHtml) keeps its
