@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code Review — Dinner RSVP ROUND 2 (July 16, 2026)</title>
+<style>
+  :root{ --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+         --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+         --ok:#15803d; --bad:#b91c1c; --lesson-bg:#f5f3ff; --lesson-line:#c4b5fd; }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:980px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.6rem 0}
+  pre code{background:none;padding:0}
+  pre.bad{border-left:4px solid var(--bad)} pre.good{border-left:4px solid var(--ok)}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)} .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .pill{font-weight:700;font-size:.72rem;letter-spacing:.04em;padding:.14em .5em;border-radius:3px;white-space:nowrap}
+  .pill.shipped{background:var(--ok);color:#fff} .pill.deferred{background:var(--muted);color:#fff} .pill.open{background:var(--blocker);color:#fff}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.5rem 0}
+  .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .meta{font-size:.85rem;color:var(--muted);margin:.2rem 0 .6rem}
+  .learn{background:var(--lesson-bg);border:1px solid var(--lesson-line);border-radius:6px;padding:.8rem 1rem;margin:.8rem 0 0;font-size:.92rem}
+  .learn strong{color:#5b21b6}
+  .note{border:1px solid var(--line);border-radius:6px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.94rem}
+  .note.warn{background:#fffbeb;border-color:#fcd34d}
+  .note.ok{background:#f0fdf4;border-color:#86efac}
+  ul{padding-left:1.3rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Code Review — Dinner RSVP <span style="color:var(--accent)">ROUND 2</span></h1>
+  <div class="sub">July 16, 2026 · Three independent adversarial lenses (lifecycle/concurrency · security/RBAC/token · drift/logging/UX) · every finding verified against source ·
+  follows <strong>CODE_REVIEW_SURVEY_RSVP.html</strong> (Round 1, whose B2/H1–H5 fixes were re-verified to hold)</div>
+</header>
+
+<div class="note warn">
+  <strong>Status: ALL findings OPEN.</strong> Fix selection is an owner decision; pills flip in place as fixes land.
+  <strong>Verdict: 0 BLOCKER / 0 HIGH / 12 MED / 16 LOW.</strong> Round 1's shipped fixes (roster-token lockdown H2, dinner-edit wipe B2,
+  timezone save-drift H5, MCP headcount H4, CSV escaping) were independently re-verified and <em>hold</em>. The concurrency core —
+  row-locked replace-all, honest <code>createMany</code> counts, FK cascades — is genuinely solid, and the module's logging/audit
+  hygiene is among the best in the codebase. Round 2's findings cluster on <strong>deadline/lifecycle gating on the public submit</strong>,
+  <strong>two access-model inconsistencies</strong>, and <strong>the send pipeline missing protections every other sender got</strong>.
+</div>
+
+<h2>1. Summary</h2>
+<div class="tbl-wrap"><table>
+<tr><th>ID</th><th>Sev</th><th>Finding</th><th>Where</th><th>Status</th></tr>
+<tr><td>M1</td><td><span class="sev medium">Med</span></td><td>A dinner with no <code>rsvpDeadline</code> never closes — the roster is silently editable forever, including weeks after the gala (<code>dinnerAt</code> is never consulted)</td><td>public rsvp route GET+POST</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M2</td><td><span class="sev medium">Med</span></td><td>An answer for a dinner that closed between form-load and submit is silently dropped — API returns <code>ok:true</code>, form says "recorded", the caterer count never includes them</td><td>public rsvp POST</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M3</td><td><span class="sev medium">Med</span></td><td>A stale form whose payload addresses ZERO open dinners still runs the destructive replace-all — wipes concurrent answers, creates nothing, stamps RESPONDED (guard only fires when <em>everything</em> is closed)</td><td>public rsvp POST</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M4</td><td><span class="sev medium">Med</span></td><td><code>GET /dinners</code> has no <code>denyReviewer</code> and hand-rolls <code>organizationId!</code> — CRM_USER + cross-event ONSITE + MEMBER can read any org event's dinner config; the route also has <strong>zero callers</strong> (console reads dinners from the roster GET)</td><td>dinners/route.ts GET</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M5</td><td><span class="sev medium">Med</span></td><td>MEMBER reads the full VIP roster PII (names/emails/dietary/responses) through the in-app agent's <code>list_dinner_rsvps</code> — directly contradicting the Round-1 H2 fix's stated policy on the roster GET (tokens are NOT exposed — info-exposure, not takeover)</td><td>agent tool surface</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M6</td><td><span class="sev medium">Med</span></td><td>Send fan-out: up to 500 sequential emails inline in one HTTP request — no enqueue dedup, no per-recipient resume, no abort; a mid-loop deploy/timeout + retry re-mails everyone (the anti-double-send class closed for bulk email + certificates; extends Round 1's "target:all re-mail" LOW)</td><td>rsvp-invites/send</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M7</td><td><span class="sev medium">Med</span></td><td>Preview ≠ send: the typed Subject is ignored and the typed Message maps to <code>{{message}}</code> while the template uses <code>{{personalMessage}}</code> — the preview shows the canned "We're excited to have you!" instead of what will actually go out</td><td>email-preview route + console dialog</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M8</td><td><span class="sev medium">Med</span></td><td>The send route missed the July-16 <code>renderMessageValue</code> wiring — <code>{{firstName}}</code>/<code>{{organizerSignature}}</code> typed into the Message box land as literal text in every invitee's email (and Textarea newlines collapse)</td><td>rsvp-invites/send</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M9</td><td><span class="sev medium">Med</span></td><td>MCP <code>inviteesTruncated</code> is hard-coded false whenever a status filter is set — the agent confidently claims a complete PENDING list while a third is missing (the same "confidently wrong number" class this file's own H4 comment fixed)</td><td>agent tools/dinner.ts:98</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M10</td><td><span class="sev medium">Med</span></td><td>The public submit writes no AuditLog and replace-all destroys the previous answer — a disputed "I confirmed with 3 guests" has zero trail (contrast: public speaker-agreement acceptance audits with IP)</td><td>public rsvp POST</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M11</td><td><span class="sev medium">Med</span></td><td>Console: an event-fetch failure leaves <code>slug=""</code> with only a console.error — Copy-link then copies a broken <code>/e//rsvp/…</code> URL with a SUCCESS toast</td><td>dinner console page</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>M12</td><td><span class="sev medium">Med</span></td><td>Doc drift on a security statement: DINNER_RSVP.md still says "MEMBER can read the roster" (false since the H2 fix 403s MEMBER); CLAUDE.md still says the module was "NOT yet independently reviewed"; DOMAIN_MAP's scoreboard inherits it</td><td>3 docs</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L1</td><td><span class="sev low">Low</span></td><td>"Sent 0, 3 failed" renders as a green success toast on the bulk send (the single-send handler gets this right)</td><td>dinner console</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L2</td><td><span class="sev low">Low</span></td><td>Import dialog: a failed registrations/speakers fetch shows "No people found." with no toast — organizer concludes the event has no registrations</td><td>import-invitees-dialog</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L3</td><td><span class="sev low">Low</span></td><td>Rate-limit buckets are consumed BEFORE the event-ownership check on all three organizer routes — any staff user can burn another event's 10/hr send budget with 404ing posts (cross-tenant DoS under multi-tenancy)</td><td>3 organizer routes</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L4</td><td><span class="sev low">Low</span></td><td>Embedded CRLF survives into email subject + recipient display name (mitigated by structured provider APIs — fold into the existing ROADMAP "To-header CRLF" item)</td><td>send route + rsvp.ts schemas</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L5</td><td><span class="sev low">Low</span></td><td>The invitation HTML — containing the live RSVP token twice — is stored in <code>EmailLog.htmlBody</code> for 180 days by default; audience currently matches the roster GET's, but widening email-log-body access would leak tokens</td><td>send route logContext</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L6</td><td><span class="sev low">Low</span></td><td>Console TZ race: <code>dinnerTz</code> falls back to Dubai while <code>useEvent</code> is in flight — a dialog opened before the fetch resolves and saved after it can shift <code>dinnerAt</code> by the offset delta</td><td>dinner console</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L7</td><td><span class="sev low">Low</span></td><td>No cross-field validation: <code>rsvpDeadline &gt; dinnerAt</code> is accepted (RSVP open after the meal — compounds M1); <code>dinnerAt</code> outside the event's dates accepted</td><td>dinners POST/PUT</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L8</td><td><span class="sev low">Low</span></td><td><code>isActive</code> is honored everywhere server-side but unreachable from the console (no toggle, not sent on save) — a flag set via API/MCP makes a dinner vanish from the public form with no console indication</td><td>dinner console</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L9</td><td><span class="sev low">Low</span></td><td>All six organizer handlers hand-roll <code>organizationId!</code> — an org-null SUPER_ADMIN 404s (the class fixed for sessions/tracks in d2e749b2); pairs with the M4 fix</td><td>all dinner routes</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L10</td><td><span class="sev low">Low</span></td><td>CSV columns are keyed by dinner NAME — two dinners named "Gala Dinner" produce indistinguishable column pairs</td><td>roster CSV export</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L11</td><td><span class="sev low">Low</span></td><td>Public submit limit is 30/hr per IP — a "please RSVP now" announcement to a room behind one hotel NAT false-blocks (the venue-WiFi class Round 1 fixed for surveys)</td><td>public rsvp POST</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L12</td><td><span class="sev low">Low</span></td><td>No rate limit on dinner PUT/DELETE or invite DELETE, while the sibling POSTs have them — and the header comment claims "writes are … rate-limited"</td><td>2 routes</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L13</td><td><span class="sev low">Low</span></td><td>Audit rows carry no before/after snapshots (dinner UPDATE records field names only, DELETEs record <code>{}</code> — not even the deleted invitee's email), so the Activity-diff convention can't render them</td><td>dinner + invite mutations</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L14</td><td><span class="sev low">Low</span></td><td>CSV export is a bare <code>&lt;a href&gt;</code> — an expired session navigates the tab to raw 401 JSON (adjacent to the fixed quote.json class)</td><td>dinner console</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L15</td><td><span class="sev low">Low</span></td><td>Sending invitations with ZERO dinners configured is unguarded — invitees land on "No dinners have been set up yet" (and <code>dinnerWord</code> pluralizes zero as "dinners")</td><td>send route + console</td><td><span class="pill open">OPEN</span></td></tr>
+<tr><td>L16</td><td><span class="sev low">Low</span></td><td>Stale comments: console docstring still says "Email delivery of links is P2" (it's implemented on that page); a dead ternary in the send-dialog placeholder returns "" on both branches</td><td>dinner console</td><td><span class="pill open">OPEN</span></td></tr>
+</table></div>
+
+<div class="note">
+  <strong>Known findings re-confirmed, NOT re-reported</strong> (tracked in CODE_REVIEW_SURVEY_RSVP.html + PRODUCTION_AUDIT_ROUND3):
+  Round-1 <strong>M4</strong> (a past-deadline "Yes +2" survives an "I can't attend any" submit — the preservation side of the same code path as M2/M3 above),
+  <strong>M5</strong> (import picker offers CANCELLED registrations), <strong>M6</strong> (a deactivated dinner still feeds headcounts and its stale Yeses can never be cleared),
+  the token-never-expires LOW (this round adds the sharper M1 angle: the <em>dinner</em> never closes either), the shared 10/hr send bucket LOW,
+  and <strong>R3-L1</strong> (client-supplied <code>registrationId</code>/<code>speakerId</code> stored unvalidated — re-verified still inert: nothing dereferences them today).
+</div>
+
+<h2>2. The theme: the public path got the hard things right, then trusted the easy things</h2>
+<p>
+The genuinely difficult parts of this module — the row-locked replace-all, the honest bulk-add counts, deadline enforcement
+<em>existing</em> server-side, token entropy — are all correct. What slipped is the <strong>boundary between "the form the invitee
+loaded" and "the world at submit time"</strong> (M1/M2/M3: deadlines passing, dinners appearing, stale tabs), and
+<strong>parity with protections built elsewhere after this module shipped</strong> (M6 anti-double-send, M8 renderMessageValue,
+M4/L9 buildEventAccessWhere). A module reviewed once is not reviewed forever: five of the twelve MEDs exist because the codebase
+moved (July 11 send-idempotency, July 16 message tokens, July 16 access-where sweeps) and nobody swept this domain along.
+</p>
+
+<h2>3. Findings in detail</h2>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M1 — A deadline-less dinner never closes</h3>
+<div class="meta">src/app/api/public/events/[slug]/rsvp/[token]/route.ts:102 (GET) + :150 (POST)</div>
+<pre class="bad"><code>closed: d.rsvpDeadline ? d.rsvpDeadline.getTime() &lt; now : false,          // GET
+openDinners.filter((d) =&gt; !d.rsvpDeadline || d.rsvpDeadline.getTime() &gt;= now) // POST</code></pre>
+<p><strong>Failure scenario:</strong> <code>rsvpDeadline</code> is optional in the console (no asterisk), so the common case is blank —
+and then an invitee clicking their old link <em>weeks after the gala</em> can flip yes→no or add 20 guests, silently rewriting the
+historical attendance record the CSV and headcounts report. <code>dinnerAt</code> — the one date every dinner has — is never consulted.
+Combined with M10 (no audit trail) the rewrite is also invisible.</p>
+<p><strong>Fix:</strong> treat <code>rsvpDeadline ?? dinnerAt</code> (or dinner start + small grace) as the effective close in both the
+GET <code>closed</code> flag and the POST <code>openIds</code> filter.</p>
+<div class="learn"><strong>What to learn:</strong> an optional config field needs a sensible default <em>behavior</em>, not just a
+nullable column. "No deadline" should mean "closes when the thing happens", not "open forever".</div>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M2 — A just-closed dinner's answer is dropped with a false success</h3>
+<div class="meta">src/app/api/public/events/[slug]/rsvp/[token]/route.ts:152, 202</div>
+<pre class="bad"><code>const accepted = parsed.data.dinners.filter((d) =&gt; openIds.has(d.dinnerId));
+...
+return NextResponse.json({ ok: true });   // form → "Your dinner RSVP has been recorded."</code></pre>
+<p><strong>Failure scenario:</strong> the invitee opens the form at 11:50 PM; D1's deadline passes at midnight while the form sits open;
+they tick D1 = attending and submit at 12:05. The filter drops D1, the API 200s, the form shows the full thank-you. They believe they
+RSVP'd yes; three courses short at the gala. A deadline passing while a form is open is the <em>normal</em> deadline failure mode.</p>
+<p><strong>Fix:</strong> return <code>ignoredDinnerIds</code> (or 409 when a submitted dinner closed since load) and surface
+"D1 closed before you submitted" on the form.</p>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M3 — A stale form still runs the destructive replace-all</h3>
+<div class="meta">src/app/api/public/events/[slug]/rsvp/[token]/route.ts:154–196</div>
+<pre class="bad"><code>if (accepted.length === 0 &amp;&amp; openIds.size === 0) { ...400... }   // only when EVERYTHING is closed
+// accepted=[] with open dinners existing falls through to:
+await tx.rsvpDinnerResponse.deleteMany({ where: { inviteId, dinnerId: { in: [...openIds] } } });
+// …creates nothing, stamps RESPONDED, overwrites dietary</code></pre>
+<p><strong>Failure scenario:</strong> tab A answered "attending D2" (a recently added dinner). Tab B holds a stale form from before D2
+existed, showing only D1 — whose deadline has since passed. Tab B submits → <code>accepted=[]</code>, <code>openIds={D2}</code> →
+the D2 "yes" is deleted, nothing replaces it, the invite reads RESPONDED. The route can't distinguish "explicit decline-all"
+(<code>dinners: []</code> — a legitimate UI path) from "this payload said nothing about any open dinner".</p>
+<p><strong>Fix:</strong> when <code>dinners.length &gt; 0 &amp;&amp; accepted.length === 0</code>, reject 409 "your form is out of date — reload"
+instead of running the replace-all. (Scoping the delete to payload ids would reopen the ghost-attendance hole; reject is the right shape.)</p>
+<div class="learn"><strong>What to learn:</strong> replace-all semantics need a freshness precondition. "The submit is the invitee's
+complete intent" is only true when the form they filled matches the world the server is about to replace.</div>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M4 — <code>GET /dinners</code>: no role guard, hand-rolled org scope, zero callers</h3>
+<div class="meta">src/app/api/events/[eventId]/dinners/route.ts:20–40</div>
+<pre class="bad"><code>// ← no denyReviewer
+const event = await db.event.findFirst({
+  where: { id: eventId, organizationId: session.user.organizationId! },  // ← not buildEventAccessWhere</code></pre>
+<p><strong>Failure scenario:</strong> a CRM_USER (zero-events by design) or an ONSITE temp assigned only to Event A can
+<code>curl</code> any org event's dinner names/venues/deadlines — the July-7 ONSITE cross-event class, on the route the Round-1 H2 fix
+missed (it fixed the sibling roster GET). Sensitivity is low (no PII, no tokens) — and the route has <strong>no callers</strong>:
+the console reads dinners from the roster GET (per the B2 comment).</p>
+<p><strong>Fix:</strong> either delete the GET, or align it with the roster GET (<code>denyReviewer</code> + <code>buildEventAccessWhere</code>). Fixing it also fixes L9 for this route.</p>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M5 — MEMBER reads the roster through the in-app agent</h3>
+<div class="meta">src/lib/agent/tools/dinner.ts (list_dinner_rsvps) · agent execute route allows MEMBER · isReadOnlyTool passes any list_*</div>
+<p><strong>Failure scenario:</strong> the Round-1 H2 fix put <code>denyReviewer</code> on the roster GET explicitly so MEMBER
+("the read-only sponsor-side observer") cannot read the VIP guest list. But a MEMBER opens <code>/events/[id]/agent</code> and asks
+"who's coming to the gala?" — <code>list_dinner_rsvps</code> is <code>list_</code>-prefixed (passes the read-only gate), not in
+<code>FINANCE_ONLY_AGENT_TOOLS</code>, and returns names, emails, dietary notes and per-dinner responses. Tokens are <em>not</em>
+returned (verified), so this is an info-exposure inconsistency, not impersonation. The two surfaces must agree.</p>
+<p><strong>Fix:</strong> either add <code>list_dinner_rsvps</code> to a MEMBER-refused set in the agent execute route (the finance-tools
+pattern), or decide MEMBER may see the roster and update the H2 comment — owner call.</p>
+<div class="learn"><strong>What to learn:</strong> a data-access decision enforced on ONE surface isn't a policy — every read path
+(REST, agent tool, MCP, export) must be swept when a "who can see this" call is made.</div>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M6 — The send fan-out has none of the anti-double-send machinery</h3>
+<div class="meta">src/app/api/events/[eventId]/rsvp-invites/send/route.ts:143–186</div>
+<pre class="bad"><code>for (const inv of invites) { ... await sendEmail({...}); ... }   // up to 500, inline, sequential</code></pre>
+<p><strong>Failure scenario:</strong> send to 300 invitees; nginx/browser gives up at ~60s mid-loop → the caller sees a network error
+with unknown partial state; the natural retry re-mails everyone already mailed (no enqueue dedup, no emailedKeys resume, no abort —
+the exact class closed for bulk email June 9/July 11 and certificates July 16). A double-clicked dialog fires two full batches.
+No data corruption (sends never touch invite status — verified), but duplicate VIP invitations at scale.</p>
+<p><strong>Fix:</strong> route through the <code>ScheduledEmail</code>/worker enqueue path like the dashboard bulk sender, or minimally
+add a short-window content dedup + per-invite lastInvitedAt skip.</p>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M7 — Preview shows neither the typed subject nor the typed message</h3>
+<div class="meta">src/app/api/events/[eventId]/email-preview/route.ts:123–129 · dinner console send dialog</div>
+<pre class="bad"><code>const sampleVars = buildEventPreviewVariables(event, session.user, {
+  ...(customMessage ? { message: customMessage } : {}),   // ← template uses {{personalMessage}}
+});
+const renderedSubject = renderTemplatePlain(eventTemplate.subject, sampleVars); // ← typed subject ignored</code></pre>
+<p><strong>Failure scenario:</strong> organizer types a custom subject + "Dress code is black tie", clicks Preview → sees the default
+subject and the canned sample "We're excited to have you!" — a message they never wrote — while the real send uses their text.
+Preview ≠ send on both dimensions. (The custom-subject half likely affects other slugs' previews too — the route is shared.)</p>
+<p><strong>Fix:</strong> map <code>customMessage → personalMessage</code> for templates that use that token, and render
+<code>customSubject ?? eventTemplate.subject</code>.</p>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M8 — Tokens typed into the Message box land literal (missed renderMessageValue wiring)</h3>
+<div class="meta">src/app/api/events/[eventId]/rsvp-invites/send/route.ts:133, 163</div>
+<p><strong>Failure scenario:</strong> the July-16 work made tokens typed into the free-text message resolve on all three other senders
+(bulk pipeline, speaker single-send, registration single-send). This route inserts <code>personalMessage</code> raw with no
+<code>renderMessageValue</code> pass — <code>{{firstName}}</code> or <code>{{organizerSignature}}</code> typed into the dinner Message box
+goes out as literal token text to every invitee, and Textarea newlines collapse into one paragraph.</p>
+<p><strong>Fix:</strong> <code>vars.personalMessage = renderMessageValue(personalMessage, vars, ...)</code> per recipient, matching the other senders.</p>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M9 — MCP <code>inviteesTruncated</code> lies under a status filter</h3>
+<div class="meta">src/lib/agent/tools/dinner.ts:98</div>
+<pre class="bad"><code>inviteesTruncated: pagedInvites.length &lt; allInvites.length &amp;&amp; !statusFilter,</code></pre>
+<p><strong>Failure scenario:</strong> 400 invites, 300 PENDING; the agent calls <code>{ status: "PENDING" }</code> (limit 200) → 200 rows
+with <code>inviteesTruncated: false</code> — the agent tells the operator it has the complete pending list while a third is missing.
+The same "confidently wrong number" class this file's own H4 comment fixed for headcounts, one field over.</p>
+<p><strong>Fix:</strong> compare against the <em>filtered</em> total (already computed as <code>responded</code>/<code>pending</code>) and drop the <code>!statusFilter</code> clause.</p>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M10 — The public submit leaves no trail</h3>
+<div class="meta">src/app/api/public/events/[slug]/rsvp/[token]/route.ts:166–201</div>
+<p><strong>Failure scenario:</strong> the replace-all deletes + recreates responses and overwrites <code>respondedAt</code>/dietary; the only
+record is a pino info with a count. A VIP disputes "I confirmed with 3 guests" after anyone holding the (plaintext, roster-visible) token
+link changed it — zero trail of what changed, when, or from which IP. The house precedent is the public speaker-agreement acceptance,
+which writes a formal AuditLog row (<code>actor: "SPEAKER"</code>, IP) precisely because it's the externally-meaningful event; a dinner
+RSVP drives paid catering headcounts.</p>
+<p><strong>Fix:</strong> fire-and-forget AuditLog (<code>action: "RESPOND"</code>, <code>entityType: "RSVP_INVITE"</code>,
+<code>userId: null</code>, before→after per dinner + IP).</p>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M11 — Copy-link can copy a broken URL with a success toast</h3>
+<div class="meta">src/app/(dashboard)/events/[eventId]/dinner/page.tsx:147–149, 290–298</div>
+<pre class="bad"><code>if (ev.ok) setSlug((await ev.json()).slug || "");
+else console.error("dinner-console:event-load-failed", ev.status);   // no toast
+...
+navigator.clipboard.writeText(`${origin}/e/${slug}/rsvp/${token}`)   // slug may be ""
+  .then(() =&gt; toast.success("RSVP link copied"), ...)</code></pre>
+<p><strong>Failure scenario:</strong> a transient 500 on the event fetch during console load; the organizer copy-pastes
+<code>/e//rsvp/…</code> links into WhatsApp for the VIP list; every link 404s — with a green "copied" toast at every step.</p>
+<p><strong>Fix:</strong> guard <code>copyLink</code> on an empty slug (error toast + reload hint) and toast the event-load failure like <code>loadRoster</code> does.</p>
+</div>
+
+<div class="finding medium">
+<h3><span class="sev medium">Med</span> M12 — Doc drift on a security statement</h3>
+<div class="meta">docs/DINNER_RSVP.md:80–90 · CLAUDE.md Dinner RSVP entry · docs/DOMAIN_MAP.html scoreboard</div>
+<p><strong>Failure scenario:</strong> DINNER_RSVP.md's "accepted-as-is" list still says <em>"MEMBER can read the roster (no finance data)"</em> —
+the opposite of the enforced model since the H2 fix (<code>denyReviewer</code> 403s MEMBER on the roster GET). A future change made against
+the doc would re-open the hole "per spec". CLAUDE.md still marks the module "NOT yet independently reviewed" despite Round 1 + its shipped
+fixes; DOMAIN_MAP's "the one domain without a review" claim inherits it. The doc also omits the Round-1 fix markers (H2/B2/L3/H4).</p>
+<p><strong>Fix:</strong> update all three — the MEMBER statement is the urgent one (wrong security claim in the operator doc).</p>
+<div class="learn"><strong>What to learn:</strong> when a fix inverts an "accepted-as-is" decision, the acceptance record must be
+updated in the same change — a stale acceptance is an instruction to regress.</div>
+</div>
+
+<h2>4. Lows (abridged — see summary table)</h2>
+<ul>
+<li><strong>L1/L2</strong> — console/import honesty: total-failure success toast; silent import-fetch failure ("No people found").</li>
+<li><strong>L3</strong> — rate-limit buckets consumed before the event-ownership check (cross-event budget burn; DoS-shaped under multi-tenancy).</li>
+<li><strong>L4</strong> — CRLF in subject/recipient name (fold into the existing ROADMAP To-header CRLF item).</li>
+<li><strong>L5</strong> — invitation HTML with the live token stored in EmailLog.htmlBody 180d (accepted-risk candidate; document or <code>storeBody:false</code>).</li>
+<li><strong>L6</strong> — console TZ race (Dubai fallback while useEvent is in flight; capture tz at dialog-open).</li>
+<li><strong>L7</strong> — <code>rsvpDeadline &gt; dinnerAt</code> accepted; pairs with the M1 fix.</li>
+<li><strong>L8</strong> — <code>isActive</code> is a server-honored flag with no console surface (dead feature / confusion trap).</li>
+<li><strong>L9</strong> — <code>organizationId!</code> on all six organizer handlers (org-null SUPER_ADMIN 404s; the d2e749b2 class).</li>
+<li><strong>L10</strong> — CSV columns keyed by dinner name (duplicate names collide).</li>
+<li><strong>L11</strong> — 30/hr-per-IP public submit limit vs venue NAT.</li>
+<li><strong>L12</strong> — no rate limit on dinner PUT/DELETE + invite DELETE; header comment over-claims.</li>
+<li><strong>L13</strong> — audit rows carry no before/after snapshots (DELETEs record <code>{}</code>).</li>
+<li><strong>L14</strong> — CSV export is a bare <code>&lt;a href&gt;</code> (expired session → raw 401 JSON navigation).</li>
+<li><strong>L15</strong> — zero-dinner send unguarded (invitee lands on an empty form; "0 dinners" pluralizes as "dinners").</li>
+<li><strong>L16</strong> — stale "email delivery is P2" docstring + dead ternary in the send-dialog placeholder.</li>
+</ul>
+
+<h2>5. Verified clean (the load-bearing checks that passed)</h2>
+<ul>
+<li><strong>Round-1 fixes hold:</strong> the roster GET's <code>denyReviewer</code> + <code>buildEventAccessWhere</code> (H2) are real in code; the B2 full-field select is in place; CSV export logs userId+rowCount (L3) and every cell goes through <code>escapeCsvCell</code>; the MCP headcount H4 fix aggregates over ALL invites.</li>
+<li><strong>Concurrency core:</strong> the public POST's replace-all runs under <code>SELECT … FOR UPDATE</code> in an interactive transaction (single pinned backend through the pooler — the lock genuinely holds); bulk-add uses in-payload dedup + <code>createMany({skipDuplicates})</code> with the DB's honest count; no P2002 can escape either path.</li>
+<li><strong>Token security:</strong> 192-bit base64url, unique-index lookup then slug-asserted; never logged; public GET returns only the holder's own data; invalid token → uniform 404 on GET and POST (no enumeration oracle); submitted dinnerIds are intersected with the invite's own event's open dinners.</li>
+<li><strong>Re-submission semantics:</strong> un-ticking removes the row; decline-all clears open positives; closed dinners' captured answers survive resubmits; a response cannot land on an inactive dinner.</li>
+<li><strong>Headcounts:</strong> ONE implementation (<code>computeDinnerHeadcounts</code>) feeds console tiles, CSV and MCP; guestCount consistently excludes the invitee everywhere; deleted-dinner responses safely skipped.</li>
+<li><strong>Cascades:</strong> responses cascade from both dinner and invite (schema + migration SQL verified); event delete cascades everything; a dinner deleted mid-submit rolls back cleanly.</li>
+<li><strong>Logging/audit hygiene:</strong> every business 4xx/5xx in all 7 routes logs (bare 401s excluded per the house convention; 403s log inside denyReviewer); all six mutation audits are fire-and-forget with logged catch.</li>
+<li><strong>Email pipeline:</strong> per-event branding, per-recipient personalized link, EmailLog rows with full logContext, per-recipient failure isolation, sends never mutate invite status; the template exists in DEFAULT_TEMPLATES + TEMPLATE_VARIABLES + the SYSTEM_TEMPLATE_SLUGS mirror with the drift test green; invitee names are HTML-escaped (raw keys are only personalMessage/rsvpLink/organizerSignature).</li>
+<li><strong>Timezone:</strong> the console's event-TZ input pair round-trips losslessly at minute precision; console cards and the public form render event-TZ with a label; the invitation email carries no dinner date/time, so there is no email TZ surface.</li>
+</ul>
+
+<h2>6. Suggested batching (owner picks)</h2>
+<ul>
+<li><strong>Batch 1 — public-submit correctness (M1+M2+M3+M10, + L7/L11 riders):</strong> one code path; the findings most likely to produce a real catering miscount at a live gala.</li>
+<li><strong>Batch 2 — access alignment (M4+M5+L9, + M12's MEMBER doc line):</strong> make the three read surfaces agree with the H2 policy; one owner decision (MEMBER-vs-roster) gates M5.</li>
+<li><strong>Batch 3 — send pipeline parity (M6+M7+M8, + L1/L15):</strong> jobify-or-dedup, honest preview, message tokens.</li>
+<li><strong>Batch 4 — console honesty + records (M9+M11+L2/L13/L14, M12 remainder):</strong> small fixes, docs sweep.</li>
+</ul>
+
+<h2>7. Lessons index</h2>
+<ul>
+<li>Optional config needs default <em>behavior</em>, not just a nullable column (M1).</li>
+<li>Replace-all needs a freshness precondition — "complete intent" is only true for a fresh form (M2/M3).</li>
+<li>A "who can see this" decision must be enforced on every read surface, not the one that was reviewed (M5, M4).</li>
+<li>Cross-cutting protections (send idempotency, message tokens, access-where) added after a module ships must be swept INTO it — a module reviewed once is not reviewed forever (M6/M8/L9).</li>
+<li>An inverted "accepted-as-is" decision must update the acceptance record in the same change (M12).</li>
+</ul>
+
+</div>
+</body>
+</html>
