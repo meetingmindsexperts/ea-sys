@@ -235,13 +235,24 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // rendering on the public agenda while any edit to them was rejected by
     // isSessionWithinEventDates. Block the save with a clear error naming the
     // sessions instead; the organizer moves or deletes them first.
-    if (startDate || endDate || timezone) {
-      const effectiveStart = startDate ? new Date(startDate) : existingEvent.startDate;
-      const effectiveEnd = endDate ? new Date(endDate) : existingEvent.endDate;
-      const effectiveTz = resolveTimezone(timezone ?? existingEvent.timezone);
-
+    //
+    // Gate on a COMPUTED change, not field presence — the Settings → General
+    // form always sends startDate/endDate/timezone, so a presence gate made
+    // every General save re-run the guard and locked ALL General edits on an
+    // event that already had a legacy out-of-range session (review H1).
+    const effectiveStart = startDate ? new Date(startDate) : existingEvent.startDate;
+    const effectiveEnd = endDate ? new Date(endDate) : existingEvent.endDate;
+    const effectiveTz = resolveTimezone(timezone ?? existingEvent.timezone);
+    const datesOrTzChanged =
+      (startDate || endDate || timezone) &&
+      (effectiveStart.getTime() !== existingEvent.startDate?.getTime() ||
+        effectiveEnd.getTime() !== existingEvent.endDate?.getTime() ||
+        effectiveTz !== resolveTimezone(existingEvent.timezone));
+    if (datesOrTzChanged) {
+      // CANCELLED sessions are excluded — they no longer render on the agenda
+      // and must not block a legitimate date change.
       const eventSessions = await db.eventSession.findMany({
-        where: { eventId },
+        where: { eventId, status: { not: "CANCELLED" } },
         select: { id: true, name: true, startTime: true, endTime: true },
       });
       const outOfRange = eventSessions.filter(

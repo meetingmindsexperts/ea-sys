@@ -274,6 +274,64 @@ describe("PUT /api/events/[eventId]", () => {
     expect(mockDb.eventSession.findMany).not.toHaveBeenCalled();
   });
 
+  // Review H1: the Settings → General form always sends startDate/endDate/
+  // timezone, so the guard must key on a COMPUTED change, not field presence —
+  // otherwise a legacy out-of-range session locks every General save.
+  it("skips the session check when dates are sent but unchanged (General-tab save)", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "evt-1",
+      slug: "test",
+      settings: {},
+      startDate: new Date("2026-06-01T00:00:00Z"),
+      endDate: new Date("2026-06-03T00:00:00Z"),
+      timezone: "Asia/Dubai",
+    });
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+
+    const res = await PUT(
+      makePutRequest({
+        name: "Renamed Event",
+        // Same values the form echoes back on every save.
+        startDate: "2026-06-01T00:00:00.000Z",
+        endDate: "2026-06-03T00:00:00.000Z",
+        timezone: "Asia/Dubai",
+      }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+    expect(mockDb.eventSession.findMany).not.toHaveBeenCalled();
+    expect(mockDb.event.update).toHaveBeenCalled();
+  });
+
+  it("excludes CANCELLED sessions from the date-narrowing guard", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "evt-1",
+      slug: "test",
+      settings: {},
+      startDate: new Date("2026-06-01T00:00:00Z"),
+      endDate: new Date("2026-06-03T00:00:00Z"),
+      timezone: "Asia/Dubai",
+    });
+    // The query itself filters cancelled rows out — assert the where clause.
+    mockDb.eventSession.findMany.mockResolvedValue([]);
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+
+    const res = await PUT(
+      makePutRequest({
+        startDate: "2026-06-01T00:00:00.000Z",
+        endDate: "2026-06-02T00:00:00.000Z", // real narrowing
+      }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+    const where = mockDb.eventSession.findMany.mock.calls[0][0].where;
+    expect(where).toEqual({ eventId: "evt-1", status: { not: "CANCELLED" } });
+  });
+
   it("rejects duplicate slug", async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst
