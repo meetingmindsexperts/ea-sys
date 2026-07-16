@@ -18,7 +18,7 @@
 import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Archive, Columns3, Handshake, Mail, Plus, X } from "lucide-react";
+import { Archive, Columns3, Handshake, Mail, Plus, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EventCombobox } from "@/crm/components/event-combobox";
@@ -32,6 +32,7 @@ import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { ValueRangeFilter } from "@/crm/components/filters/value-range-filter";
 import { useCrmDeals, useCrmStages, useMoveDealStage } from "@/crm/hooks/use-crm-api";
 import { ManageStagesDialog } from "@/crm/components/manage-stages-dialog";
+import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
@@ -60,6 +61,7 @@ function DealsPageInner() {
   const [createOpen, setCreateOpen] = useState(false);
   const [sponsorEmailOpen, setSponsorEmailOpen] = useState(false);
   const [manageStagesOpen, setManageStagesOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const eventId = get("event");
   const archivedView = !!get("archived");
@@ -92,6 +94,10 @@ function DealsPageInner() {
         </p>
         {canWrite && (
           <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import CSV
+            </Button>
             <Button variant="outline" onClick={() => setManageStagesOpen(true)}>
               <Columns3 className="mr-2 h-4 w-4" />
               Manage stages
@@ -245,6 +251,7 @@ function DealsPageInner() {
       />
 
       <ManageStagesDialog stages={stages} open={manageStagesOpen} onOpenChange={setManageStagesOpen} />
+      {importOpen && <FreshsalesImportDialog type="deals" open={importOpen} onOpenChange={setImportOpen} />}
 
       <CrmEmailDialog
         open={sponsorEmailOpen}

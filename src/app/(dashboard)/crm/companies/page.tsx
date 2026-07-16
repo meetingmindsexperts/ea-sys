@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Archive, Building2, Plus, Search, TriangleAlert } from "lucide-react";
+import { Archive, Building2, Plus, Search, TriangleAlert, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CreateCompanyDialog } from "@/crm/components/create-company-dialog";
+import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ export default function CrmCompaniesPage() {
   const [onlyReview, setOnlyReview] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const router = useRouter();
 
   // Unfiltered list drives BOTH the option dropdown (a stable industry list) and
@@ -68,10 +70,16 @@ export default function CrmCompaniesPage() {
           Sponsors, exhibitors, hospitals and societies
         </p>
         {canWrite && (
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New company
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import CSV
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New company
+            </Button>
+          </div>
         )}
       </div>
 
@@ -202,6 +210,8 @@ export default function CrmCompaniesPage() {
       )}
 
       <CreateCompanyDialog open={createOpen} onOpenChange={setCreateOpen} />
+
+      {importOpen && <FreshsalesImportDialog type="companies" open={importOpen} onOpenChange={setImportOpen} />}
     </div>
   );
 }

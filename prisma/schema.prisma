@@ -2644,6 +2644,15 @@ model CrmCompany {
   tasks    CrmTask[]
   notes_   CrmNote[]
 
+
+  /// External-system provenance (Freshsales CSV import). `externalId` is the
+  /// source system's record id — the upsert key that makes RE-importing a fresh
+  /// export converge instead of duplicate. `lastImportedAt` powers the conflict
+  /// rule: a row edited in EA-SYS after its last import wins over the CSV.
+  externalSource String?
+  externalId     String?
+  lastImportedAt DateTime?
+
   /// Soft delete. Set = archived (hidden from lists/board/reports, restorable).
   /// We never hard-delete a CRM record: the row and its CrmActivity trail survive
   /// so "who archived this account, and when" stays answerable.
@@ -2653,6 +2662,7 @@ model CrmCompany {
   updatedAt DateTime @updatedAt
 
   @@unique([organizationId, nameKey])
+  @@unique([organizationId, externalSource, externalId])
   @@index([organizationId])
 }
 
@@ -2772,6 +2782,15 @@ model CrmDeal {
   notes    CrmNote[]
   products CrmDealProduct[]
 
+
+  /// External-system provenance (Freshsales CSV import). `externalId` is the
+  /// source system's record id — the upsert key that makes RE-importing a fresh
+  /// export converge instead of duplicate. `lastImportedAt` powers the conflict
+  /// rule: a row edited in EA-SYS after its last import wins over the CSV.
+  externalSource String?
+  externalId     String?
+  lastImportedAt DateTime?
+
   /// Soft delete — see CrmCompany.archivedAt. Archived deals drop out of the board,
   /// the reports and the CSV export (pipeline totals must not count a dead deal).
   archivedAt DateTime?
@@ -2779,6 +2798,7 @@ model CrmDeal {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([organizationId, externalSource, externalId])
   @@index([organizationId, status])
   @@index([organizationId, stageId])
   @@index([eventId])
@@ -2966,6 +2986,15 @@ model CrmContact {
   tasks    CrmTask[]
   crmNotes CrmNote[]
 
+
+  /// External-system provenance (Freshsales CSV import). `externalId` is the
+  /// source system's record id — the upsert key that makes RE-importing a fresh
+  /// export converge instead of duplicate. `lastImportedAt` powers the conflict
+  /// rule: a row edited in EA-SYS after its last import wins over the CSV.
+  externalSource String?
+  externalId     String?
+  lastImportedAt DateTime?
+
   /// Soft delete — see CrmCompany.archivedAt.
   archivedAt DateTime?
 
@@ -2973,6 +3002,7 @@ model CrmContact {
   updatedAt DateTime @updatedAt
 
   @@unique([organizationId, emailKey])
+  @@unique([organizationId, externalSource, externalId])
   @@index([organizationId])
   @@index([companyId])
   @@index([contactId])

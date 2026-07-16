@@ -15,7 +15,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Archive, Link2, Plus, Search, Users } from "lucide-react";
+import { Archive, Link2, Plus, Search, Upload, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
+import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -46,6 +47,7 @@ export default function CrmContactsPage() {
   const [lifecycle, setLifecycle] = useState<string>("");
   const [companyId, setCompanyId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const router = useRouter();
 
@@ -72,10 +74,16 @@ export default function CrmContactsPage() {
           </span>
         </p>
         {canWrite && (
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New contact
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import CSV
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New contact
+            </Button>
+          </div>
         )}
       </div>
 
@@ -225,6 +233,8 @@ export default function CrmContactsPage() {
       )}
 
       <CreateCrmContactDialog open={createOpen} onOpenChange={setCreateOpen} />
+
+      {importOpen && <FreshsalesImportDialog type="contacts" open={importOpen} onOpenChange={setImportOpen} />}
     </div>
   );
 }

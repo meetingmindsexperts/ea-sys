@@ -493,6 +493,11 @@ exactly which of those exist today.</p>
       <td><code>scripts/backfill-crm-companies.ts</code> — dry-run default, <code>--write</code>, <code>--org</code>, <code>--min N</code>; dedup on the runtime's own <code>companyNameKey()</code> + <code>createMany skipDuplicates</code> (idempotent). Prod dry-run: 1180 distinct names, <b>266 at <code>--min 2</code></b> (the 1-contact tail is mostly typos). Creates companies only — no CrmContacts, no <code>needsReview</code> flood.</td>
     </tr>
     <tr>
+      <td><b>Import from Freshsales (CSV)</b> <span class="tag done">DONE Jul 16</span></td>
+      <td>—</td>
+      <td>Owner ask. “Import CSV” on the Companies / Contacts / Deals tabs — upload a Freshsales export, confirm the dry-run report (counts, stage/event mapping, unrecognized columns, per-row errors), then write. Re-uploading a fresh export converges (externalId upserts); records edited in EA-SYS after their last import keep the EA version. Deals: name-matched to events with an operator-picked fallback; Won/Lost carry their historical close dates; unknown stages land in the first open column, reported. New additive migration <code>20260716150000_crm_external_ids</code>.</td>
+    </tr>
+    <tr>
       <td><b>MCP / agent tools</b> <span class="tag done">DONE Jul 16</span></td>
       <td>—</td>
       <td>13 tools in <code>src/crm/agent-tools.ts</code> (see §3). Package bumped to <b>0.4.21</b> — connected MCP clients must reconnect to see them.</td>

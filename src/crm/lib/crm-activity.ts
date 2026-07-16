@@ -59,6 +59,33 @@ export function recordCrmActivity(entry: CrmActivityEntry): Promise<unknown> {
     });
 }
 
+/**
+ * Bulk variant for imports: one createMany instead of N round-trips. Still THIS
+ * module — nothing outside crm-activity.ts may write the table (the one-writer
+ * invariant that keeps the trail from drifting between callers). Never throws.
+ */
+export function recordCrmActivityBulk(entries: CrmActivityEntry[]): Promise<unknown> {
+  if (entries.length === 0) return Promise.resolve();
+  return db.crmActivity
+    .createMany({
+      data: entries.map((e) => ({
+        organizationId: e.organizationId,
+        entityType: e.entityType,
+        entityId: e.entityId,
+        action: e.action,
+        actorId: e.actorId,
+        changes: (e.changes ?? undefined) as Prisma.InputJsonValue | undefined,
+      })),
+    })
+    .catch((err: unknown) => {
+      apiLogger.error({
+        msg: "crm-activity:record-bulk-failed",
+        count: entries.length,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+}
+
 // ── Field diffing ─────────────────────────────────────────────────────────────
 
 /** One field's change, as stored in `changes.changes[field]`. */

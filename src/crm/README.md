@@ -74,6 +74,7 @@ src/crm/
     sponsor-email-service.ts  outbound email — an event's sponsors OR one deal's contacts (reuses core sendEmail)
     crm-email-template-service.ts  editable per-org email templates (seed-once + CRUD; audits to core AuditLog)
     crm-product-service.ts    product/service catalog (seed-once + CRUD) + deal line items (add/edit/remove)
+    crm-import-service.ts     Freshsales CSV import (companies/contacts/deals; dry-run-first, externalId upserts)
   lib/
     crm-roles.ts        PURE role predicates (canViewCrm / canOwnDeals / canViewDealValues / canDeleteCrm)
     crm-visibility.ts   SERVER-ONLY HTTP guards (denyCrmAccess / denyCrmWrite / denyCrmDelete)
@@ -85,12 +86,14 @@ src/crm/
     sponsor-recipients.ts  PURE email-recipient resolution (dedup + narrow-never-widen intersection)
     crm-email-templates.ts client-safe built-in email templates (pre-fill only)
     pipeline-reconcile.ts  PURE planner: bring an org's stages to the canonical seed
+    freshsales-import.ts   PURE import layer: header synonyms, row mappers, the re-import conflict rule
     use-crm-filters.ts  URL-backed filter state hook
   hooks/
     use-crm-api.ts      all React Query hooks (queries + mutations)
   components/           deal-board, *-detail-body (the record pages' content), create/edit/email dialogs,
                         record-layout.tsx (RecordHeader/RecordGrid/RecordCard/Facts — the shared record-page shell),
                         crm-activity-timeline, crm-load-error, event/company comboboxes, filters/
+  agent-tools.ts        the CRM's MCP tool registrations (imported ONLY by the exempted register-mcp-tools.ts)
   reminders-worker.ts   the CRM task-reminder tick (runTick)
 
 src/app/api/crm/*                REST surface — deals/companies/contacts/tasks/notes/pipeline-stages
