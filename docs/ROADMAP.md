@@ -1536,7 +1536,7 @@ a wrong-but-well-formed payload fails **silently and successfully**, so always t
 | M7 | MED | REST ⇄ MCP `update_contact` field drift: `role`/`registrationType`/`memberId`/… REST-only; `state`/`zipCode` **MCP-only (uneditable from the dashboard at all)**; `notes` capped **2000 (REST) vs 10000 (MCP)** → an agent-written 3k note makes every later dashboard save 400. | |
 | M8 | MED | **13 post-auth 4xx paths log nothing** (409 duplicate, 403 protected, 4× 404, `EMAIL_IMMUTABLE`, `NO_CHANGE`, `CONTACT_EMAIL_TAKEN`, the P2002 race, bulk-tags 404, import 400). | The contacts instance of the known silent-rejection cluster. |
 | M9 | MED | `bulk-tags` has **no rate limit and no cap** on `contactIds` (every sibling write is limited) — unbounded `$transaction`, and un-audited (M2), so abuse is invisible. | |
-| M10 | MED | **SSRF**: `downloadExternalPhoto` ([storage.ts:214](../src/lib/storage.ts)) `fetch`es an EventsAir-supplied URL with **no scheme/host allowlist** (reachable from the contacts EventsAir import) → metadata-service / internal-network probing. | Reuse the hardened `certificates/pdf-loader.ts` allowlist shape. |
+| ~~M10~~ | MED | **SSRF**: `downloadExternalPhoto` ([storage.ts:214](../src/lib/storage.ts)) `fetch`es an EventsAir-supplied URL with **no scheme/host allowlist** (reachable from the contacts EventsAir import) → metadata-service / internal-network probing. | ✅ **Verified FIXED (July 16, 2026 review round 2)** — it now routes through `safeFetchImage` ([safe-fetch.ts](../src/lib/safe-fetch.ts)): private/reserved-IP BlockList incl. IMDS, cloud-metadata hostname blocklist, scheme + embedded-credential rejection, per-redirect re-validation, 500KB cap, SVG rejected (stored XSS). Residual LOW: the `.supabase.co` *substring* fast-path in [storage.ts:235](../src/lib/storage.ts) should be a hostname parse (see round-2 table). |
 | M11 | MED | The central-sync error path can log **attendee emails** into SystemLog/CloudWatch — they're inline in the PostgREST query URL, and Node `fetch` errors embed the URL. (The service key is *not* leaked — header-only.) | |
 | M12 | MED | Both central-sync jobs are exposed to the **P3 pooler advisory-lock stall**: a lock stranded on one pooled backend makes every later tick skip at **debug** level with no `JobRun` row → the mirror silently stops. If the reconcile's lock wedges too, the safety net for every LOW here stops as well. | Durable fix = point the worker at `DIRECT_URL`. Interim = log the skip at `info` / use `pg_advisory_xact_lock`. |
 | L1 | LOW | Central-sync summary logs at `info` even when `failed > 0` (per-chunk failures *do* log at error). |
@@ -1611,6 +1611,64 @@ Per tombstone: `PATCH {base}/rest/v1/{table}?email=eq.{email}` with body `{ ea_s
 **7. Tests.** Tombstone written inside the mutation tx (rename / merge / delete); the PATCH body contains ONLY `ea_synced` (+ `ea_merged_into`) — the regression guard against ever widening it into another source's columns; zero-rows-matched → processed, not failed; retry on 5xx; the case-only-rename guard; worker drains retractions before upserts.
 
 **Docs to update on ship:** [CONTACTS_CENTRAL_SYNC.md](CONTACTS_CENTRAL_SYNC.md) (the "Notes / limitations" section currently does NOT mention rename/delete non-propagation — that omission is why this shipped), plus the `ea_synced = false` contract for downstream consumers.
+
+### Contacts review ROUND 2 — 2 HIGH + merge cluster + export gate SHIPPED; rest deferred (July 16, 2026)
+
+A fresh 3-angle pass (security/RBAC · integrity/sync/concurrency · lifecycle/drift/logging) over the
+post-`a0744ef` state. **The July 13–14 fixes all verified solid** (read gate on all 4 surfaces,
+write boundary on every mutation incl. CRM_USER, email normalization on all 6 writers, IDOR
+binding, CSV escaping, CRM module boundary clean — its only Contact touch is a read-only
+org-bound `findFirst`). New findings: **0 BLOCKER / 2 HIGH / 8 MED / 12 LOW**.
+
+**SHIPPED July 16:**
+- **H-A (HIGH)** — `repointOrgContactEmail`'s "merge" was a bare `delete`: the losing Contact's
+  curated `tags` (cert auto-issue + email cohorts + the people sync), private `notes`, and
+  `eventIds` (feeds the mirror's `events_attended`) were destroyed with an audit row that read
+  "merged". Now a real merge: blank survivor scalars filled from the loser (enrich-only),
+  tags/eventIds unioned, notes appended with a provenance marker, then delete.
+- **M-B (MED)** — the same delete fired the `CrmContact.contactId` `SetNull` cascade (a DB cascade
+  runs no app code — accommodation-H4 class), silently severing the CRM "this rep is also
+  registered" link. The merge now re-points `crmContact.updateMany` to the survivor BEFORE deleting.
+- **M-C (MED)** — legacy mixed-case Contact rows (pre-H2, no backfill run) made the repoint a
+  silent no-op (`"none"`): exact-case lookup missed, the stale row kept the dead email, the next
+  sync minted a duplicate. Lookups are now exact-first then case-insensitive fallback (exact wins
+  deterministically when a case-variant duplicate pair exists), with a same-row canonicalization
+  guard.
+- **H-B (HIGH)** — the full-page **Edit Contact** form (`/contacts/[id]/edit`, the list's Pencil
+  action) sent `email` unconditionally in every PUT since the April 24 email-immutability change →
+  **every save from that page 400'd `EMAIL_IMMUTABLE`** (no field saveable for ~3 months; the
+  detail-sheet edit was the unnoticed workaround). Email dropped from the payload + the field is
+  read-only with a pointer to the Change Email dialog; the server's `EMAIL_IMMUTABLE` branch now
+  warn-logs (it was one of M8's silent 400s — which is why 3 months produced zero log lines).
+- **M-A (MED, owner decision July 16)** — CRM_USER could reach `GET /api/contacts/export` (full org
+  book CSV incl. private `notes`) via the read grant whose recorded rationale is per-record
+  search/link. **Export is now its own, narrower boundary**: `canExportContacts`/`denyContactExport`
+  in [contact-visibility.ts](../src/lib/contact-visibility.ts) (staff + MEMBER + API keys; CRM_USER
+  reads but does NOT export; fails closed, logs its own refusal).
+
+**NEW — deferred (round 2):**
+
+| # | Sev | Finding |
+|---|---|---|
+| R2-M1 | MED | **EventsAir import `eventIds` lost-update**: the existing-eventIds map is snapshotted once before a loop that awaits an external photo fetch per row (`maxDuration=60`) — a registration landing mid-import has its just-appended eventId overwritten by the stale-snapshot upsert, and nothing heals it (the mirror recomputes *from* `Contact.eventIds`). Per-row re-read or atomic array-append. ([import-eventsair/route.ts](../src/app/api/contacts/import-eventsair/route.ts)) |
+| R2-M2 | MED | **Residual `syncToContact` payload drift ×3** (the H4 class re-drifted, as the July-14 closing note predicted): (a) `speaker-service.updateSpeaker`'s sync omits `state`/`zipCode`/`customSpecialty` (its own create-path sync has them); (b) `create_speakers_bulk`'s sync omits `state`/`zipCode`/`additionalEmail`/`customSpecialty`; (c) the registrant self-edit sync omits `role` (self-editable). Structural fix: one shared field-set builder + an effect-pinning test, not three hand-lists. |
+| R2-M3 | MED | **Detail sheet "Additional Email" is a dead write** — editable + pre-filled in the sheet, but `additionalEmail` is in neither contacts Zod schema, so Zod strips it: success toast, value reverts. |
+| R2-M4 | MED | **Detail sheet cannot CLEAR half its fields** — `title/phone/organization/jobTitle/city/country/bio/specialty/notes` sent as `value \|\| undefined` (= unchanged) while sibling fields use `\|\| null` (= clear), same function; emptied field → success toast → still there. |
+| R2-M5 | MED | **No frontend error states**: contacts list ignores `isError` → a failed GET renders "No contacts yet" (org CRM looks wiped); detail sheet `return null` on fetch error → row click does nothing. The contacts instance of the known frontend-silent-failure class. |
+| R2-L1 | LOW | MCP `create_contact` P2002 race loser → opaque generic error (REST twin maps to 409); also no length caps on any field and a far narrower field set than REST (husk contacts by omission). |
+| R2-L2 | LOW | MCP `update_contact` `photo` blind-cast (`as string \| null`) — the speaker-H4 class, fixed in speaker-service, still live here. |
+| R2-L3 | LOW | HTTP-MCP `list_contacts` is a hand-mirrored inline copy of the executor (register-mcp-tools.ts) that **returns no contact ids** — clients can't feed `update_contact`. Cross-caller duplication rule hit. |
+| R2-L4 | LOW | Contact emails logged on failure paths (contact-sync warn, import-eventsair error, create-route studentIdExpiry warn) — same PII-in-logs class as M11; needs the owner's no-emails-in-logs policy call. |
+| R2-L5 | LOW | `.supabase.co` **substring** check in [storage.ts:235](../src/lib/storage.ts) returns a crafted external URL verbatim (`https://evil.example/x?p=.supabase.co/storage/`) → stored as `Contact.photo`, rendered as an `<img>` beacon. Parse hostname + path prefix instead. |
+| R2-L6 | LOW | `import-eventsair` has **no rate limit** (CSV sibling: 10/hr/org) — each call is ≤100 contacts × an outbound photo fetch. |
+| R2-L7 | LOW | `speakers/import-contacts` dedup compares emails **case-sensitively** against `Speaker.email` (legacy mixed-case rows) → possible duplicate Speaker + duplicate companion registration for one person. |
+| R2-L8 | LOW | Export failure **navigates** the browser (`window.location.href`) to raw JSON on 429/403/500 instead of toasting. |
+| R2-L9 | LOW | EventsAir **foreground** import toasts success even when every batch failed (the background variant branches correctly); delete-error toasts discard the server's reason (the protected-contact 403 message never reaches the operator). |
+| R2-L10 | LOW | Single-contact tag edit is a client-side read-modify-write over possibly-stale React Query cache (concurrent tag writers clobbered) + case-sensitive remove (M4's pain, one more surface). |
+
+Also recorded: `getOrgContext`'s SUPER_ADMIN `x-org-id` header override is a **cross-tenant bypass
+primitive** (inert single-org) → noted for [MULTI_TENANCY_IMPACT.md](MULTI_TENANCY_IMPACT.md).
+M8's count is now 11 (3 fixed in `a0744ef`, `EMAIL_IMMUTABLE` fixed in round 2).
 
 ### Certificates review — deferred findings (July 13, 2026)
 

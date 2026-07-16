@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
-import { denyContactAccess } from "@/lib/contact-visibility";
+import { denyContactAccess, denyContactExport } from "@/lib/contact-visibility";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { escapeCsvCell as escapeCSV } from "@/lib/csv-escape";
 
@@ -25,6 +25,12 @@ export async function GET(req: Request) {
 
     const denied = denyContactAccess(ctx);
     if (denied) return denied;
+
+    // Export is a narrower boundary than read: CRM_USER may search/read the
+    // store (to link a rep to a registration) but may NOT pull the whole org
+    // book as a file (owner decision, July 16, 2026).
+    const exportDenied = denyContactExport(ctx);
+    if (exportDenied) return exportDenied;
 
     // A bulk PII export deserves its own budget, separate from the read routes.
     const limit = checkRateLimit({

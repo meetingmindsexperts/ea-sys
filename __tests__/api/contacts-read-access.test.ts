@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { canViewContacts } from "@/lib/contact-visibility";
+import { canViewContacts, canExportContacts } from "@/lib/contact-visibility";
 
 const { mockGetOrgContext, mockDb, mockRateLimit } = vi.hoisted(() => ({
   mockGetOrgContext: vi.fn(),
@@ -102,8 +102,8 @@ beforeEach(() => {
   mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
 });
 
-describe("canViewContacts — the boundary (staff + MEMBER; fails closed)", () => {
-  it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"])("allows %s", (role) => {
+describe("canViewContacts — the boundary (staff + MEMBER + CRM_USER; fails closed)", () => {
+  it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "CRM_USER"])("allows %s", (role) => {
     expect(canViewContacts(role)).toBe(true);
   });
 
@@ -119,6 +119,30 @@ describe("canViewContacts — the boundary (staff + MEMBER; fails closed)", () =
     expect(canViewContacts(null)).toBe(false);
     expect(canViewContacts(undefined)).toBe(false);
     expect(canViewContacts("SOME_FUTURE_ROLE")).toBe(false);
+  });
+});
+
+describe("canExportContacts — narrower than read (M-A, July 16, 2026)", () => {
+  it.each(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"])("allows %s", (role) => {
+    expect(canExportContacts(role)).toBe(true);
+  });
+
+  it("blocks CRM_USER — may read/search the store but not pull the whole book", () => {
+    expect(canExportContacts("CRM_USER")).toBe(false);
+  });
+
+  it.each(["ONSITE", "REGISTRANT", "REVIEWER", "SUBMITTER"])("blocks %s", (role) => {
+    expect(canExportContacts(role)).toBe(false);
+  });
+
+  it("allows API-key callers (admin-equivalent)", () => {
+    expect(canExportContacts(null, true)).toBe(true);
+  });
+
+  it("fails closed on an unknown or absent role", () => {
+    expect(canExportContacts(null)).toBe(false);
+    expect(canExportContacts(undefined)).toBe(false);
+    expect(canExportContacts("SOME_FUTURE_ROLE")).toBe(false);
   });
 });
 
@@ -147,6 +171,17 @@ describe("H1 — contacts read routes are gated", () => {
     mockGetOrgContext.mockResolvedValue(ctxFor(null, true));
     const res = await exportContacts(req());
     expect(res.status).toBe(200);
+  });
+
+  it("CRM_USER may read the list but is 403'd on the export route (M-A)", async () => {
+    mockGetOrgContext.mockResolvedValue(ctxFor("CRM_USER"));
+    const listRes = await listContacts(req());
+    expect(listRes.status).toBe(200);
+
+    const exportRes = await exportContacts(req());
+    expect(exportRes.status).toBe(403);
+    // Blocked before the rate-limit budget and the DB query.
+    expect(mockDb.contact.findMany).toHaveBeenCalledTimes(1); // the list call only
   });
 
   it("401s an unauthenticated caller before the role gate", async () => {

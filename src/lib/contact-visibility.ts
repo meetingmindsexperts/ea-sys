@@ -40,6 +40,14 @@ import { apiLogger } from "@/lib/logger";
 // expose the HCP list to sales — an accepted PII tradeoff, recorded here.
 const CONTACT_READ_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "CRM_USER"]);
 
+// EXPORT is a strictly narrower boundary than read (owner decision, 2026-07-16,
+// contacts review round 2, M-A): the CRM_USER read grant exists to SEARCH the
+// store and link a rep to their registration — a per-record capability. The CSV
+// export is the whole org book in one file, including the organizer's private
+// `notes`; that is wider than the recorded rationale for a sales-temp role, so
+// CRM_USER may read but NOT export. Everyone else mirrors the read set.
+const CONTACT_EXPORT_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER"]);
+
 /**
  * True when the role may read the org contact store.
  * Pass `isApiKey` for programmatic callers (admin-equivalent).
@@ -75,6 +83,42 @@ export function denyContactAccess(ctx: {
   });
   return NextResponse.json(
     { error: "The contact store is not available to your role", code: "CONTACTS_FORBIDDEN" },
+    { status: 403 },
+  );
+}
+
+/**
+ * True when the role may bulk-export the org contact store as CSV.
+ * Narrower than `canViewContacts` — see CONTACT_EXPORT_ROLES. API keys are
+ * admin-equivalent (admin-minted, org-scoped) and may export.
+ */
+export function canExportContacts(
+  role: string | null | undefined,
+  isApiKey = false,
+): boolean {
+  if (isApiKey) return true;
+  return !!role && CONTACT_EXPORT_ROLES.has(role);
+}
+
+/**
+ * Returns a 403 if the caller may not bulk-export the contact store, else
+ * null. Runs AFTER `denyContactAccess` on the export route — this is the
+ * second, narrower gate. Logged here so no call site can forget.
+ */
+export function denyContactExport(ctx: {
+  role: string | null;
+  userId: string | null;
+  fromApiKey: boolean;
+}) {
+  if (canExportContacts(ctx.role, ctx.fromApiKey)) return null;
+
+  apiLogger.warn({
+    msg: "auth-guard:contacts-export-denied",
+    role: ctx.role,
+    userId: ctx.userId,
+  });
+  return NextResponse.json(
+    { error: "Exporting the contact store is not available to your role", code: "CONTACTS_EXPORT_FORBIDDEN" },
     { status: 403 },
   );
 }
