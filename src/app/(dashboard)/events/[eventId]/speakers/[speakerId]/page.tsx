@@ -78,7 +78,7 @@ import { IssuedCertificatesCard } from "@/components/certificates/issued-certifi
 import { SpeakerDocumentsCard } from "@/components/speakers/speaker-documents-card";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
-import { formatPersonName, formatDate } from "@/lib/utils";
+import { formatPersonName, formatDateTime } from "@/lib/utils";
 import { toast } from "sonner";
 
 const statusColors: Record<string, string> = {
@@ -1009,7 +1009,7 @@ export default function SpeakerDetailPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-emerald-900">Accepted</p>
                       <p className="text-xs text-emerald-700 mt-0.5">
-                        {formatDate(speaker.agreementAcceptedAt)}
+                        {formatDateTime(speaker.agreementAcceptedAt)}
                         {speaker.agreementAcceptedBy?.startsWith("ORGANIZER") ? (
                           <span className="ml-1 text-emerald-600/80">(by organizer)</span>
                         ) : (
@@ -1166,7 +1166,7 @@ export default function SpeakerDetailPage() {
                         className={`ml-auto font-medium ${speaker.sourceRegistration.checkedInAt ? "text-emerald-700" : "text-muted-foreground"}`}
                       >
                         {speaker.sourceRegistration.checkedInAt
-                          ? formatDate(speaker.sourceRegistration.checkedInAt)
+                          ? formatDateTime(speaker.sourceRegistration.checkedInAt)
                           : "Not yet"}
                       </span>
                     </div>
@@ -1177,7 +1177,7 @@ export default function SpeakerDetailPage() {
                         className={`ml-auto font-medium ${speaker.sourceRegistration.surveyCompletedAt ? "text-emerald-700" : "text-muted-foreground"}`}
                       >
                         {speaker.sourceRegistration.surveyCompletedAt
-                          ? formatDate(speaker.sourceRegistration.surveyCompletedAt)
+                          ? formatDateTime(speaker.sourceRegistration.surveyCompletedAt)
                           : "Not completed"}
                       </span>
                     </div>
@@ -1241,7 +1241,7 @@ export default function SpeakerDetailPage() {
           <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
             <Calendar className="h-4 w-4" />
             <span>
-              Added <span className="font-medium text-foreground">{formatDate(speaker.createdAt)}</span>
+              Added <span className="font-medium text-foreground">{formatDateTime(speaker.createdAt)}</span>
             </span>
           </div>
         </div>
