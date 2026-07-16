@@ -22,7 +22,7 @@ import {
   Loader2,
   Save,
 } from "lucide-react";
-import { formatDate, formatTime } from "@/lib/utils";
+import { formatDateInTz, formatTimeInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
 import { toast } from "sonner";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -89,6 +89,8 @@ interface SessionDetailSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSessionUpdated?: () => void;
+  /** Event timezone — times render in the event's clock (defaults to Asia/Dubai). */
+  timezone?: string | null;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -122,7 +124,9 @@ export function SessionDetailSheet({
   open,
   onOpenChange,
   onSessionUpdated,
+  timezone,
 }: SessionDetailSheetProps) {
+  const eventTz = resolveTimezone(timezone);
   const [session, setSession] = useState<SessionData | null>(null);
   const [speakers, setSpeakers] = useState<SpeakerOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -284,10 +288,12 @@ export function SessionDetailSheet({
                 <Clock className="h-4 w-4 shrink-0" />
                 <div>
                   <p className="font-medium text-foreground">
-                    {formatDate(new Date(session.startTime))}
+                    {formatDateInTz(new Date(session.startTime), eventTz)}
                   </p>
                   <p>
-                    {formatTime(new Date(session.startTime))} – {formatTime(new Date(session.endTime))}
+                    {formatTimeInTz(new Date(session.startTime), eventTz)} –{" "}
+                    {formatTimeInTz(new Date(session.endTime), eventTz)}{" "}
+                    {tzLabel(new Date(session.startTime), eventTz)}
                   </p>
                 </div>
               </div>

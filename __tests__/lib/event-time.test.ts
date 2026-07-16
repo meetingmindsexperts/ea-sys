@@ -12,6 +12,9 @@ import {
   DEFAULT_EVENT_TIMEZONE,
   resolveTimezone,
   localDateInTz,
+  localDateTimeInTz,
+  wallTimeInTzToDate,
+  hourFractionInTz,
   isSessionWithinEventDates,
   formatTimeInTz,
   tzLabel,
@@ -84,5 +87,68 @@ describe("formatTimeInTz", () => {
 describe("tzLabel", () => {
   it("returns a short timezone label", () => {
     expect(tzLabel(new Date("2026-06-17T12:00:00Z"), DUBAI)).toBe("GMT+4");
+  });
+});
+
+describe("localDateTimeInTz", () => {
+  it("renders the wall-clock datetime in the event timezone", () => {
+    // 05:30 UTC = 09:30 Dubai
+    expect(localDateTimeInTz(new Date("2026-06-17T05:30:00Z"), DUBAI)).toBe(
+      "2026-06-17T09:30",
+    );
+    // 21:00 UTC on the 16th = 01:00 on the 17th in Dubai
+    expect(localDateTimeInTz(new Date("2026-06-16T21:00:00Z"), DUBAI)).toBe(
+      "2026-06-17T01:00",
+    );
+  });
+
+  it("zero-pads and uses a 24h clock (datetime-local input contract)", () => {
+    // 20:05 UTC = 00:05 Dubai — midnight must be "00", not "24"
+    expect(localDateTimeInTz(new Date("2026-06-16T20:05:00Z"), DUBAI)).toBe(
+      "2026-06-17T00:05",
+    );
+  });
+});
+
+describe("wallTimeInTzToDate", () => {
+  it("interprets a wall-clock string in the event timezone", () => {
+    // 09:30 Dubai = 05:30 UTC
+    expect(wallTimeInTzToDate("2026-06-17T09:30", DUBAI).toISOString()).toBe(
+      "2026-06-17T05:30:00.000Z",
+    );
+  });
+
+  it("round-trips with localDateTimeInTz", () => {
+    const instant = new Date("2026-06-17T19:45:00Z");
+    const wall = localDateTimeInTz(instant, DUBAI);
+    expect(wallTimeInTzToDate(wall, DUBAI).getTime()).toBe(instant.getTime());
+  });
+
+  it("handles DST timezones on both sides of the transition", () => {
+    const NY = "America/New_York";
+    // EST (UTC-5): Jan 15 09:00 New York = 14:00 UTC
+    expect(wallTimeInTzToDate("2026-01-15T09:00", NY).toISOString()).toBe(
+      "2026-01-15T14:00:00.000Z",
+    );
+    // EDT (UTC-4): Jun 15 09:00 New York = 13:00 UTC
+    expect(wallTimeInTzToDate("2026-06-15T09:00", NY).toISOString()).toBe(
+      "2026-06-15T13:00:00.000Z",
+    );
+  });
+
+  it("returns an invalid Date for malformed input", () => {
+    expect(isNaN(wallTimeInTzToDate("not-a-date", DUBAI).getTime())).toBe(true);
+    expect(isNaN(wallTimeInTzToDate("", DUBAI).getTime())).toBe(true);
+  });
+});
+
+describe("hourFractionInTz", () => {
+  it("returns the fractional hour-of-day in the event timezone", () => {
+    // 05:30 UTC = 09:30 Dubai → 9.5
+    expect(hourFractionInTz(new Date("2026-06-17T05:30:00Z"), DUBAI)).toBe(9.5);
+    // 19:00 UTC = 23:00 Dubai → 23
+    expect(hourFractionInTz(new Date("2026-06-17T19:00:00Z"), DUBAI)).toBe(23);
+    // 20:00 UTC = 00:00 Dubai next day → 0 (not 24)
+    expect(hourFractionInTz(new Date("2026-06-16T20:00:00Z"), DUBAI)).toBe(0);
   });
 });

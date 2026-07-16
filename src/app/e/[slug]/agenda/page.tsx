@@ -17,7 +17,7 @@ import {
   Mail,
 } from "lucide-react";
 import { cn, formatPersonName } from "@/lib/utils";
-import { formatTimeInTz, tzLabel } from "@/lib/event-time";
+import { formatTimeInTz, localDateInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -126,12 +126,15 @@ export default function PublicAgendaPage() {
     if (slug) fetchAgenda();
   }, [slug]);
 
-  // Group sessions by date
+  // Group sessions by date — the EVENT's local date, not the viewer's.
+  // Times below render in the event timezone, so the day buckets must use
+  // the same clock or an 11 PM session lands under the wrong heading for
+  // any viewer west of the event (M7, program/agenda review).
   const sessionsByDate = useMemo(() => {
     if (!eventData) return [];
     const map: Record<string, Session[]> = {};
     eventData.sessions.forEach((s) => {
-      const day = new Date(s.startTime).toLocaleDateString("sv-SE");
+      const day = localDateInTz(new Date(s.startTime), resolveTimezone(eventData.timezone));
       (map[day] ??= []).push(s);
     });
     Object.values(map).forEach((arr) =>

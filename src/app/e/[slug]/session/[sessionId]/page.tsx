@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,8 +31,25 @@ import {
   DEFAULT_EVENT_TIMEZONE,
   formatDateInTz,
   formatTimeInTz,
+  resolveTimezone,
   tzLabel,
 } from "@/lib/event-time";
+
+/**
+ * "9:00 AM GST on Jun 15" — join-availability timestamps must render in the
+ * EVENT's timezone like every other time on this page. They used to render
+ * viewer-local, telling a New York attendee a Dubai 9:00 AM session "opens
+ * at 1:00 AM" (L4, program/agenda review).
+ */
+function formatJoinOpens(instant: Date, timezone: string) {
+  const monthDay = new Intl.DateTimeFormat("en-US", {
+    timeZone: resolveTimezone(timezone),
+    month: "short",
+    day: "numeric",
+  }).format(instant);
+  const lbl = tzLabel(instant, timezone);
+  return `${formatTimeInTz(instant, timezone)}${lbl ? ` ${lbl}` : ""} on ${monthDay}`;
+}
 
 // The live-stream player is client-only (hls.js pulls ArrayBuffer refs
 // from window) so we dynamically import it. The Zoom Component View embed
@@ -580,6 +596,7 @@ export default function PublicSessionPage() {
             isPast={isPast}
             isUpcoming={isUpcoming}
             joinableAt={joinableAt}
+            timezone={event?.timezone ?? DEFAULT_EVENT_TIMEZONE}
             joinInfo={joinInfo}
             authState={authState}
             hasRecording={hasRecording}
@@ -734,8 +751,8 @@ export default function PublicSessionPage() {
                   <p className="font-medium text-lg">Session hasn&apos;t started yet</p>
                   <p className="text-sm text-muted-foreground max-w-md">
                     {joinableAt
-                      ? `You'll be able to join at ${format(new Date(joinableAt), "h:mm a 'on' MMM d")}.`
-                      : `Check back shortly before ${format(new Date(startMs), "h:mm a")}.`}
+                      ? `You'll be able to join at ${formatJoinOpens(new Date(joinableAt), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)}.`
+                      : `Check back shortly before ${formatTimeInTz(new Date(startMs), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)} ${tzLabel(new Date(startMs), event?.timezone ?? DEFAULT_EVENT_TIMEZONE)}.`}
                   </p>
                 </CardContent>
               </Card>
@@ -918,6 +935,7 @@ function StickyCta({
   isPast,
   isUpcoming,
   joinableAt,
+  timezone,
   joinInfo,
   authState,
   hasRecording,
@@ -934,6 +952,7 @@ function StickyCta({
   isPast: boolean;
   isUpcoming: boolean;
   joinableAt: string | null;
+  timezone: string;
   joinInfo: JoinInfo | null;
   authState: JoinAuthState;
   hasRecording: boolean;
@@ -1057,7 +1076,7 @@ function StickyCta({
             <p className="text-sm font-medium">Session hasn&apos;t started yet</p>
             {joinableAt && (
               <p className="text-xs text-muted-foreground">
-                Join opens at {format(new Date(joinableAt), "h:mm a 'on' MMM d")}
+                Join opens at {formatJoinOpens(new Date(joinableAt), timezone)}
               </p>
             )}
           </div>

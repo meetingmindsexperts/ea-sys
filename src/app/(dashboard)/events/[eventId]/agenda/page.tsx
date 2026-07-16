@@ -53,7 +53,16 @@ import {
   Check,
   RefreshCw,
 } from "lucide-react";
-import { formatTime, formatPersonName } from "@/lib/utils";
+import { formatPersonName } from "@/lib/utils";
+import {
+  formatTimeInTz,
+  hourFractionInTz,
+  localDateInTz,
+  localDateTimeInTz,
+  resolveTimezone,
+  tzLabel,
+  wallTimeInTzToDate,
+} from "@/lib/event-time";
 import { useSessions, useTracks, useSpeakers, useEvent, queryKeys } from "@/hooks/use-api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
@@ -189,10 +198,9 @@ const DEFAULT_TRACK_FORM = { name: "", description: "", color: "#3B82F6" };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function toLocalDateStr(d: Date) {
-  return d.toLocaleDateString("sv-SE"); // YYYY-MM-DD
-}
-
+// Renders an already-timezone-resolved YYYY-MM-DD calendar date. The
+// local-midnight parse + local render round-trips to the same calendar
+// date in any browser timezone, so this is safe viewer-side.
 function formatDateDisplay(dateStr: string) {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", {
     weekday: "long",
@@ -206,11 +214,13 @@ function padZ(n: number) {
   return String(n).padStart(2, "0");
 }
 
-function getSessionStyle(s: Session) {
-  const start = new Date(s.startTime);
-  const end = new Date(s.endTime);
-  const startH = start.getHours() + start.getMinutes() / 60;
-  const endH = end.getHours() + end.getMinutes() / 60;
+// Grid positions come from the EVENT's clock, not the browser's — this page
+// used to mix a browser-local grid with Dubai-fixed list labels (M8,
+// program/agenda review), so a travelling organizer built the agenda against
+// a mis-drawn grid.
+function getSessionStyle(s: Session, timezone: string) {
+  const startH = hourFractionInTz(new Date(s.startTime), timezone);
+  const endH = hourFractionInTz(new Date(s.endTime), timezone);
   const top = (startH - START_HOUR) * HOUR_HEIGHT;
   const height = Math.max((endH - startH) * HOUR_HEIGHT, 28);
   return { top: `${top}px`, height: `${height}px` };
@@ -243,13 +253,17 @@ export default function AgendaPage() {
     refetchTracks();
   };
 
-  // Event date boundaries (YYYY-MM-DD)
-  const minDate = event?.startDate ? toLocalDateStr(new Date(event.startDate)) : "";
-  const maxDate = event?.endDate ? toLocalDateStr(new Date(event.endDate)) : "";
+  // Everything on this page — day buckets, grid positions, time labels, the
+  // session form — operates in the EVENT's timezone.
+  const eventTz = resolveTimezone(event?.timezone);
+
+  // Event date boundaries (YYYY-MM-DD, event-local)
+  const minDate = event?.startDate ? localDateInTz(new Date(event.startDate), eventTz) : "";
+  const maxDate = event?.endDate ? localDateInTz(new Date(event.endDate), eventTz) : "";
 
   // null = not yet chosen by user; resolves to event start date once loaded
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const resolvedDate = selectedDate ?? (minDate || toLocalDateStr(new Date()));
+  const resolvedDate = selectedDate ?? (minDate || localDateInTz(new Date(), eventTz));
   const [selectedTrack, setSelectedTrack] = useState("all");
   const [isSessionDialogOpen, setIsSessionDialogOpen] = useState(false);
   const [isTrackDialogOpen, setIsTrackDialogOpen] = useState(false);
@@ -369,8 +383,11 @@ export default function AgendaPage() {
         description: rest.description || undefined,
         trackId: rest.trackId || undefined,
         capacity: rest.capacity ? parseInt(rest.capacity) : undefined,
-        startTime: new Date(rest.startTime).toISOString(),
-        endTime: new Date(rest.endTime).toISOString(),
+        // The datetime-local values are wall-clock times in the EVENT's
+        // timezone (that's how the form displays them), so they must be
+        // interpreted in that zone — not the browser's.
+        startTime: wallTimeInTzToDate(rest.startTime, eventTz).toISOString(),
+        endTime: wallTimeInTzToDate(rest.endTime, eventTz).toISOString(),
         location: rest.location || undefined,
         status: rest.status,
         ...(hasRoles
@@ -414,8 +431,9 @@ export default function AgendaPage() {
 
   const openEditSession = (s: Session) => {
     setEditingSession(s);
-    const toLocal = (iso: string) =>
-      new Date(iso).toLocaleString("sv-SE", { hour12: false }).slice(0, 16);
+    // Show stored instants as wall-clock times in the event's timezone —
+    // matching how the grid draws them and how submit re-interprets them.
+    const toLocal = (iso: string) => localDateTimeInTz(new Date(iso), eventTz);
     setSessionForm({
       name: s.name,
       description: s.description || "",
@@ -495,9 +513,11 @@ export default function AgendaPage() {
   };
 
   const navigateDate = (dir: 1 | -1) => {
-    const d = new Date(resolvedDate + "T00:00:00");
-    d.setDate(d.getDate() + dir);
-    const next = toLocalDateStr(d);
+    // Pure calendar-date arithmetic on the YYYY-MM-DD string — UTC parse +
+    // UTC render keeps it independent of the browser timezone.
+    const d = new Date(resolvedDate + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + dir);
+    const next = d.toISOString().slice(0, 10);
     if (minDate && next < minDate) return;
     if (maxDate && next > maxDate) return;
     setSelectedDate(next);
@@ -507,12 +527,12 @@ export default function AgendaPage() {
 
   const filteredSessions = useMemo(() => {
     return (sessions as Session[]).filter((s) => {
-      const sd = new Date(s.startTime).toLocaleDateString("sv-SE");
+      const sd = localDateInTz(new Date(s.startTime), eventTz);
       const matchDate = sd === resolvedDate;
       const matchTrack = selectedTrack === "all" || s.track?.id === selectedTrack;
       return matchDate && matchTrack;
     });
-  }, [sessions, resolvedDate, selectedTrack]);
+  }, [sessions, resolvedDate, selectedTrack, eventTz]);
 
   const sessionsByTrack = useMemo(() => {
     const grouped: Record<string, Session[]> = {};
@@ -534,10 +554,10 @@ export default function AgendaPage() {
   const allEventDates = useMemo(() => {
     const s = new Set<string>();
     (sessions as Session[]).forEach((sess) =>
-      s.add(new Date(sess.startTime).toLocaleDateString("sv-SE"))
+      s.add(localDateInTz(new Date(sess.startTime), eventTz))
     );
     return s.size;
-  }, [sessions]);
+  }, [sessions, eventTz]);
 
   const stats = {
     total: (sessions as Session[]).length,
@@ -550,7 +570,7 @@ export default function AgendaPage() {
   const sessionsByDate = useMemo(() => {
     const map: Record<string, Session[]> = {};
     (sessions as Session[]).forEach((s) => {
-      const day = new Date(s.startTime).toLocaleDateString("sv-SE");
+      const day = localDateInTz(new Date(s.startTime), eventTz);
       (map[day] ??= []).push(s);
     });
     // Sort each day's sessions by start time
@@ -560,7 +580,7 @@ export default function AgendaPage() {
       )
     );
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
-  }, [sessions]);
+  }, [sessions, eventTz]);
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
@@ -759,6 +779,10 @@ export default function AgendaPage() {
                 </Button>
                 <span className="text-sm font-medium hidden sm:block text-muted-foreground">
                   {formatDateDisplay(resolvedDate)}
+                  {(() => {
+                    const lbl = tzLabel(new Date(resolvedDate + "T12:00:00Z"), eventTz);
+                    return lbl ? ` · ${lbl}` : "";
+                  })()}
                 </span>
               </div>
 
@@ -853,7 +877,8 @@ export default function AgendaPage() {
                               <SessionCard
                                 key={s.id}
                                 session={s}
-                                style={getSessionStyle(s)}
+                                timezone={eventTz}
+                                style={getSessionStyle(s, eventTz)}
                                 onClick={() => openEditSession(s)}
                                 onViewDetails={() => { setDetailSessionId(s.id); setDetailSheetOpen(true); }}
                               />
@@ -913,7 +938,8 @@ export default function AgendaPage() {
                         <SessionCard
                           key={s.id}
                           session={s}
-                          style={getSessionStyle(s)}
+                          timezone={eventTz}
+                          style={getSessionStyle(s, eventTz)}
                           onClick={() => openEditSession(s)}
                           onViewDetails={() => { setDetailSessionId(s.id); setDetailSheetOpen(true); }}
                         />
@@ -1423,7 +1449,8 @@ export default function AgendaPage() {
                           <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
-                              {formatTime(s.startTime)} – {formatTime(s.endTime)}
+                              {formatTimeInTz(new Date(s.startTime), eventTz)} –{" "}
+                              {formatTimeInTz(new Date(s.endTime), eventTz)}
                             </span>
                             {s.location && (
                               <span className="flex items-center gap-1">
@@ -1500,6 +1527,7 @@ export default function AgendaPage() {
       <SessionDetailSheet
         eventId={eventId}
         sessionId={detailSessionId}
+        timezone={eventTz}
         open={detailSheetOpen}
         onOpenChange={setDetailSheetOpen}
         onSessionUpdated={() => {
@@ -1514,11 +1542,13 @@ export default function AgendaPage() {
 
 function SessionCard({
   session,
+  timezone,
   style,
   onClick,
   onViewDetails,
 }: {
   session: Session;
+  timezone: string;
   style: { top: string; height: string };
   onClick: () => void;
   onViewDetails?: () => void;
@@ -1546,7 +1576,8 @@ function SessionCard({
             <div className="text-xs font-semibold truncate leading-tight">{session.name}</div>
             {heightPx >= 40 && (
               <div className="text-xs text-muted-foreground mt-0.5 tabular-nums">
-                {formatTime(session.startTime)} – {formatTime(session.endTime)}
+                {formatTimeInTz(new Date(session.startTime), timezone)} –{" "}
+                {formatTimeInTz(new Date(session.endTime), timezone)}
               </div>
             )}
             {heightPx >= 60 && session.location && (
@@ -1564,7 +1595,8 @@ function SessionCard({
           <div className="text-xs space-y-1 text-muted-foreground">
             <div className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
-              {formatTime(session.startTime)} – {formatTime(session.endTime)}
+              {formatTimeInTz(new Date(session.startTime), timezone)} –{" "}
+              {formatTimeInTz(new Date(session.endTime), timezone)}
             </div>
             {session.location && (
               <div className="flex items-center gap-1">

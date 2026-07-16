@@ -19,7 +19,14 @@ export function resolveTimezone(tz: string | null | undefined): string {
   return tz && tz.trim() ? tz : DEFAULT_EVENT_TIMEZONE;
 }
 
-/** The local calendar date (YYYY-MM-DD) of `date` in `timeZone`. */
+/**
+ * The local calendar date (YYYY-MM-DD) of `date` in `timeZone`.
+ *
+ * CONTRACT: the output is always zero-padded `YYYY-MM-DD` (pinned by the
+ * `en-CA` locale), which makes plain string comparison (`>=` / `<=`) valid
+ * date comparison. `isSessionWithinEventDates` and several callers rely on
+ * this lexical ordering — do not change the locale or format.
+ */
 export function localDateInTz(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -27,6 +34,85 @@ export function localDateInTz(date: Date, timeZone: string): string {
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+}
+
+/** Numeric wall-clock parts of `date` in `timeZone`. */
+function tzParts(date: Date, timeZone: string) {
+  const parts: Record<string, string> = {};
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: resolveTimezone(timeZone),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  })
+    .formatToParts(date)
+    .forEach((p) => {
+      parts[p.type] = p.value;
+    });
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    second: Number(parts.second),
+  };
+}
+
+/**
+ * Fractional hour-of-day (e.g. 14.5 for 2:30 PM) of `date` in `timeZone`.
+ * Used by the dashboard agenda grid to position session cards — the grid
+ * must draw in the EVENT's clock, not the browser's.
+ */
+export function hourFractionInTz(date: Date, timeZone: string): number {
+  const { hour, minute } = tzParts(date, timeZone);
+  return hour + minute / 60;
+}
+
+/**
+ * Wall-clock datetime string ("YYYY-MM-DDTHH:mm") of `date` in `timeZone` —
+ * the value a `<input type="datetime-local">` expects when the form edits
+ * times in the event's timezone. Inverse of `wallTimeInTzToDate`.
+ */
+export function localDateTimeInTz(date: Date, timeZone: string): string {
+  const p = tzParts(date, timeZone);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
+}
+
+/** Offset such that `wallClock(date, tz) as UTC = date.getTime() + offset`. */
+function tzOffsetMs(date: Date, timeZone: string): number {
+  const p = tzParts(date, timeZone);
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return asUtc - date.getTime();
+}
+
+/**
+ * Interpret a wall-clock datetime string ("YYYY-MM-DDTHH:mm[:ss]") as a
+ * moment in `timeZone` and return the corresponding instant. This is what a
+ * datetime-local form value means when the form is defined to operate in
+ * the event's timezone. Two-pass offset correction handles DST boundaries;
+ * a nonexistent local time (spring-forward gap) resolves to the instant the
+ * clocks skipped to. Returns an invalid Date for malformed input.
+ */
+export function wallTimeInTzToDate(wallTime: string, timeZone: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(wallTime);
+  if (!m) return new Date(NaN);
+  const asUtc = Date.UTC(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    m[6] ? Number(m[6]) : 0,
+  );
+  let ts = asUtc - tzOffsetMs(new Date(asUtc), timeZone);
+  ts = asUtc - tzOffsetMs(new Date(ts), timeZone);
+  return new Date(ts);
 }
 
 /**

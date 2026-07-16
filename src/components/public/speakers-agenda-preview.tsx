@@ -12,7 +12,12 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
-import { DEFAULT_EVENT_TIMEZONE, formatTimeInTz } from "@/lib/event-time";
+import {
+  DEFAULT_EVENT_TIMEZONE,
+  formatTimeInTz,
+  localDateInTz,
+  resolveTimezone,
+} from "@/lib/event-time";
 
 /**
  * Speakers + Agenda preview block for the public registration pages.
@@ -122,13 +127,16 @@ export function SpeakersAndAgendaPreview({ slug }: SpeakersAndAgendaPreviewProps
     return out;
   }, [data]);
 
-  // Group sessions by date (YYYY-MM-DD from startTime, local-tz agnostic
-  // since Zoom stores UTC and the public page renders in viewer tz).
+  // Group sessions by the EVENT's local date. The times below render in the
+  // event timezone (formatTimeInTz), so the day buckets must use the same
+  // clock — bucketing in the viewer's timezone put an 11 PM event-TZ session
+  // under the next day's heading for viewers west of the event (M7).
   const sessionsByDay = useMemo(() => {
     if (!data) return [] as Array<{ date: Date; sessions: Session[] }>;
     const groups = new Map<string, Session[]>();
+    const tz = resolveTimezone(data.timezone ?? DEFAULT_EVENT_TIMEZONE);
     for (const session of data.sessions) {
-      const key = format(new Date(session.startTime), "yyyy-MM-dd");
+      const key = localDateInTz(new Date(session.startTime), tz);
       const list = groups.get(key) ?? [];
       list.push(session);
       groups.set(key, list);
