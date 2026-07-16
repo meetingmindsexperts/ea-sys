@@ -7,7 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
 import { AGENT_TOOL_DEFINITIONS, TOOL_EXECUTOR_MAP } from "@/lib/agent/event-tools";
 import { buildSystemPrompt } from "@/lib/agent/system-prompt";
-import { isReadOnlyTool } from "@/lib/agent/tools/_shared";
+import { isReadOnlyTool, ROSTER_PII_AGENT_TOOLS } from "@/lib/agent/tools/_shared";
 import { canViewFinance, FINANCE_ONLY_AGENT_TOOLS, redactFinancialFields } from "@/lib/finance-visibility";
 import type { AgentContext } from "@/lib/agent/event-tools";
 
@@ -145,6 +145,17 @@ async function runAgentLoop(
             `Read-only access — the Member role cannot perform write operations. ` +
             `"${toolName}" modifies data and was refused. Ask an Organizer or Admin to make this change.`,
           code: "READ_ONLY_ROLE",
+        };
+      } else if (readOnly && ROSTER_PII_AGENT_TOOLS.has(toolName)) {
+        // R2 M5: the dinner-RSVP roster (names/emails/dietary) is blocked
+        // for MEMBER on the REST roster GET (Round-1 H2) — the agent
+        // surface must agree, even though the tool is list_-prefixed.
+        result = {
+          error:
+            `The dinner guest list (names, emails, dietary notes) is not available ` +
+            `to the Member role — the same policy as the RSVP roster page. Ask an ` +
+            `Organizer or Admin for headcounts.`,
+          code: "ROSTER_FORBIDDEN",
         };
       } else if (blockFinance && FINANCE_ONLY_AGENT_TOOLS.has(toolName)) {
         // Wholly-financial tools (list_invoices, list_unpaid_registrations)

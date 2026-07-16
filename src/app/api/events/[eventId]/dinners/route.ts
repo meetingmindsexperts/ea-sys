@@ -12,6 +12,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { rsvpDinnerInputSchema, isDeadlineAfterDinner } from "@/lib/rsvp/rsvp";
 
@@ -24,8 +25,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // R2 M4: this GET had no role guard and hand-rolled the org scope, so
+    // CRM_USER / cross-event ONSITE could read any org event's dinner config
+    // — the class the sibling roster GET was fixed for (Round-1 H2). Align:
+    // same guard, same assignment-aware lookup.
+    const denied = denyReviewer(session);
+    if (denied) return denied;
+
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {
@@ -80,7 +88,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      // buildEventAccessWhere (R2 L9): org-scoped for staff AND correct for
+      // an org-null SUPER_ADMIN, which the bare organizationId! 404'd.
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {

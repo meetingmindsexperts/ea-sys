@@ -32,6 +32,16 @@ export function isReadOnlyTool(toolName: string): boolean {
   return /^(list_|get_|search_)/.test(toolName);
 }
 
+/**
+ * Tools that return the dinner-RSVP guest list (names, emails, dietary
+ * notes) — refused for MEMBER even though they are list_-prefixed
+ * (review R2 M5). The roster GET deliberately blocks MEMBER via
+ * denyReviewer (Round-1 H2: the read-only sponsor-side observer must not
+ * read the confidential VIP guest list); the agent surface must agree
+ * with that policy, not tunnel around it.
+ */
+export const ROSTER_PII_AGENT_TOOLS = new Set(["list_dinner_rsvps"]);
+
 export const SPEAKER_STATUSES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 export const REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]);
 export const MANUAL_REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "WAITLISTED"]);

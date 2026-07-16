@@ -9,13 +9,20 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { rsvpDinnerInputSchema, isDeadlineAfterDinner } from "@/lib/rsvp/rsvp";
 
 type RouteParams = { params: Promise<{ eventId: string; dinnerId: string }> };
 
-async function loadDinner(eventId: string, dinnerId: string, organizationId: string) {
+async function loadDinner(
+  eventId: string,
+  dinnerId: string,
+  user: { id: string; role: string; organizationId?: string | null },
+) {
   const event = await db.event.findFirst({
-    where: { id: eventId, organizationId },
+    // buildEventAccessWhere (R2 L9): assignment-aware + org-null-SUPER_ADMIN
+    // correct, replacing the bare organizationId! scope.
+    where: buildEventAccessWhere(user, eventId),
     select: { id: true },
   });
   if (!event) return null;
@@ -55,7 +62,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const dinner = await loadDinner(eventId, dinnerId, session.user.organizationId!);
+    const dinner = await loadDinner(eventId, dinnerId, session.user);
     if (!dinner) {
       apiLogger.warn({ eventId, dinnerId, userId: session.user.id }, "dinners:update-not-found");
       return NextResponse.json({ error: "Dinner not found" }, { status: 404 });
@@ -115,7 +122,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const dinner = await loadDinner(eventId, dinnerId, session.user.organizationId!);
+    const dinner = await loadDinner(eventId, dinnerId, session.user);
     if (!dinner) {
       apiLogger.warn({ eventId, dinnerId, userId: session.user.id }, "dinners:delete-not-found");
       return NextResponse.json({ error: "Dinner not found" }, { status: 404 });

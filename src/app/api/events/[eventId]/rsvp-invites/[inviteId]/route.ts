@@ -8,6 +8,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 
 type RouteParams = { params: Promise<{ eventId: string; inviteId: string }> };
 
@@ -19,7 +20,8 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      // buildEventAccessWhere (R2 L9) — parity with the roster GET.
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {

@@ -184,7 +184,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      // buildEventAccessWhere (R2 L9) — parity with this file's GET.
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {

@@ -53,6 +53,8 @@ vi.mock("@/lib/auth-guards", async () => {
 });
 
 import { GET } from "@/app/api/events/[eventId]/rsvp-invites/route";
+import { GET as dinnersGet } from "@/app/api/events/[eventId]/dinners/route";
+import { ROSTER_PII_AGENT_TOOLS } from "@/lib/agent/tools/_shared";
 
 const req = { url: "http://x/api/events/ev1/rsvp-invites" } as unknown as Request;
 const params = Promise.resolve({ eventId: "ev1" });
@@ -103,5 +105,38 @@ describe("H2 — who can read the RSVP roster (and therefore the invite tokens)"
     mockAuth.mockResolvedValue(null);
     const res = await GET(req, { params });
     expect(res.status).toBe(401);
+  });
+});
+
+// ── R2 M4 — the sibling dinners GET must carry the same boundary ─────
+describe("R2 M4 — GET /dinners aligns with the roster GET's access model", () => {
+  beforeEach(() => {
+    mockDb.rsvpDinner.findMany.mockResolvedValue([]);
+  });
+
+  it.each(["MEMBER", "ONSITE", "CRM_USER", "REGISTRANT"])(
+    "%s is refused (the route used to have no role guard at all)",
+    async (role) => {
+      asRole(role);
+      const res = await dinnersGet(req, { params });
+      expect(res.status).toBe(403);
+    },
+  );
+
+  it("ORGANIZER reads via buildEventAccessWhere, not a hand-rolled org filter", async () => {
+    asRole("ORGANIZER");
+    const res = await dinnersGet(req, { params });
+    expect(res.status).toBe(200);
+    expect(mockBuildEventAccessWhere).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u1" }),
+      "ev1",
+    );
+  });
+});
+
+// ── R2 M5 — the agent surface must agree with the roster policy ──────
+describe("R2 M5 — list_dinner_rsvps is in the MEMBER-refused agent set", () => {
+  it("ROSTER_PII_AGENT_TOOLS names the roster tool (the execute route refuses it for MEMBER)", () => {
+    expect(ROSTER_PII_AGENT_TOOLS.has("list_dinner_rsvps")).toBe(true);
   });
 });
