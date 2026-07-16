@@ -78,6 +78,16 @@ const listDinnerRsvps: ToolExecutor = async (input, ctx) => {
 
     const responded = allInvites.filter((i) => i.status === "RESPONDED").length;
     const invites = pagedInvites;
+    // R2 M9: the truncation flag must compare against the FILTERED total,
+    // not allInvites — with a status filter set, the old `&& !statusFilter`
+    // clause hard-coded false, so the agent claimed a complete PENDING list
+    // while a third was missing (the same "confidently wrong number" class
+    // as the H4 headcount fix above).
+    const filteredTotal = statusFilter
+      ? statusFilter === "RESPONDED"
+        ? responded
+        : allInvites.length - responded
+      : allInvites.length;
 
     return {
       event: event.name,
@@ -95,7 +105,7 @@ const listDinnerRsvps: ToolExecutor = async (input, ctx) => {
       },
       // So the agent can say "showing 200 of 260" instead of implying it has
       // the full list.
-      inviteesTruncated: pagedInvites.length < allInvites.length && !statusFilter,
+      inviteesTruncated: pagedInvites.length < filteredTotal,
       inviteesShown: pagedInvites.length,
       invitees: invites.map((i) => ({
         name: i.inviteeName,

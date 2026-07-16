@@ -86,8 +86,31 @@ bulk-add `created` count now comes from `createMany`'s real `{ count }` (not `to
 attending ones) so a partial/crafted POST can't leave ghost attendance — closed dinners untouched.
 Route tests in [__tests__/api/dinner-rsvp-routes.test.ts](../__tests__/api/dinner-rsvp-routes.test.ts).
 Accepted-as-is (consistent with the codebase): organizer `personalMessage` is raw HTML (trusted,
-ADMIN/ORGANIZER-only, no invitee-controlled value hits an unescaped sink); MEMBER can read the roster
-(no finance data).
+ADMIN/ORGANIZER-only, no invitee-controlled value hits an unescaped sink).
+
+**⚠ Superseded (July 2026): MEMBER can NOT read the roster.** The original acceptance ("MEMBER can
+read the roster — no finance data") was inverted by the Survey/RSVP review's **H2 fix**: the roster
+GET returns each invitee's `token` (an impersonation credential) plus the confidential guest list, so
+it is now `denyReviewer`-guarded (staff only — MEMBER/ONSITE/REGISTRANT 403) and org-scoped via
+`buildEventAccessWhere`. Round 2 (**CODE_REVIEW_DINNER_RSVP_R2.html**) extended the same policy to
+the sibling `GET /dinners` and to the in-app agent's `list_dinner_rsvps` (refused for MEMBER via
+`ROSTER_PII_AGENT_TOOLS`).
+
+**Later review rounds:**
+- **Round 1 (July 2026, [CODE_REVIEW_SURVEY_RSVP.html](CODE_REVIEW_SURVEY_RSVP.html))** — shipped:
+  **B2** (editing a dinner wiped venue/description/deadline), **H2** (roster token exposure — see
+  above), **H5** (dinner times drifted by the UTC offset on every save), **H4** (MCP headcounts
+  computed over one page), **L3** (CSV export audit-logged).
+- **Round 2 (July 16, 2026, [CODE_REVIEW_DINNER_RSVP_R2.html](CODE_REVIEW_DINNER_RSVP_R2.html))** —
+  shipped: **M1** (a deadline-less dinner now closes at `dinnerAt`, not never), **M2** (an answer for
+  a just-closed dinner is reported via `ignoredDinnerIds`, not silently dropped), **M3** (a stale form
+  addressing zero open dinners is rejected 409 `STALE_FORM` instead of running the destructive
+  replace-all), **M10** (the public submit writes a before→after AuditLog row with IP), **M4/M5/L9**
+  (access alignment — see above), **M6** (batch sends skip invitees emailed in the last 10 minutes,
+  so a retry can't re-blast; single-invitee sends never skip), **M7** (preview renders the typed
+  subject + message), **M8** (tokens typed into the message resolve per recipient), **M9** (MCP
+  `inviteesTruncated` honest under a status filter), plus riders L1/L2/L7/L11/L13/L15/L16.
+  Remaining LOWs tracked in ROADMAP §"Dinner RSVP — backlog".
 
 ## Status / roadmap
 

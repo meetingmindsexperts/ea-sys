@@ -6,8 +6,9 @@
  * Manage the event's dinners (Day 1 Dinner, Day 2 Gala…), build the
  * invite list (manual + import from Registrations/Speakers), and read the
  * roster: per-invitee responses, per-dinner headcount tiles, CSV export,
- * and each invitee's personalized RSVP link to copy/share. Email delivery
- * of links is P2. Docs: docs/DINNER_RSVP.md.
+ * and each invitee's personalized RSVP link to copy/share — plus email
+ * delivery (Email invitations / Remind pending / per-row Send).
+ * Docs: docs/DINNER_RSVP.md.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -146,7 +147,12 @@ export default function DinnerRsvpPage() {
       try {
         const [ev] = await Promise.all([fetch(`/api/events/${eventId}`), loadRoster()]);
         if (ev.ok) setSlug((await ev.json()).slug || "");
-        else console.error("dinner-console:event-load-failed", ev.status);
+        else {
+          // R2 M11: a silent failure here left slug="" and Copy-link then
+          // copied a broken /e//rsvp/… URL with a SUCCESS toast.
+          console.error("dinner-console:event-load-failed", ev.status);
+          toast.error("Couldn't load the event details — RSVP links can't be copied. Reload the page.");
+        }
       } catch (err) {
         console.error("dinner-console:init-error", err);
         toast.error("Couldn't load the dinner console");
@@ -288,6 +294,11 @@ export default function DinnerRsvpPage() {
     }
   };
   const copyLink = (token: string) => {
+    if (!slug) {
+      // R2 M11: never hand out a broken /e//rsvp/… link with a green toast.
+      toast.error("Event details haven't loaded — reload the page and try again.");
+      return;
+    }
     navigator.clipboard.writeText(`${origin}/e/${slug}/rsvp/${token}`).then(
       () => toast.success("RSVP link copied"),
       (err) => {
@@ -723,7 +734,7 @@ export default function DinnerRsvpPage() {
               <Input
                 value={sendSubject}
                 onChange={(e) => setSendSubject(e.target.value)}
-                placeholder={`You're invited — ${slug ? "" : ""}the event dinners`}
+                placeholder="You're invited — the event dinners"
               />
             </div>
             <div>

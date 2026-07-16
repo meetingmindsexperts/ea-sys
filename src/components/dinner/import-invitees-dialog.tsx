@@ -82,7 +82,10 @@ export function ImportInviteesDialog({
             ),
           );
         } else {
+          // R2 L2: a silent failure here rendered "No people found." — the
+          // organizer concluded the event had no registrations.
           console.error("import-invitees:registrations-load-failed", rRes.status);
+          toast.error("Couldn't load registrations — try reopening the dialog.");
         }
         if (sRes.ok) {
           const rows = await sRes.json();
@@ -105,6 +108,7 @@ export function ImportInviteesDialog({
           );
         } else {
           console.error("import-invitees:speakers-load-failed", sRes.status);
+          toast.error("Couldn't load speakers — try reopening the dialog.");
         }
       } catch (err) {
         console.error("import-invitees:load-error", err);
