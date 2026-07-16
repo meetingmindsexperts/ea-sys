@@ -1263,6 +1263,14 @@ export default function SpeakerDetailPage() {
                 <p className="text-sm text-muted-foreground">
                   This will send a speaker invitation email with event details and a request to confirm participation.
                 </p>
+                {!speaker.agreementAcceptedAt && (
+                  <p className="text-xs text-muted-foreground rounded border bg-muted/40 px-3 py-2">
+                    If the invitation template includes the agreement block, the email also
+                    carries a personal <strong>Review &amp; Agree</strong> link (previously sent
+                    links stay valid) and attaches the personalized agreement when the event has
+                    agreement content configured.
+                  </p>
+                )}
                 <EmailAttachmentPicker
                   files={invitationFiles}
                   onChange={setInvitationFiles}
@@ -1272,7 +1280,9 @@ export default function SpeakerDetailPage() {
             )}
             {emailType === "agreement" && (
               <p className="text-sm text-muted-foreground">
-                This will send a speaker agreement email with event details, session information, and agreement terms.
+                This will send a speaker agreement email with event details, session information,
+                and agreement terms. Re-sending issues a fresh link and{" "}
+                <strong>replaces any previously sent agreement link</strong>.
               </p>
             )}
             {emailType === "custom" && (

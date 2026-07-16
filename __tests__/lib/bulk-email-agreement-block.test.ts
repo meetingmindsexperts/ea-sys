@@ -141,10 +141,12 @@ function varsHandedToRenderer(): Record<string, unknown> {
 }
 
 describe("executeBulkEmail — {{agreementBlock}} minting", () => {
-  it("mints per recipient and renders the CTA when the template uses the token", async () => {
+  it("mints per recipient (ADDITIVE — rotate: false) when the template uses the token", async () => {
     const res = await executeBulkEmail(BASE_INPUT);
     expect(res.successCount).toBe(1);
-    expect(mockMintAgreementLink).toHaveBeenCalledWith("spk-1", "osh");
+    // Review M1: an invitation carrying {{agreementBlock}} must not rotate
+    // (invalidate) a previously-delivered agreement link.
+    expect(mockMintAgreementLink).toHaveBeenCalledWith("spk-1", "osh", { rotate: false });
     const vars = varsHandedToRenderer();
     expect(vars.agreementLink).toBe("https://x.com/e/osh/speaker-agreement?token=tok1");
     expect(String(vars.agreementBlock)).toContain("Review &amp; Agree");
@@ -168,16 +170,34 @@ describe("executeBulkEmail — {{agreementBlock}} minting", () => {
     expect(vars.agreementLink).toBe("");
   });
 
-  it("bulk AGREEMENT sends now mint {{agreementLink}} (was the literal token)", async () => {
+  it("bulk AGREEMENT sends mint {{agreementLink}} with ROTATE (latest re-send wins)", async () => {
     mockGetDefaultTemplate.mockReturnValue({
       subject: "Agreement — {{eventName}}",
       htmlContent: '<a href="{{agreementLink}}">Review &amp; Accept Agreement</a>',
       textContent: "{{agreementLink}}",
     });
     await executeBulkEmail({ ...BASE_INPUT, emailType: "agreement" });
-    expect(mockMintAgreementLink).toHaveBeenCalledWith("spk-1", "osh");
+    expect(mockMintAgreementLink).toHaveBeenCalledWith("spk-1", "osh", { rotate: true });
     const vars = varsHandedToRenderer();
     expect(vars.agreementLink).toBe("https://x.com/e/osh/speaker-agreement?token=tok1");
+  });
+
+  // Review M3: single-send parity — a bulk agreement re-send to a SIGNED
+  // speaker used to render href="" (dead CTA); it now mints a working link
+  // that lands on the already-accepted page, exactly like the single-send.
+  it("bulk AGREEMENT sends mint a working link for SIGNED speakers too", async () => {
+    mockDb.speaker.findMany.mockResolvedValue([speaker("spk-1", new Date("2026-07-01"))]);
+    mockGetDefaultTemplate.mockReturnValue({
+      subject: "Agreement — {{eventName}}",
+      htmlContent: '<a href="{{agreementLink}}">Review &amp; Accept Agreement</a>{{agreementBlock}}',
+      textContent: "{{agreementLink}}",
+    });
+    await executeBulkEmail({ ...BASE_INPUT, emailType: "agreement" });
+    expect(mockMintAgreementLink).toHaveBeenCalledWith("spk-1", "osh", { rotate: true });
+    const vars = varsHandedToRenderer();
+    expect(vars.agreementLink).toBe("https://x.com/e/osh/speaker-agreement?token=tok1");
+    // The block token still renders the already-accepted note, not a re-ask.
+    expect(String(vars.agreementBlock)).toContain("already reviewed and accepted");
   });
 
   it("a mint failure is captured per-recipient, not batch-fatal", async () => {

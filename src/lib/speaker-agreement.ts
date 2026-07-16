@@ -41,21 +41,33 @@ export function templateUsesAgreementBlock(
 }
 
 /**
- * Mint (rotate) the speaker's one-time agreement link: delete any existing
- * token for the speaker, create a fresh 30-day one, return the public URL.
- * NOTE: rotation invalidates previously-emailed links for this speaker —
- * the latest email always wins (pre-existing semantics of agreement sends).
+ * Mint the speaker's agreement link (fresh 30-day token, public URL).
+ *
+ * Two modes (review M1, July 16 2026):
+ *   - rotate: true (default — STRICT agreement sends): delete every existing
+ *     token first, so the latest agreement email always wins (pre-existing
+ *     re-send semantics).
+ *   - rotate: false (agreementBlock-driven sends — invitation/custom): mint
+ *     ADDITIVELY, sweeping only EXPIRED rows. A casual invitation must never
+ *     invalidate a previously-delivered agreement link; tokens are stored
+ *     hashed, so "reuse the old link" is impossible — additive minting is
+ *     the equivalent guarantee (both links stay valid until expiry, and
+ *     acceptance sweeps all of the speaker's tokens).
  */
 export async function mintSpeakerAgreementLink(
   speakerId: string,
   eventSlug: string,
+  opts?: { rotate?: boolean },
 ): Promise<string> {
   const identifier = `speaker-agreement:${speakerId}`;
   const rawToken = randomBytes(32).toString("hex");
   const hashedToken = hashVerificationToken(rawToken);
+  const rotate = opts?.rotate ?? true;
 
   await db.$transaction([
-    db.verificationToken.deleteMany({ where: { identifier } }),
+    db.verificationToken.deleteMany({
+      where: rotate ? { identifier } : { identifier, expires: { lt: new Date() } },
+    }),
     db.verificationToken.create({
       data: {
         identifier,

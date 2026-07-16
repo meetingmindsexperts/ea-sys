@@ -910,6 +910,20 @@ export function BulkEmailDialog({
             </div>
           )}
 
+          {/* Disclosure (review M2): a speaker invitation whose template
+              carries the agreement block also includes a personal Review &
+              Agree link and attaches the personalized agreement when the
+              event has agreement content configured. */}
+          {emailType === "invitation" && recipientType === "speakers" && (
+            <p className="text-xs text-muted-foreground rounded border bg-muted/40 px-3 py-2">
+              If the invitation template includes the agreement block, each unsigned speaker
+              gets a personal <strong>Review &amp; Agree</strong> link (previously sent links stay
+              valid) and the personalized agreement is attached when the event has agreement
+              content configured. Speakers who already signed see an &ldquo;already
+              accepted&rdquo; note instead.
+            </p>
+          )}
+
           {/* Message field (custom emails require it, invitation allows optional personal message, certificate sends may override the cover email) */}
           {(isCustom || emailType === "invitation" || isCertificate) && (
             <div className="space-y-2">

@@ -180,7 +180,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: tokenResult.error }, { status: tokenResult.status });
     }
 
-    const { speakerId, hashedToken } = tokenResult;
+    const { speakerId } = tokenResult;
 
     const speaker = await db.speaker.findFirst({
       where: { id: speakerId },
@@ -204,7 +204,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       // `agreementTextSnapshot` on re-acceptance, so the legally-binding
       // text remains locked at the moment of first click even if the
       // organizer edits the agreement HTML after that point.
-      await db.verificationToken.delete({ where: { token: hashedToken } }).catch(() => {});
+      // Sweep ALL of the speaker's tokens — additive minting (invitation
+      // {{agreementBlock}} sends) can leave valid siblings behind.
+      await db.verificationToken
+        .deleteMany({ where: { identifier: `${IDENTIFIER_PREFIX}${speaker.id}` } })
+        .catch(() => {});
       apiLogger.info({
         msg: "Speaker agreement re-acceptance attempted (already accepted)",
         speakerId: speaker.id,
@@ -244,7 +248,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           agreementAcceptedBy: "SPEAKER",
         },
       }),
-      db.verificationToken.delete({ where: { token: hashedToken } }),
+      // deleteMany by identifier, not delete-by-token: additive minting can
+      // leave valid sibling links; acceptance invalidates all of them.
+      db.verificationToken.deleteMany({
+        where: { identifier: `${IDENTIFIER_PREFIX}${speaker.id}` },
+      }),
     ]);
 
     // Audit trail (fire-and-forget). Mirrors the organizer-side PATCH

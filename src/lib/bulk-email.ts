@@ -1348,13 +1348,21 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     }
 
     if (templateWantsAgreement) {
-      // Signed speakers get the "already accepted" note; unsigned speakers
-      // get a freshly-minted one-time link + Review & Agree CTA. A mint
-      // failure throws and is captured by the per-recipient error handling —
-      // one bad row never sinks the batch.
-      const link = recipient.agreementAcceptedAt
-        ? ""
-        : await mintSpeakerAgreementLink(recipient.id, event.slug || event.id);
+      // Strict AGREEMENT sends mint for EVERYONE — single-send parity: a
+      // signed speaker's re-send keeps a working {{agreementLink}} that lands
+      // on the already-accepted page instead of a dead href="" (review M3) —
+      // and ROTATE (latest re-send wins). agreementBlock-driven sends skip
+      // signed speakers (green "already accepted" note, no CTA) and mint
+      // ADDITIVELY so an invitation can't invalidate a previously-delivered
+      // link (review M1). A mint failure throws and is captured by the
+      // per-recipient error handling — one bad row never sinks the batch.
+      const strictSend = Boolean(agreementMode);
+      const link =
+        recipient.agreementAcceptedAt && !strictSend
+          ? ""
+          : await mintSpeakerAgreementLink(recipient.id, event.slug || event.id, {
+              rotate: strictSend,
+            });
       vars.agreementLink = link;
       const block = buildAgreementBlock({
         agreementLink: link,

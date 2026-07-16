@@ -83,4 +83,22 @@ describe("mintSpeakerAgreementLink", () => {
     expect(created.token).not.toBe(rawToken);
     expect(url).toBe(`https://events.example.com/e/osh-2026/speaker-agreement?token=${rawToken}`);
   });
+
+  // Review M1 (July 16): agreementBlock-driven sends (invitation/custom) must
+  // NOT invalidate a previously-delivered agreement link — they mint
+  // additively, sweeping only EXPIRED rows.
+  it("rotate: false mints additively — only expired tokens are swept", async () => {
+    await mintSpeakerAgreementLink("spk-1", "osh-2026", { rotate: false });
+    const where = mockDb.verificationToken.deleteMany.mock.calls[0][0].where;
+    expect(where.identifier).toBe("speaker-agreement:spk-1");
+    expect(where.expires).toEqual({ lt: expect.any(Date) });
+    expect(mockDb.verificationToken.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rotate: true (explicit) deletes ALL existing tokens — strict re-send wins", async () => {
+    await mintSpeakerAgreementLink("spk-1", "osh-2026", { rotate: true });
+    expect(mockDb.verificationToken.deleteMany).toHaveBeenCalledWith({
+      where: { identifier: "speaker-agreement:spk-1" },
+    });
+  });
 });

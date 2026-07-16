@@ -141,7 +141,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     let agreementLink = "";
     if (type === "agreement" || includeAgreementLink) {
       try {
-        agreementLink = await mintSpeakerAgreementLink(speaker.id, event.slug);
+        // Only the strict agreement type ROTATES (latest re-send wins); an
+        // includeAgreementLink custom send mints additively so it can't
+        // invalidate a previously-delivered link (review M1).
+        agreementLink = await mintSpeakerAgreementLink(speaker.id, event.slug, {
+          rotate: type === "agreement",
+        });
       } catch (tokenErr) {
         apiLogger.error({ err: tokenErr, msg: "Failed to create speaker agreement token", speakerId: speaker.id, eventId });
         return NextResponse.json({ error: "Failed to generate agreement link" }, { status: 500 });
@@ -211,7 +216,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
     if (!agreementLink && !speaker.agreementAcceptedAt && templateWantsAgreement) {
       try {
-        agreementLink = await mintSpeakerAgreementLink(speaker.id, event.slug);
+        // Additive mint (rotate: false) — an invitation carrying
+        // {{agreementBlock}} must not kill a previously-delivered agreement
+        // link (review M1); acceptance sweeps all of the speaker's tokens.
+        agreementLink = await mintSpeakerAgreementLink(speaker.id, event.slug, { rotate: false });
         vars.agreementLink = agreementLink;
       } catch (tokenErr) {
         apiLogger.error({ err: tokenErr, msg: "Failed to create speaker agreement token", speakerId: speaker.id, eventId });
