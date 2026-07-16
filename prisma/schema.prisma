@@ -98,6 +98,7 @@ model User {
   crmActivities    CrmActivity[] @relation("CrmActivityActor")
   createdCrmEmailTemplates CrmEmailTemplate[] @relation("CrmEmailTemplateCreator")
   createdCrmProducts CrmProduct[] @relation("CrmProductCreator")
+  uploadedSpeakerDocuments SpeakerDocument[] @relation("SpeakerDocumentUploader")
 
   @@index([organizationId])
   @@index([email])
@@ -1110,6 +1111,7 @@ model Speaker {
   accommodation            Accommodation?
   issuedCertificates       IssuedCertificate[]
   certificateIssueRunItems CertificateIssueRunItem[]
+  documents                SpeakerDocument[]
 
   @@unique([eventId, email])
   @@index([eventId])
@@ -1122,6 +1124,39 @@ enum SpeakerStatus {
   CONFIRMED
   DECLINED
   CANCELLED
+}
+
+enum SpeakerDocumentKind {
+  /// The signed agreement copy the organizer received back (wet signature /
+  /// emailed PDF). App-enforced ONE per speaker (per event -- speakers are
+  /// event-scoped): a new upload replaces the previous one. Deliberately
+  /// SEPARATE from Speaker.agreementAcceptedAt (owner decision July 16,
+  /// 2026) -- storing the file does not mark the agreement accepted.
+  SIGNED_AGREEMENT
+  /// Any other per-speaker file: bio doc, CV, COI form scan, etc.
+  OTHER
+}
+
+/// Per-speaker uploaded documents (July 16, 2026, owner request): the signed
+/// agreement copy for future reference + arbitrary attachments (bio doc ...).
+/// Files live under /uploads/speaker-docs/{eventId}/; PDF + DOC/DOCX only,
+/// magic-byte validated, 10MB cap (see the documents route).
+model SpeakerDocument {
+  id           String              @id @default(cuid())
+  speakerId    String
+  kind         SpeakerDocumentKind @default(OTHER)
+  url          String
+  filename     String
+  label        String?
+  mimeType     String
+  size         Int
+  uploadedById String?
+  createdAt    DateTime            @default(now())
+
+  speaker    Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  uploadedBy User?   @relation("SpeakerDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([speakerId])
 }
 
 model Abstract {
