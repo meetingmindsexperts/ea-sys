@@ -648,7 +648,7 @@ New findings: **0 BLOCKER / 3 HIGH / 9 MED / ~12 LOW**.
 | C10 | LOW | The retry route bypasses the 20/hr `bulk-email:org` bucket; rate-limit slots burn before Zod/precheck (20 rejected attempts lock out legitimate sends); MCP 10/hr + REST 20/hr are independent budgets (30/hr combined) — by design but undocumented. |
 | C11 | LOW | A backlog tick can burst ~250 concurrent SES sends (10 parallel rows × 25-recipient batches) vs the 14/s SES rate — throttles surface as per-recipient failures that self-heal on retry, but produce spurious failureCount noise. |
 | C8 | LOW (sharpened KNOWN) | The advisory-lock unlock's `false` return is silently discarded, and a wedged lock makes every tick skip at **debug** — scheduled sends stop with no alert. Given the over-alerting preference: escalate N-consecutive `skip-tick-locked` to warn. |
-| SIG-1 | LOW | **`{{organizerSignature}}` gaps** (diagnosed July 16, owner chose diagnosis-only): (a) the registration single-send route (`registrations/[id]/email`) never threads the var — an edited template carrying the token renders it as LITERAL text on that path (the speaker single-send threads it correctly); (b) only 6 of 25 default templates contain the token — notably `custom-notification` (every Custom Email bulk send) does not, so the fetched signature is silently unused; (c) tokens typed into the message box are never substituted (renderTemplate is single-pass over the template, not var values). Workaround in use: organizers add the token to their event's edited templates for BULK sends. Fix when picked up: thread the var in the registration single-send route + add the token to `custom-notification`. |
+| ~~SIG-1~~ | LOW | **`{{organizerSignature}}` gaps** (diagnosed July 16): (a) the registration single-send route never threaded the var (literal token rendered); (b) `custom-notification` (every Custom Email send) doesn't carry the token in its default body; (c) tokens typed into the message box were never substituted (renderTemplate is single-pass over the template, not var values). | ✅ **SHIPPED July 16 (same day — owner un-deferred).** New `renderMessageValue()` in [email.ts](../src/lib/email.ts): tokens typed INTO the compose message resolve on all three senders (bulk + both single-send routes), with each key's historical escaping contract preserved ({{message}} escapes literal text — the MCP A1 flag now feeds the helper's `isHtml`; {{personalMessage}} stays raw-literal); the registration single-send route loads the sender's `User.emailSignature` and threads `organizerSignature`; compose-box hint + TEMPLATE_VARIABLES updated. (b) deliberately NOT auto-appended to the default template — the signature appears when the organizer uses the variable, per the ask. |
 
 **Known-deferred re-verified unchanged:** M4 (email-preview org-null collapse), M5 (count-predicate
 triplication — speakers copy still missing `sessionRole`), preview rate limit, `presentationDetails`
@@ -674,9 +674,10 @@ DELETE tells Zoom and guards the webinar anchor; `1d61af6` H5 unlogged-4xx sweep
   Zoom webinars**; `updateEventSettings` is atomic but resolves last-write-wins on `sessionId`, so one
   anchor + its remote webinar are orphaned. Fix: take the settings row lock around the whole
   read→create, or claim a sentinel `webinar.provisioning` key first.
-- **M2 — session PUT regenerates every topic id.** `topicSchema` accepts `id` but the create never uses
-  it, so editing one topic's title deletes and recreates all topics with fresh cuids. Breaks any stable
-  reference (deep links, external sync) and makes partial topic edits impossible.
+- ~~**M2 — session PUT regenerates every topic id.**~~ ✅ **SHIPPED July 16, 2026** (`bf678930`) — the
+  service updates payload topics carrying an existing id in place (per-topic speakers replaced), creates
+  id-less rows, deletes topics absent from the payload; foreign ids ignored (no cross-session hijack).
+  Dashboard form, SessionDetailSheet, and MCP `update_session` all thread the id through.
 - **M3 — public `stream-status` hands the live HLS URL + `streamKey` to anyone**, bypassing the
   registration gate `zoom-join` enforces; and the public GET performs a DB write (`streamStatus`).
 - **M5 — DRAFT-event exposure is still systemic** on `lobby-status`, `stream-status`, `zoom-join`,
@@ -685,33 +686,33 @@ DELETE tells Zoom and guards the webinar anchor; `1d61af6` H5 unlogged-4xx sweep
 - **M6 — retiming a session never re-syncs its Zoom meeting.** Both PUT paths write
   `startTime`/`endTime` and neither touches the `ZoomMeeting` row; Zoom keeps the original scheduled
   start and a stale `duration` while the lobby + public agenda use the new times.
-- **M7 — the public agenda buckets days in the VIEWER's timezone while rendering times in the EVENT's.**
-  `event-time.ts` exports `localDateInTz`/`formatDateInTz` for exactly this and is bypassed for the date
-  half. An 11 PM event-TZ session is bucketed under the next calendar day for any viewer west of the
-  event. `speakers-agenda-preview.tsx` carries a now-false comment claiming the page renders in viewer TZ.
-- **M8 — the dashboard agenda ignores `event.timezone` entirely**: the list/tooltips render in hardcoded
-  **Asia/Dubai** (`utils.ts` `toDubai`) while the calendar grid positions cards in **browser-local**
-  (`start.getHours()`). Two clocks on one page, neither the event's — the admin builds the agenda against
-  a mis-drawn grid.
-- **M9 — narrowing an event's dates silently orphans out-of-range sessions.** `isSessionWithinEventDates`
-  then rejects any *new or edited* session on the dropped day, while the stale ones persist and still
-  render on the public agenda.
-- **M10 — `sortOrder` allocated read-then-insert with no unique constraint** (`tracks` `max+1`,
-  `add_topic_to_session` `count()`), so concurrent creates tie and the agenda renders
-  non-deterministically. Same class already fixed for certificate templates via a transactional
-  aggregate+create.
-- **M11 — no shared `session-enums.ts`.** `SessionRole`/`SessionStatus` labels + colours are
-  re-implemented four ways; the dashboard tooltip renders raw `MODERATOR:` where the public page renders
-  `Moderator`. A new enum value must be patched in 4+ spots and the build won't catch a miss.
-- **L1** removing/replacing a session's speakers orphans their per-topic `TopicSpeaker` rows (the speaker
-  keeps appearing under the topic on the public agenda). **L3** abstract→session uniqueness is
-  check-then-act; the race surfaces as an opaque 500 instead of the intended 400. **L4** session/track
-  writes org-scope by hand instead of `buildEventAccessWhere` (not exploitable — `denyReviewer` fires
-  first — but it's the pattern that produced three IDORs this month, and it 404s a SUPER_ADMIN with no
-  org); and **three** public "join opens at" countdowns still render viewer-local (CLAUDE.md says two,
-  and one of them formats the very same instant the header renders in event TZ). **L5** public slug
-  lookups are not org-scoped (multi-tenant pre-condition), and `isSessionWithinEventDates` relies on an
-  implicit lexical date-string contract worth documenting.
+- ~~**M7 — the public agenda buckets days in the VIEWER's timezone while rendering times in the EVENT's.**~~
+  ✅ **SHIPPED July 16, 2026** (`15bb3e88`) — day buckets on the public agenda + the registration-page
+  preview use `localDateInTz(event.timezone)`; the preview's false "renders in viewer tz" comment removed.
+- ~~**M8 — the dashboard agenda ignores `event.timezone` entirely**~~ ✅ **SHIPPED July 16, 2026**
+  (`15bb3e88`) — grid positioning (new `hourFractionInTz`), labels (`formatTimeInTz`), day bucketing, and
+  the session form's datetime-local values (new `localDateTimeInTz` / `wallTimeInTzToDate`, DST-safe) all
+  operate in the event's timezone; `SessionDetailSheet` gained a timezone prop.
+- ~~**M9 — narrowing an event's dates silently orphans out-of-range sessions.**~~ ✅ **SHIPPED July 16,
+  2026** (`bf678930`) — the event PUT blocks with 400 `SESSIONS_OUTSIDE_NEW_DATES` naming the offending
+  sessions (owner decision: block, not warn); also fires when only the timezone moves the window.
+- ~~**M10 — `sortOrder` allocated read-then-insert with no unique constraint**~~ ✅ **SHIPPED July 16,
+  2026** (`bf678930`) — tracks POST + MCP `add_topic_to_session` compute max+1 inside the same
+  transaction as the create (the certificate-templates pattern).
+- ~~**M11 — no shared `session-enums.ts`.**~~ ✅ **SHIPPED July 16, 2026** (`d2e749b2`) — new
+  [src/lib/session-enums.ts](../src/lib/session-enums.ts) (exhaustive Prisma-enum-keyed Records); the four
+  re-implementations migrated (dashboard agenda incl. the raw-`MODERATOR:` tooltip, detail sheet, public
+  agenda, public session page, speaker-agreement email context).
+- ~~**L1** removing/replacing a session's speakers orphans their per-topic `TopicSpeaker` rows~~ ✅
+  **SHIPPED July 16, 2026** (`bf678930`) — service update + MCP remove/replace clear dropped speakers'
+  rows on that session's topics in the same transaction. ~~**L3** abstract→session uniqueness
+  check-then-act race → opaque 500~~ ✅ **SHIPPED** (`bf678930`) — P2002 on `abstractId` maps to
+  `ABSTRACT_ALREADY_ASSIGNED`. ~~**L4** session/track writes org-scope by hand + three viewer-local
+  "join opens at" countdowns~~ ✅ **SHIPPED** (`15bb3e88` countdowns via `formatJoinOpens` event-TZ +
+  GMT label; `bf678930`/`d2e749b2` org-scope via `buildEventAccessWhere` on sessions POST/PUT/DELETE +
+  tracks POST/PUT/DELETE). **L5** — the `localDateInTz` lexical YYYY-MM-DD contract is now documented in
+  event-time.ts (✅ July 16); the org-scoped public slug lookups half stays open (multi-tenant
+  pre-condition, tracked in MULTI_TENANCY_IMPACT.md).
 
 
 ### Abstracts & reviewers review (July 10, 2026) — deferred findings

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit, hashVerificationToken } from "@/lib/security";
@@ -162,9 +162,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
-    // Build the rich speaker context (title, full name, presentation block, etc.)
-    // for invitation/agreement templates. Custom emails get the basic vars only.
-    const context = type === "custom" ? null : await buildSpeakerEmailContext(eventId, speakerId);
+    // Build the rich speaker context (title, full name, presentation block,
+    // etc.) for EVERY type. Custom emails used to skip it, so a customized
+    // custom-notification template using {{presentationDetails}} rendered an
+    // empty block (organizer-reported bug, July 16 2026).
+    const context = await buildSpeakerEmailContext(eventId, speakerId);
 
     const vars: Record<string, string> = {
       firstName: speaker.firstName,
@@ -211,12 +213,26 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
-    const rendered = renderAndWrap(
-      tpl,
-      vars,
-      branding,
-      new Set(["presentationDetails", "organizerSignature", "personalMessage"]),
-    );
+
+    // message + personalMessage are pre-rendered FINAL HTML via
+    // renderMessageValue, so tokens the organizer typed into the free-text
+    // message ({{organizerSignature}}, {{presentationDetails}}, …) resolve
+    // instead of staying literal (July 16, 2026). Historical escaping kept
+    // per key: {{personalMessage}} always rendered the typed message raw
+    // (isHtml: true); {{message}} escapes its literal text.
+    const rawHtmlKeys = new Set([
+      "presentationDetails",
+      "organizerSignature",
+      "personalMessage",
+      "message",
+    ]);
+    if (customMessage) {
+      vars.personalMessage = renderMessageValue(customMessage, vars, { isHtml: true, rawHtmlKeys });
+      if ("message" in vars) {
+        vars.message = renderMessageValue(customMessage, vars, { rawHtmlKeys });
+      }
+    }
+    const rendered = renderAndWrap(tpl, vars, branding, rawHtmlKeys);
 
     // Seed with the operator-picked files; the agreement branch appends its
     // generated document on top.

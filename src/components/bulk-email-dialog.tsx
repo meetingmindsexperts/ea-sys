@@ -930,9 +930,18 @@ export function BulkEmailDialog({
                 rows={6}
                 maxLength={10000}
               />
-              <p className="text-xs text-muted-foreground text-right">
-                {customMessage.length}/10000
-              </p>
+              <div className="flex items-start justify-between gap-2">
+                {!isCertificate && (
+                  <p className="text-xs text-muted-foreground">
+                    Tokens work here: <code className="bg-muted px-1 rounded">{"{{organizerSignature}}"}</code>{" "}
+                    inserts your profile email signature; <code className="bg-muted px-1 rounded">{"{{firstName}}"}</code>{" "}
+                    personalizes per recipient.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground text-right shrink-0 ml-auto">
+                  {customMessage.length}/10000
+                </p>
+              </div>
             </div>
           )}
 

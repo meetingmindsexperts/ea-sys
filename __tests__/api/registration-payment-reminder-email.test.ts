@@ -14,6 +14,8 @@ const { mockDb, mockAuth, renderAndWrapSpy, sendEmailSpy } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn() },
+    // The route loads the sender's profile signature for {{organizerSignature}}.
+    user: { findUnique: vi.fn().mockResolvedValue(null) },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   mockAuth: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock("@/lib/email", () => ({
     textContent: "Amount: {{amount}}\n{{paymentBlock}}",
   }),
   renderAndWrap: renderAndWrapSpy,
+  renderMessageValue: vi.fn((m: string) => m),
   brandingFrom: vi.fn().mockReturnValue({ email: "f@x.com" }),
   brandingCc: vi.fn().mockReturnValue([]),
   sendRegistrationConfirmation: vi.fn(),

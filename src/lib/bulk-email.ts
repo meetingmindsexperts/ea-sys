@@ -9,6 +9,7 @@ import {
   getEventTemplate,
   getDefaultTemplate,
   renderAndWrap,
+  renderMessageValue,
   brandingFrom,
   brandingCc,
   type EmailBranding,
@@ -1195,11 +1196,14 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     };
   }
 
-  // For speaker-targeted templates (invitation/agreement), build the rich
-  // per-speaker context so greetings include the title prefix and the body
-  // shows their actual sessions/topics/dates.
-  const isSpeakerContextNeeded =
-    recipientType === "speakers" && (emailType === "invitation" || emailType === "agreement");
+  // For ANY speaker-targeted send, build the rich per-speaker context so
+  // greetings include the title prefix and {{presentationDetails}} shows the
+  // speaker's actual sessions/topics/dates. This used to be gated to the
+  // invitation/agreement types only — an organizer sending a SAVED custom
+  // template (emailType "template") or a custom email whose template body
+  // used {{presentationDetails}} got a silently empty block (organizer-
+  // reported bug, July 16 2026).
+  const isSpeakerContextNeeded = recipientType === "speakers";
 
   const generateEmailForRecipient = async (recipient: ResolvedRecipient) => {
     const vars: Record<string, string | number> = {
@@ -1359,11 +1363,34 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       "personalMessage",
       "passcodeBlock",
       "recordingBlock",
+      // message + personalMessage are pre-rendered FINAL HTML below via
+      // renderMessageValue — escaping is handled there (dashboard plain text
+      // escaped, MCP sanitized HTML kept — the A1 contract), so both render
+      // raw here.
+      "message",
     ]);
-    // A1 (July 16, 2026): only a caller that KNOWS its message is trusted,
-    // sanitized HTML (the MCP/agent executor) opts in — the dashboard's
-    // plain-Textarea message stays escaped.
-    if (customMessageIsHtml) rawHtmlKeys.add("message");
+
+    // Resolve tokens the organizer typed INTO the message itself —
+    // {{organizerSignature}}, {{firstName}}, … (July 16, 2026 organizer
+    // ask). renderTemplate is single-pass over the TEMPLATE, so tokens
+    // inside var values were previously left as literal text. Runs last so
+    // every per-recipient var (paymentBlock, entryBarcode, webinar blocks)
+    // is available to the message too. The two keys keep their HISTORICAL
+    // escaping contracts exactly: {{personalMessage}} has always rendered
+    // the typed message raw (isHtml: true); {{message}} escapes it unless
+    // the caller flagged sanitized HTML (the MCP A1 contract).
+    if (customMessage) {
+      vars.personalMessage = renderMessageValue(customMessage, vars, {
+        isHtml: true,
+        rawHtmlKeys,
+      });
+      if ("message" in vars) {
+        vars.message = renderMessageValue(customMessage, vars, {
+          isHtml: customMessageIsHtml,
+          rawHtmlKeys,
+        });
+      }
+    }
 
     return {
       ...renderAndWrap(tpl, vars, branding, rawHtmlKeys),

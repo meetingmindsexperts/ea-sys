@@ -23,14 +23,20 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("@/lib/email", () => ({
-  sendEmail: (args: unknown) => mockSendEmail(args),
-  getEventTemplate: vi.fn().mockResolvedValue(null),
-  getDefaultTemplate: (slug: string) => mockGetDefaultTemplate(slug),
-  renderAndWrap: (...args: unknown[]) => mockRenderAndWrap(...args),
-  brandingFrom: vi.fn().mockReturnValue({ email: "from@x.com", name: "From" }),
-  brandingCc: vi.fn().mockReturnValue([]),
-}));
+vi.mock("@/lib/email", async (importOriginal) => {
+  // renderMessageValue is REAL so the message-token tests below assert the
+  // actual escaping/substitution behavior, not a mock's.
+  const actual = await importOriginal<typeof import("@/lib/email")>();
+  return {
+    sendEmail: (args: unknown) => mockSendEmail(args),
+    getEventTemplate: vi.fn().mockResolvedValue(null),
+    getDefaultTemplate: (slug: string) => mockGetDefaultTemplate(slug),
+    renderAndWrap: (...args: unknown[]) => mockRenderAndWrap(...args),
+    renderMessageValue: actual.renderMessageValue,
+    brandingFrom: vi.fn().mockReturnValue({ email: "from@x.com", name: "From" }),
+    brandingCc: vi.fn().mockReturnValue([]),
+  };
+});
 vi.mock("@/lib/speaker-agreement", () => ({
   buildSpeakerEmailContext: vi.fn(),
   generateSpeakerAgreementDocx: vi.fn(),
@@ -160,25 +166,52 @@ describe("executeBulkEmail — per-recipient idempotency (H1)", () => {
   });
 });
 
-describe("executeBulkEmail — customMessageIsHtml (review A1, July 16 2026)", () => {
-  // The MCP/agent send_bulk_email contract is a sanitized-HTML body. The
-  // 6f5f6e9 pipeline rewire routed it through {{message}}, which renders
-  // ESCAPED by default — every agent/n8n bulk email with markup reached the
-  // whole audience as literal source code. The flag opts {{message}} into the
-  // raw-HTML key set; the dashboard's plain-Textarea message stays escaped.
+describe("executeBulkEmail — message rendering (reviews A1 + SIG-1, July 16 2026)", () => {
+  // {{message}} is pre-rendered to FINAL HTML via renderMessageValue and the
+  // key rendered raw: the MCP/agent path (customMessageIsHtml) keeps its
+  // sanitized HTML (the A1 regression fix), the dashboard's plain-Textarea
+  // message has its literal text escaped exactly as before — and tokens the
+  // organizer types INTO the message ({{organizerSignature}}, {{firstName}})
+  // now resolve instead of staying literal.
+  const renderVars = (call: number) =>
+    mockRenderAndWrap.mock.calls[call][1] as Record<string, string>;
   const renderKeys = (call: number) => mockRenderAndWrap.mock.calls[call][3] as Set<string>;
 
-  it("adds 'message' to the raw-HTML keys when the flag is set", async () => {
+  it("MCP path (customMessageIsHtml): sanitized HTML reaches the render raw", async () => {
     await executeBulkEmail({ ...INPUT, customMessageIsHtml: true });
     expect(mockRenderAndWrap).toHaveBeenCalled();
     expect(renderKeys(0).has("message")).toBe(true);
-    // The pre-existing raw keys are untouched.
-    expect(renderKeys(0).has("personalMessage")).toBe(true);
+    expect(renderVars(0).message).toBe("<p>Body</p>");
   });
 
-  it("keeps 'message' ESCAPED (not in the raw set) by default — the dashboard path", async () => {
+  it("dashboard path: literal text is still HTML-escaped (a typed < cannot inject)", async () => {
     await executeBulkEmail({ ...INPUT });
     expect(mockRenderAndWrap).toHaveBeenCalled();
-    expect(renderKeys(0).has("message")).toBe(false);
+    // The key is raw, but the VALUE was pre-escaped — same rendered output
+    // as the old escaped-value path for a tokenless message.
+    expect(renderKeys(0).has("message")).toBe(true);
+    expect(renderVars(0).message).toBe("&lt;p&gt;Body&lt;/p&gt;");
+  });
+
+  it("{{organizerSignature}} typed in the message resolves to the sender's signature HTML", async () => {
+    await executeBulkEmail({
+      ...INPUT,
+      customMessage: "Best regards,\n{{organizerSignature}}",
+      organizerSignature: "<p><strong>Dr. K</strong><br/>MMG</p>",
+    });
+    const vars = renderVars(0);
+    // Signature HTML inserted raw; the literal text around it escaped.
+    expect(vars.message).toBe("Best regards,\n<p><strong>Dr. K</strong><br/>MMG</p>");
+    // {{personalMessage}} (the speaker-template token) resolves too, keeping
+    // its historical raw-literal contract.
+    expect(vars.personalMessage).toBe("Best regards,\n<p><strong>Dr. K</strong><br/>MMG</p>");
+  });
+
+  it("escaped-value tokens typed in the message stay escaped ({{firstName}} with markup)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([reg("reg1", "a@x.com")]);
+    await executeBulkEmail({ ...INPUT, customMessage: "Dear {{firstName}} <3" });
+    const vars = renderVars(0);
+    // firstName ("A") substitutes escaped; the literal "<3" is escaped.
+    expect(vars.message).toBe("Dear A &lt;3");
   });
 });

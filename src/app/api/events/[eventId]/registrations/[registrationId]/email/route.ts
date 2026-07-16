@@ -4,7 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
 import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -230,6 +230,15 @@ export async function POST(req: Request, { params }: RouteParams) {
         })
       : "TBA";
 
+    // The sender's profile signature (User.emailSignature, edited at
+    // /profile) so {{organizerSignature}} resolves on this path too — it was
+    // the ONE single-send route that never threaded the var, so a template
+    // carrying the token rendered it as literal text (SIG-1, July 16, 2026).
+    const sender = await db.user.findUnique({
+      where: { id: session.user.id },
+      select: { emailSignature: true },
+    });
+
     const vars: Record<string, string | number> = {
       title: getTitleLabel(registration.attendee.title),
       firstName: registration.attendee.firstName,
@@ -242,6 +251,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       registrationId: registration.serialId != null
         ? String(registration.serialId).padStart(3, "0")
         : registration.id.slice(-8).toUpperCase(),
+      organizerSignature: sender?.emailSignature ?? "",
       // Entry-barcode token defaults — overridden below when the template
       // uses {{entryBarcode}} and this is an in-person registration.
       entryBarcode: "",
@@ -343,7 +353,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
-    const rendered = renderAndWrap(tpl, vars, branding);
+
+    // message + organizerSignature render raw: the signature is
+    // organizer-authored HTML from their profile, and the message is
+    // pre-rendered FINAL HTML by renderMessageValue (literal text escaped
+    // there; tokens the organizer typed into the message — e.g.
+    // {{organizerSignature}} — resolve instead of staying literal).
+    const rawHtmlKeys = new Set(["organizerSignature", "message"]);
+    if (typeof vars.message === "string" && vars.message) {
+      vars.message = renderMessageValue(vars.message, vars, { rawHtmlKeys });
+    }
+    const rendered = renderAndWrap(tpl, vars, branding, rawHtmlKeys);
 
     const attendeeName = `${registration.attendee.firstName} ${registration.attendee.lastName}`;
 

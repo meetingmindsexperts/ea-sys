@@ -25,6 +25,7 @@ vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn(),
   getEventTemplate: vi.fn(),
   getDefaultTemplate: vi.fn(),
+  renderMessageValue: vi.fn((m: string) => m),
   renderAndWrap: vi.fn(),
   brandingFrom: vi.fn(),
   brandingCc: vi.fn(),

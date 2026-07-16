@@ -809,6 +809,41 @@ export function renderTemplatePlain(
   });
 }
 
+/**
+ * Render an organizer-typed message VALUE so `{{tokens}}` inside it resolve
+ * (July 16, 2026 — organizer ask: "{{organizerSignature}} typed in the
+ * compose box must auto-add the signature from my profile").
+ * `renderTemplate` is single-pass over the TEMPLATE, so tokens typed inside
+ * a variable's value (the free-text message box) were left as literal text.
+ *
+ * The returned string is FINAL HTML — assign it to the `message` /
+ * `personalMessage` var and mark that key raw in the outer render. Escaping
+ * is handled HERE, preserving each caller's historical contract:
+ *   - plain-text messages (`isHtml` false — the dashboard Textarea) get
+ *     their literal text HTML-escaped exactly as the old escaped-value path
+ *     did, so a typed `<` still cannot inject markup;
+ *   - already-HTML messages (`isHtml` true — the MCP/agent executor's
+ *     sanitizeHtml output) are kept as-is (the A1 contract).
+ * Substituted token values follow the normal raw/escaped rules
+ * (`{{organizerSignature}}` renders its HTML; `{{firstName}}` is escaped).
+ *
+ * Known minor artifact: the plaintext alternative part is rendered from the
+ * same var, so escaped entities / a token's HTML can appear there — the same
+ * precedent as `{{organizerSignature}}` in the default text templates.
+ */
+export function renderMessageValue(
+  message: string,
+  variables: Record<string, string | number | undefined>,
+  opts: { isHtml?: boolean; rawHtmlKeys?: Set<string> } = {}
+): string {
+  const literal = opts.isHtml ? message : escapeHtml(message);
+  // Never let the message tokens recurse into themselves.
+  const vars = { ...variables };
+  delete vars.message;
+  delete vars.personalMessage;
+  return renderTemplate(literal, vars, opts.rawHtmlKeys);
+}
+
 // ── Email branding wrapper ─────────────────────────────────────────────────────
 
 export interface EmailBranding {
@@ -1122,7 +1157,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "lastName", description: "Recipient last name" },
     { key: "eventName", description: "Event name" },
     { key: "subject", description: "Email subject" },
-    { key: "message", description: "Custom message body" },
+    { key: "message", description: "Custom message body (tokens typed inside it resolve too)" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — also works typed inside the message" },
     { key: "ctaText", description: "Call-to-action button text" },
     { key: "ctaLink", description: "Call-to-action button URL" },
   ],
