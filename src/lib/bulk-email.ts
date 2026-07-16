@@ -701,6 +701,43 @@ export async function precheckBulkEmailViability(
     );
   }
 
+  // A6 (July 16, 2026, owner decision): the CANCELLED exclusion is
+  // UNCONDITIONAL for every type in CANCELLED_EXCLUDED_EMAIL_TYPES —
+  // certificate, payment-reminder, survey-invitation. A non-CANCELLED explicit
+  // status already excludes cancelled rows and the no-status path adds the
+  // guard in the where clause; the one hole was an explicit CANCELLED filter
+  // (freely passable via REST/MCP/n8n, and 2 clicks from the dashboard's
+  // "Cancelled Re-engagement" tile — seed the tile, switch the email type).
+  // Before this, a cancelled registrant could receive a payment reminder whose
+  // amount is computed from raw price columns (NOT the cancel-zeroed
+  // financials) — a dunning email for a debt that does not exist — or a survey
+  // invite dangling a certificate the auto-issue sweep then refuses to mint.
+  // Runs at both enqueue doors AND fire time (executeBulkEmail calls this
+  // precheck), so a legacy persisted row fails loudly instead of sending.
+  if (
+    recipientType === "registrations" &&
+    (CANCELLED_EXCLUDED_EMAIL_TYPES as readonly string[]).includes(emailType) &&
+    filters?.status &&
+    !isAllSentinel(filters.status) &&
+    filters.status.toUpperCase() === "CANCELLED"
+  ) {
+    const noun =
+      emailType === "certificate"
+        ? "Certificates"
+        : emailType === "payment-reminder"
+          ? "Payment reminders"
+          : "Survey invitations";
+    apiLogger.warn(
+      { eventId, emailType, recipientType, status: filters.status },
+      "bulk-email:cancelled-audience-rejected",
+    );
+    throw new BulkEmailError(
+      `${noun} cannot be sent to CANCELLED registrations. Remove the Cancelled status filter.`,
+      400,
+      INVALID_FILTER_CODE,
+    );
+  }
+
   // Certificate sends: hoisted guards — recipient-type restriction + the
   // full template-set validation (exists, belongs to the event, tagged).
   let certTemplates: LoadedCertTemplate[] | null = null;
@@ -711,24 +748,9 @@ export async function precheckBulkEmailViability(
         400,
       );
     }
-    // M3: a certificate must never be minted + emailed to a CANCELLED
-    // registration — the invariant is unconditional. A non-CANCELLED explicit
-    // status already excludes them and the no-status path adds the guard in
-    // the where clause; the one hole is an explicit CANCELLED filter (freely
-    // passable via REST/MCP/n8n, and the dashboard's "Cancelled Re-engagement"
-    // tile), which is rejected here rather than silently minting certs.
-    if (
-      recipientType === "registrations" &&
-      filters?.status &&
-      !isAllSentinel(filters.status) &&
-      filters.status.toUpperCase() === "CANCELLED"
-    ) {
-      throw new BulkEmailError(
-        "Certificates cannot be sent to CANCELLED registrations. Remove the Cancelled status filter.",
-        400,
-        INVALID_FILTER_CODE,
-      );
-    }
+    // The explicit-CANCELLED rejection (cert review M3) lives in the hoisted
+    // CANCELLED_EXCLUDED_EMAIL_TYPES guard above — shared with
+    // payment-reminder + survey-invitation since A6 (July 16, 2026).
     const certTemplateIds = filters?.certificateTemplateIds ?? [];
     if (certTemplateIds.length === 0) {
       // Schema superRefine guards this at both routes; kept for direct callers.

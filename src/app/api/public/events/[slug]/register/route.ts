@@ -80,6 +80,9 @@ interface RouteParams {
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
+  // Hoisted so the catch block's business-rejection log (M12) can name the
+  // event even though the destructure happens inside the try.
+  let slugForLog: string | undefined;
   try {
     const clientIp = getClientIp(req);
 
@@ -119,6 +122,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     const [{ slug }, body] = await Promise.all([params, req.json()]);
+    slugForLog = slug;
 
     const validated = registrationSchema.safeParse(body);
 
@@ -239,6 +243,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         where: { id: pricingTierId, ticketTypeId, isActive: true },
       });
       if (!tier) {
+        // M12: log every rejection on the money-critical public path.
+        apiLogger.warn({ msg: "public/register:pricing-tier-not-found", eventId: event.id, ticketTypeId, pricingTierId });
         return NextResponse.json({ error: "Pricing tier not found or inactive" }, { status: 404 });
       }
       pricingTier = tier;
@@ -249,12 +255,14 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const now = new Date();
     if (capacitySource.salesStart && new Date(capacitySource.salesStart) > now) {
+      apiLogger.warn({ msg: "public/register:sales-not-started", eventId: event.id, ticketTypeId, pricingTierId });
       return NextResponse.json(
         { error: "Registration sales have not started" },
         { status: 400 }
       );
     }
     if (capacitySource.salesEnd && new Date(capacitySource.salesEnd) < now) {
+      apiLogger.warn({ msg: "public/register:sales-ended", eventId: event.id, ticketTypeId, pricingTierId });
       return NextResponse.json(
         { error: "Registration sales have ended" },
         { status: 400 }
@@ -264,6 +272,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Early check (non-authoritative — the real check is inside the transaction).
     // Virtual is uncapped, so a sold-out venue can still take virtual signups.
     if (!isVirtual && capacitySource.soldCount >= capacitySource.quantity) {
+      apiLogger.warn({ msg: "public/register:sold-out", eventId: event.id, ticketTypeId, pricingTierId });
       return NextResponse.json({ error: "Sold out" }, { status: 400 });
     }
 
@@ -688,6 +697,20 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
   } catch (error) {
     if (error instanceof Error) {
+      // M12: the sentinel-mapped business 400s (duplicate / sold-out / promo
+      // rejections) were returned dark — log each at warn so a failed public
+      // registration is traceable without asking the registrant.
+      const businessRejections = [
+        "ALREADY_REGISTERED",
+        "SOLD_OUT",
+        "INVALID_PROMO_CODE",
+        "PROMO_CODE_NOT_APPLICABLE",
+        "PROMO_CODE_EXHAUSTED",
+        "PROMO_CODE_EMAIL_LIMIT",
+      ];
+      if (businessRejections.includes(error.message)) {
+        apiLogger.warn({ msg: "public/register:business-rejection", code: error.message, slug: slugForLog });
+      }
       if (error.message === "ALREADY_REGISTERED") {
         return NextResponse.json(
           { error: "You are already registered for this event" },

@@ -185,6 +185,18 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (!result.ok) {
       const status = HTTP_STATUS_FOR_SPEAKER_ERROR[result.code] ?? 500;
+      // M12: business rejections (SPEAKER_ALREADY_EXISTS / EVENT_NOT_FOUND)
+      // were returned dark on the REST path — MCP logs via runTool, REST must
+      // log at its own boundary. Rejections at warn, UNKNOWN at error.
+      const logPayload = {
+        msg: "speaker-create:create-rejected",
+        eventId,
+        userId: session.user.id,
+        code: result.code,
+        status,
+      };
+      if (result.code === "UNKNOWN") apiLogger.error(logPayload);
+      else apiLogger.warn(logPayload);
       return NextResponse.json(
         { error: result.message, code: result.code, ...(result.meta ?? {}) },
         { status },

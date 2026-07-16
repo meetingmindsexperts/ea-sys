@@ -383,17 +383,23 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Log the action
-    await db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "DELETE",
-        entityType: "Speaker",
-        entityId: speakerId,
-        changes: { deleted: speaker, ip: getClientIp(req) },
-      },
-    });
+    // Log the action. Fire-and-forget (M13): the delete is already committed —
+    // a transient audit-insert blip (P2024 pool class) must not turn a
+    // completed delete into a user-facing 500.
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "DELETE",
+          entityType: "Speaker",
+          entityId: speakerId,
+          changes: { deleted: speaker, ip: getClientIp(req) },
+        },
+      })
+      .catch((err) =>
+        apiLogger.error({ err, eventId, speakerId }, "speaker-delete:audit-write-failed"),
+      );
 
     return NextResponse.json({ success: true });
   } catch (error) {

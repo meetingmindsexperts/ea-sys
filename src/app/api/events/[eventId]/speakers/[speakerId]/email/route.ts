@@ -350,22 +350,31 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    await db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "EMAIL_SENT",
-        entityType: "Speaker",
-        entityId: speaker.id,
-        changes: {
-          emailType: type,
-          recipient: speaker.email,
-          subject: rendered.subject,
-          attachmentCount: attachments.length,
-          ip: getClientIp(req),
+    // Fire-and-forget (M13): the email is already sent — a transient
+    // audit-insert blip must not report a delivered email as a 500.
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: session.user.id,
+          action: "EMAIL_SENT",
+          entityType: "Speaker",
+          entityId: speaker.id,
+          changes: {
+            emailType: type,
+            recipient: speaker.email,
+            subject: rendered.subject,
+            attachmentCount: attachments.length,
+            ip: getClientIp(req),
+          },
         },
-      },
-    });
+      })
+      .catch((err) =>
+        apiLogger.error(
+          { err, eventId, speakerId: speaker.id },
+          "speaker-email:audit-write-failed",
+        ),
+      );
 
     return NextResponse.json({
       success: true,

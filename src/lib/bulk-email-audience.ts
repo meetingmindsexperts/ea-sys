@@ -14,11 +14,14 @@
  */
 
 /**
- * Email types whose audience must never include a CANCELLED registration —
- * applied ONLY when the caller sets no explicit status filter. An explicit
- * status already scopes the send (and any non-CANCELLED value excludes them
- * anyway), so the guard exists to make the *default* safe, not to override a
- * deliberate choice.
+ * Email types whose audience must never include a CANCELLED registration.
+ * The exclusion is UNCONDITIONAL (A6, July 16, 2026 — owner decision): the
+ * where-clause guard below covers the no-explicit-status default, and
+ * `precheckBulkEmailViability` rejects an explicit CANCELLED status filter for
+ * these types with INVALID_FILTER (any other explicit status excludes
+ * cancelled rows by itself). Before A6 only `certificate` had the explicit-
+ * filter rejection — the "Cancelled Re-engagement" tile was 2 clicks from
+ * dunning/surveying cancelled registrants.
  *
  * - `payment-reminder`  — a cancelled registration owes nothing; chasing it is
  *   a dunning email for a debt that does not exist.

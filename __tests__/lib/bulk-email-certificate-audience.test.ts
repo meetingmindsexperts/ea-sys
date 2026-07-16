@@ -207,6 +207,49 @@ describe("executeBulkEmail — certificate audience scoping", () => {
     expect(where.status).toEqual({ not: "CANCELLED" });
   });
 
+  it("REJECTS a payment-reminder that explicitly targets CANCELLED (A6, July 16)", async () => {
+    // A cancelled registration owes nothing, and the reminder's amount is
+    // computed from raw price columns (not the cancel-zeroed financials) — so
+    // an explicit CANCELLED filter is a 400, not a dunning email. Closes the
+    // "Cancelled Re-engagement tile + switch email type" path AND the Jul-8 L1
+    // explicit-filter variant in one guard.
+    await expect(
+      executeBulkEmail({
+        ...BASE_INPUT,
+        emailType: "payment-reminder",
+        filters: { status: "CANCELLED" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+
+  it("REJECTS a survey-invitation that explicitly targets CANCELLED (A6, July 16)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      ...EVENT,
+      surveyConfig: [{ id: "q1", type: "rating", label: "How was it?" }],
+    });
+    await expect(
+      executeBulkEmail({
+        ...BASE_INPUT,
+        emailType: "survey-invitation",
+        filters: { status: "CANCELLED" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "INVALID_FILTER" });
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+  });
+
+  it("still allows a payment-reminder scoped to a non-CANCELLED explicit status", async () => {
+    // Aborts downstream (template loaders mocked empty) — the `where`
+    // clause is what this test pins: the guard rejects ONLY CANCELLED.
+    await executeBulkEmail({
+      ...BASE_INPUT,
+      emailType: "payment-reminder",
+      filters: { status: "CONFIRMED" },
+    }).catch(() => null);
+    const where = mockDb.registration.findMany.mock.calls[0][0].where;
+    expect(where.status).toBe("CONFIRMED");
+  });
+
   it("does NOT apply the CANCELLED guard to non-certificate email types", async () => {
     // A custom send with no status filter keeps the historical behavior
     // (no implicit status scoping). The mocked template loaders return
