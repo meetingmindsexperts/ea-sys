@@ -78,7 +78,7 @@ import { IssuedCertificatesCard } from "@/components/certificates/issued-certifi
 import { SpeakerDocumentsCard } from "@/components/speakers/speaker-documents-card";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
-import { formatPersonName, formatDateTime } from "@/lib/utils";
+import { cn, formatPersonName, formatDateTime } from "@/lib/utils";
 import { toast } from "sonner";
 
 const statusColors: Record<string, string> = {
@@ -965,26 +965,32 @@ export default function SpeakerDetailPage() {
               leaving this page. The ActivityTimelineCard below picks up the
               new EmailLog row written by the resend, so the action appears
               in two places (status row + timeline row) — the desired
-              feedback loop. */}
-          <IssuedCertificatesCard
-            eventId={eventId}
-            speakerId={speaker.id}
-            recipientLabel={
-              `${[speaker.title, speaker.firstName, speaker.lastName].filter(Boolean).join(" ")} <${speaker.email}>`
-            }
-            // Speaker tags drive the Issue dialog's "no tag, no certificate"
-            // gate (non-matching templates disabled).
-            recipientTags={speaker.tags ?? []}
-          />
-          {/* Unified activity timeline — subsumes the old email-history card
-              (it includes emails) and adds AuditLog events, issued
-              certificates (with Open), and the linked registration's activity
-              (pointed, not duplicated). */}
-          <ActivityTimelineCard
-            endpoint={`/api/events/${eventId}/speakers/${speaker.id}/activity`}
-            anchor="speaker"
-            queryKey={[eventId, "speaker", speaker.id]}
-          />
+              feedback loop.
+              CSS-hidden while EDITING (July 17, 2026, organizer request —
+              read-only context is noise under the edit form; matches the
+              registration sheet). Kept mounted so the queries/state survive
+              an edit round-trip instead of refetching on every Save. */}
+          <div className={cn("space-y-6", isEditing && "hidden")}>
+            <IssuedCertificatesCard
+              eventId={eventId}
+              speakerId={speaker.id}
+              recipientLabel={
+                `${[speaker.title, speaker.firstName, speaker.lastName].filter(Boolean).join(" ")} <${speaker.email}>`
+              }
+              // Speaker tags drive the Issue dialog's "no tag, no certificate"
+              // gate (non-matching templates disabled).
+              recipientTags={speaker.tags ?? []}
+            />
+            {/* Unified activity timeline — subsumes the old email-history card
+                (it includes emails) and adds AuditLog events, issued
+                certificates (with Open), and the linked registration's activity
+                (pointed, not duplicated). */}
+            <ActivityTimelineCard
+              endpoint={`/api/events/${eventId}/speakers/${speaker.id}/activity`}
+              anchor="speaker"
+              queryKey={[eventId, "speaker", speaker.id]}
+            />
+          </div>
         </div>
 
         {/* Sidebar — compact key facts (agreement / documents / registration /

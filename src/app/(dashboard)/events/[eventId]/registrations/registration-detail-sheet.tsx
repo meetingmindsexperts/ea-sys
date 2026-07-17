@@ -2860,8 +2860,12 @@ export function RegistrationDetailSheet({
                   out?" — the most common attendee question — is the first
                   thing the operator sees. The timeline below is the
                   chronological view (audit + email + certs, with Open). Both
-                  reuse the same registrationId the sheet is rendered against. */}
-              <div className={cn("space-y-4", !isEditing && activeTab !== "activity" && "hidden")}>
+                  reuse the same registrationId the sheet is rendered against.
+                  Hidden while EDITING (July 17, 2026, organizer request) —
+                  edit mode flattens the tabs into one long form, and the
+                  read-only activity block was trailing it as noise. It
+                  returns when editing ends. */}
+              <div className={cn("space-y-4", (isEditing || activeTab !== "activity") && "hidden")}>
                 <IssuedCertificatesCard
                   eventId={eventId}
                   registrationId={selectedRegistration.id}
