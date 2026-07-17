@@ -94,4 +94,45 @@ describe("buildEventPreviewVariables", () => {
     expect(v.subject).toBe("My Subject");
     expect(v.message).toBe("Hi");
   });
+
+  // {{presentationDetails}} / {{speakerName}} — before these samples existed,
+  // renderTemplate left the LITERAL tokens in the previewed speaker templates
+  // (unknown keys pass through unchanged).
+  it("carries a sample presentationDetails block so speaker templates preview cleanly", () => {
+    const v = buildEventPreviewVariables(baseEvent, USER);
+    expect(String(v.presentationDetails)).toContain("<table");
+    expect(String(v.presentationDetails)).toContain("Session");
+    // Time window + duration, matching what buildPresentationBlocks renders
+    // on real sends.
+    expect(String(v.presentationDetails)).toContain("9:00 AM – 10:30 AM");
+    expect(String(v.presentationDetails)).toContain("(1h 30m)");
+    expect(String(v.presentationDetailsText)).toContain("Session:");
+    expect(String(v.presentationDetailsText)).toContain("(1h 30m)");
+  });
+
+  it("greets {{speakerName}} with the signed-in user's name", () => {
+    expect(buildEventPreviewVariables(baseEvent, USER).speakerName).toBe("Aisha Khan");
+    // No user name at all → keep the sample speaker.
+    expect(buildEventPreviewVariables(baseEvent, {}).speakerName).toBe("Dr. John Doe");
+  });
+
+  // {{organizerSignature}} — the preview must show what a real send from this
+  // user renders: their profile signature, or NOTHING when they have none.
+  it("uses the sender's real signature when the caller fetched one", () => {
+    const v = buildEventPreviewVariables(baseEvent, {
+      ...USER,
+      emailSignature: "<p><strong>Dr. Aisha Khan</strong><br/>MMG</p>",
+    });
+    expect(v.organizerSignature).toBe("<p><strong>Dr. Aisha Khan</strong><br/>MMG</p>");
+  });
+
+  it("renders an empty signature (not the canned sample) when the sender has none", () => {
+    const v = buildEventPreviewVariables(baseEvent, { ...USER, emailSignature: null });
+    expect(v.organizerSignature).toBe("");
+  });
+
+  it("keeps the canned sample signature when the caller did not fetch it", () => {
+    const v = buildEventPreviewVariables(baseEvent, USER);
+    expect(String(v.organizerSignature)).toContain("Event Organizer");
+  });
 });

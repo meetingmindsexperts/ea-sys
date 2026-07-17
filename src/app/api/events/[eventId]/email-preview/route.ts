@@ -47,24 +47,32 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { slug, customSubject, customMessage, certificateTemplateIds } = parsed.data;
 
-    // Verify event access (org-scoped for team members)
-    const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        ...(session.user.organizationId ? { organizationId: session.user.organizationId } : {}),
-      },
-      select: {
-        id: true,
-        // Real event data so the preview reflects the actual event.
-        name: true, startDate: true, endDate: true, venue: true, address: true, city: true,
-        timezone: true, supportEmail: true,
-        organization: { select: { name: true } },
-        ticketTypes: { where: { isActive: true }, select: { name: true }, orderBy: { sortOrder: "asc" }, take: 1 },
-        // One real registration so {{registrationId}} shows a real
-        // confirmation number (falls back to "9999" if none exist).
-        registrations: { select: { id: true, serialId: true }, orderBy: { createdAt: "desc" }, take: 1 },
-      },
-    });
+    // Verify event access (org-scoped for team members). The caller's
+    // profile signature is fetched in parallel so {{organizerSignature}}
+    // previews as what a real send from this user would render.
+    const [event, previewUser] = await Promise.all([
+      db.event.findFirst({
+        where: {
+          id: eventId,
+          ...(session.user.organizationId ? { organizationId: session.user.organizationId } : {}),
+        },
+        select: {
+          id: true,
+          // Real event data so the preview reflects the actual event.
+          name: true, startDate: true, endDate: true, venue: true, address: true, city: true,
+          timezone: true, supportEmail: true,
+          organization: { select: { name: true } },
+          ticketTypes: { where: { isActive: true }, select: { name: true }, orderBy: { sortOrder: "asc" }, take: 1 },
+          // One real registration so {{registrationId}} shows a real
+          // confirmation number (falls back to "9999" if none exist).
+          registrations: { select: { id: true, serialId: true }, orderBy: { createdAt: "desc" }, take: 1 },
+        },
+      }),
+      db.user.findUnique({
+        where: { id: session.user.id },
+        select: { emailSignature: true },
+      }),
+    ]);
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -120,15 +128,19 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
-    const sampleVars = buildEventPreviewVariables(event, session.user, {
-      ...(customSubject ? { subject: customSubject } : {}),
-      // The typed message must reach BOTH message-shaped tokens — templates
-      // like dinner-rsvp-invitation and the speaker templates render
-      // {{personalMessage}}, not {{message}}. Before this, the preview showed
-      // the canned sample ("We're excited to have you!") instead of what the
-      // organizer typed (review R2 M7).
-      ...(customMessage ? { message: customMessage, personalMessage: customMessage } : {}),
-    });
+    const sampleVars = buildEventPreviewVariables(
+      event,
+      { ...session.user, emailSignature: previewUser?.emailSignature ?? null },
+      {
+        ...(customSubject ? { subject: customSubject } : {}),
+        // The typed message must reach BOTH message-shaped tokens — templates
+        // like dinner-rsvp-invitation and the speaker templates render
+        // {{personalMessage}}, not {{message}}. Before this, the preview showed
+        // the canned sample ("We're excited to have you!") instead of what the
+        // organizer typed (review R2 M7).
+        ...(customMessage ? { message: customMessage, personalMessage: customMessage } : {}),
+      },
+    );
 
     const renderedBody = renderTemplate(eventTemplate.htmlContent, sampleVars);
     // A typed subject previews as the subject — before this it was ignored

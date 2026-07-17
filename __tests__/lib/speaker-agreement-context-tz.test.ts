@@ -82,4 +82,44 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     expect(ctx?.sessionDateTime).toContain("6:00 PM");
     expect(ctx?.sessionDateTime).toContain("GMT+4");
   });
+
+  it("presentationDetails block carries the session time WINDOW + duration", async () => {
+    mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    // 14:00–15:00 UTC = 9:00–10:00 AM in New York, a 1-hour session.
+    expect(ctx?.presentationDetails).toContain("9:00 AM – 10:00 AM");
+    expect(ctx?.presentationDetails).toContain("(1h)");
+    expect(ctx?.presentationDetailsText).toContain("9:00 AM – 10:00 AM");
+  });
+
+  it("keeps the {sessionDateTime} docx token format-stable (start time only)", async () => {
+    // The merge token lands inside the personalized agreement DOCUMENT —
+    // the email block enrichment must not change its shape.
+    mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.sessionDateTime).toContain("9:00 AM");
+    expect(ctx?.sessionDateTime).not.toContain("–");
+    expect(ctx?.sessionDateTime).not.toContain("(1h)");
+  });
+
+  it("renders one Date & Time line per session for a multi-session speaker", async () => {
+    const row = speakerRow();
+    row.sessions.push({
+      role: "MODERATOR",
+      session: {
+        name: "Panel Discussion",
+        // 16:00–17:30 UTC = 11:00 AM – 12:30 PM in New York (1h 30m).
+        startTime: new Date("2026-03-05T16:00:00Z"),
+        endTime: new Date("2026-03-05T17:30:00Z"),
+        location: null,
+        track: null,
+      },
+    });
+    mockDb.speaker.findFirst.mockResolvedValue(row);
+    mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.presentationDetails).toContain("9:00 AM – 10:00 AM");
+    expect(ctx?.presentationDetails).toContain("11:00 AM – 12:30 PM");
+    expect(ctx?.presentationDetails).toContain("(1h 30m)");
+  });
 });

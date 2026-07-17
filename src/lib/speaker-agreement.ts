@@ -185,6 +185,7 @@ interface SpeakerEmailContextRow {
         session: {
           name: string;
           startTime: Date;
+          endTime: Date;
           track: { name: string } | null;
         };
       };
@@ -238,6 +239,7 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
                   select: {
                     name: true,
                     startTime: true,
+                    endTime: true,
                     track: { select: { name: true } },
                   },
                 },
@@ -268,6 +270,26 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
   return { speaker, event } as SpeakerEmailContextRow;
 }
 
+/** "1h 30m" / "2h" / "45m"; "" when the window is missing or non-positive. */
+function formatSessionDuration(start: Date, end: Date): string {
+  const mins = Math.round((end.getTime() - start.getTime()) / 60_000);
+  if (mins <= 0) return "";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h && m) return `${h}h ${m}m`;
+  return h ? `${h}h` : `${m}m`;
+}
+
+/** One session's "Date, start – end TZ (duration)" line in the event TZ. */
+function formatSessionWindow(start: Date, end: Date | null, tz: string): string {
+  const base = `${formatDateInTz(start, tz)}, ${formatTimeInTz(start, tz)}`;
+  if (!end || end.getTime() <= start.getTime()) {
+    return `${base} ${tzLabel(start, tz)}`;
+  }
+  const duration = formatSessionDuration(start, end);
+  return `${base} – ${formatTimeInTz(end, tz)} ${tzLabel(start, tz)}${duration ? ` (${duration})` : ""}`;
+}
+
 function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   sessionTitles: string;
   topicTitles: string;
@@ -287,10 +309,30 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // Render in the EVENT's timezone — {sessionDateTime} lands inside the
   // quasi-legal personalized agreement document, and the Dubai-fixed
   // formatDateTime was wrong for any non-GST event (review M10).
+  // Deliberately start-time-only and format-stable: the docx merge token must
+  // not change shape under it. The email block below carries the richer
+  // per-session time WINDOW + duration instead.
   const eventTz = resolveTimezone(row.event.timezone);
   const sessionDateTime = firstSession
     ? `${formatDateInTz(firstSession.startTime, eventTz)}, ${formatTimeInTz(firstSession.startTime, eventTz)} ${tzLabel(firstSession.startTime, eventTz)}`
     : "";
+
+  // One "Date & Time" line PER session for the email block — start – end
+  // clock in the event TZ plus the duration, e.g.
+  // "Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4 (1h 30m)".
+  // Session-role sessions win; topic-only speakers fall back to their topics'
+  // sessions (deduped — several topics can share one session).
+  const timeSessions = sessionRows.length
+    ? sessionRows.map((s) => s.session)
+    : topicRows.map((t) => t.topic.session);
+  const seenWindows = new Set<string>();
+  const sessionDateTimeLines: string[] = [];
+  for (const s of timeSessions) {
+    const key = `${s.name}|${s.startTime.getTime()}`;
+    if (seenWindows.has(key)) continue;
+    seenWindows.add(key);
+    sessionDateTimeLines.push(formatSessionWindow(s.startTime, s.endTime ?? null, eventTz));
+  }
 
   const trackSet = new Set<string>();
   for (const s of sessionRows) if (s.session.track?.name) trackSet.add(s.session.track.name);
@@ -309,7 +351,9 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   const rows: Array<[string, string]> = [];
   if (sessionTitles) rows.push(["Session", sessionTitles.replace(/\n/g, "<br/>")]);
   if (topicTitles) rows.push(["Topic", topicTitles.replace(/\n/g, "<br/>")]);
-  if (sessionDateTime) rows.push(["Date &amp; Time", sessionDateTime]);
+  if (sessionDateTimeLines.length) {
+    rows.push(["Date &amp; Time", sessionDateTimeLines.join("<br/>")]);
+  }
   if (trackNames) rows.push(["Track", trackNames]);
   if (role) rows.push(["Role", role]);
 

@@ -155,7 +155,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const [template, event] = await Promise.all([
+    const [template, event, previewUser] = await Promise.all([
       db.emailTemplate.findFirst({
         where: { id: templateId, eventId },
       }),
@@ -180,6 +180,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           // confirmation number (falls back to "9999" if none exist).
           registrations: { select: { id: true, serialId: true }, orderBy: { createdAt: "desc" }, take: 1 },
         },
+      }),
+      // The caller's profile signature so {{organizerSignature}} previews as
+      // what a real send from this user would render (their own, or nothing).
+      db.user.findUnique({
+        where: { id: session.user.id },
+        select: { emailSignature: true },
       }),
     ]);
 
@@ -206,7 +212,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Render with REAL event data (name, dates, venue, organizer, ticket type)
     // so the preview/test reflects this event, not generic samples.
-    const sampleVars = buildEventPreviewVariables(event, session.user);
+    const sampleVars = buildEventPreviewVariables(event, {
+      ...session.user,
+      emailSignature: previewUser?.emailSignature ?? null,
+    });
 
     const renderedBody = renderTemplate(template.htmlContent, sampleVars);
     const renderedSubject = renderTemplatePlain(template.subject, sampleVars);

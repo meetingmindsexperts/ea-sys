@@ -2419,6 +2419,23 @@ export function getSamplePreviewVariables(
     organizerSignature: "<p><strong>Event Organizer</strong><br/>Sample Conference Team</p>",
     personalMessage: "We're excited to have you!",
     sessionDetails: "Opening Keynote - Main Hall",
+    // {{speakerName}} preview — real sends use the speaker's formatted name
+    // from buildSpeakerEmailContext(); buildEventPreviewVariables overrides
+    // this with the signed-in user's name (the test goes to them).
+    speakerName: "Dr. John Doe",
+    // {{presentationDetails}} preview — representative block in the exact
+    // markup buildPresentationBlocks() emits on real sends (which render the
+    // speaker's OWN sessions/topics per recipient). Without a sample the
+    // preview showed the literal {{presentationDetails}} token — renderTemplate
+    // leaves unknown keys as-is. Raw-HTML key (DEFAULT_RAW_HTML_KEYS).
+    presentationDetails: `<table style="border-collapse:collapse; margin:16px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
+        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Session</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Opening Keynote</td></tr>
+        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Topic</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Advances in Interventional Cardiology</td></tr>
+        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Date &amp; Time</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4 (1h 30m)</td></tr>
+        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Role</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Speaker</td></tr>
+      </table>`,
+    presentationDetailsText:
+      "Session: Opening Keynote\nTopic: Advances in Interventional Cardiology\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4 (1h 30m)\nRole: Speaker",
     agreementLink: "#",
     // {{agreementBlock}} preview — representative CTA; real sends mint a
     // one-time per-speaker link (see buildAgreementBlock in speaker-agreement.ts).
@@ -2483,6 +2500,16 @@ interface PreviewUserData {
   firstName?: string | null;
   lastName?: string | null;
   email?: string | null;
+  /**
+   * The caller-fetched `User.emailSignature`. Three states:
+   * `undefined` = caller didn't fetch it → keep the canned sample signature;
+   * string = the sender's real signature → preview shows exactly what a
+   * human-triggered send would render; `null` = fetched but the sender has
+   * no signature → preview renders NOTHING there, matching the real send
+   * (renderAndWrap defaults the token to "") — an honest preview must not
+   * promise a signature the send won't deliver.
+   */
+  emailSignature?: string | null;
 }
 
 /**
@@ -2537,6 +2564,13 @@ export function buildEventPreviewVariables(
     // Greet the actual recipient (the test goes to the signed-in user).
     ...(user.firstName ? { firstName: user.firstName } : {}),
     ...(user.lastName ? { lastName: user.lastName } : {}),
+    ...(user.firstName || user.lastName
+      ? { speakerName: [user.firstName, user.lastName].filter(Boolean).join(" ") }
+      : {}),
+    // Real sender signature when the caller fetched it (see PreviewUserData).
+    ...(user.emailSignature !== undefined
+      ? { organizerSignature: user.emailSignature ?? "" }
+      : {}),
     // First real registration type, if the event has one.
     ...(event.ticketTypes?.[0]?.name ? { ticketType: event.ticketTypes[0].name } : {}),
   };
