@@ -42,6 +42,22 @@ export function templateUsesAgreementBlock(
 }
 
 /**
+ * {{agreementAttachment}} — an INVISIBLE marker token (renders as ""): its
+ * presence opts the send into attaching the personalized agreement PDF/.docx
+ * WITHOUT the Review & Agree block and WITHOUT minting a link (owner request,
+ * July 17 2026 — pairs with the e-sign flow where speakers Fill & Sign the
+ * PDF and return it instead of clicking a link). Deliberately NOT part of
+ * AGREEMENT_TOKEN_RE: it must never cause a link mint/rotation.
+ */
+const AGREEMENT_ATTACHMENT_TOKEN_RE = /\{\{agreementAttachment\}\}/;
+
+export function templateUsesAgreementAttachment(
+  ...parts: Array<string | null | undefined>
+): boolean {
+  return parts.some((p) => !!p && AGREEMENT_ATTACHMENT_TOKEN_RE.test(p));
+}
+
+/**
  * Mint the speaker's agreement link (fresh 30-day token, public URL).
  *
  * Two modes (review M1, July 16 2026):

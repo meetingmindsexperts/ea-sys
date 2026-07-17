@@ -16,6 +16,7 @@ import {
   mintSpeakerAgreementLink,
   pickAgreementAttachmentMode,
   templateUsesAgreementBlock,
+  templateUsesAgreementAttachment,
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "@/lib/speaker-agreement";
@@ -234,6 +235,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
     vars.agreementBlock = agreementBlock.html;
     vars.agreementBlockText = agreementBlock.text;
+    // Invisible marker — must render as nothing (renderTemplate leaves
+    // unknown tokens literal).
+    vars.agreementAttachment = "";
 
     const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
 
@@ -277,8 +281,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       hasInlineHtml: Boolean(event.speakerAgreementHtml?.trim()),
     });
     const strictAgreement = type === "agreement";
+    // {{agreementAttachment}} — invisible marker: attach the personalized
+    // agreement WITHOUT the Review & Agree block and WITHOUT a link mint.
+    const templateWantsAttachmentOnly = templateUsesAgreementAttachment(
+      tpl.subject,
+      tpl.htmlContent,
+      tpl.textContent,
+    );
     const wantsAgreementAttachment =
-      strictAgreement || (templateWantsAgreement && !speaker.agreementAcceptedAt);
+      strictAgreement ||
+      ((templateWantsAgreement || templateWantsAttachmentOnly) &&
+        !speaker.agreementAcceptedAt);
     if (strictAgreement && !agreementAttachMode) {
       return NextResponse.json(
         {

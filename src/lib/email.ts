@@ -1102,6 +1102,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "agreementBlock", description: "Pre-rendered agreement one-liner + Review & Agree button (HTML); shows an already-signed note for speakers who accepted" },
     { key: "agreementBlockText", description: "Plain-text variant of the agreement block (for the text part)" },
     { key: "agreementLink", description: "Bare one-time agreement URL (minted when the template uses an agreement token)" },
+    { key: "agreementAttachment", description: "Invisible marker — attaches the personalized agreement PDF/.docx to the email WITHOUT rendering the Review & Agree block or minting a link (renders as nothing; skipped for speakers who already signed)" },
     { key: "organizerName", description: "Organizer name" },
     { key: "organizerEmail", description: "Organizer email" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML)" },
@@ -1118,6 +1119,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "presentationDetails", description: "Pre-rendered presentation details block (HTML)" },
     { key: "moderatorDetails", description: "Sessions this speaker MODERATES — topic run-sheet with speakers, durations and computed start–end times (HTML; empty for non-moderators)" },
     { key: "agreementLink", description: "Agreement link URL" },
+    { key: "agreementAttachment", description: "Invisible marker — attaches the personalized agreement PDF/.docx to the email WITHOUT rendering the Review & Agree block or minting a link (renders as nothing; skipped for speakers who already signed)" },
     { key: "organizerName", description: "Organizer name" },
     { key: "organizerEmail", description: "Organizer email" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML)" },
@@ -2508,6 +2510,9 @@ export function getSamplePreviewVariables(
     agreementBlock:
       '<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;"><p style="margin: 0 0 14px 0; color: #374151; font-size: 14px;">Your participation is covered by our <strong>speaker agreement</strong> — please take a moment to review and accept it.</p><div style="text-align: center;"><a href="#" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Agree</a></div></div>',
     agreementBlockText: "Review and accept the speaker agreement: #",
+    // {{agreementAttachment}} is an invisible marker (drives the PDF
+    // attachment only) — it renders as nothing everywhere, previews included.
+    agreementAttachment: "",
     abstractTitle: "Sample Abstract Title",
     presentationType: "Oral",
     theme: "Cardiology",

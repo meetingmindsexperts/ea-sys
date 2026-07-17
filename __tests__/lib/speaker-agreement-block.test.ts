@@ -21,6 +21,7 @@ import {
   buildAgreementBlock,
   mintSpeakerAgreementLink,
   templateUsesAgreementBlock,
+  templateUsesAgreementAttachment,
 } from "@/lib/speaker-agreement";
 
 describe("templateUsesAgreementBlock", () => {
@@ -33,6 +34,22 @@ describe("templateUsesAgreementBlock", () => {
   it("is false for templates with no agreement token — the mint gate", () => {
     expect(templateUsesAgreementBlock("<p>{{presentationDetails}}</p>", "{{message}}")).toBe(false);
     expect(templateUsesAgreementBlock(null, undefined, "")).toBe(false);
+  });
+
+  it("does NOT treat {{agreementAttachment}} as a link token — attachment-only sends must never mint", () => {
+    expect(templateUsesAgreementBlock("<p>{{agreementAttachment}}</p>")).toBe(false);
+  });
+});
+
+describe("templateUsesAgreementAttachment — the PDF-only invisible marker", () => {
+  it("detects {{agreementAttachment}} in any template part", () => {
+    expect(templateUsesAgreementAttachment("{{agreementAttachment}}", null, "")).toBe(true);
+    expect(templateUsesAgreementAttachment("", "hi", "<p>{{agreementAttachment}}</p>")).toBe(true);
+  });
+
+  it("is false for the CTA-block tokens — the two opt-ins stay independent", () => {
+    expect(templateUsesAgreementAttachment("{{agreementBlock}}", "{{agreementLink}}")).toBe(false);
+    expect(templateUsesAgreementAttachment(null, undefined, "")).toBe(false);
   });
 });
 

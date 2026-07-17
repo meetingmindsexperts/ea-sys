@@ -22,6 +22,7 @@ import {
   mintSpeakerAgreementLink,
   pickAgreementAttachmentMode,
   templateUsesAgreementBlock,
+  templateUsesAgreementAttachment,
   SPEAKER_AGREEMENT_DOCX_MIME,
   SPEAKER_AGREEMENT_PDF_MIME,
 } from "./speaker-agreement";
@@ -1135,6 +1136,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     recipientType === "speakers" &&
     templateUsesAgreementBlock(tpl.subject, tpl.htmlContent, tpl.textContent);
 
+  // {{agreementAttachment}} — invisible marker: attach the personalized
+  // agreement WITHOUT rendering the Review & Agree block and WITHOUT minting
+  // any link (owner request July 17 — PDF-only sends for the e-sign flow).
+  const templateWantsAttachmentOnly =
+    recipientType === "speakers" &&
+    templateUsesAgreementAttachment(tpl.subject, tpl.htmlContent, tpl.textContent);
+
   // Attach-when-possible (owner decision July 16): a NON-agreement speaker
   // send whose template carries an agreement token (e.g. the invitation's
   // {{agreementBlock}}) also gets the personalized agreement attached — but
@@ -1142,13 +1150,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // sends the CTA alone; the strict agreement type keeps its hard precheck
   // (`agreementMode`, 400 at enqueue time).
   const softAgreementMode =
-    !agreementMode && templateWantsAgreement
+    !agreementMode && (templateWantsAgreement || templateWantsAttachmentOnly)
       ? pickAgreementAttachmentMode({
           hasDocxTemplate: Boolean(event.speakerAgreementTemplate),
           hasInlineHtml: Boolean(event.speakerAgreementHtml?.trim()),
         })
       : null;
-  if (templateWantsAgreement && !agreementMode && !softAgreementMode) {
+  if ((templateWantsAgreement || templateWantsAttachmentOnly) && !agreementMode && !softAgreementMode) {
     apiLogger.info({
       msg: "bulk-email:agreement-attachment-skipped-no-content",
       eventId,
@@ -1333,6 +1341,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       agreementLink: "",
       agreementBlock: "",
       agreementBlockText: "",
+      // Invisible marker token — always renders as nothing; its presence in
+      // the template only drives the attachment decision above.
+      agreementAttachment: "",
       // Entry-barcode token defaults — overridden below for registrations
       // recipients when the template uses {{entryBarcode}} and the recipient
       // has a qrCode. Empty otherwise so the placeholder disappears.
