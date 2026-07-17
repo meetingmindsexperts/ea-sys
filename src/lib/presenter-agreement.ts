@@ -13,7 +13,7 @@
  * the online acceptance page and the emailed PDF read identical text.
  */
 import { db } from "@/lib/db";
-import { renderAgreementHtmlToPdf } from "@/lib/speaker-agreement";
+import { renderAgreementHtmlToPdf, loadAgreementPdfImage } from "@/lib/speaker-agreement";
 import { DEFAULT_PRESENTER_AGREEMENT_HTML } from "@/lib/default-terms";
 import { formatPersonName, getTitleLabel } from "@/lib/utils";
 import { resolveTimezone, formatDateInTz } from "@/lib/event-time";
@@ -231,9 +231,21 @@ export async function generatePresenterAgreementPdf(opts: {
 
   const event = await db.event.findFirst({
     where: { id: eventId },
-    select: { slug: true, name: true },
+    select: {
+      slug: true,
+      name: true,
+      presenterAgreementPdfHeaderImage: true,
+      presenterAgreementPdfFooterImage: true,
+    },
   });
   if (!event) return null;
+
+  // The presenter agreement carries its OWN letterhead pair (July 17, 2026 —
+  // distinct columns from the speaker agreement's), loaded failure-isolated.
+  const [headerImage, footerImage] = await Promise.all([
+    loadAgreementPdfImage(event.presenterAgreementPdfHeaderImage, eventId, "header"),
+    loadAgreementPdfImage(event.presenterAgreementPdfFooterImage, eventId, "footer"),
+  ]);
 
   const buffer = await renderAgreementHtmlToPdf({
     html: resolved.html,
@@ -241,10 +253,12 @@ export async function generatePresenterAgreementPdf(opts: {
     docAuthor: resolved.context.organizationName,
     headingTitle: "Presenter Agreement",
     headingSubtitle: event.name,
-    signatureLeftLabel: "Presenter",
-    signatureLeftName: resolved.context.presenterName,
-    signatureRightLabel: "Organizer",
-    signatureRightName: resolved.context.organizationName,
+    // Presenter-only signature (matches the speaker agreement): no organizer
+    // counter-signature; blank space above the line for an e-signature.
+    signatureLabel: "Presenter",
+    signatureName: resolved.context.presenterName,
+    headerImage,
+    footerImage,
   });
 
   const filename = `presenter-agreement-${slugify(event.slug)}-${slugify(resolved.context.lastName || "presenter")}.pdf`;

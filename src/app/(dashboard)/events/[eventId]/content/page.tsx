@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { readEnabledPresentationTypes, ALL_PRESENTATION_TYPE_VALUES } from "@/lib/abstract-presentation-types";
 import { PRESENTATION_TYPE_OPTIONS } from "../abstracts/abstract-enums";
+import { AgreementPdfImagesCard } from "@/components/events/agreement-pdf-images-card";
 
 const TiptapEditor = dynamic(
   () => import("@/components/ui/tiptap-editor").then((m) => ({ default: m.TiptapEditor })),
@@ -44,6 +45,15 @@ export default function ContentPage() {
   const [presentationTypes, setPresentationTypes] = useState<string[]>([
     ...ALL_PRESENTATION_TYPE_VALUES,
   ]);
+  // Agreement-PDF letterhead images (July 17, 2026) — the speaker and
+  // presenter agreements each have their own pair. Managed by their own
+  // cards via a dedicated upload route — NOT part of the handleSave PUT.
+  const [agreementPdfImages, setAgreementPdfImages] = useState<{
+    speakerHeader: string | null;
+    speakerFooter: string | null;
+    presenterHeader: string | null;
+    presenterFooter: string | null;
+  } | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -65,6 +75,12 @@ export default function ContentPage() {
             speakerAgreementHtml: data.speakerAgreementHtml || "",
           });
           setPresentationTypes([...readEnabledPresentationTypes(data.settings)]);
+          setAgreementPdfImages({
+            speakerHeader: data.speakerAgreementPdfHeaderImage || null,
+            speakerFooter: data.speakerAgreementPdfFooterImage || null,
+            presenterHeader: data.presenterAgreementPdfHeaderImage || null,
+            presenterFooter: data.presenterAgreementPdfFooterImage || null,
+          });
         } else {
           // Surface a non-OK response (500/403/...) instead of silently
           // leaving the editor blank — the catch below only sees network errors.
@@ -298,6 +314,17 @@ export default function ContentPage() {
               </CardContent>
             </Card>
 
+            {/* Presenter-agreement PDF letterhead — its own pair, independent
+                of the speaker agreement's. Saves immediately via its route. */}
+            {agreementPdfImages && (
+              <AgreementPdfImagesCard
+                eventId={eventId}
+                scope="presenter"
+                initialHeaderUrl={agreementPdfImages.presenterHeader}
+                initialFooterUrl={agreementPdfImages.presenterFooter}
+              />
+            )}
+
             <Card>
               <CardHeader>
                 <CardTitle>Post-Submission Confirmation</CardTitle>
@@ -381,6 +408,18 @@ export default function ContentPage() {
                 </details>
               </CardContent>
             </Card>
+
+            {/* Uploads save immediately via their own route — independent of
+                the Save button below. Rendered once the event row loaded so
+                the card's initial URLs are real, not a pre-fetch flash. */}
+            {agreementPdfImages && (
+              <AgreementPdfImagesCard
+                eventId={eventId}
+                scope="speaker"
+                initialHeaderUrl={agreementPdfImages.speakerHeader}
+                initialFooterUrl={agreementPdfImages.speakerFooter}
+              />
+            )}
 
             <div className="flex justify-end">
               <Button onClick={handleSave} disabled={saving}>

@@ -531,6 +531,206 @@ export async function generateSpeakerAgreementDocx(opts: {
 
 export const SPEAKER_AGREEMENT_PDF_MIME = "application/pdf";
 
+// ─── PDF letterhead images (July 17, 2026, organizer request) ────────────────
+// Optional header/footer banner images drawn edge-to-edge on EVERY page of a
+// generated agreement PDF. The speaker and presenter agreements each carry
+// their OWN pair (`scope`). PDF-path only — an uploaded .docx template carries
+// its own letterhead, and the public acceptance pages render the HTML text
+// without them (the byte-for-byte parity guarantee covers the text, not
+// PDF-only branding).
+
+export const AGREEMENT_PDF_IMAGE_MAX_SIZE = 2 * 1024 * 1024; // 2 MB
+/** pdfkit can embed PNG and JPEG only — WebP is NOT supported. */
+export type AgreementPdfImageFormat = "png" | "jpeg";
+export type AgreementPdfImageSlot = "header" | "footer";
+/** Which agreement's letterhead a slot belongs to — each has its own pair. */
+export type AgreementPdfImageScope = "speaker" | "presenter";
+
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
+
+/** Identify the image format from magic bytes — null for anything pdfkit can't embed. */
+export function sniffAgreementImageFormat(buffer: Buffer): AgreementPdfImageFormat | null {
+  if (buffer.length >= 4 && PNG_MAGIC.every((b, i) => buffer[i] === b)) return "png";
+  if (buffer.length >= 3 && JPEG_MAGIC.every((b, i) => buffer[i] === b)) return "jpeg";
+  return null;
+}
+
+/**
+ * Pixel dimensions from the image header — needed BEFORE creating the pdfkit
+ * document, because the letterhead height determines the page's content
+ * margins. PNG: IHDR width/height at fixed offsets. JPEG: walk the marker
+ * segments to the first SOF frame. Returns null on anything malformed (the
+ * caller renders without the image rather than failing the agreement).
+ */
+export function probeImageDimensions(
+  buffer: Buffer,
+  format: AgreementPdfImageFormat,
+): { width: number; height: number } | null {
+  try {
+    if (format === "png") {
+      // 8-byte signature, then IHDR chunk: length(4) + "IHDR"(4) + width(4) + height(4).
+      if (buffer.length < 24) return null;
+      if (buffer.toString("ascii", 12, 16) !== "IHDR") return null;
+      const width = buffer.readUInt32BE(16);
+      const height = buffer.readUInt32BE(20);
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    // JPEG: scan markers for the first SOF0–SOF15 frame (excluding DHT/JPG/DAC).
+    let pos = 2; // past FFD8
+    while (pos + 4 <= buffer.length) {
+      if (buffer[pos] !== 0xff) return null;
+      const marker = buffer[pos + 1];
+      // Standalone markers with no length payload.
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
+        pos += 2;
+        continue;
+      }
+      if (marker === 0xd9 || marker === 0xda) return null; // EOI / SOS before any SOF
+      const segLen = buffer.readUInt16BE(pos + 2);
+      if (segLen < 2) return null;
+      const isSof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+      if (isSof) {
+        if (pos + 9 > buffer.length) return null;
+        const height = buffer.readUInt16BE(pos + 5);
+        const width = buffer.readUInt16BE(pos + 7);
+        return width > 0 && height > 0 ? { width, height } : null;
+      }
+      pos += 2 + segLen;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export const AGREEMENT_IMAGE_COLUMN = {
+  speaker: {
+    header: "speakerAgreementPdfHeaderImage",
+    footer: "speakerAgreementPdfFooterImage",
+  },
+  presenter: {
+    header: "presenterAgreementPdfHeaderImage",
+    footer: "presenterAgreementPdfFooterImage",
+  },
+} as const satisfies Record<AgreementPdfImageScope, Record<AgreementPdfImageSlot, string>>;
+
+const AGREEMENT_IMAGE_SELECT = {
+  id: true,
+  speakerAgreementPdfHeaderImage: true,
+  speakerAgreementPdfFooterImage: true,
+  presenterAgreementPdfHeaderImage: true,
+  presenterAgreementPdfFooterImage: true,
+} as const;
+
+/**
+ * Validate + persist a letterhead image for the agreement PDF. Mirrors
+ * `saveSpeakerAgreementTemplate` (same directory, same previous-file cleanup,
+ * same error class) so the two upload surfaces behave identically. PNG/JPEG
+ * enforced by MAGIC BYTES, not the claimed MIME — pdfkit cannot embed WebP,
+ * so a spoofed Content-Type would otherwise break rendering at send time.
+ * Caller owns auth + rate limiting; org access is enforced by the event lookup.
+ */
+export async function saveAgreementPdfImage({
+  eventId,
+  organizationId,
+  buffer,
+  scope,
+  slot,
+  actorUserId,
+}: {
+  eventId: string;
+  organizationId: string;
+  buffer: Buffer;
+  scope: AgreementPdfImageScope;
+  slot: AgreementPdfImageSlot;
+  actorUserId: string;
+}): Promise<{ url: string }> {
+  if (buffer.length > AGREEMENT_PDF_IMAGE_MAX_SIZE) {
+    throw new SpeakerAgreementTemplateError(
+      "IMAGE_TOO_LARGE",
+      `Image must be under ${Math.round(AGREEMENT_PDF_IMAGE_MAX_SIZE / 1024 / 1024)}MB`,
+    );
+  }
+
+  const format = sniffAgreementImageFormat(buffer);
+  if (!format) {
+    apiLogger.warn({ msg: "agreement-pdf-image:invalid-magic-bytes", actorUserId, scope, slot });
+    throw new SpeakerAgreementTemplateError(
+      "INVALID_IMAGE",
+      "File is not a PNG or JPEG image (WebP is not supported in the agreement PDF)",
+    );
+  }
+  if (!probeImageDimensions(buffer, format)) {
+    apiLogger.warn({ msg: "agreement-pdf-image:unreadable-dimensions", actorUserId, scope, slot });
+    throw new SpeakerAgreementTemplateError(
+      "INVALID_IMAGE",
+      "Image header is malformed — re-export the file and try again",
+    );
+  }
+
+  const column = AGREEMENT_IMAGE_COLUMN[scope][slot];
+  const event = await db.event.findFirst({
+    where: { id: eventId, organizationId },
+    select: AGREEMENT_IMAGE_SELECT,
+  });
+  if (!event) {
+    throw new SpeakerAgreementTemplateError("EVENT_NOT_FOUND", `Event ${eventId} not found or access denied`);
+  }
+
+  const dirRel = path.join("uploads", "agreements", eventId);
+  const dirAbs = path.resolve(process.cwd(), "public", dirRel);
+  await fs.mkdir(dirAbs, { recursive: true });
+
+  const storedFilename = `${scope}-${slot}-${randomUUID()}.${format === "png" ? "png" : "jpg"}`;
+  await fs.writeFile(path.join(dirAbs, storedFilename), buffer);
+
+  // Best-effort previous-file cleanup, path-traversal guarded.
+  await unlinkAgreementUpload(event[column], "agreement-pdf-image:previous-unlink-failed");
+
+  const url = `/${dirRel.replace(/\\/g, "/")}/${storedFilename}`;
+  await db.event.update({ where: { id: eventId }, data: { [column]: url } });
+
+  return { url };
+}
+
+/**
+ * Clear a letterhead image slot: unlink the file (guarded) + null the column.
+ * Idempotent — clearing an empty slot is a no-op.
+ */
+export async function deleteAgreementPdfImage({
+  eventId,
+  organizationId,
+  scope,
+  slot,
+}: {
+  eventId: string;
+  organizationId: string;
+  scope: AgreementPdfImageScope;
+  slot: AgreementPdfImageSlot;
+}): Promise<void> {
+  const column = AGREEMENT_IMAGE_COLUMN[scope][slot];
+  const event = await db.event.findFirst({
+    where: { id: eventId, organizationId },
+    select: AGREEMENT_IMAGE_SELECT,
+  });
+  if (!event) {
+    throw new SpeakerAgreementTemplateError("EVENT_NOT_FOUND", `Event ${eventId} not found or access denied`);
+  }
+
+  await unlinkAgreementUpload(event[column], "agreement-pdf-image:delete-unlink-failed");
+  await db.event.update({ where: { id: eventId }, data: { [column]: null } });
+}
+
+/** Unlink a file under /uploads/agreements/ — same guard as the .docx cleanup. */
+async function unlinkAgreementUpload(url: string | null | undefined, failLogMsg: string): Promise<void> {
+  if (!url?.startsWith("/uploads/agreements/")) return;
+  const abs = path.resolve(process.cwd(), "public", url.replace(/^\/+/, ""));
+  const expectedRoot = path.resolve(process.cwd(), "public", "uploads", "agreements");
+  if (!abs.startsWith(expectedRoot + path.sep)) return;
+  await fs.unlink(abs).catch((err) => apiLogger.warn({ err, msg: failLogMsg, abs }));
+}
+
 /**
  * Merge `{{token}}` placeholders in an HTML agreement body using the
  * speaker email context. Used both by the PDF attachment renderer and by
@@ -1466,6 +1666,13 @@ function renderRunsLine(
  * this file; presenter-agreement.ts imports this rather than duplicating ~250
  * lines of pdfkit block rendering.)
  */
+/** A letterhead image ready to draw: raw bytes + pixel dimensions. */
+export interface AgreementPdfImage {
+  buffer: Buffer;
+  width: number;
+  height: number;
+}
+
 export interface AgreementPdfOptions {
   /** Already token-merged agreement HTML. */
   html: string;
@@ -1477,10 +1684,53 @@ export interface AgreementPdfOptions {
   headingTitle: string;
   /** Muted subtitle under the heading (usually the event name). */
   headingSubtitle: string;
-  signatureLeftLabel: string;
-  signatureLeftName: string;
-  signatureRightLabel: string;
-  signatureRightName: string;
+  /**
+   * The sole signer (July 17, 2026, organizer request): only the speaker /
+   * presenter signs — no organizer counter-signature column. The block leaves
+   * generous blank space above the line so the signer can insert an
+   * e-signature into the PDF.
+   */
+  signatureLabel: string;
+  signatureName: string;
+  /** Letterhead banner drawn edge-to-edge at the top of EVERY page. */
+  headerImage?: AgreementPdfImage | null;
+  /** Letterhead banner drawn edge-to-edge at the bottom of EVERY page. */
+  footerImage?: AgreementPdfImage | null;
+}
+
+// A4 in points.
+const AGREEMENT_PAGE_WIDTH = 595.28;
+const AGREEMENT_PAGE_HEIGHT = 841.89;
+// Height caps so a mis-sized (e.g. square) upload can't swallow the content
+// area — a capped image scales down preserving aspect and centers.
+const AGREEMENT_HEADER_MAX_HEIGHT = 200;
+const AGREEMENT_FOOTER_MAX_HEIGHT = 150;
+// Breathing room between a letterhead image and the text content.
+const AGREEMENT_IMAGE_CONTENT_GAP = 24;
+
+interface PlacedLetterheadImage {
+  buffer: Buffer;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Scale a letterhead image to full page width (edge-to-edge), capped at
+ * maxHeight — a cap shrinks it proportionally and centers it horizontally.
+ * `y` is resolved by the caller (0 for header, pageHeight − height for footer).
+ */
+export function placeLetterheadImage(
+  img: AgreementPdfImage,
+  maxHeight: number,
+): { x: number; width: number; height: number } {
+  const fullWidthHeight = AGREEMENT_PAGE_WIDTH * (img.height / img.width);
+  if (fullWidthHeight <= maxHeight) {
+    return { x: 0, width: AGREEMENT_PAGE_WIDTH, height: fullWidthHeight };
+  }
+  const width = maxHeight * (img.width / img.height);
+  return { x: (AGREEMENT_PAGE_WIDTH - width) / 2, width, height: maxHeight };
 }
 
 export async function renderAgreementHtmlToPdf(opts: AgreementPdfOptions): Promise<Buffer> {
@@ -1489,11 +1739,57 @@ export async function renderAgreementHtmlToPdf(opts: AgreementPdfOptions): Promi
 
   const blocks = parseHtmlToBlocks(opts.html);
 
+  // Letterhead layout is computed BEFORE the document exists because the
+  // image heights determine the content margins on every page.
+  const header: PlacedLetterheadImage | null = opts.headerImage
+    ? { buffer: opts.headerImage.buffer, y: 0, ...placeLetterheadImage(opts.headerImage, AGREEMENT_HEADER_MAX_HEIGHT) }
+    : null;
+  const footerPlacement = opts.footerImage
+    ? placeLetterheadImage(opts.footerImage, AGREEMENT_FOOTER_MAX_HEIGHT)
+    : null;
+  const footer: PlacedLetterheadImage | null =
+    opts.footerImage && footerPlacement
+      ? { buffer: opts.footerImage.buffer, y: AGREEMENT_PAGE_HEIGHT - footerPlacement.height, ...footerPlacement }
+      : null;
+
   const doc = new PDFDocument({
     size: "A4",
-    margins: { top: 60, bottom: 60, left: 60, right: 60 },
+    margins: {
+      top: header ? header.height + AGREEMENT_IMAGE_CONTENT_GAP : 60,
+      bottom: footer ? footer.height + AGREEMENT_IMAGE_CONTENT_GAP : 60,
+      left: 60,
+      right: 60,
+    },
     info: { Title: opts.docTitle, Author: opts.docAuthor },
   });
+
+  // Drawn on page 1 below and on every auto/manual page break via pageAdded.
+  // doc.image with explicit x/y does not move the text cursor, so drawing
+  // mid-flow (pdfkit fires pageAdded during text overflow) is safe. A corrupt
+  // image must not kill the agreement send: first failure logs + disables
+  // that slot for the rest of the document.
+  let headerBroken = false;
+  let footerBroken = false;
+  const drawLetterhead = () => {
+    if (header && !headerBroken) {
+      try {
+        doc.image(header.buffer, header.x, header.y, { width: header.width, height: header.height });
+      } catch (err) {
+        headerBroken = true;
+        apiLogger.warn({ err, msg: "agreement:pdf-header-image-draw-failed" });
+      }
+    }
+    if (footer && !footerBroken) {
+      try {
+        doc.image(footer.buffer, footer.x, footer.y, { width: footer.width, height: footer.height });
+      } catch (err) {
+        footerBroken = true;
+        apiLogger.warn({ err, msg: "agreement:pdf-footer-image-draw-failed" });
+      }
+    }
+  };
+  doc.on("pageAdded", drawLetterhead);
+  drawLetterhead();
 
   const chunks: Buffer[] = [];
   doc.on("data", (c: Buffer) => chunks.push(c));
@@ -1519,41 +1815,79 @@ export async function renderAgreementHtmlToPdf(opts: AgreementPdfOptions): Promi
     throw new Error("Failed to render agreement PDF");
   }
 
-  // Signature block.
-  doc.moveDown(2);
-  const sigY = doc.y;
+  // Signature block — single signer (the speaker / presenter), no organizer
+  // counter-signature. ~110pt tall including the 64pt e-signature gap. Text
+  // auto-paginates in pdfkit but the hand-drawn line does not — break to a
+  // fresh page up front if the whole block can't fit, so the line never lands
+  // below the footer letterhead.
   const halfWidth = contentWidth / 2 - 10;
   const leftX = doc.page.margins.left;
-  const rightX = doc.page.margins.left + contentWidth / 2 + 10;
+  const E_SIGN_GAP = 64;
+  const BLOCK_HEIGHT = 14 + 16 + E_SIGN_GAP + 18;
+  doc.moveDown(2);
+  if (doc.y + BLOCK_HEIGHT > doc.page.height - doc.page.margins.bottom) {
+    doc.addPage();
+  }
+  const sigY = doc.y;
 
   doc.font("Helvetica-Bold").fontSize(11);
-  doc.text(opts.signatureLeftLabel, leftX, sigY, { width: halfWidth });
-  doc.text(opts.signatureRightLabel, rightX, sigY, { width: halfWidth });
-
+  doc.text(opts.signatureLabel, leftX, sigY, { width: halfWidth });
   doc.font("Helvetica").fontSize(11);
-  doc.text(opts.signatureLeftName, leftX, doc.y, { width: halfWidth });
-  const afterNameY = doc.y;
-  doc.text(opts.signatureRightName, rightX, sigY + 16, { width: halfWidth });
+  doc.text(opts.signatureName, leftX, doc.y, { width: halfWidth });
 
-  doc.moveDown(1.5);
-  const lineY = Math.max(doc.y, afterNameY + 30);
+  const lineY = doc.y + E_SIGN_GAP;
   doc
     .moveTo(leftX, lineY)
     .lineTo(leftX + halfWidth, lineY)
-    .moveTo(rightX, lineY)
-    .lineTo(rightX + halfWidth, lineY)
     .strokeColor("#9ca3af")
     .stroke()
     .strokeColor("black");
   doc.font("Helvetica").fontSize(9).fillColor("#6b7280");
   doc.text("Signature", leftX, lineY + 4, { width: halfWidth });
-  doc.text("Signature", rightX, lineY + 4, { width: halfWidth });
   doc.fillColor("black");
 
   doc.end();
   await done;
 
   return Buffer.concat(chunks);
+}
+
+/**
+ * Load a stored letterhead image for rendering: same path-traversal guard as
+ * the .docx template, magic-byte re-check (the file on disk, not the upload
+ * claim, is what pdfkit embeds), and dimension probe. Failure-isolated — any
+ * problem logs a warn and returns null so the agreement still renders/sends
+ * without the letterhead rather than blocking the email. Shared with the
+ * presenter agreement (presenter-agreement.ts).
+ */
+export async function loadAgreementPdfImage(
+  url: string | null,
+  eventId: string,
+  slot: AgreementPdfImageSlot,
+): Promise<AgreementPdfImage | null> {
+  if (!url) return null;
+  try {
+    const abs = resolveTemplatePath(url);
+    if (!abs) {
+      apiLogger.warn({ msg: "agreement:pdf-image-path-rejected", eventId, slot, url });
+      return null;
+    }
+    const buffer = await fs.readFile(abs);
+    const format = sniffAgreementImageFormat(buffer);
+    if (!format) {
+      apiLogger.warn({ msg: "agreement:pdf-image-not-png-or-jpeg", eventId, slot });
+      return null;
+    }
+    const dims = probeImageDimensions(buffer, format);
+    if (!dims) {
+      apiLogger.warn({ msg: "agreement:pdf-image-dimensions-unreadable", eventId, slot });
+      return null;
+    }
+    return { buffer, ...dims };
+  } catch (err) {
+    apiLogger.warn({ err, msg: "agreement:pdf-image-load-failed", eventId, slot });
+    return null;
+  }
 }
 
 export async function generateSpeakerAgreementPdf(opts: {
@@ -1567,9 +1901,19 @@ export async function generateSpeakerAgreementPdf(opts: {
 
   const event = await db.event.findFirst({
     where: { id: eventId },
-    select: { slug: true, name: true },
+    select: {
+      slug: true,
+      name: true,
+      speakerAgreementPdfHeaderImage: true,
+      speakerAgreementPdfFooterImage: true,
+    },
   });
   if (!event) return null;
+
+  const [headerImage, footerImage] = await Promise.all([
+    loadAgreementPdfImage(event.speakerAgreementPdfHeaderImage, eventId, "header"),
+    loadAgreementPdfImage(event.speakerAgreementPdfFooterImage, eventId, "footer"),
+  ]);
 
   const buffer = await renderAgreementHtmlToPdf({
     html: resolved.html,
@@ -1577,10 +1921,10 @@ export async function generateSpeakerAgreementPdf(opts: {
     docAuthor: resolved.context.organizationName,
     headingTitle: "Speaker Agreement",
     headingSubtitle: event.name,
-    signatureLeftLabel: "Speaker",
-    signatureLeftName: resolved.context.speakerName,
-    signatureRightLabel: "Organizer",
-    signatureRightName: resolved.context.organizationName,
+    signatureLabel: "Speaker",
+    signatureName: resolved.context.speakerName,
+    headerImage,
+    footerImage,
   });
 
   const filename = `agreement-${slugify(event.slug)}-${slugify(resolved.context.lastName || "speaker")}.pdf`;
@@ -1687,15 +2031,7 @@ export async function saveSpeakerAgreementTemplate({
 
   // Best-effort previous-file cleanup. Path-traversal guarded.
   const previous = event.speakerAgreementTemplate as SpeakerAgreementTemplateMeta | null;
-  if (previous?.url?.startsWith("/uploads/agreements/")) {
-    const previousAbs = path.resolve(process.cwd(), "public", previous.url.replace(/^\/+/, ""));
-    const expectedRoot = path.resolve(process.cwd(), "public", "uploads", "agreements");
-    if (previousAbs.startsWith(expectedRoot + path.sep)) {
-      await fs.unlink(previousAbs).catch((err) =>
-        apiLogger.warn({ err, msg: "agreement-template:previous-unlink-failed", previousAbs }),
-      );
-    }
-  }
+  await unlinkAgreementUpload(previous?.url, "agreement-template:previous-unlink-failed");
 
   const safeFilename =
     filename && filename.trim() ? filename.trim().slice(0, 255) : "template.docx";

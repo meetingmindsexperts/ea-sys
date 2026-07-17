@@ -248,6 +248,16 @@ model Event {
   /// default intro copy.
   surveyIntroHtml              String?     @db.Text
   speakerAgreementTemplate     Json?
+  /// Letterhead images for the generated agreement PDFs (the inline
+  /// HTML→PDF paths only — an uploaded .docx speaker template carries its
+  /// own branding). Full-page-width banners drawn at the top/bottom of
+  /// every page. Local upload URLs under /uploads/agreements/{eventId}/ —
+  /// PNG or JPEG only (pdfkit cannot embed WebP). The speaker and
+  /// presenter agreements each have their own pair.
+  speakerAgreementPdfHeaderImage   String?
+  speakerAgreementPdfFooterImage   String?
+  presenterAgreementPdfHeaderImage String?
+  presenterAgreementPdfFooterImage String?
   /// Per-event post-event evaluation/feedback survey definition. Null
   /// when no survey is configured. Shape: ordered array of
   /// SurveyQuestion (discriminated union: single_select / rating_1_to_5
