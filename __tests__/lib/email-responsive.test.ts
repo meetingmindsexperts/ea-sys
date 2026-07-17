@@ -125,13 +125,13 @@ describe("wrapWithBranding — responsive header + footer images", () => {
 });
 
 describe("wrapWithBranding + inlineCss — paragraph rhythm matches the editor", () => {
-  it("inlines margin 0 0 16px onto style-less <p> tags (kills the doubled email-client gap)", () => {
+  it("inlines margin 0 0 8px onto style-less <p> tags (kills the doubled email-client gap)", () => {
     const wrapped = wrapWithBranding("<p>First</p><p>Second</p>", { eventName: "Ev" });
     const inlined = inlineCss(wrapped);
-    // Both body paragraphs carry the editor's rhythm; without this, email
-    // clients apply default 1em top+bottom margins — the organizer-reported
-    // "space between two p tags".
-    const matches = inlined.match(/<p style="[^"]*margin: 0 0 16px 0/g) ?? [];
+    // Both body paragraphs carry the editor's rhythm (mb-2 = 8px); without
+    // this, email clients apply default 1em top+bottom margins — the
+    // organizer-reported "space between two p tags".
+    const matches = inlined.match(/<p style="[^"]*margin: 0 0 8px 0/g) ?? [];
     expect(matches.length).toBeGreaterThanOrEqual(2);
   });
 

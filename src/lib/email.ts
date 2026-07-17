@@ -998,13 +998,13 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    /* Match the Tiptap editor's paragraph rhythm (mb-4, no top margin).
+    /* Match the Tiptap editor's paragraph rhythm (mb-2, no top margin).
        Without this, email clients apply their default 1em top+bottom
        margins to every <p> the editor emits (one per Enter press), so the
        sent email shows roughly double the gap between paragraphs that the
        organizer saw in the editor. juice inlines this rule at send time;
        explicit inline margins already present in template markup win. */
-    p { margin: 0 0 16px 0; }
+    p { margin: 0 0 8px 0; }
   </style>
 </head>
 <body style="margin: 0; padding: 0; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333;">

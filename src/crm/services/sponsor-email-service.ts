@@ -36,7 +36,7 @@ const BATCH_SIZE = 25;
 
 /** Cover-email skeleton. The greeting is baked in so a body with no tokens is still
  *  personalized; `message` (the sender's HTML) and `signature` are inserted raw. */
-const BODY_TEMPLATE = `<p style="margin:0 0 16px">Dear {{firstName}},</p>\n{{message}}\n{{signature}}`;
+const BODY_TEMPLATE = `<p style="margin:0 0 8px">Dear {{firstName}},</p>\n{{message}}\n{{signature}}`;
 const TEXT_TEMPLATE =
   "Dear {{firstName}},\n\nPlease find our message below / attached.\n";
 const RAW_KEYS = new Set(["message", "signature"]);

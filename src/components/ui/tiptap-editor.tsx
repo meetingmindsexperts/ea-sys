@@ -551,7 +551,7 @@ export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorPro
     },
     editorProps: {
       attributes: {
-        class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-4 py-3 [&>*]:mb-4 [&>*:last-child]:mb-0",
+        class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-4 py-3 [&>*]:mb-2 [&>*:last-child]:mb-0",
       },
     },
   });
