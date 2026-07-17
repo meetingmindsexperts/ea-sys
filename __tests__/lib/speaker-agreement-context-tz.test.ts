@@ -199,6 +199,61 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     expect(ctx?.moderatorDetailsText).toBe("");
   });
 
+  it("presentationDetails shows the speaker's OWN topic window + duration, stacked from siblings", async () => {
+    const row = speakerRow();
+    row.topicSpeakers = [
+      {
+        topic: {
+          id: "t2",
+          title: "Valve Repair Update",
+          duration: 30,
+          session: {
+            name: "Opening Keynote",
+            startTime: SESSION_START, // 9:00 AM in New York
+            endTime: new Date("2026-03-05T15:00:00Z"),
+            track: null,
+            // A 20m sibling precedes this speaker's topic → 9:20 – 9:50 AM.
+            topics: [
+              { id: "t1", duration: 20 },
+              { id: "t2", duration: 30 },
+            ],
+          },
+        },
+      },
+    ] as unknown as ReturnType<typeof speakerRow>["topicSpeakers"];
+    mockDb.speaker.findFirst.mockResolvedValue(row);
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.presentationDetails).toContain(
+      "Valve Repair Update<br/>9:20 AM – 9:50 AM EST<br/>30m",
+    );
+    // The docx {topicTitles} token stays titles-only.
+    expect(ctx?.topicTitles).toBe("Valve Repair Update");
+  });
+
+  it("a topic without a duration renders its title only (no time lines)", async () => {
+    const row = speakerRow();
+    row.topicSpeakers = [
+      {
+        topic: {
+          id: "t1",
+          title: "Welcome Remarks",
+          duration: null,
+          session: {
+            name: "Opening Keynote",
+            startTime: SESSION_START,
+            endTime: new Date("2026-03-05T15:00:00Z"),
+            track: null,
+            topics: [{ id: "t1", duration: null }],
+          },
+        },
+      },
+    ] as unknown as ReturnType<typeof speakerRow>["topicSpeakers"];
+    mockDb.speaker.findFirst.mockResolvedValue(row);
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.presentationDetails).toContain("Welcome Remarks");
+    expect(ctx?.presentationDetails).not.toContain("Welcome Remarks<br/>");
+  });
+
   it("shows a no-topics note when the moderated session has no topics yet", async () => {
     mockDb.speaker.findFirst.mockResolvedValue(moderatorRow([]));
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");

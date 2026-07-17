@@ -265,13 +265,22 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
           select: {
             topic: {
               select: {
+                id: true,
                 title: true,
+                duration: true,
                 session: {
                   select: {
                     name: true,
                     startTime: true,
                     endTime: true,
                     track: { select: { name: true } },
+                    // Ordered siblings — this topic's start time is computed
+                    // by stacking preceding topic durations from the session
+                    // start (SessionTopic stores no start time).
+                    topics: {
+                      orderBy: { sortOrder: "asc" },
+                      select: { id: true, duration: true },
+                    },
                   },
                 },
               },
@@ -456,6 +465,33 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     );
   }
 
+  // Per-topic display groups — the topic title plus, when the topic has a
+  // duration, its own start–end + duration lines (owner request). The topic's
+  // start time is computed by stacking preceding sibling durations from the
+  // session start, exactly like the moderator run-sheet; an untimed sibling
+  // holds the clock. The `topicTitles` scalar (docx {topicTitles} token)
+  // stays titles-only and format-stable.
+  const topicLineGroups = topicRows.map((t) => {
+    const lines = [t.topic.title];
+    if (t.topic.duration && t.topic.duration > 0) {
+      let clock = new Date(t.topic.session.startTime).getTime();
+      for (const sibling of t.topic.session.topics) {
+        const mins = sibling.duration && sibling.duration > 0 ? sibling.duration : 0;
+        if (sibling.id === t.topic.id) {
+          const start = new Date(clock);
+          const end = new Date(clock + mins * 60_000);
+          lines.push(
+            `${formatTimeInTz(start, eventTz)} – ${formatTimeInTz(end, eventTz)} ${tzLabel(start, eventTz)}`,
+            formatMinutes(mins),
+          );
+          break;
+        }
+        clock += mins * 60_000;
+      }
+    }
+    return lines.join("<br/>");
+  });
+
   const trackSet = new Set<string>();
   for (const s of sessionRows) if (s.session.track?.name) trackSet.add(s.session.track.name);
   for (const t of topicRows) if (t.topic.session.track?.name) trackSet.add(t.topic.session.track.name);
@@ -472,7 +508,11 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // Inline styles only (no <style> blocks) so juice / email clients render correctly.
   const rows: Array<[string, string]> = [];
   if (sessionTitles) rows.push(["Session", sessionTitles.replace(/\n/g, "<br/>")]);
-  if (topicTitles) rows.push(["Topic", topicTitles.replace(/\n/g, "<br/>")]);
+  if (topicLineGroups.length) {
+    // Blank line between topics so each title + time + duration group reads
+    // as one entry.
+    rows.push(["Topic", topicLineGroups.join("<br/><br/>")]);
+  }
   if (sessionDateTimeLines.length) {
     // Blank line between sessions so each 3-line group reads as one entry.
     rows.push(["Date &amp; Time", sessionDateTimeLines.join("<br/><br/>")]);

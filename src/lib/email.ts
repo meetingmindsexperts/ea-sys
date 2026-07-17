@@ -2435,11 +2435,11 @@ export function getSamplePreviewVariables(
     // leaves unknown keys as-is. Raw-HTML key (DEFAULT_RAW_HTML_KEYS).
     presentationDetails: `<table style="border-collapse:collapse; margin:16px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
         <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Session</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Opening Keynote</td></tr>
-        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Topic</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Advances in Interventional Cardiology</td></tr>
+        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Topic</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Advances in Interventional Cardiology<br/>9:00 AM – 9:30 AM GMT+4<br/>30m</td></tr>
         <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Date &amp; Time</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Monday, March 15, 2026<br/>9:00 AM – 10:30 AM GMT+4<br/>1h 30m</td></tr>
       </table>`,
     presentationDetailsText:
-      "Session: Opening Keynote\nTopic: Advances in Interventional Cardiology\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4, 1h 30m",
+      "Session: Opening Keynote\nTopic: Advances in Interventional Cardiology, 9:00 AM – 9:30 AM GMT+4, 30m\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4, 1h 30m",
     // {{moderatorDetails}} preview — representative run-sheet in the exact
     // markup buildModeratorBlocks() emits; real sends render the sessions the
     // RECIPIENT moderates (empty for non-moderators). Raw-HTML key.
