@@ -3,9 +3,10 @@
 /**
  * Deal detail — the body of the dedicated deal page (/crm/deals/[dealId]).
  *
- * Record-page layout: an identity header, then a two-column body — the main work
- * area (close, follow-ups, activity, history) and a sticky sidebar of key facts +
- * the people on the deal. `onClosed` navigates the page away after archive/close.
+ * Record-page layout: an identity header with the deal's key stats (value, stage,
+ * expected close, owner), then a two-column body — the main work area (activity,
+ * follow-ups, products, history) and a sticky rail of secondary facts, the close
+ * action and the people on the deal. `onClosed` navigates away after archive/close.
  *
  * Notes are the reason this view exists: a human saying "I called them, they want
  * Gold, decision after the board meets" — the one thing no automated sync produces.
@@ -21,6 +22,8 @@ import {
   ArchiveRestore,
   Building2,
   CalendarDays,
+  Handshake,
+  History,
   Info,
   Loader2,
   Mail,
@@ -123,7 +126,19 @@ export function DealDetailBody({
   return (
     <div className="space-y-5">
       <RecordHeader
+        icon={Handshake}
         title={deal.name}
+        subtitle={
+          deal.company ? (
+            <Link
+              href={`/crm/companies/${deal.company.id}`}
+              className="inline-flex items-center gap-1.5 hover:text-foreground hover:underline"
+            >
+              <Building2 className="h-3.5 w-3.5" />
+              {deal.company.name}
+            </Link>
+          ) : undefined
+        }
         badges={
           <>
             <Badge variant="outline" className={DEAL_STATUS_COLORS[deal.status]}>
@@ -137,6 +152,15 @@ export function DealDetailBody({
             )}
           </>
         }
+        stats={[
+          { label: "Value", value: value ?? <Dash /> },
+          { label: "Stage", value: deal.stage?.name ?? <Dash /> },
+          {
+            label: "Expected close",
+            value: deal.expectedClose ? new Date(deal.expectedClose).toLocaleDateString() : <Dash />,
+          },
+          { label: "Owner", value: personName(deal.owner) },
+        ]}
         actions={
           (canWrite || canDelete) && (
             <>
@@ -189,9 +213,6 @@ export function DealDetailBody({
           <>
             <RecordCard icon={Info} title="Details">
               <Facts>
-                <Fact label="Value">{value ?? <Dash />}</Fact>
-                {deal.stage && <Fact label="Stage">{deal.stage.name}</Fact>}
-                <Fact label="Owner">{personName(deal.owner)}</Fact>
                 <Fact label="Company">
                   {deal.company ? (
                     <Link
@@ -205,15 +226,35 @@ export function DealDetailBody({
                     <Dash />
                   )}
                 </Fact>
-                <Fact label="Expected close">
-                  {deal.expectedClose ? new Date(deal.expectedClose).toLocaleDateString() : <Dash />}
-                </Fact>
+                <Fact label="Event">{deal.event?.name ?? <Dash />}</Fact>
                 <Fact label="Created">{new Date(deal.createdAt).toLocaleDateString()}</Fact>
                 {deal.status === "LOST" && deal.lostReason && (
                   <Fact label="Lost because">{deal.lostReason}</Fact>
                 )}
               </Facts>
             </RecordCard>
+
+            {/* ── Close (state change — lives with the facts, not the work area) ── */}
+            {canWrite && !isClosed && (
+              <RecordCard title="Close this deal">
+                <div className="space-y-3">
+                  <Input
+                    placeholder="Reason (if lost)"
+                    value={lostReason}
+                    onChange={(e) => setLostReason(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <Button onClick={() => handleClose("WON")} disabled={closing} className="flex-1">
+                      {closing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Mark won
+                    </Button>
+                    <Button variant="outline" onClick={() => handleClose("LOST")} disabled={closing} className="flex-1">
+                      Mark lost
+                    </Button>
+                  </div>
+                </div>
+              </RecordCard>
+            )}
 
             <RecordCard
               icon={Users}
@@ -225,32 +266,8 @@ export function DealDetailBody({
           </>
         }
       >
-        {/* ── Close ──────────────────────────────────────────────────────── */}
-        {canWrite && !isClosed && (
-          <RecordCard title="Close this deal">
-            <div className="space-y-3">
-              <Input
-                placeholder="Reason (if lost)"
-                value={lostReason}
-                onChange={(e) => setLostReason(e.target.value)}
-              />
-              <div className="flex gap-2">
-                <Button onClick={() => handleClose("WON")} disabled={closing} className="flex-1">
-                  {closing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Mark won
-                </Button>
-                <Button variant="outline" onClick={() => handleClose("LOST")} disabled={closing} className="flex-1">
-                  Mark lost
-                </Button>
-              </div>
-            </div>
-          </RecordCard>
-        )}
-
-        {/* ── Products (line items) ──────────────────────────────────────── */}
-        <RecordCard icon={Package} title="Products">
-          <DealProducts dealId={deal.id} canWrite={canWrite} />
-        </RecordCard>
+        {/* ── Activity — the primary work area, first (money-gated; null for MEMBER) ── */}
+        <CrmNotesCard attach={{ dealId: deal.id }} canWrite={canWrite} />
 
         {/* ── Follow-up ──────────────────────────────────────────────────── */}
         {canWrite && (
@@ -276,11 +293,13 @@ export function DealDetailBody({
           </RecordCard>
         )}
 
-        {/* ── Activity (shared notes card — money-gated, renders null for MEMBER) ── */}
-        <CrmNotesCard attach={{ dealId: deal.id }} canWrite={canWrite} />
+        {/* ── Products (line items) ──────────────────────────────────────── */}
+        <RecordCard icon={Package} title="Products">
+          <DealProducts dealId={deal.id} canWrite={canWrite} />
+        </RecordCard>
 
-        {/* ── History (renders its own heading) ──────────────────────────── */}
-        <RecordCard>
+        {/* ── History (system change log) ────────────────────────────────── */}
+        <RecordCard icon={History} title="History">
           <CrmActivityTimeline entityType="DEAL" entityId={deal.id} />
         </RecordCard>
       </RecordGrid>

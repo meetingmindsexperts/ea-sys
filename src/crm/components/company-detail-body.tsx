@@ -3,9 +3,10 @@
 /**
  * Account detail — the body of the dedicated account page (/crm/companies/[id]).
  *
- * Record-page layout: identity header, then a two-column body — the account's deals
- * / people / history on the left, and a sticky facts sidebar on the right. Fetches
- * by id; `onArchived` navigates the page away after archiving.
+ * Record-page layout: identity header with pipeline stats (open / won / people),
+ * then a two-column body — the account's deals, activity and history on the left,
+ * and a sticky rail (facts, people, about) on the right. Fetches by id;
+ * `onArchived` navigates the page away after archiving.
  *
  * The "Needs review" banner is the fuzzy-duplicate flag — advisory (the server
  * created the row rather than blocking it). Merging is a human job (a v1 gap).
@@ -20,6 +21,7 @@ import {
   Building2,
   ExternalLink,
   Handshake,
+  History,
   Info,
   Loader2,
   Pencil,
@@ -83,23 +85,28 @@ export function CompanyDetailBody({
       : `https://${company.website}`
     : null;
   const location = [company.city, company.country].filter(Boolean).join(", ");
+  const subtitle = [company.industry, location].filter(Boolean).join(" · ");
+  const openDeals = company.deals.filter((d) => d.status === "OPEN").length;
+  const wonDeals = company.deals.filter((d) => d.status === "WON").length;
 
   return (
     <div className="space-y-5">
       <RecordHeader
         icon={Building2}
         title={company.name}
+        subtitle={subtitle || undefined}
         badges={
-          <>
-            {company.industry && <Badge variant="outline">{company.industry}</Badge>}
-            {location && <span className="text-sm text-muted-foreground">{location}</span>}
-            {company.archivedAt && (
-              <Badge variant="outline" className="border-rose-200 bg-rose-100 text-rose-700">
-                Archived
-              </Badge>
-            )}
-          </>
+          company.archivedAt ? (
+            <Badge variant="outline" className="border-rose-200 bg-rose-100 text-rose-700">
+              Archived
+            </Badge>
+          ) : undefined
         }
+        stats={[
+          { label: "Open deals", value: openDeals },
+          { label: "Won", value: wonDeals },
+          { label: "People", value: company.contacts.length },
+        ]}
         actions={
           (canWrite || canDelete) && (
             <>
@@ -149,28 +156,75 @@ export function CompanyDetailBody({
 
       <RecordGrid
         sidebar={
-          <RecordCard icon={Info} title="Details">
-            <Facts>
-              <Fact label="Industry">{company.industry || <Dash />}</Fact>
-              <Fact label="Location">{location || <Dash />}</Fact>
-              <Fact label="Website">
-                {website ? (
-                  <a
-                    href={website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-primary hover:underline"
-                  >
-                    <span className="break-all">{company.website}</span>
-                    <ExternalLink className="h-3 w-3 shrink-0" />
-                  </a>
-                ) : (
-                  <Dash />
-                )}
-              </Fact>
-              <Fact label="Created">{new Date(company.createdAt).toLocaleDateString()}</Fact>
-            </Facts>
-          </RecordCard>
+          <>
+            <RecordCard icon={Info} title="Details">
+              <Facts>
+                <Fact label="Industry">{company.industry || <Dash />}</Fact>
+                <Fact label="Location">{location || <Dash />}</Fact>
+                <Fact label="Website">
+                  {website ? (
+                    <a
+                      href={website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <span className="break-all">{company.website}</span>
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                    </a>
+                  ) : (
+                    <Dash />
+                  )}
+                </Fact>
+                <Fact label="Created">{new Date(company.createdAt).toLocaleDateString()}</Fact>
+              </Facts>
+            </RecordCard>
+
+            <RecordCard
+              icon={Users}
+              title="People"
+              action={<Badge variant="secondary" className="tabular-nums">{company.contacts.length}</Badge>}
+              bodyClassName={company.contacts.length === 0 ? "p-4" : "p-3"}
+            >
+              {company.contacts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No contacts linked yet. Link them from the contact&apos;s detail.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {company.contacts.map((c) => (
+                    <li key={c.id}>
+                      <Link
+                        href={`/crm/contacts/${c.id}`}
+                        className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm transition-colors hover:bg-muted/40"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">
+                            {c.firstName} {c.lastName}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {c.jobTitle ? `${c.jobTitle} · ` : ""}
+                            {c.email}
+                          </p>
+                        </div>
+                        {c.lifecycleStage && (
+                          <Badge variant="outline" className={LIFECYCLE_COLORS[c.lifecycleStage]}>
+                            {LIFECYCLE_LABELS[c.lifecycleStage]}
+                          </Badge>
+                        )}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </RecordCard>
+
+            {company.notes && (
+              <RecordCard title="About">
+                <p className="whitespace-pre-wrap text-sm">{company.notes}</p>
+              </RecordCard>
+            )}
+          </>
         }
       >
         {company.needsReview && (
@@ -204,19 +258,6 @@ export function CompanyDetailBody({
             </div>
           </div>
         )}
-
-        {company.notes && (
-          <RecordCard title="Notes">
-            <p className="whitespace-pre-wrap text-sm">{company.notes}</p>
-          </RecordCard>
-        )}
-
-        {/* Logged calls/meetings — the shared notes card (money-gated; null for MEMBER). */}
-        <CrmNotesCard
-          attach={{ companyId: company.id }}
-          canWrite={canWrite}
-          placeholder="Spoke to their events team — budget confirmed for two Gold packages next year."
-        />
 
         <RecordCard
           icon={Handshake}
@@ -254,46 +295,14 @@ export function CompanyDetailBody({
           )}
         </RecordCard>
 
-        <RecordCard
-          icon={Users}
-          title="People"
-          action={<Badge variant="secondary" className="tabular-nums">{company.contacts.length}</Badge>}
-          bodyClassName={company.contacts.length === 0 ? "p-4" : "p-3"}
-        >
-          {company.contacts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No contacts linked yet. Link them from the contact&apos;s detail.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {company.contacts.map((c) => (
-                <li key={c.id}>
-                  <Link
-                    href={`/crm/contacts/${c.id}`}
-                    className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm transition-colors hover:bg-muted/40"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">
-                        {c.firstName} {c.lastName}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {c.jobTitle ? `${c.jobTitle} · ` : ""}
-                        {c.email}
-                      </p>
-                    </div>
-                    {c.lifecycleStage && (
-                      <Badge variant="outline" className={LIFECYCLE_COLORS[c.lifecycleStage]}>
-                        {LIFECYCLE_LABELS[c.lifecycleStage]}
-                      </Badge>
-                    )}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </RecordCard>
+        {/* Logged calls/meetings — the shared notes card (money-gated; null for MEMBER). */}
+        <CrmNotesCard
+          attach={{ companyId: company.id }}
+          canWrite={canWrite}
+          placeholder="Spoke to their events team — budget confirmed for two Gold packages next year."
+        />
 
-        <RecordCard>
+        <RecordCard icon={History} title="History">
           <CrmActivityTimeline entityType="COMPANY" entityId={company.id} />
         </RecordCard>
       </RecordGrid>

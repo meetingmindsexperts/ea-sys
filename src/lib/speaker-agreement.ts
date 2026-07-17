@@ -193,12 +193,17 @@ interface SpeakerEmailContextRow {
     }>;
     topicSpeakers: Array<{
       topic: {
+        id: string;
         title: string;
+        duration: number | null;
         session: {
           name: string;
           startTime: Date;
           endTime: Date;
           track: { name: string } | null;
+          // Ordered sibling topics — needed to compute THIS topic's start
+          // time by stacking preceding durations from the session start.
+          topics: Array<{ id: string; duration: number | null }>;
         };
       };
     }>;

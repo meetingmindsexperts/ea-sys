@@ -6,8 +6,8 @@
  * A CRM contact is a business person (rep / procurement / marketing), NOT an event
  * HCP — a different table and population. Record-page layout: identity header, then
  * a two-column body (deals + history on the left, a facts sidebar on the right).
- * The Link2 marker shows when this rep is ALSO in the event contact store (they
- * attend) — linked, never duplicated. `onArchived` navigates the page away.
+ * The "Also an event contact" badge shows when this rep is ALSO in the event contact
+ * store (they attend) — linked, never duplicated. `onArchived` navigates the page away.
  */
 import { useState } from "react";
 import Link from "next/link";
@@ -16,13 +16,13 @@ import {
   Archive,
   ArchiveRestore,
   Handshake,
+  History,
   Info,
   Link2,
   Loader2,
   Mail,
   Pencil,
   Phone,
-  User,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,28 +67,41 @@ export function ContactDetailBody({
     );
   }
 
+  const initials =
+    `${contact.firstName.charAt(0)}${contact.lastName.charAt(0)}`.trim() || "?";
+
   return (
     <div className="space-y-5">
       <RecordHeader
-        icon={User}
-        title={
-          <span className="inline-flex items-center gap-2">
-            {contact.firstName} {contact.lastName}
-            {contact.contactId && <Link2 className="h-4 w-4 text-muted-foreground" />}
-          </span>
+        avatarText={initials}
+        title={`${contact.firstName} ${contact.lastName}`}
+        subtitle={
+          contact.jobTitle || contact.company ? (
+            <>
+              {contact.jobTitle}
+              {contact.jobTitle && contact.company ? " · " : ""}
+              {contact.company && (
+                <Link
+                  href={`/crm/companies/${contact.company.id}`}
+                  className="hover:text-foreground hover:underline"
+                >
+                  {contact.company.name}
+                </Link>
+              )}
+            </>
+          ) : undefined
         }
         badges={
           <>
-            {contact.company && (
-              <Link href={`/crm/companies/${contact.company.id}`}>
-                <Badge variant="outline" className="hover:bg-muted">
-                  {contact.company.name}
-                </Badge>
-              </Link>
-            )}
             {contact.lifecycleStage && (
               <Badge variant="outline" className={LIFECYCLE_COLORS[contact.lifecycleStage]}>
                 {LIFECYCLE_LABELS[contact.lifecycleStage]}
+              </Badge>
+            )}
+            {contact.contactId && (
+              <Badge variant="outline" className="gap-1 text-muted-foreground">
+                <Link2 className="h-3 w-3" />
+                Also an event contact
               </Badge>
             )}
             {contact.archivedAt && (
@@ -135,6 +148,7 @@ export function ContactDetailBody({
 
       <RecordGrid
         sidebar={
+          <>
           <RecordCard icon={Info} title="Details">
             <Facts>
               <Fact label="Email">
@@ -172,14 +186,15 @@ export function ContactDetailBody({
               )}
             </Facts>
           </RecordCard>
+
+          {contact.notes && (
+            <RecordCard title="About">
+              <p className="whitespace-pre-wrap text-sm">{contact.notes}</p>
+            </RecordCard>
+          )}
+        </>
         }
       >
-        {contact.notes && (
-          <RecordCard title="Notes">
-            <p className="whitespace-pre-wrap text-sm">{contact.notes}</p>
-          </RecordCard>
-        )}
-
         <RecordCard
           icon={Handshake}
           title="Deals"
@@ -226,7 +241,7 @@ export function ContactDetailBody({
           placeholder="Called Sarah — she owns the sponsorship budget, wants the prospectus by Friday."
         />
 
-        <RecordCard>
+        <RecordCard icon={History} title="History">
           <CrmActivityTimeline entityType="CONTACT" entityId={contact.id} />
         </RecordCard>
       </RecordGrid>

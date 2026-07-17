@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * The CRM change-log timeline — the "detailed activity log" shown in every detail
- * sheet.
+ * The CRM change-log timeline — the "detailed activity log" on every record page.
+ * Renders no heading of its own: the host RecordCard supplies the "History" header,
+ * so the section chrome stays consistent with every other card.
  *
  * SYSTEM history: created / edited (with field-level before→after) / archived /
  * restored / stage-moved / won / lost / contact linked. Distinct from the human
@@ -25,7 +26,6 @@ import {
   RotateCcw,
   Link2,
   Loader2,
-  History,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -100,11 +100,6 @@ export function CrmActivityTimeline({
 
   return (
     <div className="space-y-3">
-      <p className="flex items-center gap-2 text-sm font-medium">
-        <History className="h-4 w-4" />
-        History
-      </p>
-
       {isLoading ? (
         <p className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
