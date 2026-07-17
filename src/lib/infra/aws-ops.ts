@@ -23,7 +23,7 @@ import {
   type MetricDataQuery,
 } from "@aws-sdk/client-cloudwatch";
 import { SESv2Client, GetAccountCommand } from "@aws-sdk/client-sesv2";
-import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { S3Client, ListObjectsV2Command, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
 import { EXPECTED_JOBS } from "@/lib/worker-jobs";
@@ -830,25 +830,43 @@ async function fetchAbuse(): Promise<InfraSnapshot["abuse"]> {
  * the uploads mirror, and the .env. A restore needs all three. Checking only the
  * database dump would let you believe you were covered while the uploads mirror
  * had been dead for a month, and you would discover it while restoring.
+ *
+ * Freshness is the newest object's LastModified under the prefix — correct for
+ * db/ and env/ whose crons write a NEW object every run. The uploads mirror is
+ * an hourly `aws s3 sync`, which only writes when a local file actually
+ * CHANGED — so its newest object measures "time since someone last uploaded",
+ * not "time since the sync last ran", and a quiet stretch > staleAfterHours
+ * false-alarmed while the cron was healthy (2026-07-17). The cron therefore
+ * also writes a heartbeat object after every successful sync, and the uploads
+ * row uses whichever is newer: heartbeat (post-crontab-change) or newest
+ * uploads/ object (pre-change fallback = exactly the old behavior). Triage
+ * runbook: infra/dr/README.md §"Triage: Uploads mirror stale".
+ *
+ * Exported for tests only — production callers go through getInfraSnapshot().
  */
-async function fetchDr(): Promise<InfraSnapshot["dr"]> {
-  const streams = [
+export async function fetchDr(): Promise<InfraSnapshot["dr"]> {
+  const streams: { label: string; prefix: string; staleAfterHours: number; heartbeatKey?: string }[] = [
     { label: "Database dump", prefix: "db/", staleAfterHours: 18 },
-    { label: "Uploads mirror", prefix: "uploads/", staleAfterHours: 3 },
+    { label: "Uploads mirror", prefix: "uploads/", staleAfterHours: 3, heartbeatKey: "heartbeats/uploads-mirror" },
     { label: "Env file", prefix: "env/", staleAfterHours: 30 },
   ];
   try {
     const rows = await Promise.all(
       streams.map(async (st) => {
-        const out = await getS3().send(
-          new ListObjectsV2Command({ Bucket: DR_BUCKET, Prefix: st.prefix, MaxKeys: 1000 }),
-        );
+        const [out, heartbeatAt] = await Promise.all([
+          getS3().send(new ListObjectsV2Command({ Bucket: DR_BUCKET, Prefix: st.prefix, MaxKeys: 1000 })),
+          st.heartbeatKey ? fetchDrHeartbeat(st.heartbeatKey) : Promise.resolve(null),
+        ]);
         const objects = (out.Contents ?? []).filter((o) => o.LastModified);
-        if (objects.length === 0) {
+        const newestObjectAt = objects.length
+          ? (objects.reduce((a, b) => ((a.LastModified as Date) > (b.LastModified as Date) ? a : b)).LastModified as Date)
+          : null;
+        const at = [newestObjectAt, heartbeatAt]
+          .filter((d): d is Date => d !== null)
+          .reduce<Date | null>((a, b) => (a === null || b > a ? b : a), null);
+        if (!at) {
           return { label: st.label, prefix: st.prefix, latestAt: null, ageHours: null, staleAfterHours: st.staleAfterHours, stale: true };
         }
-        const newest = objects.reduce((a, b) => ((a.LastModified as Date) > (b.LastModified as Date) ? a : b));
-        const at = newest.LastModified as Date;
         const ageHours = (Date.now() - at.getTime()) / 3600_000;
         return {
           label: st.label,
@@ -864,6 +882,29 @@ async function fetchDr(): Promise<InfraSnapshot["dr"]> {
   } catch (err) {
     apiLogger.warn({ err }, "infra:dr-failed");
     return { status: "error", error: friendlyAwsError(err), rows: [] };
+  }
+}
+
+/**
+ * LastModified of a DR heartbeat object, or null when it doesn't exist yet —
+ * a missing heartbeat is the expected state until the crontab change that
+ * writes it lands, so 404 is not an error (the caller falls back to the
+ * newest-object age). Anything else (IAM, KMS, network) logs and degrades to
+ * null rather than failing the whole DR card.
+ *
+ * Exported for tests only.
+ */
+export async function fetchDrHeartbeat(key: string): Promise<Date | null> {
+  try {
+    const head = await getS3().send(new HeadObjectCommand({ Bucket: DR_BUCKET, Key: key }));
+    return head.LastModified ?? null;
+  } catch (err) {
+    const name = (err as { name?: string }).name;
+    if (name === "NotFound" || name === "NoSuchKey" || (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404) {
+      return null;
+    }
+    apiLogger.warn({ err, key }, "infra:dr-heartbeat-failed");
+    return null;
   }
 }
 

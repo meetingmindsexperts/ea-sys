@@ -173,8 +173,11 @@ CRON_SECRET=<value from .env>
 # Nightly .env backup to Singapore DR bucket (21:00 UTC = 02:30 IST)
 0 21 * * * aws s3 cp /home/ubuntu/ea-sys/.env s3://ea-sys-dr-singapore/env/$(date -u +\%F).env --region ap-southeast-1 >> /home/ubuntu/cron-dr-backup.log 2>&1
 
-# Hourly uploads mirror to Singapore DR bucket
-0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude "*/.gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
+# Hourly uploads mirror to Singapore DR bucket. The trailing heartbeat write
+# is LOAD-BEARING — the infra DR card reads heartbeats/uploads-mirror to know
+# the sync ran (sync alone only writes when a file changed; without the
+# heartbeat the card false-alarms on quiet days). Added 2026-07-17.
+0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude "*/.gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
 
 # Postgres dump to Singapore DR bucket — ≤2h RPO Dubai daytime, ≤4h overnight
 0 2,4,6,8,10,12,14,16,18,22 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1

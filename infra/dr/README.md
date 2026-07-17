@@ -73,8 +73,12 @@ On the Mumbai box (`sudo -iu ubuntu`, then `crontab -e`):
 # Daily .env snapshot to Singapore DR bucket (21:00 UTC = 02:30 IST)
 0 21 * * * aws s3 cp /home/ubuntu/ea-sys/.env s3://ea-sys-dr-singapore/env/$(date -u +\%F).env --region ap-southeast-1 >> /home/ubuntu/cron-dr-backup.log 2>&1
 
-# Hourly uploads mirror to Singapore DR bucket (covers user-uploaded media)
-0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude "*/.gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
+# Hourly uploads mirror to Singapore DR bucket (covers user-uploaded media).
+# The trailing heartbeat write is LOAD-BEARING: `s3 sync` only writes objects
+# when a file changed, so the infra DR card reads heartbeats/uploads-mirror
+# to know the sync RAN (see §"Triage: Uploads mirror stale"). && = heartbeat
+# only on a successful sync.
+0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude "*/.gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
 ```
 
 Both require the Mumbai EC2's IAM role (`ea-sys-mumbai-ec2-role`) to have
@@ -551,8 +555,90 @@ For honesty:
    (Don't destroy before step 2, or fresh uploads written during the outage
    are gone.)
 
+## Triage: "Uploads mirror — Xh ago" stale on the infra DR card
+
+**Read this before assuming the mirror is broken — the first occurrence
+(2026-07-17, "15.3h ago") was a false alarm.**
+
+The infra dashboard's DR card (`fetchDr()` in
+[src/lib/infra/aws-ops.ts](../../src/lib/infra/aws-ops.ts)) computes the
+"Uploads mirror" age from the **LastModified of the newest object under
+`uploads/` in the DR bucket**, stale after 3h. But the mirror is an hourly
+`aws s3 sync`, which only writes to S3 when a local file actually **changed**.
+So the metric really measures *"time since someone last uploaded/changed a
+file"*, not *"time since the sync last ran"*. Any quiet stretch longer than
+3 hours (nights, weekends, slow weeks) trips the alert while the cron is
+perfectly healthy.
+
+Triage in three read-only steps:
+
+```bash
+# 1. Newest objects actually in the bucket — does the age match the card?
+aws s3api list-objects-v2 \
+  --bucket ea-sys-dr-singapore --prefix uploads/ \
+  --region ap-southeast-1 \
+  --query 'sort_by(Contents,&LastModified)[-5:].{Key:Key,LastModified:LastModified}' \
+  --output table
+
+# 2. On the Mumbai box via SSM (read-only): is the cron alive, and did any
+#    local file actually change since the newest S3 object?
+aws ssm send-command --region ap-south-1 \
+  --instance-ids i-0b51ab1213d084640 \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=[
+    "crontab -l -u ubuntu | grep -n \"s3 sync\"",
+    "grep -a \"s3 sync\" /var/log/syslog | tail -30",
+    "find /home/ubuntu/ea-sys/public/uploads -type f -printf \"%T@ %p\\n\" | sort -n | tail -5",
+    "sudo -u ubuntu aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --dryrun | head -5; echo exit=$?"
+  ]' \
+  --query 'Command.CommandId' --output text
+
+# 3. Fetch the output (substitute the CommandId from step 2):
+aws ssm get-command-invocation --region ap-south-1 \
+  --instance-id i-0b51ab1213d084640 \
+  --command-id <command-id> \
+  --query '{Status:Status,Out:StandardOutputContent,Err:StandardErrorContent}' \
+  --output json
+```
+
+How to read the result:
+
+| Check | Healthy looks like | Broken looks like |
+|---|---|---|
+| `crontab -l` | hourly `aws s3 sync … uploads/` line present | line missing/commented |
+| syslog `CRON` entries | one sync entry every hour, incl. the last hour | entries stop at some point |
+| newest local file mtime | ≤ newest S3 object's LastModified | **newer** than newest S3 object |
+| `s3 sync --dryrun` | exit 0, nothing (or only `.gitkeep`s) pending | non-zero exit / AccessDenied / KMS errors |
+
+Cron firing + newest local file older than the newest S3 object = **false
+alarm** (nothing to sync — the metric aged out on its own). Local file newer
+than S3, or cron entries missing, or dry-run failing = **real failure**;
+also check `/home/ubuntu/cron-dr-uploads-sync.log` on the box for the error.
+
+**Durable fix (implemented 2026-07-17):** the check now measures sync
+*execution*, not data change. The cron line (§3 above) appends a heartbeat
+write after each successful sync:
+
+```
+… >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
+```
+
+and `fetchDr()` uses the newer of `heartbeats/uploads-mirror` and the newest
+`uploads/` object (the fallback keeps the card working if the heartbeat is
+ever missing — but fallback-only behavior is the false-alarm mode above, so
+if the alert fires and the heartbeat object doesn't exist, the crontab lost
+the heartbeat suffix). With the heartbeat in place, a stale "Uploads mirror"
+row means the sync genuinely didn't run/succeed — treat it as real and run
+the triage above.
+
 ## Known gaps
 
+- ~~**The DR card's "Uploads mirror" freshness check can false-alarm.**~~
+  **✅ FIXED 2026-07-17** — the cron now writes `heartbeats/uploads-mirror`
+  after every successful sync and the card ages off that (newest-object
+  fallback kept). See the
+  [triage section above](#triage-uploads-mirror--xh-ago-stale-on-the-infra-dr-card)
+  if the alert fires anyway — post-fix it means the sync genuinely stopped.
 - **ECR is Mumbai-only (deploy image registry, added 2026-07-01).** The app now
   deploys as pre-built images from ECR (`…/ea-sys`) — great for a **box-only**
   rebuild (a replacement box pulls in ~1–2 min vs an ~8-min on-box build). But
