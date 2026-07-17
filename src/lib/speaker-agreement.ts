@@ -310,14 +310,23 @@ function formatSessionDuration(start: Date, end: Date): string {
   return formatMinutes(Math.round((end.getTime() - start.getTime()) / 60_000));
 }
 
-/** One session's "Date, start – end TZ (duration)" line in the event TZ. */
-function formatSessionWindow(start: Date, end: Date | null, tz: string): string {
-  const base = `${formatDateInTz(start, tz)}, ${formatTimeInTz(start, tz)}`;
+/**
+ * One session's time window as SEPARATE lines — date, start–end clock,
+ * duration (owner request: never one combined line). The duration line is
+ * omitted when the window is missing/non-positive; without an end time the
+ * clock line is just the start.
+ *   ["Monday, March 15, 2026", "9:00 AM – 10:30 AM GMT+4", "1h 30m"]
+ */
+function sessionWindowLines(start: Date, end: Date | null, tz: string): string[] {
+  const lines = [formatDateInTz(start, tz)];
   if (!end || end.getTime() <= start.getTime()) {
-    return `${base} ${tzLabel(start, tz)}`;
+    lines.push(`${formatTimeInTz(start, tz)} ${tzLabel(start, tz)}`);
+    return lines;
   }
+  lines.push(`${formatTimeInTz(start, tz)} – ${formatTimeInTz(end, tz)} ${tzLabel(start, tz)}`);
   const duration = formatSessionDuration(start, end);
-  return `${base} – ${formatTimeInTz(end, tz)} ${tzLabel(start, tz)}${duration ? ` (${duration})` : ""}`;
+  if (duration) lines.push(duration);
+  return lines;
 }
 
 const MOD_CELL_STYLE =
@@ -342,16 +351,17 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
   const textParts: string[] = [];
 
   for (const { session } of moderated) {
-    const window = formatSessionWindow(session.startTime, session.endTime ?? null, eventTz);
+    // Date / time / duration as separate lines (owner request).
+    const windowLines = sessionWindowLines(session.startTime, session.endTime ?? null, eventTz);
     const headerHtml = `<strong>${escapeHtmlForAgreement(session.name)}</strong>${
       session.location ? ` · ${escapeHtmlForAgreement(session.location)}` : ""
     }`;
     const trackSuffix = session.track?.name
-      ? ` · Track: ${escapeHtmlForAgreement(session.track.name)}`
+      ? `<br/>Track: ${escapeHtmlForAgreement(session.track.name)}`
       : "";
 
     textParts.push(
-      `Session: ${session.name}${session.location ? ` · ${session.location}` : ""}\n${window.replace(/&amp;/g, "&")}${session.track?.name ? ` · Track: ${session.track.name}` : ""}`,
+      `Session: ${session.name}${session.location ? ` · ${session.location}` : ""}\n${windowLines.join("\n")}${session.track?.name ? `\nTrack: ${session.track.name}` : ""}`,
     );
 
     let bodyRows = "";
@@ -385,7 +395,7 @@ ${bodyRows}      </table>`
     htmlParts.push(
       `<div style="margin:16px 0;">
       <p style="margin:0 0 2px 0; font-size:15px; color:#111827;">${headerHtml}</p>
-      <p style="margin:0 0 8px 0; color:#6b7280; font-size:13px;">${window}${trackSuffix}</p>
+      <p style="margin:0 0 8px 0; color:#6b7280; font-size:13px;">${windowLines.join("<br/>")}${trackSuffix}</p>
       ${topicsTable}
     </div>`,
     );
@@ -435,7 +445,10 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     const key = `${s.name}|${s.startTime.getTime()}`;
     if (seenWindows.has(key)) continue;
     seenWindows.add(key);
-    sessionDateTimeLines.push(formatSessionWindow(s.startTime, s.endTime ?? null, eventTz));
+    // Three lines per session — date / time / duration (owner request).
+    sessionDateTimeLines.push(
+      sessionWindowLines(s.startTime, s.endTime ?? null, eventTz).join("<br/>"),
+    );
   }
 
   const trackSet = new Set<string>();
@@ -456,10 +469,13 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   if (sessionTitles) rows.push(["Session", sessionTitles.replace(/\n/g, "<br/>")]);
   if (topicTitles) rows.push(["Topic", topicTitles.replace(/\n/g, "<br/>")]);
   if (sessionDateTimeLines.length) {
-    rows.push(["Date &amp; Time", sessionDateTimeLines.join("<br/>")]);
+    // Blank line between sessions so each 3-line group reads as one entry.
+    rows.push(["Date &amp; Time", sessionDateTimeLines.join("<br/><br/>")]);
   }
   if (trackNames) rows.push(["Track", trackNames]);
-  if (role) rows.push(["Role", role]);
+  // NO Role row (owner decision, July 17 2026): organizers send separate
+  // emails to moderators vs speakers, so the block never displays the role.
+  // The `role` context field itself stays — it's a {role} docx merge token.
 
   const html = rows.length
     ? `<table style="border-collapse:collapse; margin:16px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
@@ -473,7 +489,7 @@ ${rows
     : "";
 
   const text = rows.length
-    ? rows.map(([label, value]) => `${label}: ${value.replace(/<br\/>/g, ", ").replace(/&amp;/g, "&")}`).join("\n")
+    ? rows.map(([label, value]) => `${label}: ${value.replace(/(<br\/>)+/g, ", ").replace(/&amp;/g, "&")}`).join("\n")
     : "";
 
   return { sessionTitles, topicTitles, sessionDateTime, trackNames, role, html, text };

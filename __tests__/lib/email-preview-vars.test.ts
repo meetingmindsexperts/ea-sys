@@ -109,12 +109,12 @@ describe("buildEventPreviewVariables", () => {
     const v = buildEventPreviewVariables(baseEvent, USER);
     expect(String(v.presentationDetails)).toContain("<table");
     expect(String(v.presentationDetails)).toContain("Session");
-    // Time window + duration, matching what buildPresentationBlocks renders
-    // on real sends.
-    expect(String(v.presentationDetails)).toContain("9:00 AM – 10:30 AM");
-    expect(String(v.presentationDetails)).toContain("(1h 30m)");
+    // Date / time / duration as separate lines, matching what
+    // buildPresentationBlocks renders on real sends (no Role row).
+    expect(String(v.presentationDetails)).toContain("9:00 AM – 10:30 AM GMT+4<br/>1h 30m");
+    expect(String(v.presentationDetails)).not.toContain(">Role<");
     expect(String(v.presentationDetailsText)).toContain("Session:");
-    expect(String(v.presentationDetailsText)).toContain("(1h 30m)");
+    expect(String(v.presentationDetailsText)).toContain("1h 30m");
   });
 
   it("greets {{speakerName}} with the signed-in user's name", () => {

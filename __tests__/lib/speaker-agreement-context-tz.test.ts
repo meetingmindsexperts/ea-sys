@@ -99,13 +99,15 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     expect(ctx?.sessionDateTime).toContain("GMT+4");
   });
 
-  it("presentationDetails block carries the session time WINDOW + duration", async () => {
+  it("presentationDetails carries date / time / duration as THREE separate lines, no Role row", async () => {
     mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
-    // 14:00–15:00 UTC = 9:00–10:00 AM in New York, a 1-hour session.
-    expect(ctx?.presentationDetails).toContain("9:00 AM – 10:00 AM");
-    expect(ctx?.presentationDetails).toContain("(1h)");
+    // 14:00–15:00 UTC = 9:00–10:00 AM in New York, a 1-hour session —
+    // date <br/> time <br/> duration (owner request: never one combined line).
+    expect(ctx?.presentationDetails).toContain("Mar 5, 2026<br/>9:00 AM – 10:00 AM EST<br/>1h");
     expect(ctx?.presentationDetailsText).toContain("9:00 AM – 10:00 AM");
+    // Separate moderator/speaker sends — the block never displays the role.
+    expect(ctx?.presentationDetails).not.toContain(">Role<");
   });
 
   it("keeps the {sessionDateTime} docx token format-stable (start time only)", async () => {
@@ -126,7 +128,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
     expect(ctx?.presentationDetails).toContain("9:00 AM – 10:00 AM");
     expect(ctx?.presentationDetails).toContain("11:00 AM – 12:30 PM");
-    expect(ctx?.presentationDetails).toContain("(1h 30m)");
+    expect(ctx?.presentationDetails).toContain("1h 30m");
   });
 });
 
