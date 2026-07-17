@@ -2436,6 +2436,26 @@ export function getSamplePreviewVariables(
       </table>`,
     presentationDetailsText:
       "Session: Opening Keynote\nTopic: Advances in Interventional Cardiology\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4 (1h 30m)\nRole: Speaker",
+    // Webinar-template previews — real sends enrich these per event/recipient
+    // in bulk-email.ts (attendee {{joinUrl}} = OUR gated session page, never
+    // the raw Zoom link) and webinar-panelist-email.ts. Without samples the
+    // preview showed the literal tokens. Block samples mirror the senders'
+    // exact markup; passcodeBlock/recordingBlock are DEFAULT_RAW_HTML_KEYS.
+    joinUrl: "#",
+    webinarDate: "Monday, March 15, 2026",
+    webinarTime: "9:00 AM GMT+4",
+    passcodeBlock:
+      '<div style="text-align:center; margin:12px 0; color:#374151; font-size:14px;">Passcode: <strong style="font-family:monospace;">123456</strong></div>',
+    recordingBlock:
+      '<div style="text-align:center; margin:20px 0;"><a href="#" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>',
+    panelistName: "Dr. John Doe",
+    sessionName: "Opening Keynote",
+    sessionStart: "Monday, March 15, 2026, 9:00 AM GMT+4",
+    // payment-confirmation preview — real sends build these in
+    // payment-confirmation-email.ts (Stripe receipt button + attachment note).
+    paymentReference: "pi_3SAMPLE1234567890",
+    receiptBlock:
+      '<div style="text-align: center; margin: 20px 0 0 0;"><a href="#" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">View Receipt</a></div><p style="text-align: center; font-size: 13px; color: #6b7280; margin: 10px 0 0 0;">Your invoice and receipt are attached to this email as PDF documents.</p>',
     agreementLink: "#",
     // {{agreementBlock}} preview — representative CTA; real sends mint a
     // one-time per-speaker link (see buildAgreementBlock in speaker-agreement.ts).

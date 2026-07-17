@@ -135,4 +135,31 @@ describe("buildEventPreviewVariables", () => {
     const v = buildEventPreviewVariables(baseEvent, USER);
     expect(String(v.organizerSignature)).toContain("Event Organizer");
   });
+
+  // Webinar + payment-confirmation tokens — real sends enrich these per
+  // event/recipient (bulk-email webinar enrichment, panelist email, payment
+  // email). Without samples the previews showed the literal {{tokens}}.
+  it("covers the webinar-template tokens so their previews render cleanly", () => {
+    const v = buildEventPreviewVariables(baseEvent, USER);
+    for (const key of [
+      "joinUrl",
+      "webinarDate",
+      "webinarTime",
+      "passcodeBlock",
+      "recordingBlock",
+      "panelistName",
+      "sessionName",
+      "sessionStart",
+    ]) {
+      expect(v[key], key).toBeDefined();
+    }
+    expect(String(v.passcodeBlock)).toContain("Passcode");
+    expect(String(v.recordingBlock)).toContain("Watch Replay");
+  });
+
+  it("covers the payment-confirmation tokens (receiptBlock, paymentReference)", () => {
+    const v = buildEventPreviewVariables(baseEvent, USER);
+    expect(String(v.receiptBlock)).toContain("View Receipt");
+    expect(String(v.paymentReference)).toContain("pi_");
+  });
 });
