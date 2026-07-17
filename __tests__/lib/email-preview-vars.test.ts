@@ -162,4 +162,32 @@ describe("buildEventPreviewVariables", () => {
     expect(String(v.receiptBlock)).toContain("View Receipt");
     expect(String(v.paymentReference)).toContain("pi_");
   });
+
+  it("covers presenter-agreement + reviewer tokens, greeting the signed-in user", () => {
+    const v = buildEventPreviewVariables(baseEvent, USER);
+    expect(v.presenterName).toBe("Aisha Khan");
+    expect(v.presenterEmail).toBe("aisha@org.com");
+    expect(v.abstractTitles).toBeDefined();
+    expect(v.abstractCount).toBeDefined();
+    expect(v.reviewLink).toBeDefined();
+    expect(v.role).toBe("Primary reviewer");
+  });
+
+  // Class-2: these were canned samples although the real event data is in hand.
+  it("renders eventDateRange / organizationName / venueLine from the REAL event", () => {
+    const v = buildEventPreviewVariables(baseEvent, USER);
+    expect(v.eventDateRange).toBe(v.eventDate);
+    expect(v.organizationName).toBe("Meeting Minds Group");
+    expect(v.venueLine).toBe("at Madinat Jumeirah, Dubai");
+  });
+
+  it("venueLine is empty (not the sample) when the event has no venue/city", () => {
+    const v = buildEventPreviewVariables(
+      { name: "Bare", startDate: new Date("2026-09-10T08:00:00Z") },
+      USER,
+    );
+    expect(v.venueLine).toBe("");
+    // No org on the event → sample organization name kept.
+    expect(v.organizationName).toBe("Sample Organization");
+  });
 });

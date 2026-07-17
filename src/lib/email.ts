@@ -2451,6 +2451,21 @@ export function getSamplePreviewVariables(
     panelistName: "Dr. John Doe",
     sessionName: "Opening Keynote",
     sessionStart: "Monday, March 15, 2026, 9:00 AM GMT+4",
+    // presenter-agreement preview — real sends build these per presenter.
+    // buildEventPreviewVariables overrides presenterName/presenterEmail with
+    // the signed-in user (the test goes to them).
+    presenterName: "Dr. John Doe",
+    presenterEmail: "john.doe@example.com",
+    abstractTitles: "Sample Abstract Title",
+    abstractCount: 1,
+    // reviewer-assignment / reviewer-pool-invitation previews — real sends
+    // build these in abstract-reviewer-notify.ts.
+    reviewLink: "#",
+    role: "Primary reviewer",
+    // Real event values override these in buildEventPreviewVariables.
+    eventDateRange: "Monday, March 15, 2026",
+    organizationName: "Sample Organization",
+    venueLine: "at Convention Center, Dubai",
     // payment-confirmation preview — real sends build these in
     // payment-confirmation-email.ts (Stripe receipt button + attachment note).
     paymentReference: "pi_3SAMPLE1234567890",
@@ -2570,12 +2585,20 @@ export function buildEventPreviewVariables(
       : reg.id.slice(-8).toUpperCase()
     : "9999";
 
+  // Mirrors composeVenueLine in the cert cover resolver (venue, city — the
+  // preview event select carries no country).
+  const venueParts = [event.venue, event.city].filter(Boolean);
+
   const realOverrides: Partial<Record<string, string | number>> = {
     registrationId,
     eventName: event.name,
     eventDate,
+    // Always the start–end range on multi-day events; same string as eventDate.
+    eventDateRange: eventDate,
     eventVenue: event.venue || "",
     eventAddress: [event.address, event.city].filter(Boolean).join(", "),
+    venueLine: venueParts.length ? `at ${venueParts.join(", ")}` : "",
+    ...(event.organization?.name ? { organizationName: event.organization.name } : {}),
     organizerName:
       event.organization?.name ||
       `${user.firstName || "Event"} ${user.lastName || "Organizer"}`.trim(),
@@ -2585,8 +2608,12 @@ export function buildEventPreviewVariables(
     ...(user.firstName ? { firstName: user.firstName } : {}),
     ...(user.lastName ? { lastName: user.lastName } : {}),
     ...(user.firstName || user.lastName
-      ? { speakerName: [user.firstName, user.lastName].filter(Boolean).join(" ") }
+      ? {
+          speakerName: [user.firstName, user.lastName].filter(Boolean).join(" "),
+          presenterName: [user.firstName, user.lastName].filter(Boolean).join(" "),
+        }
       : {}),
+    ...(user.email ? { presenterEmail: user.email } : {}),
     // Real sender signature when the caller fetched it (see PreviewUserData).
     ...(user.emailSignature !== undefined
       ? { organizerSignature: user.emailSignature ?? "" }
