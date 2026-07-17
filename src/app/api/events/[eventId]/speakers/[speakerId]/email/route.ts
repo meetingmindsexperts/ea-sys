@@ -178,6 +178,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       speakerName: context?.speakerName ?? `${speaker.firstName} ${speaker.lastName}`,
       presentationDetails: context?.presentationDetails ?? "",
       presentationDetailsText: context?.presentationDetailsText ?? "",
+      moderatorDetails: context?.moderatorDetails ?? "",
+      moderatorDetailsText: context?.moderatorDetailsText ?? "",
       organizerSignature: user?.emailSignature ?? "",
     };
 
@@ -243,6 +245,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // (isHtml: true); {{message}} escapes its literal text.
     const rawHtmlKeys = new Set([
       "presentationDetails",
+      "moderatorDetails",
       "organizerSignature",
       "personalMessage",
       "message",

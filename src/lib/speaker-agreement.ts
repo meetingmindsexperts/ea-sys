@@ -158,6 +158,11 @@ export interface SpeakerEmailContext {
   // Pre-rendered HTML/text blocks for email templates
   presentationDetails: string;
   presentationDetailsText: string;
+  // Moderator view — the sessions this speaker MODERATES, each with its full
+  // topic run-sheet (topic, speakers, duration, computed start–end from the
+  // session start + cumulative topic durations). Empty for non-moderators.
+  moderatorDetails: string;
+  moderatorDetailsText: string;
 }
 
 interface SpeakerEmailContextRow {
@@ -177,6 +182,13 @@ interface SpeakerEmailContextRow {
         endTime: Date;
         location: string | null;
         track: { name: string } | null;
+        topics: Array<{
+          title: string;
+          duration: number | null;
+          speakers: Array<{
+            speaker: { title: string | null; firstName: string; lastName: string };
+          }>;
+        }>;
       };
     }>;
     topicSpeakers: Array<{
@@ -226,6 +238,20 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
                 endTime: true,
                 location: true,
                 track: { select: { name: true } },
+                // Topic run-sheet — feeds {{moderatorDetails}} for sessions
+                // this speaker moderates (topic, speakers, duration, times).
+                topics: {
+                  orderBy: { sortOrder: "asc" },
+                  select: {
+                    title: true,
+                    duration: true,
+                    speakers: {
+                      select: {
+                        speaker: { select: { title: true, firstName: true, lastName: true } },
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -270,14 +296,18 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
   return { speaker, event } as SpeakerEmailContextRow;
 }
 
-/** "1h 30m" / "2h" / "45m"; "" when the window is missing or non-positive. */
-function formatSessionDuration(start: Date, end: Date): string {
-  const mins = Math.round((end.getTime() - start.getTime()) / 60_000);
+/** "1h 30m" / "2h" / "45m"; "" when non-positive. */
+function formatMinutes(mins: number): string {
   if (mins <= 0) return "";
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   if (h && m) return `${h}h ${m}m`;
   return h ? `${h}h` : `${m}m`;
+}
+
+/** "1h 30m" / "2h" / "45m"; "" when the window is missing or non-positive. */
+function formatSessionDuration(start: Date, end: Date): string {
+  return formatMinutes(Math.round((end.getTime() - start.getTime()) / 60_000));
 }
 
 /** One session's "Date, start – end TZ (duration)" line in the event TZ. */
@@ -288,6 +318,80 @@ function formatSessionWindow(start: Date, end: Date | null, tz: string): string 
   }
   const duration = formatSessionDuration(start, end);
   return `${base} – ${formatTimeInTz(end, tz)} ${tzLabel(start, tz)}${duration ? ` (${duration})` : ""}`;
+}
+
+const MOD_CELL_STYLE =
+  "padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top;";
+const MOD_HEAD_STYLE =
+  "padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;";
+
+/**
+ * {{moderatorDetails}} — for each session the speaker MODERATES: the session
+ * name + time window, then the full topic run-sheet (topic, speakers,
+ * duration, and each topic's start–end computed by stacking the topic
+ * durations from the session start — SessionTopic has no stored start time).
+ * A topic with no duration shows "—" and does not advance the clock.
+ * Dynamic strings (topic titles, speaker names) are HTML-escaped.
+ */
+function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text: string } {
+  const moderated = row.speaker.sessions.filter((s) => s.role === "MODERATOR");
+  if (!moderated.length) return { html: "", text: "" };
+
+  const eventTz = resolveTimezone(row.event.timezone);
+  const htmlParts: string[] = [];
+  const textParts: string[] = [];
+
+  for (const { session } of moderated) {
+    const window = formatSessionWindow(session.startTime, session.endTime ?? null, eventTz);
+    const headerHtml = `<strong>${escapeHtmlForAgreement(session.name)}</strong>${
+      session.location ? ` · ${escapeHtmlForAgreement(session.location)}` : ""
+    }`;
+    const trackSuffix = session.track?.name
+      ? ` · Track: ${escapeHtmlForAgreement(session.track.name)}`
+      : "";
+
+    textParts.push(
+      `Session: ${session.name}${session.location ? ` · ${session.location}` : ""}\n${window.replace(/&amp;/g, "&")}${session.track?.name ? ` · Track: ${session.track.name}` : ""}`,
+    );
+
+    let bodyRows = "";
+    let clock = new Date(session.startTime).getTime();
+    for (const topic of session.topics) {
+      const speakers = topic.speakers
+        .map((ts) => formatPersonName(ts.speaker.title, ts.speaker.firstName, ts.speaker.lastName))
+        .join(", ");
+      let timeCell = "—";
+      let durationCell = "—";
+      if (topic.duration && topic.duration > 0) {
+        const start = new Date(clock);
+        const end = new Date(clock + topic.duration * 60_000);
+        timeCell = `${formatTimeInTz(start, eventTz)} – ${formatTimeInTz(end, eventTz)}`;
+        durationCell = formatMinutes(topic.duration);
+        clock = end.getTime();
+      }
+      bodyRows += `        <tr><td style="${MOD_CELL_STYLE} white-space:nowrap;">${timeCell}</td><td style="${MOD_CELL_STYLE}">${escapeHtmlForAgreement(topic.title)}</td><td style="${MOD_CELL_STYLE}">${speakers ? escapeHtmlForAgreement(speakers) : "—"}</td><td style="${MOD_CELL_STYLE} white-space:nowrap;">${durationCell}</td></tr>\n`;
+      textParts.push(
+        `  ${timeCell} · ${topic.title}${speakers ? ` — ${speakers}` : ""}${durationCell !== "—" ? ` (${durationCell})` : ""}`,
+      );
+    }
+
+    const topicsTable = session.topics.length
+      ? `<table style="border-collapse:collapse; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
+        <tr><th style="${MOD_HEAD_STYLE}">Time</th><th style="${MOD_HEAD_STYLE}">Topic</th><th style="${MOD_HEAD_STYLE}">Speaker(s)</th><th style="${MOD_HEAD_STYLE}">Duration</th></tr>
+${bodyRows}      </table>`
+      : `<p style="margin:0; color:#6b7280; font-size:13px; font-style:italic;">No topics have been added to this session yet.</p>`;
+    if (!session.topics.length) textParts.push("  (no topics added yet)");
+
+    htmlParts.push(
+      `<div style="margin:16px 0;">
+      <p style="margin:0 0 2px 0; font-size:15px; color:#111827;">${headerHtml}</p>
+      <p style="margin:0 0 8px 0; color:#6b7280; font-size:13px;">${window}${trackSuffix}</p>
+      ${topicsTable}
+    </div>`,
+    );
+  }
+
+  return { html: htmlParts.join("\n"), text: textParts.join("\n") };
 }
 
 function buildPresentationBlocks(row: SpeakerEmailContextRow): {
@@ -389,6 +493,7 @@ export async function buildSpeakerEmailContext(
 
   const { speaker, event } = row;
   const presentation = buildPresentationBlocks(row);
+  const moderator = buildModeratorBlocks(row);
 
   // Build date range — single-day events show just the start date; multi-day
   // events show "Start — End" using an en-dash so the MMG template's
@@ -429,6 +534,8 @@ export async function buildSpeakerEmailContext(
 
     presentationDetails: presentation.html,
     presentationDetailsText: presentation.text,
+    moderatorDetails: moderator.html,
+    moderatorDetailsText: moderator.text,
   };
 }
 
@@ -773,6 +880,9 @@ export function mergeAgreementHtml(html: string, ctx: SpeakerEmailContext): stri
     // structure is already a real document, so plain text is safer.
     presentationDetails: ctx.presentationDetailsText,
     presentationDetailsText: ctx.presentationDetailsText,
+    // Same plain-text policy as presentationDetails (see comment above).
+    moderatorDetails: ctx.moderatorDetailsText,
+    moderatorDetailsText: ctx.moderatorDetailsText,
   };
 
   return html.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key) => {

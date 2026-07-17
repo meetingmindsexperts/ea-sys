@@ -33,7 +33,7 @@ export async function buildRealPreviewOverrides(
   eventId: string,
 ): Promise<Partial<Record<string, string | number>>> {
   try {
-    const [event, speakerWithSessions] = await Promise.all([
+    const [event, speakerWithSessions, moderatorSpeaker] = await Promise.all([
       db.event.findUnique({
         where: { id: eventId },
         select: {
@@ -62,6 +62,10 @@ export async function buildRealPreviewOverrides(
       }),
       db.speaker.findFirst({
         where: { eventId, sessions: { some: {} } },
+        select: { id: true },
+      }),
+      db.speaker.findFirst({
+        where: { eventId, sessions: { some: { role: "MODERATOR" } } },
         select: { id: true },
       }),
     ]);
@@ -123,13 +127,26 @@ export async function buildRealPreviewOverrides(
     if (event._count.abstracts > 0) overrides.abstractCount = event._count.abstracts;
 
     // A representative speaker's REAL presentation block (sessions / topics /
-    // time windows). Real sends render each recipient's own — the preview
-    // shows the first session-linked speaker's as actual-data representative.
+    // time windows) and a representative MODERATOR's real run-sheet. Real
+    // sends render each recipient's own — the preview shows the first
+    // matching speaker's as actual-data representative. One context call
+    // when the same person fills both roles.
     if (speakerWithSessions) {
       const ctx = await buildSpeakerEmailContext(eventId, speakerWithSessions.id);
       if (ctx?.presentationDetails) {
         overrides.presentationDetails = ctx.presentationDetails;
         overrides.presentationDetailsText = ctx.presentationDetailsText;
+      }
+      if (moderatorSpeaker?.id === speakerWithSessions.id && ctx?.moderatorDetails) {
+        overrides.moderatorDetails = ctx.moderatorDetails;
+        overrides.moderatorDetailsText = ctx.moderatorDetailsText;
+      }
+    }
+    if (moderatorSpeaker && moderatorSpeaker.id !== speakerWithSessions?.id) {
+      const modCtx = await buildSpeakerEmailContext(eventId, moderatorSpeaker.id);
+      if (modCtx?.moderatorDetails) {
+        overrides.moderatorDetails = modCtx.moderatorDetails;
+        overrides.moderatorDetailsText = modCtx.moderatorDetailsText;
       }
     }
 

@@ -1325,6 +1325,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       speakerName: `${recipient.firstName} ${recipient.lastName}`,
       presentationDetails: "",
       presentationDetailsText: "",
+      moderatorDetails: "",
+      moderatorDetailsText: "",
       sessionDetails: "",
       // Agreement tokens — populated below for speaker recipients when the
       // template uses them; empty so the placeholders disappear otherwise.
@@ -1345,6 +1347,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         vars.speakerName = ctx.speakerName;
         vars.presentationDetails = ctx.presentationDetails;
         vars.presentationDetailsText = ctx.presentationDetailsText;
+        vars.moderatorDetails = ctx.moderatorDetails;
+        vars.moderatorDetailsText = ctx.moderatorDetailsText;
         vars.sessionDetails = ctx.sessionTitles.replace(/\n/g, ", ");
       }
     }

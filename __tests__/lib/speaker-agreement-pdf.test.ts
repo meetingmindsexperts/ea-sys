@@ -29,6 +29,8 @@ const ctx: SpeakerEmailContext = {
   role: "Speaker",
   presentationDetails: "<table>...</table>",
   presentationDetailsText: "Session: Opening Keynote",
+  moderatorDetails: "<div>run-sheet</div>",
+  moderatorDetailsText: "Session: Panel",
 };
 
 describe("mergeAgreementHtml", () => {
