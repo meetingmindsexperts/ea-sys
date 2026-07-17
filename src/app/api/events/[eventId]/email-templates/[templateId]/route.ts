@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { sendEmail, renderTemplate, renderTemplatePlain, getDefaultTemplate, TEMPLATE_VARIABLES, wrapWithBranding, inlineCss, brandingFrom, buildEventPreviewVariables } from "@/lib/email";
+import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 
 interface RouteParams {
@@ -155,7 +156,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const [template, event, previewUser] = await Promise.all([
+    const [template, event, previewUser, realOverrides] = await Promise.all([
       db.emailTemplate.findFirst({
         where: { id: templateId, eventId },
       }),
@@ -187,6 +188,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         where: { id: session.user.id },
         select: { emailSignature: true },
       }),
+      // Real session/Zoom/abstract/speaker data so tokens preview as ACTUAL
+      // event data, not samples.
+      buildRealPreviewOverrides(eventId),
     ]);
 
     if (!event) {
@@ -210,12 +214,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     const body = await req.json();
     const { action } = body; // "preview" or "test"
 
-    // Render with REAL event data (name, dates, venue, organizer, ticket type)
-    // so the preview/test reflects this event, not generic samples.
-    const sampleVars = buildEventPreviewVariables(event, {
-      ...session.user,
-      emailSignature: previewUser?.emailSignature ?? null,
-    });
+    // Render with REAL event data (name, dates, venue, organizer, ticket type,
+    // sessions, abstracts) so the preview/test reflects this event, not samples.
+    const sampleVars = buildEventPreviewVariables(
+      event,
+      { ...session.user, emailSignature: previewUser?.emailSignature ?? null },
+      realOverrides,
+    );
 
     const renderedBody = renderTemplate(template.htmlContent, sampleVars);
     const renderedSubject = renderTemplatePlain(template.subject, sampleVars);

@@ -1,9 +1,16 @@
 /**
  * buildEventPreviewVariables — preview/test emails must reflect the REAL event
  * (name, dates, venue, organizer, ticket type) instead of the generic samples.
+ * Also holds the DRIFT GUARD: every {{token}} in every default template (and
+ * every advertised TEMPLATE_VARIABLES key) must have a preview value, or the
+ * preview renders the literal token — the July 17 presentationDetails bug.
  */
 import { describe, it, expect } from "vitest";
-import { buildEventPreviewVariables } from "@/lib/email";
+import {
+  buildEventPreviewVariables,
+  DEFAULT_TEMPLATES,
+  TEMPLATE_VARIABLES,
+} from "@/lib/email";
 
 const USER = { firstName: "Aisha", lastName: "Khan", email: "aisha@org.com" };
 
@@ -189,5 +196,35 @@ describe("buildEventPreviewVariables", () => {
     expect(v.venueLine).toBe("");
     // No org on the event → sample organization name kept.
     expect(v.organizationName).toBe("Sample Organization");
+  });
+});
+
+describe("preview-variable drift guard — no default-template token may preview as a literal {{token}}", () => {
+  const previewKeys = new Set(Object.keys(buildEventPreviewVariables(baseEvent, USER)));
+
+  it("every token used in every default template has a preview value", () => {
+    const missing: string[] = [];
+    for (const t of DEFAULT_TEMPLATES) {
+      const tokens = new Set<string>();
+      for (const src of [t.subject, t.htmlContent, t.textContent ?? ""]) {
+        for (const m of src.matchAll(/\{\{(\w+)\}\}/g)) tokens.add(m[1]);
+      }
+      for (const tok of tokens) {
+        if (!previewKeys.has(tok)) missing.push(`${t.slug}: {{${tok}}}`);
+      }
+    }
+    // A future template whose token has no sample fails HERE, not in front of
+    // an organizer clicking Preview.
+    expect(missing).toEqual([]);
+  });
+
+  it("every advertised TEMPLATE_VARIABLES key has a preview value", () => {
+    const missing: string[] = [];
+    for (const [group, vars] of Object.entries(TEMPLATE_VARIABLES)) {
+      for (const v of vars as Array<{ key: string }>) {
+        if (!previewKeys.has(v.key)) missing.push(`${group}: {{${v.key}}}`);
+      }
+    }
+    expect(missing).toEqual([]);
   });
 });

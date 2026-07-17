@@ -13,6 +13,7 @@ import {
   buildEventPreviewVariables,
 } from "@/lib/email";
 import { buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
+import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -48,9 +49,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { slug, customSubject, customMessage, certificateTemplateIds } = parsed.data;
 
     // Verify event access (org-scoped for team members). The caller's
-    // profile signature is fetched in parallel so {{organizerSignature}}
-    // previews as what a real send from this user would render.
-    const [event, previewUser] = await Promise.all([
+    // profile signature + the event's real session/abstract/speaker data are
+    // fetched in parallel so tokens preview as ACTUAL data, not samples.
+    const [event, previewUser, realOverrides] = await Promise.all([
       db.event.findFirst({
         where: {
           id: eventId,
@@ -72,6 +73,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         where: { id: session.user.id },
         select: { emailSignature: true },
       }),
+      buildRealPreviewOverrides(eventId),
     ]);
 
     if (!event) {
@@ -132,6 +134,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       event,
       { ...session.user, emailSignature: previewUser?.emailSignature ?? null },
       {
+        // Real session/Zoom/abstract/speaker data first; the organizer's
+        // typed subject/message must win last.
+        ...realOverrides,
         ...(customSubject ? { subject: customSubject } : {}),
         // The typed message must reach BOTH message-shaped tokens — templates
         // like dinner-rsvp-invitation and the speaker templates render

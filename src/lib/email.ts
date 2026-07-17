@@ -2466,6 +2466,19 @@ export function getSamplePreviewVariables(
     eventDateRange: "Monday, March 15, 2026",
     organizationName: "Sample Organization",
     venueLine: "at Convention Center, Dubai",
+    // Certificate cover tokens — the cert send dialog previews through the
+    // cert pipeline's own resolver (buildCertCoverEmailPreview), but the
+    // generic template-editor preview of certificate-bundle-delivery renders
+    // through these samples. List markup mirrors buildCertificateList().
+    recipientName: "Dr. John Doe",
+    certificateType: "Certificate of Attendance",
+    certificateSerial: "SAMPLE-0001",
+    certificateList: "<p>Certificate of Attendance — SAMPLE-0001</p>",
+    // {{entryBarcode}} preview — real sends embed a cid-attached PNG (see
+    // email-barcode.ts); a preview can't carry an inline attachment, so the
+    // sample shows the same box with a placeholder where the image renders.
+    entryBarcode:
+      '<div style="text-align:center; margin:24px 0; padding:16px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px;"><p style="margin:0 0 8px; font-size:12px; letter-spacing:0.05em; color:#6b7280; font-weight:600;">YOUR ENTRY BARCODE</p><div style="font-family:monospace; font-size:20px; letter-spacing:0.15em; padding:12px 0; color:#111827;">▌│▌▌│││▌│▌│▌▌│</div><p style="margin:10px 0 0; font-size:12px; color:#6b7280;">Show this at the registration desk for check-in. (Barcode image renders in the real email.)</p></div>',
     // payment-confirmation preview — real sends build these in
     // payment-confirmation-email.ts (Stripe receipt button + attachment note).
     paymentReference: "pi_3SAMPLE1234567890",
@@ -2611,6 +2624,7 @@ export function buildEventPreviewVariables(
       ? {
           speakerName: [user.firstName, user.lastName].filter(Boolean).join(" "),
           presenterName: [user.firstName, user.lastName].filter(Boolean).join(" "),
+          recipientName: [user.firstName, user.lastName].filter(Boolean).join(" "),
         }
       : {}),
     ...(user.email ? { presenterEmail: user.email } : {}),
