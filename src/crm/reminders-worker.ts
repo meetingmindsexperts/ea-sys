@@ -24,6 +24,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail } from "@/lib/email";
+import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 
 /** Never fan out unboundedly on a single tick — a backlog drains over several. */
 const BATCH = 50;
@@ -85,15 +86,30 @@ export async function runTick(): Promise<CrmReminderTickResult> {
       continue;
     }
 
+    const context = task.deal?.name ?? task.company?.name ?? null;
+
+    // In-app nudge, minted right after the claim and INDEPENDENT of the email:
+    // the claim is the once-only gate for both channels, and an owner whose
+    // account has no mailbox (temp accounts) still sees the bell light up.
+    // Fire-and-forget — never throws, so it can't disturb the email path.
+    void notifyCrmUser({
+      organizationId: task.organizationId,
+      recipientId: task.owner?.id ?? null,
+      actorId: null, // the worker is nobody — always notify
+      type: "TASK_DUE",
+      title: "Follow-up due",
+      message: `"${task.title}"${context ? ` — ${context}` : ""}`,
+      link: "/crm/tasks",
+    });
+
     if (!task.owner?.email) {
-      // Claimed but undeliverable. Do not un-claim: an owner-less task would then
-      // be re-picked on every single tick, forever.
+      // Claimed but undeliverable BY EMAIL (the in-app notification above still
+      // landed). Do not un-claim: an owner-less task would then be re-picked on
+      // every single tick, forever.
       result.skipped++;
       apiLogger.warn({ msg: "crm-reminder:owner-has-no-email", taskId: task.id });
       continue;
     }
-
-    const context = task.deal?.name ?? task.company?.name ?? null;
     const dueLine = task.dueAt
       ? `Due ${task.dueAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
       : "Due now";

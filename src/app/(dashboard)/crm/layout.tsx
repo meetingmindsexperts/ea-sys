@@ -17,6 +17,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Building2, CheckSquare, FileText, Handshake, Package, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CrmNotificationBell } from "@/crm/components/crm-notification-bell";
 
 const TABS = [
   { href: "/crm/deals", label: "Deals", icon: Handshake },
@@ -35,10 +36,16 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col">
       <div className="border-b px-6 pt-6">
-        <h1 className="text-2xl font-bold">CRM</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Sponsorship pipeline, accounts and follow-ups
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">CRM</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Sponsorship pipeline, accounts and follow-ups
+            </p>
+          </div>
+          {/* The CRM's OWN bell — separate feed from the dashboard header's bell. */}
+          <CrmNotificationBell />
+        </div>
 
         <nav className="-mb-px mt-4 flex gap-1" aria-label="CRM sections">
           {TABS.map((tab) => {

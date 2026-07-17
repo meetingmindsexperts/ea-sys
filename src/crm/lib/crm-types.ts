@@ -253,6 +253,21 @@ export interface CrmNoteRow {
   author?: { id: string; firstName: string; lastName: string } | null;
 }
 
+// ── In-app notifications (the CRM bell) ──────────────────────────────────────
+// The CRM's OWN feed — deliberately separate from the core Notification bell.
+// `type` values: DEAL_ASSIGNED | DEAL_STAGE_MOVED | DEAL_WON | DEAL_LOST |
+// TASK_ASSIGNED | TASK_DUE (a string so a new kind needs no client change).
+
+export interface CrmNotificationRow {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  link?: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
 // ── Change log (system activity) ──────────────────────────────────────────────
 // Distinct from CrmNoteRow: a NOTE is a human writing "I called them"; a
 // CrmActivityRow is a system record of create / edit / archive / stage-move etc.

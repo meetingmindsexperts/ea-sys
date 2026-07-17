@@ -81,6 +81,7 @@ src/crm/
     crm-route.ts        shared route boundary: auth + redaction + error→HTTP + write rate limit
     crm-types.ts        client-safe types + display constants (labels, colours, activity-action labels)
     crm-activity.ts     SERVER-ONLY: recordCrmActivity (the ONE change-log writer) + diffFields
+    crm-notifications.ts SERVER-ONLY: notifyCrmUser (the ONE notification writer) + feed reads/mark-read
     deal-filters.ts     pure filter → Prisma-where parsing (the finance gate lives here)
     reports.ts          pure report math (pipeline/win-loss/leaderboard; redacted values stay null, never 0)
     sponsor-recipients.ts  PURE email-recipient resolution (dedup + narrow-never-widen intersection)
@@ -105,9 +106,10 @@ prisma/schema.prisma             the Crm* models
 __tests__/crm/*                  tests
 ```
 
-**Data model (11 models):** `CrmCompany`, `CrmPipelineStage`, `CrmDeal`, `CrmContact`,
+**Data model (12 models):** `CrmCompany`, `CrmPipelineStage`, `CrmDeal`, `CrmContact`,
 `CrmDealContact` (join, with a per-deal role), `CrmTask`, `CrmNote`, `CrmActivity`
-(the change log — §3.6), `CrmEmailTemplate` (editable per-org email templates — §3.7),
+(the change log — §3.6), `CrmNotification` (the in-app bell feed — §3.8),
+`CrmEmailTemplate` (editable per-org email templates — §3.7),
 `CrmProduct` (the product/service catalog) and `CrmDealProduct` (a deal line item —
 snapshots name/category/sku at add-time; `unitPrice` set on the deal, pre-filled from
 the catalog price; the deal Value stays MANUAL). `archivedAt` carries soft-delete on
@@ -247,6 +249,31 @@ only as the seed). Templates are config, so they audit to the **core `AuditLog`*
 `pipeline-service`), not the entity-typed `CrmActivity`. Create/edit = write access;
 archive = `canDeleteCrm` (admin + CRM_USER).
 
+### 3.8 Notifications are the CRM's OWN feed, with ONE writer
+
+In-app notifications (`CrmNotification` + the bell in the CRM shell header) are
+**deliberately separate from the core notification service** (owner decision,
+July 17): the event platform's bell reads `Notification`, the CRM bell reads
+`CrmNotification`, and neither feed leaks into the other — do NOT "unify" them.
+In-app only: no email (the reminders worker already emails task owners), no push.
+
+`notifyCrmUser()` in [`lib/crm-notifications.ts`](lib/crm-notifications.ts) is the
+**only** insert path (the recordCrmActivity one-writer rule again), and it owns the
+two cross-cutting rules so no call site can forget them: a user is **never notified
+about their own action** (actor/recipient compare lives in the writer), and it
+**never throws** (the mutation it describes already committed — failures log and
+are swallowed; callers `void`-call it after the real write).
+
+Triggers: deal assigned (create/re-assign), your deal stage-moved / won / lost
+(a drag into a mapped terminal column announces the OUTCOME, not a stage move),
+task assigned, and the reminders worker's task-due nudge (minted right after the
+`remindedAt` claim, so it rides the same idempotency as the email and reaches
+mailbox-less temp accounts). Titles/messages carry **no deal money**, so the
+FINANCIAL_KEYS redaction question never arises for this feed. Reads/mark-read are
+scoped to the caller's own `userId` + org in the `where` clause — a foreign id
+matches nothing (no IDOR by construction). API-key callers get an explicit 400
+`NO_USER_CONTEXT` (notifications are per-user; a key has no user).
+
 ---
 
 ## 4. Code conventions
@@ -343,3 +370,6 @@ caught things during the build, should be treated as required, not a formality.
   managed on the **Templates** tab.
 - **Reps picker excludes ORGANIZER** (`/api/crm/reps`) — sales team + admins only.
 - **Edit + soft-delete (archive) + change-log** on every record (§3.6).
+- **In-app notifications** (July 17) — the CRM's own bell in the shell header (§3.8):
+  deal assigned / stage moved / won / lost, task assigned, task due. Separate from
+  the core notification bell by design; migration `20260717120000_add_crm_notification`.

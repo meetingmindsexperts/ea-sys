@@ -25,6 +25,7 @@ vi.mock("@/lib/db", () => ({
     event: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
+    crmNotification: { create: vi.fn().mockResolvedValue({}) },
   },
 }));
 

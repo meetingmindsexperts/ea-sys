@@ -30,6 +30,7 @@ import { Prisma, type CrmDeal, type CrmDealStatus, type CrmDealContactRole, type
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
+import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 import { resolveStage } from "./pipeline-service";
 
 /** Fields worth showing in the change log when a deal is edited. */
@@ -214,6 +215,18 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
       changes: { source: input.source, name, stage: stage.name, dealValue: input.dealValue ?? null },
     });
 
+    // Creating a deal FOR someone else assigns it to them — tell them. The
+    // writer skips the self-assign case (creator === owner) internally.
+    void notifyCrmUser({
+      organizationId: input.organizationId,
+      recipientId: deal.ownerId,
+      actorId: input.userId,
+      type: "DEAL_ASSIGNED",
+      title: "Deal assigned to you",
+      message: `You are now the owner of "${deal.name}"`,
+      link: `/crm/deals/${deal.id}`,
+    });
+
     apiLogger.info({
       msg: "crm-deal:created",
       dealId: deal.id,
@@ -300,6 +313,21 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
       actorId: input.userId,
       changes: { source: input.source, ...(fieldChanges ? { changes: fieldChanges } : {}) },
     });
+
+    // Re-assignment notifies the NEW owner only (the writer skips self-assign).
+    // Compared against the pre-write snapshot so an edit that merely re-sends the
+    // unchanged ownerId doesn't re-nag.
+    if (input.ownerId !== undefined && input.ownerId !== null && input.ownerId !== before.ownerId) {
+      void notifyCrmUser({
+        organizationId: input.organizationId,
+        recipientId: input.ownerId,
+        actorId: input.userId,
+        type: "DEAL_ASSIGNED",
+        title: "Deal assigned to you",
+        message: `You are now the owner of "${deal.name}"`,
+        link: `/crm/deals/${deal.id}`,
+      });
+    }
 
     apiLogger.info({ msg: "crm-deal:updated", dealId: deal.id, source: input.source });
     return { ok: true, deal };
@@ -446,6 +474,26 @@ export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDeal
       });
     }
 
+    // Tell the owner their deal moved — a drag into a mapped terminal column IS
+    // a close, so it announces the outcome rather than a generic stage move. The
+    // writer skips the case where the owner did the dragging themselves.
+    void notifyCrmUser({
+      organizationId: input.organizationId,
+      recipientId: deal.ownerId,
+      actorId: input.userId,
+      type: toOutcome === "WON" ? "DEAL_WON" : toOutcome === "LOST" ? "DEAL_LOST" : "DEAL_STAGE_MOVED",
+      title:
+        toOutcome === "WON"
+          ? "Your deal was won"
+          : toOutcome === "LOST"
+            ? "Your deal was closed as lost"
+            : "Your deal moved stage",
+      message: toOutcome
+        ? `"${deal.name}" was closed as ${toOutcome.toLowerCase()}`
+        : `"${deal.name}" moved to ${toStage.name}`,
+      link: `/crm/deals/${deal.id}`,
+    });
+
     apiLogger.info({
       msg: "crm-deal:stage-moved",
       dealId: deal.id,
@@ -552,6 +600,18 @@ export async function closeDeal(input: CloseDealInput): Promise<CloseDealResult>
         currency: deal.currency,
         ...(status === "LOST" && deal.lostReason ? { lostReason: deal.lostReason } : {}),
       },
+    });
+
+    // The owner hears about a close they didn't perform themselves. No money in
+    // the message — the notification feed is deliberately value-free.
+    void notifyCrmUser({
+      organizationId: input.organizationId,
+      recipientId: deal.ownerId,
+      actorId: input.userId,
+      type: status === "WON" ? "DEAL_WON" : "DEAL_LOST",
+      title: status === "WON" ? "Your deal was won" : "Your deal was closed as lost",
+      message: `"${deal.name}" was marked ${status.toLowerCase()}`,
+      link: `/crm/deals/${deal.id}`,
     });
 
     apiLogger.info({ msg: "crm-deal:closed", dealId: deal.id, status, source: input.source });

@@ -29,6 +29,7 @@ import type {
   CrmContactDetail,
   CrmDealContactRole,
   CrmNoteRow,
+  CrmNotificationRow,
   CrmStage,
   CrmTaskRow,
   CrmEmailTemplateRow,
@@ -59,6 +60,7 @@ export const crmKeys = {
   tasks: (scope?: string) => ["crm", "tasks", scope ?? "mine"] as const,
   notes: (attach: Record<string, string>) => ["crm", "notes", attach] as const,
   contacts: (q?: string) => ["crm", "contacts", q ?? ""] as const,
+  notifications: ["crm", "notifications"] as const,
 };
 
 // ── Pipeline ─────────────────────────────────────────────────────────────────
@@ -369,6 +371,33 @@ export function useRestoreTask() {
       qc.invalidateQueries({ queryKey: ["crm", "activity", "TASK", taskId] });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not restore the task"),
+  });
+}
+
+// ── Notifications (the CRM bell) ─────────────────────────────────────────────
+
+/**
+ * The caller's CRM notification feed + unread count. Polls every 30s so the
+ * bell stays roughly live without a websocket; the CRM's own feed, distinct
+ * from the core notification bell in the dashboard header.
+ */
+export function useCrmNotifications() {
+  return useQuery({
+    queryKey: crmKeys.notifications,
+    queryFn: () =>
+      apiFetch<{ notifications: CrmNotificationRow[]; unreadCount: number }>("/api/crm/notifications"),
+    refetchInterval: 30_000,
+  });
+}
+
+/** Mark specific notifications ({ ids }) or everything ({ all: true }) read. */
+export function useMarkCrmNotificationsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { ids?: string[]; all?: boolean }) =>
+      apiPatchJson<{ updated: number }>("/api/crm/notifications", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.notifications }),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update notifications"),
   });
 }
 

@@ -49,6 +49,7 @@ model Organization {
   crmTasks          CrmTask[]
   crmNotes          CrmNote[]
   crmActivities     CrmActivity[]
+  crmNotifications  CrmNotification[]
   crmEmailTemplates CrmEmailTemplate[]
   crmProducts       CrmProduct[]
 }
@@ -96,6 +97,7 @@ model User {
   ownedCrmTasks    CrmTask[] @relation("CrmTaskOwner")
   authoredCrmNotes CrmNote[] @relation("CrmNoteAuthor")
   crmActivities    CrmActivity[] @relation("CrmActivityActor")
+  crmNotifications CrmNotification[] @relation("CrmNotificationRecipient")
   createdCrmEmailTemplates CrmEmailTemplate[] @relation("CrmEmailTemplateCreator")
   createdCrmProducts CrmProduct[] @relation("CrmProductCreator")
   uploadedSpeakerDocuments SpeakerDocument[] @relation("SpeakerDocumentUploader")
@@ -2520,6 +2522,47 @@ model CrmActivity {
   createdAt DateTime @default(now())
 
   @@index([organizationId, entityType, entityId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+/// In-app CRM notifications — the bell in the CRM shell. DELIBERATELY SEPARATE
+/// from the core `Notification` model (owner decision, July 17): the event
+/// platform's bell must never mix sponsorship-pipeline traffic into an event
+/// organizer's feed, and core never reads Crm* tables (the module boundary).
+/// One writer feeds it (`notifyCrmUser` in crm-notifications.ts) — the same
+/// one-writer rule as CrmActivity. In-app only: no email (the reminders worker
+/// already emails task owners) and no push.
+///
+/// `type` is a string, not an enum (the core Notification.type + the
+/// CrmActivity.action precedent — a new kind of notification must not need a
+/// migration): DEAL_ASSIGNED | DEAL_STAGE_MOVED | DEAL_WON | DEAL_LOST |
+/// TASK_ASSIGNED | TASK_DUE.
+///
+/// Title/message deliberately carry NO deal money. Recipients are always staff
+/// (only staff own deals/tasks), but keeping money out of the payload means the
+/// FINANCIAL_KEYS redaction question never arises for this table.
+model CrmNotification {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// The recipient. Cascade — a deleted user's notification pile goes with them
+  /// (unlike CrmActivity's SetNull: a notification is FOR a person and worthless
+  /// without them; an activity row is ABOUT a record and must outlive its actor).
+  userId String
+  user   User   @relation("CrmNotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  type    String
+  title   String
+  message String
+  /// In-app path to navigate to on click (e.g. /crm/deals/{id}).
+  link    String?
+
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
   @@index([organizationId, createdAt])
 }
 

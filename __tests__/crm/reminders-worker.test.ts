@@ -19,7 +19,10 @@ vi.mock("@/lib/logger", () => ({
 }));
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
 vi.mock("@/lib/db", () => ({
-  db: { crmTask: { findMany: vi.fn(), updateMany: vi.fn() } },
+  db: {
+    crmTask: { findMany: vi.fn(), updateMany: vi.fn() },
+    crmNotification: { create: vi.fn().mockResolvedValue({}) },
+  },
 }));
 
 import { db } from "@/lib/db";
@@ -134,6 +137,39 @@ describe("runTick", () => {
     // completeTask() must never clear remindedAt.
     expect(where.remindAt).toMatchObject({ lte: expect.any(Date) });
     expect(where.ownerId).toMatchObject({ not: null });
+  });
+
+  it("mints an in-app TASK_DUE notification after claiming — even when the owner has no mailbox", async () => {
+    // Temp accounts have no real email; the bell is their only channel. The claim
+    // is the once-only gate for BOTH channels, so the in-app row rides the same
+    // idempotency as the email.
+    vi.mocked(db.crmTask.findMany).mockResolvedValue([
+      task({ owner: { id: "u-2", email: null, firstName: "Nobody" } }),
+    ] as never);
+    vi.mocked(db.crmTask.updateMany).mockResolvedValue({ count: 1 } as never);
+
+    await runTick();
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(db.crmNotification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "u-2",
+          organizationId: "org-1",
+          type: "TASK_DUE",
+          link: "/crm/tasks",
+        }),
+      }),
+    );
+  });
+
+  it("does NOT mint an in-app notification for a row another tick already claimed", async () => {
+    vi.mocked(db.crmTask.findMany).mockResolvedValue([task()] as never);
+    vi.mocked(db.crmTask.updateMany).mockResolvedValue({ count: 0 } as never); // lost the claim
+
+    await runTick();
+
+    expect(db.crmNotification.create).not.toHaveBeenCalled();
   });
 
   it("escapes the task title in the email body (it is user-authored)", async () => {

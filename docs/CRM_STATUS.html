@@ -107,7 +107,7 @@
 <h1>CRM — Build Status</h1>
 <p class="sub">
   What is built, what is wired to the rest of EA-SYS, and what is not.<br>
-  <span class="stamp">Last updated: <b>15 July 2026</b> (product catalog + deal line items + editable CRM email templates + dedicated deal/account pages + CRM email + edit + soft-delete + change-log shipped) · HEAD <code>WORKING</code> ·
+  <span class="stamp">Last updated: <b>17 July 2026</b> (in-app CRM notifications — own bell, own table, separate from the core notification service) · HEAD <code>WORKING</code> ·
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
@@ -415,6 +415,7 @@ exactly which of those exist today.</p>
     <li><code>/api/crm/tasks</code> + <code>/[taskId]</code></li>
     <li><code>/api/crm/notes</code> + <code>/[noteId]</code></li>
     <li><code>/api/crm/sponsor-email/recipients</code> + <code>/send</code> <span class="tag done">NEW</span></li>
+    <li><code>/api/crm/notifications</code> (GET feed + unread count, PATCH mark-read) <span class="tag done">NEW — Jul 17</span></li>
   </ul>
   <p class="why">Auth, money-redaction and error→HTTP mapping live in <b>one</b> shared boundary helper, not
   re-typed twelve times — twelve hand-rolled guards is how one ends up missing, which is exactly the
@@ -459,6 +460,16 @@ exactly which of those exist today.</p>
   human seeing an OPEN overdue task. Send-then-claim risks emailing the same nag twice, or ten times if
   a slow send overlaps the next tick. A missed nudge beats a spammed inbox.</p>
   <p class="why">Registered on the Infra / Ops “Cron / Jobs” card, so it can't go silently unmonitored.</p>
+</details>
+
+<details>
+  <summary>In-app notifications — the CRM bell <span class="tag done">DONE — Jul 17</span></summary>
+  <ul>
+    <li><b>Deliberately SEPARATE from the core notification service</b> (owner decision): new <code>CrmNotification</code> table + a bell in the CRM shell header. The event platform's bell never carries pipeline traffic, and core never reads Crm* tables. Migration <code>20260717120000_add_crm_notification</code> (additive + idempotent, <b>not yet on prod</b> like the rest of the module).</li>
+    <li><b>Triggers:</b> deal assigned to you (create + re-assign), your deal stage-moved / <b>won</b> / <b>lost</b> (a drag into a mapped terminal column announces the outcome, not a generic move), task assigned to you, and the reminders worker's <b>task-due</b> nudge — minted right after the <code>remindedAt</code> claim, so it rides the same idempotency as the email and reaches mailbox-less temp accounts.</li>
+    <li><b>One writer</b> (<code>notifyCrmUser</code> in <code>crm-notifications.ts</code>, the recordCrmActivity rule): the never-notify-yourself compare and the never-throw guarantee live in the writer, not at nine call sites. In-app only — no email, no push. Messages carry <b>no deal money</b>, so the redaction question never arises.</li>
+    <li><b>Reads are IDOR-proof by construction:</b> list / unread-count / mark-read all scope the query to the caller's own <code>userId</code> + org; API-key callers get an explicit 400 <code>NO_USER_CONTEXT</code>. The route passes the source-level gate-drift test like every other CRM route.</li>
+  </ul>
 </details>
 
 <h2>6. What is PENDING</h2>

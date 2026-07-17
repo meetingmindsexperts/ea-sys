@@ -15,6 +15,7 @@ import { Prisma, type CrmTask } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
+import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 
 /** Fields worth showing in the change log when a task is edited. */
 const TASK_DIFF_KEYS = ["title", "description", "dueAt", "remindAt", "ownerId"] as const;
@@ -138,6 +139,19 @@ export async function createTask(input: CreateTaskInput): Promise<TaskResult> {
       changes: { source: input.source, title, dealId: task.dealId, ownerId: task.ownerId },
     });
 
+    // Assigning a task to someone else tells them. The route defaults ownerId to
+    // the creator, and the writer skips that self-assign case — so only genuine
+    // "do this, please" assignments notify.
+    void notifyCrmUser({
+      organizationId: input.organizationId,
+      recipientId: task.ownerId,
+      actorId: input.userId,
+      type: "TASK_ASSIGNED",
+      title: "Task assigned to you",
+      message: `You've been assigned "${task.title}"`,
+      link: "/crm/tasks",
+    });
+
     apiLogger.info({ msg: "crm-task:created", taskId: task.id, organizationId: input.organizationId, source: input.source });
     return { ok: true, task };
   } catch (err) {
@@ -224,6 +238,21 @@ export async function updateTask(input: UpdateTaskInput): Promise<TaskResult> {
       actorId: input.userId,
       changes: { source: input.source, ...(fieldChanges ? { changes: fieldChanges } : {}) },
     });
+
+    // Re-assignment notifies the NEW owner only (the writer skips self-assign);
+    // compared against the pre-write snapshot so re-sending an unchanged ownerId
+    // doesn't re-nag.
+    if (input.ownerId !== undefined && input.ownerId !== null && input.ownerId !== before.ownerId) {
+      void notifyCrmUser({
+        organizationId: input.organizationId,
+        recipientId: input.ownerId,
+        actorId: input.userId,
+        type: "TASK_ASSIGNED",
+        title: "Task assigned to you",
+        message: `You've been assigned "${task.title}"`,
+        link: "/crm/tasks",
+      });
+    }
 
     apiLogger.info({ msg: "crm-task:updated", taskId: task.id, source: input.source });
     return { ok: true, task };
