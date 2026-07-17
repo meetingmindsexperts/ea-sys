@@ -247,16 +247,15 @@ export async function generatePresenterAgreementPdf(opts: {
     loadAgreementPdfImage(event.presenterAgreementPdfFooterImage, eventId, "footer"),
   ]);
 
+  // Content-only PDF (owner request July 17, 2026 — same as the speaker
+  // agreement): no "Presenter Agreement" / event-name heading and no
+  // presenter-name/Signature block — everything the reader sees comes from
+  // the authored agreement content (plus letterhead). docTitle/docAuthor are
+  // PDF metadata only, not visible on the page.
   const buffer = await renderAgreementHtmlToPdf({
     html: resolved.html,
     docTitle: `Presenter Agreement — ${event.name}`,
     docAuthor: resolved.context.organizationName,
-    headingTitle: "Presenter Agreement",
-    headingSubtitle: event.name,
-    // Presenter-only signature (matches the speaker agreement): no organizer
-    // counter-signature; blank space above the line for an e-signature.
-    signatureLabel: "Presenter",
-    signatureName: resolved.context.presenterName,
     headerImage,
     footerImage,
   });

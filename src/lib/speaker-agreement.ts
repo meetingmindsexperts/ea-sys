@@ -1867,18 +1867,25 @@ export interface AgreementPdfOptions {
   docTitle: string;
   /** PDF metadata Author. */
   docAuthor: string;
-  /** Large centered heading at the top of page 1. */
-  headingTitle: string;
-  /** Muted subtitle under the heading (usually the event name). */
-  headingSubtitle: string;
   /**
-   * The sole signer (July 17, 2026, organizer request): only the speaker /
-   * presenter signs — no organizer counter-signature column. The block leaves
-   * generous blank space above the line so the signer can insert an
-   * e-signature into the PDF.
+   * Large centered heading at the top of page 1. OPTIONAL (July 17, 2026,
+   * organizer request): omit for a content-only PDF — everything the reader
+   * sees comes from the merged agreement HTML (both the speaker AND the
+   * presenter agreements omit it).
    */
-  signatureLabel: string;
-  signatureName: string;
+  headingTitle?: string;
+  /** Muted subtitle under the heading (usually the event name). */
+  headingSubtitle?: string;
+  /**
+   * The sole signer: only the speaker / presenter signs — no organizer
+   * counter-signature column. The block leaves generous blank space above
+   * the line so the signer can insert an e-signature into the PDF.
+   * OPTIONAL — omit BOTH to skip the block entirely (both agreements do,
+   * July 17 2026; signature areas, if wanted, live in the authored content
+   * itself).
+   */
+  signatureLabel?: string;
+  signatureName?: string;
   /** Letterhead banner drawn edge-to-edge at the top of EVERY page. */
   headerImage?: AgreementPdfImage | null;
   /** Letterhead banner drawn edge-to-edge at the bottom of EVERY page. */
@@ -1987,12 +1994,17 @@ export async function renderAgreementHtmlToPdf(opts: AgreementPdfOptions): Promi
 
   const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
-  // Document title.
-  doc.font("Helvetica-Bold").fontSize(22).fillColor("black");
-  doc.text(opts.headingTitle, { align: "center" });
-  doc.font("Helvetica").fontSize(12).fillColor("#555");
-  doc.text(opts.headingSubtitle, { align: "center" });
-  doc.fillColor("black").moveDown(1.2);
+  // Document title — only when the caller asked for one (content-only PDFs
+  // start straight at the merged agreement HTML).
+  if (opts.headingTitle) {
+    doc.font("Helvetica-Bold").fontSize(22).fillColor("black");
+    doc.text(opts.headingTitle, { align: "center" });
+    if (opts.headingSubtitle) {
+      doc.font("Helvetica").fontSize(12).fillColor("#555");
+      doc.text(opts.headingSubtitle, { align: "center" });
+    }
+    doc.fillColor("black").moveDown(1.2);
+  }
 
   try {
     renderBlocksToDoc(doc, blocks, contentWidth);
@@ -2006,32 +2018,36 @@ export async function renderAgreementHtmlToPdf(opts: AgreementPdfOptions): Promi
   // counter-signature. ~110pt tall including the 64pt e-signature gap. Text
   // auto-paginates in pdfkit but the hand-drawn line does not — break to a
   // fresh page up front if the whole block can't fit, so the line never lands
-  // below the footer letterhead.
-  const halfWidth = contentWidth / 2 - 10;
-  const leftX = doc.page.margins.left;
-  const E_SIGN_GAP = 64;
-  const BLOCK_HEIGHT = 14 + 16 + E_SIGN_GAP + 18;
-  doc.moveDown(2);
-  if (doc.y + BLOCK_HEIGHT > doc.page.height - doc.page.margins.bottom) {
-    doc.addPage();
+  // below the footer letterhead. Skipped entirely when the caller provided
+  // no signer (content-only PDFs — the authored content owns any signature
+  // area it wants).
+  if (opts.signatureLabel || opts.signatureName) {
+    const halfWidth = contentWidth / 2 - 10;
+    const leftX = doc.page.margins.left;
+    const E_SIGN_GAP = 64;
+    const BLOCK_HEIGHT = 14 + 16 + E_SIGN_GAP + 18;
+    doc.moveDown(2);
+    if (doc.y + BLOCK_HEIGHT > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage();
+    }
+    const sigY = doc.y;
+
+    doc.font("Helvetica-Bold").fontSize(11);
+    doc.text(opts.signatureLabel ?? "", leftX, sigY, { width: halfWidth });
+    doc.font("Helvetica").fontSize(11);
+    doc.text(opts.signatureName ?? "", leftX, doc.y, { width: halfWidth });
+
+    const lineY = doc.y + E_SIGN_GAP;
+    doc
+      .moveTo(leftX, lineY)
+      .lineTo(leftX + halfWidth, lineY)
+      .strokeColor("#9ca3af")
+      .stroke()
+      .strokeColor("black");
+    doc.font("Helvetica").fontSize(9).fillColor("#6b7280");
+    doc.text("Signature", leftX, lineY + 4, { width: halfWidth });
+    doc.fillColor("black");
   }
-  const sigY = doc.y;
-
-  doc.font("Helvetica-Bold").fontSize(11);
-  doc.text(opts.signatureLabel, leftX, sigY, { width: halfWidth });
-  doc.font("Helvetica").fontSize(11);
-  doc.text(opts.signatureName, leftX, doc.y, { width: halfWidth });
-
-  const lineY = doc.y + E_SIGN_GAP;
-  doc
-    .moveTo(leftX, lineY)
-    .lineTo(leftX + halfWidth, lineY)
-    .strokeColor("#9ca3af")
-    .stroke()
-    .strokeColor("black");
-  doc.font("Helvetica").fontSize(9).fillColor("#6b7280");
-  doc.text("Signature", leftX, lineY + 4, { width: halfWidth });
-  doc.fillColor("black");
 
   doc.end();
   await done;
@@ -2102,14 +2118,14 @@ export async function generateSpeakerAgreementPdf(opts: {
     loadAgreementPdfImage(event.speakerAgreementPdfFooterImage, eventId, "footer"),
   ]);
 
+  // Content-only PDF (owner request July 17, 2026): no "Speaker Agreement" /
+  // event-name heading and no speaker-name/Signature block — everything the
+  // reader sees comes from the authored agreement content (plus letterhead).
+  // docTitle/docAuthor are PDF metadata only, not visible on the page.
   const buffer = await renderAgreementHtmlToPdf({
     html: resolved.html,
     docTitle: `Speaker Agreement — ${event.name}`,
     docAuthor: resolved.context.organizationName,
-    headingTitle: "Speaker Agreement",
-    headingSubtitle: event.name,
-    signatureLabel: "Speaker",
-    signatureName: resolved.context.speakerName,
     headerImage,
     footerImage,
   });

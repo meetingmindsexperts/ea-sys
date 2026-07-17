@@ -186,6 +186,21 @@ describe("renderAgreementHtmlToPdf letterhead", () => {
     const buffer = await renderAgreementHtmlToPdf(BASE_RENDER_OPTS);
     expect(buffer.subarray(0, 5).toString("ascii")).toBe("%PDF-");
   });
+
+  // Content-only mode (owner request July 17, 2026): omitting the heading +
+  // signer renders NEITHER — the page shows only the merged agreement HTML.
+  // Both the speaker AND presenter agreements use this.
+  it("omits the heading and signature block when the caller provides neither", async () => {
+    const contentOnly = await renderAgreementHtmlToPdf({
+      html: BASE_RENDER_OPTS.html,
+      docTitle: BASE_RENDER_OPTS.docTitle,
+      docAuthor: BASE_RENDER_OPTS.docAuthor,
+    });
+    const withChrome = await renderAgreementHtmlToPdf(BASE_RENDER_OPTS);
+    expect(contentOnly.subarray(0, 5).toString("ascii")).toBe("%PDF-");
+    // Same body, minus heading + signature block → strictly smaller output.
+    expect(contentOnly.length).toBeLessThan(withChrome.length);
+  });
 });
 
 describe("saveAgreementPdfImage", () => {
