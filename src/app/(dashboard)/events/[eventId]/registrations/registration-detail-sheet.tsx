@@ -3227,7 +3227,7 @@ export function RegistrationDetailSheet({
 
         {/* Cancel a PAID registration — refund vs just cancel. */}
         <Dialog open={cancelConfirmOpen} onOpenChange={(o) => { if (!cancelWithRefund.isPending) setCancelConfirmOpen(o); }}>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-xl">
             <DialogHeader>
               <DialogTitle>Cancel this registration?</DialogTitle>
               <DialogDescription>
