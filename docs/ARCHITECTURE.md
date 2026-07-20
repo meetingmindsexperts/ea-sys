@@ -412,6 +412,36 @@ session.user.currentRole            // derived from UserOrganization lookup
 
 ---
 
+## File storage — current posture + the Supabase S3 endpoint in reserve
+
+Uploads live on the EC2 box's local disk (`STORAGE_PROVIDER=local`,
+`public/uploads/`, hourly-mirrored to the Singapore DR bucket). This is a
+settled decision — revisit only when a trigger condition arrives: multiple web
+boxes, Vercel as a real deploy target, or CDN-served uploads.
+
+When that day comes, note that **Supabase Storage exposes an S3-compatible
+endpoint** for our project (`https://<project-ref>.storage.supabase.co/storage/v1/s3`,
+region ap-south-1 — same region as the box and the DB; verified live July 2026):
+
+- Any S3 client works against it (AWS CLI, `@aws-sdk/client-s3`, rclone).
+  Supports ListObjectsV2 + continuation tokens, Get/Put/Copy/Delete, multipart,
+  presigned URLs; interoperable with the REST/TUS upload APIs. Extras AWS
+  doesn't have: built-in CDN + on-the-fly image transforms.
+- **Missing vs AWS S3:** lifecycle rules, versioning, KMS/SSE-C, tags, object
+  locking.
+- Auth: project-level S3 access keys (dashboard → Storage settings) are
+  **server-only, bypass RLS, full access to all buckets** — handle like the
+  service-role key.
+- Preferred implementation shape: rewrite the `storage.ts` supabase provider
+  over `@aws-sdk/client-s3` (endpoint swap — one S3 code path for AWS and
+  Supabase), migrate existing files with one `rclone sync`, and add an
+  hourly `rclone` mirror Supabase → the AWS Singapore DR bucket for
+  cross-provider separation.
+- **Never for DB dumps** — same failure domain as the database itself. See
+  infra/dr/README.md §"Why the DR bucket is AWS S3, not Supabase Storage".
+
+---
+
 ## General Guidance: Package Dependencies
 
 > **Important for maintainers:** Before upgrading major versions of any dependency, review changelog and test thoroughly. Key constraints:

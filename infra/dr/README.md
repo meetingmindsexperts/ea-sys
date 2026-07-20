@@ -692,3 +692,26 @@ When provisioned (during an outage):
 - t3.large in Singapore: ~$0.09/hr
 - EIP (while attached): free
 - **Total: ~$2/day while running**
+
+## Why the DR bucket is AWS S3, not Supabase Storage's S3 endpoint
+
+Supabase Storage exposes an S3-compatible endpoint for our project
+(`https://<project-ref>.storage.supabase.co/storage/v1/s3`, ap-south-1 — same
+region as the box and the DB). It is deliberately **NOT** used for any DR
+stream, and must never hold the `pg_dump` output:
+
+- **Same failure domain as the database.** The dumps exist to survive the loss
+  of the Supabase project. Storing them *in* the Supabase project (same
+  account, same credentials, same regional deployment) means an account
+  compromise, billing lapse, or Supabase incident takes the DB and its
+  backups down together.
+- **No lifecycle rules** — our 30-day `db/` auto-expiry would need a
+  hand-rolled prune job.
+- **No versioning, no KMS** — the DR bucket has both (versioning on,
+  customer-managed key).
+
+Where the endpoint IS legitimately useful: if uploads ever move off local disk
+(`STORAGE_PROVIDER=supabase`), implement the provider over `@aws-sdk/client-s3`
+against this endpoint (one S3 code path, endpoint swap) and mirror
+Supabase → this AWS bucket with `rclone` — which restores the cross-provider
+separation for uploads. See docs/ARCHITECTURE.md §"File storage".
