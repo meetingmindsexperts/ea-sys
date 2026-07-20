@@ -101,6 +101,12 @@ export interface CreateSessionInput extends SessionFieldsInput {
   name: string;
   startTime: Date;
   endTime: Date;
+  /**
+   * Batch callers (the agenda CSV import) set this so a 60-row import
+   * doesn't fan out 60 "Session Created" notifications — the caller sends
+   * ONE summary instead. Audit rows + stats refresh are NOT suppressed.
+   */
+  suppressAdminNotification?: boolean;
 }
 
 export interface UpdateSessionInput extends SessionFieldsInput {
@@ -403,14 +409,16 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
     })
     .catch((err) => apiLogger.error({ err, eventId, sessionId: session.id }, "session-create:audit-log-failed"));
 
-  notifyEventAdmins(eventId, {
-    type: "REGISTRATION",
-    title: "Session Created",
-    message: `New session: "${session.name}"${source === "mcp" ? " (via the AI agent)" : ""}`,
-    link: `/events/${eventId}/agenda`,
-  }).catch((err) =>
-    apiLogger.error({ err, eventId, sessionId: session.id }, "session-create:notify-failed"),
-  );
+  if (!input.suppressAdminNotification) {
+    notifyEventAdmins(eventId, {
+      type: "REGISTRATION",
+      title: "Session Created",
+      message: `New session: "${session.name}"${source === "mcp" ? " (via the AI agent)" : ""}`,
+      link: `/events/${eventId}/agenda`,
+    }).catch((err) =>
+      apiLogger.error({ err, eventId, sessionId: session.id }, "session-create:notify-failed"),
+    );
+  }
 
   return { ok: true, session };
 }

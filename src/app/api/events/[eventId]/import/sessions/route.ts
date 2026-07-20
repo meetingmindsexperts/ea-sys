@@ -3,9 +3,11 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import { checkRateLimit } from "@/lib/security";
+import { buildEventAccessWhere } from "@/lib/event-access";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
-import { refreshEventStats } from "@/lib/event-stats";
+import { notifyEventAdmins } from "@/lib/notifications";
+import { createSession, type SessionStatus } from "@/services/session-service";
 
 const SESSION_STATUS_VALUES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
 
@@ -13,6 +15,16 @@ interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
 
+/**
+ * Agenda CSV import. Each row delegates to `session-service.createSession()`
+ * — the ONE create implementation shared with the dashboard REST POST and
+ * MCP `create_session` — so imported sessions get the same event-timezone
+ * date validation (OUTSIDE_EVENT_DATES), capacity rules, audit rows and
+ * stats refresh as every other create path (this route used to be a raw
+ * `db.eventSession.create` that predated the July 16 service extraction).
+ * Per-row notifications are suppressed; ONE summary notification is sent
+ * for the batch instead.
+ */
 export async function POST(req: Request, { params }: RouteParams) {
   try {
     const [{ eventId }, session] = await Promise.all([params, auth()]);
@@ -40,12 +52,14 @@ export async function POST(req: Request, { params }: RouteParams) {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     if (!file) {
+      apiLogger.warn({ msg: "events/import-sessions:no-file", eventId, userId: session.user.id });
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
     const text = await file.text();
     const { headers, rows, error: parseError } = parseCSV(text);
     if (parseError) {
+      apiLogger.warn({ msg: "events/import-sessions:parse-error", eventId, userId: session.user.id, parseError });
       return NextResponse.json({ error: parseError }, { status: 400 });
     }
 
@@ -62,18 +76,22 @@ export async function POST(req: Request, { params }: RouteParams) {
     };
 
     if (idx.name === -1 || idx.startTime === -1 || idx.endTime === -1) {
+      apiLogger.warn({ msg: "events/import-sessions:missing-columns", eventId, userId: session.user.id, headers });
       return NextResponse.json(
         { error: "CSV must have name, startTime, and endTime columns" },
         { status: 400 }
       );
     }
 
-    // Verify event
+    // Access-scoped, not just org-scoped — buildEventAccessWhere keeps this
+    // consistent with the sessions/tracks routes (an org-null SUPER_ADMIN
+    // used to 404 on the hand-rolled organizationId check).
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
     if (!event) {
+      apiLogger.warn({ msg: "events/import-sessions:event-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -88,12 +106,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "Import started", importType: "sessions", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
 
+    const requestIp = getClientIp(req);
     const errors: string[] = [];
     let created = 0;
     let tracksCreated = 0;
-
-    // Get next sort order for tracks
-    let nextSortOrder = existingTracks.length;
 
     for (let i = 0; i < rows.length; i++) {
       const fields = rows[i];
@@ -116,12 +132,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         continue;
       }
 
-      if (endTime <= startTime) {
-        errors.push(`Row ${rowNum}: endTime must be after startTime`);
-        continue;
-      }
-
-      // Resolve track
+      // Resolve track — create missing ones with max+1 sortOrder INSIDE the
+      // create transaction (the M10 pattern; the old pre-counted cursor could
+      // mint duplicate sortOrders after track deletions).
       let trackId: string | null = null;
       const trackName = getField(fields, idx.track);
       if (trackName) {
@@ -129,8 +142,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         if (existingTrackId) {
           trackId = existingTrackId;
         } else {
-          const newTrack = await db.track.create({
-            data: { eventId, name: trackName, sortOrder: nextSortOrder++ },
+          const newTrack = await db.$transaction(async (tx) => {
+            const max = await tx.track.aggregate({ where: { eventId }, _max: { sortOrder: true } });
+            return tx.track.create({
+              data: { eventId, name: trackName, sortOrder: (max._max.sortOrder ?? -1) + 1 },
+            });
           });
           trackByName.set(trackName.toLowerCase(), newTrack.id);
           trackId = newTrack.id;
@@ -154,36 +170,51 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
 
       const statusRaw = getField(fields, idx.status)?.toUpperCase();
-      const status = statusRaw && SESSION_STATUS_VALUES.has(statusRaw) ? statusRaw : "SCHEDULED";
+      const status = statusRaw && SESSION_STATUS_VALUES.has(statusRaw) ? (statusRaw as SessionStatus) : "SCHEDULED";
+      // Lenient capacity parse (import semantics): 0 / negative / garbage →
+      // uncapped, matching the old route's "0 means no cap" behaviour. A
+      // valid positive integer is passed through and re-validated by the
+      // service.
       const capacityRaw = getField(fields, idx.capacity);
-      const capacity = capacityRaw ? parseInt(capacityRaw, 10) : null;
+      const capacityParsed = capacityRaw ? parseInt(capacityRaw, 10) : NaN;
+      const capacity = Number.isInteger(capacityParsed) && capacityParsed >= 1 ? capacityParsed : null;
 
-      try {
-        await db.eventSession.create({
-          data: {
-            eventId,
-            name,
-            startTime,
-            endTime,
-            description: getField(fields, idx.description) || null,
-            location: getField(fields, idx.location) || null,
-            capacity: capacity && !isNaN(capacity) ? capacity : null,
-            trackId,
-            status: status as "DRAFT" | "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED",
-            speakers: speakerIds.length > 0
-              ? { create: speakerIds.map((sid) => ({ speakerId: sid })) }
-              : undefined,
-          },
-        });
+      // Delegate to the shared service — event-TZ date validation
+      // (OUTSIDE_EVENT_DATES), time-range check, per-session audit row and
+      // stats refresh all happen there. Rejections become row errors.
+      const result = await createSession({
+        eventId,
+        userId: session.user.id,
+        source: "rest",
+        requestIp,
+        name,
+        startTime,
+        endTime,
+        description: getField(fields, idx.description) || null,
+        location: getField(fields, idx.location) || null,
+        capacity,
+        trackId,
+        status,
+        speakerIds,
+        suppressAdminNotification: true,
+      });
+      if (result.ok) {
         created++;
-      } catch (err) {
-        apiLogger.error({ msg: "Unexpected error importing session row", rowNum, error: err instanceof Error ? err.message : "Unknown" });
-        errors.push(`Row ${rowNum}: ${err instanceof Error ? err.message : "unknown error"}`);
+      } else {
+        errors.push(`Row ${rowNum}: ${result.message}`);
       }
     }
 
-    // Refresh denormalized event stats (fire-and-forget)
-    refreshEventStats(eventId);
+    // ONE summary notification for the whole batch (per-row notifications are
+    // suppressed above so a 60-row import doesn't page admins 60 times).
+    if (created > 0) {
+      notifyEventAdmins(eventId, {
+        type: "REGISTRATION",
+        title: "Agenda Imported",
+        message: `${created} session${created === 1 ? "" : "s"} imported from CSV${tracksCreated > 0 ? ` (${tracksCreated} new track${tracksCreated === 1 ? "" : "s"})` : ""}`,
+        link: `/events/${eventId}/agenda`,
+      }).catch((err) => apiLogger.error({ err, eventId, msg: "import-sessions:notify-failed" }));
+    }
 
     apiLogger.info({ msg: "Import complete", importType: "sessions", source: "csv", eventId, userId: session.user.id, created, tracksCreated, errorCount: errors.length });
     if (errors.length > 0) {
