@@ -64,27 +64,38 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
         .text("PAYMENT RECEIPT", 50, 55);
 
       // ── Receipt info (right) ──
+      // Values get an explicit column width and the rows flow from the
+      // measured height of the previous one — "Credit/Debit Card (Stripe)"
+      // wraps to two lines, and with the old fixed y-positions its second
+      // line overlapped the Reference row.
       const infoX = 350;
+      const infoValX = infoX + 100;
+      const infoValW = 50 + pageWidth - infoValX;
       doc.fontSize(9).fillColor("#64748b").font("Helvetica")
         .text("Receipt Number:", infoX, 30)
         .text("Payment Date:", infoX, 44)
         .text("Payment Method:", infoX, 58);
 
+      const methodStr = formatPaymentMethod(data.paymentMethod);
       doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold")
-        .text(data.receiptNumber, infoX + 100, 30)
-        .text(formatDate(data.paymentDate), infoX + 100, 44)
-        .text(formatPaymentMethod(data.paymentMethod), infoX + 100, 58);
+        .text(data.receiptNumber, infoValX, 30, { width: infoValW })
+        .text(formatDate(data.paymentDate), infoValX, 44, { width: infoValW })
+        .text(methodStr, infoValX, 58, { width: infoValW });
+      let infoY = Math.max(72, 58 + doc.heightOfString(methodStr, { width: infoValW }) + 3);
 
       if (data.paymentReference) {
-        doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Reference:", infoX, 72);
-        doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold").text(data.paymentReference, infoX + 100, 72);
+        doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Reference:", infoX, infoY);
+        doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold")
+          .text(data.paymentReference, infoValX, infoY, { width: infoValW });
+        infoY += doc.heightOfString(data.paymentReference, { width: infoValW });
       }
 
-      // ── Divider ──
-      doc.moveTo(50, 90).lineTo(50 + pageWidth, 90).lineWidth(0.5).strokeColor("#e2e8f0").stroke();
+      // ── Divider ── (pushed down when the info block wrapped)
+      const dividerY = Math.max(90, infoY + 8);
+      doc.moveTo(50, dividerY).lineTo(50 + pageWidth, dividerY).lineWidth(0.5).strokeColor("#e2e8f0").stroke();
 
       // ── From (left) ──
-      let y = 105;
+      let y = dividerY + 15;
       doc.fontSize(9).fillColor("#64748b").font("Helvetica-Bold").text("FROM", 50, y);
       y += 14;
       doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold")
@@ -98,8 +109,8 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       // "TRN:" to match the shared invoice/quote/credit-note header label.
       if (data.taxId) { doc.text(`TRN: ${data.taxId}`, 50, y); y += 11; }
 
-      // ── Received From (right) ──
-      let rY = 105;
+      // ── Received From (right) ── (starts level with FROM, below the divider)
+      let rY = dividerY + 15;
       doc.fontSize(9).fillColor("#64748b").font("Helvetica-Bold").text("RECEIVED FROM", 320, rY);
       rY += 14;
       const nameStr = [data.title, data.firstName, data.lastName].filter(Boolean).join(" ");
@@ -154,28 +165,44 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       const taxAmount = data.taxAmount ?? (data.taxRate ? discountedSubtotal * (data.taxRate / 100) : 0);
       const total = data.total ?? discountedSubtotal + taxAmount;
 
-      doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Subtotal", colRate, y);
-      doc.fillColor("#1e293b").text(`${data.currency} ${subtotal.toFixed(2)}`, colAmount, y);
+      // Totals column geometry. Labels get their own column starting at
+      // totalsLabelX and ending where the amounts begin — a long promo code
+      // ("Discount (EHBPU90)") used to be drawn from colRate (400) with NO
+      // width cap, running straight underneath the amount (organizer-reported
+      // overlap, July 20 2026). Labels wider than the column are truncated
+      // with an ellipsis; amounts right-align to the table's right edge so
+      // the figures share one clean edge.
+      const totalsLabelX = 330;
+      const amountRight = 50 + pageWidth;
+      const labelMaxW = colAmount - totalsLabelX - 8;
+      const amountOpts = { width: amountRight - colAmount, align: "right" as const };
+
+      doc.fontSize(9).fillColor("#64748b").font("Helvetica").text("Subtotal", totalsLabelX, y);
+      doc.fillColor("#1e293b").text(`${data.currency} ${subtotal.toFixed(2)}`, colAmount, y, amountOpts);
       y += 16;
 
       if (discount > 0) {
         const discountLabel = data.discountCode ? `Discount (${data.discountCode})` : "Discount";
-        doc.fontSize(9).fillColor("#dc2626").font("Helvetica").text(discountLabel, colRate, y);
-        doc.fillColor("#dc2626").text(`-${data.currency} ${discount.toFixed(2)}`, colAmount, y);
+        doc.fontSize(9).fillColor("#dc2626").font("Helvetica")
+          .text(truncateToWidth(doc, discountLabel, labelMaxW), totalsLabelX, y);
+        doc.fillColor("#dc2626").text(`-${data.currency} ${discount.toFixed(2)}`, colAmount, y, amountOpts);
         y += 16;
       }
 
       if (data.taxRate && data.taxRate > 0) {
         doc.fontSize(9).fillColor("#64748b").font("Helvetica")
-          .text(`${data.taxLabel} (${data.taxRate}%)`, colRate, y);
-        doc.fillColor("#1e293b").text(`${data.currency} ${taxAmount.toFixed(2)}`, colAmount, y);
+          .text(truncateToWidth(doc, `${data.taxLabel} (${data.taxRate}%)`, labelMaxW), totalsLabelX, y);
+        doc.fillColor("#1e293b").text(`${data.currency} ${taxAmount.toFixed(2)}`, colAmount, y, amountOpts);
         y += 16;
       }
 
-      doc.rect(colRate - 10, y - 2, pageWidth - colRate + 60, 22).fill(color);
+      doc.rect(totalsLabelX - 10, y - 2, amountRight - totalsLabelX + 10, 22).fill(color);
       doc.fontSize(10).fillColor("#ffffff").font("Helvetica-Bold")
-        .text("TOTAL PAID", colRate, y + 3)
-        .text(`${data.currency} ${total.toFixed(2)}`, colAmount, y + 3);
+        .text("TOTAL PAID", totalsLabelX, y + 3)
+        .text(`${data.currency} ${total.toFixed(2)}`, colAmount, y + 3, {
+          width: amountRight - colAmount - 6,
+          align: "right",
+        });
       y += 50;
 
       // ── PAID IN FULL stamp ──
@@ -198,6 +225,17 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       reject(err);
     }
   });
+}
+
+/**
+ * Fit a label into its column: measured with the CURRENT doc font/size, so
+ * call after fontSize()/font(). "…" is WinAnsi-safe (Helvetica encodes it).
+ */
+function truncateToWidth(doc: PDFKit.PDFDocument, text: string, maxWidth: number): string {
+  if (doc.widthOfString(text) <= maxWidth) return text;
+  let t = text;
+  while (t.length > 1 && doc.widthOfString(`${t}…`) > maxWidth) t = t.slice(0, -1);
+  return `${t}…`;
 }
 
 function formatPaymentMethod(method: string | null): string {
