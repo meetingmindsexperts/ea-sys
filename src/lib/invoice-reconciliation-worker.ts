@@ -21,7 +21,7 @@
 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
+import { issuePaidRegistrationDocuments, InvoiceVoidedError } from "@/lib/invoice-service";
 
 // Bounded look-back so the scan stays cheap. A dropped invoice is reconciled
 // within one cron cadence of the payment, far inside this window; older gaps
@@ -34,6 +34,9 @@ export interface InvoiceReconciliationReport {
   scanned: number;
   reconciled: number;
   failed: number;
+  /** Candidates whose payment's invoice was voided (CANCELLED/REFUNDED) —
+   *  deliberately not recoverable, so not counted as failures. */
+  skipped: number;
   durationMs: number;
 }
 
@@ -84,6 +87,7 @@ export async function runInvoiceReconciliationTick(): Promise<InvoiceReconciliat
 
   let reconciled = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const reg of candidates) {
     const payment = reg.payments[0];
@@ -111,6 +115,20 @@ export async function runInvoiceReconciliationTick(): Promise<InvoiceReconciliat
         receiptId: receipt.id,
       });
     } catch (err) {
+      if (err instanceof InvoiceVoidedError) {
+        // The payment's invoice was cancelled/refunded after issue — nothing
+        // to recover, and retrying every tick would never succeed. Warn (not
+        // error) so it surfaces without paging.
+        skipped++;
+        apiLogger.warn({
+          msg: "invoice-reconciliation:skipped-voided-invoice",
+          registrationId: reg.id,
+          eventId: reg.eventId,
+          invoiceNumber: err.meta.invoiceNumber,
+          invoiceStatus: err.meta.invoiceStatus,
+        });
+        continue;
+      }
       failed++;
       apiLogger.error({
         err,
@@ -126,6 +144,7 @@ export async function runInvoiceReconciliationTick(): Promise<InvoiceReconciliat
     scanned: candidates.length,
     reconciled,
     failed,
+    skipped,
     durationMs: Date.now() - startedAt,
   };
   // Only emit a tick summary when there was something to do (avoid log noise

@@ -4,7 +4,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
-import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
+import { issuePaidRegistrationDocuments, InvoiceVoidedError } from "@/lib/invoice-service";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -21,8 +21,9 @@ interface RouteParams {
  * REVIEWER/SUBMITTER/REGISTRANT/MEMBER/ONSITE), org-scoped.
  */
 export async function POST(_req: Request, { params }: RouteParams) {
+  const { eventId, registrationId } = await params;
   try {
-    const [session, { eventId, registrationId }] = await Promise.all([auth(), params]);
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -100,7 +101,24 @@ export async function POST(_req: Request, { params }: RouteParams) {
       receiptNumber: receipt.invoiceNumber,
     });
   } catch (error) {
-    apiLogger.error({ err: error, msg: "Error resending registration documents" });
+    if (error instanceof InvoiceVoidedError) {
+      // Business rejection, not a fault: the paid invoice was cancelled or
+      // refunded (credit note), so there is no valid "paid packet" to resend.
+      apiLogger.warn({
+        msg: "registration-documents:invoice-voided",
+        registrationId, eventId,
+        invoiceNumber: error.meta.invoiceNumber,
+        invoiceStatus: error.meta.invoiceStatus,
+      });
+      return NextResponse.json(
+        {
+          error: `Invoice ${error.meta.invoiceNumber} was ${error.meta.invoiceStatus.toLowerCase()} — the paid documents can't be resent for this registration.`,
+          code: "INVOICE_VOIDED",
+        },
+        { status: 409 },
+      );
+    }
+    apiLogger.error({ err: error, msg: "Error resending registration documents", registrationId, eventId });
     return NextResponse.json({ error: "Failed to resend documents" }, { status: 500 });
   }
 }

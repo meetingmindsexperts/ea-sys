@@ -242,6 +242,27 @@ export async function createInvoice(params: {
 // ── Create Receipt ──────────────────────────────────────────────────────────
 
 /**
+ * Thrown by `createPaidInvoice` when the payment's invoice was later voided
+ * (CANCELLED via cancelInvoice, or REFUNDED via a covering credit note). The
+ * voided row still holds the unique `Invoice.paymentId`, so minting a fresh
+ * invoice for the SAME payment would P2002 — and re-issuing a "paid" document
+ * for a voided invoice is wrong finance-wise anyway. Callers map this to a
+ * clear rejection (the resend route → 409; the reconciliation worker → skip).
+ * A NEW payment on the same registration is unaffected (different paymentId).
+ */
+export class InvoiceVoidedError extends Error {
+  code = "INVOICE_VOIDED" as const;
+  meta: { invoiceNumber: string; invoiceStatus: string };
+  constructor(meta: { invoiceNumber: string; invoiceStatus: string }) {
+    super(
+      `Invoice ${meta.invoiceNumber} for this payment is ${meta.invoiceStatus} — a paid invoice can't be re-issued for it.`,
+    );
+    this.name = "InvoiceVoidedError";
+    this.meta = meta;
+  }
+}
+
+/**
  * Creates (or promotes) the post-payment Invoice row. The caller is the
  * Stripe webhook on `payment_intent.succeeded` / `checkout.session.completed`.
  *
@@ -349,6 +370,22 @@ export async function createPaidInvoice(params: {
           paymentReference,
           ...promoteFigures,
         },
+      });
+    }
+
+    // No active invoice to reuse — but if a VOIDED row (CANCELLED/REFUNDED)
+    // still holds this payment's unique `paymentId`, minting a fresh invoice
+    // would P2002. Refuse with a discriminable error instead of the raw
+    // constraint violation (prod hit: resend-documents on a registration
+    // whose paid invoice a credit note had flipped to REFUNDED).
+    const holder = await tx.invoice.findFirst({
+      where: { paymentId },
+      select: { invoiceNumber: true, status: true },
+    });
+    if (holder) {
+      throw new InvoiceVoidedError({
+        invoiceNumber: holder.invoiceNumber,
+        invoiceStatus: holder.status,
       });
     }
 

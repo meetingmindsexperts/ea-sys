@@ -98,6 +98,7 @@ vi.mock("@/lib/utils", () => ({
 import {
   createInvoice, createPaidInvoice, createPaidReceipt, createCreditNote,
   cancelInvoice, sendInvoiceEmail, issuePaidRegistrationDocuments,
+  InvoiceVoidedError,
 } from "@/lib/invoice-service";
 import { sendEmail } from "@/lib/email";
 
@@ -390,6 +391,42 @@ describe("createPaidInvoice", () => {
     }));
     expect(mockCreate).not.toHaveBeenCalled();
     expect(result.invoiceNumber).toBe("INV-2026-0001");
+  });
+
+  it("throws InvoiceVoidedError when a voided invoice still holds the paymentId", async () => {
+    // Prod repro: the reg's paid invoice was flipped REFUNDED by a credit
+    // note. The active-reuse probe (DRAFT/SENT/OVERDUE/PAID) misses it, but
+    // the voided row still owns the unique `Invoice.paymentId` — minting
+    // would P2002. The service must refuse with a discriminable error.
+    setupTxMock();
+    mockFindFirst
+      .mockResolvedValueOnce(null) // active-reuse probe: nothing to promote
+      .mockResolvedValueOnce({ invoiceNumber: "4GHH2026-INV-001", status: "REFUNDED" }); // paymentId holder
+
+    await expect(
+      createPaidInvoice({
+        registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+        paymentId: "pay-1",
+      }),
+    ).rejects.toThrow(InvoiceVoidedError);
+
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("carries the voided invoice's identity in the error meta", async () => {
+    setupTxMock();
+    mockFindFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ invoiceNumber: "4GHH2026-INV-001", status: "CANCELLED" });
+
+    const err = await createPaidInvoice({
+      registrationId: "reg-1", eventId: "evt-1", organizationId: "org-1",
+      paymentId: "pay-1",
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(InvoiceVoidedError);
+    expect(err.code).toBe("INVOICE_VOIDED");
+    expect(err.meta).toEqual({ invoiceNumber: "4GHH2026-INV-001", invoiceStatus: "CANCELLED" });
   });
 });
 

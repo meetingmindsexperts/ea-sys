@@ -16,11 +16,23 @@ const { mockDb, mockApiLogger, mockIssueDocuments } = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
-vi.mock("@/lib/invoice-service", () => ({
-  issuePaidRegistrationDocuments: mockIssueDocuments,
-}));
+vi.mock("@/lib/invoice-service", () => {
+  // Local stand-in — the worker resolves THIS mocked module, so its
+  // `instanceof InvoiceVoidedError` matches instances thrown from the test.
+  class InvoiceVoidedError extends Error {
+    code = "INVOICE_VOIDED" as const;
+    meta: { invoiceNumber: string; invoiceStatus: string };
+    constructor(meta: { invoiceNumber: string; invoiceStatus: string }) {
+      super(`Invoice ${meta.invoiceNumber} is ${meta.invoiceStatus}`);
+      this.name = "InvoiceVoidedError";
+      this.meta = meta;
+    }
+  }
+  return { issuePaidRegistrationDocuments: mockIssueDocuments, InvoiceVoidedError };
+});
 
 import { runInvoiceReconciliationTick } from "@/lib/invoice-reconciliation-worker";
+import { InvoiceVoidedError } from "@/lib/invoice-service";
 
 function candidate(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -95,6 +107,28 @@ describe("runInvoiceReconciliationTick", () => {
       expect.objectContaining({ msg: "invoice-reconciliation:recover-failed", registrationId: "reg-bad" })
     );
     expect(mockIssueDocuments).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips (not fails) a candidate whose invoice was voided — no 10-min error loop", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      candidate({ id: "reg-voided" }),
+      candidate({ id: "reg-ok" }),
+    ]);
+    mockIssueDocuments
+      .mockRejectedValueOnce(new InvoiceVoidedError({ invoiceNumber: "E-INV-001", invoiceStatus: "REFUNDED" }))
+      .mockResolvedValueOnce({ invoice: { id: "inv-2" }, receipt: { id: "rec-2" } });
+    const report = await runInvoiceReconciliationTick();
+    expect(report).toMatchObject({ scanned: 2, reconciled: 1, failed: 0, skipped: 1 });
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        msg: "invoice-reconciliation:skipped-voided-invoice",
+        registrationId: "reg-voided",
+        invoiceNumber: "E-INV-001",
+        invoiceStatus: "REFUNDED",
+      })
+    );
+    // NOT logged at error — a voided invoice is a deliberate finance state.
+    expect(mockApiLogger.error).not.toHaveBeenCalled();
   });
 
   it("falls back to 'card' method when paymentMethodType is null", async () => {

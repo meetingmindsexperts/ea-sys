@@ -34,11 +34,28 @@ vi.mock("@/lib/auth-guards", () => ({
     return role && restricted.includes(role) ? { status: 403, json: async () => ({ error: "Forbidden" }) } : null;
   },
 }));
-vi.mock("@/lib/invoice-service", () => ({
-  issuePaidRegistrationDocuments: (args: unknown) => mockIssueDocuments(args),
-}));
+vi.mock("@/lib/invoice-service", () => {
+  // Local stand-in for the real class (importing the original would drag in
+  // pdfkit + the whole service graph). The route resolves THIS mocked module,
+  // so its `instanceof InvoiceVoidedError` check matches instances of this
+  // class thrown from the test.
+  class InvoiceVoidedError extends Error {
+    code = "INVOICE_VOIDED" as const;
+    meta: { invoiceNumber: string; invoiceStatus: string };
+    constructor(meta: { invoiceNumber: string; invoiceStatus: string }) {
+      super(`Invoice ${meta.invoiceNumber} is ${meta.invoiceStatus}`);
+      this.name = "InvoiceVoidedError";
+      this.meta = meta;
+    }
+  }
+  return {
+    issuePaidRegistrationDocuments: (args: unknown) => mockIssueDocuments(args),
+    InvoiceVoidedError,
+  };
+});
 
 import { POST } from "@/app/api/events/[eventId]/registrations/[registrationId]/documents/resend/route";
+import { InvoiceVoidedError } from "@/lib/invoice-service";
 
 const adminSession = { user: { id: "user-1", role: "ADMIN", organizationId: "org-1" } };
 const params = { params: Promise.resolve({ eventId: "evt-1", registrationId: "reg-1" }) };
@@ -100,6 +117,21 @@ describe("POST resend documents", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).code).toBe("NO_PAID_PAYMENT");
     expect(mockIssueDocuments).not.toHaveBeenCalled();
+  });
+
+  it("409 INVOICE_VOIDED when the payment's invoice was cancelled/refunded", async () => {
+    // Prod repro: a credit note flipped the paid invoice to REFUNDED; the
+    // voided row still holds the unique paymentId, so a resend must refuse
+    // clearly instead of 500ing on the P2002.
+    mockIssueDocuments.mockRejectedValue(
+      new InvoiceVoidedError({ invoiceNumber: "4GHH2026-INV-001", invoiceStatus: "REFUNDED" }),
+    );
+    const res = await POST(req(), params);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("INVOICE_VOIDED");
+    expect(body.error).toContain("4GHH2026-INV-001");
+    expect(body.error).toContain("refunded");
   });
 
   it("issues the combined packet with the PAID payment's details", async () => {
