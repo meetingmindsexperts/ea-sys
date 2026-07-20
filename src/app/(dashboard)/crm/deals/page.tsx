@@ -159,8 +159,7 @@ function DealsPageInner() {
           <ValueRangeFilter
             min={get("min")}
             max={get("max")}
-            onMinChange={(v) => set({ min: v })}
-            onMaxChange={(v) => set({ max: v })}
+            onApply={({ min, max }) => set({ min, max })}
           />
         )}
 
