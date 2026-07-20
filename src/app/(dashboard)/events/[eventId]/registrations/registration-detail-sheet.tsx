@@ -75,6 +75,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
+import { computeCancelledCreditState } from "@/lib/registration-financials";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
@@ -519,6 +520,25 @@ export function RegistrationDetailSheet({
   // A refund requires a credit note to exist first (server-enforced). Gate the
   // Issue Refund button on it so the ordering is obvious in the UI.
   const hasCreditNote = (refundFin?.creditedAmount ?? 0) > 0;
+  // Cancelled-but-paid: money retained with no covering credit note → the
+  // payment blocks show a NEGATIVE balance (credit owed to the attendee) and
+  // prompt for a credit note. Shared helper — same math as the list badge
+  // and the invoices-page flag. Zero until the detail financials load.
+  const cancelledCredit = computeCancelledCreditState({
+    isCancelled: selectedRegistration?.status === "CANCELLED",
+    paymentStatus: selectedRegistration?.paymentStatus ?? null,
+    paidTotal,
+    refundedAmount: refundedSoFar,
+    creditedAmount: creditedSoFar,
+  });
+  // Opens the existing Issue Credit Note dialog pre-filled with the
+  // uncovered amount — used by the cancelled-prompt callouts on both tabs.
+  const openCreditNoteForCancelled = () => {
+    setCreditNoteAmount(cancelledCredit.uncredited > 0 ? String(cancelledCredit.uncredited) : "");
+    setCreditNoteReason("Registration cancelled");
+    setCreditNoteSend(true);
+    setCreditNoteOpen(true);
+  };
 
   // Badge print fetches a binary PDF, opens it in a new tab, and triggers
   // print there. Uses raw fetch because the response is a PDF blob — the
@@ -1607,12 +1627,18 @@ export function RegistrationDetailSheet({
                 return (
                   <div className={cn(
                     "rounded-xl border px-5 py-4 space-y-2",
-                    cancelled ? "border-slate-300 bg-slate-50" : pending ? "border-amber-300 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/50",
+                    cancelled
+                      ? cancelledCredit.needsCreditNote
+                        ? "border-red-300 bg-red-50/50"
+                        : "border-slate-300 bg-slate-50"
+                      : pending ? "border-amber-300 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/50",
                   )}>
                     <div className="flex items-center justify-between">
                       <h3 className={cn(
                         "flex items-center gap-2 text-sm font-semibold uppercase tracking-wide",
-                        cancelled ? "text-slate-600" : pending ? "text-amber-800" : "text-emerald-700",
+                        cancelled
+                          ? cancelledCredit.needsCreditNote ? "text-red-700" : "text-slate-600"
+                          : pending ? "text-amber-800" : "text-emerald-700",
                       )}>
                         <CreditCard className="h-4 w-4" />
                         {cancelled ? "Cancelled" : pending ? "Payment Pending" : "Paid in Full"}
@@ -1668,13 +1694,46 @@ export function RegistrationDetailSheet({
                       )}
                       {cancelled ? (
                         <>
-                          <div className="flex justify-between border-t pt-1.5">
-                            <span className="font-semibold text-slate-600">Amount Due</span>
-                            <span className="font-bold text-slate-600">{formatCurrency(0, f.currency)}</span>
-                          </div>
-                          {f.totalPaid > 0 && (
+                          {cancelledCredit.retained > 0 ? (
+                            // Money is still held on a cancelled reg — show it as a
+                            // NEGATIVE balance (credit owed to the attendee), red
+                            // until a credit note documents the reversal.
+                            <div className="flex justify-between border-t pt-1.5">
+                              <span className={cn("font-semibold", cancelledCredit.needsCreditNote ? "text-red-700" : "text-slate-600")}>
+                                Balance (credit owed)
+                              </span>
+                              <span className={cn("font-bold", cancelledCredit.needsCreditNote ? "text-red-700" : "text-slate-600")}>
+                                −{formatCurrency(cancelledCredit.retained, f.currency)}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex justify-between border-t pt-1.5">
+                              <span className="font-semibold text-slate-600">Amount Due</span>
+                              <span className="font-bold text-slate-600">{formatCurrency(0, f.currency)}</span>
+                            </div>
+                          )}
+                          {cancelledCredit.needsCreditNote ? (
+                            <div className="mt-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                              <p className="text-xs font-medium text-red-800">
+                                Cancelled with {formatCurrency(cancelledCredit.uncredited, f.currency)} collected and no
+                                credit note. Issue a credit note to document the reversal — then a refund if the money
+                                is owed back.
+                              </p>
+                              {!isReviewer && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="mt-2 border-red-300 text-red-700 hover:bg-red-100 hover:text-red-800"
+                                  disabled={issueCreditNote.isPending}
+                                  onClick={openCreditNoteForCancelled}
+                                >
+                                  <FileText className="mr-2 h-3.5 w-3.5" /> Issue Credit Note
+                                </Button>
+                              )}
+                            </div>
+                          ) : cancelledCredit.retained > 0 && (
                             <p className="pt-0.5 text-xs text-slate-500">
-                              Registration cancelled — payment retained. Issue a refund separately if it&apos;s owed back.
+                              Credit note issued — payment retained. Issue a refund if it&apos;s owed back.
                             </p>
                           )}
                         </>
@@ -1952,13 +2011,42 @@ export function RegistrationDetailSheet({
                             reg owes nothing: show Amount Due 0 + a retained note. */}
                         {cancelled ? (
                           <>
-                            <div className="flex justify-between border-t pt-2">
-                              <span className="font-semibold text-slate-600">Amount Due</span>
-                              <span className="font-bold text-slate-600">{formatCurrency(0, f.currency)}</span>
-                            </div>
-                            {f.totalPaid > 0 && (
+                            {cancelledCredit.retained > 0 ? (
+                              <div className="flex justify-between border-t pt-2">
+                                <span className={cn("font-semibold", cancelledCredit.needsCreditNote ? "text-red-700" : "text-slate-600")}>
+                                  Balance (credit owed)
+                                </span>
+                                <span className={cn("font-bold", cancelledCredit.needsCreditNote ? "text-red-700" : "text-slate-600")}>
+                                  −{formatCurrency(cancelledCredit.retained, f.currency)}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="flex justify-between border-t pt-2">
+                                <span className="font-semibold text-slate-600">Amount Due</span>
+                                <span className="font-bold text-slate-600">{formatCurrency(0, f.currency)}</span>
+                              </div>
+                            )}
+                            {cancelledCredit.needsCreditNote ? (
+                              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                                <p className="text-xs font-medium text-red-800">
+                                  Cancelled with {formatCurrency(cancelledCredit.uncredited, f.currency)} collected and
+                                  no credit note — issue one to document the reversal.
+                                </p>
+                                {!isReviewer && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="mt-2 border-red-300 text-red-700 hover:bg-red-100 hover:text-red-800"
+                                    disabled={issueCreditNote.isPending}
+                                    onClick={openCreditNoteForCancelled}
+                                  >
+                                    <FileText className="mr-2 h-3.5 w-3.5" /> Issue Credit Note
+                                  </Button>
+                                )}
+                              </div>
+                            ) : cancelledCredit.retained > 0 && (
                               <p className="text-xs text-slate-500">
-                                Cancelled — payment retained. Issue a refund separately if it&apos;s owed back.
+                                Credit note issued — payment retained. Issue a refund if it&apos;s owed back.
                               </p>
                             )}
                           </>
@@ -3152,6 +3240,8 @@ export function RegistrationDetailSheet({
               <strong>Cancel &amp; refund</strong> issues a credit note and refunds{" "}
               {formatCurrency(refundRemaining, refundCurrency)} (Stripe payments reverse automatically; offline
               payments must be returned to the attendee manually). This is irreversible.
+              {" "}<strong>Just cancel</strong> keeps the payment — the registration will show a negative balance
+              and stay flagged until a credit note is issued.
             </div>
             <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
               <Button variant="ghost" size="sm" disabled={cancelWithRefund.isPending} onClick={() => setCancelConfirmOpen(false)}>

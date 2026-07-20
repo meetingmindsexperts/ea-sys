@@ -9,6 +9,11 @@ import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
+import {
+  computeCancelledCreditState,
+  computeRegistrationFinancials,
+  readRegistrationBasePrice,
+} from "@/lib/registration-financials";
 import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -160,7 +165,9 @@ export async function GET(req: Request, { params }: RouteParams) {
           { id: orgCtx.userId ?? "", role: orgCtx.role ?? "", organizationId: orgCtx.organizationId },
           eventId,
         ),
-        select: { id: true },
+        // taxRate feeds the hand-flipped-PAID fallback in the cancelled
+        // "needs credit note" computation below (mirrors the detail route).
+        select: { id: true, taxRate: true },
       }),
       db.registration.findMany({
         where: {
@@ -290,7 +297,58 @@ export async function GET(req: Request, { params }: RouteParams) {
     // (role null) is org admin-equivalent and MEMBER cannot mint keys, so
     // it keeps full data (consistent with every other API-key path; the
     // MCP-transport finance story is tracked separately).
-    let payload = registrations;
+    // Cancelled-but-PAID rows hold collected money with the registration
+    // gone — flag the ones no credit note covers yet so the list (and the
+    // invoices page, which reuses this payload via useRegistrations) can
+    // badge them "Needs credit note" (organizer request, July 20 2026).
+    // One aggregate over just the candidate rows; the flag key is in
+    // FINANCIAL_KEYS so non-finance roles never see it.
+    const cancelledPaid = registrations.filter(
+      (r) => r.status === "CANCELLED" && r.paymentStatus === "PAID",
+    );
+    let creditedByReg = new Map<string, number>();
+    if (cancelledPaid.length > 0) {
+      const creditAgg = await db.invoice.groupBy({
+        by: ["registrationId"],
+        where: {
+          registrationId: { in: cancelledPaid.map((r) => r.id) },
+          type: "CREDIT_NOTE",
+          status: { not: "CANCELLED" },
+        },
+        _sum: { total: true },
+      });
+      creditedByReg = new Map(
+        creditAgg
+          .filter((a) => a.registrationId != null)
+          .map((a) => [a.registrationId as string, Number(a._sum.total ?? 0)]),
+      );
+    }
+    const flagged = registrations.map((r) => {
+      if (r.status !== "CANCELLED" || r.paymentStatus !== "PAID") return r;
+      const settled = (r.payments ?? [])
+        .filter((p) => p.status?.toLowerCase() === "succeeded" || p.status === "PAID")
+        .reduce((sum, p) => sum + Number(p.amount), 0);
+      // Hand-flipped PAID with no Payment rows: fall back to the computed
+      // total — the same paidTotal rule the detail route uses.
+      const paidTotal =
+        settled > 0
+          ? settled
+          : computeRegistrationFinancials({
+              subtotal: readRegistrationBasePrice(r),
+              discount: r.discountAmount ? Number(r.discountAmount) : 0,
+              taxRate: event.taxRate ? Number(event.taxRate) : null,
+            }).total;
+      const state = computeCancelledCreditState({
+        isCancelled: true,
+        paymentStatus: r.paymentStatus,
+        paidTotal,
+        refundedAmount: Number(r.refundedAmount ?? 0),
+        creditedAmount: creditedByReg.get(r.id) ?? 0,
+      });
+      return { ...r, needsCreditNote: state.needsCreditNote };
+    });
+
+    let payload = flagged;
     if (orgCtx.role !== null && !canViewFinance(orgCtx.role)) {
       payload = redactFinancialFields(payload);
     }

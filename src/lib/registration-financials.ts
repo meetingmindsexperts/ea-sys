@@ -110,6 +110,48 @@ export function readRegistrationBasePrice(reg: {
   return orig ?? tier ?? toNum(reg.ticketType?.price) ?? 0;
 }
 
+/**
+ * Money state of a CANCELLED registration that had collected payment —
+ * drives the negative "credit owed" balance and the "issue a credit note"
+ * prompt (organizer request, July 20 2026). The credit note is the
+ * accounting document that offsets the collected revenue on a cancelled
+ * registration; the prompt clears once non-cancelled credit notes cover
+ * the collected total (owner decision — the refund itself stays optional
+ * and separately CN-gated, e.g. a deliberate no-show retention).
+ * ONE implementation shared by the detail sheet, the registrations list
+ * route, and the invoices page so the three surfaces can never disagree.
+ */
+export interface CancelledCreditState {
+  /** Money still physically held: paid − refunded (≥ 0). Rendered as a negative balance. */
+  retained: number;
+  /** Collected money not yet covered by credit notes: paid − credited (≥ 0). */
+  uncredited: number;
+  /** Cancelled + collected money with no covering credit note → prompt the organizer. */
+  needsCreditNote: boolean;
+}
+
+export function computeCancelledCreditState(input: {
+  isCancelled: boolean;
+  paymentStatus?: string | null;
+  /** Collected: Σ settled payments, or the computed total for a hand-flipped PAID reg with no Payment rows. */
+  paidTotal: number;
+  refundedAmount?: number;
+  /** Σ non-cancelled credit-note totals for this registration. */
+  creditedAmount?: number;
+}): CancelledCreditState {
+  const paid = Math.max(0, Number(input.paidTotal) || 0);
+  const refunded = Math.max(0, Number(input.refundedAmount) || 0);
+  const credited = Math.max(0, Number(input.creditedAmount) || 0);
+  const retained = round2(Math.max(0, paid - refunded));
+  const uncredited = round2(Math.max(0, paid - credited));
+  // Only a PAID reg holds undocumented money — REFUNDED means the refund
+  // flow already ran, which itself required credit-note coverage. The
+  // 1-cent tolerance mirrors `isPaidInFull`.
+  const needsCreditNote =
+    input.isCancelled && input.paymentStatus === "PAID" && uncredited > 0.01;
+  return { retained, uncredited, needsCreditNote };
+}
+
 export function computeRegistrationFinancials(
   input: RegistrationFinancialsInput,
 ): RegistrationFinancials {

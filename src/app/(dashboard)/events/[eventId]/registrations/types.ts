@@ -190,6 +190,10 @@ export interface Registration {
   // financials so tier-priced (base 0) + VIRTUAL rows don't read as free.
   originalPrice?: string | number | null;
   promoCode?: { code: string } | null;
+  // Server-computed on the LIST route only, for cancelled-but-PAID rows:
+  // true while the collected money has no covering credit note. Absent for
+  // non-finance roles (redacted) and on non-cancelled rows.
+  needsCreditNote?: boolean;
   // Computed money breakdown from the detail GET. Absent for the MEMBER
   // role (redacted server-side) — UI must treat it as optional.
   financials?: {

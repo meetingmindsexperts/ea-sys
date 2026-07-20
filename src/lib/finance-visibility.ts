@@ -80,6 +80,10 @@ const FINANCIAL_KEYS = new Set<string>([
   "discountValue",
   "originalPrice",
   "refundedAmount",
+  // Cancelled-but-paid "issue a credit note" flag on the registrations
+  // list — derived from collected/credited money, so it travels with the
+  // financial payload it summarizes.
+  "needsCreditNote",
   "taxRate",
   "taxLabel",
   "taxAmount",

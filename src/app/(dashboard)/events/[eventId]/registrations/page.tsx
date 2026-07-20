@@ -806,6 +806,15 @@ export default function RegistrationsPage() {
                         <Badge className={PAYMENT_STATUS_COLORS[registration.paymentStatus]} variant="outline">
                           {registration.paymentStatus}
                         </Badge>
+                        {registration.needsCreditNote && (
+                          <Badge
+                            variant="outline"
+                            className="bg-red-100 text-red-700 border-red-200"
+                            title="Cancelled with payment collected and no credit note — open the registration to issue one"
+                          >
+                            Needs credit note
+                          </Badge>
+                        )}
                         {registration.attendanceMode === "VIRTUAL" && (
                           <Badge variant="outline" className="bg-sky-100 text-sky-700 border-sky-200">
                             Virtual

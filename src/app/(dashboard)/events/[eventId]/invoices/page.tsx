@@ -76,6 +76,9 @@ type QuoteReg = {
   attendee: { firstName: string; lastName: string; email: string };
   ticketType?: { name: string; price: string; currency: string; isFaculty?: boolean } | null;
   pricingTier?: { name: string; price: string; currency: string } | null;
+  // Cancelled-but-PAID with no covering credit note (server-computed on the
+  // registrations list) — flags the invoice row so the books-side gap shows.
+  needsCreditNote?: boolean;
 };
 
 function regNumber(r: { serialId?: number | null; id: string }): string {
@@ -398,8 +401,20 @@ export default function EventInvoicesPage() {
                       <TableCell className="text-sm">
                         {inv.registration ? (
                           <div className="min-w-0">
-                            <div className="truncate font-medium">
-                              {inv.registration.attendee.firstName} {inv.registration.attendee.lastName}
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate font-medium">
+                                {inv.registration.attendee.firstName} {inv.registration.attendee.lastName}
+                              </span>
+                              {inv.type === "INVOICE" &&
+                                regById.get(inv.registration.id)?.needsCreditNote && (
+                                  <Badge
+                                    variant="outline"
+                                    className="shrink-0 bg-red-100 text-red-700 border-red-200"
+                                    title="Registration cancelled with payment collected — no credit note offsets this invoice yet"
+                                  >
+                                    Cancelled — needs credit note
+                                  </Badge>
+                                )}
                             </div>
                             <div className="truncate text-xs text-muted-foreground">
                               {inv.registration.attendee.email}
@@ -518,7 +533,18 @@ export default function EventInvoicesPage() {
                       </TableCell>
                       <TableCell className="text-sm">{r.ticketType?.name ?? "—"}</TableCell>
                       <TableCell>
-                        <Badge variant="outline">{r.paymentStatus}</Badge>
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="outline">{r.paymentStatus}</Badge>
+                          {r.needsCreditNote && (
+                            <Badge
+                              variant="outline"
+                              className="bg-red-100 text-red-700 border-red-200"
+                              title="Registration cancelled with payment collected — issue a credit note from the registration"
+                            >
+                              Needs credit note
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         {(() => {

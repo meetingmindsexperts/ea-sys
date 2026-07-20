@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  computeCancelledCreditState,
   computeRegistrationFinancials,
   readRegistrationBasePrice,
 } from "@/lib/registration-financials";
@@ -155,5 +156,111 @@ describe("readRegistrationBasePrice", () => {
 
   it("nothing set → 0", () => {
     expect(readRegistrationBasePrice({})).toBe(0);
+  });
+});
+
+/**
+ * The organizer-reported gap (July 20, 2026): a PAID registration cancelled
+ * WITHOUT a refund kept showing a positive "Collected" figure and Amount Due
+ * 0, with no prompt — the retained money must render as a NEGATIVE balance
+ * and flag "needs credit note" until credit notes cover the collected total.
+ */
+describe("computeCancelledCreditState", () => {
+  it("cancelled + PAID with no credit note → retained shown, needsCreditNote", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: true,
+      paymentStatus: "PAID",
+      paidTotal: 525,
+    });
+    expect(s).toEqual({ retained: 525, uncredited: 525, needsCreditNote: true });
+  });
+
+  it("credit note covering the collected total clears the prompt (money still retained)", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: true,
+      paymentStatus: "PAID",
+      paidTotal: 525,
+      creditedAmount: 525,
+    });
+    expect(s.needsCreditNote).toBe(false);
+    // Owner decision: the CN documents the reversal; the refund stays
+    // optional, so the retained figure keeps showing until refunded.
+    expect(s.retained).toBe(525);
+    expect(s.uncredited).toBe(0);
+  });
+
+  it("partial credit note → still prompts for the uncovered remainder", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: true,
+      paymentStatus: "PAID",
+      paidTotal: 525,
+      creditedAmount: 200,
+    });
+    expect(s.needsCreditNote).toBe(true);
+    expect(s.uncredited).toBe(325);
+  });
+
+  it("partial refund shrinks the retained balance but not the CN requirement", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: true,
+      paymentStatus: "PAID",
+      paidTotal: 525,
+      refundedAmount: 200,
+      creditedAmount: 200,
+    });
+    expect(s.retained).toBe(325);
+    expect(s.uncredited).toBe(325);
+    expect(s.needsCreditNote).toBe(true);
+  });
+
+  it("fully refunded (paymentStatus REFUNDED) never prompts", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: true,
+      paymentStatus: "REFUNDED",
+      paidTotal: 525,
+      refundedAmount: 525,
+      creditedAmount: 525,
+    });
+    expect(s.retained).toBe(0);
+    expect(s.needsCreditNote).toBe(false);
+  });
+
+  it("not cancelled → never prompts even with uncredited money", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: false,
+      paymentStatus: "PAID",
+      paidTotal: 525,
+    });
+    expect(s.needsCreditNote).toBe(false);
+  });
+
+  it("cancelled unpaid (nothing collected) → no prompt, zero balances", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: true,
+      paymentStatus: "UNPAID",
+      paidTotal: 0,
+    });
+    expect(s).toEqual({ retained: 0, uncredited: 0, needsCreditNote: false });
+  });
+
+  it("1-cent rounding residue does not prompt (mirrors isPaidInFull tolerance)", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: true,
+      paymentStatus: "PAID",
+      paidTotal: 100.0,
+      creditedAmount: 99.995,
+    });
+    expect(s.needsCreditNote).toBe(false);
+  });
+
+  it("clamps garbage inputs (negative / NaN) to zero", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: true,
+      paymentStatus: "PAID",
+      paidTotal: Number.NaN,
+      refundedAmount: -50,
+      creditedAmount: -10,
+    });
+    expect(s).toEqual({ retained: 0, uncredited: 0, needsCreditNote: false });
   });
 });
