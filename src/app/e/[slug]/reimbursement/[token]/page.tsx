@@ -403,7 +403,7 @@ export default function ReimbursementFormPage() {
         </div>
         <div className="h-1 bg-gradient-primary" />
       </div>
-      <div className="max-w-3xl mx-auto px-4">
+      <div className="max-w-4xl mx-auto px-4">
         {/* Elevated document card: layered shadow + hairline ring so the
             form reads as a signed financial document, not a flat panel. */}
         <div className="bg-white rounded-2xl mt-8 overflow-hidden ring-1 ring-slate-900/10 shadow-[0_1px_2px_rgb(15_23_42/0.06),0_12px_24px_-8px_rgb(15_23_42/0.10),0_32px_64px_-16px_rgb(15_23_42/0.14)]">
