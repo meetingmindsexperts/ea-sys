@@ -24,7 +24,9 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy",
     "worker:dev": "tsx watch worker/index.ts",
-    "worker:start": "tsx worker/index.ts"
+    "worker:start": "tsx worker/index.ts",
+    "db:local:setup": "tsx prisma/seed-local-cancel-scenarios.ts",
+    "verify:cancel": "tsx prisma/seed-local-cancel-scenarios.ts && tsx prisma/verify-cancel-financials.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
