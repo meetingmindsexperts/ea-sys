@@ -87,8 +87,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Only admins can invite users
-    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
+    // Admins can invite any team role. ORGANIZER is admitted too, but ONLY to
+    // create ONSITE (registration-desk temp) accounts — enforced on the parsed
+    // role below, so an organizer can't invite admins/organizers.
+    const callerRole = session.user.role;
+    if (callerRole !== "ADMIN" && callerRole !== "SUPER_ADMIN" && callerRole !== "ORGANIZER") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -117,6 +120,18 @@ export async function POST(req: Request) {
 
     const { firstName, lastName, role, password } = validated.data;
     const email = validated.data.email.toLowerCase();
+
+    if (callerRole === "ORGANIZER" && role !== "ONSITE") {
+      apiLogger.warn({
+        msg: "organization/users:organizer-role-not-allowed",
+        requestedRole: role,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: "Organizers can only create Onsite Staff accounts.", code: "ONSITE_ONLY" },
+        { status: 403 },
+      );
+    }
 
     // Check if user already exists. NOTE: email is globally unique, so this
     // matches a user in ANY org — including org-independent accounts

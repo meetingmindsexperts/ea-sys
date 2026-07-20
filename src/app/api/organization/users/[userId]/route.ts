@@ -138,8 +138,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Only admins can delete users
-    if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
+    // Admins can delete any org user. ORGANIZER is admitted too, but ONLY to
+    // delete ONSITE (registration-desk temp) accounts — enforced on the
+    // fetched target below, so an organizer can't remove admins or peers.
+    const callerRole = session.user.role;
+    if (callerRole !== "ADMIN" && callerRole !== "SUPER_ADMIN" && callerRole !== "ORGANIZER") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -157,6 +160,19 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (callerRole === "ORGANIZER" && user.role !== "ONSITE") {
+      apiLogger.warn({
+        msg: "organization/users:organizer-delete-not-allowed",
+        targetUserId: userId,
+        targetRole: user.role,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: "Organizers can only delete Onsite Staff accounts.", code: "ONSITE_ONLY" },
+        { status: 403 },
+      );
     }
 
     // Unlink any Speaker records referencing this user before deletion

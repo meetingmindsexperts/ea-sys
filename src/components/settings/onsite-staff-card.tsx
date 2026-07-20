@@ -76,12 +76,12 @@ async function unassignFromEvent(eventId: string, userId: string) {
 }
 
 /**
- * `canManageAccounts` gates the account-lifecycle actions (create a temp
- * account, delete an account) which go through `/api/organization/users` —
- * an ADMIN-only route. Organizers still see the roster and can assign /
- * unassign events (those routes admit ORGANIZER via `denyReviewer`).
+ * Full management is available to every role that can see this card
+ * (ADMIN / SUPER_ADMIN / ORGANIZER): the assign/unassign routes admit
+ * ORGANIZER via `denyReviewer`, and `/api/organization/users` admits
+ * ORGANIZER for ONSITE accounts only (create + delete).
  */
-export function OnsiteStaffCard({ canManageAccounts = true }: { canManageAccounts?: boolean }) {
+export function OnsiteStaffCard() {
   const qc = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: ["onsite-staff"],
@@ -185,12 +185,10 @@ export function OnsiteStaffCard({ canManageAccounts = true }: { canManageAccount
             Money is always hidden. Remove them from an event (or delete the account) to revoke access.
           </CardDescription>
         </div>
-        {canManageAccounts && (
-          <Button onClick={() => setAddOpen(true)} className="shrink-0">
-            <UserPlus className="mr-2 h-4 w-4" />
-            Add temp staff
-          </Button>
-        )}
+        <Button onClick={() => setAddOpen(true)} className="shrink-0">
+          <UserPlus className="mr-2 h-4 w-4" />
+          Add temp staff
+        </Button>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -252,17 +250,15 @@ export function OnsiteStaffCard({ canManageAccounts = true }: { canManageAccount
                     assignedIds={s.eventIds}
                     onToggle={(eventId, assign) => toggleMutation.mutate({ eventId, userId: s.id, assign })}
                   />
-                  {canManageAccounts && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => setConfirmDelete(s)}
-                      aria-label="Delete temp staff account"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setConfirmDelete(s)}
+                    aria-label="Delete temp staff account"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             ))}

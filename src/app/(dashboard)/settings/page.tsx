@@ -1031,7 +1031,7 @@ export default function SettingsPage() {
         {/* Onsite / Temp Staff (per-event registration-desk staff) */}
         {isOrganizerOrAbove && (
           <TabsContent value="onsite">
-            <OnsiteStaffCard canManageAccounts={isAdmin} />
+            <OnsiteStaffCard />
           </TabsContent>
         )}
 
