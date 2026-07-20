@@ -3227,21 +3227,26 @@ export function RegistrationDetailSheet({
 
         {/* Cancel a PAID registration — refund vs just cancel. */}
         <Dialog open={cancelConfirmOpen} onOpenChange={(o) => { if (!cancelWithRefund.isPending) setCancelConfirmOpen(o); }}>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Cancel this registration?</DialogTitle>
               <DialogDescription>
                 This registration is paid ({formatCurrency(refundRemaining, refundCurrency)} refundable).
-                Choose whether to refund the balance. Cancelling releases the seat and stops any payment
-                chasing; the amount owed becomes 0.
+                Cancelling releases the seat and stops any payment chasing.
               </DialogDescription>
             </DialogHeader>
-            <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-              <strong>Cancel &amp; refund</strong> issues a credit note and refunds{" "}
-              {formatCurrency(refundRemaining, refundCurrency)} (Stripe payments reverse automatically; offline
-              payments must be returned to the attendee manually). This is irreversible.
-              {" "}<strong>Just cancel</strong> keeps the payment — the registration will show a negative balance
-              and stay flagged until a credit note is issued.
+            {/* One block per choice, mirroring the footer buttons, instead of a
+                single dense paragraph describing both. */}
+            <div className="space-y-2">
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800">
+                <strong>Cancel &amp; refund</strong> — issues a credit note and refunds{" "}
+                {formatCurrency(refundRemaining, refundCurrency)}. Stripe payments reverse automatically;
+                offline payments must be returned to the attendee manually. Irreversible.
+              </div>
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                <strong>Just cancel</strong> — keeps the payment. The registration shows a negative balance
+                and stays flagged until a credit note is issued.
+              </div>
             </div>
             <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
               <Button variant="ghost" size="sm" disabled={cancelWithRefund.isPending} onClick={() => setCancelConfirmOpen(false)}>
