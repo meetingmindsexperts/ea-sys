@@ -151,8 +151,7 @@ function DealsPageInner() {
           onFieldChange={(v) => set({ dateField: v === "expectedClose" ? null : v })}
           from={get("from")}
           to={get("to")}
-          onFromChange={(v) => set({ from: v })}
-          onToChange={(v) => set({ to: v })}
+          onApply={({ from, to }) => set({ from, to })}
         />
 
         {/* Value filter is staff-only — the server independently drops it for MEMBER. */}

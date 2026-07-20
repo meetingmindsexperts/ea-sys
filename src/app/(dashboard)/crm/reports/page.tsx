@@ -112,8 +112,7 @@ function ReportsInner() {
           onFieldChange={(v) => set({ dateField: v === "expectedClose" ? null : v })}
           from={get("from")}
           to={get("to")}
-          onFromChange={(v) => set({ from: v })}
-          onToChange={(v) => set({ to: v })}
+          onApply={({ from, to }) => set({ from, to })}
         />
         {filtersActive && (
           <Button variant="ghost" size="sm" onClick={() => clear(REPORT_FILTER_KEYS)}>

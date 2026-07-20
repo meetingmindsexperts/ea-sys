@@ -100,8 +100,7 @@ function TasksPageInner() {
           label="Due"
           from={get("dueFrom")}
           to={get("dueTo")}
-          onFromChange={(v) => set({ dueFrom: v })}
-          onToChange={(v) => set({ dueTo: v })}
+          onApply={({ from, to }) => set({ dueFrom: from, dueTo: to })}
         />
         <Button
           variant={showArchived ? "default" : "outline"}
