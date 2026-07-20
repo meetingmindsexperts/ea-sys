@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  CRM_CTA,
   DEAL_CONTACT_ROLE_LABELS,
   DEAL_STATUS_COLORS,
   formatDealValue,
@@ -44,6 +45,7 @@ import {
   type CrmBoardDeal,
   type CrmDealContactRole,
 } from "@/crm/lib/crm-types";
+import { cn } from "@/lib/utils";
 import {
   useAddDealContact,
   useCloseDeal,
@@ -175,6 +177,7 @@ export function DealDetailBody({
                 <Button
                   size="sm"
                   variant="outline"
+                  className={cn(contactCount > 0 && CRM_CTA.email)}
                   disabled={contactCount === 0}
                   title={contactCount === 0 ? "Add a contact to this deal first" : "Email the people on this deal"}
                   onClick={() => setEmailOpen(true)}
@@ -192,7 +195,7 @@ export function DealDetailBody({
               />
               {canDelete &&
                 (deal.archivedAt ? (
-                  <Button size="sm" variant="outline" disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)}>
+                  <Button size="sm" variant="outline" className={CRM_CTA.restore} disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)}>
                     <ArchiveRestore className="mr-2 h-3.5 w-3.5" />
                     Restore
                   </Button>
@@ -200,7 +203,7 @@ export function DealDetailBody({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="text-destructive hover:text-destructive"
+                    className={CRM_CTA.archive}
                     disabled={setArchived.isPending}
                     onClick={() => {
                       if (!confirm("Archive this deal? It will be hidden from the board and the reports. You can restore it from the archived view.")) return;
@@ -252,11 +255,11 @@ export function DealDetailBody({
                     onChange={(e) => setLostReason(e.target.value)}
                   />
                   <div className="flex gap-2">
-                    <Button onClick={() => handleClose("WON")} disabled={closing} className="flex-1">
+                    <Button onClick={() => handleClose("WON")} disabled={closing} className={cn("flex-1", CRM_CTA.won)}>
                       {closing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Mark won
                     </Button>
-                    <Button variant="outline" onClick={() => handleClose("LOST")} disabled={closing} className="flex-1">
+                    <Button variant="outline" onClick={() => handleClose("LOST")} disabled={closing} className={cn("flex-1", CRM_CTA.lost)}>
                       Mark lost
                     </Button>
                   </div>

@@ -37,7 +37,8 @@ import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialo
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
-import { sumStageValue } from "@/crm/lib/crm-types";
+import { CRM_CTA, sumStageValue } from "@/crm/lib/crm-types";
+import { cn } from "@/lib/utils";
 
 const ALL_STATUS = "__all__";
 
@@ -105,6 +106,7 @@ function DealsPageInner() {
             </Button>
             <Button
               variant="outline"
+              className={cn(!!eventId && CRM_CTA.email)}
               disabled={!eventId}
               title={eventId ? "Email this event's sponsors" : "Pick an event to email its sponsors"}
               onClick={() => setSponsorEmailOpen(true)}
@@ -112,7 +114,7 @@ function DealsPageInner() {
               <Mail className="mr-2 h-4 w-4" />
               Email sponsors
             </Button>
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button className="btn-gradient text-white shadow-sm" onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
               New deal
             </Button>
@@ -217,7 +219,7 @@ function DealsPageInner() {
           }
           action={
             canWrite && !archivedView && !filtersActive ? (
-              <Button onClick={() => setCreateOpen(true)}>
+              <Button className="btn-gradient text-white shadow-sm" onClick={() => setCreateOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 New deal
               </Button>

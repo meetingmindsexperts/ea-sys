@@ -135,17 +135,38 @@ function StageColumn({
   const { setNodeRef, isOver } = useDroppable({ id: stage.id, disabled: readOnly });
   const total = sumStageValue(deals);
 
+  // Tint the terminal columns so the "finish lines" read at a glance — same
+  // emerald=won / rose=lost language as the status badges and the card accents.
+  const won = stage.terminalOutcome === "WON";
+  const lost = stage.terminalOutcome === "LOST";
+
   return (
     <div
       ref={setNodeRef}
       className={cn(
         "flex w-72 shrink-0 flex-col rounded-xl border bg-muted/30 transition-colors",
+        won && "border-emerald-200 bg-emerald-50/40 dark:border-emerald-950 dark:bg-emerald-950/20",
+        lost && "border-rose-200 bg-rose-50/40 dark:border-rose-950 dark:bg-rose-950/20",
         isOver && "border-primary bg-primary/5 ring-1 ring-primary/20",
       )}
     >
-      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 rounded-t-xl border-b bg-muted/60 px-3 py-2.5 backdrop-blur-sm">
+      <div
+        className={cn(
+          "sticky top-0 z-10 flex items-center justify-between gap-2 rounded-t-xl border-b bg-muted/60 px-3 py-2.5 backdrop-blur-sm",
+          won && "border-b-emerald-200 bg-emerald-100/70 dark:border-b-emerald-950 dark:bg-emerald-950/40",
+          lost && "border-b-rose-200 bg-rose-100/70 dark:border-b-rose-950 dark:bg-rose-950/40",
+        )}
+      >
         <div className="flex min-w-0 items-center gap-2">
-          <h3 className="truncate text-sm font-semibold">{stage.name}</h3>
+          <h3
+            className={cn(
+              "truncate text-sm font-semibold",
+              won && "text-emerald-800 dark:text-emerald-300",
+              lost && "text-rose-800 dark:text-rose-300",
+            )}
+          >
+            {stage.name}
+          </h3>
           <span className="rounded-full bg-background px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
             {deals.length}
           </span>

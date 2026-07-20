@@ -348,6 +348,33 @@ export const DEAL_STATUS_COLORS: Record<CrmDealStatus, string> = {
   LOST: "bg-rose-100 text-rose-700 border-rose-200",
 };
 
+/**
+ * Semantic CTA colours for the deals surfaces — colour carries the MEANING of an
+ * action so the eye can tell "win", "lose", "reach out" and "archive" apart at a
+ * glance, instead of a wall of identical grey outline buttons.
+ *
+ * Deliberately keyed to the SAME palette as DEAL_STATUS_COLORS above, so the user
+ * learns it once: emerald = won/good, rose = lost/bad, sky/cerulean = the brand's
+ * "reach out", amber = caution (archive is reversible, not destruction — the true
+ * destructive red is reserved for the SUPER_ADMIN purge). Dark variants included
+ * because the dashboard ships dark mode.
+ *
+ * Apply on top of the shadcn Button; `won`/`newDeal` are filled (strongest
+ * intent), the rest tint the `variant="outline"` base.
+ */
+export const CRM_CTA = {
+  /** Close-won — the celebratory terminal action. Filled emerald. */
+  won: "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 focus-visible:ring-emerald-500 dark:bg-emerald-600 dark:hover:bg-emerald-500",
+  /** Close-lost — a legitimate outcome, not destruction. Rose-tinted outline. */
+  lost: "border-rose-300 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/60",
+  /** Reach out (Email) — the brand's cerulean/sky "communication" tint. */
+  email: "border-sky-300 text-sky-700 hover:bg-sky-50 hover:text-sky-800 dark:border-sky-900 dark:text-sky-300 dark:hover:bg-sky-950/60",
+  /** Restore from archive — a positive, undo-the-hide action. Emerald outline. */
+  restore: "border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-900 dark:text-emerald-300 dark:hover:bg-emerald-950/60",
+  /** Archive — caution, reversible. Amber outline (NOT the destructive red). */
+  archive: "border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:border-amber-900 dark:text-amber-400 dark:hover:bg-amber-950/60",
+} as const;
+
 export function personName(p?: CrmPersonRef | { firstName: string; lastName: string } | null): string {
   if (!p) return "Unassigned";
   return `${p.firstName} ${p.lastName}`.trim();
