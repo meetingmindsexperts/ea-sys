@@ -387,11 +387,11 @@ export default function ReimbursementFormPage() {
     setBank((prev) => ({ ...prev, [key]: e.target.value }));
 
   return (
-    <div className="min-h-screen bg-muted/30 pb-16">
+    <div className="min-h-screen bg-slate-100 pb-16 [color-scheme:light]">
       {/* Same constrained banner band as the other public pages (register):
           natural aspect, capped width — a wide banner never stretches
           edge-to-edge on large screens. */}
-      <div className="bg-background border-b">
+      <div className="bg-white border-b border-slate-200">
         <div className="max-w-[1120px] mx-auto">
           <EventBanner
             banner={data.event.bannerImage}
@@ -401,56 +401,62 @@ export default function ReimbursementFormPage() {
             priority
           />
         </div>
+        <div className="h-1 bg-gradient-primary" />
       </div>
-      <div className="max-w-3xl mx-auto px-4 -mt-2">
-        <div className="bg-background rounded-lg shadow-sm border p-6 sm:p-10 mt-6">
-          <div className="mb-8">
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Banknote className="h-6 w-6 text-emerald-600" />
-              Speaker / Faculty Reimbursement Form
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Bank Wire Transfer Request
+      <div className="max-w-3xl mx-auto px-4">
+        {/* Elevated document card: layered shadow + hairline ring so the
+            form reads as a signed financial document, not a flat panel. */}
+        <div className="bg-white rounded-2xl mt-8 overflow-hidden ring-1 ring-slate-900/10 shadow-[0_1px_2px_rgb(15_23_42/0.06),0_12px_24px_-8px_rgb(15_23_42/0.10),0_32px_64px_-16px_rgb(15_23_42/0.14)]">
+          <div className="px-6 sm:px-10 pt-8 pb-6 border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary mb-1.5">
+              Bank wire transfer request
               {data.event.organizationName ? ` · ${data.event.organizationName}` : ""}
             </p>
+            <h1 className="text-2xl sm:text-[28px] font-bold text-slate-900 tracking-tight flex items-center gap-2.5">
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
+                <Banknote className="h-5 w-5" />
+              </span>
+              Speaker / Faculty Reimbursement Form
+            </h1>
           </div>
 
+          <div className="p-6 sm:p-10">
           {done || alreadySubmitted ? (
             <div className="text-center py-10">
-              <div className="mx-auto w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center mb-4">
-                <Check className="h-7 w-7 text-emerald-600" />
+              <div className="mx-auto w-16 h-16 rounded-full bg-emerald-100 ring-8 ring-emerald-50 flex items-center justify-center mb-5">
+                <Check className="h-8 w-8 text-emerald-600" />
               </div>
-              <h2 className="text-xl font-semibold mb-2">
+              <h2 className="text-xl font-semibold text-slate-900 mb-2">
                 {done ? "Form submitted — thank you!" : "This form has already been submitted."}
               </h2>
-              <p className="text-muted-foreground max-w-md mx-auto">
+              <p className="text-slate-600 max-w-md mx-auto">
                 {done
                   ? "We've emailed you a confirmation. Payment will be processed by bank wire transfer within 45 days of receipt of the completed form and all supporting documents."
                   : "If you need to correct something, please contact the organizing team — they can reopen the form for you."}
               </p>
             </div>
           ) : (
-            <div className="space-y-10">
+            <div className="space-y-12 [&_input]:border-slate-300 [&_input]:bg-white [&_textarea]:border-slate-300 [&_select]:border-slate-300">
               {/* Section A */}
               <section>
                 <SectionHeading letter="A" title="Event Details" />
-                <div className="grid sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <CalendarDays className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                  <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3">
+                    <CalendarDays className="h-4 w-4 mt-0.5 text-primary" />
                     <div>
-                      <div className="font-medium">{data.event.name}</div>
-                      <div className="text-muted-foreground">
+                      <div className="font-semibold text-slate-900">{data.event.name}</div>
+                      <div className="text-slate-600">
                         {fmtDateRange(data.event.startDate, data.event.endDate)}
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                  <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3">
+                    <MapPin className="h-4 w-4 mt-0.5 text-primary" />
                     <div>
-                      <div className="font-medium">
+                      <div className="font-semibold text-slate-900">
                         {EVENT_TYPE_LABELS[data.event.eventType] ?? data.event.eventType}
                       </div>
-                      <div className="text-muted-foreground">
+                      <div className="text-slate-600">
                         {[data.event.venue, data.event.city].filter(Boolean).join(", ") || "—"}
                       </div>
                     </div>
@@ -521,7 +527,7 @@ export default function ReimbursementFormPage() {
               {/* Section C */}
               <section>
                 <SectionHeading letter="C" title="Reimbursement Type" />
-                <p className="text-sm text-muted-foreground mb-3">
+                <p className="text-sm text-slate-600 mb-3">
                   Select all that apply and enter the amount for each.
                 </p>
                 <div className="space-y-2">
@@ -530,9 +536,13 @@ export default function ReimbursementFormPage() {
                     return (
                       <div
                         key={item.key}
-                        className="flex flex-wrap items-center gap-3 border rounded-md px-3 py-2.5"
+                        className={`flex flex-wrap items-center gap-3 rounded-lg border px-3.5 py-3 transition-colors ${
+                          draft.enabled
+                            ? "border-primary/50 bg-primary/[0.04] ring-1 ring-primary/20"
+                            : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/60"
+                        }`}
                       >
-                        <label className="flex items-center gap-2 flex-1 min-w-40 cursor-pointer">
+                        <label className="flex items-center gap-2.5 flex-1 min-w-40 cursor-pointer">
                           <Checkbox
                             checked={draft.enabled}
                             onCheckedChange={(v) =>
@@ -542,7 +552,7 @@ export default function ReimbursementFormPage() {
                               }))
                             }
                           />
-                          <span className="text-sm font-medium">{item.label}</span>
+                          <span className="text-sm font-medium text-slate-800">{item.label}</span>
                         </label>
                         {draft.enabled && (
                           <div className="flex items-center gap-2">
@@ -585,9 +595,9 @@ export default function ReimbursementFormPage() {
                     );
                   })}
                 </div>
-                <div className="flex justify-between items-center mt-3 px-3 py-2.5 bg-muted/50 rounded-md">
-                  <span className="text-sm font-semibold">Total</span>
-                  <span className="text-sm font-semibold tabular-nums">
+                <div className="flex justify-between items-center mt-3 px-4 py-3 bg-slate-900 text-white rounded-lg shadow-sm">
+                  <span className="text-sm font-semibold uppercase tracking-wide">Total</span>
+                  <span className="text-base font-bold tabular-nums">
                     {claimLines.length
                       ? REIMBURSEMENT_CURRENCIES.filter((c) => totals[c] != null)
                           .map(
@@ -661,7 +671,7 @@ export default function ReimbursementFormPage() {
               {/* Section E */}
               <section>
                 <SectionHeading letter="E" title="Required Documents" />
-                <p className="text-sm text-muted-foreground mb-3">
+                <p className="text-sm text-slate-600 mb-3">
                   PDF, JPG or PNG, up to 10MB each. A passport copy is always required, plus a
                   receipt for every expense you claim —{" "}
                   <strong>expenses without receipts cannot be processed.</strong>
@@ -672,19 +682,30 @@ export default function ReimbursementFormPage() {
                     const required = missingDocs.includes(dk.key);
                     const uploading = uploadingKind === dk.key;
                     return (
-                      <div key={dk.key} className="border rounded-md px-3 py-2.5">
+                      <div
+                        key={dk.key}
+                        className={`rounded-lg px-3.5 py-3 transition-colors ${
+                          docsOfKind.length > 0
+                            ? "border border-emerald-300 bg-emerald-50/50"
+                            : "border-[1.5px] border-dashed border-slate-300 hover:border-primary/50 hover:bg-slate-50/60"
+                        }`}
+                      >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-sm font-medium flex items-center gap-2">
+                          <span className="text-sm font-medium text-slate-800 flex items-center gap-2">
+                            {docsOfKind.length > 0 && (
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-white">
+                                <Check className="h-3 w-3" />
+                              </span>
+                            )}
                             {dk.label}
                             {required && (
-                              <span className="text-xs text-amber-600 font-normal">required</span>
-                            )}
-                            {docsOfKind.length > 0 && (
-                              <Check className="h-4 w-4 text-emerald-600" />
+                              <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-semibold">
+                                required
+                              </span>
                             )}
                           </span>
                           <label className="cursor-pointer">
-                            <span className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                            <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:border-primary/60 hover:text-primary transition-colors">
                               {uploading ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
@@ -710,7 +731,7 @@ export default function ReimbursementFormPage() {
                             {docsOfKind.map((doc) => (
                               <li
                                 key={doc.id}
-                                className="flex items-center justify-between text-sm text-muted-foreground"
+                                className="flex items-center justify-between text-sm text-slate-600"
                               >
                                 <span className="flex items-center gap-1.5 truncate">
                                   <FileText className="h-3.5 w-3.5 shrink-0" />
@@ -740,20 +761,27 @@ export default function ReimbursementFormPage() {
               {/* Section F */}
               <section>
                 <SectionHeading letter="F" title="Declaration & Signature" />
-                <div className="bg-muted/50 rounded-md p-4 text-sm text-muted-foreground mb-4">
+                <div className="rounded-lg border border-amber-200 bg-amber-50/70 border-l-4 border-l-amber-400 p-4 text-sm leading-relaxed text-slate-700 mb-4">
                   I confirm that the information provided above is accurate and complete. I
-                  understand that payment will be processed by bank wire transfer within 45 days
-                  of receipt of this completed form and all required supporting documents.
+                  understand that payment will be processed by bank wire transfer within{" "}
+                  <strong className="text-slate-900">45 days</strong> of receipt of this completed
+                  form and all required supporting documents.
                   {data.event.organizationName ? ` ${data.event.organizationName}` : " The organizer"}{" "}
                   is not responsible for bank charges or currency conversion fees.
                 </div>
-                <label className="flex items-start gap-2 cursor-pointer mb-4">
+                <label
+                  className={`flex items-start gap-2.5 cursor-pointer mb-5 rounded-lg border px-3.5 py-3 transition-colors ${
+                    declaration
+                      ? "border-primary/50 bg-primary/[0.04] ring-1 ring-primary/20"
+                      : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/60"
+                  }`}
+                >
                   <Checkbox
                     checked={declaration}
                     onCheckedChange={(v) => setDeclaration(Boolean(v))}
                     className="mt-0.5"
                   />
-                  <span className="text-sm">
+                  <span className="text-sm font-medium text-slate-800">
                     I agree to the declaration above. <span className="text-destructive">*</span>
                   </span>
                 </label>
@@ -777,7 +805,7 @@ export default function ReimbursementFormPage() {
 
               <div>
                 <Button
-                  className="w-full sm:w-auto"
+                  className="w-full h-12 text-base font-semibold btn-gradient shadow-lg shadow-primary/25 disabled:opacity-40 disabled:shadow-none"
                   size="lg"
                   disabled={submitting || !declaration}
                   onClick={() => void handleSubmit()}
@@ -785,14 +813,19 @@ export default function ReimbursementFormPage() {
                   {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   Submit reimbursement form
                 </Button>
+                {!declaration && (
+                  <p className="text-xs text-slate-500 mt-2 text-center">
+                    Tick the declaration above to enable submission.
+                  </p>
+                )}
                 {missingDocs.length > 0 && claimLines.length > 0 && (
-                  <p className="text-xs text-amber-600 mt-2">
+                  <p className="text-xs font-medium text-amber-700 mt-2 text-center">
                     Still required: {missingDocs.map((k) => documentKindLabel(k)).join(", ")}
                   </p>
                 )}
               </div>
 
-              <p className="text-xs text-muted-foreground border-t pt-4">
+              <p className="text-xs leading-relaxed text-slate-500 border-t border-slate-200 pt-5">
                 This form and the personal information provided will be processed
                 {data.event.organizationName ? ` by ${data.event.organizationName}` : ""} for
                 payment purposes only, in accordance with applicable data protection laws
@@ -800,6 +833,7 @@ export default function ReimbursementFormPage() {
               </p>
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>
@@ -808,11 +842,12 @@ export default function ReimbursementFormPage() {
 
 function SectionHeading({ letter, title }: { letter: string; title: string }) {
   return (
-    <h2 className="text-base font-semibold mb-4 flex items-center gap-2">
-      <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-primary/10 text-primary text-xs font-bold">
+    <h2 className="mb-5 flex items-center gap-3">
+      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-900 text-white text-[13px] font-bold shadow-sm">
         {letter}
       </span>
-      {title}
+      <span className="text-[15px] font-bold uppercase tracking-wide text-slate-900">{title}</span>
+      <span className="h-px flex-1 bg-gradient-to-r from-slate-300 to-transparent" aria-hidden />
     </h2>
   );
 }
@@ -830,11 +865,11 @@ function Field({
 }) {
   return (
     <div>
-      <Label className="mb-1.5 block">
+      <Label className="mb-1.5 block text-[13px] font-medium text-slate-700">
         {label} {required && <span className="text-destructive">*</span>}
       </Label>
       {children}
-      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
+      {error && <p className="text-xs font-medium text-destructive mt-1">{error}</p>}
     </div>
   );
 }
