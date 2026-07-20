@@ -22,7 +22,7 @@ import { readRegistrationBasePrice } from "@/lib/registration-financials";
  *    release can never commit without the replacement landing.
  */
 
-export type PromoServiceSource = "rest" | "registrant" | "mcp";
+export type PromoServiceSource = "rest" | "registrant" | "mcp" | "public";
 
 const OUTSTANDING_PAYMENT_STATUSES: ReadonlySet<PaymentStatus> = new Set([
   PaymentStatus.UNASSIGNED,

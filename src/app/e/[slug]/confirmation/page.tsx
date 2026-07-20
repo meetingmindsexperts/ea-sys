@@ -15,6 +15,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { sanitizeHtml } from "@/lib/sanitize";
 import { formatDateRange } from "@/lib/utils";
 import { toast } from "sonner";
@@ -61,6 +62,8 @@ function ConfirmationContent() {
   const [loadingPayment, setLoadingPayment] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [polling, setPolling] = useState(false);
+  const [promoInput, setPromoInput] = useState("");
+  const [promoBusy, setPromoBusy] = useState(false);
 
   // Fetch event branding
   useEffect(() => {
@@ -139,6 +142,58 @@ function ConfirmationContent() {
 
     return () => clearInterval(interval);
   }, [paymentParam, registrationId, paymentInfo?.paymentStatus, fetchPaymentStatus]);
+
+  // Apply / remove a promo code on this registration ("organizer emailed a
+  // code after registration"). Public endpoint — same slug+id trust class as
+  // the /document download; all promo rules enforced server-side by the
+  // shared promo-code-service. Totals refresh via payment-status refetch.
+  const handleApplyPromo = async () => {
+    const code = promoInput.trim();
+    if (!registrationId || !code) return;
+    setPromoBusy(true);
+    try {
+      const res = await fetch(`/api/public/events/${slug}/registrations/${registrationId}/promo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Couldn't apply that promo code");
+        return;
+      }
+      setPromoInput("");
+      toast.success(`Promo code ${data.code ?? code.toUpperCase()} applied`);
+      await fetchPaymentStatus();
+    } catch (err) {
+      console.error("[confirmation] Promo apply failed:", err);
+      toast.error("Something went wrong applying the code. Please try again.");
+    } finally {
+      setPromoBusy(false);
+    }
+  };
+
+  const handleRemovePromo = async () => {
+    if (!registrationId) return;
+    setPromoBusy(true);
+    try {
+      const res = await fetch(`/api/public/events/${slug}/registrations/${registrationId}/promo`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Couldn't remove the promo code");
+        return;
+      }
+      toast.success("Promo code removed");
+      await fetchPaymentStatus();
+    } catch (err) {
+      console.error("[confirmation] Promo remove failed:", err);
+      toast.error("Something went wrong removing the code. Please try again.");
+    } finally {
+      setPromoBusy(false);
+    }
+  };
 
   const handlePayNow = async () => {
     if (!registrationId) return;
@@ -378,6 +433,46 @@ function ConfirmationContent() {
                       {paymentInfo?.ticketName && (
                         <p className="text-xs text-slate-500 mb-3">{paymentInfo.ticketName}</p>
                       )}
+
+                      {/* Promo code — apply/remove before paying (mirrors the
+                          my-registration portal; the organizer may have emailed
+                          a code after registration) */}
+                      <div className="border-t border-slate-200 pt-3 mb-3">
+                        {promoCodeUsed ? (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-medium text-emerald-600">Promo code {promoCodeUsed} applied</span>
+                            <button
+                              type="button"
+                              className="text-slate-500 underline underline-offset-2 hover:text-slate-700 disabled:opacity-50"
+                              disabled={promoBusy}
+                              onClick={handleRemovePromo}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              placeholder="Have a promo code?"
+                              value={promoInput}
+                              onChange={(e) => setPromoInput(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleApplyPromo(); } }}
+                              disabled={promoBusy}
+                              className="h-9 bg-white uppercase placeholder:normal-case"
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-9 shrink-0"
+                              disabled={promoBusy || !promoInput.trim()}
+                              onClick={handleApplyPromo}
+                            >
+                              {promoBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Apply"}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
                       <div className="space-y-2">
                         <Button
                           onClick={handlePayNow}
@@ -398,6 +493,27 @@ function ConfirmationContent() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* A promo discounting to net 0 hides the payment box above, but
+                the registration is still outstanding (paymentStatus stays
+                UNPAID/PENDING) — keep the Remove control reachable so a
+                mistaken code can be undone (parity with /my-registration). */}
+            {paymentInfo && !loadingPayment && !hasPaidTicket && promoCodeUsed && !isPaid &&
+              paymentInfo.paymentStatus !== "INCLUSIVE" && paymentInfo.paymentStatus !== "REFUNDED" && (
+              <div className="mx-6 mb-5 bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center justify-between text-sm">
+                <span className="font-medium text-emerald-700">
+                  Promo code {promoCodeUsed} applied — nothing to pay
+                </span>
+                <button
+                  type="button"
+                  className="text-emerald-700 underline underline-offset-2 hover:text-emerald-900 disabled:opacity-50"
+                  disabled={promoBusy}
+                  onClick={handleRemovePromo}
+                >
+                  Remove
+                </button>
               </div>
             )}
 
