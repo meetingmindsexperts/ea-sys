@@ -130,6 +130,9 @@ export interface CancelledCreditState {
   needsCreditNote: boolean;
 }
 
+/** Payment states where money has actually been collected on the registration. */
+const COLLECTED_PAYMENT_STATUSES = new Set(["PAID", "REFUNDED"]);
+
 export function computeCancelledCreditState(input: {
   isCancelled: boolean;
   paymentStatus?: string | null;
@@ -139,7 +142,16 @@ export function computeCancelledCreditState(input: {
   /** Σ non-cancelled credit-note totals for this registration. */
   creditedAmount?: number;
 }): CancelledCreditState {
-  const paid = Math.max(0, Number(input.paidTotal) || 0);
+  // Only PAID/REFUNDED registrations have collected money. A cancelled reg
+  // that was UNPAID/PENDING/UNASSIGNED holds NOTHING — so it can never show a
+  // negative "credit owed" balance, no matter what paidTotal the caller
+  // passes. This is the guard for the detail route's `paidTotal` fallback
+  // (which substitutes the computed total when there are no settled Payment
+  // rows — correct only for a hand-flipped PAID reg, wrong for a Pending one
+  // that never paid). Without this a cancelled-but-unpaid reg rendered
+  // −$157.50 "credit owed" instead of Amount Due 0 (regression, July 20 2026).
+  const collected = COLLECTED_PAYMENT_STATUSES.has(input.paymentStatus ?? "");
+  const paid = collected ? Math.max(0, Number(input.paidTotal) || 0) : 0;
   const refunded = Math.max(0, Number(input.refundedAmount) || 0);
   const credited = Math.max(0, Number(input.creditedAmount) || 0);
   const retained = round2(Math.max(0, paid - refunded));

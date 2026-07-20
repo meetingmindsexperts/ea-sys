@@ -225,6 +225,32 @@ describe("computeCancelledCreditState", () => {
     expect(s.needsCreditNote).toBe(false);
   });
 
+  // Regression (July 20, 2026): a cancelled UNPAID/PENDING reg — nothing ever
+  // collected — must NOT show a negative "credit owed" balance. The detail
+  // route falls back paidTotal → the computed total when there are no settled
+  // Payment rows (correct only for a hand-flipped PAID reg); for a Pending reg
+  // that fallback wrongly produced retained = full total → −$157.50 on screen.
+  it("cancelled PENDING with a paidTotal fallback → zero retained, no prompt", () => {
+    const s = computeCancelledCreditState({
+      isCancelled: true,
+      paymentStatus: "PENDING",
+      paidTotal: 157.5, // the computed-total fallback, NOT real money
+    });
+    expect(s).toEqual({ retained: 0, uncredited: 0, needsCreditNote: false });
+  });
+
+  it("cancelled UNPAID / UNASSIGNED never shows retained money", () => {
+    for (const status of ["UNPAID", "UNASSIGNED", "COMPLIMENTARY", "INCLUSIVE"]) {
+      const s = computeCancelledCreditState({
+        isCancelled: true,
+        paymentStatus: status,
+        paidTotal: 500,
+      });
+      expect(s.retained).toBe(0);
+      expect(s.needsCreditNote).toBe(false);
+    }
+  });
+
   it("not cancelled → never prompts even with uncredited money", () => {
     const s = computeCancelledCreditState({
       isCancelled: false,
