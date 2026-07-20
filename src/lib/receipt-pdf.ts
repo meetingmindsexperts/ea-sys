@@ -95,7 +95,8 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       const fromCity = [data.companyCity, data.companyState, data.companyZipCode].filter(Boolean).join(", ");
       if (fromCity) { doc.text(fromCity, 50, y); y += 11; }
       if (data.companyCountry) { doc.text(data.companyCountry, 50, y); y += 11; }
-      if (data.taxId) { doc.text(`Tax ID: ${data.taxId}`, 50, y); y += 11; }
+      // "TRN:" to match the shared invoice/quote/credit-note header label.
+      if (data.taxId) { doc.text(`TRN: ${data.taxId}`, 50, y); y += 11; }
 
       // ── Received From (right) ──
       let rY = 105;
