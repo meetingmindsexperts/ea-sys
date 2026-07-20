@@ -89,7 +89,9 @@ export async function GET(req: Request) {
       "Expected close",
       "Won",
       "Lost",
-      "Lost reason",
+      // Lost reason is negotiation PROSE ("they wanted 300k, we held at 500k") —
+      // omitted for money-blind callers like the Value columns (review R2-M12).
+      ...(canSeeValues ? ["Lost reason"] : []),
       "Contacts",
       "Tasks",
       "Notes",
@@ -106,7 +108,7 @@ export async function GET(req: Request) {
       iso(d.expectedClose),
       iso(d.wonAt),
       iso(d.lostAt),
-      d.lostReason ?? "",
+      ...(canSeeValues ? [d.lostReason ?? ""] : []),
       d._count.contacts,
       d._count.tasks,
       d._count.notes,

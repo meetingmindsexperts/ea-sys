@@ -31,6 +31,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
+import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { resolveStage } from "./pipeline-service";
 
 /** Fields worth showing in the change log when a deal is edited. */
@@ -108,6 +109,7 @@ export type DealErrorCode =
   | "CONTACT_ALREADY_ON_DEAL"
   | "EVENT_NOT_FOUND"
   | "OWNER_NOT_FOUND"
+  | "OWNER_ROLE_NOT_ALLOWED"
   | "STAGE_CHANGED"
   | "ALREADY_CLOSED"
   | "NO_FIELDS"
@@ -148,12 +150,26 @@ async function validateRelations(
     );
   }
   if (rel.ownerId) {
-    // The owner must be a team member of THIS org. (Role is enforced at the
-    // route boundary via canOwnDeals(); here we enforce tenancy.)
+    // The owner must be a team member of THIS org AND a CRM-capable role
+    // (review R2-M5). The route gate (canOwnDeals) checks the CALLER; nothing
+    // used to check the ASSIGNEE — so a deal could be handed to an ONSITE desk
+    // temp or a MEMBER, and the reminders worker would email them the deal
+    // prose every CRM gate exists to withhold.
     checks.push(
       db.user
-        .findFirst({ where: { id: rel.ownerId, organizationId }, select: { id: true } })
-        .then((r) => (r ? null : ({ ok: false, code: "OWNER_NOT_FOUND", message: "Owner not found in this organization" } as Fail))),
+        .findFirst({ where: { id: rel.ownerId, organizationId }, select: { id: true, role: true } })
+        .then((r) => {
+          if (!r) return { ok: false, code: "OWNER_NOT_FOUND", message: "Owner not found in this organization" } as Fail;
+          if (!canOwnDeals(r.role)) {
+            return {
+              ok: false,
+              code: "OWNER_ROLE_NOT_ALLOWED",
+              message: "Deals can only be owned by CRM-capable roles (admin, organizer or sales)",
+              meta: { role: r.role },
+            } as Fail;
+          }
+          return null;
+        }),
     );
   }
 
@@ -286,17 +302,31 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     // from another tenant 404s here rather than being touched.
     const before = await db.crmDeal.findFirst({
       where: { id: input.dealId, organizationId: input.organizationId },
-      select: { name: true, dealValue: true, currency: true, expectedClose: true, companyId: true, eventId: true, ownerId: true },
+      select: { name: true, dealValue: true, currency: true, expectedClose: true, companyId: true, eventId: true, ownerId: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({ msg: "crm-deal:update-not-found", dealId: input.dealId, organizationId: input.organizationId });
       return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
     }
+    // An archived deal is FROZEN (R2-M1): the round-1 freeze covered stage
+    // moves/close but not field edits, so an archived deal's value/owner stayed
+    // editable from a stale tab or MCP — recording UPDATE rows after the ARCHIVE
+    // row and notifying owners of a record no list shows.
+    if (before.archivedAt) {
+      apiLogger.warn({ msg: "crm-deal:update-archived", dealId: input.dealId });
+      return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before editing it" };
+    }
 
-    await db.crmDeal.updateMany({
-      where: { id: input.dealId, organizationId: input.organizationId },
+    const res = await db.crmDeal.updateMany({
+      // archivedAt: null re-checked IN the write — the snapshot guard above has a
+      // race window against a concurrent archive.
+      where: { id: input.dealId, organizationId: input.organizationId, archivedAt: null },
       data,
     });
+    if (res.count === 0) {
+      apiLogger.warn({ msg: "crm-deal:update-archived-race", dealId: input.dealId });
+      return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before editing it" };
+    }
 
     const deal = await db.crmDeal.findUniqueOrThrow({ where: { id: input.dealId } });
 
@@ -675,16 +705,26 @@ export async function setDealArchived(input: {
       return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
     }
 
-    const alreadyInState = input.archived ? current.archivedAt !== null : current.archivedAt === null;
-    if (alreadyInState) {
-      // No-op — return the row unchanged, record nothing.
-      return { ok: true, deal: current };
-    }
-
-    const deal = await db.crmDeal.update({
-      where: { id: current.id },
+    // CONDITIONAL CLAIM (R2-M2): the transition only lands if the row is still in
+    // the state we're leaving. The old read-guard-write let two concurrent archives
+    // both pass the "already in state" check and both record ARCHIVE — a duplicate
+    // History row and a re-stamped archivedAt, exactly what the doc comment above
+    // promises can't happen. The loser (and an already-in-state call) is the
+    // idempotent no-op: return the row as it now is, record nothing.
+    const claim = await db.crmDeal.updateMany({
+      where: {
+        id: current.id,
+        organizationId: input.organizationId,
+        archivedAt: input.archived ? null : { not: null },
+      },
       data: { archivedAt: input.archived ? new Date() : null },
     });
+    if (claim.count === 0) {
+      const now = await db.crmDeal.findFirst({ where: { id: current.id } });
+      return { ok: true, deal: now ?? current };
+    }
+
+    const deal = await db.crmDeal.findUniqueOrThrow({ where: { id: current.id } });
 
     void recordCrmActivity({
       organizationId: input.organizationId,

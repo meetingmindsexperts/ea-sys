@@ -17,8 +17,44 @@
  * back to `value` (or adds a generic key to FINANCIAL_KEYS), the second test
  * fails and explains why.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { redactFinancialFields } from "@/lib/finance-visibility";
+
+vi.mock("@/lib/logger", () => ({
+  apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+// crm-route's auth import chain reaches next-auth, which doesn't load under
+// vitest — the gate itself is not under test here, only the redaction.
+vi.mock("@/lib/api-auth", () => ({ getOrgContext: vi.fn() }));
+import { redactForCaller } from "@/crm/lib/crm-route";
+
+/** A money-blind MEMBER context; redactForCaller only reads role + fromApiKey. */
+const MEMBER_CTX = { organizationId: "org-1", userId: "u-m", role: "MEMBER", fromApiKey: false } as never;
+const STAFF_CTX = { organizationId: "org-1", userId: "u-s", role: "ORGANIZER", fromApiKey: false } as never;
+
+describe("prose-key stripping for MEMBER (R2-M12)", () => {
+  it("strips task `description` and deal `lostReason` — free text that quotes the money the dealValue redaction hides", () => {
+    const payload = {
+      tasks: [{ id: "t-1", title: "Chase Abbott", description: "they countered at AED 480k" }],
+      deal: { id: "d-1", name: "Abbott — Gold", lostReason: "they wanted 300k, we held at 500k", status: "LOST" },
+    };
+    const out = redactForCaller(payload, MEMBER_CTX) as typeof payload;
+    expect(out.tasks[0]).not.toHaveProperty("description");
+    expect(out.deal).not.toHaveProperty("lostReason");
+    expect(out.tasks[0]!.title).toBe("Chase Abbott"); // titles stay
+  });
+
+  it("also covers History diff payloads — the diff keys ARE the field names", () => {
+    const activity = [{ action: "UPDATE", changes: { changes: { description: { from: "480k", to: "500k" } } } }];
+    const out = redactForCaller(activity, MEMBER_CTX) as typeof activity;
+    expect(out[0]!.changes.changes).not.toHaveProperty("description");
+  });
+
+  it("staff (and value-seers) get the prose untouched", () => {
+    const payload = { description: "AED 480k", lostReason: "300k" };
+    expect(redactForCaller(payload, STAFF_CTX)).toEqual(payload);
+  });
+});
 
 describe("CRM deal value redaction", () => {
   it("strips dealValue from a deal payload", () => {

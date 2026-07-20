@@ -87,7 +87,7 @@
 <div class="kpis">
   <div class="kpi"><b>0</b><span>BLOCKER</span></div>
   <div class="kpi"><b>2</b><span>HIGH — both fixed Jul 20</span></div>
-  <div class="kpi"><b>12</b><span>MEDIUM</span></div>
+  <div class="kpi"><b>12</b><span>MEDIUM — all fixed Jul 20</span></div>
   <div class="kpi"><b>~19</b><span>LOW / INFO</span></div>
   <div class="kpi"><b>20</b><span>doc-rot items</span></div>
   <div class="kpi"><b>All</b><span>round-1 fixes verified to HOLD</span></div>
@@ -181,10 +181,10 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
   this one was one join table away from the fixed ones.</div>
 </div>
 
-<h2>3. MEDIUM — correctness &amp; integrity (open)</h2>
+<h2>3. MEDIUM — correctness &amp; integrity <span class="tag done">ALL 12 FIXED Jul 20</span></h2>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> <b>×2</b> M1 — the archived-record freeze does not cover field edits, notes, or the event-contact link</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> <b>×2</b> M1 — the archived-record freeze does not cover field edits, notes, or the event-contact link</h4>
   <p>Round 1's M1 freeze (<code>archivedAt: null</code> in the claim) is real on
   <code>moveDealStage</code>, <code>closeDeal</code>, <code>completeTask</code>/<code>reopenTask</code>,
   <code>addDealContact</code>, <code>addDealProduct</code> and the reminder claim — but absent from
@@ -201,7 +201,7 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M2 — archive/restore itself is check-then-act</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M2 — archive/restore itself is check-then-act</h4>
   <p>All four <code>set*Archived</code> functions read → guard → unconditional <code>update</code>-by-id
   (deal-service.ts:670-687 and siblings). Two concurrent archives both pass the "already in state"
   guard, both write, both record ARCHIVE → duplicate History rows + a shifted archive timestamp;
@@ -212,7 +212,7 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M3 — last-terminal-stage guard can be raced into a pipeline with zero Won (or Lost) columns</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M3 — last-terminal-stage guard can be raced into a pipeline with zero Won (or Lost) columns</h4>
   <p><code>pipeline-service.ts:403-416</code> (delete) and :264-277 (outcome flip): the sibling count
   runs outside any transaction. Two admins concurrently deleting the org's two WON-mapped columns
   both see one sibling, both pass, both delete → every subsequent <code>closeDeal(WON)</code> and
@@ -222,7 +222,7 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M4 — import's company resolver doesn't handle the P2002 loser</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M4 — import's company resolver doesn't handle the P2002 loser</h4>
   <p><code>crm-import-service.ts</code> <code>makeCompanyResolver</code> prefetches once, then bare
   <code>create</code>s missing names — a company created concurrently (UI or a second import) turns
   the P2002 into a per-row error ("Another company already uses this name") and the contact/deal row
@@ -232,7 +232,7 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M5 — task/deal ownership is org-bound but not role-bound: the reminders worker emails CRM content to roles the CRM excludes</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M5 — task/deal ownership is org-bound but not role-bound: the reminders worker emails CRM content to roles the CRM excludes</h4>
   <p><code>task-service.ts:74-79</code> / <code>deal-service.ts:151-152</code>: <code>ownerId</code>
   validation is <code>{ id, organizationId }</code> only — the route gate checks the <i>caller</i>,
   nothing checks the <i>assignee</i>. Assign a follow-up to an <b>ONSITE</b> desk temp (org-bound,
@@ -245,7 +245,7 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M6 — deal re-import re-stamps wonAt/lostAt to <i>now</i> when the CSV has no Closed-date value</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M6 — deal re-import re-stamps wonAt/lostAt to <i>now</i> when the CSV has no Closed-date value</h4>
   <p><code>crm-import-service.ts:509-514</code>: <code>wonAt: row.closedDate ?? new Date()</code> also
   runs on the <b>update</b> path. An export without a Closed-date column re-imported monthly drifts
   every won deal's close date to the re-import date — "deals won in July" (the <code>dateField=closed</code>
@@ -254,14 +254,14 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M7 — an ARCHIVED catalog product can still be added to a deal</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M7 — an ARCHIVED catalog product can still be added to a deal</h4>
   <p><code>crm-product-service.ts:236</code>: the product lookup has no <code>archivedAt: null</code> —
   a discontinued product is addable at its stale list price from REST or a stale picker.
   <b>Fix:</b> filter the lookup (or a distinct <code>PRODUCT_ARCHIVED</code> code).</p>
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M8 — import dry-run ≠ write for intra-file identity collisions carrying distinct external ids</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M8 — import dry-run ≠ write for intra-file identity collisions carrying distinct external ids</h4>
   <p>In-file dedup keys on <code>externalId ?? nameKey</code>, so two rows with different externalIds
   but the same email/name both pass. Write run: row 1 creates, row 2 finds it → "1 created, 1 updated"
   (last row wins). Dry run: no write, row 2's lookup misses → "2 created". Breaks the file-header
@@ -271,7 +271,7 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M9 — MCP <code>get_crm_report</code> re-implements a thinner report</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M9 — MCP <code>get_crm_report</code> re-implements a thinner report</h4>
   <p><code>agent-tools.ts:490-520</code> composes its own groupBy shaping (importing only
   <code>foldMoney</code>) while REST is built on <code>summarizePipeline</code> /
   <code>computeWinLoss</code> / <code>sortReps</code>. The MCP report omits the open-value rollup, win
@@ -280,7 +280,7 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M10 — the "first non-terminal stage" default is duplicated in two callers, owned by neither</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M10 — the "first non-terminal stage" default is duplicated in two callers, owned by neither</h4>
   <p><code>agent-tools.ts:182</code> and <code>create-deal-dialog.tsx:60</code> carry the identical
   expression; REST requires <code>stageId</code> and has no server default. <b>Fix:</b> a
   <code>defaultOpenStage()</code> in pipeline-service (or default inside <code>createDeal</code>),
@@ -288,14 +288,14 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M11 — the one silent failure path in 31 routes</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M11 — the one silent failure path in 31 routes</h4>
   <p><code>deals/[dealId]/products/route.ts:20</code>: the inline null-check 404 bypasses the
   <code>crmErrorResponse</code> choke point and logs nothing — every sibling detail GET logs its
   not-found. One-line fix.</p>
 </div>
 
 <div class="finding">
-  <h4><span class="tag med">MED</span> M12 — <b>OWNER DECISION:</b> the prose gate covers notes only; task descriptions and <code>lostReason</code> reach MEMBER</h4>
+  <h4><span class="tag med">MED</span> <span class="tag done">FIXED Jul 20</span> M12 — <b>OWNER DECISION (implemented as recommended — reversible):</b> the prose gate covers notes only; task descriptions and <code>lostReason</code> reach MEMBER</h4>
   <p>The round-1 M2 rationale ("key-based redaction can't strip a number out of a sentence") applies
   equally to two channels MEMBER can read: <code>GET /api/crm/tasks?scope=all</code> returns every
   task's 5,000-char <code>description</code> (also surfaced in History diffs), and the deals
@@ -317,16 +317,16 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
     <tr><td>L2 <b>×2</b></td><td>Sponsor-email attachment allowlist bypassed by omitting <code>contentType</code> (<code>if (t &amp;&amp; …)</code>) — an .exe/.html can ride the branded sender. Trusted-staff population, caps hold.</td><td><code>sponsor-email-service.ts:251-260</code> — require/infer the type.</td></tr>
     <tr><td>L3</td><td>MCP list tools have filter drift vs their REST GETs (deals: no owner/date/value; tasks: no "all" status, no owner; companies: no needsReview/industry) — capability gaps undocumented in tool descriptions.</td><td><code>agent-tools.ts:121-147, 318-330, 373-387</code></td></tr>
     <tr><td>L4</td><td>Stale ESLint boundary exemption: <code>mcp-server-builder.ts</code> contains zero <code>@/crm</code> references (registration lives in <code>register-mcp-tools.ts</code>).</td><td><code>eslint.config.mjs:48</code> — remove the dead entry.</td></tr>
-    <tr><td>L5</td><td><code>sponsor-email-service</code> business rejections lack per-site warns (EVENT_NOT_FOUND, DEAL_NOT_FOUND, attachment validations); <code>TOO_MANY_ATTACHMENTS</code>/<code>ATTACHMENT_TOO_LARGE</code> missing from <code>STATUS_BY_CODE</code>.</td><td>adopt <code>crm-product-service</code>'s <code>reject()</code> helper.</td></tr>
-    <tr><td>L6</td><td><code>crm-contact-service</code> <code>assertCompany</code> failures unlogged at site.</td><td><code>crm-contact-service.ts:120, 223</code></td></tr>
+    <tr><td>L5 <span class="tag done">FIXED</span></td><td><code>sponsor-email-service</code> business rejections lack per-site warns (EVENT_NOT_FOUND, DEAL_NOT_FOUND, attachment validations); <code>TOO_MANY_ATTACHMENTS</code>/<code>ATTACHMENT_TOO_LARGE</code> missing from <code>STATUS_BY_CODE</code>.</td><td>adopt <code>crm-product-service</code>'s <code>reject()</code> helper.</td></tr>
+    <tr><td>L6 <span class="tag done">FIXED</span></td><td><code>crm-contact-service</code> <code>assertCompany</code> failures unlogged at site.</td><td><code>crm-contact-service.ts:120, 223</code></td></tr>
     <tr><td>L7</td><td>Four mutations lack <code>onError</code> (create/update/close deal, send email) — safe today (all callers try/catch <code>mutateAsync</code>), a future <code>.mutate()</code> caller fails silently.</td><td><code>use-crm-api.ts:147,160,222,856</code></td></tr>
     <tr><td>L8</td><td>Find-or-create silently reuses ARCHIVED companies/contacts — a deal links to a row hidden from every list. Decide: reuse-and-restore vs reuse-and-say-so vs refuse.</td><td><code>company-service.ts:122-124</code>, <code>crm-contact-service.ts:123-125</code></td></tr>
     <tr><td>L9</td><td>PATCH mixing <code>archived</code> (or task <code>status</code>) with other fields silently drops the other fields, 200 OK.</td><td><code>deals/[dealId]/route.ts:87-103</code>, <code>tasks/[taskId]/route.ts:29-58</code> — 400 on mixed payloads.</td></tr>
     <tr><td>L10</td><td>A stage occupied only by ARCHIVED deals can't be deleted, and the error blames "N deals" that are invisible on the board (and unmovable — <code>moveDealStage</code> refuses archived).</td><td><code>pipeline-service.ts:389-397</code></td></tr>
     <tr><td>L11</td><td>Unmapped-terminal-column divergence pocket: a WON deal dragged out of one is silently reopened (wonAt cleared, no REOPENED trail); the reconcile script can strand WON deals in an open column with no clean repair path. Requires a hand-built unmapped terminal column.</td><td><code>deal-service.ts:392-399</code>, <code>scripts/reconcile-crm-pipeline.ts</code></td></tr>
-    <tr><td>L12</td><td>"A due date arms the reminder" is client-side only — the UI and MCP each copy <code>remindAt = dueAt</code>; a raw API-key create with only <code>dueAt</code> never reminds, silently.</td><td>default <code>remindAt ?? dueAt</code> inside <code>createTask</code> (one place, not three).</td></tr>
+    <tr><td>L12 <span class="tag done">FIXED</span></td><td>"A due date arms the reminder" is client-side only — the UI and MCP each copy <code>remindAt = dueAt</code>; a raw API-key create with only <code>dueAt</code> never reminds, silently.</td><td>default <code>remindAt ?? dueAt</code> inside <code>createTask</code> (one place, not three).</td></tr>
     <tr><td>L13</td><td>Reminder worker read-then-claim window can email/nudge a just-reassigned task's <i>previous</i> owner (claim doesn't re-check <code>ownerId</code>). 5-min-tick micro-race.</td><td><code>reminders-worker.ts:42-103</code></td></tr>
-    <tr><td>L14</td><td>Deals import on a degenerate all-terminal pipeline seats OPEN deals in a terminal column (<code>?? stages[0]</code> fallback) — the divergence the importer elsewhere refuses.</td><td><code>crm-import-service.ts:419</code> — refuse when no open stage.</td></tr>
+    <tr><td>L14 <span class="tag done">FIXED</span></td><td>Deals import on a degenerate all-terminal pipeline seats OPEN deals in a terminal column (<code>?? stages[0]</code> fallback) — the divergence the importer elsewhere refuses.</td><td><code>crm-import-service.ts:419</code> — refuse when no open stage.</td></tr>
     <tr><td>L15</td><td><span class="why">[PLAUSIBLE]</span> Two <i>concurrent</i> identical re-assign PATCHes double-notify the new owner (each request's own before-snapshot). Serial retries are safe. Cosmetic.</td><td><code>deal-service.ts:320-330</code>, <code>task-service.ts:245-255</code></td></tr>
     <tr><td>L16</td><td>Sponsor-blast dedup is in-memory per-container (2-min content-hash window) — a container restart / blue-green swap mid-window clears it, and there's no per-recipient EmailLog resume. Documented, tolerable at 10/hr + small audiences; weaker than the event pipeline's <code>emailedKeys</code>.</td><td><code>sponsor-email/send/route.ts:83-113</code></td></tr>
     <tr><td>L17</td><td>Dead export <code>CrmReportStatus</code> — zero references.</td><td><code>reports.ts:12</code></td></tr>
@@ -379,13 +379,13 @@ dashboard pages, the Prisma CRM block + all 10 migrations, both scripts, and the
 <h2>7. Open questions for the owner</h2>
 <ul>
   <li><b>Prod state:</b> does the prod DB already have the <code>Crm*</code> tables? Project memory says yes; the status board says "NOT DEPLOYED / 0 rows". Verify (<code>\dt "Crm*"</code> against prod) and correct the board — it changes the risk framing of the deploy step.</li>
-  <li><b>M12 (MEMBER prose):</b> should task <code>description</code> + deal <code>lostReason</code> be prose-gated like notes, or is MEMBER reading them an accepted posture? Today it's drift, not a decision.</li>
-  <li><b>M5 (assignee roles):</b> confirm that only CRM-capable roles may own deals/tasks (recommended) — it closes the reminder-email side channel structurally.</li>
+  <li><b>M12 (MEMBER prose) — IMPLEMENTED Jul 20 as the recommended option:</b> task <code>description</code> + deal <code>lostReason</code> are now prose-gated like notes (stripped from JSON + History diffs via <code>PROSE_KEYS</code>; the Lost-reason CSV column is value-gated). If you'd rather MEMBER read them, it's a two-line revert in <code>crm-route.ts</code> + the export route.</li>
+  <li><b>M5 (assignee roles) — IMPLEMENTED Jul 20 as recommended:</b> deal/task owners must now be a CRM-capable role (<code>OWNER_ROLE_NOT_ALLOWED</code> otherwise; the Freshsales owner-email match filters the same way). Closes the reminder-email side channel structurally.</li>
 </ul>
 
 <p class="stamp" style="margin-top:3rem">
   Round 2 of the CRM production review · July 20, 2026 · H1 + H2 fixed same-day (commit-linked in git);
-  M1–M12 and the LOWs tracked in <a href="ROADMAP.md">ROADMAP.md</a> §"CRM review ROUND 2" pending the owner's pick.
+  M1–M12 + log riders L5/L6/L12/L14 fixed Jul 20 (same-day batch); the remaining LOWs are tracked in <a href="ROADMAP.md">ROADMAP.md</a> §"CRM review ROUND 2".
 </p>
 
 </div>

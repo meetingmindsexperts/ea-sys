@@ -186,7 +186,7 @@ describe("deal triggers", () => {
 
   it("createDeal for someone else → DEAL_ASSIGNED to the owner", async () => {
     mockStages({ "s-neg": stageRow() });
-    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-owner" } as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-owner", role: "CRM_USER" } as never);
     vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-1" } as never);
     vi.mocked(db.crmDeal.create).mockResolvedValue({
       id: "d-1",
@@ -207,7 +207,7 @@ describe("deal triggers", () => {
 
   it("createDeal owned by the creator themselves → NO notification", async () => {
     mockStages({ "s-neg": stageRow() });
-    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-actor" } as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-actor", role: "CRM_USER" } as never);
     vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-1" } as never);
     vi.mocked(db.crmDeal.create).mockResolvedValue({
       id: "d-1",
@@ -222,7 +222,7 @@ describe("deal triggers", () => {
   });
 
   it("updateDeal re-assignment → DEAL_ASSIGNED to the NEW owner only", async () => {
-    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-new" } as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-new", role: "CRM_USER" } as never);
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
       name: "Abbott — Gold",
       dealValue: null,
@@ -241,7 +241,7 @@ describe("deal triggers", () => {
   });
 
   it("updateDeal re-sending the UNCHANGED ownerId does not re-nag", async () => {
-    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-old" } as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-old", role: "CRM_USER" } as never);
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
       name: "Abbott — Gold",
       dealValue: null,
@@ -343,7 +343,7 @@ describe("task triggers", () => {
   const base = { organizationId: ORG, userId: "u-actor", source: "rest" as const };
 
   it("createTask assigned to someone else → TASK_ASSIGNED", async () => {
-    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-owner" } as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-owner", role: "CRM_USER" } as never);
     vi.mocked(db.crmTask.create).mockResolvedValue({
       id: "t-1",
       title: "Chase Abbott",
@@ -361,7 +361,7 @@ describe("task triggers", () => {
   });
 
   it("createTask defaulted to the creator (the route's self-assign) → NO notification", async () => {
-    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-actor" } as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-actor", role: "CRM_USER" } as never);
     vi.mocked(db.crmTask.create).mockResolvedValue({
       id: "t-1",
       title: "Chase Abbott",
@@ -375,7 +375,7 @@ describe("task triggers", () => {
   });
 
   it("updateTask re-assignment → TASK_ASSIGNED to the new owner", async () => {
-    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-new" } as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-new", role: "CRM_USER" } as never);
     vi.mocked(db.crmTask.findFirst).mockResolvedValue({
       title: "Chase Abbott",
       description: null,
@@ -392,7 +392,7 @@ describe("task triggers", () => {
   });
 
   it("updateTask with the unchanged owner → NO notification", async () => {
-    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-old" } as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-old", role: "CRM_USER" } as never);
     vi.mocked(db.crmTask.findFirst).mockResolvedValue({
       title: "Chase Abbott",
       description: null,

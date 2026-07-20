@@ -65,6 +65,7 @@ export type CrmContactErrorCode =
   | "NAME_REQUIRED"
   | "EMAIL_REQUIRED"
   | "CONTACT_NOT_FOUND"
+  | "CONTACT_ARCHIVED"
   | "COMPANY_NOT_FOUND"
   | "EVENT_CONTACT_NOT_FOUND"
   | "NO_FIELDS"
@@ -88,7 +89,14 @@ async function assertCompany(organizationId: string, companyId?: string | null):
     where: { id: companyId, organizationId },
     select: { id: true },
   });
-  return c ? null : { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
+  if (!c) {
+    // Per-site log (R2 rider L6) — the deal/task/note peers all warn on a bad
+    // relation; this was the one silent path (the boundary still logged, but
+    // without the ids that make it diagnosable).
+    apiLogger.warn({ msg: "crm-contact:bad-company-relation", organizationId, companyId });
+    return { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
+  }
+  return null;
 }
 
 // ── Create (find-or-create) ──────────────────────────────────────────────────
@@ -225,7 +233,7 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
   try {
     const before = await db.crmContact.findFirst({
       where: { id: input.crmContactId, organizationId: input.organizationId },
-      select: { firstName: true, lastName: true, email: true, jobTitle: true, phone: true, country: true, notes: true, lifecycleStage: true, companyId: true },
+      select: { firstName: true, lastName: true, email: true, jobTitle: true, phone: true, country: true, notes: true, lifecycleStage: true, companyId: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({
@@ -235,11 +243,21 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
       });
       return { ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" };
     }
+    // An archived contact is FROZEN (R2-M1) — restore before editing.
+    if (before.archivedAt) {
+      apiLogger.warn({ msg: "crm-contact:update-archived", crmContactId: input.crmContactId });
+      return { ok: false, code: "CONTACT_ARCHIVED", message: "This contact was archived — restore it before editing it" };
+    }
 
-    await db.crmContact.updateMany({
-      where: { id: input.crmContactId, organizationId: input.organizationId },
+    const res = await db.crmContact.updateMany({
+      // archivedAt re-checked IN the write — the snapshot guard has a race window.
+      where: { id: input.crmContactId, organizationId: input.organizationId, archivedAt: null },
       data,
     });
+    if (res.count === 0) {
+      apiLogger.warn({ msg: "crm-contact:update-archived-race", crmContactId: input.crmContactId });
+      return { ok: false, code: "CONTACT_ARCHIVED", message: "This contact was archived — restore it before editing it" };
+    }
 
     const crmContact = await db.crmContact.findUniqueOrThrow({ where: { id: input.crmContactId } });
 
@@ -320,10 +338,20 @@ export async function linkToEventContact(input: {
     }
 
     const res = await db.crmContact.updateMany({
-      where: { id: input.crmContactId, organizationId: input.organizationId },
+      // archivedAt: null — an archived contact is frozen, links included (R2-M1).
+      where: { id: input.crmContactId, organizationId: input.organizationId, archivedAt: null },
       data: { contactId: input.contactId },
     });
     if (res.count === 0) {
+      const current = await db.crmContact.findFirst({
+        where: { id: input.crmContactId, organizationId: input.organizationId },
+        select: { archivedAt: true },
+      });
+      if (current?.archivedAt) {
+        apiLogger.warn({ msg: "crm-contact:link-archived", crmContactId: input.crmContactId });
+        return { ok: false, code: "CONTACT_ARCHIVED", message: "This contact was archived — restore it before linking it" };
+      }
+      apiLogger.warn({ msg: "crm-contact:link-not-found", crmContactId: input.crmContactId, organizationId: input.organizationId });
       return { ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" };
     }
 
@@ -377,13 +405,22 @@ export async function setCrmContactArchived(input: {
       return { ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" };
     }
 
-    const alreadyInState = input.archived ? current.archivedAt !== null : current.archivedAt === null;
-    if (alreadyInState) return { ok: true, crmContact: current };
-
-    const crmContact = await db.crmContact.update({
-      where: { id: current.id },
+    // Conditional claim (R2-M2) — see setDealArchived: the loser of two
+    // concurrent archives (or an already-in-state call) is the idempotent no-op.
+    const claim = await db.crmContact.updateMany({
+      where: {
+        id: current.id,
+        organizationId: input.organizationId,
+        archivedAt: input.archived ? null : { not: null },
+      },
       data: { archivedAt: input.archived ? new Date() : null },
     });
+    if (claim.count === 0) {
+      const now = await db.crmContact.findFirst({ where: { id: current.id } });
+      return { ok: true, crmContact: now ?? current };
+    }
+
+    const crmContact = await db.crmContact.findUniqueOrThrow({ where: { id: current.id } });
 
     void recordCrmActivity({
       organizationId: input.organizationId,

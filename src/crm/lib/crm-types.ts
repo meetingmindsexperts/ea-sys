@@ -24,6 +24,18 @@ export interface CrmStage {
   terminalOutcome?: "WON" | "LOST" | null;
 }
 
+/**
+ * Where a NEW deal lands when the caller didn't pick a stage: the first open
+ * (non-terminal) column, falling back to the first column at all. ONE home for
+ * the rule (review R2-M10) — the create dialog and the MCP create tool used to
+ * carry their own identical copies, owned by neither. The deals IMPORTER does
+ * NOT use this: it refuses a pipeline with no open column instead of falling
+ * back into a terminal one (R2 rider L14).
+ */
+export function defaultOpenStage<T extends { isTerminal: boolean }>(stages: T[]): T | null {
+  return stages.find((s) => !s.isTerminal) ?? stages[0] ?? null;
+}
+
 export interface CrmPersonRef {
   id: string;
   firstName: string;

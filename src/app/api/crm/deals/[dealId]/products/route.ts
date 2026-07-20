@@ -17,7 +17,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ dealId: 
   if (error) return error;
   try {
     const lines = await listDealProducts(dealId, ctx.organizationId);
-    if (lines === null) return NextResponse.json({ error: "Deal not found" }, { status: 404 });
+    if (lines === null) {
+      // R2-M11: this inline null-check bypasses the crmErrorResponse choke point,
+      // so it must log its own not-found — it was the ONE silent failure path in
+      // the 31 CRM routes.
+      apiLogger.warn({ msg: "crm/deal-products:deal-not-found", dealId, organizationId: ctx.organizationId });
+      return NextResponse.json({ error: "Deal not found" }, { status: 404 });
+    }
     return NextResponse.json({ lines: redactForCaller(lines, ctx) });
   } catch (err) {
     apiLogger.error({ msg: "crm/deal-products:list-failed", dealId, err: err instanceof Error ? err.message : String(err) });

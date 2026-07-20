@@ -25,6 +25,7 @@ export type CrmProductErrorCode =
   | "NAME_REQUIRED"
   | "CATEGORY_REQUIRED"
   | "PRODUCT_NOT_FOUND"
+  | "PRODUCT_ARCHIVED"
   | "DEAL_NOT_FOUND"
   | "DEAL_ARCHIVED"
   | "PRODUCT_ALREADY_ON_DEAL"
@@ -238,6 +239,9 @@ export async function addDealProduct(input: {
   if (!deal) return reject("DEAL_NOT_FOUND", "Deal not found", { organizationId: input.organizationId, dealId: input.dealId });
   if (deal.archivedAt) return reject("DEAL_ARCHIVED", "This deal was archived — restore it before adding products", { organizationId: input.organizationId, dealId: input.dealId });
   if (!product) return reject("PRODUCT_NOT_FOUND", "Product not found", { organizationId: input.organizationId, crmProductId: input.crmProductId });
+  // R2-M7: an archived catalog product is discontinued — it must not be addable
+  // (at its stale list price) via a raw id or a stale picker.
+  if (product.archivedAt) return reject("PRODUCT_ARCHIVED", "That product is archived — restore it in the catalog before adding it to a deal", { organizationId: input.organizationId, crmProductId: input.crmProductId });
 
   const existing = await db.crmDealProduct.findFirst({ where: { dealId: input.dealId, crmProductId: input.crmProductId }, select: { id: true } });
   if (existing) return reject("PRODUCT_ALREADY_ON_DEAL", "That product is already on this deal — edit its quantity instead", { organizationId: input.organizationId, dealId: input.dealId, crmProductId: input.crmProductId });
@@ -287,8 +291,10 @@ export async function updateDealProduct(input: {
   unitPrice?: number;
   quantity?: number;
 }): Promise<{ ok: true; line: CrmDealProduct } | Fail> {
-  const deal = await db.crmDeal.findFirst({ where: { id: input.dealId, organizationId: input.organizationId }, select: { id: true } });
+  const deal = await db.crmDeal.findFirst({ where: { id: input.dealId, organizationId: input.organizationId }, select: { id: true, archivedAt: true } });
   if (!deal) return reject("DEAL_NOT_FOUND", "Deal not found", { organizationId: input.organizationId, dealId: input.dealId });
+  // R2-M1: an archived deal is frozen — line items included.
+  if (deal.archivedAt) return reject("DEAL_ARCHIVED", "This deal was archived — restore it before editing its products", { organizationId: input.organizationId, dealId: input.dealId });
 
   const data: Prisma.CrmDealProductUpdateManyMutationInput = {};
   if (input.unitPrice !== undefined) data.unitPrice = new Prisma.Decimal(input.unitPrice);
@@ -312,8 +318,10 @@ export async function removeDealProduct(input: {
   organizationId: string;
   userId: string | null;
 }): Promise<{ ok: true } | Fail> {
-  const deal = await db.crmDeal.findFirst({ where: { id: input.dealId, organizationId: input.organizationId }, select: { id: true } });
+  const deal = await db.crmDeal.findFirst({ where: { id: input.dealId, organizationId: input.organizationId }, select: { id: true, archivedAt: true } });
   if (!deal) return reject("DEAL_NOT_FOUND", "Deal not found", { organizationId: input.organizationId, dealId: input.dealId });
+  // R2-M1: an archived deal is frozen — line items included.
+  if (deal.archivedAt) return reject("DEAL_ARCHIVED", "This deal was archived — restore it before editing its products", { organizationId: input.organizationId, dealId: input.dealId });
 
   try {
     const line = await db.crmDealProduct.findFirst({ where: { id: input.lineId, dealId: input.dealId } });

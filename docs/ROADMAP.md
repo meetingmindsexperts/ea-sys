@@ -255,6 +255,52 @@ MEDs and 9 LOWs shipped same-day across 4 gated commits (`adc14bf9`, `9bb318a1`,
   (excluded by the reminder query's `ownerId: { not: null }` predicate; only the UI "Unassigned"
   surfacing mitigates). Add a periodic warn for owner-less due tasks.
 
+### CRM review ROUND 2 (July 20, 2026) — 2 HIGHs + all 12 MEDs + 4 log/LOW riders shipped, rest deferred
+
+Second whole-module adversarial pass ahead of the deploy decision (same 4 lenses; round-1 fixes all
+verified to HOLD). **0 BLOCKER / 2 HIGH / 12 MED / ~19 LOW-INFO / 20 doc-rot items.** Full report at
+[docs/CODE_REVIEW_CRM_R2.html](CODE_REVIEW_CRM_R2.html) (browseable at `/admin/docs`). Shipped
+same-day in two batches: the HIGHs (`a918b1b5` — Freshsales enrich-forever + the CrmDealProduct
+unique, migration `20260720120000`) and the full MED batch + riders L5/L6/L12/L14 (archived-freeze on
+field edits/notes/line-items, conditional-claim archive/restore, FOR-UPDATE last-terminal-stage guard,
+importer P2002-loser reuse + close-date preservation + dual-key in-file dedup + no-open-stage refuse,
+assignee role-binding incl. the CSV owner map, archived-product block, shared report-service for
+REST+MCP, `defaultOpenStage` helper, the one silent 404 + sponsor-email per-site logs, and the
+MEMBER prose gate over task `description` + deal `lostReason` incl. the CSV column). pkg 0.4.21→0.4.22
+(MCP behavior changed — clients reconnect). Deferred here:
+
+- **L1 — gate-drift test is file-granular, not handler-granular** (+ its ≥9-handler floor is stale vs
+  ~50): a future second handler in an already-gated file passes un-gated. Slice per exported function.
+- **L2 — sponsor-email attachment allowlist bypassed by omitting `contentType`** (`if (t && …)`):
+  require or infer the type (filename extension / magic bytes). Trusted-staff senders, caps hold → LOW.
+- **L3 — MCP list tools filter drift vs REST** (deals: owner/date/value; tasks: "all" status + owner;
+  companies: needsReview/industry) — close the gaps or document them in the tool descriptions.
+- **L4 — dead ESLint boundary exemption** for `mcp-server-builder.ts` (zero `@/crm` references).
+- **L7 — 4 mutations lack `onError`** (`useCreateDeal`/`useUpdateDeal`/`useCloseDeal`/`useSendCrmEmail`)
+  — safe today (all callers try/catch `mutateAsync`); a future `.mutate()` caller fails silently.
+- **L8 — find-or-create reuses ARCHIVED companies/contacts silently** (same as R1-L3; owner call:
+  reuse-and-restore vs reuse-and-say-so vs refuse).
+- **L9 — PATCH mixing `archived` with other fields silently drops the fields** (same as R1-L10).
+- **L10 — a stage occupied only by ARCHIVED deals can't be deleted** and the error blames invisible
+  deals; either auto-relocate archived deals or name the archived count.
+- **L11 — unmapped-terminal-column divergence pocket**: a WON deal dragged out of one is reopened with
+  no REOPENED trail entry; the reconcile script can strand WON deals in an open column.
+- **L13 — reminders worker read-then-claim window** can email a just-reassigned task's previous owner
+  (claim doesn't re-check `ownerId`). 5-min-tick micro-race.
+- **L15 — two CONCURRENT identical re-assign PATCHes double-notify** the new owner (cosmetic).
+- **L16 — sponsor-blast dedup is in-memory per-container** (documented posture; weaker than the event
+  pipeline's `emailedKeys` resume — revisit if blast sizes grow).
+- **L17 — dead export `CrmReportStatus`** in `reports.ts`.
+- **L18 — `stripProseKeys` also eats `_count.notes` for MEMBER** (a number, not prose; note before
+  "fixing the count" so the prose strip isn't removed wholesale).
+- **L19/INFO — SUPER_ADMIN `x-org-id` override in `getOrgContext` is unvalidated** (core-wide, the
+  CRM's only cross-tenant door; single-org moot — belongs in MULTI_TENANCY_IMPACT.md).
+- **Doc-rot batch (20 items)** — CRM_STATUS.html §1/§2/§5 (MCP "NOT BUILT", "review NOT DONE", three
+  inconsistent API counts, stale stage list, "name-bound close", model/enum counts, the
+  "0 rows in prod" claim vs project memory — **owner to verify against prod**), src/crm/README.md §3.1/§5/§6,
+  CRM_MODULE_PLAN.md header, the `CrmLifecycleStage` schema comment, MCP_REFERENCE.md (13 CRM tools
+  missing), and CLAUDE.md's CRM_STATUS description. Fix as one docs commit.
+
 ### CRM products (catalog + deal line items) review (July 15, 2026) — H1 shipped, M/L deferred
 
 Adversarial review of the new CRM product-catalog + deal-line-items feature: **0 BLOCKER / 1 HIGH /

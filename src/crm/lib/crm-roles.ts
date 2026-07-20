@@ -42,8 +42,15 @@ const CRM_READ_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "
 /**
  * Roles that may OWN a deal / write / see money. Includes CRM_USER (the sales
  * team — they work the pipeline and see deal values) but NOT MEMBER (read-only).
+ *
+ * Exported as an ARRAY too (review R2-M5): the services bind a deal/task
+ * ASSIGNEE to this set (`role: { in: CRM_OWNER_ROLES }`), because ownership was
+ * previously org-bound but not role-bound — a follow-up could be assigned to an
+ * ONSITE desk temp or a MEMBER, and the reminders worker would then email them
+ * the deal prose every CRM gate exists to withhold.
  */
-const CRM_STAFF_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "CRM_USER"]);
+export const CRM_OWNER_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "CRM_USER"] as const;
+const CRM_STAFF_ROLES = new Set<string>(CRM_OWNER_ROLES);
 
 /**
  * Roles that may ARCHIVE (soft-delete) or RESTORE a CRM record.

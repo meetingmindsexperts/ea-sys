@@ -20,8 +20,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
-import { foldMoney } from "@/crm/lib/reports";
+import { defaultOpenStage } from "@/crm/lib/crm-types";
 import { ensurePipelineStages } from "@/crm/services/pipeline-service";
+import { buildCrmReport } from "@/crm/services/report-service";
 import {
   createDeal,
   updateDeal,
@@ -177,9 +178,11 @@ export function registerCrmMcpTools(
     async (input) =>
       safeTool("create_crm_deal", async () => {
         const stages = await ensurePipelineStages(organizationId);
+        // Shared default (R2-M10): the create dialog and this tool used to carry
+        // identical inline copies of "first open column, else the first at all".
         const stageRow = input.stage
           ? await resolveStageFlexible(organizationId, input.stage)
-          : stages.find((s) => !s.isTerminal) ?? stages[0];
+          : defaultOpenStage(stages);
         if (!stageRow) fail(`Unknown stage "${input.stage}" — call list_crm_pipeline for the stage list`);
 
         let companyId: string | null = null;
@@ -489,33 +492,45 @@ export function registerCrmMcpTools(
 
   server.tool(
     "get_crm_report",
-    "Pipeline summary: per-stage deal counts + values, and won/lost totals. Optional eventId filter. Money is currency-aware — a bucket mixing currencies reports 'mixed' rather than a fake sum.",
+    "Pipeline report: per-stage deal counts + values, open-pipeline rollup, won/lost totals with win rate, and a per-rep leaderboard. Optional eventId filter. Money is currency-aware — a bucket mixing currencies reports 'mixed' rather than a fake sum.",
     { eventId: z.string().optional() },
     async ({ eventId }) =>
       safeTool("get_crm_report", async () => {
-        const where = buildDealWhere({ eventId: eventId ?? null }, { organizationId, canSeeValues: true });
-        const [stages, byStage, byStatus] = await Promise.all([
-          ensurePipelineStages(organizationId),
-          db.crmDeal.groupBy({ by: ["stageId", "currency"], where, _count: { _all: true }, _sum: { dealValue: true } }),
-          db.crmDeal.groupBy({ by: ["status", "currency"], where, _count: { _all: true }, _sum: { dealValue: true } }),
-        ]);
-
-        const fmt = (rows: Array<{ currency: string; _count: { _all: number }; _sum: { dealValue: unknown } }>) => {
-          const count = rows.reduce((a, r) => a + r._count._all, 0);
-          const m = foldMoney(rows.map((r) => ({ currency: r.currency, amount: Number(r._sum.dealValue ?? 0) })));
-          return `${count} deal(s) — ${m.mixed ? "mixed currencies" : m.currency ? money(m.amount, m.currency) : "no value"}`;
-        };
-
-        const stageLines = stages.map((s) => {
-          const rows = byStage.filter((r) => r.stageId === s.id);
-          return `  ${s.name}: ${fmt(rows)}`;
-        });
-        const statusLines = (["OPEN", "WON", "LOST"] as const).map((st) => {
-          const rows = byStatus.filter((r) => r.status === st);
-          return `  ${st}: ${fmt(rows)}`;
+        // ONE report implementation (R2-M9): this tool used to compose its own
+        // thinner groupBy shaping, which had already drifted from the REST
+        // report (no open rollup, no win rate, no leaderboard). Both callers
+        // now consume report-service. MCP callers are admin-equivalent, so
+        // values are visible.
+        await ensurePipelineStages(organizationId);
+        const { pipeline, winLoss, reps } = await buildCrmReport({
+          organizationId,
+          canSeeValues: true,
+          filters: { eventId: eventId ?? null },
         });
 
-        return `Pipeline${eventId ? " (filtered to one event)" : ""}:\n${stageLines.join("\n")}\n\nBy status:\n${statusLines.join("\n")}`;
+        const bucket = (b: { count: number; value: number | null; currency: string | null; mixed: boolean }) =>
+          `${b.count} deal(s) — ${b.mixed ? "mixed currencies" : b.currency ? money(b.value, b.currency) : "no value"}`;
+
+        const stageLines = pipeline.stages.map((s) => `  ${s.stageName}: ${bucket(s)}`);
+        const openLine = pipeline.openMixed
+          ? "mixed currencies"
+          : pipeline.openCurrency
+            ? money(pipeline.openValue, pipeline.openCurrency)
+            : "no value";
+        const wl = `  WON: ${bucket({ count: winLoss.wonCount, value: winLoss.wonValue, currency: winLoss.wonCurrency ?? null, mixed: winLoss.wonMixed ?? false })}\n  LOST: ${bucket({ count: winLoss.lostCount, value: winLoss.lostValue, currency: winLoss.lostCurrency ?? null, mixed: winLoss.lostMixed ?? false })}\n  Win rate: ${winLoss.winRate === null ? "— (nothing closed yet)" : `${winLoss.winRate}%`}`;
+        const repLines = reps
+          .slice(0, 5)
+          .map(
+            (r) =>
+              `  ${r.ownerName}: ${r.wonCount} won${r.wonCurrency && !r.wonMixed ? ` (${money(r.wonValue, r.wonCurrency)})` : ""}, ${r.openCount} open`,
+          );
+
+        return (
+          `Pipeline${eventId ? " (filtered to one event)" : ""}:\n${stageLines.join("\n")}\n` +
+          `Open pipeline: ${pipeline.openCount} deal(s) — ${openLine}\n\n` +
+          `Closed:\n${wl}` +
+          (repLines.length > 0 ? `\n\nTop reps:\n${repLines.join("\n")}` : "")
+        );
       }),
   );
 }

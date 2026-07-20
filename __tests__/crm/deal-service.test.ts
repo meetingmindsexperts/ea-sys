@@ -359,6 +359,49 @@ describe("createDeal — relations are bound to the caller's org", () => {
     expect(db.crmDeal.updateMany).not.toHaveBeenCalled();
   });
 
+  it("R2-M1: updateDeal refuses an ARCHIVED deal — field edits are frozen like stage moves", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
+      name: "Abbott", dealValue: null, currency: "USD", expectedClose: null,
+      companyId: null, eventId: "e-1", ownerId: null, archivedAt: new Date(),
+    } as never);
+
+    const res = await updateDeal({ ...base, dealId: "d-1", name: "Renamed" });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("DEAL_ARCHIVED");
+    expect(db.crmDeal.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("R2-M1: the write itself re-checks the freeze — an archive landing between snapshot and write loses", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
+      name: "Abbott", dealValue: null, currency: "USD", expectedClose: null,
+      companyId: null, eventId: "e-1", ownerId: null, archivedAt: null,
+    } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 0 } as never); // archived under us
+
+    const res = await updateDeal({ ...base, dealId: "d-1", name: "Renamed" });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("DEAL_ARCHIVED");
+    const call = vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0] as { where: Record<string, unknown> };
+    expect(call.where).toMatchObject({ archivedAt: null });
+  });
+
+  it("R2-M5: rejects an org-bound owner whose ROLE the CRM excludes (the reminder-email side channel)", async () => {
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(stage() as never);
+    vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-1" } as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-desk", role: "ONSITE" } as never);
+
+    const res = await createDeal({ ...base, name: "Abbott", stageId: "s-neg", eventId: "e-1", ownerId: "u-desk" });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("OWNER_ROLE_NOT_ALLOWED");
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+
   it("requires a name", async () => {
     const res = await createDeal({ ...base, name: "   ", stageId: "s-neg", eventId: "e-1" });
     expect(res.ok).toBe(false);

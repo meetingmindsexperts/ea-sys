@@ -60,6 +60,16 @@ const stage = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.auditLog.create).mockResolvedValue({} as never);
+  // R2-M3: the last-terminal guards now run INSIDE a transaction behind a FOR
+  // UPDATE row lock. The tx proxy forwards to the same mocked delegates so the
+  // per-test count/delete/updateMany mocks keep working.
+  vi.mocked(db.$transaction).mockImplementation((async (fn: unknown) => {
+    if (typeof fn === "function") {
+      const tx = { crmPipelineStage: db.crmPipelineStage, $queryRaw: vi.fn().mockResolvedValue([]) };
+      return (fn as (t: unknown) => unknown)(tx);
+    }
+    return Promise.all(fn as Array<Promise<unknown>>);
+  }) as never);
 });
 
 describe("deriveStageOutcome — creation-time convenience only", () => {

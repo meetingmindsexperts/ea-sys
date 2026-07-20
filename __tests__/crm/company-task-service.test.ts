@@ -42,7 +42,7 @@ vi.mock("@/lib/db", () => ({
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { findOrCreateCompany, updateCompany, companyNameKey } from "@/crm/services/company-service";
-import { updateTask, completeTask } from "@/crm/services/task-service";
+import { createTask, updateTask, completeTask } from "@/crm/services/task-service";
 
 const ORG = "org-1";
 const base = { organizationId: ORG, userId: "u-1", source: "rest" as const };
@@ -269,5 +269,74 @@ describe("task reminder stamp", () => {
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
     expect(res.code).toBe("ALREADY_DONE");
+  });
+});
+
+
+// ── R2 batch pins ───────────────────────────────────────────────────────────────
+
+describe("R2-M1 — archived records are frozen for FIELD edits too", () => {
+  it("updateCompany refuses an archived account", async () => {
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue({
+      name: "Abbott", industry: null, website: null, country: null, city: null,
+      notes: null, needsReview: false, archivedAt: new Date(),
+    } as never);
+
+    const res = await updateCompany({ ...base, companyId: "c-1", name: "Renamed" });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("COMPANY_ARCHIVED");
+    expect(db.crmCompany.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("updateTask refuses an archived task — it could otherwise re-arm a dormant reminder", async () => {
+    vi.mocked(db.crmTask.findFirst).mockResolvedValue({
+      title: "Chase", description: null, dueAt: null, remindAt: null, ownerId: null,
+      archivedAt: new Date(),
+    } as never);
+
+    const res = await updateTask({ ...base, taskId: "t-1", remindAt: new Date() });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("TASK_ARCHIVED");
+    expect(db.crmTask.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("R2-M5 — a task assignee must be a CRM-capable role", () => {
+  it("rejects a MEMBER assignee (prose-blind; the reminder email would hand them the deal prose)", async () => {
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-member", role: "MEMBER" } as never);
+
+    const res = await createTask({ ...base, title: "Chase Abbott", ownerId: "u-member" });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("OWNER_ROLE_NOT_ALLOWED");
+    expect(db.crmTask.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("R2 rider L12 — a due date arms the reminder IN THE SERVICE", () => {
+  it("createTask with only dueAt defaults remindAt = dueAt (raw API callers get the same contract as the UI)", async () => {
+    const due = new Date("2026-08-01T09:00:00Z");
+    vi.mocked(db.crmTask.create).mockResolvedValue({ id: "t-1", title: "Chase", ownerId: null, dealId: null } as never);
+
+    const res = await createTask({ ...base, title: "Chase", dueAt: due });
+
+    expect(res.ok).toBe(true);
+    const data = vi.mocked(db.crmTask.create).mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data.remindAt).toEqual(due);
+  });
+
+  it("an EXPLICIT remindAt: null means no reminder — the default never overrides a choice", async () => {
+    vi.mocked(db.crmTask.create).mockResolvedValue({ id: "t-1", title: "Chase", ownerId: null, dealId: null } as never);
+
+    const res = await createTask({ ...base, title: "Chase", dueAt: new Date(), remindAt: null });
+
+    expect(res.ok).toBe(true);
+    const data = vi.mocked(db.crmTask.create).mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data.remindAt).toBeNull();
   });
 });

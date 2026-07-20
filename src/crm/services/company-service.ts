@@ -63,6 +63,7 @@ export type CompanyErrorCode =
   | "NAME_TAKEN"
   | "NAME_REQUIRED"
   | "COMPANY_NOT_FOUND"
+  | "COMPANY_ARCHIVED"
   | "NO_FIELDS"
   | "UNKNOWN";
 
@@ -245,7 +246,7 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
     // unbound update is this codebase's most repeated IDOR (accommodation + contacts).
     const before = await db.crmCompany.findFirst({
       where: { id: input.companyId, organizationId: input.organizationId },
-      select: { name: true, industry: true, website: true, country: true, city: true, notes: true, needsReview: true },
+      select: { name: true, industry: true, website: true, country: true, city: true, notes: true, needsReview: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({
@@ -255,11 +256,21 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
       });
       return { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
     }
+    // An archived account is FROZEN (R2-M1) — restore before editing.
+    if (before.archivedAt) {
+      apiLogger.warn({ msg: "crm-company:update-archived", companyId: input.companyId });
+      return { ok: false, code: "COMPANY_ARCHIVED", message: "This company was archived — restore it before editing it" };
+    }
 
-    await db.crmCompany.updateMany({
-      where: { id: input.companyId, organizationId: input.organizationId },
+    const res = await db.crmCompany.updateMany({
+      // archivedAt re-checked IN the write — the snapshot guard has a race window.
+      where: { id: input.companyId, organizationId: input.organizationId, archivedAt: null },
       data,
     });
+    if (res.count === 0) {
+      apiLogger.warn({ msg: "crm-company:update-archived-race", companyId: input.companyId });
+      return { ok: false, code: "COMPANY_ARCHIVED", message: "This company was archived — restore it before editing it" };
+    }
 
     const company = await db.crmCompany.findUniqueOrThrow({ where: { id: input.companyId } });
 
@@ -326,13 +337,22 @@ export async function setCompanyArchived(input: {
       return { ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" };
     }
 
-    const alreadyInState = input.archived ? current.archivedAt !== null : current.archivedAt === null;
-    if (alreadyInState) return { ok: true, company: current };
-
-    const company = await db.crmCompany.update({
-      where: { id: current.id },
+    // Conditional claim (R2-M2) — see setDealArchived: the loser of two
+    // concurrent archives (or an already-in-state call) is the idempotent no-op.
+    const claim = await db.crmCompany.updateMany({
+      where: {
+        id: current.id,
+        organizationId: input.organizationId,
+        archivedAt: input.archived ? null : { not: null },
+      },
       data: { archivedAt: input.archived ? new Date() : null },
     });
+    if (claim.count === 0) {
+      const now = await db.crmCompany.findFirst({ where: { id: current.id } });
+      return { ok: true, company: now ?? current };
+    }
+
+    const company = await db.crmCompany.findUniqueOrThrow({ where: { id: current.id } });
 
     void recordCrmActivity({
       organizationId: input.organizationId,

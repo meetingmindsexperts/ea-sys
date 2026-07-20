@@ -118,8 +118,16 @@ export async function requireCrmDelete(
  * while returning the negotiation prose hands a money-blind MEMBER the same
  * number through the side door (CRM review M2). So the prose channels are
  * stripped alongside the financial keys.
+ *
+ * `description` (task prose: "chase Abbott — they countered at AED 480k") and
+ * `lostReason` ("they wanted 300k, we held at 500k") joined the set in review
+ * R2-M12 — the M2 rationale applies to every free-text channel MEMBER can read,
+ * not just notes. This also covers the History diffs (the diff payload keys are
+ * the field names, and the activity route runs redactForCaller). No other CRM
+ * model carries a `description` column, so the recursive strip can't eat an
+ * unrelated field (the dealValue-vs-`value` naming lesson, checked before adding).
  */
-const PROSE_KEYS = new Set(["notes", "crmNotes"]);
+const PROSE_KEYS = new Set(["notes", "crmNotes", "description", "lostReason"]);
 
 function stripProseKeys<T>(payload: T): T {
   if (Array.isArray(payload)) return payload.map((item) => stripProseKeys(item)) as T;
@@ -194,9 +202,13 @@ const STATUS_BY_CODE: Record<string, number> = {
   STAGE_HAS_DEALS: 409,
   CONTACT_ALREADY_ON_DEAL: 409,
   PRODUCT_ALREADY_ON_DEAL: 409,
-  // archived records are frozen — restore before mutating (CRM review M1)
+  // archived records are frozen — restore before mutating (CRM review M1; the
+  // freeze was extended to field edits / notes / line items in R2-M1)
   DEAL_ARCHIVED: 409,
   TASK_ARCHIVED: 409,
+  COMPANY_ARCHIVED: 409,
+  CONTACT_ARCHIVED: 409,
+  PRODUCT_ARCHIVED: 409,
   // a business conflict, not a server fault (CRM review H4 — these used to fall
   // through as UNKNOWN → an unlogged 500 on an ordinary rename collision)
   NAME_TAKEN: 409,
@@ -214,6 +226,10 @@ const STATUS_BY_CODE: Record<string, number> = {
   EMAIL_REQUIRED: 400,
   NO_ATTACHMENT: 400,
   ATTACHMENT_TYPE_NOT_ALLOWED: 400,
+  TOO_MANY_ATTACHMENTS: 400,
+  ATTACHMENT_TOO_LARGE: 400,
+  // the assignee must be a CRM-capable role (review R2-M5)
+  OWNER_ROLE_NOT_ALLOWED: 400,
   NO_FIELDS: 400,
   // ours
   UNKNOWN: 500,

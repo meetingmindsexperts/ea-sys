@@ -29,6 +29,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
   resolveColumns,
@@ -295,6 +296,26 @@ describe("importFreshsalesCompanies", () => {
     expect(res.errors[0]!.error).toMatch(/Duplicate/);
   });
 
+  it("R2-M8: two rows with DIFFERENT external ids but the same normalized name are an in-file duplicate — dry-run and write report identically", async () => {
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue(null as never);
+    vi.mocked(db.crmCompany.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-1" } as never);
+
+    // Pre-fix, both rows passed the externalId-keyed dedup; the WRITE then did
+    // "1 created, 1 updated" while the DRY-RUN said "2 created" — the confirm
+    // screen lied about what the write would do.
+    const csv = `Id,Name\na-1,Abbott\na-2,abbott `;
+    const dry = await importFreshsalesCompanies({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: true });
+    const wet = await importFreshsalesCompanies({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    if (!dry.ok || !wet.ok) throw new Error("unreachable");
+    expect(dry.created).toBe(1);
+    expect(wet.created).toBe(1);
+    expect(dry.errors).toHaveLength(1);
+    expect(wet.errors).toHaveLength(1);
+    expect(dry.errors[0]!.error).toMatch(/Duplicate/);
+  });
+
   it("refuses a CSV without the Name column", async () => {
     const res = await importFreshsalesCompanies({ organizationId: ORG, userId: "u-1", csvText: "Id,Website\na-1,x.com", dryRun: true });
     expect(res.ok).toBe(false);
@@ -384,6 +405,45 @@ describe("importFreshsalesDeals", () => {
     const upd = vi.mocked(db.crmDeal.update).mock.calls[0]![0] as { data: Record<string, unknown> };
     expect(upd.data).not.toHaveProperty("eventId");
     expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+
+  it("R2-M6: a re-import whose CSV has NO Closed-date value PRESERVES the stored wonAt — close dates must not drift to the re-import date", async () => {
+    mockDealFixtures();
+    const imported = new Date("2026-07-01T10:00:00Z");
+    vi.mocked(db.crmDeal.findFirst).mockImplementation((async (args: { where: { externalId?: string } }) =>
+      args.where.externalId === "d-1"
+        ? { id: "x-1", status: "WON", updatedAt: imported, lastImportedAt: imported } // won long ago, untouched since
+        : null) as never);
+
+    // Same WON row, but the export carries no Closed date column this month.
+    const csvNoDate = `Id,Name,Amount,Deal stage,Sales account\nd-1,Abbott — BRIDGES 2026 Gold,"40,000",Closed won,Abbott`;
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csvNoDate, dryRun: false, fallbackEventId: "e-fallback",
+    });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(res.updated).toBe(1);
+    const upd = vi.mocked(db.crmDeal.update).mock.calls[0]![0] as { data: Record<string, unknown> };
+    // Pre-fix this was `wonAt: new Date()` — and "deals won in July" reported zero.
+    expect(upd.data).not.toHaveProperty("wonAt");
+    expect(upd.data).not.toHaveProperty("lostAt");
+  });
+
+  it("R2-M4: the company resolver's P2002 loser REUSES the concurrently-created winner instead of failing the row", async () => {
+    mockDealFixtures();
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never); // prefetch predates the winner
+    const p2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "0" });
+    vi.mocked(db.crmCompany.create).mockRejectedValue(p2002);
+    vi.mocked(db.crmCompany.findUnique).mockResolvedValue({ id: "c-winner" } as never);
+
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback",
+    });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(res.errors).toHaveLength(0); // pre-fix: the P2002 became per-row errors
+    const created = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(created.data.companyId).toBe("c-winner");
   });
 
   it("refuses a CSV without the Id column — re-imports would duplicate the pipeline", async () => {

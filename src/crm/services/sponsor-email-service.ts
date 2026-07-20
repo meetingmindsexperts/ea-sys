@@ -130,6 +130,8 @@ export async function resolveSponsorRecipients(args: {
     },
   });
   if (!event) {
+    // Per-site log (R2 rider L5) — the boundary logs too, but without the ids.
+    apiLogger.warn({ msg: "crm-sponsor-email:event-not-found", organizationId: args.organizationId, eventId: args.eventId });
     return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" };
   }
 
@@ -195,6 +197,7 @@ export async function resolveDealRecipients(args: {
     },
   });
   if (!deal) {
+    apiLogger.warn({ msg: "crm-sponsor-email:deal-not-found", organizationId: args.organizationId, dealId: args.dealId });
     return { ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" };
   }
 
@@ -235,14 +238,24 @@ function validateSend(
 ): { ok: true; subject: string; message: string } | ServiceFail {
   const s = subject.trim();
   const m = message.trim();
-  if (!s) return { ok: false, code: "SUBJECT_REQUIRED", message: "A subject is required" };
-  if (!m) return { ok: false, code: "BODY_REQUIRED", message: "A message is required" };
+  // Per-site warns on every rejection (R2 rider L5) — matches the sibling
+  // services' discipline; the boundary log alone lacks the shape details.
+  if (!s) {
+    apiLogger.warn({ msg: "crm-sponsor-email:subject-required" });
+    return { ok: false, code: "SUBJECT_REQUIRED", message: "A subject is required" };
+  }
+  if (!m) {
+    apiLogger.warn({ msg: "crm-sponsor-email:body-required" });
+    return { ok: false, code: "BODY_REQUIRED", message: "A message is required" };
+  }
   if (attachments.length > MAX_ATTACHMENTS) {
+    apiLogger.warn({ msg: "crm-sponsor-email:too-many-attachments", count: attachments.length });
     return { ok: false, code: "TOO_MANY_ATTACHMENTS", message: `At most ${MAX_ATTACHMENTS} attachments` };
   }
   // base64 → bytes ≈ length * 3/4. Cheap upper-bound; the exact size doesn't matter.
   const totalBytes = attachments.reduce((acc, a) => acc + Math.floor((a.content.length * 3) / 4), 0);
   if (totalBytes > MAX_ATTACHMENT_BYTES) {
+    apiLogger.warn({ msg: "crm-sponsor-email:attachments-too-large", totalBytes });
     return { ok: false, code: "ATTACHMENT_TOO_LARGE", message: "Attachments exceed the 10MB limit" };
   }
   // Document/image types only (CRM review L12): this blast fans out to EXTERNAL
@@ -251,6 +264,7 @@ function validateSend(
   for (const a of attachments) {
     const t = (a.contentType ?? "").trim().toLowerCase();
     if (t && !ALLOWED_ATTACHMENT_TYPES.has(t)) {
+      apiLogger.warn({ msg: "crm-sponsor-email:attachment-type-rejected", contentType: t });
       return {
         ok: false,
         code: "ATTACHMENT_TYPE_NOT_ALLOWED",

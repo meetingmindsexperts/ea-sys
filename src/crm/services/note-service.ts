@@ -56,8 +56,11 @@ export type NoteErrorCode =
   | "NOTE_NOT_FOUND"
   | "NOT_AUTHOR"
   | "DEAL_NOT_FOUND"
+  | "DEAL_ARCHIVED"
   | "COMPANY_NOT_FOUND"
+  | "COMPANY_ARCHIVED"
   | "CONTACT_NOT_FOUND"
+  | "CONTACT_ARCHIVED"
   | "NO_FIELDS"
   | "UNKNOWN";
 
@@ -74,22 +77,43 @@ async function validateAttachments(
   if (rel.dealId) {
     checks.push(
       db.crmDeal
-        .findFirst({ where: { id: rel.dealId, organizationId }, select: { id: true } })
-        .then((r) => (r ? null : ({ ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" } as Fail))),
+        .findFirst({ where: { id: rel.dealId, organizationId }, select: { id: true, archivedAt: true } })
+        .then((r) =>
+          !r
+            ? ({ ok: false, code: "DEAL_NOT_FOUND", message: "Deal not found" } as Fail)
+            : r.archivedAt
+              // R2-M1: an archived record is frozen — notes included.
+              ? ({ ok: false, code: "DEAL_ARCHIVED", message: "That deal was archived — restore it before adding notes" } as Fail)
+              : null,
+        ),
     );
   }
   if (rel.companyId) {
     checks.push(
       db.crmCompany
-        .findFirst({ where: { id: rel.companyId, organizationId }, select: { id: true } })
-        .then((r) => (r ? null : ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" } as Fail))),
+        .findFirst({ where: { id: rel.companyId, organizationId }, select: { id: true, archivedAt: true } })
+        .then((r) =>
+          !r
+            ? ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" } as Fail)
+            : r.archivedAt
+              // R2-M1: an archived record is frozen — notes included.
+              ? ({ ok: false, code: "COMPANY_ARCHIVED", message: "That company was archived — restore it before adding notes" } as Fail)
+              : null,
+        ),
     );
   }
   if (rel.crmContactId) {
     checks.push(
       db.crmContact
-        .findFirst({ where: { id: rel.crmContactId, organizationId }, select: { id: true } })
-        .then((r) => (r ? null : ({ ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" } as Fail))),
+        .findFirst({ where: { id: rel.crmContactId, organizationId }, select: { id: true, archivedAt: true } })
+        .then((r) =>
+          !r
+            ? ({ ok: false, code: "CONTACT_NOT_FOUND", message: "Contact not found" } as Fail)
+            : r.archivedAt
+              // R2-M1: an archived record is frozen — notes included.
+              ? ({ ok: false, code: "CONTACT_ARCHIVED", message: "That contact was archived — restore it before adding notes" } as Fail)
+              : null,
+        ),
     );
   }
 

@@ -95,6 +95,37 @@ export type PipelineErrorCode =
   | "UNKNOWN";
 
 /**
+ * Sentinel thrown inside the R2-M3 transactions when a delete/outcome-flip would
+ * orphan an outcome (leave the org with no WON- or LOST-mapped column). Thrown to
+ * abort the transaction; translated to LAST_TERMINAL_STAGE at the catch.
+ */
+class LastTerminalStageError extends Error {
+  constructor(readonly outcome: CrmStageOutcome) {
+    super("last terminal stage");
+  }
+}
+
+/**
+ * Serialize concurrent edits of an org's same-outcome terminal stages (R2-M3).
+ *
+ * The "never orphan an outcome" sibling count is check-then-act: two admins
+ * concurrently deleting the org's two WON-mapped columns each see one sibling,
+ * both pass, both delete — zero WON columns remain and every close is refused
+ * with NO_TERMINAL_STAGE. A transaction alone doesn't fix it (READ COMMITTED
+ * lets both count the committed state), so the guard takes a FOR UPDATE lock on
+ * the same-outcome rows first — the second transaction blocks, then re-evaluates
+ * against the winner's commit and correctly counts zero siblings. Same house
+ * pattern as the credit-note cap lock.
+ */
+async function lockSameOutcomeStages(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  outcome: CrmStageOutcome,
+): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM "CrmPipelineStage" WHERE "organizationId" = ${organizationId} AND "terminalOutcome"::text = ${outcome} FOR UPDATE`;
+}
+
+/**
  * Idempotently ensure the org has a pipeline. Safe to call on every board load:
  * once stages exist it is a single indexed read.
  *
@@ -257,35 +288,41 @@ export async function updateStage(input: {
   if (input.terminalOutcome !== undefined) {
     // Only a terminal column carries an outcome.
     data.terminalOutcome = stage.isTerminal ? input.terminalOutcome : null;
-
-    // Never orphan an outcome: if this is the last stage mapped to WON (or LOST)
-    // and the edit takes that mapping away, every future close of that outcome
-    // would be refused (NO_TERMINAL_STAGE).
-    if (stage.terminalOutcome && data.terminalOutcome !== stage.terminalOutcome) {
-      const siblings = await db.crmPipelineStage.count({
-        where: { organizationId: input.organizationId, terminalOutcome: stage.terminalOutcome, id: { not: stage.id } },
-      });
-      if (siblings === 0) {
-        apiLogger.warn({ msg: "crm-pipeline:update-blocked-last-terminal", stageId: stage.id, outcome: stage.terminalOutcome });
-        return {
-          ok: false,
-          code: "LAST_TERMINAL_STAGE",
-          message: `This is the only ${stage.terminalOutcome === "WON" ? "Won" : "Lost"} column — map another stage to ${stage.terminalOutcome.toLowerCase()} first`,
-          meta: { terminalOutcome: stage.terminalOutcome },
-        };
-      }
-    }
   }
 
   if (Object.keys(data).length === 0) {
     return { ok: false, code: "NAME_REQUIRED", message: "Nothing to update" };
   }
 
+  // Never orphan an outcome: if this is the last stage mapped to WON (or LOST)
+  // and the edit takes that mapping away, every future close of that outcome
+  // would be refused (NO_TERMINAL_STAGE). The check runs INSIDE a transaction
+  // behind a row lock (R2-M3) — as a plain pre-check, two concurrent outcome
+  // flips of the org's two Won columns both saw one sibling and both passed.
+  const removesOutcome =
+    input.terminalOutcome !== undefined &&
+    stage.terminalOutcome !== null &&
+    data.terminalOutcome !== stage.terminalOutcome;
+
   try {
-    await db.crmPipelineStage.updateMany({
-      where: { id: stage.id, organizationId: input.organizationId },
-      data,
-    });
+    if (removesOutcome) {
+      await db.$transaction(async (tx) => {
+        await lockSameOutcomeStages(tx, input.organizationId, stage.terminalOutcome!);
+        const siblings = await tx.crmPipelineStage.count({
+          where: { organizationId: input.organizationId, terminalOutcome: stage.terminalOutcome, id: { not: stage.id } },
+        });
+        if (siblings === 0) throw new LastTerminalStageError(stage.terminalOutcome!);
+        await tx.crmPipelineStage.updateMany({
+          where: { id: stage.id, organizationId: input.organizationId },
+          data,
+        });
+      });
+    } else {
+      await db.crmPipelineStage.updateMany({
+        where: { id: stage.id, organizationId: input.organizationId },
+        data,
+      });
+    }
     const updated = await db.crmPipelineStage.findUniqueOrThrow({ where: { id: stage.id } });
 
     void writeAudit({
@@ -301,6 +338,15 @@ export async function updateStage(input: {
     apiLogger.info({ msg: "crm-pipeline:stage-updated", stageId: stage.id, organizationId: input.organizationId });
     return { ok: true, stage: updated };
   } catch (err) {
+    if (err instanceof LastTerminalStageError) {
+      apiLogger.warn({ msg: "crm-pipeline:update-blocked-last-terminal", stageId: stage.id, outcome: err.outcome });
+      return {
+        ok: false,
+        code: "LAST_TERMINAL_STAGE",
+        message: `This is the only ${err.outcome === "WON" ? "Won" : "Lost"} column — map another stage to ${err.outcome.toLowerCase()} first`,
+        meta: { terminalOutcome: err.outcome },
+      };
+    }
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       apiLogger.warn({ msg: "crm-pipeline:stage-name-taken", organizationId: input.organizationId, name: data.name });
       return { ok: false, code: "NAME_TAKEN", message: "A stage with that name already exists" };
@@ -397,26 +443,25 @@ export async function deleteStage(input: {
     };
   }
 
-  // Never delete the LAST stage mapped to an outcome (CRM review H3): with no
-  // WON-mapped column, closeDeal() has nowhere to land a won deal and refuses —
-  // the org would lose the ability to close deals with one errant click.
-  if (stage.terminalOutcome) {
-    const siblings = await db.crmPipelineStage.count({
-      where: { organizationId: input.organizationId, terminalOutcome: stage.terminalOutcome, id: { not: stage.id } },
-    });
-    if (siblings === 0) {
-      apiLogger.warn({ msg: "crm-pipeline:delete-blocked-last-terminal", stageId: stage.id, outcome: stage.terminalOutcome });
-      return {
-        ok: false,
-        code: "LAST_TERMINAL_STAGE",
-        message: `This is the only ${stage.terminalOutcome === "WON" ? "Won" : "Lost"} column — deals could no longer be closed ${stage.terminalOutcome.toLowerCase()}. Add a replacement first.`,
-        meta: { terminalOutcome: stage.terminalOutcome },
-      };
-    }
-  }
-
   try {
-    await db.crmPipelineStage.delete({ where: { id: stage.id } });
+    // Never delete the LAST stage mapped to an outcome (CRM review H3): with no
+    // WON-mapped column, closeDeal() has nowhere to land a won deal and refuses —
+    // the org would lose the ability to close deals with one errant click. The
+    // sibling count runs INSIDE the delete's transaction behind a row lock
+    // (R2-M3): as a plain pre-check, two admins concurrently deleting the org's
+    // two Won-mapped columns each counted one sibling, both passed, both deleted.
+    if (stage.terminalOutcome) {
+      await db.$transaction(async (tx) => {
+        await lockSameOutcomeStages(tx, input.organizationId, stage.terminalOutcome!);
+        const siblings = await tx.crmPipelineStage.count({
+          where: { organizationId: input.organizationId, terminalOutcome: stage.terminalOutcome, id: { not: stage.id } },
+        });
+        if (siblings === 0) throw new LastTerminalStageError(stage.terminalOutcome!);
+        await tx.crmPipelineStage.delete({ where: { id: stage.id } });
+      });
+    } else {
+      await db.crmPipelineStage.delete({ where: { id: stage.id } });
+    }
 
     void writeAudit({
       userId: input.userId,
@@ -430,6 +475,15 @@ export async function deleteStage(input: {
     apiLogger.info({ msg: "crm-pipeline:stage-deleted", stageId: stage.id, organizationId: input.organizationId });
     return { ok: true };
   } catch (err) {
+    if (err instanceof LastTerminalStageError) {
+      apiLogger.warn({ msg: "crm-pipeline:delete-blocked-last-terminal", stageId: stage.id, outcome: err.outcome });
+      return {
+        ok: false,
+        code: "LAST_TERMINAL_STAGE",
+        message: `This is the only ${err.outcome === "WON" ? "Won" : "Lost"} column — deals could no longer be closed ${err.outcome.toLowerCase()}. Add a replacement first.`,
+        meta: { terminalOutcome: err.outcome },
+      };
+    }
     // A deal could have been dropped into the stage between the count and the
     // delete. The Restrict FK catches it; we translate rather than 500.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {

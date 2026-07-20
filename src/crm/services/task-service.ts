@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
+import { canOwnDeals } from "@/crm/lib/crm-roles";
 
 /** Fields worth showing in the change log when a task is edited. */
 const TASK_DIFF_KEYS = ["title", "description", "dueAt", "remindAt", "ownerId"] as const;
@@ -54,6 +55,7 @@ export type TaskErrorCode =
   | "TASK_NOT_FOUND"
   | "TASK_ARCHIVED"
   | "OWNER_NOT_FOUND"
+  | "OWNER_ROLE_NOT_ALLOWED"
   | "DEAL_NOT_FOUND"
   | "COMPANY_NOT_FOUND"
   | "CONTACT_NOT_FOUND"
@@ -72,10 +74,26 @@ async function validateRelations(
   const checks: Array<Promise<Fail | null>> = [];
 
   if (rel.ownerId) {
+    // Org-bound AND role-bound (review R2-M5): the reminders worker emails the
+    // owner the task title/description and the deal name — assigning to a role
+    // the CRM excludes (ONSITE) or a prose-blind one (MEMBER) would deliver CRM
+    // content outside every CRM gate, and mint notifications the assignee can
+    // never mark read.
     checks.push(
       db.user
-        .findFirst({ where: { id: rel.ownerId, organizationId }, select: { id: true } })
-        .then((r) => (r ? null : ({ ok: false, code: "OWNER_NOT_FOUND", message: "Owner not found in this organization" } as Fail))),
+        .findFirst({ where: { id: rel.ownerId, organizationId }, select: { id: true, role: true } })
+        .then((r) => {
+          if (!r) return { ok: false, code: "OWNER_NOT_FOUND", message: "Owner not found in this organization" } as Fail;
+          if (!canOwnDeals(r.role)) {
+            return {
+              ok: false,
+              code: "OWNER_ROLE_NOT_ALLOWED",
+              message: "Tasks can only be assigned to CRM-capable roles (admin, organizer or sales)",
+              meta: { role: r.role },
+            } as Fail;
+          }
+          return null;
+        }),
     );
   }
   if (rel.dealId) {
@@ -121,7 +139,11 @@ export async function createTask(input: CreateTaskInput): Promise<TaskResult> {
         title,
         description: input.description?.trim() || null,
         dueAt: input.dueAt ?? null,
-        remindAt: input.remindAt ?? null,
+        // "A due date arms the reminder" is the SERVICE's contract, not the
+        // callers' (R2 rider L12): the dialog and MCP each copied remindAt =
+        // dueAt, but a raw API-key create with only dueAt silently never
+        // reminded. An EXPLICIT remindAt (including null = no reminder) wins.
+        remindAt: input.remindAt === undefined ? (input.dueAt ?? null) : input.remindAt,
         ownerId: input.ownerId ?? null,
         crmContactId: input.crmContactId ?? null,
         companyId: input.companyId ?? null,
@@ -195,11 +217,17 @@ export async function updateTask(input: UpdateTaskInput): Promise<TaskResult> {
   try {
     const before = await db.crmTask.findFirst({
       where: { id: input.taskId, organizationId: input.organizationId },
-      select: { title: true, description: true, dueAt: true, remindAt: true, ownerId: true },
+      select: { title: true, description: true, dueAt: true, remindAt: true, ownerId: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({ msg: "crm-task:update-not-found", taskId: input.taskId, organizationId: input.organizationId });
       return { ok: false, code: "TASK_NOT_FOUND", message: "Task not found" };
+    }
+    // An archived task is FROZEN (R2-M1) — editing it could also re-arm its
+    // reminder (data.remindedAt = null above), which would then fire on restore.
+    if (before.archivedAt) {
+      apiLogger.warn({ msg: "crm-task:update-archived", taskId: input.taskId });
+      return { ok: false, code: "TASK_ARCHIVED", message: "This task was archived — restore it before editing it" };
     }
 
     // Moving the DUE date moves the reminder with it (CRM review M12) — when the
@@ -218,10 +246,15 @@ export async function updateTask(input: UpdateTaskInput): Promise<TaskResult> {
       data.remindedAt = null; // re-arm — the worker skips rows already stamped
     }
 
-    await db.crmTask.updateMany({
-      where: { id: input.taskId, organizationId: input.organizationId },
+    const res = await db.crmTask.updateMany({
+      // archivedAt re-checked IN the write — the snapshot guard has a race window.
+      where: { id: input.taskId, organizationId: input.organizationId, archivedAt: null },
       data,
     });
+    if (res.count === 0) {
+      apiLogger.warn({ msg: "crm-task:update-archived-race", taskId: input.taskId });
+      return { ok: false, code: "TASK_ARCHIVED", message: "This task was archived — restore it before editing it" };
+    }
 
     const task = await db.crmTask.findUniqueOrThrow({ where: { id: input.taskId } });
 
@@ -392,13 +425,22 @@ export async function setTaskArchived(input: {
       return { ok: false, code: "TASK_NOT_FOUND", message: "Task not found" };
     }
 
-    const alreadyInState = input.archived ? current.archivedAt !== null : current.archivedAt === null;
-    if (alreadyInState) return { ok: true, task: current };
-
-    const task = await db.crmTask.update({
-      where: { id: current.id },
+    // Conditional claim (R2-M2) — see setDealArchived: the loser of two
+    // concurrent archives (or an already-in-state call) is the idempotent no-op.
+    const claim = await db.crmTask.updateMany({
+      where: {
+        id: current.id,
+        organizationId: input.organizationId,
+        archivedAt: input.archived ? null : { not: null },
+      },
       data: { archivedAt: input.archived ? new Date() : null },
     });
+    if (claim.count === 0) {
+      const now = await db.crmTask.findFirst({ where: { id: current.id } });
+      return { ok: true, task: now ?? current };
+    }
+
+    const task = await db.crmTask.findUniqueOrThrow({ where: { id: current.id } });
 
     void recordCrmActivity({
       organizationId: input.organizationId,

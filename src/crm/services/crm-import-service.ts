@@ -22,6 +22,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { parseCSV } from "@/lib/csv-parser";
 import { recordCrmActivityBulk, type CrmActivityEntry } from "@/crm/lib/crm-activity";
+import { CRM_OWNER_ROLES } from "@/crm/lib/crm-roles";
 import { companyNameKey } from "@/crm/services/company-service";
 import { contactEmailKey } from "@/crm/services/crm-contact-service";
 import {
@@ -117,11 +118,17 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
       }
       const row = mapped.row;
       const nameKey = companyNameKey(row.name);
-      if (seenKeys.has(row.externalId ?? nameKey)) {
+      // In-file dedup tracks BOTH identities (R2-M8): keying on externalId-when-
+      // present let two rows with different ids but the same normalized name both
+      // pass — and then dry-run said "2 created" while the write did "1 created,
+      // 1 updated" (row 1's write made row 2's lookup hit). Namespaced so an id
+      // can never collide with a name key.
+      const dupKeys = [row.externalId ? `id:${row.externalId}` : null, `key:${nameKey}`].filter((k): k is string => k !== null);
+      if (dupKeys.some((k) => seenKeys.has(k))) {
         report.errors.push({ row: rowNo, error: `Duplicate of an earlier row in this file (${row.name})` });
         continue;
       }
-      seenKeys.add(row.externalId ?? nameKey);
+      dupKeys.forEach((k) => seenKeys.add(k));
 
       // Match: the source id first (previously imported), else the normalized
       // name (converges with hand-typed accounts, which then get the id stamped).
@@ -253,11 +260,13 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
       }
       const row = mapped.row;
       const emailKey = contactEmailKey(row.email);
-      if (seenKeys.has(row.externalId ?? emailKey)) {
+      // Both identities tracked — see the companies loop (R2-M8).
+      const dupKeys = [row.externalId ? `id:${row.externalId}` : null, `key:${emailKey}`].filter((k): k is string => k !== null);
+      if (dupKeys.some((k) => seenKeys.has(k))) {
         report.errors.push({ row: rowNo, error: `Duplicate of an earlier row in this file (${row.email})` });
         continue;
       }
-      seenKeys.add(row.externalId ?? emailKey);
+      dupKeys.forEach((k) => seenKeys.add(k));
 
       const existing =
         (row.externalId
@@ -381,12 +390,31 @@ async function makeCompanyResolver(ctx: ImportCtx) {
         resolver.created++;
         return `dry:${key}`;
       }
-      const created = await db.crmCompany.create({
-        data: { organizationId: ctx.organizationId, name: name.trim(), nameKey: key, externalSource: FRESHSALES_SOURCE, lastImportedAt: new Date() },
-      });
-      byKey.set(key, created.id);
-      resolver.created++;
-      return created.id;
+      try {
+        const created = await db.crmCompany.create({
+          data: { organizationId: ctx.organizationId, name: name.trim(), nameKey: key, externalSource: FRESHSALES_SOURCE, lastImportedAt: new Date() },
+        });
+        byKey.set(key, created.id);
+        resolver.created++;
+        return created.id;
+      } catch (err) {
+        // R2-M4: the map was prefetched once, so a company created concurrently
+        // (in the UI, or by an overlapping import) P2002s here. The loser must
+        // REUSE the winner — as a bare throw it became a per-row error and the
+        // contact/deal row was not imported. Same pattern as findOrCreateCompany.
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+          const winner = await db.crmCompany.findUnique({
+            where: { organizationId_nameKey: { organizationId: ctx.organizationId, nameKey: key } },
+            select: { id: true },
+          });
+          if (winner) {
+            apiLogger.info({ msg: "crm-import:company-resolver-race-reused", organizationId: ctx.organizationId, companyId: winner.id });
+            byKey.set(key, winner.id);
+            return winner.id;
+          }
+        }
+        throw err;
+      }
     },
   };
   return resolver;
@@ -420,7 +448,11 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
     db.event.findFirst({ where: { id: ctx.fallbackEventId, organizationId: ctx.organizationId }, select: { id: true, name: true } }),
     db.event.findMany({ where: { organizationId: ctx.organizationId }, select: { id: true, name: true } }),
     db.crmPipelineStage.findMany({ where: { organizationId: ctx.organizationId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
-    db.user.findMany({ where: { organizationId: ctx.organizationId }, select: { id: true, email: true } }),
+    // Owners are role-bound like every other assignment path (R2-M5): a CSV
+    // owner email matching a MEMBER/ONSITE account counts as unmatched (left
+    // unassigned + reported) rather than assigning CRM content to a role the
+    // CRM excludes.
+    db.user.findMany({ where: { organizationId: ctx.organizationId, role: { in: [...CRM_OWNER_ROLES] } }, select: { id: true, email: true } }),
   ]);
   if (!fallbackEvent) {
     apiLogger.warn({ msg: "crm-import:deals-bad-fallback-event", organizationId: ctx.organizationId, fallbackEventId: ctx.fallbackEventId });
@@ -428,11 +460,18 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   }
   const ownerByEmail = new Map(owners.map((u) => [u.email.toLowerCase(), u.id]));
   const stageByName = new Map(stages.map((st) => [st.name.trim().toLowerCase(), st]));
-  const firstOpenStage = stages.find((st) => !st.isTerminal) ?? stages[0];
   const wonStage = stages.find((st) => st.terminalOutcome === "WON");
   const lostStage = stages.find((st) => st.terminalOutcome === "LOST");
-  if (!firstOpenStage) {
+  if (stages.length === 0) {
     return { ok: false, code: "STAGE_NOT_FOUND", message: "The pipeline has no stages — open the deals board once to seed it" };
+  }
+  // NO fallback into a terminal column (R2 rider L14): on a hand-built pipeline
+  // with only terminal stages, `?? stages[0]` seated OPEN deals in a Won/Lost
+  // column — exactly the stage/status divergence the row loop refuses below.
+  const firstOpenStage = stages.find((st) => !st.isTerminal);
+  if (!firstOpenStage) {
+    apiLogger.warn({ msg: "crm-import:deals-no-open-stage", organizationId: ctx.organizationId });
+    return { ok: false, code: "STAGE_NOT_FOUND", message: "The pipeline has no open (non-terminal) column — add one in Manage stages before importing deals" };
   }
 
   const report: ImportReport = {
@@ -524,12 +563,18 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
           : outcome === "LOST"
             ? { lostAt: row.closedDate ?? new Date(), wonAt: null, lostReason: row.lostReason ?? null }
             : { wonAt: null, lostAt: null, lostReason: null };
+      // R2-M6: on a RE-IMPORT of a deal whose closed status hasn't changed and
+      // whose CSV carries no Closed-date value, PRESERVE the stored stamps —
+      // the `?? new Date()` fallback otherwise drifted every won deal's wonAt
+      // to the re-import date, and "deals won in July" reported zero. The
+      // fallback is only for a genuine transition with no date (best available).
+      const closeStampsForUpdate =
+        !row.closedDate && existing !== null && existing.status === status ? {} : closeStamps;
 
       const common = {
         name: row.name,
         stageId: stage.id,
         status,
-        ...closeStamps,
         dealValue: row.amount !== undefined ? new Prisma.Decimal(row.amount) : null,
         currency: row.currency ?? defaultCurrency,
         expectedClose: row.expectedClose ?? null,
@@ -544,7 +589,7 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
         report.created++;
         if (!ctx.dryRun) {
           const created = await db.crmDeal.create({
-            data: { organizationId: ctx.organizationId, eventId, ...common },
+            data: { organizationId: ctx.organizationId, eventId, ...common, ...closeStamps },
           });
           activity.push({
             organizationId: ctx.organizationId, entityType: "DEAL", entityId: created.id,
@@ -559,8 +604,9 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
         if (!ctx.dryRun) {
           // Freshsales wins on the imported fields. The EVENT is deliberately
           // NOT re-pointed on update: a human may have re-pointed it in EA-SYS,
-          // and the CSV knows nothing about our events anyway.
-          await db.crmDeal.update({ where: { id: existing!.id }, data: common });
+          // and the CSV knows nothing about our events anyway. Close stamps are
+          // the R2-M6 preserving variant — see closeStampsForUpdate above.
+          await db.crmDeal.update({ where: { id: existing!.id }, data: { ...common, ...closeStampsForUpdate } });
           activity.push({
             organizationId: ctx.organizationId, entityType: "DEAL", entityId: existing!.id,
             action: "IMPORTED", actorId: ctx.userId,

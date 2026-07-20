@@ -131,6 +131,13 @@ describe("addDealProduct — the guards", () => {
     expect(await addDealProduct({ ...base, dealId: "d-1", crmProductId: "p-x" })).toMatchObject({ code: "PRODUCT_NOT_FOUND" });
   });
 
+  it("R2-M7: refuses an ARCHIVED catalog product — discontinued items can't be added at a stale price", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1" } as never);
+    vi.mocked(db.crmProduct.findFirst).mockResolvedValue({ ...product, archivedAt: new Date() } as never);
+    expect(await addDealProduct({ ...base, dealId: "d-1", crmProductId: "p-1" })).toMatchObject({ code: "PRODUCT_ARCHIVED" });
+    expect(db.crmDealProduct.create).not.toHaveBeenCalled();
+  });
+
   it("409s a product already on the deal", async () => {
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1" } as never);
     vi.mocked(db.crmProduct.findFirst).mockResolvedValue(product as never);

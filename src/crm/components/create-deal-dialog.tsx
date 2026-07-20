@@ -27,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useCreateCompany, useCreateDeal } from "@/crm/hooks/use-crm-api";
 import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
 import { EventCombobox } from "@/crm/components/event-combobox";
-import type { CrmStage } from "@/crm/lib/crm-types";
+import { defaultOpenStage, type CrmStage } from "@/crm/lib/crm-types";
 
 export function CreateDealDialog({
   open,
@@ -56,8 +56,9 @@ export function CreateDealDialog({
   const createDeal = useCreateDeal();
 
   // Default to the first non-terminal stage — a new deal starts at the top of the
-  // funnel, never in "Won".
-  const firstOpenStage = stages.find((s) => !s.isTerminal)?.id ?? stages[0]?.id ?? "";
+  // funnel, never in "Won". ONE home for the rule, shared with the MCP create
+  // tool (review R2-M10).
+  const firstOpenStage = defaultOpenStage(stages)?.id ?? "";
   const effectiveStage = stageId || firstOpenStage;
 
   function reset() {

@@ -16,7 +16,7 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/db", () => ({
   db: {
-    crmDeal: { findFirst: vi.fn(), update: vi.fn() },
+    crmDeal: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     crmPipelineStage: { findFirst: vi.fn() },
     crmCompany: { findFirst: vi.fn() },
     contact: { findFirst: vi.fn() },
@@ -130,25 +130,29 @@ describe("diffFields", () => {
 // ── Archive idempotency + the log entry ─────────────────────────────────────────
 
 describe("setDealArchived", () => {
-  it("archives an active deal, sets archivedAt, and records an ARCHIVE entry", async () => {
+  it("archives an active deal via a CONDITIONAL CLAIM (R2-M2), and records ONE ARCHIVE entry", async () => {
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", archivedAt: null } as never);
-    vi.mocked(db.crmDeal.update).mockResolvedValue({ id: "d-1", name: "Abbott", dealValue: null, currency: "USD", archivedAt: new Date() } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", name: "Abbott", dealValue: null, currency: "USD", archivedAt: new Date() } as never);
 
     const res = await setDealArchived({ ...base, dealId: "d-1", archived: true });
 
     expect(res.ok).toBe(true);
-    expect(db.crmDeal.update).toHaveBeenCalledOnce();
+    // The write is a claim: it only lands if the row is still un-archived. This
+    // is what makes two concurrent archives record ARCHIVE once, not twice.
+    const claim = vi.mocked(db.crmDeal.updateMany).mock.calls[0][0];
+    expect(claim.where).toMatchObject({ id: "d-1", organizationId: ORG, archivedAt: null });
     expect(db.crmActivity.create).toHaveBeenCalledOnce();
     expect(vi.mocked(db.crmActivity.create).mock.calls[0][0].data.action).toBe("ARCHIVE");
   });
 
-  it("is a no-op when the deal is ALREADY archived — no write, no log entry", async () => {
+  it("the claim LOSER (already archived, or a concurrent double-archive) is an idempotent no-op — no log entry", async () => {
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", archivedAt: new Date() } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 0 } as never);
 
     const res = await setDealArchived({ ...base, dealId: "d-1", archived: true });
 
     expect(res.ok).toBe(true);
-    expect(db.crmDeal.update).not.toHaveBeenCalled();
     expect(db.crmActivity.create).not.toHaveBeenCalled();
   });
 
@@ -159,12 +163,15 @@ describe("setDealArchived", () => {
     if (!res.ok) expect(res.code).toBe("DEAL_NOT_FOUND");
   });
 
-  it("records a RESTORE entry when un-archiving", async () => {
+  it("records a RESTORE entry when un-archiving (claim requires archivedAt NOT null)", async () => {
     vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1", archivedAt: new Date() } as never);
-    vi.mocked(db.crmDeal.update).mockResolvedValue({ id: "d-1", name: "Abbott", dealValue: null, currency: "USD", archivedAt: null } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", name: "Abbott", dealValue: null, currency: "USD", archivedAt: null } as never);
 
     await setDealArchived({ ...base, dealId: "d-1", archived: false });
 
+    const claim = vi.mocked(db.crmDeal.updateMany).mock.calls[0][0];
+    expect(claim.where).toMatchObject({ archivedAt: { not: null } });
     expect(vi.mocked(db.crmActivity.create).mock.calls[0][0].data.action).toBe("RESTORE");
   });
 });
