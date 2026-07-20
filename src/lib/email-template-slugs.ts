@@ -14,6 +14,7 @@
  */
 export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
   "certificate-bundle-delivery",
+  "document-delivery",
   "registration-confirmation",
   "speaker-invitation",
   "speaker-agreement",

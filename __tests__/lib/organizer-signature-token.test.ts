@@ -29,6 +29,7 @@ const EXCLUDED_SLUGS = new Set([
   "payment-confirmation", // transactional — fired by the Stripe webhook, no human sender
   "refund-confirmation", // transactional
   "certificate-bundle-delivery", // rendered by the certificate cover pipeline (own token resolver)
+  "document-delivery", // transactional — invoice/receipt/credit-note PDF carrier, no human sender
 ]);
 
 const BRANDING = { eventName: "OSH" };

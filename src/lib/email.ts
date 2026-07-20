@@ -1075,6 +1075,14 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "certificateSerial", description: "Comma-joined serials of the attached certificates" },
     { key: "certificateType", description: "Certificate type label(s), e.g. Certificate of Attendance" },
   ],
+  "document-delivery": [
+    { key: "firstName", description: "Attendee first name" },
+    { key: "lastName", description: "Attendee last name" },
+    { key: "documentType", description: "Document label: Invoice, Payment Receipt, or Credit Note" },
+    { key: "documentTypeLower", description: "Lower-case document label (e.g. credit note) for mid-sentence use" },
+    { key: "documentNumber", description: "Document number (e.g. HFC2026-CN-001)" },
+    { key: "eventName", description: "Event name" },
+  ],
   "registration-confirmation": [
     { key: "title", description: "Attendee title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Attendee first name" },
@@ -2161,6 +2169,37 @@ Best regards,
   },
 
   {
+    slug: "document-delivery",
+    name: "Document Delivery (Invoice / Receipt / Credit Note)",
+    // The cover email for a finance document PDF sent on its own: a manual
+    // invoice Send, the MCP send_invoice tool, and the credit-note issue
+    // flow's "email to attendee" checkbox. ONE template for all three
+    // document types — {{documentType}} / {{documentTypeLower}} carry the
+    // label ("Invoice" / "Payment Receipt" / "Credit Note"). Content is
+    // wording-equal to the previously-hardcoded buildInvoiceEmailHtml body
+    // in invoice-service.ts, so nothing changes until an organizer edits
+    // this template. The combined post-payment email (invoice + receipt
+    // after a payment settles) is separate — it uses payment-confirmation.
+    // Deliberately NO {{organizerSignature}} — pure transactional, same
+    // owner exclusion as payment-confirmation / refund-confirmation.
+    subject: "{{documentType}} {{documentNumber}} — {{eventName}}",
+    htmlContent: `<h2 style="color: #1e293b; margin-bottom: 8px;">{{documentType}} {{documentNumber}}</h2>
+<p style="color: #475569; font-size: 14px;">Dear {{firstName}},</p>
+<p style="color: #475569; font-size: 14px;">Please find your {{documentTypeLower}} for <strong>{{eventName}}</strong> attached to this email as a PDF.</p>
+<p style="color: #475569; font-size: 14px;">If you have any questions regarding this document, please do not hesitate to contact us.</p>
+<p style="color: #94a3b8; font-size: 12px; margin-top: 30px;">This is an automated message. The {{documentTypeLower}} is attached as a PDF document.</p>`,
+    textContent: `{{documentType}} {{documentNumber}} — {{eventName}}
+
+Dear {{firstName}},
+
+Please find your {{documentTypeLower}} for {{eventName}} attached to this email as a PDF.
+
+If you have any questions regarding this document, please do not hesitate to contact us.
+
+This is an automated message. The {{documentTypeLower}} is attached as a PDF document.`,
+  },
+
+  {
     slug: "dinner-rsvp-invitation",
     name: "Dinner RSVP Invitation",
     // Sent (bulk) to dinner invitees with their personalized {{rsvpLink}}.
@@ -2482,6 +2521,11 @@ export function getSamplePreviewVariables(
     // build these in abstract-reviewer-notify.ts.
     reviewLink: "#",
     role: "Primary reviewer",
+    // document-delivery preview — real sends fill these from the Invoice row
+    // in sendInvoiceEmail (invoice-service.ts).
+    documentType: "Credit Note",
+    documentTypeLower: "credit note",
+    documentNumber: "EVT2026-CN-001",
     // Real event values override these in buildEventPreviewVariables.
     eventDateRange: "Monday, March 15, 2026",
     organizationName: "Sample Organization",

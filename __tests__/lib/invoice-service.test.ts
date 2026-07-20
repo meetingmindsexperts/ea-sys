@@ -57,6 +57,28 @@ vi.mock("@/lib/credit-note-pdf", () => ({
 
 vi.mock("@/lib/email", () => ({
   sendEmail: vi.fn().mockResolvedValue({ success: true }),
+  // Editable "document-delivery" system template (the real default's shape);
+  // renderAndWrap substitutes tokens like the real renderer so the tests can
+  // assert the rendered subject/body without pulling in the whole email module.
+  getEventTemplate: vi.fn().mockResolvedValue({
+    subject: "{{documentType}} {{documentNumber}} — {{eventName}}",
+    htmlContent: "<p>Dear {{firstName}}, your {{documentTypeLower}} is attached.</p>",
+    textContent: "Dear {{firstName}}, your {{documentTypeLower}} is attached.",
+    branding: {},
+  }),
+  renderAndWrap: vi.fn(
+    (
+      template: { subject: string; htmlContent: string; textContent: string },
+      variables: Record<string, string | number | undefined>,
+    ) => {
+      const sub = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k: string) => String(variables[k] ?? ""));
+      return {
+        subject: sub(template.subject),
+        htmlContent: sub(template.htmlContent),
+        textContent: sub(template.textContent),
+      };
+    },
+  ),
 }));
 
 // The combined-documents sender delegates the actual email to the shared
@@ -872,5 +894,56 @@ describe("sendInvoiceEmail", () => {
     );
     // attendee is still the primary recipient (accounting is BCC, not visible)
     expect(call.to[0].email).toBe("john@example.com");
+  });
+
+  // Organizer report (July 20, 2026): the credit-note email was a hardcoded
+  // HTML string invisible to Communications → Email Templates. It now renders
+  // through the editable per-event "document-delivery" system template.
+  it("renders a credit-note send through the editable document-delivery template", async () => {
+    const { db } = await import("@/lib/db");
+    const { getEventTemplate } = await import("@/lib/email");
+    (db.invoice.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "cn-1", type: "CREDIT_NOTE", invoiceNumber: "EVT-CN-001",
+      organizationId: "org-1", eventId: "evt-1", registrationId: "reg-1",
+      subtotal: 100, discountAmount: 0, discountCode: null, taxRate: 5,
+      taxLabel: "VAT", taxAmount: 5, total: 105, currency: "USD",
+      issueDate: new Date("2026-07-20"), paidDate: null, paymentMethod: null, paymentReference: null, notes: null,
+      parentInvoice: null, payment: null,
+      registration: { ...fakeRegistration, event: { ...fakeRegistration.event, emailFromAddress: null, emailFromName: null } },
+    });
+    mockUpdate.mockResolvedValue({});
+
+    await sendInvoiceEmail("cn-1");
+
+    expect(getEventTemplate).toHaveBeenCalledWith("evt-1", "document-delivery");
+    const call = (sendEmail as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // Subject + body come from the rendered template, tokens resolved.
+    expect(call.subject).toBe(`Credit Note EVT-CN-001 — ${fakeRegistration.event.name}`);
+    expect(call.htmlContent).toContain("your credit note is attached");
+    expect(call.textContent).toContain("your credit note is attached");
+    expect(call.logContext.templateSlug).toBe("document-delivery");
+  });
+
+  it("falls back to the hardcoded body when the template can't load (safety net)", async () => {
+    const { db } = await import("@/lib/db");
+    const { getEventTemplate } = await import("@/lib/email");
+    (getEventTemplate as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    (db.invoice.findUniqueOrThrow as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "cn-2", type: "CREDIT_NOTE", invoiceNumber: "EVT-CN-002",
+      organizationId: "org-1", eventId: "evt-1", registrationId: "reg-1",
+      subtotal: 100, discountAmount: 0, discountCode: null, taxRate: 5,
+      taxLabel: "VAT", taxAmount: 5, total: 105, currency: "USD",
+      issueDate: new Date("2026-07-20"), paidDate: null, paymentMethod: null, paymentReference: null, notes: null,
+      parentInvoice: null, payment: null,
+      registration: { ...fakeRegistration, event: { ...fakeRegistration.event, emailFromAddress: null, emailFromName: null } },
+    });
+    mockUpdate.mockResolvedValue({});
+
+    await sendInvoiceEmail("cn-2");
+
+    const call = (sendEmail as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.subject).toBe(`Credit Note EVT-CN-002 — ${fakeRegistration.event.name}`);
+    // Hardcoded body wording survives as the safety net.
+    expect(call.htmlContent).toContain("Please find your credit note for");
   });
 });

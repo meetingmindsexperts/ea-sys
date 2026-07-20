@@ -5,7 +5,7 @@ import { getNextInvoiceNumber } from "@/lib/invoice-numbering";
 import { generateInvoicePDF, type InvoicePDFData } from "@/lib/invoice-pdf";
 import { generateReceiptPDF, type ReceiptPDFData } from "@/lib/receipt-pdf";
 import { generateCreditNotePDF, type CreditNotePDFData } from "@/lib/credit-note-pdf";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, getEventTemplate, renderAndWrap } from "@/lib/email";
 import { getTitleLabel, deriveEventCode } from "@/lib/utils";
 import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import {
@@ -979,14 +979,40 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
   };
   const typeLabel = typeLabels[invoice.type] || "Document";
 
-  const subject = `${typeLabel} ${invoice.invoiceNumber} — ${event.name}`;
-  const htmlContent = buildInvoiceEmailHtml(typeLabel, invoice.invoiceNumber, event.name, attendee.firstName);
+  // Editable per-event system template ("Document Delivery") + the standard
+  // branding wrapper — was a hardcoded HTML string invisible to the
+  // Communications → Email Templates editor (organizer report, July 20 2026).
+  // The hardcoded builder stays only as the can't-load safety net.
+  const template = await getEventTemplate(invoice.eventId, "document-delivery");
+  let subject = `${typeLabel} ${invoice.invoiceNumber} — ${event.name}`;
+  let htmlContent = buildInvoiceEmailHtml(typeLabel, invoice.invoiceNumber, event.name, attendee.firstName);
+  let textContent: string | undefined;
+  if (template) {
+    const rendered = renderAndWrap(
+      template,
+      {
+        firstName: attendee.firstName,
+        lastName: attendee.lastName,
+        documentType: typeLabel,
+        documentTypeLower: typeLabel.toLowerCase(),
+        documentNumber: invoice.invoiceNumber,
+        eventName: event.name,
+      },
+      template.branding,
+    );
+    subject = rendered.subject;
+    htmlContent = rendered.htmlContent;
+    textContent = rendered.textContent;
+  } else {
+    apiLogger.error({ msg: "invoice-email:template-load-failed — falling back to hardcoded body", invoiceId, slug: "document-delivery" });
+  }
 
   await sendEmail({
     to: [{ email: attendee.email, name: `${attendee.firstName} ${attendee.lastName}` }],
     bcc: INVOICE_ACCOUNTING_BCC,
     subject,
     htmlContent,
+    textContent,
     from: event.emailFromAddress
       ? { email: event.emailFromAddress, name: event.emailFromName || event.name }
       : undefined,
@@ -1002,7 +1028,7 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
       eventId: invoice.eventId,
       entityType: "REGISTRATION",
       entityId: invoice.registrationId,
-      templateSlug: `invoice-${invoice.type.toLowerCase()}`,
+      templateSlug: "document-delivery",
     },
   });
 
