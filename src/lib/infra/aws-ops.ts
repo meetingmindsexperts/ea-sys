@@ -58,8 +58,40 @@ function getS3(): S3Client {
 const DR_BUCKET = process.env.DR_BUCKET || "ea-sys-dr-singapore";
 const DR_REGION = process.env.DR_REGION || "ap-southeast-1";
 const DR_PREFIX = "db/";
-/** Dumps run twice daily-ish; anything older than this is a red flag. */
+/** Dumps run 10×/day (2-hourly, 4h night gap); older than this is a red flag. */
 const BACKUP_STALE_HOURS = 18;
+
+/**
+ * Complete listing of a DR-bucket prefix — follows ContinuationToken so the
+ * newest object can never fall off a truncated first page. S3 returns keys in
+ * lexicographic order, which for our date-shaped keys means OLDEST first — so
+ * a single capped page silently hides the newest objects once the prefix
+ * outgrows it. That was the July 20, 2026 "backup stale" false alarm: db/
+ * crossed 200 objects (10 dumps/day under the 30-day lifecycle) and the old
+ * MaxKeys:200 single call reported a 21h-old dump as "newest".
+ */
+const LIST_MAX_PAGES = 10; // 10k objects — far above any expected prefix size
+async function listAllObjects(prefix: string): Promise<{ Key?: string; LastModified?: Date }[]> {
+  const all: { Key?: string; LastModified?: Date }[] = [];
+  let token: string | undefined;
+  for (let page = 0; page < LIST_MAX_PAGES; page++) {
+    const out = await getS3().send(
+      new ListObjectsV2Command({
+        Bucket: DR_BUCKET,
+        Prefix: prefix,
+        MaxKeys: 1000,
+        ContinuationToken: token,
+      }),
+    );
+    all.push(...(out.Contents ?? []));
+    if (!out.IsTruncated || !out.NextContinuationToken) return all;
+    token = out.NextContinuationToken;
+  }
+  // No silent caps: a prefix past LIST_MAX_PAGES pages logs loudly instead of
+  // quietly reporting a wrong "newest" again.
+  apiLogger.warn({ prefix, pages: LIST_MAX_PAGES }, "infra:s3-list-truncated");
+  return all;
+}
 
 // ── Types ──────────────────────────────────────────────────────────
 type SourceStatus = "ok" | "error" | "unconfigured";
@@ -656,16 +688,14 @@ async function fetchQueues(): Promise<InfraSnapshot["queues"]> {
  * whole thing exists for), backups stop silently and you discover it at restore
  * time, which is the worst possible moment. Reading the newest object's age
  * turns "no news" into an actual signal.
+ *
+ * Exported for tests only — production callers go through getInfraSnapshot().
  */
-async function fetchBackup(): Promise<InfraSnapshot["backup"]> {
+export async function fetchBackup(): Promise<InfraSnapshot["backup"]> {
   try {
-    // The keys are db/{YYYY}/{MM}/{DD-HH}-mumbai.dump. Listing the whole prefix
-    // is a handful of objects (30-day lifecycle), so just take the newest by
-    // LastModified rather than paginating cleverly.
-    const out = await getS3().send(
-      new ListObjectsV2Command({ Bucket: DR_BUCKET, Prefix: DR_PREFIX, MaxKeys: 200 }),
-    );
-    const objects = (out.Contents ?? []).filter((o) => o.Key && o.LastModified);
+    // The keys are db/{YYYY}/{MM}/{DD-HH}-mumbai.dump — date-shaped, so the
+    // FULL paginated listing matters (see listAllObjects).
+    const objects = (await listAllObjects(DR_PREFIX)).filter((o) => o.Key && o.LastModified);
     if (objects.length === 0) {
       return {
         status: "error",
@@ -853,11 +883,11 @@ export async function fetchDr(): Promise<InfraSnapshot["dr"]> {
   try {
     const rows = await Promise.all(
       streams.map(async (st) => {
-        const [out, heartbeatAt] = await Promise.all([
-          getS3().send(new ListObjectsV2Command({ Bucket: DR_BUCKET, Prefix: st.prefix, MaxKeys: 1000 })),
+        const [contents, heartbeatAt] = await Promise.all([
+          listAllObjects(st.prefix),
           st.heartbeatKey ? fetchDrHeartbeat(st.heartbeatKey) : Promise.resolve(null),
         ]);
-        const objects = (out.Contents ?? []).filter((o) => o.LastModified);
+        const objects = contents.filter((o) => o.LastModified);
         const newestObjectAt = objects.length
           ? (objects.reduce((a, b) => ((a.LastModified as Date) > (b.LastModified as Date) ? a : b)).LastModified as Date)
           : null;
