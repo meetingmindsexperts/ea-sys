@@ -5,8 +5,10 @@
  *
  * Shows this speaker's reimbursement state (not invited / pending /
  * submitted with totals) and lets the organizer act without leaving the
- * profile: create the invite, email the personalized link, copy it, or
- * jump to the full console for the submission detail.
+ * profile: create the invite, email the personalized link (through a mini
+ * send dialog with optional subject/message overrides + a Preview of the
+ * exact rendered email — console parity), copy it, or jump to the full
+ * console for the submission detail.
  *
  * SELF-HIDES for roles outside the reimbursement boundary
  * (canManageReimbursements: SUPER_ADMIN / ADMIN / ORGANIZER only) — the
@@ -17,10 +19,21 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Banknote, Check, Copy, ExternalLink, Loader2, Plus, Send } from "lucide-react";
+import { Banknote, Check, Copy, ExternalLink, Eye, Loader2, Plus, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useEvent } from "@/hooks/use-api";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { useEvent, usePreviewEmailBySlug } from "@/hooks/use-api";
 import {
   canManageReimbursements,
   formatClaimTotals,
@@ -50,6 +63,14 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
   const [row, setRow] = useState<Row | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendSubject, setSendSubject] = useState("");
+  const [sendMessage, setSendMessage] = useState("");
+  const previewMutation = usePreviewEmailBySlug(eventId);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     try {
@@ -71,24 +92,6 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
     if (allowed) void load();
   }, [allowed, load]);
 
-  const sendLink = useCallback(
-    async (reimbursementId: string) => {
-      const res = await fetch(`/api/events/${eventId}/reimbursements/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reimbursementId }),
-      });
-      const json = await res.json();
-      if (!res.ok || json.failed > 0) {
-        console.error("speaker-reimbursement-card:send-failed", res.status, json?.error);
-        toast.error(json?.error || "Failed to email the reimbursement link");
-        return;
-      }
-      toast.success("Reimbursement link emailed to the speaker");
-    },
-    [eventId],
-  );
-
   const handleCreate = useCallback(
     async (sendAfter: boolean) => {
       setBusy(true);
@@ -104,16 +107,15 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
           toast.error(json?.error || "Failed to create the reimbursement invite");
           return;
         }
-        // Reload to pick up the minted row (needed for the send below).
+        // Reload to pick up the minted row (needed for the send dialog).
         const listRes = await fetch(`/api/events/${eventId}/reimbursements?speakerId=${speakerId}`);
         const listJson = await listRes.json();
         const created: Row | null = listRes.ok ? (listJson.reimbursements?.[0] ?? null) : null;
         setRow(created);
-        if (sendAfter && created) {
-          await sendLink(created.id);
-        } else {
-          toast.success("Reimbursement invite created");
-        }
+        toast.success("Reimbursement invite created");
+        // "Create & email link" continues into the send dialog so the
+        // organizer can preview / personalize before anything goes out.
+        if (sendAfter && created) setSendOpen(true);
       } catch (err) {
         console.error("speaker-reimbursement-card:create-error", err);
         toast.error("Failed to create the reimbursement invite");
@@ -121,18 +123,54 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
         setBusy(false);
       }
     },
-    [eventId, speakerId, sendLink],
+    [eventId, speakerId],
   );
 
   const handleSend = useCallback(async () => {
     if (!row) return;
     setBusy(true);
     try {
-      await sendLink(row.id);
+      const res = await fetch(`/api/events/${eventId}/reimbursements/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reimbursementId: row.id,
+          subject: sendSubject.trim() || undefined,
+          message: sendMessage.trim() || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.failed > 0) {
+        console.error("speaker-reimbursement-card:send-failed", res.status, json?.error);
+        toast.error(json?.error || "Failed to email the reimbursement link");
+        return;
+      }
+      toast.success("Reimbursement link emailed to the speaker");
+      setSendOpen(false);
+    } catch (err) {
+      console.error("speaker-reimbursement-card:send-error", err);
+      toast.error("Failed to email the reimbursement link");
     } finally {
       setBusy(false);
     }
-  }, [row, sendLink]);
+  }, [eventId, row, sendSubject, sendMessage]);
+
+  // Renders the real per-event template + the typed overrides — identical to
+  // the console's preview (shared /email-preview route, template auto-picked).
+  const handlePreview = useCallback(async () => {
+    try {
+      const result = await previewMutation.mutateAsync({
+        slug: "speaker-reimbursement-invitation",
+        customSubject: sendSubject.trim() || undefined,
+        customMessage: sendMessage.trim() || undefined,
+      });
+      setPreviewData(result);
+      setPreviewOpen(true);
+    } catch (err) {
+      console.error("speaker-reimbursement-card:preview-error", err);
+      toast.error(err instanceof Error ? err.message : "Failed to generate preview");
+    }
+  }, [previewMutation, sendSubject, sendMessage]);
 
   const handleCopy = useCallback(async () => {
     if (!row) return;
@@ -202,12 +240,8 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => void handleSend()}>
-                {busy ? (
-                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4 mr-1" />
-                )}
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => setSendOpen(true)}>
+                <Send className="h-4 w-4 mr-1" />
                 {row.status === "SUBMITTED" ? "Resend link" : "Email link"}
               </Button>
               <Button size="sm" variant="outline" onClick={() => void handleCopy()}>
@@ -222,6 +256,77 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
           </>
         )}
       </CardContent>
+
+      {/* Send dialog — preview + personalize before anything goes out. */}
+      <Dialog open={sendOpen} onOpenChange={setSendOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Email reimbursement link</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Sends this speaker their personalized form link using the{" "}
+            <strong>Speaker Reimbursement Form</strong> email template (editable under
+            Communications → Email Templates).
+          </p>
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="spk-reimb-subject">Subject (optional override)</Label>
+              <Input
+                id="spk-reimb-subject"
+                value={sendSubject}
+                onChange={(e) => setSendSubject(e.target.value)}
+                placeholder="Reimbursement form — …"
+              />
+            </div>
+            <div>
+              <Label htmlFor="spk-reimb-message">Personal message (optional)</Label>
+              <Textarea
+                id="spk-reimb-message"
+                value={sendMessage}
+                onChange={(e) => setSendMessage(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={() => void handlePreview()}
+              disabled={previewMutation.isPending}
+            >
+              {previewMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <Eye className="h-4 w-4 mr-1" /> Preview
+                </>
+              )}
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setSendOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void handleSend()} disabled={busy}>
+                {busy ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4 mr-1" />
+                )}
+                Send
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {previewData && (
+        <EmailPreviewDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          subject={previewData.subject}
+          htmlContent={previewData.htmlContent}
+        />
+      )}
     </Card>
   );
 }
