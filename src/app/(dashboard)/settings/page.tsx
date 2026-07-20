@@ -187,6 +187,11 @@ export default function SettingsPage() {
 
   const isAdmin = session?.user?.role === "ADMIN" || session?.user?.role === "SUPER_ADMIN";
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN";
+  // Organizers can see Onsite Staff (view + event assignment) and Billing
+  // (payer book + read-only org billing details) — matches the API layer,
+  // where denyReviewer/denyFinance already admit ORGANIZER. Account
+  // create/delete and org-settings writes stay ADMIN-only.
+  const isOrganizerOrAbove = isAdmin || session?.user?.role === "ORGANIZER";
 
   useEffect(() => {
     fetchOrganization();
@@ -465,13 +470,13 @@ export default function SettingsPage() {
             <Users className="h-4 w-4" />
             Team
           </TabsTrigger>
-          {isAdmin && (
+          {isOrganizerOrAbove && (
             <TabsTrigger value="onsite" className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4" />
               Onsite Staff
             </TabsTrigger>
           )}
-          {isAdmin && (
+          {isOrganizerOrAbove && (
             <TabsTrigger value="billing" className="flex items-center gap-2">
               <Receipt className="h-4 w-4" />
               Billing
@@ -1024,16 +1029,16 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* Onsite / Temp Staff (per-event registration-desk staff) */}
-        {isAdmin && (
+        {isOrganizerOrAbove && (
           <TabsContent value="onsite">
-            <OnsiteStaffCard />
+            <OnsiteStaffCard canManageAccounts={isAdmin} />
           </TabsContent>
         )}
 
         {/* Billing & Invoicing */}
-        {isAdmin && (
+        {isOrganizerOrAbove && (
           <TabsContent value="billing" className="space-y-6">
-            <BillingSettingsCard />
+            <BillingSettingsCard readOnly={!isAdmin} />
             <BillingAccountsCard />
           </TabsContent>
         )}

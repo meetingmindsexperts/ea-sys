@@ -22,7 +22,12 @@ interface BillingData {
   invoicePrefix: string | null;
 }
 
-export function BillingSettingsCard() {
+/**
+ * `readOnly` renders the form view-only (inputs disabled, no Save). Used for
+ * ORGANIZER, who may see the billing details but not write them — the save
+ * goes through `PUT /api/organization`, an ADMIN-only route.
+ */
+export function BillingSettingsCard({ readOnly = false }: { readOnly?: boolean }) {
   const [data, setData] = useState<BillingData>({
     companyName: null, companyAddress: null, companyCity: null,
     companyState: null, companyZipCode: null, companyCountry: null,
@@ -93,6 +98,7 @@ export function BillingSettingsCard() {
               id="companyName"
               value={data.companyName || ""}
               onChange={e => update("companyName", e.target.value)}
+              disabled={readOnly}
               placeholder="Legal company name"
             />
           </div>
@@ -102,6 +108,7 @@ export function BillingSettingsCard() {
               id="taxId"
               value={data.taxId || ""}
               onChange={e => update("taxId", e.target.value)}
+              disabled={readOnly}
               placeholder="e.g. AE100123456"
             />
           </div>
@@ -113,6 +120,7 @@ export function BillingSettingsCard() {
             id="companyAddress"
             value={data.companyAddress || ""}
             onChange={e => update("companyAddress", e.target.value)}
+            disabled={readOnly}
             placeholder="Street address"
             rows={2}
           />
@@ -125,6 +133,7 @@ export function BillingSettingsCard() {
               id="companyCity"
               value={data.companyCity || ""}
               onChange={e => update("companyCity", e.target.value)}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -133,6 +142,7 @@ export function BillingSettingsCard() {
               id="companyState"
               value={data.companyState || ""}
               onChange={e => update("companyState", e.target.value)}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -141,6 +151,7 @@ export function BillingSettingsCard() {
               id="companyZipCode"
               value={data.companyZipCode || ""}
               onChange={e => update("companyZipCode", e.target.value)}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -149,6 +160,7 @@ export function BillingSettingsCard() {
               id="companyCountry"
               value={data.companyCountry || ""}
               onChange={e => update("companyCountry", e.target.value)}
+              disabled={readOnly}
             />
           </div>
         </div>
@@ -160,6 +172,7 @@ export function BillingSettingsCard() {
               id="companyPhone"
               value={data.companyPhone || ""}
               onChange={e => update("companyPhone", e.target.value)}
+              disabled={readOnly}
               placeholder="+971 4 XXX XXXX"
             />
           </div>
@@ -170,6 +183,7 @@ export function BillingSettingsCard() {
               type="email"
               value={data.companyEmail || ""}
               onChange={e => update("companyEmail", e.target.value)}
+              disabled={readOnly}
               placeholder="billing@company.com"
             />
           </div>
@@ -179,6 +193,7 @@ export function BillingSettingsCard() {
               id="invoicePrefix"
               value={data.invoicePrefix || ""}
               onChange={e => update("invoicePrefix", e.target.value)}
+              disabled={readOnly}
               placeholder="INV"
               maxLength={10}
             />
@@ -186,11 +201,17 @@ export function BillingSettingsCard() {
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={saving} className="btn-gradient">
-            {saving ? "Saving…" : "Save Billing Info"}
-          </Button>
-        </div>
+        {readOnly ? (
+          <p className="text-xs text-muted-foreground">
+            View only — ask an admin to change these details.
+          </p>
+        ) : (
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={saving} className="btn-gradient">
+              {saving ? "Saving…" : "Save Billing Info"}
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
