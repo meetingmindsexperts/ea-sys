@@ -874,6 +874,45 @@ export function useSendCrmEmail() {
   });
 }
 
+// ── Purge (SUPER_ADMIN permanent delete of archived records) ─────────────────
+
+/** Bulk-purge report shape returned by POST /api/crm/purge { scope: "all" }. */
+export interface CrmPurgeAllResult {
+  ok: true;
+  purged: { deals: number; companies: number; contacts: number };
+  skipped: Array<{ entity: "deal" | "company" | "contact"; id: string; name: string; reason: string }>;
+  capped: boolean;
+}
+
+/**
+ * Permanently delete ONE archived record. SUPER_ADMIN only (the server enforces
+ * it). Invalidates the archived lists + the record's activity.
+ */
+export function usePurgeCrmRecord() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { entity: "deal" | "company" | "contact"; id: string }) =>
+      apiPostJson<{ ok: true }>("/api/crm/purge", { scope: "record", entity: vars.entity, id: vars.id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not delete the record"),
+  });
+}
+
+/** Permanently delete EVERY archived record of a kind (or all kinds). SUPER_ADMIN only. */
+export function usePurgeArchived() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (entity: "deals" | "companies" | "contacts" | "all") =>
+      apiPostJson<CrmPurgeAllResult>("/api/crm/purge", { scope: "all", entity }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not empty the archive"),
+  });
+}
+
 /**
  * The org's deal-owning staff (sales team + admins) for the owner picker. CRM-gated
  * so a CRM_USER can populate it, and scoped to exactly the deal-owning roles.

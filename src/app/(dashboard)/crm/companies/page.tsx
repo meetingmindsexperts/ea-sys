@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
+import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
 
 export default function CrmCompaniesPage() {
@@ -127,6 +128,7 @@ export default function CrmCompaniesPage() {
           <Archive className="mr-2 h-4 w-4" />
           {showArchived ? "Showing archived" : "Show archived"}
         </Button>
+        <EmptyArchiveButton entity="companies" visible={showArchived} />
       </div>
 
       {isLoading ? (

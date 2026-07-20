@@ -54,6 +54,7 @@ import {
 } from "@/crm/hooks/use-crm-api";
 import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
+import { PurgeRecordButton } from "@/crm/components/purge-record-button";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
 import { EditDealDialog } from "@/crm/components/edit-deal-dialog";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
@@ -182,6 +183,13 @@ export function DealDetailBody({
                   Email
                 </Button>
               )}
+              <PurgeRecordButton
+                entity="deal"
+                id={deal.id}
+                name={deal.name}
+                archived={!!deal.archivedAt}
+                onPurged={() => onClosed?.()}
+              />
               {canDelete &&
                 (deal.archivedAt ? (
                   <Button size="sm" variant="outline" disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)}>

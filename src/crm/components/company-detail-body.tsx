@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { useCrmCompany, useUpdateCompany, useSetCompanyArchived } from "@/crm/hooks/use-crm-api";
 import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
+import { PurgeRecordButton } from "@/crm/components/purge-record-button";
 import { EditCompanyDialog } from "@/crm/components/edit-company-dialog";
 import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
@@ -128,6 +129,13 @@ export function CompanyDetailBody({
                   Edit
                 </Button>
               )}
+              <PurgeRecordButton
+                entity="company"
+                id={company.id}
+                name={company.name}
+                archived={!!company.archivedAt}
+                onPurged={() => onArchived?.()}
+              />
               {canDelete &&
                 (company.archivedAt ? (
                   <Button size="sm" variant="outline" disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)}>

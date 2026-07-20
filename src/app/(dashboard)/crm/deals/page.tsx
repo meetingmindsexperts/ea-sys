@@ -32,6 +32,7 @@ import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { ValueRangeFilter } from "@/crm/components/filters/value-range-filter";
 import { useCrmDeals, useCrmStages, useMoveDealStage } from "@/crm/hooks/use-crm-api";
 import { ManageStagesDialog } from "@/crm/components/manage-stages-dialog";
+import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
@@ -170,6 +171,7 @@ function DealsPageInner() {
           <Archive className="mr-2 h-3.5 w-3.5" />
           {archivedView ? "Showing archived" : "Show archived"}
         </Button>
+        <EmptyArchiveButton entity="deals" visible={archivedView} />
 
         {filtersActive && (
           <Button variant="ghost" size="sm" onClick={() => clear(FILTER_KEYS)}>

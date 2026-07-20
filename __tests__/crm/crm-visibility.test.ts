@@ -30,8 +30,10 @@ import {
   canViewCrm,
   canOwnDeals,
   canViewDealValues,
+  canPurgeCrm,
   denyCrmAccess,
   denyCrmWrite,
+  denyCrmPurge,
 } from "@/crm/lib/crm-visibility";
 import { apiLogger } from "@/lib/logger";
 
@@ -159,6 +161,56 @@ describe("denyCrmWrite", () => {
     denyCrmWrite(ctx("MEMBER"));
     expect(apiLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "auth-guard:crm-write-denied", role: "MEMBER" }),
+    );
+  });
+});
+
+
+// ── Purge (SUPER_ADMIN-only permanent delete) ────────────────────────────────
+
+describe("canPurgeCrm — the narrowest predicate, and the one that refuses API keys", () => {
+  it("allows ONLY a SUPER_ADMIN session", () => {
+    expect(canPurgeCrm("SUPER_ADMIN")).toBe(true);
+  });
+
+  it("blocks ADMIN, ORGANIZER, CRM_USER, MEMBER — everyone who may archive but not purge", () => {
+    for (const r of ["ADMIN", "ORGANIZER", "CRM_USER", "MEMBER", "ONSITE", "REVIEWER", "SUBMITTER", "REGISTRANT"]) {
+      expect(canPurgeCrm(r)).toBe(false);
+    }
+  });
+
+  it("REFUSES an API key even though every OTHER CRM predicate treats it as admin — destruction of revenue history is a human decision", () => {
+    expect(canPurgeCrm(null, true)).toBe(false);
+    expect(canPurgeCrm("SUPER_ADMIN", true)).toBe(false); // the isApiKey flag wins
+  });
+
+  it("fails closed on unknown / absent role", () => {
+    expect(canPurgeCrm(null)).toBe(false);
+    expect(canPurgeCrm(undefined)).toBe(false);
+    expect(canPurgeCrm("WHATEVER")).toBe(false);
+  });
+});
+
+describe("denyCrmPurge", () => {
+  it("returns null for a SUPER_ADMIN session", () => {
+    expect(denyCrmPurge(ctx("SUPER_ADMIN"))).toBeNull();
+  });
+
+  it("403s everyone else (ADMIN included) with CRM_PURGE_FORBIDDEN", async () => {
+    const res = denyCrmPurge(ctx("ADMIN"));
+    expect(res!.status).toBe(403);
+    await expect(res!.json()).resolves.toMatchObject({ code: "CRM_PURGE_FORBIDDEN" });
+  });
+
+  it("403s an API-key caller", async () => {
+    const res = denyCrmPurge({ role: null, userId: null, fromApiKey: true });
+    expect(res!.status).toBe(403);
+  });
+
+  it("logs its own refusal", () => {
+    denyCrmPurge(ctx("ADMIN"));
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "auth-guard:crm-purge-denied", role: "ADMIN" }),
     );
   });
 });

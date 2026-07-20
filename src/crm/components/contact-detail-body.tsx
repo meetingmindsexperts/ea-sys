@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { useCrmContactDetail, useSetCrmContactArchived } from "@/crm/hooks/use-crm-api";
 import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
+import { PurgeRecordButton } from "@/crm/components/purge-record-button";
 import { EditCrmContactDialog } from "@/crm/components/edit-crm-contact-dialog";
 import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
@@ -120,6 +121,13 @@ export function ContactDetailBody({
                   Edit
                 </Button>
               )}
+              <PurgeRecordButton
+                entity="contact"
+                id={contact.id}
+                name={`${contact.firstName} ${contact.lastName}`.trim()}
+                archived={!!contact.archivedAt}
+                onPurged={() => onArchived?.()}
+              />
               {canDelete &&
                 (contact.archivedAt ? (
                   <Button size="sm" variant="outline" disabled={setArchived.isPending} onClick={() => setArchived.mutate(false)}>

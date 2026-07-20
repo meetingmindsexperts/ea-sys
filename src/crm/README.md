@@ -50,8 +50,9 @@ entire reason to exist, so `CrmDeal.eventId` is a first-class link and `CrmCompa
 - Two-way email inbox sync (Gmail/Outlook). *Integrate a real Freshsales/HubSpot via
   n8n if it's ever needed — replicating inbox sync is months of work.*
 - Lead scoring / workflow automation.
-- Hard delete of deals or companies (a deal is revenue history — close it LOST; a
-  company is merged, not deleted).
+- Hard delete as an ordinary action (a deal is revenue history — close it LOST; a company
+  is merged, not deleted). **The one exception**: a SUPER_ADMIN may permanently delete an
+  *archived* deal / company / contact — see §3.6.
 - Multi-currency pipeline rollups (currency is stored per deal; report per-currency).
 
 The stabilization-first concern that parked this module has **not** gone away: if a
@@ -208,13 +209,27 @@ written. An unbound nested id straight from the URL is this codebase's single
 most-repeated IDOR (accommodation H1, invoices H9, contacts H1). The services do this
 in `validateRelations` / `resolveStage`; don't skip it in a new path.
 
-### 3.6 There is no hard delete, and the change log has ONE writer
+### 3.6 Soft-delete is the default; the ONE hard-delete is SUPER_ADMIN-only
 
-Deal / company / contact / task **soft-delete only** — `archivedAt` is set, never a
+Deal / company / contact / task **soft-delete by default** — `archivedAt` is set, never a
 row removed, so the record and its history survive and it can be restored. Every list /
 board / report / CSV filters `archivedAt: null`; the reminder worker skips archived
 tasks. Archive/restore is **admin + CRM_USER only** (`canDeleteCrm`, narrower than the
 write predicate — ORGANIZER may edit but not archive).
+
+**The one deliberate exception (owner request, July 20 2026): a SUPER_ADMIN may
+PERMANENTLY delete ARCHIVED deals, companies and CRM contacts** — per-record ("Delete
+permanently" on the record page) or in bulk ("Empty archive" in each archived list view).
+This is `crm-purge-service.ts` + `POST /api/crm/purge`, gated by `requireCrmPurge`
+(`canPurgeCrm` — SUPER_ADMIN sessions only). It is the **narrowest** CRM predicate and the
+only one that **refuses API keys** — erasing revenue history is a human decision, not an
+automatable one. Two other rules keep it safe: it is **archived-only** (an active record
+is never purgeable — `NOT_ARCHIVED`), and **every purge snapshots the row into a core
+`AuditLog` entry** (the deleteStage precedent: after the delete, the audit row is the only
+record it existed). A company still referenced by any deal is refused (`COMPANY_HAS_DEALS`
+— the FK is `Restrict`); the bulk purge runs deals→companies→contacts so a company whose
+only deals were just purged becomes deletable in the same pass, and it **reports** every
+per-record refusal rather than silently skipping.
 
 The "detailed activity log" (`CrmActivity`) is written by **exactly one function**,
 `recordCrmActivity` in [`lib/crm-activity.ts`](lib/crm-activity.ts) — every service

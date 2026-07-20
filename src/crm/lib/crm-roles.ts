@@ -110,3 +110,18 @@ export function canDeleteCrm(role: string | null | undefined, isApiKey = false):
   if (isApiKey) return true;
   return !!role && CRM_DELETE_ROLES.has(role);
 }
+
+/**
+ * True when the caller may PERMANENTLY delete (purge) ARCHIVED CRM records —
+ * the one deliberate exception to the module's no-hard-delete rule (owner
+ * request, July 20 2026).
+ *
+ * SUPER_ADMIN sessions ONLY, and — unlike every other CRM predicate — API keys
+ * are REFUSED: a purge erases revenue history, and a leaked org key (or an
+ * automated n8n flow gone wrong) must not be able to do that. Destruction is a
+ * human decision made in the UI. Fails closed.
+ */
+export function canPurgeCrm(role: string | null | undefined, isApiKey = false): boolean {
+  if (isApiKey) return false;
+  return role === "SUPER_ADMIN";
+}

@@ -27,13 +27,14 @@ const CRM_API_ROOT = join(process.cwd(), "src/app/api/crm");
 /** Handlers that intentionally need no auth. There are none — and that is correct. */
 const PUBLIC_ROUTES: string[] = [];
 
-/** Reads may use the read gate OR a stronger one (delete ⊇ write ⊇ read). */
-const READ_GATES = ["requireCrmRead", "requireCrmWrite", "requireCrmDelete"];
+/** Reads may use the read gate OR a stronger one (purge ⊇ delete ⊇ write ⊇ read). */
+const READ_GATES = ["requireCrmRead", "requireCrmWrite", "requireCrmDelete", "requireCrmPurge"];
 /**
- * Mutations must use the WRITE gate or the DELETE gate — requireCrmDelete wraps
- * requireCrmWrite, so it carries the same rate limit plus the narrower RBAC.
+ * Mutations must use the WRITE gate or a stronger one — requireCrmDelete wraps
+ * requireCrmWrite (same rate limit, narrower RBAC), and requireCrmPurge wraps
+ * requireCrmDelete (SUPER_ADMIN sessions only, API keys refused).
  */
-const WRITE_GATES = ["requireCrmWrite", "requireCrmDelete"];
+const WRITE_GATES = ["requireCrmWrite", "requireCrmDelete", "requireCrmPurge"];
 
 const MUTATING = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 

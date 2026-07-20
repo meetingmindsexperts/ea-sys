@@ -16,10 +16,10 @@
  */
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
-import { canViewCrm, canOwnDeals, canDeleteCrm } from "@/crm/lib/crm-roles";
+import { canViewCrm, canOwnDeals, canDeleteCrm, canPurgeCrm } from "@/crm/lib/crm-roles";
 
 // Re-exported so server code has one import site for both predicates and guards.
-export { canViewCrm, canOwnDeals, canViewDealValues, canDeleteCrm } from "@/crm/lib/crm-roles";
+export { canViewCrm, canOwnDeals, canViewDealValues, canDeleteCrm, canPurgeCrm } from "@/crm/lib/crm-roles";
 
 /**
  * Returns a 403 if the caller may not read the CRM, else null.
@@ -89,6 +89,33 @@ export function denyCrmDelete(ctx: {
   });
   return NextResponse.json(
     { error: "Only admins and the sales team can archive CRM records", code: "CRM_DELETE_FORBIDDEN" },
+    { status: 403 },
+  );
+}
+
+/**
+ * Returns a 403 if the caller may not PERMANENTLY delete (purge) archived CRM
+ * records, else null.
+ *
+ * SUPER_ADMIN sessions only — narrower than denyCrmDelete, and the one CRM
+ * guard that also refuses API keys (destruction is a human decision; a leaked
+ * key must not be able to erase revenue history). Logs its own refusal.
+ */
+export function denyCrmPurge(ctx: {
+  role: string | null;
+  userId: string | null;
+  fromApiKey: boolean;
+}) {
+  if (canPurgeCrm(ctx.role, ctx.fromApiKey)) return null;
+
+  apiLogger.warn({
+    msg: "auth-guard:crm-purge-denied",
+    role: ctx.role,
+    userId: ctx.userId,
+    fromApiKey: ctx.fromApiKey,
+  });
+  return NextResponse.json(
+    { error: "Only a super admin can permanently delete archived CRM records", code: "CRM_PURGE_FORBIDDEN" },
     { status: 403 },
   );
 }

@@ -364,7 +364,7 @@ exactly which of those exist today.</p>
       <td><b>Delete a record</b><br><span class="why">deal · company · contact · task</span></td>
       <td><span class="tag done">YES</span></td>
       <td><span class="tag done">DONE</span> <span class="why">Jul 15</span></td>
-      <td><b>Soft delete (archive), never a hard delete.</b> Archive/Restore on each record page + a "Show archived" toggle on every list. <b>ADMIN / SUPER_ADMIN / CRM_USER only</b> (ORGANIZER can edit but not archive; MEMBER read-only). Archived records drop out of the board / lists / reports / CSV; the reminder worker skips archived tasks.</td>
+      <td><b>Soft delete (archive) by default.</b> Archive/Restore on each record page + a "Show archived" toggle on every list. <b>ADMIN / SUPER_ADMIN / CRM_USER only</b> (ORGANIZER can edit but not archive; MEMBER read-only). Archived records drop out of the board / lists / reports / CSV; the reminder worker skips archived tasks. <b>NEW (Jul 20): a SUPER_ADMIN can PERMANENTLY delete archived deals/companies/contacts</b> — per-record ("Delete permanently") or bulk ("Empty archive"); archived-only, audit-snapshotted, API keys refused, a company still holding a deal is refused. <code>POST /api/crm/purge</code> + <code>crm-purge-service.ts</code>.</td>
     </tr>
     <tr>
       <td><b>Change log / activity history</b></td>
@@ -562,7 +562,7 @@ exactly which of those exist today.</p>
 <ul>
   <li><b>Two-way email inbox sync</b> — integrate, don't build. Months of work to replicate; connect a real Freshsales/HubSpot via n8n if it's ever needed.</li>
   <li><b>Lead scoring / workflow automation.</b></li>
-  <li><b>Hard delete for deals or companies</b> — a deal is revenue history. A mistaken deal is closed LOST; a mistaken company is merged.</li>
+  <li><b>Hard delete as an ordinary action</b> — a deal is revenue history. A mistaken deal is closed LOST; a mistaken company is merged. <b>(Exception shipped Jul 20: a SUPER_ADMIN may permanently delete ARCHIVED records — see §4.)</b></li>
   <li><b>Multi-currency pipeline rollups</b> — currency is stored per deal; report per-currency.</li>
 </ul>
 

@@ -35,6 +35,7 @@ import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies, useCrmContacts } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
+import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { cn } from "@/lib/utils";
 import { LIFECYCLE_COLORS, LIFECYCLE_LABELS, type CrmLifecycleStage } from "@/crm/lib/crm-types";
@@ -134,6 +135,7 @@ export default function CrmContactsPage() {
           <Archive className="mr-2 h-3.5 w-3.5" />
           {showArchived ? "Showing archived" : "Show archived"}
         </Button>
+        <EmptyArchiveButton entity="contacts" visible={showArchived} />
       </div>
 
       {isLoading ? (

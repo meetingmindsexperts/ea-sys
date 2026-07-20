@@ -14,7 +14,7 @@ import { getOrgContext, type OrgContext } from "@/lib/api-auth";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { redactFinancialFields } from "@/lib/finance-visibility";
-import { canViewDealValues, denyCrmAccess, denyCrmWrite, denyCrmDelete } from "@/crm/lib/crm-visibility";
+import { canViewDealValues, denyCrmAccess, denyCrmWrite, denyCrmDelete, denyCrmPurge } from "@/crm/lib/crm-visibility";
 
 // Re-exported so route handlers have one import site (the PATCH restore branch
 // calls this inline after requireCrmWrite).
@@ -110,6 +110,25 @@ export async function requireCrmDelete(
   if (denied) return { error: denied };
 
   return { ctx: write.ctx };
+}
+
+/**
+ * As requireCrmDelete, plus the PURGE gate: SUPER_ADMIN sessions only, API keys
+ * refused. Used by the permanent-delete endpoint — the one deliberate exception
+ * to the module's no-hard-delete rule (owner request, July 20 2026), and only
+ * ever applicable to records that are already ARCHIVED (the services enforce
+ * that half).
+ */
+export async function requireCrmPurge(
+  req: Request,
+): Promise<{ error: NextResponse; ctx?: never } | { error?: never; ctx: OrgContext }> {
+  const del = await requireCrmDelete(req);
+  if (del.error) return del;
+
+  const denied = denyCrmPurge(del.ctx); // logs its own refusal
+  if (denied) return { error: denied };
+
+  return { ctx: del.ctx };
 }
 
 /**
@@ -209,6 +228,10 @@ const STATUS_BY_CODE: Record<string, number> = {
   COMPANY_ARCHIVED: 409,
   CONTACT_ARCHIVED: 409,
   PRODUCT_ARCHIVED: 409,
+  // purge (permanent delete) applies to ARCHIVED records only, and a company
+  // still referenced by deals is Restrict-protected
+  NOT_ARCHIVED: 409,
+  COMPANY_HAS_DEALS: 409,
   // a business conflict, not a server fault (CRM review H4 — these used to fall
   // through as UNKNOWN → an unlogged 500 on an ordinary rename collision)
   NAME_TAKEN: 409,
