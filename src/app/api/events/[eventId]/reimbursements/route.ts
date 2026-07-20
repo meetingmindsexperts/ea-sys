@@ -75,13 +75,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    const url = new URL(req.url);
+    // ?speakerId= narrows to one speaker's row — used by the speaker-profile
+    // Reimbursement card (same staff gate as the full list).
+    const speakerIdFilter = url.searchParams.get("speakerId");
     const reimbursements = await db.speakerReimbursement.findMany({
-      where: { eventId },
+      where: { eventId, ...(speakerIdFilter ? { speakerId: speakerIdFilter } : {}) },
       orderBy: { createdAt: "asc" },
       select: LIST_SELECT,
     });
-
-    const url = new URL(req.url);
     if (url.searchParams.get("export") === "csv") {
       // A bulk extraction of wire-transfer PII must leave a trace of who
       // pulled it and when (same rule as the RSVP roster export).

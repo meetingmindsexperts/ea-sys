@@ -8,6 +8,7 @@ import {
   Mail,
   Award,
   AlertCircle,
+  Banknote,
   Loader2,
   Plus,
   Pencil,
@@ -47,6 +48,12 @@ const AUDIT_LABELS: Record<string, string> = {
   SPEAKER_AGREEMENT_REVOKED: "Agreement revoked",
   PANELIST_SYNC: "Synced as Zoom panelist",
   CHECK_IN: "Checked in",
+  // Speaker reimbursement (actions remapped in activity-feed.ts)
+  REIMBURSEMENT_SUBMITTED: "Reimbursement form submitted",
+  REIMBURSEMENT_REOPENED: "Reimbursement form reopened for edits",
+  REIMBURSEMENT_INVITED: "Reimbursement form invite created",
+  REIMBURSEMENT_LINK_SENT: "Reimbursement link emailed",
+  REIMBURSEMENT_DELETED: "Reimbursement form deleted",
 };
 
 const CERT_LABELS: Record<string, string> = {
@@ -79,6 +86,7 @@ function iconFor(item: ActivityItem) {
     case "EMAIL_SENT":
       return Mail;
     default:
+      if (item.action?.startsWith("REIMBURSEMENT_")) return Banknote;
       return Activity;
   }
 }

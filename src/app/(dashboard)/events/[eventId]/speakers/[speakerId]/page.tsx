@@ -76,6 +76,7 @@ import { fileToBase64 } from "@/lib/file-to-base64";
 import { resolveAttachmentMime } from "@/lib/email-attachment-limits";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { SpeakerDocumentsCard } from "@/components/speakers/speaker-documents-card";
+import { SpeakerReimbursementCard } from "@/components/speakers/speaker-reimbursement-card";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
 import { cn, formatPersonName, formatDateTime } from "@/lib/utils";
@@ -1098,6 +1099,10 @@ export default function SpeakerDetailPage() {
           </Card>
 
           <SpeakerDocumentsCard eventId={eventId} speakerId={speakerId} />
+
+          {/* Reimbursement (wire-transfer claim) — self-hides for roles
+              outside the SUPER_ADMIN/ADMIN/ORGANIZER boundary. */}
+          <SpeakerReimbursementCard eventId={eventId} speakerId={speakerId} />
 
           {/* Registration (attendee facet) — the linked companion (or
               email-matched) registration that gives this speaker their badge /

@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
   Banknote,
@@ -24,6 +25,7 @@ import {
   Eye,
   FileText,
   Loader2,
+  PenLine,
   Plus,
   RotateCcw,
   Send,
@@ -42,7 +44,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { useEvent, useSpeakers } from "@/hooks/use-api";
+import { EmailPreviewDialog } from "@/components/email-preview-dialog";
+import { useEmailTemplates, useEvent, usePreviewEmailBySlug, useSpeakers } from "@/hooks/use-api";
 import { formatPersonName } from "@/lib/utils";
 import {
   canManageReimbursements,
@@ -120,6 +123,21 @@ export default function ReimbursementsPage() {
   const [sending, setSending] = useState(false);
   const [detail, setDetail] = useState<ReimbursementRow | null>(null);
   const [busyRowId, setBusyRowId] = useState<string | null>(null);
+  const previewMutation = usePreviewEmailBySlug(eventId);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(
+    null,
+  );
+  // The templates list GET auto-seeds every system default as an editable
+  // per-event row, so the invitation template always has a deep-linkable id.
+  const { data: templatesData } = useEmailTemplates(eventId);
+  const invitationTemplateId = useMemo(
+    () =>
+      (templatesData?.templates as { id: string; slug: string }[] | undefined)?.find(
+        (t) => t.slug === "speaker-reimbursement-invitation",
+      )?.id ?? null,
+    [templatesData],
+  );
 
   const role = session?.user?.role;
   const allowed = canManageReimbursements(role);
@@ -231,6 +249,24 @@ export default function ReimbursementsPage() {
     },
     [eventId, sendTarget, sendSubject, sendMessage],
   );
+
+  // Renders exactly what the send would produce — the (possibly organizer-
+  // edited) template + the typed subject/message overrides, with real event
+  // branding + sample per-recipient values.
+  const handlePreview = useCallback(async () => {
+    try {
+      const result = await previewMutation.mutateAsync({
+        slug: "speaker-reimbursement-invitation",
+        customSubject: sendSubject.trim() || undefined,
+        customMessage: sendMessage.trim() || undefined,
+      });
+      setPreviewData(result);
+      setPreviewOpen(true);
+    } catch (err) {
+      console.error("reimbursements:preview-error", err);
+      toast.error(err instanceof Error ? err.message : "Failed to generate preview");
+    }
+  }, [previewMutation, sendSubject, sendMessage]);
 
   const handleCopyLink = useCallback(
     async (row: ReimbursementRow) => {
@@ -559,8 +595,20 @@ export default function ReimbursementsPage() {
             <DialogTitle>Email reimbursement links</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Each speaker receives their own personalized link (the &quot;Speaker Reimbursement
-            Form&quot; email template — editable under Communications → Email Templates).
+            Each speaker receives their own personalized link, using the{" "}
+            <strong>Speaker Reimbursement Form</strong> email template.{" "}
+            {invitationTemplateId ? (
+              <Link
+                href={`/events/${eventId}/communications/templates/${invitationTemplateId}`}
+                target="_blank"
+                className="inline-flex items-center gap-1 text-primary hover:underline"
+              >
+                <PenLine className="h-3.5 w-3.5" /> Edit the template
+              </Link>
+            ) : (
+              <span>Edit it under Communications → Email Templates.</span>
+            )}{" "}
+            <span>(opens in a new tab — your draft here is kept)</span>
           </p>
           <div className="space-y-3">
             <div className="flex gap-2">
@@ -600,17 +648,41 @@ export default function ReimbursementsPage() {
               />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSendOpen(false)}>
-              Cancel
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={() => void handlePreview()}
+              disabled={previewMutation.isPending}
+            >
+              {previewMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <Eye className="h-4 w-4 mr-1" /> Preview
+                </>
+              )}
             </Button>
-            <Button onClick={() => void handleSend()} disabled={sending}>
-              {sending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-              Send
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setSendOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void handleSend()} disabled={sending}>
+                {sending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                Send
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {previewData && (
+        <EmailPreviewDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          subject={previewData.subject}
+          htmlContent={previewData.htmlContent}
+        />
+      )}
 
       {/* Detail */}
       <Dialog open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>

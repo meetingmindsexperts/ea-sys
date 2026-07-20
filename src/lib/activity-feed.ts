@@ -57,7 +57,7 @@ async function collect(
 ): Promise<ActivityItem[]> {
   const items: ActivityItem[] = [];
 
-  const [spkAudit, spkEmail, spkCerts, regAudit, regEmail, regCerts] = await Promise.all([
+  const [spkAudit, spkEmail, spkCerts, regAudit, regEmail, regCerts, reimbAudit] = await Promise.all([
     speakerId
       ? db.auditLog.findMany({
           where: { entityType: "Speaker", entityId: speakerId },
@@ -89,6 +89,24 @@ async function collect(
           orderBy: { issuedAt: "desc" },
           select: { id: true, serial: true, type: true, issuedAt: true, revokedAt: true, pdfUrl: true },
         })
+      : Promise.resolve([]),
+    // Speaker-reimbursement trail (submit / reopen). Audits are keyed on the
+    // reimbursement row's own id (entityType SPEAKER_REIMBURSEMENT), so the
+    // speaker's row is resolved first; a deleted reimbursement drops out of
+    // the feed with its row (the DELETE audit stays in AuditLog itself).
+    speakerId
+      ? db.speakerReimbursement
+          .findUnique({ where: { speakerId }, select: { id: true } })
+          .then((r) =>
+            r
+              ? db.auditLog.findMany({
+                  where: { entityType: "SPEAKER_REIMBURSEMENT", entityId: r.id },
+                  orderBy: { createdAt: "desc" },
+                  take: 50,
+                  select: AUDIT_SELECT,
+                })
+              : [],
+          )
       : Promise.resolve([]),
   ]);
 
@@ -145,6 +163,20 @@ async function collect(
   pushAudit(spkAudit, "speaker");
   pushEmail(spkEmail, "speaker");
   pushCerts(spkCerts, "speaker");
+  // Remap the generic audit verbs to reimbursement-specific actions so the
+  // timeline reads "Reimbursement form submitted", not a bare "Updated".
+  // (The only UPDATE this entity gets is the organizer reopen.)
+  const REIMB_ACTIONS: Record<string, string> = {
+    SUBMIT: "REIMBURSEMENT_SUBMITTED",
+    UPDATE: "REIMBURSEMENT_REOPENED",
+    CREATE: "REIMBURSEMENT_INVITED",
+    DELETE: "REIMBURSEMENT_DELETED",
+    SEND: "REIMBURSEMENT_LINK_SENT",
+  };
+  pushAudit(
+    reimbAudit.map((r) => ({ ...r, action: REIMB_ACTIONS[r.action] ?? `REIMBURSEMENT_${r.action}` })),
+    "speaker",
+  );
   pushAudit(regAudit, "registration");
   pushEmail(regEmail, "registration");
   pushCerts(regCerts, "registration");

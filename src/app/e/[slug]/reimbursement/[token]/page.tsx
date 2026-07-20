@@ -388,12 +388,20 @@ export default function ReimbursementFormPage() {
 
   return (
     <div className="min-h-screen bg-muted/30 pb-16">
-      <EventBanner
-        banner={data.event.bannerImage}
-        bannerMobile={data.event.bannerImageMobile}
-        name={data.event.name}
-        className="w-full h-40 sm:h-56 object-cover"
-      />
+      {/* Same constrained banner band as the other public pages (register):
+          natural aspect, capped width — a wide banner never stretches
+          edge-to-edge on large screens. */}
+      <div className="bg-background border-b">
+        <div className="max-w-[1120px] mx-auto">
+          <EventBanner
+            banner={data.event.bannerImage}
+            bannerMobile={data.event.bannerImageMobile}
+            name={data.event.name}
+            className="block w-full h-auto"
+            priority
+          />
+        </div>
+      </div>
       <div className="max-w-3xl mx-auto px-4 -mt-2">
         <div className="bg-background rounded-lg shadow-sm border p-6 sm:p-10 mt-6">
           <div className="mb-8">
