@@ -335,6 +335,7 @@ model Event {
   surveyResponses           SurveyResponse[]
   rsvpDinners               RsvpDinner[]
   rsvpInvites               RsvpInvite[]
+  speakerReimbursements     SpeakerReimbursement[]
 
   // CRM module — SetNull, so a sponsorship deal (revenue history) outlives the
   // event it was sold against.
@@ -1124,6 +1125,7 @@ model Speaker {
   issuedCertificates       IssuedCertificate[]
   certificateIssueRunItems CertificateIssueRunItem[]
   documents                SpeakerDocument[]
+  reimbursement            SpeakerReimbursement?
 
   @@unique([eventId, email])
   @@index([eventId])
@@ -2362,6 +2364,98 @@ model RsvpDinnerResponse {
   @@unique([inviteId, dinnerId])
   @@index([dinnerId])
   @@index([inviteId])
+}
+
+// ── Speaker reimbursement (July 20, 2026) ──────────────────────────
+// Web replacement for the paper "Speaker / Faculty Reimbursement Form"
+// (bank wire transfer request). One reimbursement per speaker per event
+// (speakerId is unique; Speaker is already event-scoped). The speaker
+// fills it via a personalized token link (/e/{slug}/reimbursement/{token})
+// — no login. v1 is SUBMISSION-ONLY (owner decision): PENDING → SUBMITTED;
+// approval/payment tracking stays outside the system. Submitted forms are
+// LOCKED; an organizer "Reopen for edits" flips back to PENDING (audited).
+//
+// PII note: passportNumber + bankDetails are wire-transfer data — the most
+// sensitive fields in the system. All dashboard routes are gated to
+// SUPER_ADMIN/ADMIN/ORGANIZER via denyReviewer (its restricted set is
+// exactly the excluded population — owner decision July 20). Uploaded
+// documents (passport scans, receipts) live under
+// public/uploads/reimbursements/ so they ride the persistent Docker volume
+// + hourly DR sync, but the public /uploads catch-all BLOCKS that prefix —
+// files stream only through the authed documents route.
+
+enum ReimbursementStatus {
+  PENDING // invited / reopened — the speaker can (re)submit
+  SUBMITTED // locked; organizer may reopen
+}
+
+model SpeakerReimbursement {
+  id        String              @id @default(cuid())
+  eventId   String
+  speakerId String              @unique
+  token     String              @unique
+  status    ReimbursementStatus @default(PENDING)
+
+  // Section B — speaker/faculty details (prefilled from Speaker, editable
+  // by the speaker; snapshot on this row so a later Speaker edit doesn't
+  // rewrite what was signed).
+  fullName       String? // as on passport
+  designation    String?
+  institution    String?
+  country        String?
+  email          String?
+  phone          String?
+  nationality    String?
+  passportNumber String?
+  roleAtEvent    String?
+
+  // Section C — claim lines: [{ item, currency, amount }] with
+  // item ∈ SPEAKER_FEE|FLIGHT|HOTEL|TRANSPORT|OTHER, currency ∈ USD|AED|SAR.
+  claimLines Json?
+
+  // Section D — bank transfer details: { beneficiaryName, beneficiaryAddress,
+  // bankName, bankAddress, bankCountry, accountNumber, iban, swift,
+  // routingNumber, sortCode, intermediaryBank }. Never queried, only
+  // displayed to staff — hence one JSON blob, not columns.
+  bankDetails Json?
+
+  // Section F — declaration (typed-name e-signature, same shape as the
+  // speaker-agreement acceptance trail).
+  signedName  String?
+  submittedAt DateTime?
+  submittedIp String?
+
+  // Soft ref (no FK) to the staff user who created the invite — the audit
+  // log is the authoritative trail, same pattern as RsvpInvite's soft refs.
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event     Event                          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker   Speaker                        @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  documents SpeakerReimbursementDocument[]
+
+  @@index([eventId])
+  @@index([eventId, status])
+}
+
+model SpeakerReimbursementDocument {
+  id              String   @id @default(cuid())
+  reimbursementId String
+  // PASSPORT | FLIGHT_RECEIPT | HOTEL_INVOICE | TRANSPORT_RECEIPT | OTHER —
+  // a string (not an enum) so adding a kind never needs a migration.
+  kind            String
+  // Path under /uploads/reimbursements/{eventId}/ — NOT publicly served
+  // (blocked in the /uploads catch-all); streams via the authed route only.
+  url             String
+  filename        String
+  mimeType        String
+  size            Int
+  createdAt       DateTime @default(now())
+
+  reimbursement SpeakerReimbursement @relation(fields: [reimbursementId], references: [id], onDelete: Cascade)
+
+  @@index([reimbursementId])
 }
 
 // ── Worker job runs ────────────────────────────────────────────────

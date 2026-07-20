@@ -30,6 +30,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
   Award,
+  Banknote,
   CheckCircle2,
   Circle,
   ClipboardList,
@@ -161,6 +162,16 @@ const SETUP_CARDS: SetupCardConfig[] = [
       "bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
     hoverBorder: "hover:border-orange-400",
   },
+  {
+    slug: "reimbursements",
+    title: "Speaker Reimbursements",
+    description:
+      "Send speakers a personalized link to claim their speaker fee, flights, hotel and transport — receipts + bank details collected online, ready for finance.",
+    icon: Banknote,
+    colorClasses:
+      "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+    hoverBorder: "hover:border-emerald-400",
+  },
 ];
 
 // Finance-only card — appended to the hub for finance-capable roles
@@ -233,6 +244,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
       db.emailTemplate.count({ where: { eventId } }),
       db.invoice.count({ where: { eventId } }),
       db.rsvpDinner.count({ where: { eventId } }),
+      db.speakerReimbursement.count({ where: { eventId } }),
     ]);
   } catch (err) {
     apiLogger.error({ err, msg: "setup-hub:load-failed", eventId });
@@ -250,6 +262,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
     emailTemplateCount,
     invoiceCount,
     dinnerCount,
+    reimbursementCount,
   ] = result;
   if (!event) notFound();
 
@@ -307,6 +320,10 @@ export default async function SetupPage({ params }: SetupPageProps) {
     dinner: {
       configured: dinnerCount > 0,
       count: dinnerCount,
+    },
+    reimbursements: {
+      configured: reimbursementCount > 0,
+      count: reimbursementCount,
     },
     invoices: {
       configured: true,

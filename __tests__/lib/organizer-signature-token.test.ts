@@ -30,6 +30,7 @@ const EXCLUDED_SLUGS = new Set([
   "refund-confirmation", // transactional
   "certificate-bundle-delivery", // rendered by the certificate cover pipeline (own token resolver)
   "document-delivery", // transactional — invoice/receipt/credit-note PDF carrier, no human sender
+  "speaker-reimbursement-received", // transactional — automated submit confirmation, no human sender
 ]);
 
 const BRANDING = { eventName: "OSH" };

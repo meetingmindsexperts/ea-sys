@@ -33,6 +33,17 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
+  // Speaker-reimbursement documents (passport scans, receipts backing wire
+  // transfers) are PRIVATE. They live under public/uploads so they ride the
+  // persistent Docker volume + hourly DR sync like every other upload, but
+  // they must NEVER be served by this public catch-all — they stream only
+  // through the authed route
+  // /api/events/[eventId]/reimbursements/[id]/documents/[documentId].
+  if (path[0] === "reimbursements") {
+    apiLogger.warn({ msg: "Private reimbursement upload blocked on public route", path: path.join("/") });
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
   // Only serve from /uploads/ — no other subdirectory of public
   const uploadsRoot = resolve(process.cwd(), "public", "uploads");
   const filePath = join(uploadsRoot, ...path);

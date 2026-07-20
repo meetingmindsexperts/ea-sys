@@ -1276,6 +1276,25 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "organizerName", description: "Organizing team / organization name" },
     { key: "organizerSignature", description: "The sending user's email signature (from their profile)" },
   ],
+  "speaker-reimbursement-invitation": [
+    { key: "firstName", description: "Speaker first name" },
+    { key: "lastName", description: "Speaker last name" },
+    { key: "speakerName", description: "Speaker full name with title prefix (e.g. Dr. Jane Doe)" },
+    { key: "email", description: "Speaker email address" },
+    { key: "eventName", description: "Event name" },
+    { key: "reimbursementLink", description: "The speaker's personalized reimbursement-form link (unique per recipient)" },
+    { key: "personalMessage", description: "Optional note typed by the organizer at send time" },
+    { key: "organizerName", description: "Organizing team / organization name" },
+    { key: "organizerSignature", description: "The sending user's email signature (from their profile)" },
+  ],
+  "speaker-reimbursement-received": [
+    { key: "firstName", description: "Speaker first name" },
+    { key: "speakerName", description: "Full name as submitted on the form" },
+    { key: "eventName", description: "Event name" },
+    { key: "claimSummary", description: "HTML table of the claimed items + per-currency totals" },
+    { key: "claimSummaryText", description: "Plain-text list of the claimed items" },
+    { key: "organizerName", description: "Organizing team / organization name" },
+  ],
 };
 
 // ── Default template HTML (body fragments only — wrapped at render time) ──────
@@ -2232,6 +2251,74 @@ Best regards,
 
 {{organizerSignature}}`,
   },
+
+  {
+    slug: "speaker-reimbursement-invitation",
+    name: "Speaker Reimbursement Form",
+    // Sent (single or batch) to speakers with their personalized
+    // {{reimbursementLink}} — the web replacement for the paper
+    // "Speaker / Faculty Reimbursement Form". Editable per-event under
+    // Communications → Email Templates.
+    subject: "Reimbursement form — {{eventName}}",
+    htmlContent: `<div style="padding: 24px 0;">
+    <p>Dear <strong>{{speakerName}}</strong>,</p>
+    <p>Thank you for taking part in <strong>{{eventName}}</strong>. To arrange your reimbursement (speaker fee, flights, hotel and ground transport where agreed), please complete the secure form below and upload your receipts.</p>
+    {{personalMessage}}
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{reimbursementLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600;">Complete the reimbursement form</a>
+    </div>
+    <p style="color: #6b7280; font-size: 13px; margin: 0 0 16px 0;">Or copy this link into your browser:<br><span style="word-break: break-all; color: #00aade;">{{reimbursementLink}}</span></p>
+    <div style="background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin: 0 0 16px 0;">
+      <p style="margin: 0; font-size: 14px;">Please have ready: your passport photo page, bank transfer details (IBAN / SWIFT), and receipts for every expense you claim. <strong>Expenses without receipts cannot be processed.</strong></p>
+    </div>
+    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong></p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Reimbursement form — {{eventName}}
+
+Dear {{speakerName}},
+
+Thank you for taking part in {{eventName}}. To arrange your reimbursement, please complete the secure form and upload your receipts:
+{{reimbursementLink}}
+
+{{personalMessage}}
+
+Please have ready: your passport photo page, bank transfer details (IBAN / SWIFT), and receipts for every expense you claim. Expenses without receipts cannot be processed.
+
+Best regards,
+{{organizerName}}
+
+{{organizerSignature}}`,
+  },
+
+  {
+    slug: "speaker-reimbursement-received",
+    name: "Reimbursement Form Received",
+    // Automated confirmation to the speaker right after they submit —
+    // their timestamped receipt (the declaration promises processing
+    // within 45 days of receipt of the completed form + documents).
+    // No {{organizerSignature}}: automated send, renders empty anyway.
+    subject: "We received your reimbursement form — {{eventName}}",
+    htmlContent: `<div style="padding: 24px 0;">
+    <p>Dear <strong>{{speakerName}}</strong>,</p>
+    <p>We&apos;ve received your reimbursement form for <strong>{{eventName}}</strong>. Here is a summary of your claim:</p>
+    {{claimSummary}}
+    <p>Payment will be processed by bank wire transfer within <strong>45 days</strong> of receipt of the completed form and all required supporting documents. Please note that bank charges and currency conversion fees are not covered.</p>
+    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong></p>
+  </div>`,
+    textContent: `We received your reimbursement form — {{eventName}}
+
+Dear {{speakerName}},
+
+We've received your reimbursement form for {{eventName}}. Summary of your claim:
+
+{{claimSummaryText}}
+
+Payment will be processed by bank wire transfer within 45 days of receipt of the completed form and all required supporting documents. Bank charges and currency conversion fees are not covered.
+
+Best regards,
+{{organizerName}}`,
+  },
 ];
 
 // ── Helper to get a default template by slug ───────────────────────────────────
@@ -2575,6 +2662,12 @@ export function getSamplePreviewVariables(
     // Dinner-RSVP invitation placeholder — real sends use each invitee's token.
     rsvpLink: "#",
     dinnerWord: "dinners",
+    // Speaker-reimbursement placeholders — real sends use each speaker's
+    // token link; the claim summary renders from the actual submission.
+    reimbursementLink: "#",
+    claimSummary:
+      '<table style="width:100%;border-collapse:collapse;margin:12px 0;"><tr><td style="padding:6px 0;color:#6b7280;">Speaker Fee</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 1,000.00</td></tr><tr><td style="padding:6px 0;color:#6b7280;">Flight Reimbursement</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 850.00</td></tr><tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:600;">Total</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;text-align:right;font-weight:600;">USD 1,850.00</td></tr></table>',
+    claimSummaryText: "Speaker Fee: USD 1000.00\nFlight Reimbursement: USD 850.00",
     daysUntilEvent: 7,
     subject: "Custom Subject",
     message: "This is a custom message body.",
