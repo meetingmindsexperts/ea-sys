@@ -288,7 +288,11 @@ const OWN_WRITE_TOLERANCE_MS = 5_000;
  *  - no match                            → create
  *  - matched an EA-born row (never
  *    imported: lastImportedAt null)      → enrich (fill blanks + stamp the
- *    externalId; NEVER overwrite what a human typed — the enrich-only-sync rule)
+ *    externalId; NEVER overwrite what a human typed — the enrich-only-sync rule).
+ *    EA-born rows stay enrich FOREVER: the importer deliberately never stamps
+ *    lastImportedAt on an enrich, because stamping it would graduate the row to
+ *    the Freshsales-wins `update` path on the NEXT import and overwrite (or
+ *    NULL) exactly the human-typed fields the enrich preserved (review R2-H1)
  *  - previously imported, untouched
  *    in EA-SYS since                     → update (Freshsales wins)
  *  - previously imported, but edited in

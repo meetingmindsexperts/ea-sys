@@ -267,6 +267,14 @@ export async function addDealProduct(input: {
     });
     return { ok: true, line };
   } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      // The @@unique([dealId, crmProductId]) backstop (review R2-H2): a
+      // concurrent add raced past the findFirst check above — the loser's
+      // constraint violation is the same business fact, not a 500.
+      return reject("PRODUCT_ALREADY_ON_DEAL", "That product is already on this deal — edit its quantity instead", {
+        organizationId: input.organizationId, dealId: input.dealId, crmProductId: input.crmProductId, race: true,
+      });
+    }
     apiLogger.error({ msg: "crm-product:deal-add-failed", dealId: input.dealId, err: err instanceof Error ? err.message : String(err) });
     return { ok: false, code: "UNKNOWN", message: "Could not add the product" };
   }

@@ -2662,7 +2662,14 @@ model CrmDealProduct {
 
   createdAt DateTime @default(now())
 
-  @@index([dealId])
+  // One line per catalog product per deal (review R2-H2): the
+  // PRODUCT_ALREADY_ON_DEAL check in addDealProduct is check-then-act, so this
+  // unique is the backstop that makes concurrent duplicate adds unrepresentable
+  // (the loser's P2002 maps back to PRODUCT_ALREADY_ON_DEAL). Rows whose
+  // catalog product was deleted (crmProductId NULL via SetNull) stay exempt —
+  // Postgres treats NULLs as distinct in a unique index. The unique's leftmost
+  // column covers dealId lookups, so no separate @@index([dealId]).
+  @@unique([dealId, crmProductId])
   @@index([crmProductId])
 }
 

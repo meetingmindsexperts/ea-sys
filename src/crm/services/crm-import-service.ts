@@ -136,10 +136,16 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
         }));
 
       const action = decideImportAction(existing);
+      // R2-H1: the enrich path deliberately does NOT stamp lastImportedAt — an
+      // EA-born row stays enrich-FOREVER. Stamping it here made the SECOND
+      // import of the same export take the Freshsales-wins `update` path and
+      // overwrite (or NULL) the very human-typed fields the first import's
+      // enrich preserved. The externalId is still stamped so later imports
+      // match by id; decideImportAction keeps returning "enrich" for the row.
       const stamp = {
         externalSource: FRESHSALES_SOURCE,
         externalId: row.externalId ?? existing?.externalId ?? null,
-        lastImportedAt: new Date(),
+        ...(action === "enrich" ? {} : { lastImportedAt: new Date() }),
       };
 
       if (action === "create") {
@@ -264,10 +270,16 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
         }));
 
       const action = decideImportAction(existing);
+      // R2-H1: the enrich path deliberately does NOT stamp lastImportedAt — an
+      // EA-born row stays enrich-FOREVER. Stamping it here made the SECOND
+      // import of the same export take the Freshsales-wins `update` path and
+      // overwrite (or NULL) the very human-typed fields the first import's
+      // enrich preserved. The externalId is still stamped so later imports
+      // match by id; decideImportAction keeps returning "enrich" for the row.
       const stamp = {
         externalSource: FRESHSALES_SOURCE,
         externalId: row.externalId ?? existing?.externalId ?? null,
-        lastImportedAt: new Date(),
+        ...(action === "enrich" ? {} : { lastImportedAt: new Date() }),
       };
       const companyId = await resolveCompany.idFor(row.companyName);
       const dryCompany = typeof companyId === "string" && companyId.startsWith("dry:");

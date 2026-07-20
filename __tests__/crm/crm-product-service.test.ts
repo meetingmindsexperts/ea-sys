@@ -23,6 +23,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/crm/lib/crm-activity", () => ({ recordCrmActivity: vi.fn(() => Promise.resolve({})) }));
 
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import {
@@ -136,6 +137,24 @@ describe("addDealProduct — the guards", () => {
     vi.mocked(db.crmDealProduct.findFirst).mockResolvedValue({ id: "existing" } as never);
     expect(await addDealProduct({ ...base, dealId: "d-1", crmProductId: "p-1" })).toMatchObject({ code: "PRODUCT_ALREADY_ON_DEAL" });
     expect(db.crmDealProduct.create).not.toHaveBeenCalled();
+  });
+
+  it("R2-H2: the P2002 loser of a concurrent add maps to PRODUCT_ALREADY_ON_DEAL, not a 500", async () => {
+    // Both racers pass the findFirst check (check-then-act); the loser hits the
+    // @@unique([dealId, crmProductId]) backstop and must surface as the same
+    // business fact the serial path reports.
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({ id: "d-1" } as never);
+    vi.mocked(db.crmProduct.findFirst).mockResolvedValue(product as never);
+    vi.mocked(db.crmDealProduct.findFirst).mockResolvedValue(null as never);
+    vi.mocked(db.crmDealProduct.create).mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed on the fields: (`dealId`,`crmProductId`)", {
+        code: "P2002",
+        clientVersion: "0.0.0",
+      }),
+    );
+    expect(await addDealProduct({ ...base, dealId: "d-1", crmProductId: "p-1" })).toMatchObject({ code: "PRODUCT_ALREADY_ON_DEAL" });
+    // The loser adds nothing to the deal's History — the winner's row already tells the story.
+    expect(recordCrmActivity).not.toHaveBeenCalled();
   });
 
   it("snapshots name/category and pre-fills price from the catalog, and records deal history", async () => {

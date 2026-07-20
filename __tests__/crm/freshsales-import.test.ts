@@ -5,7 +5,10 @@
  * these tests pin:
  *   1. decideImportAction — Freshsales wins on re-import UNLESS the record was
  *      edited in EA-SYS after its last import (then EA wins, reported), and an
- *      EA-born row is only ever ENRICHED (blanks filled), never overwritten.
+ *      EA-born row is only ever ENRICHED (blanks filled), never overwritten —
+ *      on EVERY import, not just the first: the enrich write must not stamp
+ *      lastImportedAt, or the second import graduates the row to the
+ *      Freshsales-wins update path and clobbers human data (review R2-H1).
  *   2. externalId is the upsert key — re-importing the same export must
  *      converge, never duplicate.
  */
@@ -39,7 +42,7 @@ import {
   CONTACT_FIELDS,
   DEAL_FIELDS,
 } from "@/crm/lib/freshsales-import";
-import { importFreshsalesCompanies, importFreshsalesDeals } from "@/crm/services/crm-import-service";
+import { importFreshsalesCompanies, importFreshsalesContacts, importFreshsalesDeals } from "@/crm/services/crm-import-service";
 import { parseCSVHeaders } from "@/lib/csv-parser";
 
 const ORG = "org-1";
@@ -229,6 +232,33 @@ describe("importFreshsalesCompanies", () => {
     expect(update.data).not.toHaveProperty("website");
     // …but the source id is stamped so the next import upserts by id.
     expect(update.data.externalId).toBe("a-1");
+    // R2-H1: the enrich must NOT stamp lastImportedAt — with it stamped, the
+    // SECOND import of the same file sees "previously imported, untouched"
+    // and takes the Freshsales-wins update path, overwriting (or NULLing)
+    // exactly the human data this enrich just preserved. EA-born rows stay
+    // enrich-forever.
+    expect(update.data).not.toHaveProperty("lastImportedAt");
+  });
+
+  it("R2-H1: a contact enrich also keeps lastImportedAt unstamped — human fields survive every re-import cycle", async () => {
+    const contactCsv = `Id,First name,Last name,Emails,Job title\nc-1,Sara,Khan,s.khan@abbott.com,Procurement Lead`;
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never); // company resolver prefetch
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue({
+      id: "ct-1", firstName: "Sara", lastName: "Khan",
+      email: "s.khan@abbott.com", emailKey: "s.khan@abbott.com",
+      jobTitle: "Human-typed title", phone: null, country: null, companyId: null,
+      updatedAt: new Date(), lastImportedAt: null,
+    } as never);
+
+    const res = await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: contactCsv, dryRun: false });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(res.enriched).toBe(1);
+    const update = vi.mocked(db.crmContact.update).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(update.data).not.toHaveProperty("jobTitle"); // human value kept (enrich fills blanks only)
+    expect(update.data).not.toHaveProperty("lastImportedAt"); // …and stays EA-born for the next import
+    expect(update.data.externalId).toBe("c-1");
   });
 
   it("keeps EA-SYS edits on re-import (kept-local), and reports it", async () => {
