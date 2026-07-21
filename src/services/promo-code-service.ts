@@ -345,3 +345,157 @@ export async function removePromoCodeFromRegistration(input: {
     return { ok: false, code: "UNKNOWN", message: "Failed to remove promo code" };
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Promo-code CREATION (duplication-audit finding 2, July 21, 2026).
+//
+// The REST POST /api/events/[eventId]/promo-codes and MCP `create_promo_code`
+// used to mint codes with two separately-maintained inline implementations that
+// had drifted: the MCP path wrote NO audit log (an agent-minted discount code
+// was untracked), REST never validated ticketTypeIds belong to the event, and
+// MCP never enforced FIXED_AMOUNT-requires-currency. This service is now the
+// ONE create path; both callers delegate and keep only parsing + response
+// shaping.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CreatePromoCodeErrorCode =
+  | "EVENT_NOT_FOUND"
+  | "INVALID_CODE"
+  | "INVALID_DISCOUNT"
+  | "INVALID_TICKET_TYPES"
+  | "DUPLICATE_CODE"
+  | "UNKNOWN";
+
+export interface CreatePromoCodeInput {
+  eventId: string;
+  organizationId: string;
+  /** null for API-key MCP callers with no user context. */
+  actorUserId: string | null;
+  source: PromoServiceSource;
+  code: string;
+  description?: string | null;
+  discountType: "PERCENTAGE" | "FIXED_AMOUNT";
+  discountValue: number;
+  currency?: string | null;
+  maxUses?: number | null;
+  maxUsesPerEmail?: number | null;
+  validFrom?: Date | null;
+  validUntil?: Date | null;
+  isActive?: boolean;
+  ticketTypeIds?: string[];
+}
+
+const PROMO_CREATE_INCLUDE = {
+  ticketTypes: {
+    include: { ticketType: { select: { id: true, name: true } } },
+  },
+  _count: { select: { redemptions: true } },
+} satisfies Prisma.PromoCodeInclude;
+
+export type CreatedPromoCode = Prisma.PromoCodeGetPayload<{ include: typeof PROMO_CREATE_INCLUDE }>;
+
+export type CreatePromoCodeResult =
+  | { ok: true; promoCode: CreatedPromoCode }
+  | { ok: false; code: CreatePromoCodeErrorCode; message: string };
+
+export async function createPromoCode(input: CreatePromoCodeInput): Promise<CreatePromoCodeResult> {
+  try {
+    const code = input.code.toUpperCase().trim();
+    if (!code || code.length > 50) {
+      return { ok: false, code: "INVALID_CODE", message: "code is required (1-50 chars)" };
+    }
+    if (!Number.isFinite(input.discountValue) || input.discountValue <= 0) {
+      return { ok: false, code: "INVALID_DISCOUNT", message: "discountValue must be a positive number" };
+    }
+    if (input.discountType === "PERCENTAGE" && input.discountValue > 100) {
+      return { ok: false, code: "INVALID_DISCOUNT", message: "Percentage discount cannot exceed 100%" };
+    }
+    if (input.discountType === "FIXED_AMOUNT" && !input.currency) {
+      return { ok: false, code: "INVALID_DISCOUNT", message: "Currency is required for fixed amount discounts" };
+    }
+
+    const event = await db.event.findFirst({
+      where: { id: input.eventId, organizationId: input.organizationId },
+      select: { id: true },
+    });
+    if (!event) {
+      return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found or access denied" };
+    }
+
+    const ticketTypeIds = input.ticketTypeIds ?? [];
+    if (ticketTypeIds.length > 0) {
+      // Applicability links must stay inside this event (the MCP path always
+      // checked this; REST used to link foreign ticket types silently).
+      const valid = await db.ticketType.count({
+        where: { id: { in: ticketTypeIds }, eventId: input.eventId },
+      });
+      if (valid !== ticketTypeIds.length) {
+        return { ok: false, code: "INVALID_TICKET_TYPES", message: "One or more ticketTypeIds not found in this event" };
+      }
+    }
+
+    const existing = await db.promoCode.findUnique({
+      where: { eventId_code: { eventId: input.eventId, code } },
+      select: { id: true },
+    });
+    if (existing) {
+      return { ok: false, code: "DUPLICATE_CODE", message: "A promo code with this code already exists" };
+    }
+
+    const promoCode = await db.promoCode.create({
+      data: {
+        eventId: input.eventId,
+        code,
+        description: input.description ?? null,
+        discountType: input.discountType,
+        discountValue: input.discountValue,
+        currency: input.currency ?? null,
+        maxUses: input.maxUses != null ? Math.max(1, input.maxUses) : null,
+        maxUsesPerEmail: input.maxUsesPerEmail != null ? Math.max(1, input.maxUsesPerEmail) : 1,
+        validFrom: input.validFrom ?? null,
+        validUntil: input.validUntil ?? null,
+        isActive: input.isActive ?? true,
+        ...(ticketTypeIds.length > 0
+          ? { ticketTypes: { create: ticketTypeIds.map((ticketTypeId) => ({ ticketTypeId })) } }
+          : {}),
+      },
+      include: PROMO_CREATE_INCLUDE,
+    });
+
+    // Service-owned audit — this is exactly what the MCP path used to skip.
+    db.auditLog
+      .create({
+        data: {
+          eventId: input.eventId,
+          userId: input.actorUserId,
+          action: "CREATE_PROMO_CODE",
+          entityType: "PromoCode",
+          entityId: promoCode.id,
+          changes: {
+            source: input.source,
+            code: promoCode.code,
+            discountType: promoCode.discountType,
+            discountValue: Number(promoCode.discountValue),
+          },
+        },
+      })
+      .catch((err) => apiLogger.warn({ msg: "promo:create-audit-failed", promoCodeId: promoCode.id, err }));
+
+    apiLogger.info({
+      msg: "promo:created",
+      promoCodeId: promoCode.id,
+      eventId: input.eventId,
+      code: promoCode.code,
+      source: input.source,
+    });
+    return { ok: true, promoCode };
+  } catch (err) {
+    // Race between the dup check and the create — the composite unique wins.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      apiLogger.warn({ msg: "promo:create-duplicate-race", eventId: input.eventId });
+      return { ok: false, code: "DUPLICATE_CODE", message: "A promo code with this code already exists" };
+    }
+    apiLogger.error({ err, msg: "promo:create-unknown", eventId: input.eventId });
+    return { ok: false, code: "UNKNOWN", message: "Failed to create promo code" };
+  }
+}

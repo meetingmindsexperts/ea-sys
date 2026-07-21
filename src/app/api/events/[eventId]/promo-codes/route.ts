@@ -5,6 +5,16 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { createPromoCode, type CreatePromoCodeErrorCode } from "@/services/promo-code-service";
+
+const HTTP_STATUS_FOR_PROMO_CREATE: Record<CreatePromoCodeErrorCode, number> = {
+  EVENT_NOT_FOUND: 404,
+  INVALID_CODE: 400,
+  INVALID_DISCOUNT: 400,
+  INVALID_TICKET_TYPES: 400,
+  DUPLICATE_CODE: 409,
+  UNKNOWN: 500,
+};
 
 const createPromoCodeSchema = z
   .object({
@@ -100,75 +110,35 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
-      select: { id: true },
-    });
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-
     const { ticketTypeIds, ...data } = parsed.data;
 
-    // Check for duplicate code
-    const existing = await db.promoCode.findUnique({
-      where: { eventId_code: { eventId, code: data.code } },
-      select: { id: true },
+    // Domain logic lives in promo-code-service.createPromoCode (shared with the
+    // MCP create_promo_code tool) — this route keeps auth, Zod, and HTTP mapping.
+    const result = await createPromoCode({
+      eventId,
+      organizationId: session.user.organizationId!,
+      actorUserId: session.user.id,
+      source: "rest",
+      code: data.code,
+      description: data.description ?? null,
+      discountType: data.discountType,
+      discountValue: data.discountValue,
+      currency: data.currency ?? null,
+      maxUses: data.maxUses ?? null,
+      maxUsesPerEmail: data.maxUsesPerEmail ?? 1,
+      validFrom: data.validFrom ? new Date(data.validFrom) : null,
+      validUntil: data.validUntil ? new Date(data.validUntil) : null,
+      isActive: data.isActive,
+      ticketTypeIds,
     });
-    if (existing) {
-      return NextResponse.json(
-        { error: "A promo code with this code already exists" },
-        { status: 409 }
-      );
+
+    if (!result.ok) {
+      const status = HTTP_STATUS_FOR_PROMO_CREATE[result.code] ?? 500;
+      apiLogger.warn({ msg: "events/promo-codes:create-rejected", eventId, code: result.code });
+      return NextResponse.json({ error: result.message, code: result.code }, { status });
     }
 
-    const promoCode = await db.promoCode.create({
-      data: {
-        eventId,
-        code: data.code,
-        description: data.description,
-        discountType: data.discountType,
-        discountValue: data.discountValue,
-        currency: data.currency,
-        maxUses: data.maxUses ?? null,
-        maxUsesPerEmail: data.maxUsesPerEmail ?? 1,
-        validFrom: data.validFrom ? new Date(data.validFrom) : null,
-        validUntil: data.validUntil ? new Date(data.validUntil) : null,
-        isActive: data.isActive,
-        ...(ticketTypeIds && ticketTypeIds.length > 0
-          ? {
-              ticketTypes: {
-                create: ticketTypeIds.map((ticketTypeId) => ({
-                  ticketTypeId,
-                })),
-              },
-            }
-          : {}),
-      },
-      include: {
-        ticketTypes: {
-          include: { ticketType: { select: { id: true, name: true } } },
-        },
-        _count: { select: { redemptions: true } },
-      },
-    });
-
-    // Non-blocking audit log
-    db.auditLog
-      .create({
-        data: {
-          eventId,
-          userId: session.user.id,
-          action: "CREATE_PROMO_CODE",
-          entityType: "PromoCode",
-          entityId: promoCode.id,
-          changes: { code: promoCode.code, discountType: promoCode.discountType, discountValue: Number(promoCode.discountValue) },
-        },
-      })
-      .catch((err) => apiLogger.error({ err, msg: "Audit log failed" }));
-
-    return NextResponse.json(promoCode, { status: 201 });
+    return NextResponse.json(result.promoCode, { status: 201 });
   } catch (error) {
     apiLogger.error({ error, msg: "Failed to create promo code" });
     return NextResponse.json(

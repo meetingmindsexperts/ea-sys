@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockApiLogger } = vi.hoisted(() => {
   const registration = { findFirst: vi.fn(), update: vi.fn() };
-  const promoCode = { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() };
+  const promoCode = { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn(), create: vi.fn() };
   const promoCodeRedemption = { deleteMany: vi.fn(), count: vi.fn(), create: vi.fn(), updateMany: vi.fn() };
   const $queryRaw = vi.fn().mockResolvedValue([{ id: "promo-1" }]);
   return {
@@ -16,6 +16,8 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => {
       registration,
       promoCode,
       promoCodeRedemption,
+      event: { findFirst: vi.fn() },
+      ticketType: { count: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       $transaction: vi.fn(async (cb: (tx: unknown) => unknown) =>
         cb({ registration, promoCode, promoCodeRedemption, $queryRaw }),
@@ -29,7 +31,7 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 
-import { applyPromoCodeToRegistration, removePromoCodeFromRegistration } from "@/services/promo-code-service";
+import { applyPromoCodeToRegistration, createPromoCode, removePromoCodeFromRegistration } from "@/services/promo-code-service";
 
 const REG = {
   id: "reg-1",
@@ -237,5 +239,111 @@ describe("removePromoCodeFromRegistration", () => {
     expect(mockDb.registration.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { promoCodeId: null, discountAmount: null } }),
     );
+  });
+});
+
+describe("createPromoCode (shared REST + MCP create path — audit-drift finding 2)", () => {
+  const CREATE_BASE = {
+    eventId: "evt-1",
+    organizationId: "org-1",
+    actorUserId: "u1",
+    source: "rest" as const,
+    code: "save20",
+    discountType: "PERCENTAGE" as const,
+    discountValue: 20,
+  };
+
+  beforeEach(() => {
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.promoCode.findUnique.mockResolvedValue(null); // no duplicate
+    mockDb.ticketType.count.mockResolvedValue(0);
+    mockDb.promoCode.create.mockResolvedValue({
+      id: "promo-new",
+      code: "SAVE20",
+      discountType: "PERCENTAGE",
+      discountValue: 20,
+      isActive: true,
+      ticketTypes: [],
+      _count: { redemptions: 0 },
+    });
+  });
+
+  it("creates the code (normalized uppercase) AND writes the audit row — the MCP path used to skip it", async () => {
+    const r = await createPromoCode({ ...CREATE_BASE, source: "mcp", actorUserId: null });
+    expect(r.ok).toBe(true);
+    expect(mockDb.promoCode.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ code: "SAVE20", eventId: "evt-1" }) }),
+    );
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "CREATE_PROMO_CODE",
+        entityType: "PromoCode",
+        entityId: "promo-new",
+        userId: null,
+        changes: expect.objectContaining({ source: "mcp", code: "SAVE20" }),
+      }),
+    });
+  });
+
+  it("EVENT_NOT_FOUND when the event isn't in the caller's org", async () => {
+    mockDb.event.findFirst.mockResolvedValue(null);
+    const r = await createPromoCode(CREATE_BASE);
+    expect(r).toMatchObject({ ok: false, code: "EVENT_NOT_FOUND" });
+    expect(mockDb.promoCode.create).not.toHaveBeenCalled();
+  });
+
+  it("INVALID_CODE for empty / over-long codes", async () => {
+    expect(await createPromoCode({ ...CREATE_BASE, code: "   " })).toMatchObject({ ok: false, code: "INVALID_CODE" });
+    expect(await createPromoCode({ ...CREATE_BASE, code: "x".repeat(51) })).toMatchObject({ ok: false, code: "INVALID_CODE" });
+  });
+
+  it("INVALID_DISCOUNT: non-positive value, percentage > 100, FIXED_AMOUNT without currency", async () => {
+    expect(await createPromoCode({ ...CREATE_BASE, discountValue: 0 })).toMatchObject({ ok: false, code: "INVALID_DISCOUNT" });
+    expect(await createPromoCode({ ...CREATE_BASE, discountValue: 101 })).toMatchObject({ ok: false, code: "INVALID_DISCOUNT" });
+    // FIXED_AMOUNT-requires-currency now holds on BOTH callers (MCP never enforced it).
+    expect(
+      await createPromoCode({ ...CREATE_BASE, discountType: "FIXED_AMOUNT", discountValue: 50, currency: null }),
+    ).toMatchObject({ ok: false, code: "INVALID_DISCOUNT" });
+  });
+
+  it("INVALID_TICKET_TYPES when a linked ticket type isn't in this event (REST used to link silently)", async () => {
+    mockDb.ticketType.count.mockResolvedValue(1); // asked for 2, only 1 belongs
+    const r = await createPromoCode({ ...CREATE_BASE, ticketTypeIds: ["tt-1", "tt-foreign"] });
+    expect(r).toMatchObject({ ok: false, code: "INVALID_TICKET_TYPES" });
+    expect(mockDb.promoCode.create).not.toHaveBeenCalled();
+  });
+
+  it("DUPLICATE_CODE on the composite-key pre-check", async () => {
+    mockDb.promoCode.findUnique.mockResolvedValue({ id: "promo-existing" });
+    const r = await createPromoCode(CREATE_BASE);
+    expect(r).toMatchObject({ ok: false, code: "DUPLICATE_CODE" });
+  });
+
+  it("DUPLICATE_CODE when the P2002 race loses to a concurrent create", async () => {
+    const { Prisma } = await import("@prisma/client");
+    mockDb.promoCode.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "x" }),
+    );
+    const r = await createPromoCode(CREATE_BASE);
+    expect(r).toMatchObject({ ok: false, code: "DUPLICATE_CODE" });
+  });
+
+  it("clamps maxUses / maxUsesPerEmail to >= 1 and defaults maxUsesPerEmail to 1", async () => {
+    await createPromoCode({ ...CREATE_BASE, maxUses: 0, maxUsesPerEmail: -5 });
+    expect(mockDb.promoCode.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ maxUses: 1, maxUsesPerEmail: 1 }) }),
+    );
+    mockDb.promoCode.create.mockClear();
+    await createPromoCode(CREATE_BASE);
+    expect(mockDb.promoCode.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ maxUses: null, maxUsesPerEmail: 1 }) }),
+    );
+  });
+
+  it("UNKNOWN on an unexpected DB failure (logged, never thrown)", async () => {
+    mockDb.promoCode.create.mockRejectedValue(new Error("boom"));
+    const r = await createPromoCode(CREATE_BASE);
+    expect(r).toMatchObject({ ok: false, code: "UNKNOWN" });
+    expect(mockApiLogger.error).toHaveBeenCalled();
   });
 });

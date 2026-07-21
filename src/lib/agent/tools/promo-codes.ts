@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { createPromoCode as createPromoCodeService } from "@/services/promo-code-service";
 import type { ToolExecutor } from "./_shared";
 
 const DISCOUNT_TYPES = new Set(["PERCENTAGE", "FIXED_AMOUNT"]);
@@ -50,73 +51,45 @@ const listPromoCodes: ToolExecutor = async (_input, ctx) => {
 
 const createPromoCode: ToolExecutor = async (input, ctx) => {
   try {
-    const event = await db.event.findFirst({
-      where: { id: ctx.eventId, organizationId: ctx.organizationId },
-      select: { id: true },
-    });
-    if (!event) return { error: "Event not found or access denied" };
-
-    const code = String(input.code ?? "").trim().toUpperCase();
-    if (!code || code.length < 2 || code.length > 50) {
-      return { error: "code is required (2-50 chars)" };
-    }
+    // Loose-input coercion stays at this boundary; the domain logic (dup check,
+    // discount rules, ticket-type binding, audit) lives in
+    // promo-code-service.createPromoCode, shared with the REST POST — the MCP
+    // path used to hand-roll the create and wrote NO audit log.
     const discountType = String(input.discountType ?? "").trim();
     if (!DISCOUNT_TYPES.has(discountType)) {
       return { error: `discountType must be one of: ${[...DISCOUNT_TYPES].join(", ")}` };
     }
     const discountValue = Number(input.discountValue);
-    if (isNaN(discountValue) || discountValue <= 0) {
+    if (isNaN(discountValue)) {
       return { error: "discountValue must be a positive number" };
     }
-    if (discountType === "PERCENTAGE" && discountValue > 100) {
-      return { error: "PERCENTAGE discountValue must be <= 100" };
-    }
-
-    const existing = await db.promoCode.findFirst({
-      where: { eventId: ctx.eventId, code },
-      select: { id: true },
-    });
-    if (existing) return { error: `Promo code "${code}" already exists for this event` };
-
     const ticketTypeIds: string[] = Array.isArray(input.ticketTypeIds)
       ? (input.ticketTypeIds as unknown[]).map((t) => String(t))
       : [];
-    if (ticketTypeIds.length > 0) {
-      const valid = await db.ticketType.count({
-        where: { id: { in: ticketTypeIds }, eventId: ctx.eventId },
-      });
-      if (valid !== ticketTypeIds.length) {
-        return { error: "One or more ticketTypeIds not found in this event" };
-      }
-    }
 
-    const promoCode = await db.promoCode.create({
-      data: {
-        eventId: ctx.eventId,
-        code,
-        description: input.description ? String(input.description).slice(0, 500) : null,
-        discountType: discountType as never,
-        discountValue,
-        currency: input.currency ? String(input.currency).slice(0, 10) : null,
-        maxUses: input.maxUses != null ? Math.max(1, Number(input.maxUses)) : null,
-        maxUsesPerEmail: input.maxUsesPerEmail != null ? Math.max(1, Number(input.maxUsesPerEmail)) : 1,
-        validFrom: input.validFrom ? new Date(String(input.validFrom)) : null,
-        validUntil: input.validUntil ? new Date(String(input.validUntil)) : null,
-        isActive: input.isActive != null ? Boolean(input.isActive) : true,
-        ticketTypes: ticketTypeIds.length > 0
-          ? { create: ticketTypeIds.map((tid) => ({ ticketTypeId: tid })) }
-          : undefined,
-      },
-      select: {
-        id: true,
-        code: true,
-        discountType: true,
-        discountValue: true,
-        isActive: true,
-      },
+    const result = await createPromoCodeService({
+      eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
+      actorUserId: ctx.userId ?? null,
+      source: "mcp",
+      code: String(input.code ?? ""),
+      description: input.description ? String(input.description).slice(0, 2000) : null,
+      discountType: discountType as "PERCENTAGE" | "FIXED_AMOUNT",
+      discountValue,
+      currency: input.currency ? String(input.currency).slice(0, 10) : null,
+      maxUses: input.maxUses != null ? Number(input.maxUses) : null,
+      maxUsesPerEmail: input.maxUsesPerEmail != null ? Number(input.maxUsesPerEmail) : null,
+      validFrom: input.validFrom ? new Date(String(input.validFrom)) : null,
+      validUntil: input.validUntil ? new Date(String(input.validUntil)) : null,
+      isActive: input.isActive != null ? Boolean(input.isActive) : true,
+      ticketTypeIds,
     });
 
-    return { success: true, promoCode };
+    if (!result.ok) {
+      return { error: result.message, code: result.code };
+    }
+    const { id, code, discountType: dt, discountValue: dv, isActive } = result.promoCode;
+    return { success: true, promoCode: { id, code, discountType: dt, discountValue: dv, isActive } };
   } catch (err) {
     apiLogger.error({ err }, "agent:create_promo_code failed");
     return { error: err instanceof Error ? err.message : "Failed to create promo code" };

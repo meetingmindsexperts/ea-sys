@@ -18,6 +18,7 @@ const { mockAuth, mockDb, mockApiLogger } = vi.hoisted(() => ({
       deleteMany: vi.fn(),
       createMany: vi.fn(),
     },
+    ticketType: { count: vi.fn() },
     $transaction: vi.fn(),
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
@@ -219,10 +220,11 @@ describe("POST /api/events/[eventId]/promo-codes", () => {
     expect(createCall.data.code).toBe("LOWERCASE");
   });
 
-  it("creates with ticket type restrictions", async () => {
+  it("creates with ticket type restrictions (validated against the event)", async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
     mockDb.promoCode.findUnique.mockResolvedValue(null);
+    mockDb.ticketType.count.mockResolvedValue(2); // both ids belong to the event
     mockDb.promoCode.create.mockResolvedValue(samplePromoCode);
     await CreatePromoCode(
       makeRequest("POST", {
@@ -235,6 +237,25 @@ describe("POST /api/events/[eventId]/promo-codes", () => {
     );
     const createCall = mockDb.promoCode.create.mock.calls[0][0];
     expect(createCall.data.ticketTypes.create).toHaveLength(2);
+  });
+
+  it("rejects ticketTypeIds from another event (the service closed the silent foreign link)", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.promoCode.findUnique.mockResolvedValue(null);
+    mockDb.ticketType.count.mockResolvedValue(1); // one of the two is foreign
+    const res = await CreatePromoCode(
+      makeRequest("POST", {
+        code: "VIP",
+        discountType: "PERCENTAGE",
+        discountValue: 50,
+        ticketTypeIds: ["tt-1", "tt-foreign"],
+      }),
+      makeListParams("evt-1"),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("INVALID_TICKET_TYPES");
+    expect(mockDb.promoCode.create).not.toHaveBeenCalled();
   });
 });
 
