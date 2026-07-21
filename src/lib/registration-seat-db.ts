@@ -35,16 +35,19 @@ export async function releaseSeat(
 }
 
 /**
- * Claim a seat — atomic capacity-guarded increment on the correct counter.
- * Returns false when the counter is at capacity (or missing) so the caller can
- * map it to CAPACITY_EXCEEDED. The `soldCount < quantity` predicate is the
- * oversell guard; quantity is read first because Prisma `updateMany` can't
- * compare two columns in `where`.
+ * Claim N seats — atomic capacity-guarded increment on the correct counter.
+ * Returns false when the claim doesn't fit (or the counter is missing) so the
+ * caller can map it to CAPACITY_EXCEEDED. All-or-nothing: `soldCount <=
+ * quantity - count` ensures soldCount + count never exceeds the cap even under
+ * a concurrent claim; quantity is read first (inside the caller's tx) because
+ * Prisma `updateMany` can't compare two columns in `where`.
  */
-export async function claimSeat(
+export async function claimSeats(
   tx: Prisma.TransactionClient,
   counter: SeatCounter,
+  count: number,
 ): Promise<boolean> {
+  if (count <= 0) return true;
   if (counter.kind === "tier") {
     const tier = await tx.pricingTier.findUnique({
       where: { id: counter.id },
@@ -52,8 +55,8 @@ export async function claimSeat(
     });
     if (!tier) return false;
     const res = await tx.pricingTier.updateMany({
-      where: { id: counter.id, soldCount: { lt: tier.quantity } },
-      data: { soldCount: { increment: 1 } },
+      where: { id: counter.id, soldCount: { lte: tier.quantity - count } },
+      data: { soldCount: { increment: count } },
     });
     return res.count > 0;
   }
@@ -63,10 +66,123 @@ export async function claimSeat(
   });
   if (!ticket) return false;
   const res = await tx.ticketType.updateMany({
-    where: { id: counter.id, soldCount: { lt: ticket.quantity } },
-    data: { soldCount: { increment: 1 } },
+    where: { id: counter.id, soldCount: { lte: ticket.quantity - count } },
+    data: { soldCount: { increment: count } },
   });
   return res.count > 0;
+}
+
+export async function claimSeat(
+  tx: Prisma.TransactionClient,
+  counter: SeatCounter,
+): Promise<boolean> {
+  return claimSeats(tx, counter, 1);
+}
+
+export interface OversellingClaimResult {
+  /** true when the increment pushed soldCount past quantity — caller must log it. */
+  oversold: boolean;
+  counterName: string | null;
+  newSoldCount: number | null;
+  quantity: number | null;
+}
+
+/**
+ * Claim N seats WITHOUT a capacity guard — the bulk-reactivation policy: a bulk
+ * status change can't cleanly partial-fail 200 rows on a capacity guard, so it
+ * proceeds and reports the oversell for the caller to warn-log (single-row paths
+ * still hard-block via `claimSeats`). Extracted from the hand-rolled tier/ticket
+ * branches in the MCP `bulk_update_registration_status` executor so the
+ * oversell-allowed mechanics live next to the guarded ones.
+ */
+export async function claimSeatsOverselling(
+  tx: Prisma.TransactionClient,
+  counter: SeatCounter,
+  count: number,
+): Promise<OversellingClaimResult> {
+  const none: OversellingClaimResult = { oversold: false, counterName: null, newSoldCount: null, quantity: null };
+  if (count <= 0) return none;
+  if (counter.kind === "tier") {
+    const tier = await tx.pricingTier.findUnique({
+      where: { id: counter.id },
+      select: { quantity: true, soldCount: true, name: true },
+    });
+    await tx.pricingTier.updateMany({
+      where: { id: counter.id },
+      data: { soldCount: { increment: count } },
+    });
+    if (!tier) return none;
+    return {
+      oversold: tier.soldCount + count > tier.quantity,
+      counterName: tier.name,
+      newSoldCount: tier.soldCount + count,
+      quantity: tier.quantity,
+    };
+  }
+  const ticket = await tx.ticketType.findUnique({
+    where: { id: counter.id },
+    select: { quantity: true, soldCount: true, name: true },
+  });
+  await tx.ticketType.updateMany({
+    where: { id: counter.id },
+    data: { soldCount: { increment: count } },
+  });
+  if (!ticket) return none;
+  return {
+    oversold: ticket.soldCount + count > ticket.quantity,
+    counterName: ticket.name,
+    newSoldCount: ticket.soldCount + count,
+    quantity: ticket.quantity,
+  };
+}
+
+/**
+ * Release N promo-code redemptions — guarded so the counter can NEVER go
+ * negative. Single source of truth for the promo half of cancel/delete: the MCP
+ * bulk executor and the REST delete route used to hand-roll an UNGUARDED
+ * `promoCode.update({ decrement })` here, which could drive `usedCount` below 0
+ * (a maxUses-capped code then admits extra redemptions).
+ *
+ * When the counter holds fewer than `count` (pre-guard drift, double release),
+ * the release clamps to 0 instead of no-oping — "release everything still
+ * held" is the correct bulk semantics.
+ */
+export async function releasePromoUsage(
+  tx: Prisma.TransactionClient,
+  promoCodeId: string,
+  count = 1,
+): Promise<void> {
+  if (count <= 0) return;
+  const res = await tx.promoCode.updateMany({
+    where: { id: promoCodeId, usedCount: { gte: count } },
+    data: { usedCount: { decrement: count } },
+  });
+  if (res.count === 0) {
+    // Counter lower than the release — clamp to 0 (never negative, never stuck inflated).
+    await tx.promoCode.updateMany({
+      where: { id: promoCodeId, usedCount: { gt: 0 } },
+      data: { usedCount: 0 },
+    });
+  }
+}
+
+/**
+ * Re-claim N promo-code redemptions on reactivation (review H6 symmetry — the
+ * registration kept its promoCodeId + discountAmount through the cancel, so its
+ * redemption goes live again). `updateMany` (not `update`) so a hard-deleted
+ * promo row is a no-op, not a throw. Deliberately NOT capacity-gated on maxUses:
+ * it restores a redemption the registration already held.
+ */
+export async function claimPromoUsage(
+  tx: Prisma.TransactionClient,
+  promoCodeId: string,
+  count = 1,
+): Promise<void> {
+  if (count <= 0) return;
+  await tx.promoCode.updateMany({
+    where: { id: promoCodeId },
+    data: { usedCount: { increment: count } },
+  });
 }
 
 export interface RegistrationTransitionInput {
@@ -115,16 +231,8 @@ export async function applyRegistrationTransition(
   const becomingCancelled = input.next.status === "CANCELLED" && input.prev.status !== "CANCELLED";
   const becomingActive = input.prev.status === "CANCELLED" && input.next.status !== "CANCELLED";
   if (becomingCancelled) {
-    // Guarded — a counter already at 0 (double release, manual edit) stays 0.
-    await tx.promoCode.updateMany({
-      where: { id: input.promoCodeId, usedCount: { gt: 0 } },
-      data: { usedCount: { decrement: 1 } },
-    });
+    await releasePromoUsage(tx, input.promoCodeId);
   } else if (becomingActive) {
-    // updateMany (not update) so a hard-deleted promo row is a no-op, not a throw.
-    await tx.promoCode.updateMany({
-      where: { id: input.promoCodeId },
-      data: { usedCount: { increment: 1 } },
-    });
+    await claimPromoUsage(tx, input.promoCodeId);
   }
 }

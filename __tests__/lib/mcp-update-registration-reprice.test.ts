@@ -106,9 +106,10 @@ describe("MCP update_registration — re-tier / reprice parity", () => {
       where: { id: OLD_TIER, soldCount: { gte: 1 } },
       data: { soldCount: { decrement: 1 } },
     });
-    // claim the NEW tier counter (atomic capacity-guarded increment)
+    // claim the NEW tier counter (atomic capacity-guarded increment via claimSeats:
+    // `soldCount <= quantity - 1` — same guard as the old `lt: quantity` shape)
     expect(mockDb._tx.pricingTier.updateMany).toHaveBeenCalledWith({
-      where: { id: NEW_TIER, soldCount: { lt: 100 } },
+      where: { id: NEW_TIER, soldCount: { lte: 99 } },
       data: { soldCount: { increment: 1 } },
     });
     // never touched the ticket-type counter

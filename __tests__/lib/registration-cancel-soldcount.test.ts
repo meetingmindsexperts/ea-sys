@@ -13,12 +13,12 @@ const { mockDb, mockApiLogger, mockRefreshEventStats } = vi.hoisted(() => {
   const tierUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
   const tierFindUnique = vi.fn();
   const regUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
-  const promoUpdate = vi.fn().mockResolvedValue({});
+  const promoUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
   const tx = {
     ticketType: { updateMany: ttUpdateMany, findUnique: ttFindUnique },
     pricingTier: { updateMany: tierUpdateMany, findUnique: tierFindUnique },
     registration: { updateMany: regUpdateMany },
-    promoCode: { update: promoUpdate },
+    promoCode: { updateMany: promoUpdateMany },
   };
   const db = {
     registration: { findMany: vi.fn(), updateMany: regUpdateMany },
@@ -68,6 +68,7 @@ beforeEach(() => {
   mockDb.registration.updateMany.mockResolvedValue({ count: 0 });
   mockDb._tx.ticketType.updateMany.mockResolvedValue({ count: 1 });
   mockDb._tx.pricingTier.updateMany.mockResolvedValue({ count: 1 });
+  mockDb._tx.promoCode.updateMany.mockResolvedValue({ count: 1 });
 });
 
 describe("bulk_update_registration_status — soldCount on cancel", () => {
@@ -145,6 +146,44 @@ describe("bulk_update_registration_status — soldCount on cancel", () => {
     expect(mockApiLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "registration:bulk-reactivate-oversold", ticketTypeId: "tt1" }),
     );
+  });
+
+  it("bulk cancel releases each promo's usage via the GUARDED helper (never negative)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      row({ id: "r1", status: "CONFIRMED", promoCodeId: "promo1" }),
+      row({ id: "r2", status: "CONFIRMED", promoCodeId: "promo1" }),
+      row({ id: "r3", status: "CONFIRMED", promoCodeId: "promo2" }),
+      row({ id: "r4", status: "CANCELLED", promoCodeId: "promo1" }), // already cancelled → no release
+    ]);
+    mockDb.registration.updateMany.mockResolvedValue({ count: 4 });
+
+    await bulk({ registrationIds: ["r1", "r2", "r3", "r4"], status: "CANCELLED" }, ctx);
+
+    // Guarded (gte) — the unguarded promoCode.update({ decrement }) shape is gone.
+    expect(mockDb._tx.promoCode.updateMany).toHaveBeenCalledWith({
+      where: { id: "promo1", usedCount: { gte: 2 } },
+      data: { usedCount: { decrement: 2 } },
+    });
+    expect(mockDb._tx.promoCode.updateMany).toHaveBeenCalledWith({
+      where: { id: "promo2", usedCount: { gte: 1 } },
+      data: { usedCount: { decrement: 1 } },
+    });
+    expect(mockDb._tx.promoCode.updateMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("bulk reactivation RE-CLAIMS promo usage (H6 symmetry with the single-row paths)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      row({ id: "r1", status: "CANCELLED", promoCodeId: "promo1" }),
+    ]);
+    mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 100, soldCount: 10, name: "Standard" });
+    mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+
+    await bulk({ registrationIds: ["r1"], status: "CONFIRMED" }, ctx);
+
+    expect(mockDb._tx.promoCode.updateMany).toHaveBeenCalledWith({
+      where: { id: "promo1" },
+      data: { usedCount: { increment: 1 } },
+    });
   });
 
   it("paymentStatus-only bulk update does NOT touch soldCount", async () => {

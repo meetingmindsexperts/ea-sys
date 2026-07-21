@@ -63,6 +63,9 @@ describe("bulk-type — soldCount oversell guard", () => {
     ]);
     mockDb._tx.registration.updateMany.mockResolvedValue({ count: 2 });
     mockDb._tx.pricingTier.updateMany.mockResolvedValue({ count: 1 });
+    // claimSeats re-reads quantity INSIDE the tx (safer than the pre-tx read
+    // the route used before the shared-helper consolidation).
+    mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 100 });
   });
 
   it("claims seats atomically with the capacity predicate", async () => {

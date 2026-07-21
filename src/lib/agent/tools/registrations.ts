@@ -5,7 +5,12 @@ import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode, normalizeTag } from "@/lib/utils";
 import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
-import { releaseSeats } from "@/lib/registration-seat-db";
+import {
+  claimPromoUsage,
+  claimSeatsOverselling,
+  releasePromoUsage,
+  releaseSeats,
+} from "@/lib/registration-seat-db";
 import { syncToContact } from "@/lib/contact-sync";
 import { checkInGate, executeCheckIn } from "@/lib/check-in";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -652,6 +657,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
       const toRelease = new Map<string, { counter: SeatCounter; count: number }>();
       const toClaim = new Map<string, { counter: SeatCounter; count: number }>();
       const promoRelease = new Map<string, number>(); // promoCodeId → uses released on cancel
+      const promoClaim = new Map<string, number>(); // promoCodeId → uses re-claimed on reactivation (H6 symmetry)
       const bump = (m: Map<string, { counter: SeatCounter; count: number }>, c: SeatCounter) => {
         const k = `${c.kind}:${c.id}`;
         const e = m.get(k);
@@ -662,9 +668,14 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
         const becomingCancelled = status === "CANCELLED" && r.status !== "CANCELLED";
         const reactivating = status !== "CANCELLED" && r.status === "CANCELLED";
         if (becomingCancelled) cancelledIds.push(r.id);
-        // DATA-1: bulk cancel releases each consumed promo code's usage count.
+        // DATA-1: bulk cancel releases each consumed promo code's usage count;
+        // reactivation re-claims it (H6 symmetry, same policy as
+        // applyRegistrationTransition — without the re-claim, bulk cancel →
+        // reactivate → cancel double-released the counter).
         if (becomingCancelled && r.promoCodeId) {
           promoRelease.set(r.promoCodeId, (promoRelease.get(r.promoCodeId) ?? 0) + 1);
+        } else if (reactivating && r.promoCodeId) {
+          promoClaim.set(r.promoCodeId, (promoClaim.get(r.promoCodeId) ?? 0) + 1);
         }
         if (becomingCancelled) {
           // Release only the seat it actually held (in-person + was non-cancelled).
@@ -681,11 +692,13 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
         }
       }
       updatedCount = await db.$transaction(async (tx) => {
+        // Guarded release — never drives usedCount negative (was an unguarded
+        // `promoCode.update({ decrement })` before the seat/promo consolidation).
         for (const [promoId, n] of promoRelease) {
-          await tx.promoCode.update({
-            where: { id: promoId },
-            data: { usedCount: { decrement: n } },
-          });
+          await releasePromoUsage(tx, promoId, n);
+        }
+        for (const [promoId, n] of promoClaim) {
+          await claimPromoUsage(tx, promoId, n);
         }
         for (const { counter, count } of toRelease.values()) {
           await releaseSeats(tx, counter, count);
@@ -694,44 +707,17 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
           // Bulk reactivation can't cleanly partial-fail 200 rows on a capacity
           // guard, so it's allowed to oversell — but logged so it's never silent
           // (single-row paths still hard-block via CAPACITY_EXCEEDED).
-          if (counter.kind === "tier") {
-            const t = await tx.pricingTier.findUnique({
-              where: { id: counter.id },
-              select: { quantity: true, soldCount: true, name: true },
+          const res = await claimSeatsOverselling(tx, counter, count);
+          if (res.oversold) {
+            apiLogger.warn({
+              msg: "registration:bulk-reactivate-oversold",
+              ...(counter.kind === "tier"
+                ? { pricingTierId: counter.id, tierName: res.counterName }
+                : { ticketTypeId: counter.id, ticketName: res.counterName }),
+              newSoldCount: res.newSoldCount,
+              quantity: res.quantity,
+              source: "mcp",
             });
-            await tx.pricingTier.updateMany({
-              where: { id: counter.id },
-              data: { soldCount: { increment: count } },
-            });
-            if (t && t.soldCount + count > t.quantity) {
-              apiLogger.warn({
-                msg: "registration:bulk-reactivate-oversold",
-                pricingTierId: counter.id,
-                tierName: t.name,
-                newSoldCount: t.soldCount + count,
-                quantity: t.quantity,
-                source: "mcp",
-              });
-            }
-          } else {
-            const tt = await tx.ticketType.findUnique({
-              where: { id: counter.id },
-              select: { quantity: true, soldCount: true, name: true },
-            });
-            await tx.ticketType.updateMany({
-              where: { id: counter.id },
-              data: { soldCount: { increment: count } },
-            });
-            if (tt && tt.soldCount + count > tt.quantity) {
-              apiLogger.warn({
-                msg: "registration:bulk-reactivate-oversold",
-                ticketTypeId: counter.id,
-                ticketName: tt.name,
-                newSoldCount: tt.soldCount + count,
-                quantity: tt.quantity,
-                source: "mcp",
-              });
-            }
           }
         }
         const res = await tx.registration.updateMany({

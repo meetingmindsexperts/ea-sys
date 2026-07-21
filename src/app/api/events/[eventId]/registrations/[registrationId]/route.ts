@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { RegistrationStatus, AttendanceMode } from "@prisma/client";
 import { holdsSeat, seatCounter } from "@/lib/registration-seat";
-import { releaseSeat } from "@/lib/registration-seat-db";
+import { releasePromoUsage, releaseSeat } from "@/lib/registration-seat-db";
 import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -559,11 +559,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       }
       // DATA-1: release the promo code's usage count on delete (unless this row
       // was already CANCELLED, in which case the cancel already released it).
+      // Guarded via the shared helper — never drives usedCount negative.
       if (registration.status !== "CANCELLED" && registration.promoCodeId) {
-        await tx.promoCode.update({
-          where: { id: registration.promoCodeId },
-          data: { usedCount: { decrement: 1 } },
-        });
+        await releasePromoUsage(tx, registration.promoCodeId);
       }
       // H4 (accommodation review): Accommodation cascade-deletes from
       // Registration, and a DB cascade fires no application code — so the

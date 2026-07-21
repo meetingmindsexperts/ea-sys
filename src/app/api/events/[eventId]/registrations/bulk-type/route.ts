@@ -7,7 +7,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
-import { releaseSeats } from "@/lib/registration-seat-db";
+import { claimSeats, releaseSeats } from "@/lib/registration-seat-db";
 
 const bulkTypeSchema = z.object({
   registrationIds: z.array(z.string()).min(1).max(500),
@@ -116,17 +116,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         await releaseSeats(tx, counter, count);
       }
 
-      // Claim the in-person seats on the new type ATOMICALLY — guard against
-      // oversell. `soldCount <= quantity - N` ensures soldCount + N never
-      // exceeds the cap even under a concurrent claim. All-or-nothing: if it
-      // can't fit, the whole move rolls back (admin raises quantity / moves
-      // fewer). Skipped entirely when every moved reg is virtual.
+      // Claim the in-person seats on the new type ATOMICALLY via the shared
+      // guarded bulk claim (same oversell guard as every single-row path).
+      // All-or-nothing: if it can't fit, the whole move rolls back (admin
+      // raises quantity / moves fewer). Skipped when every moved reg is virtual.
       if (claimCount > 0) {
-        const claimed = await tx.ticketType.updateMany({
-          where: { id: ticketTypeId, soldCount: { lte: targetType.quantity - claimCount } },
-          data: { soldCount: { increment: claimCount } },
-        });
-        if (claimed.count === 0) {
+        const claimed = await claimSeats(tx, { kind: "ticketType", id: ticketTypeId }, claimCount);
+        if (!claimed) {
           throw new Error("CAPACITY_EXCEEDED");
         }
       }
