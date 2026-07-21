@@ -826,10 +826,16 @@ export default function ReimbursementFormPage() {
               </div>
 
               <p className="text-xs leading-relaxed text-slate-500 border-t border-slate-200 pt-5">
-                This form and the personal information provided will be processed
-                {data.event.organizationName ? ` by ${data.event.organizationName}` : ""} for
-                payment purposes only, in accordance with applicable data protection laws
-                including the UAE Federal Decree Law No. 45 of 2021 on Personal Data Protection.
+                Your details and documents are used for reimbursement processing only. See our{" "}
+                <a
+                  href="https://www.meetingmindsgroup.com/privacy-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-primary hover:underline"
+                >
+                  Privacy Policy
+                </a>
+                .
               </p>
             </div>
           )}
