@@ -2566,6 +2566,21 @@ enum CrmLifecycleStage {
   CHAMPION
 }
 
+/// Where the sales CONVERSATION stands (Freshsales-style). Distinct from
+/// CrmLifecycleStage, which is relationship depth — a CHAMPION can still be in
+/// NEGOTIATION on this year's deal. Nullable so existing rows need no backfill;
+/// the service defaults new contacts to NEW.
+enum CrmContactStatus {
+  NEW
+  CONTACTED
+  INTERESTED
+  QUALIFIED
+  NEGOTIATION
+  WON
+  LOST
+  UNQUALIFIED
+}
+
 enum CrmActivityType {
   NOTE
   CALL
@@ -3129,6 +3144,18 @@ model CrmContact {
   notes    String? @db.Text
 
   lifecycleStage CrmLifecycleStage?
+
+  /// Sales-conversation status (NEW → … → WON/LOST). See the enum note for how
+  /// this differs from lifecycleStage. Nullable — pre-enrichment rows stay null.
+  status CrmContactStatus?
+
+  /// Mobile number, separate from the work `phone` — Freshsales exports carry
+  /// both and reps are reached on mobile.
+  mobile String?
+
+  /// Free-form tags ("mecomed", "gold-prospect"), same shape as Attendee.tags.
+  /// Normalized (trimmed, deduped) by the service.
+  tags String[] @default([])
 
   /// Set ONLY when this business contact is also in the event contact store
   /// (i.e. they attend). SetNull, so deleting the event contact doesn't destroy

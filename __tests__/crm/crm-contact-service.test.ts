@@ -34,6 +34,7 @@ import {
   updateCrmContact,
   linkToEventContact,
   contactEmailKey,
+  normalizeContactTags,
 } from "@/crm/services/crm-contact-service";
 
 const ORG = "org-1";
@@ -47,7 +48,8 @@ beforeEach(() => {
   // before→after diff), so give the pre-update read a default row.
   vi.mocked(db.crmContact.findFirst).mockResolvedValue({
     id: "cc-1", firstName: "Sara", lastName: "Khan", email: "old@abbott.com",
-    jobTitle: null, phone: null, country: null, notes: null, lifecycleStage: null, companyId: null,
+    jobTitle: null, phone: null, mobile: null, country: null, notes: null,
+    lifecycleStage: null, status: null, tags: [], companyId: null,
   } as never);
 });
 
@@ -119,6 +121,64 @@ describe("findOrCreateCrmContact", () => {
     if (res.ok) throw new Error("unreachable");
     expect(res.code).toBe("COMPANY_NOT_FOUND");
     expect(db.crmContact.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("enrichment fields — status / mobile / tags (July 21, 2026)", () => {
+  it("defaults a NEW contact's status to NEW and normalizes tags on create", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "cc-1", companyId: null } as never);
+
+    await findOrCreateCrmContact({
+      ...base, firstName: "Sarah", lastName: "Khan", email: "s@abbott.com",
+      mobile: " +971501234567 ", tags: [" Mecomed ", "mecomed", "", "gold-prospect"],
+    });
+
+    const data = vi.mocked(db.crmContact.create).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.status).toBe("NEW"); // null state is reserved for pre-enrichment rows
+    expect(data.mobile).toBe("+971501234567");
+    expect(data.tags).toEqual(["Mecomed", "gold-prospect"]); // trimmed + case-insensitive dedupe
+  });
+
+  it("an explicit status on create wins over the NEW default", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "cc-1", companyId: null } as never);
+
+    await findOrCreateCrmContact({
+      ...base, firstName: "A", lastName: "B", email: "a@b.com", status: "QUALIFIED",
+    });
+
+    const data = vi.mocked(db.crmContact.create).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.status).toBe("QUALIFIED");
+  });
+
+  it("updates status/mobile/tags, normalizing tags on the way in", async () => {
+    vi.mocked(db.crmContact.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmContact.findUniqueOrThrow).mockResolvedValue({ id: "cc-1" } as never);
+
+    const res = await updateCrmContact({
+      ...base, crmContactId: "cc-1",
+      status: "NEGOTIATION", mobile: "  ", tags: ["VIP", "vip", " sponsor "],
+    });
+
+    expect(res.ok).toBe(true);
+    const data = vi.mocked(db.crmContact.updateMany).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.status).toBe("NEGOTIATION");
+    expect(data.mobile).toBeNull(); // blank clears, same rule as phone
+    expect(data.tags).toEqual(["VIP", "sponsor"]);
+  });
+});
+
+describe("normalizeContactTags — the one tag-normalization rule", () => {
+  it("trims, drops empties, dedupes case-insensitively keeping the first casing", () => {
+    expect(normalizeContactTags([" Mecomed ", "mecomed", "", "  ", "gold-prospect"])).toEqual([
+      "Mecomed",
+      "gold-prospect",
+    ]);
+  });
+
+  it("empty in → empty out", () => {
+    expect(normalizeContactTags([])).toEqual([]);
   });
 });
 

@@ -24,11 +24,19 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CountrySelect } from "@/components/ui/country-select";
+import { TagInput } from "@/components/ui/tag-input";
 import { useCrmCompanies, useUpdateCrmContact } from "@/crm/hooks/use-crm-api";
-import { LIFECYCLE_LABELS, type CrmLifecycleStage } from "@/crm/lib/crm-types";
+import {
+  CONTACT_STATUS_LABELS,
+  CONTACT_STATUS_VALUES,
+  LIFECYCLE_LABELS,
+  type CrmContactStatus,
+  type CrmLifecycleStage,
+} from "@/crm/lib/crm-types";
 
 const NO_COMPANY = "__none__";
 const NO_LIFECYCLE = "__none__";
+const NO_STATUS = "__none__";
 
 export interface EditableCrmContact {
   id: string;
@@ -37,9 +45,12 @@ export interface EditableCrmContact {
   email: string;
   jobTitle?: string | null;
   phone?: string | null;
+  mobile?: string | null;
   country?: string | null;
   notes?: string | null;
   lifecycleStage?: CrmLifecycleStage | null;
+  status?: CrmContactStatus | null;
+  tags?: string[];
   company?: { id: string; name: string } | null;
 }
 
@@ -57,9 +68,12 @@ export function EditCrmContactDialog({
   const [email, setEmail] = useState(contact.email);
   const [jobTitle, setJobTitle] = useState(contact.jobTitle ?? "");
   const [phone, setPhone] = useState(contact.phone ?? "");
+  const [mobile, setMobile] = useState(contact.mobile ?? "");
   const [country, setCountry] = useState(contact.country ?? "");
   const [notes, setNotes] = useState(contact.notes ?? "");
   const [lifecycle, setLifecycle] = useState<string>(contact.lifecycleStage ?? NO_LIFECYCLE);
+  const [status, setStatus] = useState<string>(contact.status ?? NO_STATUS);
+  const [tags, setTags] = useState<string[]>(contact.tags ?? []);
   const [companyId, setCompanyId] = useState<string>(contact.company?.id ?? NO_COMPANY);
   const [saving, setSaving] = useState(false);
 
@@ -69,9 +83,12 @@ export function EditCrmContactDialog({
     setEmail(contact.email);
     setJobTitle(contact.jobTitle ?? "");
     setPhone(contact.phone ?? "");
+    setMobile(contact.mobile ?? "");
     setCountry(contact.country ?? "");
     setNotes(contact.notes ?? "");
     setLifecycle(contact.lifecycleStage ?? NO_LIFECYCLE);
+    setStatus(contact.status ?? NO_STATUS);
+    setTags(contact.tags ?? []);
     setCompanyId(contact.company?.id ?? NO_COMPANY);
   }, [contact]);
 
@@ -95,9 +112,12 @@ export function EditCrmContactDialog({
         email: email.trim(),
         jobTitle: jobTitle.trim() || null,
         phone: phone.trim() || null,
+        mobile: mobile.trim() || null,
         country: country.trim() || null,
         notes: notes.trim() || null,
         lifecycleStage: lifecycle === NO_LIFECYCLE ? null : lifecycle,
+        status: status === NO_STATUS ? null : status,
+        tags,
         companyId: companyId === NO_COMPANY ? null : companyId,
       });
       toast.success("Contact updated");
@@ -155,6 +175,29 @@ export function EditCrmContactDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
+              <Label htmlFor="edit-contact-mobile">Mobile</Label>
+              <Input id="edit-contact-mobile" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="+971 50 …" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-contact-status">Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger id="edit-contact-status" className="w-full">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_STATUS}>None</SelectItem>
+                  {CONTACT_STATUS_VALUES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {CONTACT_STATUS_LABELS[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
               <Label htmlFor="edit-contact-company">Company</Label>
               <Select value={companyId} onValueChange={setCompanyId}>
                 <SelectTrigger id="edit-contact-company" className="w-full">
@@ -191,6 +234,11 @@ export function EditCrmContactDialog({
           <div className="space-y-2">
             <Label>Country</Label>
             <CountrySelect value={country} onChange={setCountry} />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Tags</Label>
+            <TagInput value={tags} onChange={setTags} placeholder="Add tag…" />
           </div>
 
           <div className="space-y-2">

@@ -24,7 +24,7 @@ import { parseCSV } from "@/lib/csv-parser";
 import { recordCrmActivityBulk, type CrmActivityEntry } from "@/crm/lib/crm-activity";
 import { CRM_OWNER_ROLES } from "@/crm/lib/crm-roles";
 import { companyNameKey } from "@/crm/services/company-service";
-import { contactEmailKey } from "@/crm/services/crm-contact-service";
+import { contactEmailKey, normalizeContactTags } from "@/crm/services/crm-contact-service";
 import {
   FRESHSALES_SOURCE,
   COMPANY_FIELDS,
@@ -305,7 +305,9 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
               emailKey,
               jobTitle: row.jobTitle ?? null,
               phone: row.phone ?? null,
+              mobile: row.mobile ?? null,
               country: row.country ?? null,
+              ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
               companyId: dryCompany ? null : companyId,
               ...stamp,
             },
@@ -318,16 +320,27 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
       } else if (action === "skip-kept-local") {
         report.keptLocal++;
       } else {
+        // Tags don't fit enrichPatch's blank-scalar rule (an array is never
+        // null): enrich fills them only when the EA row has none; a
+        // Freshsales-wins update takes the CSV's list when the column is there.
+        const tagPatch =
+          row.tags && (action === "update" || (existing!.tags?.length ?? 0) === 0)
+            ? { tags: normalizeContactTags(row.tags) }
+            : {};
         const data =
           action === "enrich"
-            ? enrichPatch(existing!, {
-                jobTitle: row.jobTitle, phone: row.phone, country: row.country,
-                companyId: dryCompany ? undefined : companyId ?? undefined,
-              })
+            ? {
+                ...enrichPatch(existing!, {
+                  jobTitle: row.jobTitle, phone: row.phone, mobile: row.mobile, country: row.country,
+                  companyId: dryCompany ? undefined : companyId ?? undefined,
+                }),
+                ...tagPatch,
+              }
             : {
                 firstName: row.firstName, lastName: row.lastName,
                 jobTitle: row.jobTitle ?? null, phone: row.phone ?? null,
-                country: row.country ?? null,
+                mobile: row.mobile ?? null, country: row.country ?? null,
+                ...tagPatch,
                 ...(dryCompany ? {} : { companyId }),
               };
         if (action === "enrich") report.enriched++;

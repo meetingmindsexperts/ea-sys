@@ -24,13 +24,13 @@
  * `linkToEventContact()` POINTS this CRM record at their event `Contact` row.
  * Linked, never copied. Same shape as `Speaker.sourceRegistrationId`.
  */
-import { Prisma, type CrmContact, type CrmLifecycleStage } from "@prisma/client";
+import { Prisma, type CrmContact, type CrmContactStatus, type CrmLifecycleStage } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
 
 /** Fields worth showing in the change log when a contact is edited. */
-const CONTACT_DIFF_KEYS = ["firstName", "lastName", "email", "jobTitle", "phone", "country", "notes", "lifecycleStage", "companyId"] as const;
+const CONTACT_DIFF_KEYS = ["firstName", "lastName", "email", "jobTitle", "phone", "mobile", "country", "notes", "lifecycleStage", "status", "tags", "companyId"] as const;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,9 +41,12 @@ interface ContactFields {
   companyId?: string | null;
   jobTitle?: string | null;
   phone?: string | null;
+  mobile?: string | null;
   country?: string | null;
   notes?: string | null;
   lifecycleStage?: CrmLifecycleStage | null;
+  status?: CrmContactStatus | null;
+  tags?: string[];
 }
 
 export interface CreateCrmContactInput extends ContactFields {
@@ -81,6 +84,26 @@ export type CrmContactResult = { ok: true; crmContact: CrmContact; created?: boo
  */
 export function contactEmailKey(email: string): string {
   return email.trim().toLowerCase();
+}
+
+/**
+ * Normalize a tag list: trim, drop empties, dedupe case-insensitively (first
+ * casing wins — "Mecomed" and "mecomed" cannot become two tags). Exported so
+ * imports/backfills derive the SAME list the runtime does, same rule as
+ * `contactEmailKey`.
+ */
+export function normalizeContactTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const t = raw.trim();
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
 }
 
 async function assertCompany(organizationId: string, companyId?: string | null): Promise<Fail | null> {
@@ -151,9 +174,14 @@ export async function findOrCreateCrmContact(
         emailKey,
         jobTitle: input.jobTitle?.trim() || null,
         phone: input.phone?.trim() || null,
+        mobile: input.mobile?.trim() || null,
         country: input.country?.trim() || null,
         notes: input.notes?.trim() || null,
         lifecycleStage: input.lifecycleStage ?? null,
+        // A brand-new contact IS "New" — the null state is reserved for rows
+        // that predate the status field.
+        status: input.status ?? "NEW",
+        tags: normalizeContactTags(input.tags ?? []),
       },
     });
 
@@ -218,9 +246,12 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
   }
   if (input.jobTitle !== undefined) data.jobTitle = input.jobTitle?.trim() || null;
   if (input.phone !== undefined) data.phone = input.phone?.trim() || null;
+  if (input.mobile !== undefined) data.mobile = input.mobile?.trim() || null;
   if (input.country !== undefined) data.country = input.country?.trim() || null;
   if (input.notes !== undefined) data.notes = input.notes?.trim() || null;
   if (input.lifecycleStage !== undefined) data.lifecycleStage = input.lifecycleStage;
+  if (input.status !== undefined) data.status = input.status;
+  if (input.tags !== undefined) data.tags = normalizeContactTags(input.tags);
   if (input.companyId !== undefined) data.companyId = input.companyId;
 
   if (Object.keys(data).length === 0) {
@@ -233,7 +264,7 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
   try {
     const before = await db.crmContact.findFirst({
       where: { id: input.crmContactId, organizationId: input.organizationId },
-      select: { firstName: true, lastName: true, email: true, jobTitle: true, phone: true, country: true, notes: true, lifecycleStage: true, companyId: true, archivedAt: true },
+      select: { firstName: true, lastName: true, email: true, jobTitle: true, phone: true, mobile: true, country: true, notes: true, lifecycleStage: true, status: true, tags: true, companyId: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({

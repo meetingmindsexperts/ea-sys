@@ -15,6 +15,23 @@ export type CrmTaskStatus = "OPEN" | "DONE";
 export type CrmActivityType = "NOTE" | "CALL" | "MEETING";
 export type CrmLifecycleStage = "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION";
 
+/**
+ * Sales-conversation status (Freshsales-style ladder). Distinct from
+ * lifecycleStage (relationship depth) — a CHAMPION can still be in NEGOTIATION
+ * on this year's deal. Order here IS the display order.
+ */
+export const CONTACT_STATUS_VALUES = [
+  "NEW",
+  "CONTACTED",
+  "INTERESTED",
+  "QUALIFIED",
+  "NEGOTIATION",
+  "WON",
+  "LOST",
+  "UNQUALIFIED",
+] as const;
+export type CrmContactStatus = (typeof CONTACT_STATUS_VALUES)[number];
+
 export interface CrmStage {
   id: string;
   name: string;
@@ -65,8 +82,13 @@ export interface CrmContactRow {
   email: string;
   jobTitle?: string | null;
   phone?: string | null;
+  mobile?: string | null;
   country?: string | null;
   lifecycleStage?: CrmLifecycleStage | null;
+  status?: CrmContactStatus | null;
+  tags?: string[];
+  /** Auto-computed on read from live deal involvement (deals-only formula). */
+  score?: number;
   company?: { id: string; name: string } | null;
   /** Non-null when this rep is ALSO in the event contact store (i.e. they attend). */
   contactId?: string | null;
@@ -76,8 +98,10 @@ export interface CrmContactRow {
 }
 
 /** Full CRM contact, as returned by GET /api/crm/contacts/[id]. */
-export interface CrmContactDetail extends CrmContactRow {
+export interface CrmContactDetail extends Omit<CrmContactRow, "score"> {
   notes?: string | null;
+  /** Auto-computed score with its breakdown, so the page can explain the number. */
+  score?: { openDealPoints: number; wonDealPoints: number; total: number };
   /** The linked EVENT contact (they also attend), if any. */
   contact?: { id: string; firstName: string; lastName: string; email: string } | null;
   deals: Array<{
@@ -342,6 +366,29 @@ export const LIFECYCLE_COLORS: Record<CrmLifecycleStage, string> = {
   CHAMPION: "bg-amber-100 text-amber-800 border-amber-200",
 };
 
+export const CONTACT_STATUS_LABELS: Record<CrmContactStatus, string> = {
+  NEW: "New",
+  CONTACTED: "Contacted",
+  INTERESTED: "Interested",
+  QUALIFIED: "Qualified",
+  NEGOTIATION: "Negotiation",
+  WON: "Won",
+  LOST: "Lost",
+  UNQUALIFIED: "Unqualified",
+};
+
+/** Same palette rules as the deal board: emerald = good, rose = bad, sky = active. */
+export const CONTACT_STATUS_COLORS: Record<CrmContactStatus, string> = {
+  NEW: "bg-slate-100 text-slate-700 border-slate-200",
+  CONTACTED: "bg-sky-100 text-sky-700 border-sky-200",
+  INTERESTED: "bg-cyan-100 text-cyan-700 border-cyan-200",
+  QUALIFIED: "bg-violet-100 text-violet-700 border-violet-200",
+  NEGOTIATION: "bg-amber-100 text-amber-800 border-amber-200",
+  WON: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  LOST: "bg-rose-100 text-rose-700 border-rose-200",
+  UNQUALIFIED: "bg-zinc-100 text-zinc-600 border-zinc-200",
+};
+
 export const DEAL_STATUS_COLORS: Record<CrmDealStatus, string> = {
   OPEN: "bg-sky-100 text-sky-700 border-sky-200",
   WON: "bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -462,7 +509,10 @@ export const CRM_FIELD_LABELS: Record<string, string> = {
   email: "Email",
   jobTitle: "Job title",
   phone: "Phone",
+  mobile: "Mobile",
   lifecycleStage: "Lifecycle",
+  status: "Status",
+  tags: "Tags",
   title: "Title",
   description: "Description",
   dueAt: "Due date",

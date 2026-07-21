@@ -38,7 +38,15 @@ import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { cn } from "@/lib/utils";
-import { LIFECYCLE_COLORS, LIFECYCLE_LABELS, type CrmLifecycleStage } from "@/crm/lib/crm-types";
+import {
+  CONTACT_STATUS_COLORS,
+  CONTACT_STATUS_LABELS,
+  CONTACT_STATUS_VALUES,
+  LIFECYCLE_COLORS,
+  LIFECYCLE_LABELS,
+  type CrmLifecycleStage,
+} from "@/crm/lib/crm-types";
+import { contactScoreColor } from "@/crm/lib/contact-score";
 
 export default function CrmContactsPage() {
   const { data: session } = useSession();
@@ -46,6 +54,7 @@ export default function CrmContactsPage() {
 
   const [q, setQ] = useState("");
   const [lifecycle, setLifecycle] = useState<string>("");
+  const [status, setStatus] = useState<string>("");
   const [companyId, setCompanyId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -56,6 +65,7 @@ export default function CrmContactsPage() {
   const { data: contacts = [], isLoading, isError, refetch } = useCrmContacts({
     q: q || undefined,
     lifecycle: lifecycle || undefined,
+    status: status || undefined,
     companyId: companyId || undefined,
     archived: showArchived ? "1" : undefined,
   });
@@ -99,6 +109,20 @@ export default function CrmContactsPage() {
           />
         </div>
 
+        <Select value={status || "__all__"} onValueChange={(v) => setStatus(v === "__all__" ? "" : v)}>
+          <SelectTrigger className="w-[10rem]">
+            <SelectValue placeholder="Any status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">Any status</SelectItem>
+            {CONTACT_STATUS_VALUES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {CONTACT_STATUS_LABELS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <Select value={lifecycle || "__all__"} onValueChange={(v) => setLifecycle(v === "__all__" ? "" : v)}>
           <SelectTrigger className="w-[11rem]">
             <SelectValue placeholder="Any lifecycle" />
@@ -139,7 +163,7 @@ export default function CrmContactsPage() {
       </div>
 
       {isLoading ? (
-        <CrmTableSkeleton rows={6} cols={5} />
+        <CrmTableSkeleton rows={6} cols={7} />
       ) : isError ? (
         <CrmLoadError what="contacts" onRetry={() => refetch()} />
       ) : contacts.length === 0 ? (
@@ -176,7 +200,9 @@ export default function CrmContactsPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Company</TableHead>
                 <TableHead>Job title</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Lifecycle</TableHead>
+                <TableHead className="text-right">Score</TableHead>
                 <TableHead className="text-right">Deals</TableHead>
               </TableRow>
             </TableHeader>
@@ -218,6 +244,15 @@ export default function CrmContactsPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">{c.jobTitle ?? "—"}</TableCell>
                   <TableCell>
+                    {c.status ? (
+                      <Badge variant="outline" className={CONTACT_STATUS_COLORS[c.status]}>
+                        {CONTACT_STATUS_LABELS[c.status]}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     {c.lifecycleStage ? (
                       <Badge variant="outline" className={LIFECYCLE_COLORS[c.lifecycleStage]}>
                         {LIFECYCLE_LABELS[c.lifecycleStage]}
@@ -225,6 +260,11 @@ export default function CrmContactsPage() {
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Badge variant="outline" className={cn("tabular-nums", contactScoreColor(c.score ?? 0))}>
+                      {c.score ?? 0}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{c._count?.deals ?? 0}</TableCell>
                 </TableRow>

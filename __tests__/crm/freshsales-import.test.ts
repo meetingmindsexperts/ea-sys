@@ -81,19 +81,28 @@ describe("resolveColumns — Freshsales header synonyms", () => {
 
 describe("row mappers", () => {
   it("maps a contact row, preferring the work number and the primary email", () => {
-    const headers = parseCSVHeaders("Id,First name,Last name,Emails,Work,Mobile,Sales account");
+    const headers = parseCSVHeaders("Id,First name,Last name,Emails,Work,Mobile,Sales account,Tags");
     const cols = resolveColumns(headers, CONTACT_FIELDS);
     const res = mapContactRow(
-      ["c-9", "Sara", "Khan", "s.khan@abbott.com, old@abbott.com", "04-123", "050-999", "Abbott"],
+      ["c-9", "Sara", "Khan", "s.khan@abbott.com, old@abbott.com", "04-123", "050-999", "Abbott", "Mecomed; gold-prospect"],
       cols,
     );
     if ("error" in res) throw new Error(res.error);
     expect(res.row).toMatchObject({
       externalId: "c-9",
       email: "s.khan@abbott.com", // first of the comma list = primary
-      phone: "04-123", // work wins over mobile
+      phone: "04-123", // work wins for phone
+      mobile: "050-999", // mobile lands in its OWN field (used to collapse into phone)
       companyName: "Abbott",
+      tags: ["Mecomed", "gold-prospect"], // ;- or ,-separated cell
     });
+  });
+
+  it("a blank/absent tags column maps to undefined (leave-unchanged on re-import)", () => {
+    const cols = resolveColumns(parseCSVHeaders("First name,Last name,Email,Tags"), CONTACT_FIELDS);
+    const res = mapContactRow(["Sara", "Khan", "s@abbott.com", "  "], cols);
+    if ("error" in res) throw new Error(res.error);
+    expect(res.row.tags).toBeUndefined();
   });
 
   it("rejects a malformed email with a row error, not a crash", () => {

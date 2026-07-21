@@ -31,7 +31,15 @@ import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { PurgeRecordButton } from "@/crm/components/purge-record-button";
 import { EditCrmContactDialog } from "@/crm/components/edit-crm-contact-dialog";
-import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
+import {
+  CONTACT_STATUS_COLORS,
+  CONTACT_STATUS_LABELS,
+  DEAL_STATUS_COLORS,
+  LIFECYCLE_COLORS,
+  LIFECYCLE_LABELS,
+  formatDealValue,
+} from "@/crm/lib/crm-types";
+import { contactScoreColor } from "@/crm/lib/contact-score";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
 
@@ -94,6 +102,11 @@ export function ContactDetailBody({
         }
         badges={
           <>
+            {contact.status && (
+              <Badge variant="outline" className={CONTACT_STATUS_COLORS[contact.status]}>
+                {CONTACT_STATUS_LABELS[contact.status]}
+              </Badge>
+            )}
             {contact.lifecycleStage && (
               <Badge variant="outline" className={LIFECYCLE_COLORS[contact.lifecycleStage]}>
                 {LIFECYCLE_LABELS[contact.lifecycleStage]}
@@ -175,6 +188,16 @@ export function ContactDetailBody({
                   <Dash />
                 )}
               </Fact>
+              <Fact label="Mobile">
+                {contact.mobile ? (
+                  <a href={`tel:${contact.mobile}`} className="inline-flex items-center gap-1.5 hover:underline">
+                    <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    {contact.mobile}
+                  </a>
+                ) : (
+                  <Dash />
+                )}
+              </Fact>
               <Fact label="Job title">{contact.jobTitle || <Dash />}</Fact>
               <Fact label="Company">
                 {contact.company ? (
@@ -186,6 +209,17 @@ export function ContactDetailBody({
                 )}
               </Fact>
               {contact.country && <Fact label="Country">{contact.country}</Fact>}
+              {(contact.tags?.length ?? 0) > 0 && (
+                <Fact label="Tags">
+                  <span className="flex flex-wrap gap-1">
+                    {contact.tags?.map((t) => (
+                      <Badge key={t} variant="secondary" className="font-normal">
+                        {t}
+                      </Badge>
+                    ))}
+                  </span>
+                </Fact>
+              )}
               {contact.contactId && (
                 <div className="flex items-start gap-1.5 rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
                   <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -194,6 +228,31 @@ export function ContactDetailBody({
               )}
             </Facts>
           </RecordCard>
+
+          {contact.score && (
+            <RecordCard
+              title="Score"
+              action={
+                <Badge variant="outline" className={contactScoreColor(contact.score.total)}>
+                  {contact.score.total} / 100
+                </Badge>
+              }
+            >
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                <li className="flex justify-between">
+                  <span>Open deals</span>
+                  <span className="tabular-nums">+{contact.score.openDealPoints}</span>
+                </li>
+                <li className="flex justify-between">
+                  <span>Won a deal</span>
+                  <span className="tabular-nums">+{contact.score.wonDealPoints}</span>
+                </li>
+              </ul>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Auto-computed from deal involvement — it updates as deals open, win or archive.
+              </p>
+            </RecordCard>
+          )}
 
           {contact.notes && (
             <RecordCard title="About">

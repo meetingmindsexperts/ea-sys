@@ -19,8 +19,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CountrySelect } from "@/components/ui/country-select";
+import { TagInput } from "@/components/ui/tag-input";
 import { useCreateCrmContact, useCrmCompanies } from "@/crm/hooks/use-crm-api";
-import { LIFECYCLE_LABELS, type CrmLifecycleStage } from "@/crm/lib/crm-types";
+import {
+  CONTACT_STATUS_LABELS,
+  CONTACT_STATUS_VALUES,
+  LIFECYCLE_LABELS,
+  type CrmLifecycleStage,
+} from "@/crm/lib/crm-types";
 
 const NO_COMPANY = "__none__";
 const NO_STAGE = "__none__";
@@ -40,17 +46,21 @@ export function CreateCrmContactDialog({
   const [email, setEmail] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [phone, setPhone] = useState("");
+  const [mobile, setMobile] = useState("");
   const [country, setCountry] = useState("");
   const [companyId, setCompanyId] = useState(defaultCompanyId ?? NO_COMPANY);
   const [stage, setStage] = useState(NO_STAGE);
+  const [status, setStatus] = useState("NEW");
+  const [tags, setTags] = useState<string[]>([]);
 
   const { data: companies = [] } = useCrmCompanies();
   const create = useCreateCrmContact();
 
   function reset() {
     setFirstName(""); setLastName(""); setEmail("");
-    setJobTitle(""); setPhone(""); setCountry("");
+    setJobTitle(""); setPhone(""); setMobile(""); setCountry("");
     setCompanyId(defaultCompanyId ?? NO_COMPANY); setStage(NO_STAGE);
+    setStatus("NEW"); setTags([]);
   }
 
   async function handleSubmit() {
@@ -61,9 +71,12 @@ export function CreateCrmContactDialog({
       email: email.trim(),
       jobTitle: jobTitle.trim() || null,
       phone: phone.trim() || null,
+      mobile: mobile.trim() || null,
       country: country.trim() || null,
       companyId: companyId === NO_COMPANY ? null : companyId,
       lifecycleStage: stage === NO_STAGE ? null : (stage as CrmLifecycleStage),
+      status,
+      tags,
     });
     reset();
     onOpenChange(false);
@@ -132,6 +145,28 @@ export function CreateCrmContactDialog({
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="cc-mobile">Mobile</Label>
+              <Input id="cc-mobile" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="+971 50 …" />
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CONTACT_STATUS_VALUES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {CONTACT_STATUS_LABELS[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label>Country</Label>
             <CountrySelect value={country} onChange={setCountry} />
@@ -170,6 +205,11 @@ export function CreateCrmContactDialog({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Tags</Label>
+            <TagInput value={tags} onChange={setTags} placeholder="Add tag…" />
           </div>
         </div>
 

@@ -7,6 +7,8 @@ import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
 import { isArchivedView } from "@/crm/lib/deal-filters";
 import { findOrCreateCrmContact } from "@/crm/services/crm-contact-service";
+import { computeContactScore } from "@/crm/lib/contact-score";
+import { CONTACT_STATUS_VALUES } from "@/crm/lib/crm-types";
 
 const createSchema = z.object({
   firstName: z.string().min(1).max(100),
@@ -15,9 +17,12 @@ const createSchema = z.object({
   companyId: z.string().min(1).optional().nullable(),
   jobTitle: z.string().max(255).optional().nullable(),
   phone: z.string().max(50).optional().nullable(),
+  mobile: z.string().max(50).optional().nullable(),
   country: z.string().max(100).optional().nullable(),
   notes: z.string().max(5000).optional().nullable(),
   lifecycleStage: z.enum(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]).optional().nullable(),
+  status: z.enum(CONTACT_STATUS_VALUES).optional().nullable(),
+  tags: z.array(z.string().min(1).max(50)).max(25).optional(),
 });
 
 /**
@@ -35,14 +40,17 @@ export async function GET(req: Request) {
     const q = searchParams.get("q")?.trim();
     const companyId = searchParams.get("companyId")?.trim();
     const lifecycle = searchParams.get("lifecycle")?.trim();
+    const status = searchParams.get("status")?.trim();
     const LIFECYCLE = new Set(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]);
+    const STATUS = new Set<string>(CONTACT_STATUS_VALUES);
 
-    const contacts = await db.crmContact.findMany({
+    const rows = await db.crmContact.findMany({
       where: {
         organizationId: ctx.organizationId,
         archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
         ...(companyId ? { companyId } : {}),
         ...(lifecycle && LIFECYCLE.has(lifecycle) ? { lifecycleStage: lifecycle as "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION" } : {}),
+        ...(status && STATUS.has(status) ? { status: status as (typeof CONTACT_STATUS_VALUES)[number] } : {}),
         ...(q
           ? {
               OR: [
@@ -60,17 +68,35 @@ export async function GET(req: Request) {
         email: true,
         jobTitle: true,
         phone: true,
+        mobile: true,
         country: true,
         lifecycleStage: true,
+        status: true,
+        tags: true,
         createdAt: true,
         company: { select: { id: true, name: true } },
         // Non-null when this rep is ALSO in the event contact store (they attend).
         contactId: true,
         archivedAt: true,
         _count: { select: { deals: true } },
+        // Deal statuses only — feeds the auto-computed score, stripped below.
+        deals: { select: { deal: { select: { status: true, archivedAt: true } } } },
       },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
       take: 500,
+    });
+
+    // Score is derived, never stored — computed here from live deal involvement
+    // (archived deals excluded), so it cannot go stale.
+    const contacts = rows.map(({ deals, ...c }) => {
+      const live = deals.filter((d) => !d.deal.archivedAt);
+      return {
+        ...c,
+        score: computeContactScore({
+          openDeals: live.filter((d) => d.deal.status === "OPEN").length,
+          wonDeals: live.filter((d) => d.deal.status === "WON").length,
+        }).total,
+      };
     });
 
     return NextResponse.json({ contacts });

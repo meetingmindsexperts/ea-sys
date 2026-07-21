@@ -45,6 +45,7 @@ export const CONTACT_FIELDS = {
   phone: { synonyms: ["phone", "phonenumber", "telephone"] },
   country: { synonyms: ["country"] },
   companyName: { synonyms: ["salesaccount", "salesaccounts", "accountname", "company", "companyname"] },
+  tags: { synonyms: ["tags", "tag"] },
 } satisfies FieldSpec<string>;
 
 export const DEAL_FIELDS = {
@@ -149,8 +150,11 @@ export interface ContactRow {
   email: string;
   jobTitle?: string;
   phone?: string;
+  mobile?: string;
   country?: string;
   companyName?: string;
+  /** Undefined when the CSV has no tags column OR the cell is blank. */
+  tags?: string[];
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -174,15 +178,22 @@ export function mapContactRow(
       lastName,
       email: rawEmail,
       jobTitle: cell(fields, cols.index.jobTitle),
-      // Work number wins, then mobile, then the generic column.
-      phone:
-        cell(fields, cols.index.workPhone) ??
-        cell(fields, cols.index.mobilePhone) ??
-        cell(fields, cols.index.phone),
+      // Work number wins for phone; mobile now lands in its OWN field (it used
+      // to collapse into phone as a fallback, losing the distinction).
+      phone: cell(fields, cols.index.workPhone) ?? cell(fields, cols.index.phone),
+      mobile: cell(fields, cols.index.mobilePhone),
       country: cell(fields, cols.index.country),
       companyName: cell(fields, cols.index.companyName),
+      tags: parseTagsCell(cell(fields, cols.index.tags)),
     },
   };
+}
+
+/** Freshsales tag cells are comma- or semicolon-separated. Blank → undefined. */
+function parseTagsCell(v: string | undefined): string[] | undefined {
+  if (!v) return undefined;
+  const tags = v.split(/[;,]/).map((t) => t.trim()).filter(Boolean);
+  return tags.length > 0 ? tags : undefined;
 }
 
 export interface DealRow {

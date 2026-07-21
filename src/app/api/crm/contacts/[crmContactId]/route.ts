@@ -5,6 +5,8 @@ import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, requireCrmDelete, denyCrmDelete, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
 import { updateCrmContact, linkToEventContact, setCrmContactArchived } from "@/crm/services/crm-contact-service";
+import { computeContactScore } from "@/crm/lib/contact-score";
+import { CONTACT_STATUS_VALUES } from "@/crm/lib/crm-types";
 
 const updateSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -13,9 +15,12 @@ const updateSchema = z.object({
   companyId: z.string().min(1).nullable().optional(),
   jobTitle: z.string().max(255).nullable().optional(),
   phone: z.string().max(50).nullable().optional(),
+  mobile: z.string().max(50).nullable().optional(),
   country: z.string().max(100).nullable().optional(),
   notes: z.string().max(5000).nullable().optional(),
   lifecycleStage: z.enum(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]).nullable().optional(),
+  status: z.enum(CONTACT_STATUS_VALUES).nullable().optional(),
+  tags: z.array(z.string().min(1).max(50)).max(25).optional(),
   /**
    * Point this business contact at their EVENT contact row — for the rep who also
    * attends. A pointer, not a copy: the two populations stay separate (only the
@@ -40,7 +45,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ crmConta
           include: {
             deal: {
               select: {
-                id: true, name: true, dealValue: true, currency: true, status: true, stageId: true,
+                id: true, name: true, dealValue: true, currency: true, status: true, stageId: true, archivedAt: true,
                 event: { select: { id: true, name: true } },
               },
             },
@@ -59,7 +64,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ crmConta
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ contact: redactForCaller(contact, ctx) });
+    // Score is derived on read from live (non-archived) deal involvement — the
+    // full breakdown ships so the page can explain the number.
+    const liveDeals = contact.deals.filter((d) => !d.deal.archivedAt);
+    const score = computeContactScore({
+      openDeals: liveDeals.filter((d) => d.deal.status === "OPEN").length,
+      wonDeals: liveDeals.filter((d) => d.deal.status === "WON").length,
+    });
+
+    return NextResponse.json({ contact: redactForCaller({ ...contact, score }, ctx) });
   } catch (err) {
     apiLogger.error({
       msg: "crm/contacts:detail-failed",

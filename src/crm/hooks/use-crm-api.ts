@@ -452,6 +452,7 @@ export interface CrmContactFilters {
   q?: string;
   companyId?: string;
   lifecycle?: string;
+  status?: string;
   archived?: string;
 }
 
@@ -503,6 +504,9 @@ export function useUpdateCrmContact(crmContactId: string) {
       apiPatchJson<{ contact: CrmContactRow }>(`/api/crm/contacts/${crmContactId}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["crm", "contacts"] });
+      // The detail page's own query — ["crm","contact",id] is NOT a prefix of
+      // ["crm","contacts"], so without this an edit left the open page stale.
+      qc.invalidateQueries({ queryKey: ["crm", "contact", crmContactId] });
       qc.invalidateQueries({ queryKey: ["crm", "companies"] });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the contact"),
