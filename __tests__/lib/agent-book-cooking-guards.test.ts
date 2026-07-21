@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb } = vi.hoisted(() => ({
   mockDb: {
     registration: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    invoice: { findFirst: vi.fn(), update: vi.fn() },
+    invoice: { findFirst: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn() },
     event: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     $transaction: vi.fn(),
@@ -88,13 +88,22 @@ describe("update_invoice_status — M6", () => {
     expect(mockDb.invoice.update).not.toHaveBeenCalled();
   });
 
-  it("still allows CANCELLED (dashboard parity)", async () => {
-    mockDb.invoice.findFirst.mockResolvedValue({ id: "inv1", eventId: "ev1", invoiceNumber: "MM-1", status: "SENT" });
+  it("still allows CANCELLED (dashboard parity — now via the shared cancelInvoice helper)", async () => {
+    mockDb.invoice.findFirst.mockResolvedValue({ id: "inv1" });
+    // The transition helper (invoice-service, finding 5) re-reads via findUniqueOrThrow.
+    mockDb.invoice.findUniqueOrThrow.mockResolvedValue({ id: "inv1", status: "SENT", invoiceNumber: "MM-1", eventId: "ev1" });
     mockDb.invoice.update.mockResolvedValue({ id: "inv1", invoiceNumber: "MM-1", status: "CANCELLED", total: 100, currency: "USD", paidDate: null });
     const result = await TOOL_EXECUTOR_MAP.update_invoice_status({ invoiceId: "inv1", status: "CANCELLED" }, ctx);
     expect(result).toMatchObject({ success: true, invoice: { status: "CANCELLED" } });
     expect(mockDb.invoice.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: "CANCELLED" } }),
     );
+    // The MCP path now audits via the shared helper (was a hand-rolled row).
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        entityType: "Invoice",
+        changes: expect.objectContaining({ source: "mcp", before: "SENT", after: "CANCELLED" }),
+      }),
+    });
   });
 });

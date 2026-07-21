@@ -1152,24 +1152,78 @@ export async function issuePaidRegistrationDocuments(params: {
   return { invoice, receipt };
 }
 
-// ── Cancel Invoice ──────────────────────────────────────────────────────────
+// ── Invoice status transitions (cancel / mark overdue) ─────────────────────
+//
+// Duplication-audit finding 5 (July 21, 2026): the REST PUT routed cancel
+// through cancelInvoice but bare-updated OVERDUE and wrote NO audit row, while
+// the MCP update_invoice_status bare-updated BOTH (bypassing the idempotency
+// guard) and DID audit. One transition helper now owns the idempotency guard,
+// the structured log, and the audit row for both callers.
 
-export async function cancelInvoice(invoiceId: string): Promise<Invoice> {
+export interface InvoiceStatusTransitionCtx {
+  actorUserId: string | null;
+  source: "rest" | "mcp";
+  ip?: string | null;
+}
+
+async function transitionInvoiceStatus(
+  invoiceId: string,
+  target: "CANCELLED" | "OVERDUE",
+  ctx?: InvoiceStatusTransitionCtx,
+): Promise<Invoice> {
   const existing = await db.invoice.findUniqueOrThrow({
     where: { id: invoiceId },
-    select: { id: true, status: true, invoiceNumber: true },
+    select: { id: true, status: true, invoiceNumber: true, eventId: true },
   });
 
-  if (existing.status === "CANCELLED") {
-    apiLogger.warn({ msg: "Invoice already cancelled", invoiceId, invoiceNumber: existing.invoiceNumber });
+  if (existing.status === target) {
+    apiLogger.warn({
+      msg: target === "CANCELLED" ? "Invoice already cancelled" : "Invoice already overdue",
+      invoiceId,
+      invoiceNumber: existing.invoiceNumber,
+    });
     return db.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
   }
 
-  const cancelled = await db.invoice.update({
+  const updated = await db.invoice.update({
     where: { id: invoiceId },
-    data: { status: "CANCELLED" },
+    data: { status: target },
   });
 
-  apiLogger.info({ msg: "Invoice cancelled", invoiceId, invoiceNumber: cancelled.invoiceNumber });
-  return cancelled;
+  apiLogger.info({
+    msg: target === "CANCELLED" ? "Invoice cancelled" : "Invoice marked overdue",
+    invoiceId,
+    invoiceNumber: updated.invoiceNumber,
+    ...(ctx ? { source: ctx.source } : {}),
+  });
+
+  if (ctx) {
+    db.auditLog
+      .create({
+        data: {
+          eventId: existing.eventId,
+          userId: ctx.actorUserId,
+          action: "UPDATE",
+          entityType: "Invoice",
+          entityId: invoiceId,
+          changes: {
+            source: ctx.source,
+            before: existing.status,
+            after: target,
+            ...(ctx.ip ? { ip: ctx.ip } : {}),
+          },
+        },
+      })
+      .catch((err) => apiLogger.error({ err, invoiceId }, "invoice:status-transition audit-log-failed"));
+  }
+
+  return updated;
+}
+
+export async function cancelInvoice(invoiceId: string, ctx?: InvoiceStatusTransitionCtx): Promise<Invoice> {
+  return transitionInvoiceStatus(invoiceId, "CANCELLED", ctx);
+}
+
+export async function markInvoiceOverdue(invoiceId: string, ctx?: InvoiceStatusTransitionCtx): Promise<Invoice> {
+  return transitionInvoiceStatus(invoiceId, "OVERDUE", ctx);
 }

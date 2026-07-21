@@ -4,7 +4,8 @@ import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { cancelInvoice } from "@/lib/invoice-service";
+import { cancelInvoice, markInvoiceOverdue } from "@/lib/invoice-service";
+import { getClientIp } from "@/lib/security";
 import { z } from "zod";
 
 interface RouteParams {
@@ -95,16 +96,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
 
+    // Both transitions route through the invoice-service helper (shared with
+    // MCP update_invoice_status) — idempotency guard + audit row included; the
+    // REST path previously wrote no audit and bare-updated OVERDUE.
+    const transitionCtx = { actorUserId: session.user.id, source: "rest" as const, ip: getClientIp(req) };
     if (validated.data.action === "cancel") {
-      const updated = await cancelInvoice(invoiceId);
+      const updated = await cancelInvoice(invoiceId, transitionCtx);
       return NextResponse.json(updated);
     }
 
     if (validated.data.action === "mark_overdue") {
-      const updated = await db.invoice.update({
-        where: { id: invoiceId },
-        data: { status: "OVERDUE" },
-      });
+      const updated = await markInvoiceOverdue(invoiceId, transitionCtx);
       return NextResponse.json(updated);
     }
 

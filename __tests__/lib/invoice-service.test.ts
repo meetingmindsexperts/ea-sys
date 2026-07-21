@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const {
   mockTransaction, mockFindUniqueOrThrow, mockFindFirst, mockFindMany,
-  mockCreate, mockUpdate, mockUpdateMany,
+  mockCreate, mockUpdate, mockUpdateMany, mockInvoiceFindUniqueOrThrow, mockAuditCreate,
 } = vi.hoisted(() => ({
   mockTransaction: vi.fn(),
   mockFindUniqueOrThrow: vi.fn(),
@@ -13,6 +13,8 @@ const {
   mockCreate: vi.fn(),
   mockUpdate: vi.fn(),
   mockUpdateMany: vi.fn(),
+  mockInvoiceFindUniqueOrThrow: vi.fn(),
+  mockAuditCreate: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -21,7 +23,7 @@ vi.mock("@/lib/db", () => ({
     // createInvoice binds the registration to event+org (review H9) via findFirstOrThrow.
     registration: { findFirstOrThrow: mockFindUniqueOrThrow, findUniqueOrThrow: mockFindUniqueOrThrow },
     invoice: {
-      findUniqueOrThrow: vi.fn(),
+      findUniqueOrThrow: mockInvoiceFindUniqueOrThrow,
       findFirst: mockFindFirst,
       findMany: mockFindMany,
       create: mockCreate,
@@ -33,6 +35,7 @@ vi.mock("@/lib/db", () => ({
     // .catch() at the call site never fires during the test.
     event: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     invoiceCounter: { upsert: vi.fn() },
+    auditLog: { create: mockAuditCreate },
   },
 }));
 
@@ -119,7 +122,7 @@ vi.mock("@/lib/utils", () => ({
 
 import {
   createInvoice, createPaidInvoice, createPaidReceipt, createCreditNote,
-  cancelInvoice, sendInvoiceEmail, issuePaidRegistrationDocuments,
+  cancelInvoice, markInvoiceOverdue, sendInvoiceEmail, issuePaidRegistrationDocuments,
   InvoiceVoidedError,
 } from "@/lib/invoice-service";
 import { sendEmail } from "@/lib/email";
@@ -945,5 +948,54 @@ describe("sendInvoiceEmail", () => {
     expect(call.subject).toBe(`Credit Note EVT-CN-002 — ${fakeRegistration.event.name}`);
     // Hardcoded body wording survives as the safety net.
     expect(call.htmlContent).toContain("Please find your credit note for");
+  });
+});
+
+describe("invoice status transitions — cancelInvoice / markInvoiceOverdue (finding 5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockInvoiceFindUniqueOrThrow.mockResolvedValue({
+      id: "inv-1", status: "SENT", invoiceNumber: "MM-1", eventId: "ev1",
+    });
+    mockUpdate.mockResolvedValue({ id: "inv-1", status: "CANCELLED", invoiceNumber: "MM-1" });
+    mockAuditCreate.mockResolvedValue({});
+  });
+
+  it("cancelInvoice flips SENT -> CANCELLED and writes the source-tagged audit row", async () => {
+    await cancelInvoice("inv-1", { actorUserId: "u1", source: "rest", ip: "1.2.3.4" });
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: "inv-1" }, data: { status: "CANCELLED" } });
+    expect(mockAuditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventId: "ev1",
+        userId: "u1",
+        entityType: "Invoice",
+        entityId: "inv-1",
+        changes: expect.objectContaining({ source: "rest", before: "SENT", after: "CANCELLED", ip: "1.2.3.4" }),
+      }),
+    });
+  });
+
+  it("markInvoiceOverdue flips SENT -> OVERDUE with an mcp-tagged audit (no ip)", async () => {
+    mockUpdate.mockResolvedValue({ id: "inv-1", status: "OVERDUE", invoiceNumber: "MM-1" });
+    await markInvoiceOverdue("inv-1", { actorUserId: "mcp-remote", source: "mcp" });
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: "inv-1" }, data: { status: "OVERDUE" } });
+    const changes = mockAuditCreate.mock.calls[0][0].data.changes as Record<string, unknown>;
+    expect(changes).toMatchObject({ source: "mcp", after: "OVERDUE" });
+    expect(changes.ip).toBeUndefined();
+  });
+
+  it("already at the target status -> idempotent no-op: no update, no audit", async () => {
+    mockInvoiceFindUniqueOrThrow.mockResolvedValue({
+      id: "inv-1", status: "CANCELLED", invoiceNumber: "MM-1", eventId: "ev1",
+    });
+    await cancelInvoice("inv-1", { actorUserId: "u1", source: "mcp" });
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockAuditCreate).not.toHaveBeenCalled();
+  });
+
+  it("no ctx (legacy direct call) -> transition happens, audit skipped", async () => {
+    await cancelInvoice("inv-1");
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockAuditCreate).not.toHaveBeenCalled();
   });
 });

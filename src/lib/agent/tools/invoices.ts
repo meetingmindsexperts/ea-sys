@@ -123,41 +123,32 @@ const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
 
     const existing = await db.invoice.findFirst({
       where: { id: invoiceId, event: { organizationId: ctx.organizationId } },
-      select: { id: true, eventId: true, invoiceNumber: true, status: true },
+      select: { id: true },
     });
     if (!existing) return { error: `Invoice ${invoiceId} not found or access denied` };
 
-    const updated = await db.invoice.update({
-      where: { id: invoiceId },
-      data: { status: status as never },
-      select: {
-        id: true,
-        invoiceNumber: true,
-        status: true,
-        total: true,
-        currency: true,
-        paidDate: true,
-      },
-    });
-
-    db.auditLog.create({
-      data: {
-        eventId: existing.eventId,
-        userId: ctx.userId,
-        action: "UPDATE",
-        entityType: "Invoice",
-        entityId: invoiceId,
-        changes: {
-          source: "mcp",
-          before: existing.status,
-          after: status,
-        },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:update_invoice_status audit-log-failed"));
+    // Shared with the REST PUT (duplication-audit finding 5): the transition
+    // helper owns the idempotency guard, the structured log, and the audit row
+    // — this executor used to bare-update BOTH statuses, bypassing
+    // cancelInvoice entirely. Dynamic import matches the file's existing
+    // pattern (keeps the invoice-service/pdf chain off agent module load).
+    const { cancelInvoice, markInvoiceOverdue } = await import("@/lib/invoice-service");
+    const transitionCtx = { actorUserId: ctx.userId, source: "mcp" as const };
+    const updated =
+      status === "CANCELLED"
+        ? await cancelInvoice(invoiceId, transitionCtx)
+        : await markInvoiceOverdue(invoiceId, transitionCtx);
 
     return {
       success: true,
-      invoice: { ...updated, total: Number(updated.total) },
+      invoice: {
+        id: updated.id,
+        invoiceNumber: updated.invoiceNumber,
+        status: updated.status,
+        total: Number(updated.total),
+        currency: updated.currency,
+        paidDate: updated.paidDate,
+      },
     };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_invoice_status failed");
