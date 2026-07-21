@@ -92,6 +92,10 @@ export function buildOpenApiSpec(serverUrl: string): Json {
           parameters: [
             { name: "eventId", in: "path", required: true, schema: { type: "string" } },
             { name: "status", in: "query", required: false, schema: { ...SPEAKER_STATUS }, description: "Filter by speaker status." },
+            { name: "createdAfter", in: "query", required: false, schema: { type: "string", format: "date-time" }, description: "Only rows created at/after this ISO 8601 datetime (inclusive)." },
+            { name: "createdBefore", in: "query", required: false, schema: { type: "string", format: "date-time" }, description: "Only rows created at/before this ISO 8601 datetime (inclusive)." },
+            { name: "updatedAfter", in: "query", required: false, schema: { type: "string", format: "date-time" }, description: "Only rows updated at/after this ISO 8601 datetime (inclusive) — use as the incremental-sync checkpoint." },
+            { name: "updatedBefore", in: "query", required: false, schema: { type: "string", format: "date-time" }, description: "Only rows updated at/before this ISO 8601 datetime (inclusive)." },
           ],
           responses: {
             "200": { description: "Array of speakers", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/Speaker" } } } } },
@@ -129,6 +133,10 @@ export function buildOpenApiSpec(serverUrl: string): Json {
             { name: "paymentStatus", in: "query", required: false, schema: { type: "string", enum: ["UNPAID", "PENDING", "PAID", "COMPLIMENTARY", "REFUNDED", "FAILED", "UNASSIGNED", "INCLUSIVE"] } },
             { name: "ticketTypeId", in: "query", required: false, schema: { type: "string" } },
             { name: "tags", in: "query", required: false, schema: { type: "string" }, description: "Comma-separated tag names (OR match)." },
+            { name: "createdAfter", in: "query", required: false, schema: { type: "string", format: "date-time" }, description: "Only rows created at/after this ISO 8601 datetime (inclusive)." },
+            { name: "createdBefore", in: "query", required: false, schema: { type: "string", format: "date-time" }, description: "Only rows created at/before this ISO 8601 datetime (inclusive)." },
+            { name: "updatedAfter", in: "query", required: false, schema: { type: "string", format: "date-time" }, description: "Only rows updated at/after this ISO 8601 datetime (inclusive) — use as the incremental-sync checkpoint." },
+            { name: "updatedBefore", in: "query", required: false, schema: { type: "string", format: "date-time" }, description: "Only rows updated at/before this ISO 8601 datetime (inclusive)." },
             { name: "page", in: "query", required: false, schema: { type: "integer", default: 1, minimum: 1 } },
             { name: "limit", in: "query", required: false, schema: { type: "integer", default: 50, minimum: 1, maximum: 100 } },
           ],

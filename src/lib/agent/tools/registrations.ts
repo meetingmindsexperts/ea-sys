@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { generateBarcode, normalizeTag } from "@/lib/utils";
 import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
@@ -64,6 +65,12 @@ const listRegistrations: ToolExecutor = async (input, ctx) => {
     if (paymentStatusValue && !ALL_PAYMENT_STATUSES.has(paymentStatusValue)) {
       return { error: `Invalid paymentStatus "${paymentStatusValue}". Must be one of: ${[...ALL_PAYMENT_STATUSES].join(", ")}` };
     }
+    // Incremental-sync date filters (shared parser with the REST GETs). An
+    // invalid value is a tool error, never a silently-dropped filter.
+    const dateRange = parseDateRangeFilters((k) => (input[k] == null ? null : String(input[k])));
+    if (!dateRange.ok) {
+      return { error: dateRange.message, code: "INVALID_DATE_FILTER" };
+    }
     const registrations = await db.registration.findMany({
       where: {
         eventId: ctx.eventId,
@@ -72,6 +79,7 @@ const listRegistrations: ToolExecutor = async (input, ctx) => {
         ...(input.ticketTypeId
           ? { ticketTypeId: String(input.ticketTypeId) }
           : {}),
+        ...dateRange.where,
       },
       select: {
         id: true,
@@ -1067,6 +1075,22 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
           description: "Filter by payment status, e.g. UNPAID to find who hasn't paid",
         },
         ticketTypeId: { type: "string", description: "Filter by ticket type ID" },
+        createdAfter: {
+          type: "string",
+          description: "Only rows created at/after this ISO 8601 datetime (inclusive)",
+        },
+        createdBefore: {
+          type: "string",
+          description: "Only rows created at/before this ISO 8601 datetime (inclusive)",
+        },
+        updatedAfter: {
+          type: "string",
+          description: "Only rows updated at/after this ISO 8601 datetime (inclusive) — the incremental-sync checkpoint",
+        },
+        updatedBefore: {
+          type: "string",
+          description: "Only rows updated at/before this ISO 8601 datetime (inclusive)",
+        },
         limit: {
           type: "number",
           description: "Max results to return (default 50, max 200)",

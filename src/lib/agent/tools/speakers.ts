@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { normalizeTag } from "@/lib/utils";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -44,10 +45,17 @@ const listSpeakers: ToolExecutor = async (input, ctx) => {
     if (statusValue && !SPEAKER_STATUSES.has(statusValue)) {
       return { error: `Invalid status "${statusValue}". Must be one of: ${[...SPEAKER_STATUSES].join(", ")}` };
     }
+    // Incremental-sync date filters (shared parser with the REST GETs). An
+    // invalid value is a tool error, never a silently-dropped filter.
+    const dateRange = parseDateRangeFilters((k) => (input[k] == null ? null : String(input[k])));
+    if (!dateRange.ok) {
+      return { error: dateRange.message, code: "INVALID_DATE_FILTER" };
+    }
     const speakers = await db.speaker.findMany({
       where: {
         eventId: ctx.eventId,
         ...(statusValue ? { status: statusValue as never } : {}),
+        ...dateRange.where,
       },
       select: {
         id: true,
@@ -648,6 +656,22 @@ export const SPEAKER_TOOL_DEFINITIONS: Tool[] = [
           type: "string",
           enum: ["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"],
           description: "Filter by speaker status",
+        },
+        createdAfter: {
+          type: "string",
+          description: "Only rows created at/after this ISO 8601 datetime (inclusive)",
+        },
+        createdBefore: {
+          type: "string",
+          description: "Only rows created at/before this ISO 8601 datetime (inclusive)",
+        },
+        updatedAfter: {
+          type: "string",
+          description: "Only rows updated at/after this ISO 8601 datetime (inclusive) — the incremental-sync checkpoint",
+        },
+        updatedBefore: {
+          type: "string",
+          description: "Only rows updated at/before this ISO 8601 datetime (inclusive)",
         },
         limit: {
           type: "number",

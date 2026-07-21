@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
+import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -153,6 +154,14 @@ export async function GET(req: Request, { params }: RouteParams) {
           .slice(0, 20)
       : [];
 
+    // Incremental-sync date filters (shared parser — also on speakers + the
+    // MCP list tools). An invalid value 400s, never silently widens.
+    const dateRange = parseDateRangeFilters((k) => searchParams.get(k));
+    if (!dateRange.ok) {
+      apiLogger.warn({ msg: "events/registrations:invalid-date-filter", eventId, param: dateRange.param, value: dateRange.value });
+      return NextResponse.json({ error: dateRange.message, code: "INVALID_DATE_FILTER" }, { status: 400 });
+    }
+
     // Parallelize event validation and registrations fetch
     const [event, registrations] = await Promise.all([
       db.event.findFirst({
@@ -178,6 +187,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(tagsFilter.length > 0 && {
             attendee: { tags: { hasSome: tagsFilter } },
           }),
+          ...dateRange.where,
         },
         include: {
           attendee: {

@@ -250,13 +250,17 @@ export function registerAllMcpTools(
     { name: "get_event_info", description: "Get event details and counts.", params: {}, agentTool: "list_event_info" },
     { name: "list_tracks", description: "List all tracks for an event.", params: {} },
     { name: "list_ticket_types", description: "List registration types and pricing.", params: {} },
-    { name: "list_speakers", description: "List speakers.", params: {
+    { name: "list_speakers", description: "List speakers. Supports incremental-sync date filters (ISO 8601, inclusive).", params: {
       status: z.enum(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]).optional(), limit: z.number().optional(),
+      createdAfter: z.string().optional(), createdBefore: z.string().optional(),
+      updatedAfter: z.string().optional(), updatedBefore: z.string().optional(),
     }},
-    { name: "list_registrations", description: "List registrations.", params: {
+    { name: "list_registrations", description: "List registrations. Supports incremental-sync date filters (ISO 8601, inclusive).", params: {
       status: z.nativeEnum(RegistrationStatus).optional(),
       paymentStatus: z.nativeEnum(PaymentStatus).optional(),
       limit: z.number().optional(),
+      createdAfter: z.string().optional(), createdBefore: z.string().optional(),
+      updatedAfter: z.string().optional(), updatedBefore: z.string().optional(),
     }},
     { name: "list_sessions", description: "List sessions.", params: { trackId: z.string().optional(), limit: z.number().optional() }},
     { name: "list_abstracts", description: "List abstract submissions.", params: {

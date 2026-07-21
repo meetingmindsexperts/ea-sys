@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
+import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -78,6 +79,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
 
+    // Incremental-sync date filters (shared parser — also on registrations +
+    // the MCP list tools). An invalid value 400s, never silently widens.
+    const dateRange = parseDateRangeFilters((k) => searchParams.get(k));
+    if (!dateRange.ok) {
+      apiLogger.warn({ msg: "events/speakers:invalid-date-filter", eventId, param: dateRange.param, value: dateRange.value });
+      return NextResponse.json({ error: dateRange.message, code: "INVALID_DATE_FILTER" }, { status: 400 });
+    }
+
     // Fetch event validation and speakers in parallel
     const eventWhere = orgCtx
       ? { id: eventId, organizationId: orgCtx.organizationId }
@@ -92,6 +101,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         where: {
           eventId,
           ...(status && { status: status as "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED" }),
+          ...dateRange.where,
         },
         include: {
           _count: {
