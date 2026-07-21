@@ -68,6 +68,55 @@ export function zodErrorResponse<T>(
  *     });
  *   }
  */
+/**
+ * Canonical 429 response (duplication-audit finding 6, July 21, 2026).
+ *
+ * `checkRateLimit` computes `retryAfterSeconds` but every route hand-built its
+ * own 429 — 105 files, four body shapes, and exactly four routes that omitted
+ * the RFC-9110 `Retry-After` header the project's documented rate-limit
+ * contract promises. This helper is the ONE way to reject on a rate limit:
+ * always sets `Retry-After`, always carries `code: "RATE_LIMITED"` +
+ * `retryAfterSeconds` in the body (so agents/clients can back off on the
+ * returned value instead of sleeping a fixed 30s), and always logs.
+ *
+ * Usage:
+ *   const rl = checkRateLimit({ key, limit: 20, windowMs: 60 * 60 * 1000 });
+ *   if (!rl.allowed) {
+ *     return rateLimited(rl, { route: "POST /events/[eventId]/agent/execute", userId });
+ *   }
+ *
+ * Existing compliant sites keep their inline responses until touched — new
+ * code and the previously non-compliant sites use this.
+ */
+export function rateLimited(
+  rl: { retryAfterSeconds: number },
+  context: {
+    route: string;
+    /** Override the user-facing message (default names the wait time). */
+    message?: string;
+    /** Optional documented-contract fields, echoed into the body when provided. */
+    limit?: number;
+    windowSeconds?: number;
+  } & Record<string, unknown>,
+): NextResponse {
+  const { message, limit, windowSeconds, ...logContext } = context;
+  apiLogger.warn({
+    msg: `${context.route}:rate-limited`,
+    retryAfterSeconds: rl.retryAfterSeconds,
+    ...logContext,
+  });
+  return NextResponse.json(
+    {
+      error: message ?? `Too many requests. Please try again in ${rl.retryAfterSeconds} seconds.`,
+      code: "RATE_LIMITED",
+      retryAfterSeconds: rl.retryAfterSeconds,
+      ...(limit !== undefined ? { limit } : {}),
+      ...(windowSeconds !== undefined ? { windowSeconds } : {}),
+    },
+    { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+  );
+}
+
 export function apiErrorResponse(
   status: number,
   error: string,

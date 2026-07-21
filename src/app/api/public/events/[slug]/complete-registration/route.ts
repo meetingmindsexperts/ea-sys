@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
@@ -32,8 +33,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       windowMs: 15 * 60 * 1000,
     });
     if (!ipLimit.allowed) {
-      apiLogger.warn({ msg: "public/complete-registration:rate-limited", retryAfterSeconds: ipLimit.retryAfterSeconds });
-      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+      return rateLimited(ipLimit, { route: "public/complete-registration", message: "Too many requests" });
     }
 
     const hashedToken = hashVerificationToken(rawToken);
@@ -199,8 +199,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 15 * 60 * 1000,
     });
     if (!ipLimit.allowed) {
-      apiLogger.warn({ msg: "public/complete-registration:rate-limited", retryAfterSeconds: ipLimit.retryAfterSeconds });
-      return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
+      return rateLimited(ipLimit, { route: "public/complete-registration", message: "Too many requests. Please try again later." });
     }
 
     const body = await req.json();

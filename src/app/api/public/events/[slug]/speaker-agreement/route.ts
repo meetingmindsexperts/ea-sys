@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -58,8 +59,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       windowMs: 15 * 60 * 1000,
     });
     if (!ipLimit.allowed) {
-      apiLogger.warn({ msg: "public/speaker-agreement:rate-limited", retryAfterSeconds: ipLimit.retryAfterSeconds, ip: clientIp });
-      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+      return rateLimited(ipLimit, { route: "public/speaker-agreement", ip: clientIp, message: "Too many requests" });
     }
 
     const tokenResult = await validateToken(rawToken, clientIp);
@@ -164,8 +164,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 15 * 60 * 1000,
     });
     if (!ipLimit.allowed) {
-      apiLogger.warn({ msg: "public/speaker-agreement:rate-limited", retryAfterSeconds: ipLimit.retryAfterSeconds, ip: clientIp });
-      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+      return rateLimited(ipLimit, { route: "public/speaker-agreement", ip: clientIp, message: "Too many requests" });
     }
 
     const body = await req.json().catch(() => ({}));

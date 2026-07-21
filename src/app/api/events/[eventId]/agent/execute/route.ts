@@ -4,6 +4,7 @@ import type { MessageParam, ToolUnion, WebSearchTool20250305 } from "@anthropic-
 import { auth } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
+import { rateLimited } from "@/lib/api-errors";
 import { db } from "@/lib/db";
 import { AGENT_TOOL_DEFINITIONS, TOOL_EXECUTOR_MAP } from "@/lib/agent/event-tools";
 import { buildSystemPrompt } from "@/lib/agent/system-prompt";
@@ -268,13 +269,13 @@ export async function POST(
     windowMs: 60 * 60 * 1000,
   });
   if (!rl.allowed) {
-    apiLogger.warn({ msg: "events/agent-execute:rate-limited", retryAfterSeconds: rl.retryAfterSeconds });
-    return NextResponse.json(
-      {
-        error: `Rate limit reached. Please wait ${rl.retryAfterSeconds} seconds.`,
-      },
-      { status: 429 }
-    );
+    return rateLimited(rl, {
+      route: "events/agent-execute",
+      message: `Rate limit reached. Please wait ${rl.retryAfterSeconds} seconds.`,
+      userId: session.user.id,
+      limit: 20,
+      windowSeconds: 3600,
+    });
   }
 
   let body: { message?: unknown; history?: unknown };
