@@ -9,7 +9,10 @@ import {
   type SessionType,
 } from "@prisma/client";
 import {
+  addSessionSpeaker as addSessionSpeakerService,
   createSession as createSessionService,
+  removeSessionSpeaker as removeSessionSpeakerService,
+  replaceSessionRoster as replaceSessionRosterService,
   updateSession as updateSessionService,
   type SessionRole,
   type SessionStatus,
@@ -573,22 +576,11 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
 
 const SESSION_ROLES = VALID_SESSION_ROLES;
 
-async function findSessionInEvent(sessionId: string, eventId: string) {
-  return db.eventSession.findFirst({
-    where: { id: sessionId, eventId },
-    // `type` so the roster tools can refuse break items (H1, break-items
-    // review): these executors bypass the session service, so without this
-    // gate an MCP client could attach a speaker/topic to a coffee break —
-    // hidden by every renderer and silently wiped by the next dashboard save.
-    select: { id: true, type: true },
-  });
-}
-
-const BREAK_ITEM_ROSTER_ERROR = {
-  error:
-    "This is a break item (registration/coffee/lunch/networking) — it cannot have speakers or topics. Convert it to type SESSION first via update_session.",
-  code: "BREAK_ITEM_HAS_PROGRAM",
-};
+// Thin MCP wrappers — the roster domain logic (H1 break-item gate, idempotent
+// upsert, transactional remove + L1 topic cleanup, the atomic replace-all swap,
+// audits) lives in session-service (addSessionSpeaker / removeSessionSpeaker /
+// replaceSessionRoster — duplication-audit findings 4+7). These boundaries
+// keep loose-input parsing + the MCP response shapes.
 
 const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
   try {
@@ -601,45 +593,23 @@ const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
       return { error: `Invalid role. Must be one of: ${[...SESSION_ROLES].join(", ")}`, code: "INVALID_ROLE" };
     }
 
-    const session = await findSessionInEvent(sessionId, ctx.eventId);
-    if (!session) return { error: `Session ${sessionId} not found in this event`, code: "SESSION_NOT_FOUND" };
-    if (session.type !== "SESSION") return BREAK_ITEM_ROSTER_ERROR;
-
-    const speaker = await db.speaker.findFirst({
-      where: { id: speakerId, eventId: ctx.eventId },
-      select: { id: true },
+    const result = await addSessionSpeakerService({
+      eventId: ctx.eventId,
+      sessionId,
+      speakerId,
+      role: rawRole as SessionRole,
+      actorUserId: ctx.userId,
+      source: "mcp",
     });
-    if (!speaker) return { error: `Speaker ${speakerId} not found in this event`, code: "SPEAKER_NOT_FOUND" };
-
-    // Idempotent — composite primary key (sessionId, speakerId). If the
-    // row already exists with the same role, we no-op; with a different
-    // role, we update it (so callers can use this to change roles too).
-    const existing = await db.sessionSpeaker.findUnique({
-      where: { sessionId_speakerId: { sessionId, speakerId } },
-      select: { role: true },
-    });
-    if (existing && existing.role === rawRole) {
-      return { sessionSpeaker: { sessionId, speakerId, role: rawRole }, alreadyAssigned: true };
+    if (!result.ok) {
+      return result.code === "UNKNOWN"
+        ? { error: result.message }
+        : { error: result.message, code: result.code };
     }
-    const result = await db.sessionSpeaker.upsert({
-      where: { sessionId_speakerId: { sessionId, speakerId } },
-      create: { sessionId, speakerId, role: rawRole as never },
-      update: { role: rawRole as never },
-      select: { sessionId: true, speakerId: true, role: true },
-    });
-
-    db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: existing ? "UPDATE" : "CREATE",
-        entityType: "SessionSpeaker",
-        entityId: `${sessionId}:${speakerId}`,
-        changes: { source: "mcp", role: rawRole, ...(existing && { previousRole: existing.role }) },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:add_speaker_to_session audit-log-failed"));
-
-    return { sessionSpeaker: result, alreadyAssigned: false, roleChanged: Boolean(existing) };
+    if (result.alreadyAssigned) {
+      return { sessionSpeaker: result.sessionSpeaker, alreadyAssigned: true };
+    }
+    return { sessionSpeaker: result.sessionSpeaker, alreadyAssigned: false, roleChanged: result.roleChanged };
   } catch (err) {
     apiLogger.error({ err }, "agent:add_speaker_to_session failed");
     return { error: err instanceof Error ? err.message : "Failed to add speaker to session" };
@@ -653,39 +623,22 @@ const removeSpeakerFromSession: ToolExecutor = async (input, ctx) => {
     if (!sessionId) return { error: "sessionId is required", code: "MISSING_SESSION_ID" };
     if (!speakerId) return { error: "speakerId is required", code: "MISSING_SPEAKER_ID" };
 
-    const session = await findSessionInEvent(sessionId, ctx.eventId);
-    if (!session) return { error: `Session ${sessionId} not found in this event`, code: "SESSION_NOT_FOUND" };
-
-    // L1 (program/agenda review): removing a speaker from the session must
-    // also remove their per-topic rows in THIS session, or they keep
-    // appearing on the public agenda under the topic. One transaction so the
-    // two deletes can't half-apply.
-    const { removed, topicRowsRemoved } = await db.$transaction(async (tx) => {
-      const del = await tx.sessionSpeaker.deleteMany({
-        where: { sessionId, speakerId },
-      });
-      if (del.count === 0) return { removed: false, topicRowsRemoved: 0 };
-      const topicDel = await tx.topicSpeaker.deleteMany({
-        where: { speakerId, topic: { sessionId } },
-      });
-      return { removed: true, topicRowsRemoved: topicDel.count };
+    const result = await removeSessionSpeakerService({
+      eventId: ctx.eventId,
+      sessionId,
+      speakerId,
+      actorUserId: ctx.userId,
+      source: "mcp",
     });
-    if (!removed) {
+    if (!result.ok) {
+      return result.code === "UNKNOWN"
+        ? { error: result.message }
+        : { error: result.message, code: result.code };
+    }
+    if (!result.removed) {
       return { success: false, message: "Speaker was not assigned to this session", alreadyRemoved: true };
     }
-
-    db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "DELETE",
-        entityType: "SessionSpeaker",
-        entityId: `${sessionId}:${speakerId}`,
-        changes: { source: "mcp", topicRowsRemoved },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:remove_speaker_from_session audit-log-failed"));
-
-    return { success: true, sessionId, speakerId, topicAssignmentsRemoved: topicRowsRemoved };
+    return { success: true, sessionId, speakerId, topicAssignmentsRemoved: result.topicRowsRemoved };
   } catch (err) {
     apiLogger.error({ err }, "agent:remove_speaker_from_session failed");
     return { error: err instanceof Error ? err.message : "Failed to remove speaker from session" };
@@ -707,7 +660,7 @@ const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
 
     // Normalise + validate each assignment up front so we don't
     // half-apply on bad input.
-    const normalised: { speakerId: string; role: string }[] = [];
+    const normalised: { speakerId: string; role: SessionRole }[] = [];
     for (let i = 0; i < rawAssignments.length; i++) {
       const a = rawAssignments[i] as Record<string, unknown> | null;
       if (!a || typeof a !== "object") {
@@ -719,78 +672,24 @@ const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
       if (!SESSION_ROLES.has(role)) {
         return { error: `Assignment ${i}: invalid role "${role}"`, code: "INVALID_ROLE" };
       }
-      normalised.push({ speakerId, role });
+      normalised.push({ speakerId, role: role as SessionRole });
     }
 
-    // Reject duplicate speakerIds in the same payload — composite PK
-    // would 409 anyway, but a clean upfront error is friendlier.
-    const seen = new Set<string>();
-    for (const n of normalised) {
-      if (seen.has(n.speakerId)) {
-        return { error: `Duplicate speakerId in assignments: ${n.speakerId}`, code: "DUPLICATE_SPEAKER_ID" };
-      }
-      seen.add(n.speakerId);
-    }
-
-    const session = await findSessionInEvent(sessionId, ctx.eventId);
-    if (!session) return { error: `Session ${sessionId} not found in this event`, code: "SESSION_NOT_FOUND" };
-    // H1: a non-empty replacement on a break item would attach a roster the
-    // renderers hide. An EMPTY replacement is allowed — it's a cleanup.
-    if (session.type !== "SESSION" && normalised.length > 0) return BREAK_ITEM_ROSTER_ERROR;
-
-    if (normalised.length > 0) {
-      const speakerIds = normalised.map((n) => n.speakerId);
-      const validSpeakers = await db.speaker.findMany({
-        where: { id: { in: speakerIds }, eventId: ctx.eventId },
-        select: { id: true },
-      });
-      const validIds = new Set(validSpeakers.map((s) => s.id));
-      const missing = speakerIds.filter((id) => !validIds.has(id));
-      if (missing.length > 0) {
-        return {
-          error: `Speakers not in this event: ${missing.join(", ")}`,
-          code: "SPEAKER_NOT_FOUND",
-          missingSpeakerIds: missing,
-        };
-      }
-    }
-
-    // Single transaction so the swap is atomic — never an in-between
-    // state where the session has zero speakers (which the public
-    // session page would render as "TBA").
-    const result = await db.$transaction(async (tx) => {
-      const beforeRows = await tx.sessionSpeaker.findMany({
-        where: { sessionId },
-        select: { speakerId: true, role: true },
-      });
-      await tx.sessionSpeaker.deleteMany({ where: { sessionId } });
-      if (normalised.length > 0) {
-        await tx.sessionSpeaker.createMany({
-          data: normalised.map((n) => ({ sessionId, speakerId: n.speakerId, role: n.role as never })),
-        });
-      }
-      // L1: "Replace ALL speakers" now really means all — speakers dropped
-      // from the session also drop off this session's topics, so they stop
-      // appearing on the public agenda under a topic they no longer present.
-      const topicDel = await tx.topicSpeaker.deleteMany({
-        where: {
-          topic: { sessionId },
-          speakerId: { notIn: normalised.map((n) => n.speakerId) },
-        },
-      });
-      return { before: beforeRows, after: normalised, topicRowsRemoved: topicDel.count };
+    const result = await replaceSessionRosterService({
+      eventId: ctx.eventId,
+      sessionId,
+      assignments: normalised,
+      actorUserId: ctx.userId,
+      source: "mcp",
     });
-
-    db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "REPLACE",
-        entityType: "SessionSpeaker",
-        entityId: sessionId,
-        changes: { source: "mcp", before: result.before, after: result.after },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:replace_session_speakers audit-log-failed"));
+    if (!result.ok) {
+      if (result.code === "SPEAKER_NOT_FOUND") {
+        return { error: result.message, code: result.code, ...(result.meta ?? {}) };
+      }
+      return result.code === "UNKNOWN"
+        ? { error: result.message }
+        : { error: result.message, code: result.code };
+    }
 
     return {
       sessionId,

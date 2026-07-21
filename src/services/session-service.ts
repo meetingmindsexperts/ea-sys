@@ -23,10 +23,11 @@
  * Both are fixed here, once: the lock is claimed FIRST and the parent update
  * plus both child replaces commit atomically or not at all.
  *
- * Scope is single create/update. The per-speaker MCP tools
- * (`add_speaker_to_session`, `remove_speaker_from_session`,
- * `replace_session_speakers`) keep their own executors — they are narrow,
- * already audited, and already transactional where it matters.
+ * Scope: single create/update PLUS the roster operations (July 21, 2026,
+ * duplication-audit findings 4+7): `addSessionSpeaker` / `removeSessionSpeaker`
+ * / `replaceSessionRoster` back the MCP per-speaker tools, and the
+ * deleteMany->createMany swap + L1 topic cleanup live once in
+ * `setSessionSpeakersTx` (used by updateSession AND the replace op).
  *
  * See src/services/README.md for the conventions (errors-as-values,
  * already-typed input, service owns the transaction + side effects, never
@@ -576,28 +577,14 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
       });
       if (claim.count === 0) throw new StaleWriteSentinel();
 
-      // 2. Session-level speakers — atomic swap, never an in-between state.
+      // 2. Session-level speakers — atomic swap via the shared applier
+      //    (setSessionSpeakersTx), never an in-between state. The L1 topic
+      //    cleanup is skipped when the payload replaces topics too — step 3
+      //    writes the exact requested per-topic rosters instead.
       if (input.sessionRoles !== undefined || input.speakerIds !== undefined) {
-        await tx.sessionSpeaker.deleteMany({ where: { sessionId } });
-        const rows = buildSessionSpeakerRows(input);
-        if (rows.length > 0) {
-          await tx.sessionSpeaker.createMany({
-            data: rows.map((r) => ({ sessionId, ...r })),
-          });
-        }
-
-        // L1 (program/agenda review): a speaker dropped from the session must
-        // also drop off this session's TOPICS, or they keep appearing on the
-        // public agenda under the topic. When the payload replaces topics too,
-        // step 3 writes the exact requested per-topic rosters instead.
-        if (input.topics === undefined) {
-          await tx.topicSpeaker.deleteMany({
-            where: {
-              topic: { sessionId },
-              speakerId: { notIn: rows.map((r) => r.speakerId) },
-            },
-          });
-        }
+        await setSessionSpeakersTx(tx, sessionId, buildSessionSpeakerRows(input), {
+          cleanTopicSpeakers: input.topics === undefined,
+        });
       }
 
       // 3. Topics. Payload rows carrying an id that belongs to this session
@@ -707,4 +694,281 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
     .catch((err) => apiLogger.error({ err, eventId, sessionId }, "session-update:audit-log-failed"));
 
   return { ok: true, session };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session roster operations (duplication-audit findings 4 + 7, July 21, 2026).
+//
+// The deleteMany→createMany speaker swap + the L1 topicSpeaker cleanup used to
+// be duplicated between updateSession (above) and the MCP
+// `replace_session_speakers` executor, and the MCP single add/remove tools
+// mutated the join table directly with their own audits. All roster mechanics
+// now live here; the MCP executors keep only input parsing + response shaping.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SessionRosterErrorCode =
+  | "SESSION_NOT_FOUND"
+  | "SPEAKER_NOT_FOUND"
+  | "BREAK_ITEM_HAS_PROGRAM"
+  | "DUPLICATE_SPEAKER_ID"
+  | "UNKNOWN";
+
+const rosterFail = (
+  code: SessionRosterErrorCode,
+  message: string,
+  meta?: Record<string, unknown>,
+) => ({ ok: false as const, code, message, ...(meta ? { meta } : {}) });
+
+/**
+ * The ONE atomic "replace this session's speaker rows" applier. Deletes +
+ * recreates the SessionSpeaker rows and (unless the caller is about to rewrite
+ * per-topic rosters itself) applies the L1 cleanup: a speaker dropped from the
+ * session also drops off this session's TOPICS, or they keep appearing on the
+ * public agenda under a topic they no longer present.
+ */
+export async function setSessionSpeakersTx(
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+  rows: { speakerId: string; role: SessionRole }[],
+  opts: { cleanTopicSpeakers?: boolean } = {},
+): Promise<{ topicRowsRemoved: number }> {
+  await tx.sessionSpeaker.deleteMany({ where: { sessionId } });
+  if (rows.length > 0) {
+    await tx.sessionSpeaker.createMany({
+      data: rows.map((r) => ({ sessionId, ...r })),
+    });
+  }
+  if (opts.cleanTopicSpeakers === false) return { topicRowsRemoved: 0 };
+  const topicDel = await tx.topicSpeaker.deleteMany({
+    where: {
+      topic: { sessionId },
+      speakerId: { notIn: rows.map((r) => r.speakerId) },
+    },
+  });
+  return { topicRowsRemoved: topicDel.count };
+}
+
+interface RosterOpBase {
+  eventId: string;
+  sessionId: string;
+  actorUserId: string;
+  source: "rest" | "mcp";
+}
+
+/** Event-scoped session lookup carrying `type` for the break-item gate (H1). */
+async function findRosterSession(sessionId: string, eventId: string) {
+  return db.eventSession.findFirst({
+    where: { id: sessionId, eventId },
+    select: { id: true, type: true },
+  });
+}
+
+const BREAK_ITEM_ROSTER_MESSAGE =
+  "This is a break item (registration/coffee/lunch/networking) — it cannot have speakers or topics. Convert it to type SESSION first via update_session.";
+
+export type AddSessionSpeakerResult =
+  | {
+      ok: true;
+      sessionSpeaker: { sessionId: string; speakerId: string; role: string };
+      alreadyAssigned: boolean;
+      roleChanged: boolean;
+    }
+  | { ok: false; code: SessionRosterErrorCode; message: string; meta?: Record<string, unknown> };
+
+/**
+ * Idempotent single-speaker add (composite PK sessionId+speakerId): same role →
+ * no-op; different role → role update. Break items refuse a roster (H1).
+ */
+export async function addSessionSpeaker(
+  input: RosterOpBase & { speakerId: string; role: SessionRole },
+): Promise<AddSessionSpeakerResult> {
+  const { eventId, sessionId, speakerId, role } = input;
+  try {
+    const session = await findRosterSession(sessionId, eventId);
+    if (!session) {
+      apiLogger.warn({ msg: "session-roster:add-rejected", code: "SESSION_NOT_FOUND", eventId, sessionId, source: input.source });
+      return rosterFail("SESSION_NOT_FOUND", `Session ${sessionId} not found in this event`);
+    }
+    if (session.type !== "SESSION") {
+      apiLogger.warn({ msg: "session-roster:add-rejected", code: "BREAK_ITEM_HAS_PROGRAM", eventId, sessionId, type: session.type, source: input.source });
+      return rosterFail("BREAK_ITEM_HAS_PROGRAM", BREAK_ITEM_ROSTER_MESSAGE);
+    }
+
+    const speaker = await db.speaker.findFirst({
+      where: { id: speakerId, eventId },
+      select: { id: true },
+    });
+    if (!speaker) {
+      apiLogger.warn({ msg: "session-roster:add-rejected", code: "SPEAKER_NOT_FOUND", eventId, sessionId, speakerId, source: input.source });
+      return rosterFail("SPEAKER_NOT_FOUND", `Speaker ${speakerId} not found in this event`);
+    }
+
+    const existing = await db.sessionSpeaker.findUnique({
+      where: { sessionId_speakerId: { sessionId, speakerId } },
+      select: { role: true },
+    });
+    if (existing && existing.role === role) {
+      return { ok: true, sessionSpeaker: { sessionId, speakerId, role }, alreadyAssigned: true, roleChanged: false };
+    }
+    const result = await db.sessionSpeaker.upsert({
+      where: { sessionId_speakerId: { sessionId, speakerId } },
+      create: { sessionId, speakerId, role },
+      update: { role },
+      select: { sessionId: true, speakerId: true, role: true },
+    });
+
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: input.actorUserId,
+          action: existing ? "UPDATE" : "CREATE",
+          entityType: "SessionSpeaker",
+          entityId: `${sessionId}:${speakerId}`,
+          changes: { source: input.source, role, ...(existing && { previousRole: existing.role }) },
+        },
+      })
+      .catch((err) => apiLogger.error({ err, eventId, sessionId }, "session-roster:add audit-log-failed"));
+
+    return { ok: true, sessionSpeaker: result, alreadyAssigned: false, roleChanged: Boolean(existing) };
+  } catch (err) {
+    apiLogger.error({ err, msg: "session-roster:add-failed", eventId, sessionId, source: input.source });
+    return rosterFail("UNKNOWN", "Failed to add speaker to session");
+  }
+}
+
+export type RemoveSessionSpeakerResult =
+  | { ok: true; removed: boolean; topicRowsRemoved: number }
+  | { ok: false; code: SessionRosterErrorCode; message: string };
+
+/**
+ * Transactional single-speaker remove + the targeted L1 topic cleanup (the two
+ * deletes can't half-apply). `removed: false` = the speaker wasn't assigned
+ * (idempotent). Deliberately NO break-item gate — removal is always a safe
+ * cleanup regardless of session type.
+ */
+export async function removeSessionSpeaker(
+  input: RosterOpBase & { speakerId: string },
+): Promise<RemoveSessionSpeakerResult> {
+  const { eventId, sessionId, speakerId } = input;
+  try {
+    const session = await findRosterSession(sessionId, eventId);
+    if (!session) {
+      apiLogger.warn({ msg: "session-roster:remove-rejected", code: "SESSION_NOT_FOUND", eventId, sessionId, source: input.source });
+      return rosterFail("SESSION_NOT_FOUND", `Session ${sessionId} not found in this event`);
+    }
+
+    const { removed, topicRowsRemoved } = await db.$transaction(async (tx) => {
+      const del = await tx.sessionSpeaker.deleteMany({ where: { sessionId, speakerId } });
+      if (del.count === 0) return { removed: false, topicRowsRemoved: 0 };
+      const topicDel = await tx.topicSpeaker.deleteMany({
+        where: { speakerId, topic: { sessionId } },
+      });
+      return { removed: true, topicRowsRemoved: topicDel.count };
+    });
+    if (!removed) return { ok: true, removed: false, topicRowsRemoved: 0 };
+
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: input.actorUserId,
+          action: "DELETE",
+          entityType: "SessionSpeaker",
+          entityId: `${sessionId}:${speakerId}`,
+          changes: { source: input.source, topicRowsRemoved },
+        },
+      })
+      .catch((err) => apiLogger.error({ err, eventId, sessionId }, "session-roster:remove audit-log-failed"));
+
+    return { ok: true, removed: true, topicRowsRemoved };
+  } catch (err) {
+    apiLogger.error({ err, msg: "session-roster:remove-failed", eventId, sessionId, source: input.source });
+    return rosterFail("UNKNOWN", "Failed to remove speaker from session");
+  }
+}
+
+export type ReplaceSessionRosterResult =
+  | {
+      ok: true;
+      before: { speakerId: string; role: string }[];
+      after: { speakerId: string; role: SessionRole }[];
+      topicRowsRemoved: number;
+    }
+  | { ok: false; code: SessionRosterErrorCode; message: string; meta?: Record<string, unknown> };
+
+/**
+ * Atomic replace-all via `setSessionSpeakersTx` — never an in-between state
+ * where the session has zero speakers (the public page would render "TBA").
+ * A non-empty replacement on a break item is refused (H1); an EMPTY one is
+ * allowed — it's a cleanup.
+ */
+export async function replaceSessionRoster(
+  input: RosterOpBase & { assignments: { speakerId: string; role: SessionRole }[] },
+): Promise<ReplaceSessionRosterResult> {
+  const { eventId, sessionId, assignments } = input;
+  try {
+    // Duplicate speakerIds would 409 on the composite PK anyway — reject
+    // cleanly up front (a domain rule, so a future REST caller gets it too).
+    const seen = new Set<string>();
+    for (const a of assignments) {
+      if (seen.has(a.speakerId)) {
+        return rosterFail("DUPLICATE_SPEAKER_ID", `Duplicate speakerId in assignments: ${a.speakerId}`);
+      }
+      seen.add(a.speakerId);
+    }
+
+    const session = await findRosterSession(sessionId, eventId);
+    if (!session) {
+      apiLogger.warn({ msg: "session-roster:replace-rejected", code: "SESSION_NOT_FOUND", eventId, sessionId, source: input.source });
+      return rosterFail("SESSION_NOT_FOUND", `Session ${sessionId} not found in this event`);
+    }
+    if (session.type !== "SESSION" && assignments.length > 0) {
+      apiLogger.warn({ msg: "session-roster:replace-rejected", code: "BREAK_ITEM_HAS_PROGRAM", eventId, sessionId, type: session.type, source: input.source });
+      return rosterFail("BREAK_ITEM_HAS_PROGRAM", BREAK_ITEM_ROSTER_MESSAGE);
+    }
+
+    if (assignments.length > 0) {
+      const speakerIds = assignments.map((a) => a.speakerId);
+      const validSpeakers = await db.speaker.findMany({
+        where: { id: { in: speakerIds }, eventId },
+        select: { id: true },
+      });
+      const validIds = new Set(validSpeakers.map((s) => s.id));
+      const missing = speakerIds.filter((id) => !validIds.has(id));
+      if (missing.length > 0) {
+        apiLogger.warn({ msg: "session-roster:replace-rejected", code: "SPEAKER_NOT_FOUND", eventId, sessionId, missing, source: input.source });
+        return rosterFail("SPEAKER_NOT_FOUND", `Speakers not in this event: ${missing.join(", ")}`, {
+          missingSpeakerIds: missing,
+        });
+      }
+    }
+
+    const result = await db.$transaction(async (tx) => {
+      const beforeRows = await tx.sessionSpeaker.findMany({
+        where: { sessionId },
+        select: { speakerId: true, role: true },
+      });
+      const { topicRowsRemoved } = await setSessionSpeakersTx(tx, sessionId, assignments);
+      return { before: beforeRows, topicRowsRemoved };
+    });
+
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: input.actorUserId,
+          action: "REPLACE",
+          entityType: "SessionSpeaker",
+          entityId: sessionId,
+          changes: { source: input.source, before: result.before, after: assignments },
+        },
+      })
+      .catch((err) => apiLogger.error({ err, eventId, sessionId }, "session-roster:replace audit-log-failed"));
+
+    return { ok: true, before: result.before, after: assignments, topicRowsRemoved: result.topicRowsRemoved };
+  } catch (err) {
+    apiLogger.error({ err, msg: "session-roster:replace-failed", eventId, sessionId, source: input.source });
+    return rosterFail("UNKNOWN", "Failed to replace session speakers");
+  }
 }
