@@ -194,4 +194,59 @@ describe("agenda CSV import delegates to session-service", () => {
     expect(body.errors[0]).toContain('speaker "ghost@example.com" not found');
     expect(mockCreateSession.mock.calls[0][0].speakerIds).toEqual(["spk-1"]);
   });
+
+  it("optional type column: aliases map (\"Coffee Break\" \u2192 BREAK) and default is SESSION", async () => {
+    const csv = [
+      "name,startTime,endTime,type",
+      "Keynote,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z,",
+      "Morning Coffee,2026-03-15T10:30:00Z,2026-03-15T11:00:00Z,Coffee Break",
+      "Lunch,2026-03-15T13:00:00Z,2026-03-15T14:00:00Z,LUNCH",
+    ].join("\n");
+
+    const res = await POST(csvRequest(csv), params);
+    const body = await res.json();
+
+    expect(body.created).toBe(3);
+    expect(body.errors).toEqual([]);
+    expect(mockCreateSession.mock.calls[0][0].type).toBe("SESSION");
+    expect(mockCreateSession.mock.calls[1][0].type).toBe("BREAK");
+    expect(mockCreateSession.mock.calls[2][0].type).toBe("LUNCH");
+  });
+
+  it("an unknown type is a ROW ERROR, never a silent SESSION default", async () => {
+    const csv = [
+      "name,startTime,endTime,type",
+      "Tea?,2026-03-15T10:30:00Z,2026-03-15T11:00:00Z,TEATIME",
+    ].join("\n");
+
+    const res = await POST(csvRequest(csv), params);
+    const body = await res.json();
+
+    expect(body.created).toBe(0);
+    expect(body.errors[0]).toContain('unknown type "TEATIME"');
+    expect(mockCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("a break row ignores track + capacity (documented) but speakers still reach the service to be rejected", async () => {
+    mockCreateSession.mockResolvedValueOnce({
+      ok: false,
+      code: "BREAK_ITEM_HAS_PROGRAM",
+      message: "A break item cannot have speakers",
+    });
+    const csv = [
+      "name,startTime,endTime,type,track,capacity,speakerEmails",
+      "Lunch,2026-03-15T13:00:00Z,2026-03-15T14:00:00Z,LUNCH,Main,50,jane@example.com",
+    ].join("\n");
+
+    const res = await POST(csvRequest(csv), params);
+    const body = await res.json();
+
+    expect(body.created).toBe(0);
+    expect(body.errors[0]).toContain("break item");
+    const call = mockCreateSession.mock.calls[0][0];
+    expect(call.type).toBe("LUNCH");
+    expect(call.trackId).toBeNull();
+    expect(call.capacity).toBeNull();
+    expect(call.speakerIds).toEqual(["spk-1"]);
+  });
 });

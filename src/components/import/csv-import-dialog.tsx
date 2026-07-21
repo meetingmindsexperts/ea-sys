@@ -40,8 +40,8 @@ const ENTITY_CONFIG = {
   sessions: {
     label: "Sessions",
     required: ["name", "startTime", "endTime"],
-    optional: ["description", "location", "capacity", "track", "speakerEmails", "status"],
-    sampleRow: ["Opening Keynote", "2026-06-15T09:00:00Z", "2026-06-15T10:00:00Z", "Welcome and opening remarks", "Main Hall", "500", "Plenary", "jane@example.com;john@example.com", "SCHEDULED"],
+    optional: ["description", "location", "capacity", "track", "speakerEmails", "status", "type"],
+    sampleRow: ["Opening Keynote", "2026-06-15T09:00:00Z", "2026-06-15T10:00:00Z", "Welcome and opening remarks", "Main Hall", "500", "Plenary", "jane@example.com;john@example.com", "SCHEDULED", "SESSION"],
   },
   abstracts: {
     label: "Abstracts",
@@ -139,7 +139,15 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
           <DialogDescription>
             Upload a CSV file with <strong>{config.required.join(", ")}</strong> columns (required).
             {entityType === "sessions" && (
-              <> Dates must be ISO 8601 format (e.g. 2026-06-15T09:00:00Z). Separate multiple speaker emails with semicolons.</>
+              <>
+                {" "}Dates must be ISO 8601 format (e.g. 2026-06-15T09:00:00Z).
+                Separate multiple speaker emails with semicolons. Optional{" "}
+                <code>type</code> column: <code>SESSION</code> (default) or a
+                break item — <code>REGISTRATION</code>, <code>BREAK</code>{" "}
+                (&quot;Coffee Break&quot; works too), <code>LUNCH</code>,{" "}
+                <code>NETWORKING</code>. Break rows can&#39;t have speakers, and
+                their track/capacity values are ignored.
+              </>
             )}
             {entityType === "registrations" && (
               <>

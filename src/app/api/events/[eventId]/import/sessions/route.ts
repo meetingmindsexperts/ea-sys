@@ -7,9 +7,25 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
 import { notifyEventAdmins } from "@/lib/notifications";
+import type { SessionType } from "@prisma/client";
 import { createSession, type SessionStatus } from "@/services/session-service";
 
 const SESSION_STATUS_VALUES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
+
+// Optional `type` column → break items. Friendly aliases so an organizer's
+// natural spelling ("Coffee Break") maps without memorizing enum values; an
+// unrecognized value is a ROW ERROR, never a silent default (a typo'd type
+// would otherwise silently flip how the agenda renders the row).
+const SESSION_TYPE_ALIASES: Record<string, SessionType> = {
+  "SESSION": "SESSION",
+  "REGISTRATION": "REGISTRATION",
+  "BREAK": "BREAK",
+  "COFFEE": "BREAK",
+  "COFFEE BREAK": "BREAK",
+  "LUNCH": "LUNCH",
+  "LUNCH BREAK": "LUNCH",
+  "NETWORKING": "NETWORKING",
+};
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -73,6 +89,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       track: headers.indexOf("track"),
       speakerEmails: headers.indexOf("speakeremails"),
       status: headers.indexOf("status"),
+      type: headers.indexOf("type"),
     };
 
     if (idx.name === -1 || idx.startTime === -1 || idx.endTime === -1) {
@@ -132,12 +149,30 @@ export async function POST(req: Request, { params }: RouteParams) {
         continue;
       }
 
+      // Optional type column: SESSION (default) or a break item.
+      const typeRaw = getField(fields, idx.type)?.trim().toUpperCase();
+      let sessionType: SessionType = "SESSION";
+      if (typeRaw) {
+        const mapped = SESSION_TYPE_ALIASES[typeRaw];
+        if (!mapped) {
+          errors.push(
+            `Row ${rowNum}: unknown type "${typeRaw}" — use SESSION, REGISTRATION, BREAK (or "Coffee Break"), LUNCH, or NETWORKING`,
+          );
+          continue;
+        }
+        sessionType = mapped;
+      }
+      // Break items are track-less by design — a track value on a break row
+      // is ignored (documented in the import dialog). Speakers on a break row
+      // are NOT ignored: the service rejects the row with a clear error.
+      const isBreakRow = sessionType !== "SESSION";
+
       // Resolve track — create missing ones with max+1 sortOrder INSIDE the
       // create transaction (the M10 pattern; the old pre-counted cursor could
       // mint duplicate sortOrders after track deletions).
       let trackId: string | null = null;
       const trackName = getField(fields, idx.track);
-      if (trackName) {
+      if (trackName && !isBreakRow) {
         const existingTrackId = trackByName.get(trackName.toLowerCase());
         if (existingTrackId) {
           trackId = existingTrackId;
@@ -192,9 +227,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         endTime,
         description: getField(fields, idx.description) || null,
         location: getField(fields, idx.location) || null,
-        capacity,
+        capacity: isBreakRow ? null : capacity,
         trackId,
         status,
+        type: sessionType,
         speakerIds,
         suppressAdminNotification: true,
       });
