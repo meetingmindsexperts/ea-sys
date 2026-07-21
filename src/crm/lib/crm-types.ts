@@ -32,6 +32,12 @@ export const CONTACT_STATUS_VALUES = [
 ] as const;
 export type CrmContactStatus = (typeof CONTACT_STATUS_VALUES)[number];
 
+/**
+ * The currencies a deal can be priced in. ONE list — it was hardcoded in both
+ * deal dialogs, so adding a currency meant editing two files (or worse, one).
+ */
+export const DEAL_CURRENCIES = ["USD", "AED", "EUR", "GBP", "SAR"] as const;
+
 export interface CrmStage {
   id: string;
   name: string;

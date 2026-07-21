@@ -3,11 +3,9 @@
 /**
  * Create a deal.
  *
- * The company field is a free-text combobox on purpose: it POSTs to the
- * find-or-create endpoint, so typing "Abbott" when Abbott already exists LINKS to
- * the existing account rather than minting a second one. The toast then tells you
- * which happened ("Linked to the existing account…" vs "Created…"), because a UI
- * that says "Created Abbott" when it merely found Abbott is lying to you.
+ * Fields live in the shared CrmDealFormFields (also the edit dialog) — one
+ * form, no drift. Only the Stage picker is create-specific (edits move stage on
+ * the board), passed through the form's extraField slot.
  */
 import { useState } from "react";
 import { toast } from "sonner";
@@ -21,12 +19,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateCompany, useCreateDeal } from "@/crm/hooks/use-crm-api";
-import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
-import { EventCombobox } from "@/crm/components/event-combobox";
+import { type CompanySelection } from "@/crm/components/company-combobox";
+import {
+  CrmDealFormFields,
+  crmDealFormPayload,
+  emptyCrmDealForm,
+  resolveDealCompanyId,
+  validateDealForm,
+  type CrmDealFormState,
+} from "@/crm/components/crm-deal-form-fields";
 import { defaultOpenStage, type CrmStage } from "@/crm/lib/crm-types";
 
 export function CreateDealDialog({
@@ -43,13 +47,10 @@ export function CreateDealDialog({
   /** Pre-select the account — the "New deal" button on a company page. */
   defaultCompany?: CompanySelection | null;
 }) {
-  const [name, setName] = useState("");
-  const [company, setCompany] = useState<CompanySelection | null>(defaultCompany ?? null);
-  const [dealValue, setDealValue] = useState("");
-  const [currency, setCurrency] = useState("USD");
+  const [form, setForm] = useState<CrmDealFormState>(() =>
+    emptyCrmDealForm({ eventId: defaultEventId, company: defaultCompany }),
+  );
   const [stageId, setStageId] = useState("");
-  const [eventId, setEventId] = useState<string | null>(defaultEventId ?? null);
-  const [expectedClose, setExpectedClose] = useState("");
   const [saving, setSaving] = useState(false);
 
   const createCompany = useCreateCompany();
@@ -62,22 +63,14 @@ export function CreateDealDialog({
   const effectiveStage = stageId || firstOpenStage;
 
   function reset() {
-    setName("");
-    setCompany(defaultCompany ?? null);
-    setDealValue("");
-    setCurrency("USD");
+    setForm(emptyCrmDealForm({ eventId: defaultEventId, company: defaultCompany }));
     setStageId("");
-    setEventId(defaultEventId ?? null);
-    setExpectedClose("");
   }
 
   async function handleSubmit() {
-    if (!name.trim()) {
-      toast.error("Give the deal a name");
-      return;
-    }
-    if (!eventId) {
-      toast.error("Select the event (project) this deal is for");
+    const invalid = validateDealForm(form);
+    if (invalid) {
+      toast.error(invalid);
       return;
     }
     if (!effectiveStage) {
@@ -87,30 +80,11 @@ export function CreateDealDialog({
 
     setSaving(true);
     try {
-      // The picker gives us either an existing account (id) or a to-be-created one
-      // (id null + name). Find-or-create the latter so the deal always hangs off a
-      // real company row rather than a free-text string (the thing this module
-      // exists to fix); the server dedups, so a typed name that already exists links.
-      let companyId: string | null = null;
-      if (company) {
-        companyId = company.id ?? (await createCompany.mutateAsync({ name: company.name })).company.id;
-      }
-
-      const parsedValue = dealValue.trim() ? Number(dealValue) : null;
-      if (parsedValue !== null && !Number.isFinite(parsedValue)) {
-        toast.error("Deal value must be a number");
-        setSaving(false);
-        return;
-      }
+      const companyId = await resolveDealCompanyId(form.company, (b) => createCompany.mutateAsync(b));
 
       await createDeal.mutateAsync({
-        name: name.trim(),
+        ...crmDealFormPayload(form, companyId),
         stageId: effectiveStage,
-        companyId,
-        eventId,
-        dealValue: parsedValue,
-        currency,
-        expectedClose: expectedClose || null,
       });
 
       toast.success("Deal created");
@@ -133,70 +107,17 @@ export function CreateDealDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="deal-name">
-              Name <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="deal-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Abbott — BRIDGES 2026 Gold"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>
-              Event (project) <span className="text-destructive">*</span>
-            </Label>
-            <EventCombobox
-              value={eventId}
-              onChange={setEventId}
-              allowClear={false}
-              placeholder="Select an event…"
-              className="w-full"
-            />
-            <p className="text-xs text-muted-foreground">Every deal is sold against a project.</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Company</Label>
-            <CompanyCombobox value={company} onChange={setCompany} />
+        <CrmDealFormFields
+          value={form}
+          onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          idPrefix="deal"
+          eventHint={<p className="text-xs text-muted-foreground">Every deal is sold against a project.</p>}
+          companyHint={
             <p className="text-xs text-muted-foreground">
               Pick an existing account, or type a new name to create one.
             </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="deal-value">Value</Label>
-              <Input
-                id="deal-value"
-                inputMode="decimal"
-                value={dealValue}
-                onChange={(e) => setDealValue(e.target.value)}
-                placeholder="40000"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="deal-currency">Currency</Label>
-              <Select value={currency} onValueChange={setCurrency}>
-                <SelectTrigger id="deal-currency" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["USD", "AED", "EUR", "GBP", "SAR"].map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          }
+          extraField={
             <div className="space-y-2">
               <Label htmlFor="deal-stage">Stage</Label>
               <Select value={effectiveStage} onValueChange={setStageId}>
@@ -212,17 +133,8 @@ export function CreateDealDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="deal-close">Expected close</Label>
-              <Input
-                id="deal-close"
-                type="date"
-                value={expectedClose}
-                onChange={(e) => setExpectedClose(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
+          }
+        />
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>

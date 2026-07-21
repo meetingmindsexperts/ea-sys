@@ -10,7 +10,9 @@
  * to an HTTP status is a boundary concern and lives here.
  */
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getOrgContext, type OrgContext } from "@/lib/api-auth";
+import { zodErrorResponse } from "@/lib/api-errors";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { redactFinancialFields } from "@/lib/finance-visibility";
@@ -279,4 +281,69 @@ export function crmErrorResponse(fail: {
     { error: fail.message, code: fail.code, ...(fail.meta ? { meta: fail.meta } : {}) },
     { status },
   );
+}
+
+// ── Freshsales CSV import runner ─────────────────────────────────────────────
+
+/** Base body every CSV import accepts; importers with extra knobs .extend() it. */
+export const crmCsvImportBaseSchema = z.object({
+  /** Raw CSV text (the dialog reads the picked file). Row cap enforced by the parser. */
+  csv: z.string().min(1).max(15_000_000),
+  /** true → full decision run, zero writes — the report the operator confirms. */
+  dryRun: z.boolean().optional(),
+});
+
+type CrmImportOutcome =
+  | { ok: true }
+  | { ok: false; code: string; message: string; meta?: Record<string, unknown> };
+
+/**
+ * The shared body of the three /api/crm/import/* routes: one rate-limit bucket
+ * (an import mints rows that are awkward to clean up), one parse, one error
+ * mapping — the scaffold was copied three ways and only needed to drift once
+ * for an unthrottled import path to appear.
+ *
+ * Deliberately does NOT call requireCrmWrite: the gate stays visible in each
+ * route file so the source-level gate-drift test keeps its guarantee.
+ */
+export async function runCrmCsvImport<T extends { csv: string; dryRun?: boolean }>(
+  req: Request,
+  ctx: OrgContext,
+  opts: {
+    /** For the zod-failure log line, e.g. "crm/import/companies:POST". */
+    route: string;
+    schema: z.ZodType<T>;
+    importer: (
+      data: T,
+      base: { organizationId: string; userId: string | null; csvText: string; dryRun: boolean },
+    ) => Promise<CrmImportOutcome>;
+  },
+): Promise<NextResponse> {
+  const limit = checkRateLimit({
+    key: `crm-import:org:${ctx.organizationId}`,
+    limit: 20,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!limit.allowed) {
+    apiLogger.warn({ msg: "crm/import:rate-limited", organizationId: ctx.organizationId, route: opts.route });
+    return NextResponse.json(
+      { error: "Too many imports — try again shortly", code: "RATE_LIMITED", retryAfterSeconds: limit.retryAfterSeconds },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+    );
+  }
+
+  const body = await req.json().catch(() => null);
+  const parsed = opts.schema.safeParse(body);
+  if (!parsed.success) {
+    return zodErrorResponse(parsed, { route: opts.route, organizationId: ctx.organizationId });
+  }
+
+  const result = await opts.importer(parsed.data, {
+    organizationId: ctx.organizationId,
+    userId: ctx.userId,
+    csvText: parsed.data.csv,
+    dryRun: parsed.data.dryRun ?? false,
+  });
+  if (!result.ok) return crmErrorResponse(result);
+  return NextResponse.json(result);
 }

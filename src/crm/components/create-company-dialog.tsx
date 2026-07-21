@@ -5,6 +5,9 @@
  * already exists LINKS rather than duplicates — the hook's toast says which
  * happened, because a UI that claims it "created Abbott" when it merely found
  * Abbott is lying.
+ *
+ * Fields live in the shared CrmCompanyFormFields (also the edit dialog) — one
+ * form, no drift.
  */
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -17,11 +20,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { CountrySelect } from "@/components/ui/country-select";
 import { useCreateCompany } from "@/crm/hooks/use-crm-api";
+import {
+  CrmCompanyFormFields,
+  crmCompanyFormPayload,
+  emptyCrmCompanyForm,
+  type CrmCompanyFormState,
+} from "@/crm/components/crm-company-form-fields";
 
 export function CreateCompanyDialog({
   open,
@@ -30,35 +35,17 @@ export function CreateCompanyDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const [name, setName] = useState("");
-  const [industry, setIndustry] = useState("");
-  const [website, setWebsite] = useState("");
-  const [city, setCity] = useState("");
-  const [country, setCountry] = useState<string | null>(null);
-  const [notes, setNotes] = useState("");
-
+  const [form, setForm] = useState<CrmCompanyFormState>(emptyCrmCompanyForm);
   const create = useCreateCompany();
 
   function reset() {
-    setName("");
-    setIndustry("");
-    setWebsite("");
-    setCity("");
-    setCountry(null);
-    setNotes("");
+    setForm(emptyCrmCompanyForm());
   }
 
   async function handleSubmit() {
-    if (!name.trim()) return;
+    if (!form.name.trim()) return;
     try {
-      await create.mutateAsync({
-        name: name.trim(),
-        industry: industry.trim() || null,
-        website: website.trim() || null,
-        city: city.trim() || null,
-        country: country || null,
-        notes: notes.trim() || null,
-      });
+      await create.mutateAsync(crmCompanyFormPayload(form));
     } catch {
       // Surfaced by the hook's onError toast; keep the dialog open for a retry.
       return;
@@ -77,65 +64,22 @@ export function CreateCompanyDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="c-name">
-              Name <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="c-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Abbott"
-            />
+        <CrmCompanyFormFields
+          value={form}
+          onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          idPrefix="c"
+          nameHint={
             <p className="text-xs text-muted-foreground">
               If this account already exists, you&apos;ll be linked to it rather than creating a duplicate.
             </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="c-industry">Industry</Label>
-              <Input
-                id="c-industry"
-                value={industry}
-                onChange={(e) => setIndustry(e.target.value)}
-                placeholder="Pharma"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="c-website">Website</Label>
-              <Input
-                id="c-website"
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
-                placeholder="abbott.com"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="c-city">City</Label>
-              <Input id="c-city" value={city} onChange={(e) => setCity(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Country</Label>
-              <CountrySelect value={country} onChange={setCountry} />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="c-notes">Notes</Label>
-            <Textarea id="c-notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
-        </div>
+          }
+        />
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!name.trim() || create.isPending}>
+          <Button onClick={handleSubmit} disabled={!form.name.trim() || create.isPending}>
             {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save
           </Button>

@@ -50,6 +50,15 @@ export interface CrmDealFilters {
   archived?: string;
 }
 
+/**
+ * The ONE place CRM query keys are spelled. Every read AND every invalidation
+ * goes through this factory — a raw ["crm", …] literal at a call site is how
+ * the contact page went stale (["crm","contact",id] is NOT a prefix of
+ * ["crm","contacts"], so a literal invalidation quietly missed the open page).
+ *
+ * Full keys (reads) always START WITH their matching `*Prefix` (invalidations),
+ * so invalidating a prefix reaches every filter variant + detail page.
+ */
 export const crmKeys = {
   stages: ["crm", "stages"] as const,
   deals: (filters?: CrmDealFilters) =>
@@ -60,7 +69,23 @@ export const crmKeys = {
   tasks: (scope?: string) => ["crm", "tasks", scope ?? "mine"] as const,
   notes: (attach: Record<string, string>) => ["crm", "notes", attach] as const,
   contacts: (q?: string) => ["crm", "contacts", q ?? ""] as const,
+  contact: (id: string) => ["crm", "contact", id] as const,
+  activity: (entityType: string, entityId?: string | null) =>
+    entityId === undefined ? (["crm", "activity", entityType] as const) : (["crm", "activity", entityType, entityId ?? ""] as const),
+  emailTemplates: (includeArchived: boolean) => ["crm", "email-templates", includeArchived] as const,
+  products: (includeArchived: boolean) => ["crm", "products", includeArchived] as const,
+  dealProducts: (dealId: string) => ["crm", "deal-products", dealId] as const,
   notifications: ["crm", "notifications"] as const,
+  // Invalidation prefixes — match every variant of the corresponding full key.
+  dealsPrefix: ["crm", "deals"] as const,
+  dealPrefix: ["crm", "deal"] as const,
+  companiesPrefix: ["crm", "companies"] as const,
+  companyPrefix: ["crm", "company"] as const,
+  contactsPrefix: ["crm", "contacts"] as const,
+  tasksPrefix: ["crm", "tasks"] as const,
+  notesPrefix: ["crm", "notes"] as const,
+  emailTemplatesPrefix: ["crm", "email-templates"] as const,
+  productsPrefix: ["crm", "products"] as const,
 };
 
 // ── Pipeline ─────────────────────────────────────────────────────────────────
@@ -77,7 +102,7 @@ function useInvalidatePipeline() {
   const qc = useQueryClient();
   return () => {
     qc.invalidateQueries({ queryKey: crmKeys.stages });
-    qc.invalidateQueries({ queryKey: ["crm", "deals"] });
+    qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
   };
 }
 
@@ -150,9 +175,9 @@ export function useCreateDeal() {
     mutationFn: (body: Record<string, unknown>) =>
       apiPostJson<{ deal: CrmBoardDeal }>("/api/crm/deals", body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "deals"] });
-      qc.invalidateQueries({ queryKey: ["crm", "companies"] });
-      qc.invalidateQueries({ queryKey: ["crm", "company"] }); // detail pages (deal list)
+      qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.companiesPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.companyPrefix }); // detail pages (deal list)
     },
   });
 }
@@ -163,7 +188,7 @@ export function useUpdateDeal(dealId: string) {
     mutationFn: (body: Record<string, unknown>) =>
       apiPatchJson<{ deal: CrmBoardDeal }>(`/api/crm/deals/${dealId}`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "deals"] });
+      qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
       qc.invalidateQueries({ queryKey: crmKeys.deal(dealId) });
     },
   });
@@ -225,7 +250,7 @@ export function useCloseDeal(dealId: string) {
     mutationFn: (body: { outcome: "WON" | "LOST"; lostReason?: string | null }) =>
       apiPostJson<{ deal: CrmBoardDeal }>(`/api/crm/deals/${dealId}/close`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "deals"] });
+      qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
       qc.invalidateQueries({ queryKey: crmKeys.deal(dealId) });
     },
   });
@@ -246,7 +271,7 @@ export function useCrmCompanies(arg?: string | CrmCompanyFilters) {
   for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
   const key = qs.toString();
   return useQuery({
-    queryKey: ["crm", "companies", key],
+    queryKey: crmKeys.companies(key),
     queryFn: () =>
       apiFetch<{ companies: CrmCompanyRow[] }>(`/api/crm/companies${key ? `?${key}` : ""}`).then((r) => r.companies),
   });
@@ -270,7 +295,7 @@ export function useCreateCompany() {
         body,
       ),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["crm", "companies"] });
+      qc.invalidateQueries({ queryKey: crmKeys.companiesPrefix });
       // find-or-create: say what actually happened, rather than claiming we made
       // something we merely found.
       if (!res.created) {
@@ -294,7 +319,7 @@ export function useUpdateCompany(companyId: string) {
     mutationFn: (body: Record<string, unknown>) =>
       apiPatchJson<{ company: CrmCompanyRow }>(`/api/crm/companies/${companyId}`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "companies"] });
+      qc.invalidateQueries({ queryKey: crmKeys.companiesPrefix });
       qc.invalidateQueries({ queryKey: crmKeys.company(companyId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the company"),
@@ -328,8 +353,8 @@ export function useCreateTask() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => apiPostJson<{ task: CrmTaskRow }>("/api/crm/tasks", body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "tasks"] });
-      qc.invalidateQueries({ queryKey: ["crm", "deal"] });
+      qc.invalidateQueries({ queryKey: crmKeys.tasksPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.dealPrefix });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not add the task"),
   });
@@ -341,8 +366,8 @@ export function useUpdateTask() {
     mutationFn: ({ taskId, ...body }: { taskId: string } & Record<string, unknown>) =>
       apiPatchJson<{ task: CrmTaskRow }>(`/api/crm/tasks/${taskId}`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "tasks"] });
-      qc.invalidateQueries({ queryKey: ["crm", "deal"] });
+      qc.invalidateQueries({ queryKey: crmKeys.tasksPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.dealPrefix });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the task"),
   });
@@ -354,8 +379,8 @@ export function useDeleteTask() {
   return useMutation({
     mutationFn: (taskId: string) => apiDelete(`/api/crm/tasks/${taskId}`),
     onSuccess: (_data, taskId) => {
-      qc.invalidateQueries({ queryKey: ["crm", "tasks"] });
-      qc.invalidateQueries({ queryKey: ["crm", "activity", "TASK", taskId] });
+      qc.invalidateQueries({ queryKey: crmKeys.tasksPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("TASK", taskId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the task"),
   });
@@ -367,8 +392,8 @@ export function useRestoreTask() {
   return useMutation({
     mutationFn: (taskId: string) => apiPatchJson(`/api/crm/tasks/${taskId}`, { archived: false }),
     onSuccess: (_data, taskId) => {
-      qc.invalidateQueries({ queryKey: ["crm", "tasks"] });
-      qc.invalidateQueries({ queryKey: ["crm", "activity", "TASK", taskId] });
+      qc.invalidateQueries({ queryKey: crmKeys.tasksPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("TASK", taskId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not restore the task"),
   });
@@ -426,8 +451,8 @@ export function useCreateNote() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) => apiPostJson<{ note: CrmNoteRow }>("/api/crm/notes", body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "notes"] });
-      qc.invalidateQueries({ queryKey: ["crm", "deal"] });
+      qc.invalidateQueries({ queryKey: crmKeys.notesPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.dealPrefix });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not save the note"),
   });
@@ -438,8 +463,8 @@ export function useDeleteNote() {
   return useMutation({
     mutationFn: (noteId: string) => apiDelete(`/api/crm/notes/${noteId}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "notes"] });
-      qc.invalidateQueries({ queryKey: ["crm", "deal"] });
+      qc.invalidateQueries({ queryKey: crmKeys.notesPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.dealPrefix });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not delete the note"),
   });
@@ -464,7 +489,7 @@ export function useCrmContacts(arg?: string | CrmContactFilters) {
   for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
   const key = qs.toString();
   return useQuery({
-    queryKey: ["crm", "contacts", key],
+    queryKey: crmKeys.contacts(key),
     queryFn: () =>
       apiFetch<{ contacts: CrmContactRow[] }>(`/api/crm/contacts${key ? `?${key}` : ""}`).then((r) => r.contacts),
   });
@@ -472,7 +497,7 @@ export function useCrmContacts(arg?: string | CrmContactFilters) {
 
 export function useCrmContactDetail(crmContactId: string | null) {
   return useQuery({
-    queryKey: ["crm", "contact", crmContactId ?? ""],
+    queryKey: crmKeys.contact(crmContactId ?? ""),
     queryFn: () =>
       apiFetch<{ contact: CrmContactDetail }>(`/api/crm/contacts/${crmContactId}`).then((r) => r.contact),
     enabled: !!crmContactId,
@@ -485,9 +510,9 @@ export function useCreateCrmContact() {
     mutationFn: (body: Record<string, unknown>) =>
       apiPostJson<{ contact: CrmContactRow; created: boolean }>("/api/crm/contacts", body),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["crm", "contacts"] });
-      qc.invalidateQueries({ queryKey: ["crm", "companies"] });
-      qc.invalidateQueries({ queryKey: ["crm", "company"] }); // detail pages (People list)
+      qc.invalidateQueries({ queryKey: crmKeys.contactsPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.companiesPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.companyPrefix }); // detail pages (People list)
       // find-or-create: say what actually happened.
       toast[res.created ? "success" : "info"](
         res.created
@@ -505,11 +530,11 @@ export function useUpdateCrmContact(crmContactId: string) {
     mutationFn: (body: Record<string, unknown>) =>
       apiPatchJson<{ contact: CrmContactRow }>(`/api/crm/contacts/${crmContactId}`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "contacts"] });
+      qc.invalidateQueries({ queryKey: crmKeys.contactsPrefix });
       // The detail page's own query — ["crm","contact",id] is NOT a prefix of
       // ["crm","contacts"], so without this an edit left the open page stale.
-      qc.invalidateQueries({ queryKey: ["crm", "contact", crmContactId] });
-      qc.invalidateQueries({ queryKey: ["crm", "companies"] });
+      qc.invalidateQueries({ queryKey: crmKeys.contact(crmContactId) });
+      qc.invalidateQueries({ queryKey: crmKeys.companiesPrefix });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the contact"),
   });
@@ -523,8 +548,8 @@ export function useAddDealContact(dealId: string) {
     mutationFn: (body: { crmContactId: string; role?: CrmDealContactRole }) =>
       apiPostJson(`/api/crm/deals/${dealId}/contacts`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "deals"] });
-      qc.invalidateQueries({ queryKey: ["crm", "deal", dealId] });
+      qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.deal(dealId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not add the contact"),
   });
@@ -540,8 +565,8 @@ export function useRemoveDealContact(dealId: string) {
         body: JSON.stringify({ crmContactId }),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "deals"] });
-      qc.invalidateQueries({ queryKey: ["crm", "deal", dealId] });
+      qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.deal(dealId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not remove the contact"),
   });
@@ -609,7 +634,7 @@ export function useCrmReport(filters: Record<string, string | undefined> = {}) {
 /** The change log for one record, newest first. Powers the History timeline. */
 export function useCrmActivity(entityType: CrmActivityEntityType, entityId: string | null | undefined) {
   return useQuery({
-    queryKey: ["crm", "activity", entityType, entityId ?? ""],
+    queryKey: crmKeys.activity(entityType, entityId ?? ""),
     queryFn: () =>
       apiFetch<{ activity: CrmActivityRow[] }>(
         `/api/crm/activity?entityType=${entityType}&entityId=${entityId}`,
@@ -631,9 +656,9 @@ export function useSetDealArchived(dealId: string) {
         ? apiDelete(`/api/crm/deals/${dealId}`)
         : apiPatchJson(`/api/crm/deals/${dealId}`, { archived: false }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "deals"] });
+      qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
       qc.invalidateQueries({ queryKey: crmKeys.deal(dealId) });
-      qc.invalidateQueries({ queryKey: ["crm", "activity", "DEAL", dealId] });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", dealId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the deal"),
   });
@@ -647,9 +672,9 @@ export function useSetCompanyArchived(companyId: string) {
         ? apiDelete(`/api/crm/companies/${companyId}`)
         : apiPatchJson(`/api/crm/companies/${companyId}`, { archived: false }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "companies"] });
+      qc.invalidateQueries({ queryKey: crmKeys.companiesPrefix });
       qc.invalidateQueries({ queryKey: crmKeys.company(companyId) });
-      qc.invalidateQueries({ queryKey: ["crm", "activity", "COMPANY", companyId] });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("COMPANY", companyId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the company"),
   });
@@ -663,9 +688,9 @@ export function useSetCrmContactArchived(crmContactId: string) {
         ? apiDelete(`/api/crm/contacts/${crmContactId}`)
         : apiPatchJson(`/api/crm/contacts/${crmContactId}`, { archived: false }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "contacts"] });
-      qc.invalidateQueries({ queryKey: ["crm", "contact", crmContactId] });
-      qc.invalidateQueries({ queryKey: ["crm", "activity", "CONTACT", crmContactId] });
+      qc.invalidateQueries({ queryKey: crmKeys.contactsPrefix });
+      qc.invalidateQueries({ queryKey: crmKeys.contact(crmContactId) });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("CONTACT", crmContactId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the contact"),
   });
@@ -724,7 +749,7 @@ export function useCrmEmailRecipients(target: CrmEmailTarget | null | undefined)
  */
 export function useCrmEmailTemplates(includeArchived = false) {
   return useQuery({
-    queryKey: ["crm", "email-templates", includeArchived],
+    queryKey: crmKeys.emailTemplates(includeArchived),
     queryFn: () =>
       apiFetch<{ templates: CrmEmailTemplateRow[] }>(
         `/api/crm/email-templates${includeArchived ? "?archived=1" : ""}`,
@@ -737,7 +762,7 @@ export function useCreateCrmEmailTemplate() {
   return useMutation({
     mutationFn: (body: { name: string; subject: string; body: string }) =>
       apiPostJson<{ template: CrmEmailTemplateRow }>("/api/crm/email-templates", body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "email-templates"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.emailTemplatesPrefix }),
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not create the template"),
   });
 }
@@ -747,7 +772,7 @@ export function useUpdateCrmEmailTemplate(templateId: string) {
   return useMutation({
     mutationFn: (body: { name?: string; subject?: string; body?: string }) =>
       apiPatchJson<{ template: CrmEmailTemplateRow }>(`/api/crm/email-templates/${templateId}`, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "email-templates"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.emailTemplatesPrefix }),
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the template"),
   });
 }
@@ -760,7 +785,7 @@ export function useSetCrmEmailTemplateArchived(templateId: string) {
       archived
         ? apiDelete(`/api/crm/email-templates/${templateId}`)
         : apiPatchJson(`/api/crm/email-templates/${templateId}`, { archived: false }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "email-templates"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.emailTemplatesPrefix }),
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the template"),
   });
 }
@@ -769,7 +794,7 @@ export function useSetCrmEmailTemplateArchived(templateId: string) {
 
 export function useCrmProducts(includeArchived = false) {
   return useQuery({
-    queryKey: ["crm", "products", includeArchived],
+    queryKey: crmKeys.products(includeArchived),
     queryFn: () =>
       apiFetch<{ products: CrmProductRow[] }>(
         `/api/crm/products${includeArchived ? "?archived=1" : ""}`,
@@ -782,7 +807,7 @@ export function useCreateCrmProduct() {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiPostJson<{ product: CrmProductRow }>("/api/crm/products", body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "products"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.productsPrefix }),
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not create the product"),
   });
 }
@@ -792,7 +817,7 @@ export function useUpdateCrmProduct(productId: string) {
   return useMutation({
     mutationFn: (body: Record<string, unknown>) =>
       apiPatchJson<{ product: CrmProductRow }>(`/api/crm/products/${productId}`, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "products"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.productsPrefix }),
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the product"),
   });
 }
@@ -804,7 +829,7 @@ export function useSetCrmProductArchived(productId: string) {
       archived
         ? apiDelete(`/api/crm/products/${productId}`)
         : apiPatchJson(`/api/crm/products/${productId}`, { archived: false }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "products"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.productsPrefix }),
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not archive the product"),
   });
 }
@@ -812,7 +837,7 @@ export function useSetCrmProductArchived(productId: string) {
 // A deal's line items.
 export function useDealProducts(dealId: string) {
   return useQuery({
-    queryKey: ["crm", "deal-products", dealId],
+    queryKey: crmKeys.dealProducts(dealId),
     queryFn: () => apiFetch<{ lines: CrmDealProductRow[] }>(`/api/crm/deals/${dealId}/products`).then((r) => r.lines),
     enabled: !!dealId,
   });
@@ -824,8 +849,8 @@ export function useAddDealProduct(dealId: string) {
     mutationFn: (body: { crmProductId: string; unitPrice?: number; quantity?: number }) =>
       apiPostJson(`/api/crm/deals/${dealId}/products`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "deal-products", dealId] });
-      qc.invalidateQueries({ queryKey: ["crm", "activity", "DEAL", dealId] });
+      qc.invalidateQueries({ queryKey: crmKeys.dealProducts(dealId) });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", dealId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not add the product"),
   });
@@ -836,7 +861,7 @@ export function useUpdateDealProduct(dealId: string) {
   return useMutation({
     mutationFn: (body: { lineId: string; unitPrice?: number; quantity?: number }) =>
       apiPatchJson(`/api/crm/deals/${dealId}/products`, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm", "deal-products", dealId] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.dealProducts(dealId) }),
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the line item"),
   });
 }
@@ -851,8 +876,8 @@ export function useRemoveDealProduct(dealId: string) {
         body: JSON.stringify({ lineId }),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm", "deal-products", dealId] });
-      qc.invalidateQueries({ queryKey: ["crm", "activity", "DEAL", dealId] });
+      qc.invalidateQueries({ queryKey: crmKeys.dealProducts(dealId) });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", dealId) });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not remove the line item"),
   });
@@ -872,9 +897,9 @@ export function useSendCrmEmail() {
     }) => apiPostJson<CrmEmailSendResult>("/api/crm/sponsor-email/send", body),
     onSuccess: (_res, vars) => {
       // A send records history on each contact (and, for a deal, on the deal).
-      qc.invalidateQueries({ queryKey: ["crm", "activity", "CONTACT"] });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("CONTACT") });
       if (vars.dealId) {
-        qc.invalidateQueries({ queryKey: ["crm", "activity", "DEAL", vars.dealId] });
+        qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", vars.dealId) });
       }
     },
   });

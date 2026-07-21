@@ -5,10 +5,9 @@
  * from-stage concurrency claim); won/lost is NOT here (it's the Close action).
  * This is the "fix the value / rename it / re-tag the event" dialog.
  *
- * The company field is the same find-or-create combobox as the create dialog, so
- * re-pointing a deal at "Abbott" links to the existing account rather than minting
- * a duplicate. The server diffs before→after, so sending the whole form (even
- * unchanged fields) records only what actually changed.
+ * Fields live in the shared CrmDealFormFields (also the create dialog) — one
+ * form, one currency list, one find-or-create company step. The server diffs
+ * before→after, so sending the whole form records only what actually changed.
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -22,19 +21,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateCompany, useUpdateDeal } from "@/crm/hooks/use-crm-api";
-import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
-import { EventCombobox } from "@/crm/components/event-combobox";
+import {
+  CrmDealFormFields,
+  crmDealFormPayload,
+  crmDealToForm,
+  resolveDealCompanyId,
+  validateDealForm,
+  type CrmDealFormState,
+} from "@/crm/components/crm-deal-form-fields";
 import type { CrmBoardDeal } from "@/crm/lib/crm-types";
-
-function toDateInput(v?: string | null): string {
-  if (!v) return "";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
-}
 
 export function EditDealDialog({
   deal,
@@ -45,61 +41,29 @@ export function EditDealDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const [name, setName] = useState(deal.name);
-  const [company, setCompany] = useState<CompanySelection | null>(
-    deal.company ? { id: deal.company.id, name: deal.company.name } : null,
-  );
-  const [dealValue, setDealValue] = useState(deal.dealValue != null ? String(deal.dealValue) : "");
-  const [currency, setCurrency] = useState(deal.currency || "USD");
-  const [eventId, setEventId] = useState<string | null>(deal.event?.id ?? null);
-  const [expectedClose, setExpectedClose] = useState(toDateInput(deal.expectedClose));
+  const [form, setForm] = useState<CrmDealFormState>(() => crmDealToForm(deal));
   const [saving, setSaving] = useState(false);
 
   // Re-seed the form whenever a different deal is opened.
   useEffect(() => {
-    setName(deal.name);
-    setCompany(deal.company ? { id: deal.company.id, name: deal.company.name } : null);
-    setDealValue(deal.dealValue != null ? String(deal.dealValue) : "");
-    setCurrency(deal.currency || "USD");
-    setEventId(deal.event?.id ?? null);
-    setExpectedClose(toDateInput(deal.expectedClose));
+    setForm(crmDealToForm(deal));
   }, [deal]);
 
   const createCompany = useCreateCompany();
   const update = useUpdateDeal(deal.id);
 
   async function handleSubmit() {
-    if (!name.trim()) {
-      toast.error("Give the deal a name");
-      return;
-    }
-    if (!eventId) {
-      toast.error("Select the event (project) this deal is for");
-      return;
-    }
-    const parsedValue = dealValue.trim() ? Number(dealValue) : null;
-    if (parsedValue !== null && !Number.isFinite(parsedValue)) {
-      toast.error("Deal value must be a number");
+    const invalid = validateDealForm(form);
+    if (invalid) {
+      toast.error(invalid);
       return;
     }
 
     setSaving(true);
     try {
-      // Existing account → its id; a to-be-created one → find-or-create (server
-      // dedups, so we never mint a duplicate).
-      let companyId: string | null = null;
-      if (company) {
-        companyId = company.id ?? (await createCompany.mutateAsync({ name: company.name })).company.id;
-      }
+      const companyId = await resolveDealCompanyId(form.company, (b) => createCompany.mutateAsync(b));
 
-      await update.mutateAsync({
-        name: name.trim(),
-        companyId,
-        eventId,
-        dealValue: parsedValue,
-        currency,
-        expectedClose: expectedClose || null,
-      });
+      await update.mutateAsync(crmDealFormPayload(form, companyId));
 
       toast.success("Deal updated");
       onOpenChange(false);
@@ -120,71 +84,11 @@ export function EditDealDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="edit-deal-name">
-              Name <span className="text-destructive">*</span>
-            </Label>
-            <Input id="edit-deal-name" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Company</Label>
-            <CompanyCombobox value={company} onChange={setCompany} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="edit-deal-value">Value</Label>
-              <Input
-                id="edit-deal-value"
-                inputMode="decimal"
-                value={dealValue}
-                onChange={(e) => setDealValue(e.target.value)}
-                placeholder="40000"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-deal-currency">Currency</Label>
-              <Select value={currency} onValueChange={setCurrency}>
-                <SelectTrigger id="edit-deal-currency" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["USD", "AED", "EUR", "GBP", "SAR"].map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="edit-deal-close">Expected close</Label>
-              <Input
-                id="edit-deal-close"
-                type="date"
-                value={expectedClose}
-                onChange={(e) => setExpectedClose(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>
-                Event (project) <span className="text-destructive">*</span>
-              </Label>
-              <EventCombobox
-                value={eventId}
-                onChange={setEventId}
-                allowClear={false}
-                placeholder="Select an event…"
-                className="w-full"
-              />
-            </div>
-          </div>
-        </div>
+        <CrmDealFormFields
+          value={form}
+          onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          idPrefix="edit-deal"
+        />
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>

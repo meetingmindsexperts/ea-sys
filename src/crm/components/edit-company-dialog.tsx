@@ -3,6 +3,9 @@
 /**
  * Edit an account's fields. `needsReview` (the fuzzy-duplicate flag) is dismissed
  * elsewhere (the banner's "It's distinct" button) — this is the plain field editor.
+ *
+ * Fields live in the shared CrmCompanyFormFields (also the create dialog) — the
+ * extraction fixed a drift where this dialog's country was a free-text input.
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -16,10 +19,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useUpdateCompany } from "@/crm/hooks/use-crm-api";
+import {
+  CrmCompanyFormFields,
+  crmCompanyFormPayload,
+  crmCompanyToForm,
+  type CrmCompanyFormState,
+} from "@/crm/components/crm-company-form-fields";
 
 export interface EditableCompany {
   id: string;
@@ -40,40 +46,23 @@ export function EditCompanyDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const [name, setName] = useState(company.name);
-  const [industry, setIndustry] = useState(company.industry ?? "");
-  const [website, setWebsite] = useState(company.website ?? "");
-  const [country, setCountry] = useState(company.country ?? "");
-  const [city, setCity] = useState(company.city ?? "");
-  const [notes, setNotes] = useState(company.notes ?? "");
+  const [form, setForm] = useState<CrmCompanyFormState>(() => crmCompanyToForm(company));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setName(company.name);
-    setIndustry(company.industry ?? "");
-    setWebsite(company.website ?? "");
-    setCountry(company.country ?? "");
-    setCity(company.city ?? "");
-    setNotes(company.notes ?? "");
+    setForm(crmCompanyToForm(company));
   }, [company]);
 
   const update = useUpdateCompany(company.id);
 
   async function handleSubmit() {
-    if (!name.trim()) {
+    if (!form.name.trim()) {
       toast.error("Give the account a name");
       return;
     }
     setSaving(true);
     try {
-      await update.mutateAsync({
-        name: name.trim(),
-        industry: industry.trim() || null,
-        website: website.trim() || null,
-        country: country.trim() || null,
-        city: city.trim() || null,
-        notes: notes.trim() || null,
-      });
+      await update.mutateAsync(crmCompanyFormPayload(form));
       toast.success("Account updated");
       onOpenChange(false);
     } catch (err) {
@@ -93,56 +82,11 @@ export function EditCompanyDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="edit-company-name">
-              Name <span className="text-destructive">*</span>
-            </Label>
-            <Input id="edit-company-name" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="edit-company-industry">Industry</Label>
-              <Input
-                id="edit-company-industry"
-                value={industry}
-                onChange={(e) => setIndustry(e.target.value)}
-                placeholder="Pharma"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-company-website">Website</Label>
-              <Input
-                id="edit-company-website"
-                value={website}
-                onChange={(e) => setWebsite(e.target.value)}
-                placeholder="abbott.com"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label htmlFor="edit-company-city">City</Label>
-              <Input id="edit-company-city" value={city} onChange={(e) => setCity(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-company-country">Country</Label>
-              <Input id="edit-company-country" value={country} onChange={(e) => setCountry(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="edit-company-notes">Notes</Label>
-            <Textarea
-              id="edit-company-notes"
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
-        </div>
+        <CrmCompanyFormFields
+          value={form}
+          onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          idPrefix="edit-company"
+        />
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
