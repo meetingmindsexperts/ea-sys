@@ -307,12 +307,13 @@
 <div class="leaf"><code>lib/event-time.ts</code> — event-TZ validation + rendering, single source of truth · <code>lib/zoom/cleanup.ts</code> (the ONE remote-teardown path, never throws) · <code>lib/zoom/*</code> API clients</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
-<div class="leaf"><code>EventSession</code> · <code>SessionTopic</code> · <code>SessionSpeaker</code> (SessionRole enum) · <code>TopicSpeaker</code> · <code>Track</code> · <code>ZoomMeeting</code> (1:1 session)</div>
+<div class="leaf"><code>EventSession</code> (incl. <code>type: SessionType</code> — SESSION vs break items) · <code>SessionTopic</code> · <code>SessionSpeaker</code> (SessionRole enum) · <code>TopicSpeaker</code> · <code>Track</code> · <code>ZoomMeeting</code> (1:1 session)</div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
 <div class="gotcha">Session times validate in the <b>event's</b> timezone (<code>isSessionWithinEventDates</code>) — never server-local.</div>
 <div class="gotcha">Deleting the WEBINAR anchor session is refused (409 <code>WEBINAR_ANCHOR_SESSION</code>) — it would strand the webinar config.</div>
 <div class="gotcha"><code>zoom-visibility</code> strips host creds (startUrl / streamKey / passcode) for everyone below ORGANIZER — narrower than finance roles.</div>
+<div class="gotcha"><b>Break items</b> (July 21, 2026): <code>EventSession.type</code> REGISTRATION/BREAK/LUNCH/NETWORKING = a plain agenda time block. Invariant lives in <code>session-service.validate()</code> — a break item may never END UP with speakers/topics/abstract/Zoom (<code>BREAK_ITEM_HAS_PROGRAM</code>); the anchor session can't be converted. The per-roster MCP tools enforce it separately (they bypass the service). <code>isBreakSessionType</code> (session-enums.ts) fails OPEN on absent/unknown type. Break items are excluded from session counts, <code>list_live_sessions_now</code>, and the public detail page (404).</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
 <div class="leaf"><b class="k">Report</b> <code>docs/CODE_REVIEW_PROGRAM_AGENDA.html</code> (July 10) — 2 BLOCKERs (Zoom host-cred + recording-passcode leaks) + 5 HIGHs all shipped</div>
