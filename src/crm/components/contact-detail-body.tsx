@@ -12,6 +12,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { toast } from "sonner";
 import {
   Archive,
   ArchiveRestore,
@@ -26,11 +27,18 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useCrmContactDetail, useSetCrmContactArchived } from "@/crm/hooks/use-crm-api";
+import { useCrmContactDetail, useSetCrmContactArchived, useUpdateCrmContact } from "@/crm/hooks/use-crm-api";
 import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { PurgeRecordButton } from "@/crm/components/purge-record-button";
-import { EditCrmContactDialog } from "@/crm/components/edit-crm-contact-dialog";
+import {
+  CrmContactFormFields,
+  crmContactFormPayload,
+  crmContactFormValid,
+  crmContactToForm,
+  emptyCrmContactForm,
+  type CrmContactFormState,
+} from "@/crm/components/crm-contact-form-fields";
 import {
   CONTACT_STATUS_COLORS,
   CONTACT_STATUS_LABELS,
@@ -56,7 +64,26 @@ export function ContactDetailBody({
   const canDelete = canDeleteCrm(session?.user?.role);
   const { data: contact, isLoading, isError } = useCrmContactDetail(crmContactId);
   const setArchived = useSetCrmContactArchived(crmContactId);
-  const [editOpen, setEditOpen] = useState(false);
+  const updateContact = useUpdateCrmContact(crmContactId);
+
+  // Inline editing (owner request, July 21): no popup — Edit swaps the record
+  // body for the shared contact form in place, Save/Cancel in the header.
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<CrmContactFormState>(emptyCrmContactForm);
+
+  async function handleSave() {
+    if (!crmContactFormValid(form)) {
+      toast.error("First name, last name and email are required");
+      return;
+    }
+    try {
+      await updateContact.mutateAsync(crmContactFormPayload(form));
+      toast.success("Contact updated");
+      setEditing(false);
+    } catch {
+      // The mutation's onError already toasts the server's message.
+    }
+  }
 
   if (isLoading) {
     return (
@@ -126,10 +153,29 @@ export function ContactDetailBody({
           </>
         }
         actions={
+          editing ? (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={updateContact.isPending}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={updateContact.isPending}>
+                {updateContact.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                Save
+              </Button>
+            </>
+          ) : (
           (canWrite || canDelete) && (
             <>
-              {canWrite && (
-                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              {/* An archived contact is frozen — restore before editing. */}
+              {canWrite && !contact.archivedAt && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setForm(crmContactToForm(contact));
+                    setEditing(true);
+                  }}
+                >
                   <Pencil className="mr-2 h-3.5 w-3.5" />
                   Edit
                 </Button>
@@ -164,9 +210,22 @@ export function ContactDetailBody({
                 ))}
             </>
           )
+          )
         }
       />
 
+      {editing ? (
+        <RecordCard icon={Pencil} title="Edit contact" className="max-w-2xl">
+          <CrmContactFormFields
+            value={form}
+            onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+            idPrefix="edit-contact"
+          />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Changes are recorded in the contact&apos;s history.
+          </p>
+        </RecordCard>
+      ) : (
       <RecordGrid
         sidebar={
           <>
@@ -312,8 +371,7 @@ export function ContactDetailBody({
           <CrmActivityTimeline entityType="CONTACT" entityId={contact.id} />
         </RecordCard>
       </RecordGrid>
-
-      <EditCrmContactDialog contact={contact} open={editOpen} onOpenChange={setEditOpen} />
+      )}
     </div>
   );
 }
