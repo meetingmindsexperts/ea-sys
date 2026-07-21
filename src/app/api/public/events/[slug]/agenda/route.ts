@@ -58,6 +58,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             location: true,
             capacity: true,
             status: true,
+            type: true,
             track: { select: { id: true, name: true, color: true } },
             speakers: {
               select: {

@@ -1340,6 +1340,7 @@ model EventSession {
   location    String?
   capacity    Int?
   status      SessionStatus @default(SCHEDULED)
+  type        SessionType   @default(SESSION)
   externalId  String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -1371,6 +1372,18 @@ enum SessionRole {
   MODERATOR
   CHAIRPERSON
   PANELIST
+}
+
+// SESSION is a real program session (speakers, topics, Zoom, detail page).
+// Everything else is a "break item" — an agenda time block with no people
+// attached (registration desk, coffee, lunch, networking). Break items are
+// deliberately track-less in the UI and never get a public detail page.
+enum SessionType {
+  SESSION
+  REGISTRATION
+  BREAK
+  LUNCH
+  NETWORKING
 }
 
 model SessionSpeaker {

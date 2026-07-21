@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { isBreakSessionType } from "@/lib/session-enums";
 import { readSponsors } from "@/lib/webinar";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
@@ -101,6 +102,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         location: true,
         capacity: true,
         status: true,
+        type: true,
         track: { select: { name: true, color: true } },
         speakers: {
           select: {
@@ -157,6 +159,19 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     if (!session) {
       apiLogger.warn({ slug, sessionId, eventId: event.id, ip }, "session-detail:session-not-found");
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    // Break items (registration desk / coffee / lunch / networking) are agenda
+    // time blocks — they have no public detail page. 404, same as a missing
+    // session, so nothing can be inferred from the difference. The helper
+    // treats an absent/unknown type as a real session, so we never hide a
+    // legitimate session on bad data.
+    if (isBreakSessionType(session.type)) {
+      apiLogger.warn(
+        { slug, sessionId, eventId: event.id, ip, type: session.type },
+        "session-detail:break-item-denied",
+      );
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 

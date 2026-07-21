@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -40,6 +41,10 @@ const updateSessionSchema = z.object({
   location: z.string().max(255).optional(),
   capacity: z.number().min(1).nullable().optional(),
   status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
+  // SESSION or a break item (REGISTRATION / BREAK / LUNCH / NETWORKING).
+  // Converting to a break item requires the payload to clear speakers/topics
+  // (the service rejects a resulting break item with program content).
+  type: z.nativeEnum(SessionType).optional(),
   // Legacy: flat speaker list (all assigned as SPEAKER role)
   speakerIds: z.array(z.string().max(100)).optional(),
   // New: session-level roles
@@ -60,6 +65,8 @@ const HTTP_STATUS_FOR_SESSION_ERROR: Record<SessionServiceErrorCode, number> = {
   ABSTRACT_ALREADY_ASSIGNED: 400,
   SPEAKERS_NOT_FOUND: 404,
   INVALID_CAPACITY: 400,
+  BREAK_ITEM_HAS_PROGRAM: 400,
+  WEBINAR_ANCHOR_SESSION: 409,
   STALE_WRITE: 409,
   UNKNOWN: 500,
 };
@@ -73,6 +80,7 @@ const sessionSelect = {
   location: true,
   capacity: true,
   status: true,
+  type: true,
   updatedAt: true,
   track: { select: { id: true, name: true, color: true } },
   abstract: { select: { id: true, title: true } },
@@ -211,6 +219,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       ...(data.location !== undefined && { location: data.location }),
       ...(data.capacity !== undefined && { capacity: data.capacity }),
       ...(data.status !== undefined && { status: data.status }),
+      ...(data.type !== undefined && { type: data.type }),
       ...(data.speakerIds !== undefined && { speakerIds: data.speakerIds }),
       ...(data.sessionRoles !== undefined && { sessionRoles: data.sessionRoles }),
       ...(data.topics !== undefined && { topics: data.topics }),

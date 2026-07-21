@@ -212,6 +212,31 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Agenda break items (SessionType) review — July 21, 2026
+
+Adversarial review of the break-items feature (SESSION vs REGISTRATION/BREAK/LUNCH/NETWORKING on
+`EventSession.type`) returned 0 BLOCKER / 1 HIGH / 4 MED / 6 LOW. Shipped same-day: H1 (MCP roster
+tools refuse break items), M2 (attached ZoomMeeting blocks conversion), M3 (webinar anchor session
+can't be converted), M4 (form clears `abstractId` on conversion + surfaces the server's error in the
+toast), L1 (agent dashboard/stats session counts exclude break items), L2 (conversion clears
+lingering capacity). Deferred here:
+
+- **M1 — check-then-act race on the break-item invariant.** `session-service` `validate()` reads
+  `_count.speakers/topics` pre-transaction and the tx claim re-asserts nothing, so two interleaved
+  updates (one converting to a break item with empty lists, one adding a speaker) can both commit,
+  leaving a break item with a hidden roster. Narrow window; the next dashboard save self-heals it
+  (submits empty lists). Fix when touched: re-check the invariant inside the tx after the claim, or
+  condition the claim on `type` when the payload writes speakers.
+- **L3 — HTTP-MCP clients can't convert a topic-bearing session.** The registered `update_session`
+  Zod has no `topics`/`sessionRoles` params and no remove-topic tool exists (extends the pre-existing
+  "MCP `update_session` schema omits `topics`" gap, M8 of the July 16 program/comms review). The
+  dashboard is the workaround.
+- **L4 — registration-page agenda preview renders break items as ordinary entries**
+  (`speakers-agenda-preview.tsx` ignores `type`; cosmetic, no crash — name + time still read fine).
+- **Multi-track calendar layout**: on the dashboard multi-column (per-track) grid, a track-less
+  break item renders in the "No Track" column rather than as a band spanning all track columns.
+  Known v1 limitation; revisit if a multi-track event complains.
+
 ### CRM module whole-module review (July 16, 2026) — ALL HIGHs + MEDs shipped, 8 LOWs deferred
 
 First whole-module adversarial review (4 angles: RBAC/IDOR · concurrency/integrity · drift/logging ·

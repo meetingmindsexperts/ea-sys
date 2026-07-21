@@ -75,7 +75,9 @@ async function _doRefresh(eventId: string): Promise<void> {
       where: { eventId },
       _count: true,
     }),
-    db.eventSession.count({ where: { eventId } }),
+    // Program sessions only — break items (coffee/lunch/registration) are
+    // agenda furniture, not sessions.
+    db.eventSession.count({ where: { eventId, type: "SESSION" } }),
     db.track.count({ where: { eventId } }),
     db.registration.count({
       where: { eventId, checkedInAt: { not: null }, ...EXCLUDE_FACULTY_WHERE },

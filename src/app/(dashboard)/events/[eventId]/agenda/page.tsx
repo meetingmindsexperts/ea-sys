@@ -43,8 +43,11 @@ import {
   Trash2,
   ArrowLeft,
   Clock,
+  ClipboardList,
+  Coffee,
   MapPin,
   Users,
+  Utensils,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -52,6 +55,7 @@ import {
   Copy,
   Check,
   RefreshCw,
+  type LucideIcon,
 } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
 import {
@@ -66,8 +70,11 @@ import {
 import {
   SESSION_ROLE_OPTIONS,
   SESSION_STATUS_LABELS,
+  SESSION_TYPE_OPTIONS,
   formatSessionRole,
   formatSessionStatus,
+  formatSessionType,
+  isBreakSessionType,
   sessionStatusColor,
 } from "@/lib/session-enums";
 import { useSessions, useTracks, useSpeakers, useEvent, queryKeys } from "@/hooks/use-api";
@@ -134,6 +141,7 @@ interface Session {
   location: string | null;
   capacity: number | null;
   status: string;
+  type: string;
   track: Track | null;
   speakers: SessionSpeakerEntry[];
   topics: TopicEntry[];
@@ -175,9 +183,22 @@ const SPEAKER_STATUS_COLORS: Record<string, string> = {
   DECLINED: "bg-red-100 text-red-700",
 };
 
+// Break-item icons on the calendar grid + list. `Users` doubles as the
+// speakers icon elsewhere on the page — that's fine, context differs.
+const BREAK_TYPE_ICONS: Record<string, LucideIcon> = {
+  REGISTRATION: ClipboardList,
+  BREAK: Coffee,
+  LUNCH: Utensils,
+  NETWORKING: Users,
+};
+
+// Break items carry no track colour — a fixed muted slate everywhere.
+const BREAK_COLOR = "#94a3b8";
+
 const DEFAULT_SESSION_FORM = {
   name: "",
   description: "",
+  type: "SESSION",
   trackId: "",
   startTime: "",
   endTime: "",
@@ -288,7 +309,12 @@ export default function AgendaPage() {
           body: JSON.stringify(data),
         }
       );
-      if (!res.ok) throw new Error("Failed to save session");
+      if (!res.ok) {
+        // Surface the server's reason (BREAK_ITEM_HAS_PROGRAM, STALE_WRITE,
+        // OUTSIDE_EVENT_DATES, …) instead of a generic failure (review M4).
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Failed to save session");
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -297,7 +323,7 @@ export default function AgendaPage() {
       resetSessionForm();
       toast.success(editingSession ? "Session updated" : "Session created");
     },
-    onError: () => toast.error("Failed to save session"),
+    onError: (error: Error) => toast.error(error.message || "Failed to save session"),
   });
 
   const deleteSessionMutation = useMutation({
@@ -367,17 +393,35 @@ export default function AgendaPage() {
   const handleSessionSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const { sessionRoles, topics, speakerIds, ...rest } = sessionForm;
+    const breakItem = isBreakSessionType(rest.type);
 
     // Use sessionRoles if any exist; otherwise fall back to legacy speakerIds
-    const hasRoles = sessionRoles.length > 0;
-    const hasLegacySpeakers = speakerIds.length > 0;
+    const hasRoles = !breakItem && sessionRoles.length > 0;
+    const hasLegacySpeakers = !breakItem && speakerIds.length > 0;
 
     sessionMutation.mutate({
       data: {
         name: rest.name,
         description: rest.description || undefined,
-        trackId: rest.trackId || undefined,
-        capacity: rest.capacity ? parseInt(rest.capacity) : undefined,
+        type: rest.type,
+        // Break items are deliberately track-less (they render as a
+        // full-width band, not inside a track column). On edit, `null`
+        // clears a track left over from before the conversion.
+        trackId: breakItem
+          ? editingSession
+            ? null
+            : undefined
+          : rest.trackId || undefined,
+        // Same clear for a leftover abstract link (review M4) and capacity
+        // (review L2) — a break item keeps neither.
+        ...(breakItem && editingSession ? { abstractId: null } : {}),
+        capacity: breakItem
+          ? editingSession
+            ? null
+            : undefined
+          : rest.capacity
+            ? parseInt(rest.capacity)
+            : undefined,
         // The datetime-local values are wall-clock times in the EVENT's
         // timezone (that's how the form displays them), so they must be
         // interpreted in that zone — not the browser's.
@@ -385,12 +429,15 @@ export default function AgendaPage() {
         endTime: wallTimeInTzToDate(rest.endTime, eventTz).toISOString(),
         location: rest.location || undefined,
         status: rest.status,
+        // A break item always submits empty lists — the server refuses a
+        // break item that would end up with speakers/topics, and this is
+        // the explicit clear when converting an existing session.
         ...(hasRoles
           ? { sessionRoles }
           : hasLegacySpeakers
             ? { speakerIds }
             : { sessionRoles: [] }),
-        topics: topics.length > 0
+        topics: !breakItem && topics.length > 0
           ? topics.map((t, i) => ({
               ...(t.id ? { id: t.id } : {}),
               title: t.title,
@@ -433,6 +480,7 @@ export default function AgendaPage() {
     setSessionForm({
       name: s.name,
       description: s.description || "",
+      type: s.type || "SESSION",
       trackId: s.track?.id || "",
       startTime: toLocal(s.startTime),
       endTime: toLocal(s.endTime),
@@ -556,9 +604,16 @@ export default function AgendaPage() {
     return s.size;
   }, [sessions, eventTz]);
 
+  // The Sessions/Scheduled tiles count real program sessions only — break
+  // items (registration/coffee/lunch) are agenda furniture, not sessions.
+  const programSessions = useMemo(
+    () => (sessions as Session[]).filter((s) => !isBreakSessionType(s.type)),
+    [sessions]
+  );
+
   const stats = {
-    total: (sessions as Session[]).length,
-    scheduled: (sessions as Session[]).filter((s) => s.status === "SCHEDULED").length,
+    total: programSessions.length,
+    scheduled: programSessions.filter((s) => s.status === "SCHEDULED").length,
     tracks: (tracks as Track[]).length,
     days: allEventDates,
   };
@@ -578,6 +633,11 @@ export default function AgendaPage() {
     );
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
   }, [sessions, eventTz]);
+
+  // Break items (registration / coffee / lunch / networking) are plain time
+  // blocks: the form hides the track, capacity, roles, topics and Zoom
+  // sections for them, and the submit clears any leftovers on conversion.
+  const isBreakForm = isBreakSessionType(sessionForm.type);
 
   const showDelayedLoader = useDelayedLoading(loading, 1000);
 
@@ -960,20 +1020,50 @@ export default function AgendaPage() {
           <DialogContent className="sm:max-w-[90vw] lg:min-w-[750px] lg:max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {editingSession ? "Edit Session" : "Create Session"}
+                {editingSession
+                  ? isBreakForm ? "Edit Break Item" : "Edit Session"
+                  : isBreakForm ? "Add Break Item" : "Create Session"}
               </DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSessionSubmit} className="space-y-4 pt-1">
-              <div className="space-y-1.5">
-                <Label>Session Name</Label>
-                <Input
-                  value={sessionForm.name}
-                  onChange={(e) =>
-                    setSessionForm({ ...sessionForm, name: e.target.value })
-                  }
-                  placeholder="e.g. Opening Keynote"
-                  required
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Type</Label>
+                  <Select
+                    value={sessionForm.type}
+                    onValueChange={(v) =>
+                      setSessionForm({ ...sessionForm, type: v })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SESSION_TYPE_OPTIONS.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {isBreakForm && (
+                    <p className="text-xs text-muted-foreground">
+                      A break item is a plain agenda time block — no speakers,
+                      topics, or track.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{isBreakForm ? "Name" : "Session Name"}</Label>
+                  <Input
+                    value={sessionForm.name}
+                    onChange={(e) =>
+                      setSessionForm({ ...sessionForm, name: e.target.value })
+                    }
+                    placeholder={isBreakForm ? "e.g. Morning Coffee Break" : "e.g. Opening Keynote"}
+                    required
+                  />
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -1018,6 +1108,7 @@ export default function AgendaPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3">
+                {!isBreakForm && (
                 <div className="space-y-1.5">
                   <Label>Track</Label>
                   <Select
@@ -1044,6 +1135,7 @@ export default function AgendaPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                )}
                 <div className="space-y-1.5">
                   <Label>Status</Label>
                   <Select
@@ -1074,9 +1166,10 @@ export default function AgendaPage() {
                     onChange={(e) =>
                       setSessionForm({ ...sessionForm, location: e.target.value })
                     }
-                    placeholder="Room or venue"
+                    placeholder={isBreakForm ? "e.g. Foyer" : "Room or venue"}
                   />
                 </div>
+                {!isBreakForm && (
                 <div className="space-y-1.5">
                   <Label>Capacity</Label>
                   <Input
@@ -1089,10 +1182,11 @@ export default function AgendaPage() {
                     min={1}
                   />
                 </div>
+                )}
               </div>
 
               {/* Session Roles (Moderator, Chairperson, Panelist, Speaker) */}
-              {(speakers as Speaker[]).length > 0 && (
+              {!isBreakForm && (speakers as Speaker[]).length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Session Roles</Label>
@@ -1175,7 +1269,7 @@ export default function AgendaPage() {
               )}
 
               {/* Topics (optional) */}
-              {(speakers as Speaker[]).length > 0 && (
+              {!isBreakForm && (speakers as Speaker[]).length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>Topics</Label>
@@ -1265,8 +1359,8 @@ export default function AgendaPage() {
                 </div>
               )}
 
-              {/* Zoom Integration */}
-              {editingSession && isZoomEnabled && !isReviewer && (
+              {/* Zoom Integration — never on a break item */}
+              {editingSession && isZoomEnabled && !isReviewer && !isBreakForm && (
                 <div className="space-y-2 pt-2 border-t">
                   <Label className="text-sm font-medium">Zoom</Label>
                   <ZoomMeetingForm
@@ -1432,14 +1526,18 @@ export default function AgendaPage() {
                         <div
                           key={s.id}
                           className="rounded-lg border bg-card p-3 text-sm space-y-1.5"
-                          style={{ borderLeft: `3px solid ${s.track?.color || "#6B7280"}` }}
+                          style={{
+                            borderLeft: `3px solid ${isBreakSessionType(s.type) ? BREAK_COLOR : s.track?.color || "#6B7280"}`,
+                          }}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <p className="font-medium leading-snug">{s.name}</p>
                             <span
-                              className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${sessionStatusColor(s.status)}`}
+                              className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ${isBreakSessionType(s.type) ? "bg-slate-100 text-slate-600" : sessionStatusColor(s.status)}`}
                             >
-                              {formatSessionStatus(s.status)}
+                              {isBreakSessionType(s.type)
+                                ? formatSessionType(s.type)
+                                : formatSessionStatus(s.status)}
                             </span>
                           </div>
 
@@ -1550,7 +1648,9 @@ function SessionCard({
   onClick: () => void;
   onViewDetails?: () => void;
 }) {
-  const color = session.track?.color || "#6B7280";
+  const isBreak = isBreakSessionType(session.type);
+  const color = isBreak ? BREAK_COLOR : session.track?.color || "#6B7280";
+  const BreakIcon = isBreak ? BREAK_TYPE_ICONS[session.type] : null;
   const heightPx = parseInt(style.height);
 
   return (
@@ -1562,7 +1662,7 @@ function SessionCard({
             e.stopPropagation();
             onClick();
           }}
-          className="absolute left-1 right-1 rounded text-left overflow-hidden hover:shadow-md hover:z-20 transition-all group/card"
+          className={`absolute left-1 right-1 rounded text-left overflow-hidden hover:shadow-md hover:z-20 transition-all group/card${isBreak ? " border border-dashed border-slate-300" : ""}`}
           style={{
             ...style,
             backgroundColor: `${color}18`,
@@ -1570,7 +1670,10 @@ function SessionCard({
           }}
         >
           <div className="px-2 py-1">
-            <div className="text-xs font-semibold truncate leading-tight">{session.name}</div>
+            <div className="text-xs font-semibold truncate leading-tight flex items-center gap-1">
+              {BreakIcon && <BreakIcon className="h-3 w-3 shrink-0 text-slate-500" />}
+              <span className={isBreak ? "text-slate-600" : undefined}>{session.name}</span>
+            </div>
             {heightPx >= 40 && (
               <div className="text-xs text-muted-foreground mt-0.5 tabular-nums">
                 {formatTimeInTz(new Date(session.startTime), timezone)} –{" "}
@@ -1601,7 +1704,7 @@ function SessionCard({
                 {session.location}
               </div>
             )}
-            {session.capacity && (
+            {!isBreak && session.capacity && (
               <div className="flex items-center gap-1">
                 <Users className="h-3 w-3" />
                 Capacity: {session.capacity}
@@ -1646,14 +1749,14 @@ function SessionCard({
             )}
           </div>
           <Badge
-            className={`${sessionStatusColor(session.status)} text-xs`}
+            className={`${isBreak ? "bg-slate-100 text-slate-600" : sessionStatusColor(session.status)} text-xs`}
             variant="outline"
           >
-            {formatSessionStatus(session.status)}
+            {isBreak ? formatSessionType(session.type) : formatSessionStatus(session.status)}
           </Badge>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="italic">Click to edit</span>
-            {onViewDetails && (
+            {onViewDetails && !isBreak && (
               <>
                 <span>·</span>
                 <button

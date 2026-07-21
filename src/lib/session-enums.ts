@@ -14,7 +14,7 @@
  * Client-safe: Prisma enums are plain string objects, no runtime imports.
  */
 
-import { SessionRole, SessionStatus } from "@prisma/client";
+import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
 
 export const SESSION_ROLE_LABELS: Record<SessionRole, string> = {
   SPEAKER: "Speaker",
@@ -54,6 +54,47 @@ export const SESSION_STATUS_COLORS: Record<SessionStatus, string> = {
   COMPLETED: "bg-purple-100 text-purple-700",
   CANCELLED: "bg-red-100 text-red-700",
 };
+
+// ── Session type (break items) ───────────────────────────────────────────────
+//
+// SESSION is a real program session; every other value is a "break item" —
+// an agenda time block with no speakers/topics/Zoom (registration desk,
+// coffee break, lunch, networking). The label is a default: the item's own
+// `name` is what renders on the agenda ("Morning Coffee Break"), the type
+// drives styling + which form sections apply.
+
+export const SESSION_TYPE_LABELS: Record<SessionType, string> = {
+  SESSION: "Session",
+  REGISTRATION: "Registration",
+  BREAK: "Coffee Break",
+  LUNCH: "Lunch Break",
+  NETWORKING: "Networking",
+};
+
+/** Type-picker order: the real session first, then break items in a
+ *  typical conference-day order. */
+export const SESSION_TYPE_OPTIONS: { value: SessionType; label: string }[] = [
+  { value: "SESSION", label: SESSION_TYPE_LABELS.SESSION },
+  { value: "REGISTRATION", label: SESSION_TYPE_LABELS.REGISTRATION },
+  { value: "BREAK", label: SESSION_TYPE_LABELS.BREAK },
+  { value: "LUNCH", label: SESSION_TYPE_LABELS.LUNCH },
+  { value: "NETWORKING", label: SESSION_TYPE_LABELS.NETWORKING },
+];
+
+/** True for any non-SESSION type. Null/undefined (rows read before the
+ *  column existed, or payloads that omit it) count as a real session. */
+export function isBreakSessionType(type: string | null | undefined): boolean {
+  return type != null && type !== "SESSION" && type in SESSION_TYPE_LABELS;
+}
+
+/** Display label for a session type coming off the wire. */
+export function formatSessionType(type: string | null | undefined): string {
+  if (!type) return SESSION_TYPE_LABELS.SESSION;
+  return (
+    SESSION_TYPE_LABELS[type as SessionType] ??
+    type.charAt(0).toUpperCase() + type.slice(1).toLowerCase()
+  );
+}
 
 /** Display label for a role coming off the wire (typed as string in most
  *  payload interfaces). Unknown values degrade to Title Case, never raw. */

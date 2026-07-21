@@ -71,6 +71,7 @@ beforeEach(() => {
   mockDb.eventSession.findUnique.mockResolvedValue(SESSION_ROW);
   mockDb.eventSession.findFirst.mockResolvedValue({
     id: "s1", startTime: START, endTime: END, status: "SCHEDULED",
+    type: "SESSION", abstractId: null, _count: { speakers: 0, topics: 0 },
   });
   mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
   mockNotify.mockReturnValue({ catch: () => {} });
@@ -175,6 +176,125 @@ describe("validation — one rule set for both callers", () => {
       expect(res.code).toBe("SPEAKERS_NOT_FOUND");
       expect(res.meta?.missing).toEqual(["ghost"]);
     }
+  });
+});
+
+describe("break items — a break-like type may never end up with program content", () => {
+  it("create persists the type, defaulting to SESSION", async () => {
+    await createSession({ ...BASE_CREATE, type: "BREAK", name: "Coffee Break" });
+    expect(mockDb.eventSession.create.mock.calls[0][0].data.type).toBe("BREAK");
+    vi.clearAllMocks();
+    mockDb.event.findUnique.mockResolvedValue(EVENT);
+    mockDb.eventSession.create.mockResolvedValue({ id: "s1" });
+    mockDb.eventSession.findUnique.mockResolvedValue(SESSION_ROW);
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+    mockNotify.mockReturnValue({ catch: () => {} });
+    await createSession(BASE_CREATE);
+    expect(mockDb.eventSession.create.mock.calls[0][0].data.type).toBe("SESSION");
+  });
+
+  it("rejects creating a break item with speakers", async () => {
+    const res = await createSession({
+      ...BASE_CREATE,
+      type: "LUNCH",
+      sessionRoles: [{ speakerId: "sp1", role: "SPEAKER" }],
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("BREAK_ITEM_HAS_PROGRAM");
+    expect(mockDb.eventSession.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects creating a break item with topics or an abstract", async () => {
+    const withTopics = await createSession({
+      ...BASE_CREATE,
+      type: "REGISTRATION",
+      topics: [{ title: "T" }],
+    });
+    expect(withTopics.ok).toBe(false);
+    if (!withTopics.ok) expect(withTopics.code).toBe("BREAK_ITEM_HAS_PROGRAM");
+
+    const withAbstract = await createSession({ ...BASE_CREATE, type: "BREAK", abstractId: "ab1" });
+    expect(withAbstract.ok).toBe(false);
+    if (!withAbstract.ok) expect(withAbstract.code).toBe("BREAK_ITEM_HAS_PROGRAM");
+  });
+
+  it("rejects converting a session that still has speakers when the payload doesn't clear them", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", startTime: START, endTime: END, status: "SCHEDULED",
+      type: "SESSION", abstractId: null, _count: { speakers: 2, topics: 0 },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, type: "BREAK" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("BREAK_ITEM_HAS_PROGRAM");
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("allows the conversion when the payload explicitly clears speakers + topics", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", startTime: START, endTime: END, status: "SCHEDULED",
+      type: "SESSION", abstractId: null, _count: { speakers: 2, topics: 1 },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, type: "LUNCH", sessionRoles: [], topics: [] });
+    expect(res.ok).toBe(true);
+    const claim = mockTx.eventSession.updateMany.mock.calls[0][0];
+    expect(claim.data.type).toBe("LUNCH");
+  });
+
+  it("rejects adding speakers to an existing break item (type omitted from payload)", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", startTime: START, endTime: END, status: "SCHEDULED",
+      type: "BREAK", abstractId: null, _count: { speakers: 0, topics: 0 },
+    });
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }]);
+    const res = await updateSession({
+      ...BASE_UPDATE,
+      sessionRoles: [{ speakerId: "sp1", role: "SPEAKER" }],
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("BREAK_ITEM_HAS_PROGRAM");
+  });
+
+  it("converting a break item back to SESSION is unrestricted", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", startTime: START, endTime: END, status: "SCHEDULED",
+      type: "LUNCH", abstractId: null, _count: { speakers: 0, topics: 0 },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, type: "SESSION" });
+    expect(res.ok).toBe(true);
+  });
+
+  it("M2: rejects converting a session with an attached Zoom meeting", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", startTime: START, endTime: END, status: "SCHEDULED",
+      type: "SESSION", abstractId: null, zoomMeeting: { id: "zm1" },
+      _count: { speakers: 0, topics: 0 },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, type: "BREAK", sessionRoles: [], topics: [] });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.code).toBe("BREAK_ITEM_HAS_PROGRAM");
+      expect(res.message).toContain("Zoom");
+    }
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("M3: refuses to convert the webinar anchor session", async () => {
+    mockDb.event.findUnique.mockResolvedValue({
+      ...EVENT,
+      settings: { webinar: { sessionId: "s1" } },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, type: "BREAK", sessionRoles: [], topics: [] });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("WEBINAR_ANCHOR_SESSION");
+  });
+
+  it("M3: a NON-anchor session in a webinar event converts fine", async () => {
+    mockDb.event.findUnique.mockResolvedValue({
+      ...EVENT,
+      settings: { webinar: { sessionId: "someOtherSession" } },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, type: "BREAK", sessionRoles: [], topics: [] });
+    expect(res.ok).toBe(true);
   });
 });
 

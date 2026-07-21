@@ -130,6 +130,23 @@ describe("B2 — public session detail must not leak recording credentials or DR
     expect(JSON.stringify(body)).not.toContain("recordingUrl");
   });
 
+  it("404s a break item (agenda time block, no detail page) — same shape as a missing session", async () => {
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", name: "Coffee Break", description: null, startTime: new Date(0), endTime: new Date(0),
+      location: null, capacity: null, status: "SCHEDULED", type: "BREAK", track: null,
+      speakers: [], topics: [], zoomMeeting: null,
+    });
+    const res = await DETAIL_GET(req(), detailParams);
+    expect(res.status).toBe(404);
+  });
+
+  it("a session with no type field (defensive: pre-migration shape) still serves", async () => {
+    // The guard must never hide a legitimate session on missing data —
+    // isBreakSessionType treats an absent type as a real session.
+    const res = await DETAIL_GET(req(), detailParams);
+    expect(res.status).toBe(200);
+  });
+
   it("404s a DRAFT event for an anonymous caller (no existence leak)", async () => {
     mockDb.event.findFirst.mockResolvedValue({
       id: "ev1", name: "Ev", slug: "ev", status: "DRAFT", eventType: "WEBINAR",

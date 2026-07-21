@@ -7,18 +7,22 @@ import Link from "next/link";
 import { format } from "date-fns";
 import {
   Calendar,
+  ClipboardList,
+  Coffee,
   MapPin,
   Users,
+  Utensils,
   Printer,
   ArrowLeft,
   Loader2,
   ChevronRight,
   Clock,
   Mail,
+  type LucideIcon,
 } from "lucide-react";
 import { cn, formatPersonName } from "@/lib/utils";
 import { formatTimeInTz, localDateInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
-import { formatSessionRole } from "@/lib/session-enums";
+import { formatSessionRole, isBreakSessionType } from "@/lib/session-enums";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -62,10 +66,20 @@ interface Session {
   location: string | null;
   capacity: number | null;
   status: string;
+  type?: string;
   track: Track | null;
   speakers: Array<{ role: string; speaker: Speaker }>;
   topics: Topic[];
 }
+
+// Break items (registration desk / coffee / lunch / networking) render as a
+// slim muted band instead of a full session card.
+const BREAK_TYPE_ICONS: Record<string, LucideIcon> = {
+  REGISTRATION: ClipboardList,
+  BREAK: Coffee,
+  LUNCH: Utensils,
+  NETWORKING: Users,
+};
 
 interface EventData {
   id: string;
@@ -434,6 +448,37 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
   const [expanded, setExpanded] = useState(false);
   const duration = getDurationMin(session.startTime, session.endTime);
   const color = session.track?.color || "#6B7280";
+
+  // Break items — a slim, muted, non-interactive band. They carry no
+  // speakers/topics (server-enforced), so none of the card machinery applies.
+  if (isBreakSessionType(session.type)) {
+    const BreakIcon = BREAK_TYPE_ICONS[session.type ?? ""] ?? Clock;
+    return (
+      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-5 py-3 print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200">
+        <div className="flex items-center gap-4">
+          <div className="shrink-0 w-24 text-right print:w-20">
+            <p className="text-sm font-semibold text-slate-600 tabular-nums">
+              {formatTimeInTz(new Date(session.startTime), timezone)}
+            </p>
+            <p className="text-xs text-slate-400 tabular-nums">
+              {formatTimeInTz(new Date(session.endTime), timezone)}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <BreakIcon className="h-4 w-4 text-slate-400 shrink-0" />
+            <span className="text-sm font-medium text-slate-600 truncate">{session.name}</span>
+            {session.location && (
+              <span className="flex items-center gap-1 text-xs text-slate-400 shrink-0">
+                <MapPin className="h-3 w-3" />
+                {session.location}
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-slate-400 shrink-0">{duration} min</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

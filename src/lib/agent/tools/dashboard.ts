@@ -26,9 +26,11 @@ const getEventDashboard: ToolExecutor = async (_input, ctx) => {
         where: { id: eventId, organizationId: ctx.organizationId },
         select: { id: true, name: true, slug: true, status: true, eventType: true, startDate: true, endDate: true, timezone: true },
       }),
-      db.eventSession.count({ where: { eventId, startTime: { gt: now } } }),
-      db.eventSession.count({ where: { eventId, startTime: { lte: now }, endTime: { gte: now } } }),
-      db.eventSession.count({ where: { eventId, endTime: { lt: now } } }),
+      // "Session" here means program session — break items (coffee/lunch/
+      // registration) are agenda furniture and would inflate these counts.
+      db.eventSession.count({ where: { eventId, type: "SESSION", startTime: { gt: now } } }),
+      db.eventSession.count({ where: { eventId, type: "SESSION", startTime: { lte: now }, endTime: { gte: now } } }),
+      db.eventSession.count({ where: { eventId, type: "SESSION", endTime: { lt: now } } }),
       db.registration.findMany({
         where: { eventId },
         orderBy: { createdAt: "desc" },
@@ -153,7 +155,8 @@ const getEventStats: ToolExecutor = async (_input, ctx) => {
       db.registration.groupBy({ by: ["paymentStatus"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
       db.speaker.groupBy({ by: ["status"], where: { eventId }, _count: true }),
       db.abstract.groupBy({ by: ["status"], where: { eventId }, _count: true }),
-      db.eventSession.count({ where: { eventId } }),
+      // Program sessions only — break items are excluded.
+      db.eventSession.count({ where: { eventId, type: "SESSION" } }),
       db.track.count({ where: { eventId } }),
     ]);
 

@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import type { ToolExecutor } from "./_shared";
+import type { SessionType } from "@prisma/client";
 import {
   createSession as createSessionService,
   updateSession as updateSessionService,
@@ -11,6 +12,7 @@ import {
 
 const VALID_SESSION_ROLES = new Set(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]);
 const VALID_SESSION_STATUSES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
+const VALID_SESSION_TYPES = new Set(["SESSION", "REGISTRATION", "BREAK", "LUNCH", "NETWORKING"]);
 
 /** Agent input is untyped JSON — coerce to the service's unions, defaulting
  *  the same way the pre-service executor did (unknown role → SPEAKER). */
@@ -21,6 +23,19 @@ function normalizeRole(role: unknown): SessionRole {
 function normalizeStatus(status: unknown): SessionStatus {
   const s = String(status ?? "").toUpperCase();
   return (VALID_SESSION_STATUSES.has(s) ? s : "SCHEDULED") as SessionStatus;
+}
+/** Unlike role/status, an unrecognized type is a hard error — silently
+ *  defaulting a typo'd "COFFEE" to SESSION (or vice versa) would flip how the
+ *  agenda renders the item and which form sections apply. */
+function parseSessionType(type: unknown): SessionType | { error: string; code: string } {
+  const t = String(type ?? "").toUpperCase();
+  if (!VALID_SESSION_TYPES.has(t)) {
+    return {
+      error: `Invalid type "${String(type)}". Must be one of: ${[...VALID_SESSION_TYPES].join(", ")}`,
+      code: "INVALID_TYPE",
+    };
+  }
+  return t as SessionType;
 }
 
 const listSessions: ToolExecutor = async (input, ctx) => {
@@ -38,6 +53,7 @@ const listSessions: ToolExecutor = async (input, ctx) => {
         endTime: true,
         location: true,
         status: true,
+        type: true,
         track: { select: { name: true, color: true } },
         // Session-level roles. speaker.id lets n8n cross-link to the speaker
         // record; speaker.title carries the honorific for agenda display.
@@ -98,6 +114,13 @@ const createSession: ToolExecutor = async (input, ctx) => {
       ? (input.topics as { title: string; duration?: number; abstractId?: string; sortOrder?: number; speakerIds?: string[] }[]).slice(0, 50)
       : undefined;
 
+    let sessionType: SessionType | undefined;
+    if (input.type != null) {
+      const parsed = parseSessionType(input.type);
+      if (typeof parsed !== "string") return parsed;
+      sessionType = parsed;
+    }
+
     // Validation, the write, the audit row, the admin notification and the
     // stats refresh all live in the service (review H4) — this executor used to
     // write NO audit row and send NO notification, and silently dropped
@@ -109,6 +132,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
       name,
       startTime,
       endTime,
+      ...(sessionType && { type: sessionType }),
       ...(input.description != null && { description: String(input.description) }),
       ...(input.trackId != null && { trackId: String(input.trackId) }),
       ...(input.abstractId != null && { abstractId: String(input.abstractId) }),
@@ -146,9 +170,18 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
     // Verify session belongs to this event
     const session = await db.eventSession.findFirst({
       where: { id: sessionId, eventId: ctx.eventId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, type: true },
     });
     if (!session) return { error: `Session ${sessionId} not found in this event` };
+    // H1 (break-items review): this executor bypasses the session service, so
+    // it must enforce the break-item invariant itself.
+    if (session.type !== "SESSION") {
+      return {
+        error:
+          "This is a break item (registration/coffee/lunch/networking) — it cannot have topics. Convert it to type SESSION first via update_session.",
+        code: "BREAK_ITEM_HAS_PROGRAM",
+      };
+    }
 
     const rawSpeakerIds = Array.isArray(input.speakerIds)
       ? (input.speakerIds as string[]).slice(0, 20)
@@ -220,6 +253,9 @@ const listLiveSessionsNow: ToolExecutor = async (input, ctx) => {
       where: {
         eventId: ctx.eventId,
         status: { not: "CANCELLED" },
+        // Break items (registration/coffee/lunch/networking) are agenda time
+        // blocks, not joinable program sessions — exclude them here.
+        type: "SESSION",
         // Currently live OR starting within the lookahead window
         OR: [
           { startTime: { lte: now }, endTime: { gte: now } },
@@ -283,6 +319,13 @@ const updateSession: ToolExecutor = async (input, ctx) => {
       ? (input.topics as { id?: string; title: string; duration?: number; abstractId?: string; sortOrder?: number; speakerIds?: string[] }[]).slice(0, 50)
       : undefined;
 
+    let sessionType: SessionType | undefined;
+    if (input.type != null) {
+      const parsed = parseSessionType(input.type);
+      if (typeof parsed !== "string") return parsed;
+      sessionType = parsed;
+    }
+
     // Delegates to the shared service (review H4/H1): the lock-first atomic
     // transaction, the event-timezone date validation, the `endTime <= startTime`
     // rule (this path used to allow a zero-duration session) and the positive
@@ -292,6 +335,7 @@ const updateSession: ToolExecutor = async (input, ctx) => {
       sessionId,
       userId: ctx.userId,
       source: "mcp",
+      ...(sessionType && { type: sessionType }),
       ...(input.name != null && { name: String(input.name).trim() }),
       ...(input.description !== undefined && { description: input.description == null ? null : String(input.description) }),
       ...(input.trackId !== undefined && { trackId: input.trackId == null ? null : String(input.trackId) }),
@@ -343,11 +387,17 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "create_session",
     description:
-      "Create a new session. Requires name, startTime, and endTime (ISO 8601 datetime strings). Optionally assign to a trackId, location, description, speakerIds, sessionRoles (with role per speaker), and topics (with per-topic speakers).",
+      "Create a new session or agenda break item. Requires name, startTime, and endTime (ISO 8601 datetime strings). Optionally assign to a trackId, location, description, speakerIds, sessionRoles (with role per speaker), and topics (with per-topic speakers). Set type to REGISTRATION/BREAK/LUNCH/NETWORKING for a break item — a plain agenda time block that cannot carry speakers, topics, or a track.",
     input_schema: {
       type: "object" as const,
       properties: {
         name: { type: "string", description: "Session name" },
+        type: {
+          type: "string",
+          enum: ["SESSION", "REGISTRATION", "BREAK", "LUNCH", "NETWORKING"],
+          description:
+            "Defaults to SESSION. Any other value creates a break item (no speakers/topics allowed).",
+        },
         startTime: {
           type: "string",
           description: "ISO 8601 datetime, e.g. 2026-05-15T09:00:00",
@@ -417,12 +467,17 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "update_session",
     description:
-      "Update a session's metadata (name, description, startTime, endTime, location, capacity, trackId, status). Validates startTime/endTime fall within the event's date range. Does NOT touch topics or speakers — use add_topic_to_session / add_speaker_to_session / replace_session_speakers for those.",
+      "Update a session's metadata (name, description, startTime, endTime, location, capacity, trackId, status, type). Validates startTime/endTime fall within the event's date range. Does NOT touch topics or speakers — use add_topic_to_session / add_speaker_to_session / replace_session_speakers for those. Converting type to a break item (REGISTRATION/BREAK/LUNCH/NETWORKING) is rejected with BREAK_ITEM_HAS_PROGRAM while the session still has speakers or topics — remove them first.",
     input_schema: {
       type: "object" as const,
       properties: {
         sessionId: { type: "string", description: "Session ID to update" },
         name: { type: "string" },
+        type: {
+          type: "string",
+          enum: ["SESSION", "REGISTRATION", "BREAK", "LUNCH", "NETWORKING"],
+          description: "SESSION or a break item (plain agenda time block, no speakers/topics).",
+        },
         description: { type: "string" },
         startTime: { type: "string", description: "ISO 8601 datetime" },
         endTime: { type: "string", description: "ISO 8601 datetime" },
@@ -514,9 +569,19 @@ const SESSION_ROLES = new Set(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"
 async function findSessionInEvent(sessionId: string, eventId: string) {
   return db.eventSession.findFirst({
     where: { id: sessionId, eventId },
-    select: { id: true },
+    // `type` so the roster tools can refuse break items (H1, break-items
+    // review): these executors bypass the session service, so without this
+    // gate an MCP client could attach a speaker/topic to a coffee break —
+    // hidden by every renderer and silently wiped by the next dashboard save.
+    select: { id: true, type: true },
   });
 }
+
+const BREAK_ITEM_ROSTER_ERROR = {
+  error:
+    "This is a break item (registration/coffee/lunch/networking) — it cannot have speakers or topics. Convert it to type SESSION first via update_session.",
+  code: "BREAK_ITEM_HAS_PROGRAM",
+};
 
 const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
   try {
@@ -531,6 +596,7 @@ const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
 
     const session = await findSessionInEvent(sessionId, ctx.eventId);
     if (!session) return { error: `Session ${sessionId} not found in this event`, code: "SESSION_NOT_FOUND" };
+    if (session.type !== "SESSION") return BREAK_ITEM_ROSTER_ERROR;
 
     const speaker = await db.speaker.findFirst({
       where: { id: speakerId, eventId: ctx.eventId },
@@ -661,6 +727,9 @@ const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
 
     const session = await findSessionInEvent(sessionId, ctx.eventId);
     if (!session) return { error: `Session ${sessionId} not found in this event`, code: "SESSION_NOT_FOUND" };
+    // H1: a non-empty replacement on a break item would attach a roster the
+    // renderers hide. An EMPTY replacement is allowed — it's a cleanup.
+    if (session.type !== "SESSION" && normalised.length > 0) return BREAK_ITEM_ROSTER_ERROR;
 
     if (normalised.length > 0) {
       const speakerIds = normalised.map((n) => n.speakerId);

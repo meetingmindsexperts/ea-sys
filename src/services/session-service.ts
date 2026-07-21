@@ -33,11 +33,13 @@
  * imports from `next/server`).
  */
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type SessionType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
+import { isBreakSessionType } from "@/lib/session-enums";
+import { readWebinarSettings } from "@/lib/webinar";
 import {
   isSessionWithinEventDates,
   localDateInTz,
@@ -86,6 +88,13 @@ interface SessionFieldsInput {
   location?: string | null;
   capacity?: number | null;
   status?: SessionStatus;
+  /**
+   * SESSION (default) or a break item (REGISTRATION / BREAK / LUNCH /
+   * NETWORKING). A break item is a plain agenda time block: it may never
+   * carry speakers, topics, or an abstract — see the BREAK_ITEM_HAS_PROGRAM
+   * check in `validate`.
+   */
+  type?: SessionType;
   /** Legacy flat list — every id assigned the SPEAKER role. */
   speakerIds?: string[];
   /** Preferred: session-level roles. Takes precedence over `speakerIds`. */
@@ -129,6 +138,8 @@ export type SessionServiceErrorCode =
   | "ABSTRACT_ALREADY_ASSIGNED"
   | "SPEAKERS_NOT_FOUND"
   | "INVALID_CAPACITY"
+  | "BREAK_ITEM_HAS_PROGRAM"
+  | "WEBINAR_ANCHOR_SESSION"
   | "STALE_WRITE"
   | "UNKNOWN";
 
@@ -151,6 +162,7 @@ export const SESSION_SELECT = {
   location: true,
   capacity: true,
   status: true,
+  type: true,
   updatedAt: true,
   track: { select: { id: true, name: true, color: true } },
   abstract: { select: { id: true, title: true } },
@@ -242,13 +254,71 @@ async function validate(
   input: SessionFieldsInput,
   effectiveStart: Date | undefined,
   effectiveEnd: Date | undefined,
-  opts: { excludeSessionIdForAbstract?: string } = {},
+  opts: {
+    excludeSessionIdForAbstract?: string;
+    /** Update path only: the session being updated (for the webinar-anchor guard). */
+    sessionId?: string;
+    /** Update path only: the stored row's state, so the break-item check
+     *  validates the RESULTING session when the payload omits a field. */
+    existing?: {
+      type: SessionType;
+      abstractId: string | null;
+      hasSpeakers: boolean;
+      hasTopics: boolean;
+      hasZoomMeeting: boolean;
+    };
+  } = {},
 ): Promise<{ ok: true } | { ok: false; code: SessionServiceErrorCode; message: string; meta?: Record<string, unknown> }> {
   const event = await db.event.findUnique({
     where: { id: eventId },
-    select: { startDate: true, endDate: true, timezone: true },
+    // `settings` carries the webinar anchor pointer the break-item guard reads.
+    select: { startDate: true, endDate: true, timezone: true, settings: true },
   });
   if (!event) return fail("EVENT_NOT_FOUND", `Event ${eventId} not found`);
+
+  // A break item (registration desk / coffee / lunch / networking) is a plain
+  // agenda time block — it may never END UP with speakers, topics, or an
+  // abstract. Checked against the resulting state: converting a real session
+  // to a break item requires clearing its program in the same payload (the
+  // dashboard form does this by submitting empty lists) — we deliberately
+  // never auto-delete a roster on the caller's behalf.
+  const effectiveType = input.type ?? opts.existing?.type ?? "SESSION";
+  if (isBreakSessionType(effectiveType)) {
+    const resultingSpeakers =
+      input.sessionRoles !== undefined || input.speakerIds !== undefined
+        ? buildSessionSpeakerRows(input).length > 0
+        : (opts.existing?.hasSpeakers ?? false);
+    const resultingTopics =
+      input.topics !== undefined ? input.topics.length > 0 : (opts.existing?.hasTopics ?? false);
+    const resultingAbstract =
+      input.abstractId !== undefined ? !!input.abstractId : !!opts.existing?.abstractId;
+    if (resultingSpeakers || resultingTopics || resultingAbstract) {
+      return fail(
+        "BREAK_ITEM_HAS_PROGRAM",
+        "A break item (registration, coffee break, lunch, networking) cannot have speakers, topics, or an abstract. Remove them first, or save with empty speaker and topic lists.",
+      );
+    }
+
+    // M2 (break-items review): an attached Zoom meeting is also program
+    // content — and the edit dialog hides the Zoom section for break items,
+    // so converting would leave a live, billable, joinable meeting with no UI
+    // able to delete it.
+    if (opts.existing?.hasZoomMeeting) {
+      return fail(
+        "BREAK_ITEM_HAS_PROGRAM",
+        "This session has a Zoom meeting attached. Delete the Zoom meeting before converting it to a break item.",
+      );
+    }
+
+    // M3: the webinar anchor session backs the join links already emailed to
+    // every registrant — mirrors the DELETE route's anchor refusal.
+    if (opts.sessionId && readWebinarSettings(event.settings)?.sessionId === opts.sessionId) {
+      return fail(
+        "WEBINAR_ANCHOR_SESSION",
+        "This is the webinar's main session and can't be converted to a break item.",
+      );
+    }
+  }
 
   if (effectiveStart && effectiveEnd) {
     // Zero-duration is invalid on EVERY path. MCP `update_session` used to
@@ -349,6 +419,7 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
         // MCP used to silently drop `status`; it now honours it (default
         // SCHEDULED, matching the REST Zod default).
         status: input.status ?? "SCHEDULED",
+        type: input.type ?? "SESSION",
         speakers: (() => {
           const rows = buildSessionSpeakerRows(input);
           return rows.length > 0 ? { create: rows } : undefined;
@@ -433,7 +504,16 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
 
   const existing = await db.eventSession.findFirst({
     where: { id: sessionId, eventId },
-    select: { id: true, startTime: true, endTime: true, status: true },
+    select: {
+      id: true,
+      startTime: true,
+      endTime: true,
+      status: true,
+      type: true,
+      abstractId: true,
+      zoomMeeting: { select: { id: true } },
+      _count: { select: { speakers: true, topics: true } },
+    },
   });
   if (!existing) {
     apiLogger.warn({ msg: "session-service:session-not-found", sessionId, eventId, userId, source });
@@ -446,6 +526,14 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
 
   const valid = await validate(eventId, input, effectiveStart, effectiveEnd, {
     excludeSessionIdForAbstract: sessionId,
+    sessionId,
+    existing: {
+      type: existing.type,
+      abstractId: existing.abstractId,
+      hasSpeakers: existing._count.speakers > 0,
+      hasTopics: existing._count.topics > 0,
+      hasZoomMeeting: existing.zoomMeeting != null,
+    },
   });
   if (!valid.ok) {
     apiLogger.warn(
@@ -482,6 +570,7 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
           ...(input.location !== undefined && { location: input.location || null }),
           ...(input.capacity !== undefined && { capacity: input.capacity }),
           ...(input.status !== undefined && { status: input.status }),
+          ...(input.type !== undefined && { type: input.type }),
           updatedAt: new Date(),
         },
       });
