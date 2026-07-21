@@ -872,11 +872,9 @@ export async function assignReviewer(input: AssignReviewerInput): Promise<Assign
     return { ok: true, kind: "created", assignment, reviewer: user };
   } catch (err) {
     apiLogger.error({ err, msg: "assign-reviewer:failed", eventId, abstractId, source: input.source });
-    return {
-      ok: false,
-      code: "UNKNOWN",
-      message: err instanceof Error ? err.message : "Failed to assign reviewer",
-    };
+    // Static message (review M2) — the raw error is logged above, never surfaced
+    // to callers (a Prisma error string in a toast is an info leak).
+    return { ok: false, code: "UNKNOWN", message: "Failed to assign reviewer" };
   }
 }
 
@@ -959,10 +957,6 @@ export async function unassignReviewer(input: UnassignReviewerInput): Promise<Un
     return { ok: true, unassignedAssignmentId: assignment.id };
   } catch (err) {
     apiLogger.error({ err, msg: "unassign-reviewer:failed", eventId, abstractId, source: input.source });
-    return {
-      ok: false,
-      code: "UNKNOWN",
-      message: err instanceof Error ? err.message : "Failed to unassign reviewer",
-    };
+    return { ok: false, code: "UNKNOWN", message: "Failed to unassign reviewer" };
   }
 }

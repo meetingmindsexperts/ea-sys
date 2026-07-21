@@ -479,7 +479,7 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
           },
         },
       })
-      .catch((err) => apiLogger.warn({ msg: "promo:create-audit-failed", promoCodeId: promoCode.id, err }));
+      .catch((err) => apiLogger.error({ msg: "promo:create-audit-failed", promoCodeId: promoCode.id, err }));
 
     apiLogger.info({
       msg: "promo:created",

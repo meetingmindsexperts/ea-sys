@@ -83,6 +83,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     if (!result.ok) {
+      if (result.code === "UNKNOWN") {
+        // Stable 500 contract (review M2) — same body the route always returned.
+        return NextResponse.json(
+          { error: "Failed to assign reviewer", code: "ASSIGN_REVIEWER_FAILED" },
+          { status: 500 },
+        );
+      }
       const status = HTTP_STATUS_FOR_ASSIGN[result.code] ?? 500;
       const payload =
         result.code === "NOT_REVIEWABLE"

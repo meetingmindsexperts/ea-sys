@@ -144,7 +144,7 @@ export async function claimSeatsOverselling(
  * (a maxUses-capped code then admits extra redemptions).
  *
  * When the counter holds fewer than `count` (pre-guard drift, double release),
- * the release clamps to 0 instead of no-oping — "release everything still
+ * the release clamps toward 0 instead of no-oping — "release everything still
  * held" is the correct bulk semantics.
  */
 export async function releasePromoUsage(
@@ -158,11 +158,22 @@ export async function releasePromoUsage(
     data: { usedCount: { decrement: count } },
   });
   if (res.count === 0) {
-    // Counter lower than the release — clamp to 0 (never negative, never stuck inflated).
-    await tx.promoCode.updateMany({
-      where: { id: promoCodeId, usedCount: { gt: 0 } },
-      data: { usedCount: 0 },
+    // Counter holds fewer than `count` — release what's actually held. This is
+    // a RELATIVE guarded decrement, deliberately NOT an absolute `set 0`
+    // (review M1): an absolute set could erase a redemption a concurrent
+    // registration committed between these two statements; a relative
+    // decrement leaves it intact, and the `gte` guard still floors at 0.
+    const row = await tx.promoCode.findUnique({
+      where: { id: promoCodeId },
+      select: { usedCount: true },
     });
+    const dec = Math.min(count, row?.usedCount ?? 0);
+    if (dec > 0) {
+      await tx.promoCode.updateMany({
+        where: { id: promoCodeId, usedCount: { gte: dec } },
+        data: { usedCount: { decrement: dec } },
+      });
+    }
   }
 }
 

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cross-Caller Duplication Audit &amp; Remediation (July 21, 2026)</title>
+<style>
+  :root{ --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+         --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+         --ok:#15803d; --bad:#b91c1c; --lesson-bg:#f5f3ff; --lesson-line:#c4b5fd; }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:980px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:2rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.95rem}
+  h2{font-size:1.35rem;margin:3rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  code,pre{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.86em}
+  code{background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:6px;padding:.85rem 1rem;overflow-x:auto;line-height:1.5;margin:.6rem 0}
+  pre code{background:none;padding:0}
+  pre.bad{border-left:4px solid var(--bad)} pre.good{border-left:4px solid var(--ok)}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.93rem}
+  th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  .sev{font-weight:700;font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;padding:.16em .5em;border-radius:3px;color:#fff;white-space:nowrap}
+  .sev.blocker{background:var(--blocker)} .sev.high{background:var(--high)} .sev.medium{background:var(--medium)} .sev.low{background:var(--low)}
+  .pill{font-weight:700;font-size:.72rem;letter-spacing:.04em;padding:.14em .5em;border-radius:3px;white-space:nowrap}
+  .pill.shipped{background:var(--ok);color:#fff} .pill.deferred{background:var(--muted);color:#fff} .pill.open{background:var(--blocker);color:#fff}
+  .pill.confirmed{background:var(--ok);color:#fff} .pill.partial{background:var(--medium);color:#fff} .pill.stale{background:var(--muted);color:#fff}
+  .finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;padding:1.1rem 1.3rem;margin:1.5rem 0}
+  .finding.medium{border-left-color:var(--medium)} .finding.low{border-left-color:var(--low)}
+  .meta{font-size:.85rem;color:var(--muted);margin:.2rem 0 .6rem}
+  .learn{background:var(--lesson-bg);border:1px solid var(--lesson-line);border-radius:6px;padding:.8rem 1rem;margin:.8rem 0 0;font-size:.92rem}
+  .learn strong{color:#5b21b6}
+  .note{border:1px solid var(--line);border-radius:6px;padding:.9rem 1.1rem;margin:1rem 0;font-size:.94rem}
+  .note.warn{background:#fffbeb;border-color:#fcd34d}
+  .note.ok{background:#f0fdf4;border-color:#86efac}
+  ul{padding-left:1.3rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Cross-Caller Duplication <span style="color:var(--accent)">Audit &amp; Remediation</span></h1>
+  <div class="sub">July 21, 2026 · a repo-wide duplication audit (11 findings), a 4-agent source-verification pass with corrections,
+  three gated remediation batches, and an independent post-ship adversarial review of the batches themselves.
+  Enforces the services-layer rule in <strong>src/services/README.md</strong>: "no cross-caller duplication".</div>
+</header>
+
+<div class="note ok">
+  <strong>Status: findings 1–3 SHIPPED July 21</strong> (commits <code>814224aa</code> seat/promo consolidation ·
+  <code>6b66649a</code> promo-code create service · <code>858a50cd</code> reviewer-assignment service, plus the
+  review-checkpoint fixes M1/M2/L2 in the follow-up commit). Post-ship review verdict on the batches:
+  <strong>0 BLOCKER / 0 HIGH / 3 MED / 5 LOW</strong> — M1 + M2 + L2 fixed in-band, the rest deferred to
+  ROADMAP §"Cross-caller duplication audit". Findings 4–7 and the frontend cluster (A4/A6/A8) are consolidation
+  backlog, also in ROADMAP; A5 was already mid-fix in the working tree when the audit ran.
+</div>
+
+<h2>1 · Why this audit exists</h2>
+<p>
+The services layer (April 2026) was created because MCP write tools had drifted from the REST routes doing
+"the same thing" separately — paid MCP registrations silently skipped the confirmation email; <code>soldCount</code>
+accounting diverged. The rule since then: <em>a domain operation invoked from more than one entry point lives in
+exactly one place</em>. This audit swept the repo for surviving violations and ranked them by whether the copies
+had <strong>already drifted</strong> (different behavior today) or were merely <strong>at risk</strong>.
+</p>
+
+<h2>2 · Audit findings — verified against source before any fix</h2>
+<p>Each claim was independently re-verified by read-only agents before remediation. Two of the audit's
+characterizations were wrong; verification also surfaced two bugs the audit missed.</p>
+
+<div class="tbl-wrap"><table>
+  <tr><th>#</th><th>Finding</th><th>Verification</th><th>Outcome</th></tr>
+  <tr><td>1</td><td>Seat + promo accounting hand-rolled in MCP bulk-status, REST bulk-type, REST delete — bypassing <code>applyRegistrationTransition</code></td>
+      <td><span class="pill partial">PARTIAL</span> Real, but "three oversell rules" was wrong — bulk-type already hard-blocks 409 like the baseline. <strong>New bug found:</strong> MCP bulk + delete used UNGUARDED <code>promoCode.update({ decrement })</code> — usedCount could go negative.</td>
+      <td><span class="pill shipped">SHIPPED 814224aa</span></td></tr>
+  <tr><td>2</td><td>Promo-code CREATE duplicated REST + MCP; MCP writes <strong>no audit log</strong>; validation diverges</td>
+      <td><span class="pill confirmed">CONFIRMED</span> Plus: REST never validated <code>ticketTypeIds</code> belong to the event; MCP never enforced FIXED_AMOUNT-requires-currency.</td>
+      <td><span class="pill shipped">SHIPPED 6b66649a</span></td></tr>
+  <tr><td>3</td><td>Abstract reviewer assign/unassign ~130 lines mirrored REST + MCP; drifted twice before (H6 status gate, H8 dropped COI flag)</td>
+      <td><span class="pill confirmed">CONFIRMED</span> H6/H8 parity-patch comments present in both copies; no service function existed. Extra drift: no-op guard + default-role handling differed.</td>
+      <td><span class="pill shipped">SHIPPED 858a50cd</span></td></tr>
+  <tr><td>4</td><td>Replace-all session speakers (tx swap + L1 topic cleanup) duplicated in session-service + MCP tool</td>
+      <td><span class="pill confirmed">CONFIRMED</span> Same transactional intent; service's cleanup conditional on <code>topics === undefined</code>, MCP's always runs.</td>
+      <td><span class="pill deferred">DEFERRED</span></td></tr>
+  <tr><td>5</td><td>MCP <code>update_invoice_status</code> bypasses <code>cancelInvoice</code></td>
+      <td><span class="pill confirmed">CONFIRMED, low stakes</span> — cancelInvoice today is only an idempotency guard + log. Inverse asymmetry found: <strong>MCP audits, REST does not</strong>. The docs' "MCP REFUNDED is DB-only" note is STALE (M6 narrowed it June 10).</td>
+      <td><span class="pill deferred">DEFERRED</span></td></tr>
+  <tr><td>6</td><td>429 responses hand-built at every <code>checkRateLimit</code> site; some missing <code>Retry-After</code></td>
+      <td><span class="pill confirmed">CONFIRMED precisely</span> — 105 files emit a 429, 101 attach Retry-After; the missing set is exactly 4 files (agent execute, complete-registration, both agreement routes). No shared helper; 4 distinct body shapes.</td>
+      <td><span class="pill deferred">DEFERRED</span></td></tr>
+  <tr><td>7</td><td>MCP single add/remove-speaker mutate the join table directly, bypassing session-service</td>
+      <td><span class="pill partial">CONFIRMED but weakened</span> — the break-item guard (H1) IS enforced and remove does the L1 cleanup. Pure consolidation, no live invariant gap. No REST twin exists.</td>
+      <td><span class="pill deferred">DEFERRED</span></td></tr>
+  <tr><td>A4</td><td>Detail-sheet edit forms hand-roll fields <code>PersonFormFields</code> owns; edit missing state/zip/tags/photo/website</td>
+      <td><span class="pill partial">PARTIAL</span> — the real gap is only <strong>state + zipCode</strong> (both sheets; create collects them, edit can't). Tags/photo/website claims were wrong (all editable).</td>
+      <td><span class="pill deferred">DEFERRED</span></td></tr>
+  <tr><td>A5</td><td>CRM edit-company dialog free-text country vs create's <code>CountrySelect</code></td>
+      <td><span class="pill stale">STALE at working tree</span> — the uncommitted <code>crm-company-form-fields.tsx</code> / <code>crm-deal-form-fields.tsx</code> extraction already fixes it (shared CountrySelect); just not committed.</td>
+      <td><span class="pill open">IN WORKING TREE</span></td></tr>
+  <tr><td>A6</td><td>Speaker-status colour map duplicated ×4 with drift on the agenda copy</td>
+      <td><span class="pill confirmed">CONFIRMED — 5 copies, not 4</span>. Four byte-identical; the agenda copy uses <code>-700</code> shades and drops CANCELLED. No <code>speaker-enums.ts</code> exists despite the session/abstract/registration precedent.</td>
+      <td><span class="pill deferred">DEFERRED</span></td></tr>
+  <tr><td>A8</td><td>Registration create dialog vs full page: identical payload builders, diverged "is this free?" logic</td>
+      <td><span class="pill confirmed">CONFIRMED, mechanism corrected</span> — the drift axis is pricing-<strong>tier</strong> resolution (page resolves the chosen tier's price; dialog only sees base price + active-tier presence), not <code>virtualPrice</code>.</td>
+      <td><span class="pill deferred">DEFERRED</span></td></tr>
+</table></div>
+
+<div class="learn"><strong>What to learn:</strong> verify an audit before remediating it. Two of eleven characterizations
+were materially wrong ("silently skips" behavior that doesn't exist; a missing-fields list that was 60% inaccurate),
+and the verification pass found two REAL bugs the audit missed (the unguarded promo decrements; the REST-doesn't-audit
+inversion on invoice status). Fixing to an unverified report risks "fixing" behavior that was already correct.</div>
+
+<h2>3 · What shipped</h2>
+
+<h3>Batch 1 — <code>814224aa</code> · seat + promo accounting consolidated (finding 1)</h3>
+<p><code>src/lib/registration-seat-db.ts</code> gains four shared helpers; all three hand-rolled call sites now route through them:</p>
+<ul>
+  <li><code>releasePromoUsage(tx, id, n)</code> — guarded <code>gte: n</code> decrement, with a <strong>relative</strong> clamp fallback
+      (release what's actually held; never negative, never an absolute <code>set 0</code> — see review M1 below).</li>
+  <li><code>claimPromoUsage(tx, id, n)</code> — the H6 re-claim on reactivation; <code>updateMany</code> so a hard-deleted promo row no-ops.</li>
+  <li><code>claimSeats(tx, counter, n)</code> — guarded all-or-nothing bulk claim (<code>soldCount &lt;= quantity − n</code>);
+      <code>claimSeat</code> delegates to it. The bulk-type route's inline guard replaced by this (quantity now re-read <em>inside</em> the tx — strictly safer).</li>
+  <li><code>claimSeatsOverselling(tx, counter, n)</code> — the bulk-reactivation allow-and-log policy, extracted from the MCP
+      executor's duplicated tier/ticket branches; returns the oversell facts for the caller to warn-log.</li>
+</ul>
+<p><strong>Bug fixes riding the consolidation:</strong> the MCP bulk + REST delete promo decrements were unguarded
+(<code>usedCount</code> could go negative → a maxUses-capped code admits extra redemptions) — now guarded; and MCP bulk
+reactivation now <strong>re-claims</strong> promo usage (H6 symmetry — bulk cancel → reactivate → cancel used to double-release).
++13 tests.</p>
+
+<h3>Batch 2 — <code>6b66649a</code> · <code>promo-code-service.createPromoCode</code> (finding 2)</h3>
+<p>One create path (errors-as-values, 6 codes) owning: org-scoped event check, code normalization, discount rules
+(positive · percentage ≤ 100 · FIXED_AMOUNT requires currency), <strong>event-bound ticketTypeIds validation</strong>
+(REST used to silently link foreign ticket types), composite-key dup check + P2002 race mapping, maxUses clamps, and the
+<code>CREATE_PROMO_CODE</code> audit row tagged with <code>source</code> — <strong>the exact row the MCP path never wrote</strong>.
+REST keeps Zod + HTTP mapping (status codes unchanged; 409 body gains <code>code</code>); MCP keeps loose-input coercion +
+its response shape. +11 tests.</p>
+
+<h3>Batch 3 — <code>858a50cd</code> · <code>abstract-service.assignReviewer / unassignReviewer</code> (finding 3)</h3>
+<p>The twice-drifted pair is now one implementation: org-scoped lookups, the H6 <code>NOT_REVIEWABLE</code> gate, upsert
+semantics (role/COI flip without unassign+reassign; idempotent noop), create defaults, ASSIGN/UPDATE/UNASSIGN audit rows
+(REST update audits now also carry <code>previousRole</code>/<code>previousConflictFlag</code> — MCP parity), and the
+create-only reviewer notification. Response bodies byte-compatible on both surfaces (incl. the MCP noop's
+<code>conflictFlag</code>). All 15 pre-existing route/COI tests pass unchanged through the delegation; +10 service tests.</p>
+
+<h2>4 · Post-ship adversarial review of the batches</h2>
+<p>An independent reviewer examined the three commits against pre-commit behavior, consumer code (use-api hooks,
+promo-codes panel, reviewers card, MCP contracts), and the services conventions. Verdict:
+<strong>0 BLOCKER / 0 HIGH / 3 MED / 5 LOW</strong>.</p>
+
+<div class="finding medium">
+  <div><span class="sev medium">M1</span> &nbsp;<strong><code>releasePromoUsage</code> clamp fallback could erase a concurrent redemption</strong> &nbsp;<span class="pill shipped">FIXED in-band</span></div>
+  <div class="meta">src/lib/registration-seat-db.ts · regression vs the single-statement release it replaced on the single-row path</div>
+  <p>The original clamp was an absolute <code>set usedCount = 0 where usedCount &gt; 0</code>. Between the failed guarded
+  decrement and the clamp, a concurrent public registration could commit a redemption (<code>0→1</code>) — the absolute set
+  then erased it. Fixed: the fallback is now a <strong>relative guarded decrement</strong> of <code>min(count, current)</code>,
+  which leaves any concurrent increment intact while still flooring at 0. Test pins the fallback's write shape.</p>
+  <div class="learn"><strong>What to learn:</strong> in counter code, an absolute <code>set</code> is a different animal from a
+  relative <code>increment/decrement</code> — only the relative form composes safely with concurrent writers under READ COMMITTED.</div>
+</div>
+
+<div class="finding medium">
+  <div><span class="sev medium">M2</span> &nbsp;<strong>REST reviewers 500 body lost its stable <code>code</code> + leaked raw error text</strong> &nbsp;<span class="pill shipped">FIXED in-band</span></div>
+  <div class="meta">reviewers/route.ts + reviewers/[userId]/route.ts · contract/info-exposure regression</div>
+  <p>The service's UNKNOWN result carried <code>err.message</code>, and the route surfaced it as the top-level
+  <code>error</code> (a Prisma error string in a user toast) without the historical
+  <code>ASSIGN_REVIEWER_FAILED</code>/<code>UNASSIGN_REVIEWER_FAILED</code> code. Fixed: service UNKNOWN messages are static
+  (raw error stays in the log), and both routes map UNKNOWN back to the exact pre-refactor 500 body.</p>
+  <div class="learn"><strong>What to learn:</strong> when a service absorbs a route's try/catch, the route's outer catch becomes
+  unreachable for domain errors — the error-body contract must move into the result mapping, or it silently changes.</div>
+</div>
+
+<div class="finding medium">
+  <div><span class="sev medium">M3</span> &nbsp;<strong>MCP bulk promo re-claim rides the pre-existing read-outside-tx TOCTOU</strong> &nbsp;<span class="pill deferred">DEFERRED → ROADMAP</span></div>
+  <div class="meta">src/lib/agent/tools/registrations.ts (bulk_update_registration_status)</div>
+  <p>The affected-rows read happens before the transaction and the final <code>updateMany</code> is unconditional on current
+  status, so two concurrent identical bulk reactivations both re-claim promo usage (double increment → false exhaustion of a
+  maxUses-capped code). The seat half of this TOCTOU is pre-existing and policy-accepted (oversell-allowed + logged); the promo
+  half is new surface for the old race. Low likelihood (admin-only, low-concurrency path). Fix when the executor is next
+  touched: condition the row update on <code>status ≠ target</code> or re-read inside the tx.</p>
+</div>
+
+<h3>LOW findings</h3>
+<ul>
+  <li><strong>L1 — re-claim on never-released cancellations</strong> <span class="pill deferred">accepted-by-design</span>:
+      a registration cancelled before release-on-cancel existed re-claims on reactivation without a matching release —
+      exactly the property the single-row H6 path already has; the guarded release self-heals downward on a later cancel.</li>
+  <li><strong>L2 — promo audit-failure log downgraded error→warn</strong> <span class="pill shipped">FIXED in-band</span>:
+      restored to <code>error</code> per the standing owner rule (never downgrade alert levels without asking).</li>
+  <li><strong>L3 — reviewer audit <code>changes.source</code> value changed "api"→"rest"</strong> <span class="pill deferred">noted</span>:
+      matches the services convention; nothing queries the old value; historical rows keep "api".</li>
+  <li><strong>L4 — promo-usage consolidation incomplete</strong> <span class="pill deferred">DEFERRED → ROADMAP</span>:
+      <code>promo-code-service.releaseExistingRedemption</code> still hand-rolls the guarded single decrement (same op as
+      <code>releasePromoUsage(count=1)</code>, now with different clamp behavior); the maxUses-gated increments are
+      semantically distinct and stay separate.</li>
+  <li><strong>L5 — REST promo 404 message text changed</strong> ("Event not found" → "Event not found or access denied") — toast copy only.</li>
+</ul>
+
+<h3>Explicitly verified clean by the reviewer</h3>
+<ul>
+  <li><code>claimSeats</code> math ≡ the old guards for both count=1 and bulk-N; missing-row + over-capacity outcomes unchanged (409 <code>CAPACITY_EXCEEDED</code>).</li>
+  <li><code>claimSeatsOverselling</code> is byte-equivalent to the old inline executor code, including log-field naming.</li>
+  <li>REST + MCP response contracts on all three surfaces byte-compatible (201/200/409/404 bodies, MCP shapes, the noop message templates).</li>
+  <li>MCP audit attribution works for API-key callers (<code>mcp-remote</code> is a real seeded User row — no FK failure).</li>
+  <li>H6 bulk↔single promo symmetry predicates match <code>applyRegistrationTransition</code> exactly; no double-release path.</li>
+  <li>Services conventions hold: errors-as-values, no <code>next/server</code> imports, service-owned side effects, <code>source</code> identity, every failure path logs.</li>
+  <li>Pre-existing (NOT regressions): org-null SUPER_ADMIN 404s on the reviewers routes (hand-rolled <code>organizationId!</code>); the bulk executor's seat-side TOCTOU.</li>
+</ul>
+
+<h2>5 · Remaining consolidation backlog</h2>
+<p>Tracked in ROADMAP §"Cross-caller duplication audit — deferred findings": finding 4
+(<code>setSessionSpeakers</code> shared by session-service + MCP roster tools), finding 5 (route MCP invoice status
+through <code>cancelInvoice</code> + give REST an audit row), finding 6 (a canonical <code>rateLimited()</code> 429 helper —
+the 4 non-compliant sites first, then the ~135-site sweep), finding 7 (fold MCP single add/remove-speaker into
+session-service), A4 (state/zip on both detail-sheet edit forms), A6 (<code>speaker-enums.ts</code> replacing 5 colour maps),
+A8 (one shared free/paid computation for the registration create dialog + page), and M3/L4 above. A5 ships with the
+in-flight CRM form-fields extraction.</p>
+
+</div>
+</body>
+</html>

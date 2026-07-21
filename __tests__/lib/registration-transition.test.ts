@@ -173,7 +173,8 @@ describe("releasePromoUsage / claimPromoUsage (guarded bulk promo accounting)", 
   function promoTx(initial: number) {
     let usedCount = initial;
     const updateMany = vi.fn().mockImplementation(simulatedPromoCounter(() => usedCount, (v) => { usedCount = v; }));
-    const tx = { promoCode: { updateMany } } as unknown as Parameters<typeof releasePromoUsage>[0];
+    const findUnique = vi.fn().mockImplementation(() => Promise.resolve({ usedCount }));
+    const tx = { promoCode: { updateMany, findUnique } } as unknown as Parameters<typeof releasePromoUsage>[0];
     return { tx, updateMany, value: () => usedCount };
   }
 
@@ -188,6 +189,11 @@ describe("releasePromoUsage / claimPromoUsage (guarded bulk promo accounting)", 
     const p = promoTx(2);
     await releasePromoUsage(p.tx, "promo1", 5);
     expect(p.value()).toBe(0); // clamped, not −3 and not stuck at 2
+    // Review M1: the fallback must be a RELATIVE guarded decrement, never an
+    // absolute `set 0` — an absolute set could erase a redemption a concurrent
+    // registration committed between the two statements.
+    const fallback = p.updateMany.mock.calls[1][0] as { data: { usedCount: unknown } };
+    expect(fallback.data.usedCount).toEqual({ decrement: 2 });
   });
 
   it("counter already at 0 stays 0", async () => {

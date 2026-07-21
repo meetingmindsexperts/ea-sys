@@ -50,6 +50,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     if (!result.ok) {
+      if (result.code === "UNKNOWN") {
+        // Stable 500 contract (review M2) — same body the route always returned.
+        return NextResponse.json(
+          { error: "Failed to unassign reviewer", code: "UNASSIGN_REVIEWER_FAILED" },
+          { status: 500 },
+        );
+      }
       const status = HTTP_STATUS_FOR_UNASSIGN[result.code] ?? 500;
       const payload =
         result.code === "ASSIGNMENT_NOT_FOUND"

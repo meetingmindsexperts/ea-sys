@@ -212,6 +212,60 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Cross-caller duplication audit — deferred findings (July 21, 2026)
+
+A repo-wide duplication audit (verified finding-by-finding against source before any fix — full report at
+[docs/CODE_REVIEW_DUPLICATION_JULY21.html](CODE_REVIEW_DUPLICATION_JULY21.html), browseable at `/admin/docs`)
+surfaced 11 cross-caller findings. The three ALREADY-DRIFTED clusters shipped same-day as gated commits:
+`814224aa` (seat+promo accounting → shared guarded helpers in `registration-seat-db.ts`; fixed the unguarded
+promo decrements that could drive `usedCount` negative + added the H6 promo re-claim on bulk reactivation),
+`6b66649a` (`promo-code-service.createPromoCode` — MCP finally audits; REST finally event-binds `ticketTypeIds`),
+`858a50cd` (`abstract-service.assignReviewer/unassignReviewer` — the twice-drifted H6/H8 pair is one
+implementation). The post-ship adversarial review of the batches (0 BLOCKER / 0 HIGH / 3 MED / 5 LOW) had
+M1 (relative-decrement clamp) + M2 (stable reviewer 500 bodies) + L2 (audit-log error-level restore) fixed
+in-band. Deferred here:
+
+- **Finding 4 — `setSessionSpeakers` consolidation.** The deleteMany→createMany sessionSpeaker swap + the L1
+  `topicSpeaker notIn` cleanup is duplicated in `session-service.updateSession` (~580) and MCP
+  `replace_session_speakers` (sessions.ts ~761). Export a shared `setSessionSpeakers(tx, sessionId, rows)` from
+  session-service and have both call it (service keeps its `topics === undefined` conditional).
+- **Finding 5 — MCP invoice status through the service.** MCP `update_invoice_status` bare-updates CANCELLED,
+  bypassing `cancelInvoice` (today only an idempotency guard + log — but the moment cancelInvoice grows real side
+  effects the agent path silently skips them). Inverse asymmetry: the REST cancel/mark_overdue branches write NO
+  audit row while MCP does. Route MCP through `cancelInvoice` + add a `markInvoiceOverdue`, give REST the audit.
+  Also: the CLAUDE.md "MCP REFUNDED is DB-only" note is stale (M6 narrowed the tool to CANCELLED/OVERDUE).
+- **Finding 6 — canonical `rateLimited()` 429 helper.** 105 files hand-build the 429; exactly 4 omit the
+  RFC-9110 `Retry-After` header (agent execute, public complete-registration, presenter-agreement,
+  speaker-agreement routes) and 4 body shapes exist. Add `rateLimited(rl)` to `src/lib/security.ts`
+  (body `{ error, code: "RATE_LIMITED", retryAfterSeconds, limit?, windowSeconds? }` + header), apply to the 4
+  non-compliant sites first, then sweep the rest opportunistically.
+- **Finding 7 — fold MCP single add/remove-speaker into session-service.** `add_speaker_to_session` /
+  `remove_speaker_from_session` write Prisma directly with their own audits. The break-item guard IS enforced
+  (H1) and remove does the L1 cleanup, so no live gap — pure consolidation alongside Finding 4.
+- **M3 — bulk-status promo re-claim TOCTOU.** The MCP bulk executor computes its seat/promo maps from a
+  pre-transaction `findMany` and the row `updateMany` is unconditional on current status, so two concurrent
+  identical bulk reactivations double-claim promo usage (seat half is pre-existing + policy-accepted
+  oversell-allowed; promo half is new surface). Condition the update on `status != target` or re-read in-tx when
+  the executor is next touched.
+- **L4 — promo-usage release not fully unified.** `promo-code-service.releaseExistingRedemption` still hand-rolls
+  the guarded single decrement (same operation as `releasePromoUsage(count=1)`, now with different clamp
+  behavior). The maxUses-gated increments (capacity-claim vs restore-claim) are semantically distinct and stay
+  separate.
+- **A4 — detail-sheet edit forms missing state/zipCode.** Both the registration detail sheet's edit mapping
+  (`registration-edit-mapping.ts`) and the speaker detail sheet's `editData` omit `state` + `zipCode`, which the
+  create forms (via `PersonFormFields`) collect — operators can set them but not fix them from the sheets. (The
+  audit's tags/photo/website claims were verified WRONG — those are all editable.)
+- **A6 — `speaker-enums.ts` extraction.** The speaker-status colour map is copied in FIVE files (speakers list,
+  speaker detail page, speaker detail sheet, reviewers page, agenda page); the agenda copy has drifted (`-700`
+  shades, CANCELLED dropped). Mirror the session-enums/abstract-enums pattern with exhaustive Prisma-enum-keyed
+  Records.
+- **A8 — one shared free/paid computation for registration create.** The add-registration dialog and the
+  full-page form have identical attendee payload builders but diverged "is this free?" logic (the page resolves
+  the CHOSEN pricing tier's price; the dialog only sees base price + active-tier presence). Extract the payload
+  builder + `paymentStatusForSelection` into a shared module.
+- **A5 is NOT here** — the CRM company/deal form-fields extraction fixing the edit-dialog free-text-country
+  drift was already sitting uncommitted in the working tree when the audit ran; it ships with the CRM module work.
+
 ### Agenda break items (SessionType) review — July 21, 2026
 
 Adversarial review of the break-items feature (SESSION vs REGISTRATION/BREAK/LUNCH/NETWORKING on
