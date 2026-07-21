@@ -93,6 +93,21 @@ describe("CRM deal value redaction", () => {
     expect(redacted.stages[0].deals[0]).toMatchObject({ id: "d1", name: "Abbott" });
   });
 
+  it("strips the companies-table dealTotals rollup — an aggregate of dealValue must vanish with it", () => {
+    const companyRow = {
+      id: "c1",
+      name: "Abbott",
+      dealTotals: [{ currency: "USD", total: 50_000 }],
+      primaryContact: { id: "cc-1", firstName: "Sara", lastName: "Khan" },
+    };
+
+    const redacted = redactFinancialFields(companyRow);
+
+    expect(redacted).not.toHaveProperty("dealTotals");
+    // The primary contact is not money — a MEMBER still sees who to talk to.
+    expect(redacted).toMatchObject({ id: "c1", name: "Abbott", primaryContact: { firstName: "Sara" } });
+  });
+
   it("does NOT strip the generic `value` key — survey answers must survive", () => {
     // THE NEAR-MISS. If `value` ever lands in FINANCIAL_KEYS, this fails and a
     // MEMBER silently stops seeing every free-text survey response in the app.

@@ -7,6 +7,7 @@ import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
 import { isArchivedView } from "@/crm/lib/deal-filters";
 import { findOrCreateCompany } from "@/crm/services/company-service";
+import { companyDealTotals, companyPrimaryContact } from "@/crm/lib/company-rollup";
 
 const createCompanySchema = z.object({
   name: z.string().min(1).max(255),
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
     const needsReview = searchParams.get("needsReview") === "true";
     const industry = searchParams.get("industry")?.trim();
 
-    const companies = await db.crmCompany.findMany({
+    const rows = await db.crmCompany.findMany({
       where: {
         organizationId: ctx.organizationId,
         // Soft delete: active only by default; ?archived=1 shows the archived view.
@@ -48,10 +49,41 @@ export async function GET(req: Request) {
         archivedAt: true,
         createdAt: true,
         _count: { select: { contacts: true, deals: true } },
+        // Feeds the row rollups (company-rollup.ts), stripped below: per-currency
+        // OPEN+WON deal totals + the derived primary contact (PRIMARY role on the
+        // newest deal, else the newest company contact).
+        deals: {
+          where: { archivedAt: null },
+          orderBy: { createdAt: "desc" },
+          select: {
+            status: true,
+            dealValue: true,
+            currency: true,
+            contacts: {
+              where: { role: "PRIMARY" },
+              take: 1,
+              select: { crmContact: { select: { id: true, firstName: true, lastName: true } } },
+            },
+          },
+        },
+        contacts: {
+          where: { archivedAt: null },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { id: true, firstName: true, lastName: true },
+        },
       },
       orderBy: { name: "asc" },
       take: 500,
     });
+
+    // dealTotals is in FINANCIAL_KEYS, so redactForCaller strips it for MEMBER
+    // exactly like the per-deal dealValue it aggregates.
+    const companies = rows.map(({ deals, contacts, ...c }) => ({
+      ...c,
+      dealTotals: companyDealTotals(deals),
+      primaryContact: companyPrimaryContact(deals, contacts[0]),
+    }));
 
     return NextResponse.json({ companies: redactForCaller(companies, ctx) });
   } catch (err) {

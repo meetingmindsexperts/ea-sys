@@ -64,6 +64,11 @@ const FINANCIAL_KEYS = new Set<string>([
   // MEMBER. Any future financial field must be named specifically enough that
   // its key is unambiguous across the whole API surface.
   "dealValue",
+  // The companies-table per-currency rollup of OPEN+WON deal values
+  // (src/crm/lib/company-rollup.ts) — an aggregate of dealValue, so it must
+  // vanish wherever dealValue does. Named specifically (not "totals") per the
+  // warning above.
+  "dealTotals",
   "amount",
   "amountPaid",
   "totalPaid",

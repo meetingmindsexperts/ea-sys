@@ -251,6 +251,13 @@ export interface CrmCompanyRow {
   archivedAt?: string | null;
   createdAt: string;
   _count?: { contacts: number; deals: number };
+  /**
+   * Per-currency OPEN+WON deal totals (never summed across currencies).
+   * ABSENT (not empty) when the server redacted money for a MEMBER — render "—".
+   */
+  dealTotals?: Array<{ currency: string; total: number }>;
+  /** Derived: PRIMARY on the newest deal, else the newest company contact. */
+  primaryContact?: CrmPersonRef | null;
 }
 
 export interface CrmCompanyDetail extends CrmCompanyRow {

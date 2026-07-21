@@ -36,6 +36,7 @@ import { useCrmCompanies } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
+import { formatDealValue } from "@/crm/lib/crm-types";
 
 export default function CrmCompaniesPage() {
   const { data: session } = useSession();
@@ -132,7 +133,7 @@ export default function CrmCompaniesPage() {
       </div>
 
       {isLoading ? (
-        <CrmTableSkeleton rows={6} cols={5} />
+        <CrmTableSkeleton rows={6} cols={7} />
       ) : isError ? (
         <CrmLoadError what="accounts" onRetry={() => refetch()} />
       ) : rows.length === 0 ? (
@@ -169,6 +170,8 @@ export default function CrmCompaniesPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Industry</TableHead>
                 <TableHead>Location</TableHead>
+                <TableHead>Primary contact</TableHead>
+                <TableHead className="text-right">Deal value</TableHead>
                 <TableHead className="text-right">Contacts</TableHead>
                 <TableHead className="text-right">Deals</TableHead>
               </TableRow>
@@ -201,6 +204,21 @@ export default function CrmCompaniesPage() {
                   <TableCell className="text-muted-foreground">{c.industry ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">
                     {[c.city, c.country].filter(Boolean).join(", ") || "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {c.primaryContact
+                      ? `${c.primaryContact.firstName} ${c.primaryContact.lastName}`
+                      : "—"}
+                  </TableCell>
+                  {/* OPEN+WON deals, per currency — never summed across currencies.
+                      Absent (MEMBER redaction) and genuinely-zero both render "—". */}
+                  <TableCell className="text-right font-medium tabular-nums">
+                    {c.dealTotals && c.dealTotals.length > 0
+                      ? c.dealTotals
+                          .map((t) => formatDealValue(t.total, t.currency))
+                          .filter(Boolean)
+                          .join(" · ")
+                      : "—"}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{c._count?.contacts ?? 0}</TableCell>
                   <TableCell className="text-right tabular-nums">{c._count?.deals ?? 0}</TableCell>
