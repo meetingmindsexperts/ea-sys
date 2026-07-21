@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { SessionType } from "@prisma/client";
+import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { readWebinarSettings } from "@/lib/webinar";
 import { deleteRemoteZoomMeeting } from "@/lib/zoom/cleanup";
-import {
-  updateSession,
-  type SessionServiceErrorCode,
-} from "@/services/session-service";
+import { updateSession, SESSION_SELECT } from "@/services/session-service";
+import { HTTP_STATUS_FOR_SESSION_ERROR } from "@/lib/session-http";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -27,7 +25,7 @@ const topicSchema = z.object({
 
 const sessionSpeakerSchema = z.object({
   speakerId: z.string().max(100),
-  role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]),
+  role: z.nativeEnum(SessionRole),
 });
 
 const updateSessionSchema = z.object({
@@ -40,7 +38,7 @@ const updateSessionSchema = z.object({
   endTime: z.string().datetime().optional(),
   location: z.string().max(255).optional(),
   capacity: z.number().min(1).nullable().optional(),
-  status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
+  status: z.nativeEnum(SessionStatus).optional(),
   // SESSION or a break item (REGISTRATION / BREAK / LUNCH / NETWORKING).
   // Converting to a break item requires the payload to clear speakers/topics
   // (the service rejects a resulting break item with program content).
@@ -52,64 +50,6 @@ const updateSessionSchema = z.object({
   // New: topics with per-topic speakers
   topics: z.array(topicSchema).optional(),
 });
-
-// Map the service's domain error codes to HTTP. Kept at the boundary — the
-// service never knows about HTTP (see src/services/README.md).
-const HTTP_STATUS_FOR_SESSION_ERROR: Record<SessionServiceErrorCode, number> = {
-  EVENT_NOT_FOUND: 404,
-  SESSION_NOT_FOUND: 404,
-  INVALID_TIME_RANGE: 400,
-  OUTSIDE_EVENT_DATES: 400,
-  TRACK_NOT_FOUND: 404,
-  ABSTRACT_NOT_FOUND: 404,
-  ABSTRACT_ALREADY_ASSIGNED: 400,
-  SPEAKERS_NOT_FOUND: 404,
-  INVALID_CAPACITY: 400,
-  BREAK_ITEM_HAS_PROGRAM: 400,
-  WEBINAR_ANCHOR_SESSION: 409,
-  STALE_WRITE: 409,
-  UNKNOWN: 500,
-};
-
-const sessionSelect = {
-  id: true,
-  name: true,
-  description: true,
-  startTime: true,
-  endTime: true,
-  location: true,
-  capacity: true,
-  status: true,
-  type: true,
-  updatedAt: true,
-  track: { select: { id: true, name: true, color: true } },
-  abstract: { select: { id: true, title: true } },
-  speakers: {
-    select: {
-      role: true,
-      speaker: {
-        select: { id: true, title: true, firstName: true, lastName: true, status: true },
-      },
-    },
-  },
-  topics: {
-    select: {
-      id: true,
-      title: true,
-      sortOrder: true,
-      duration: true,
-      abstract: { select: { id: true, title: true } },
-      speakers: {
-        select: {
-          speaker: {
-            select: { id: true, title: true, firstName: true, lastName: true, status: true },
-          },
-        },
-      },
-    },
-    orderBy: { sortOrder: "asc" as const },
-  },
-};
 
 interface RouteParams {
   params: Promise<{ eventId: string; sessionId: string }>;
@@ -136,7 +76,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const eventSession = await db.eventSession.findFirst({
       where: { id: sessionId, eventId },
-      select: sessionSelect,
+      select: SESSION_SELECT,
     });
 
     if (!eventSession) {

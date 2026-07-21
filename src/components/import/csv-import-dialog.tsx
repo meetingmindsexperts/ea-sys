@@ -41,7 +41,7 @@ const ENTITY_CONFIG = {
     label: "Sessions",
     required: ["name", "startTime", "endTime"],
     optional: ["description", "location", "capacity", "track", "speakerEmails", "status", "type"],
-    sampleRow: ["Opening Keynote", "2026-06-15T09:00:00Z", "2026-06-15T10:00:00Z", "Welcome and opening remarks", "Main Hall", "500", "Plenary", "jane@example.com;john@example.com", "SCHEDULED", "SESSION"],
+    sampleRow: ["Opening Keynote", "2026-06-15T09:00:00", "2026-06-15T10:00:00", "Welcome and opening remarks", "Main Hall", "500", "Plenary", "jane@example.com;john@example.com", "SCHEDULED", "SESSION"],
   },
   abstracts: {
     label: "Abstracts",
@@ -140,7 +140,12 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
             Upload a CSV file with <strong>{config.required.join(", ")}</strong> columns (required).
             {entityType === "sessions" && (
               <>
-                {" "}Dates must be ISO 8601 format (e.g. 2026-06-15T09:00:00Z).
+                {" "}Dates must be ISO 8601 format (e.g. 2026-06-15T09:00:00) —
+                times without a timezone suffix are read as the{" "}
+                <strong>event&#39;s local time</strong> (add <code>Z</code> or{" "}
+                <code>+04:00</code> only if you mean an explicit zone). Rows
+                matching an existing session&#39;s name + start time are skipped,
+                so re-importing a corrected file never duplicates the agenda.
                 Separate multiple speaker emails with semicolons. Optional{" "}
                 <code>type</code> column: <code>SESSION</code> (default) or a
                 break item — <code>REGISTRATION</code>, <code>BREAK</code>{" "}

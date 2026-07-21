@@ -6,11 +6,26 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
+import { resolveTimezone, wallTimeInTzToDate } from "@/lib/event-time";
 import { notifyEventAdmins } from "@/lib/notifications";
-import type { SessionType } from "@prisma/client";
+import { SessionStatus as PrismaSessionStatus, type SessionType } from "@prisma/client";
 import { createSession, type SessionStatus } from "@/services/session-service";
 
-const SESSION_STATUS_VALUES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
+// Derived from the Prisma enum — a new status can't silently drift out of
+// the CSV whitelist.
+const SESSION_STATUS_VALUES = new Set<string>(Object.values(PrismaSessionStatus));
+
+// Explicit-offset detector: "…Z" or "…+04:00" / "…-0500". A timezone-NAIVE
+// datetime ("2026-06-15T09:00:00" — how organizers author a programme in
+// Excel) is interpreted as WALL-CLOCK TIME IN THE EVENT'S TIMEZONE, matching
+// the dashboard form. Bare `new Date()` used to parse it in the SERVER's
+// timezone (UTC in prod), silently shifting a Dubai 9 AM session to 1 PM.
+const HAS_EXPLICIT_OFFSET_RE = /(?:[zZ]|[+-]\d{2}:?\d{2})$/;
+
+function parseImportDate(raw: string, eventTz: string): Date {
+  if (HAS_EXPLICIT_OFFSET_RE.test(raw)) return new Date(raw);
+  return wallTimeInTzToDate(raw, eventTz);
+}
 
 // Optional `type` column → break items. Friendly aliases so an organizer's
 // natural spelling ("Coffee Break") maps without memorizing enum values; an
@@ -105,27 +120,37 @@ export async function POST(req: Request, { params }: RouteParams) {
     // used to 404 on the hand-rolled organizationId check).
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, timezone: true },
     });
     if (!event) {
       apiLogger.warn({ msg: "events/import-sessions:event-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Load existing tracks and speakers for this event
-    const [existingTracks, existingSpeakers] = await Promise.all([
+    // Load existing tracks, speakers, and sessions for this event
+    const [existingTracks, existingSpeakers, existingSessions] = await Promise.all([
       db.track.findMany({ where: { eventId }, select: { id: true, name: true } }),
       db.speaker.findMany({ where: { eventId }, select: { id: true, email: true } }),
+      db.eventSession.findMany({ where: { eventId }, select: { name: true, startTime: true } }),
     ]);
 
     const trackByName = new Map(existingTracks.map((t) => [t.name.toLowerCase(), t.id]));
     const speakerByEmail = new Map(existingSpeakers.map((s) => [s.email.toLowerCase(), s.id]));
+
+    // Re-import safety: an identical (name, startTime) already on the event is
+    // SKIPPED, not duplicated — iterating on a multi-day programme in Excel and
+    // re-importing the corrected file must not double the agenda. Newly created
+    // rows join the set so in-file duplicate rows are caught too.
+    const eventTz = resolveTimezone(event.timezone);
+    const sessionKey = (name: string, start: Date) => `${name.toLowerCase()}|${start.getTime()}`;
+    const existingSessionKeys = new Set(existingSessions.map((es) => sessionKey(es.name, es.startTime)));
 
     apiLogger.info({ msg: "Import started", importType: "sessions", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
 
     const requestIp = getClientIp(req);
     const errors: string[] = [];
     let created = 0;
+    let skipped = 0;
     let tracksCreated = 0;
 
     for (let i = 0; i < rows.length; i++) {
@@ -141,11 +166,16 @@ export async function POST(req: Request, { params }: RouteParams) {
         continue;
       }
 
-      const startTime = new Date(startTimeRaw);
-      const endTime = new Date(endTimeRaw);
+      const startTime = parseImportDate(startTimeRaw, eventTz);
+      const endTime = parseImportDate(endTimeRaw, eventTz);
 
       if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
-        errors.push(`Row ${rowNum}: invalid date format (use ISO 8601, e.g. 2026-03-15T09:00:00Z)`);
+        errors.push(`Row ${rowNum}: invalid date format (use ISO 8601, e.g. 2026-03-15T09:00:00 — interpreted in the event's timezone unless you add Z or a +HH:MM offset)`);
+        continue;
+      }
+
+      if (existingSessionKeys.has(sessionKey(name, startTime))) {
+        skipped++;
         continue;
       }
 
@@ -236,6 +266,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
       if (result.ok) {
         created++;
+        existingSessionKeys.add(sessionKey(name, startTime));
       } else {
         errors.push(`Row ${rowNum}: ${result.message}`);
       }
@@ -252,12 +283,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       }).catch((err) => apiLogger.error({ err, eventId, msg: "import-sessions:notify-failed" }));
     }
 
-    apiLogger.info({ msg: "Import complete", importType: "sessions", source: "csv", eventId, userId: session.user.id, created, tracksCreated, errorCount: errors.length });
+    apiLogger.info({ msg: "Import complete", importType: "sessions", source: "csv", eventId, userId: session.user.id, created, skipped, tracksCreated, errorCount: errors.length });
     if (errors.length > 0) {
       apiLogger.warn({ msg: "Import errors", importType: "sessions", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
 
-    return NextResponse.json({ created, tracksCreated, errors });
+    return NextResponse.json({ created, skipped, tracksCreated, errors });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing sessions" });
     return NextResponse.json({ error: "Failed to import sessions" }, { status: 500 });

@@ -2,7 +2,12 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import type { ToolExecutor } from "./_shared";
-import type { SessionType } from "@prisma/client";
+import {
+  SessionRole as PrismaSessionRole,
+  SessionStatus as PrismaSessionStatus,
+  SessionType as PrismaSessionType,
+  type SessionType,
+} from "@prisma/client";
 import {
   createSession as createSessionService,
   updateSession as updateSessionService,
@@ -10,9 +15,11 @@ import {
   type SessionStatus,
 } from "@/services/session-service";
 
-const VALID_SESSION_ROLES = new Set(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]);
-const VALID_SESSION_STATUSES = new Set(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]);
-const VALID_SESSION_TYPES = new Set(["SESSION", "REGISTRATION", "BREAK", "LUNCH", "NETWORKING"]);
+// Derived from the Prisma enums so a new value can't silently drift out of
+// the agent's whitelists (the session-enums.ts pattern).
+const VALID_SESSION_ROLES = new Set<string>(Object.values(PrismaSessionRole));
+const VALID_SESSION_STATUSES = new Set<string>(Object.values(PrismaSessionStatus));
+const VALID_SESSION_TYPES = new Set<string>(Object.values(PrismaSessionType));
 
 /** Agent input is untyped JSON — coerce to the service's unions, defaulting
  *  the same way the pre-service executor did (unknown role → SPEAKER). */
@@ -564,7 +571,7 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
 // All three tools verify the session is in the caller's event (org-scope)
 // and that any provided speakers belong to that same event.
 
-const SESSION_ROLES = new Set(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]);
+const SESSION_ROLES = VALID_SESSION_ROLES;
 
 async function findSessionInEvent(sessionId: string, eventId: string) {
   return db.eventSession.findFirst({

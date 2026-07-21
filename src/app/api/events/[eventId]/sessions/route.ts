@@ -1,36 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { SessionType } from "@prisma/client";
+import { SessionRole, SessionStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
-import {
-  createSession,
-  type SessionServiceErrorCode,
-} from "@/services/session-service";
+import { createSession, SESSION_SELECT } from "@/services/session-service";
+import { HTTP_STATUS_FOR_SESSION_ERROR } from "@/lib/session-http";
 import { canViewZoomHostCredentials, redactZoomHostFieldsFromSessions } from "@/lib/zoom-visibility";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
-
-// Map the service's domain error codes to HTTP. Kept at the boundary — the
-// service never knows about HTTP (see src/services/README.md).
-const HTTP_STATUS_FOR_SESSION_ERROR: Record<SessionServiceErrorCode, number> = {
-  EVENT_NOT_FOUND: 404,
-  SESSION_NOT_FOUND: 404,
-  INVALID_TIME_RANGE: 400,
-  OUTSIDE_EVENT_DATES: 400,
-  TRACK_NOT_FOUND: 404,
-  ABSTRACT_NOT_FOUND: 404,
-  ABSTRACT_ALREADY_ASSIGNED: 400,
-  SPEAKERS_NOT_FOUND: 404,
-  INVALID_CAPACITY: 400,
-  BREAK_ITEM_HAS_PROGRAM: 400,
-  WEBINAR_ANCHOR_SESSION: 409,
-  STALE_WRITE: 409,
-  UNKNOWN: 500,
-};
 
 const topicSchema = z.object({
   title: z.string().min(1).max(255),
@@ -42,7 +22,7 @@ const topicSchema = z.object({
 
 const sessionSpeakerSchema = z.object({
   speakerId: z.string().max(100),
-  role: z.enum(["SPEAKER", "MODERATOR", "CHAIRPERSON", "PANELIST"]),
+  role: z.nativeEnum(SessionRole),
 });
 
 const createSessionSchema = z.object({
@@ -54,7 +34,7 @@ const createSessionSchema = z.object({
   endTime: z.string().datetime(),
   location: z.string().max(255).optional(),
   capacity: z.number().min(1).optional(),
-  status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]).default("SCHEDULED"),
+  status: z.nativeEnum(SessionStatus).default("SCHEDULED"),
   // SESSION (default) or a break item (REGISTRATION / BREAK / LUNCH /
   // NETWORKING). Break items may not carry speakers/topics/abstract — the
   // service rejects that with BREAK_ITEM_HAS_PROGRAM.
@@ -116,42 +96,9 @@ export async function GET(req: Request, { params }: RouteParams) {
           }),
         },
         select: {
-          id: true,
-          name: true,
-          description: true,
-          startTime: true,
-          endTime: true,
-          location: true,
-          capacity: true,
-          status: true,
-          type: true,
-          track: { select: { id: true, name: true, color: true } },
-          abstract: { select: { id: true, title: true } },
-          speakers: {
-            select: {
-              role: true,
-              speaker: {
-                select: { id: true, title: true, firstName: true, lastName: true, status: true },
-              },
-            },
-          },
-          topics: {
-            select: {
-              id: true,
-              title: true,
-              sortOrder: true,
-              duration: true,
-              abstract: { select: { id: true, title: true } },
-              speakers: {
-                select: {
-                  speaker: {
-                    select: { id: true, title: true, firstName: true, lastName: true, status: true },
-                  },
-                },
-              },
-            },
-            orderBy: { sortOrder: "asc" },
-          },
+          // The canonical session shape (single source of truth in the
+          // service) + the Zoom relation only this list endpoint returns.
+          ...SESSION_SELECT,
           zoomMeeting: {
             select: {
               id: true,

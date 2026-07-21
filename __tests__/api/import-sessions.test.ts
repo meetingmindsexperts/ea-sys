@@ -18,6 +18,7 @@ const { mockDb, mockAuth, mockCreateSession, mockNotify, mockApiLogger } = vi.ho
     event: { findFirst: vi.fn() },
     track: { findMany: vi.fn() },
     speaker: { findMany: vi.fn() },
+    eventSession: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
   mockAuth: vi.fn(),
@@ -56,7 +57,8 @@ function csvRequest(csv: string): Request {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org1" } });
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", timezone: "Asia/Dubai" });
+  mockDb.eventSession.findMany.mockResolvedValue([]);
   mockDb.track.findMany.mockResolvedValue([{ id: "trk-main", name: "Main" }]);
   mockDb.speaker.findMany.mockResolvedValue([
     { id: "spk-1", email: "jane@example.com" },
@@ -136,7 +138,7 @@ describe("agenda CSV import delegates to session-service", () => {
     // All rows rejected → no summary notification either.
     vi.clearAllMocks();
     mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org1" } });
-    mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", timezone: "Asia/Dubai" });
     mockDb.track.findMany.mockResolvedValue([]);
     mockDb.speaker.findMany.mockResolvedValue([]);
     mockCreateSession.mockResolvedValue({ ok: false, code: "OUTSIDE_EVENT_DATES", message: "nope" });
@@ -248,5 +250,70 @@ describe("agenda CSV import delegates to session-service", () => {
     expect(call.trackId).toBeNull();
     expect(call.capacity).toBeNull();
     expect(call.speakerIds).toEqual(["spk-1"]);
+  });
+});
+
+describe("multi-day programme correctness — timezone + re-import dedup", () => {
+  it("timezone-NAIVE datetimes are event wall-clock, not server-local (Dubai 9 AM = 05:00Z)", async () => {
+    const csv = [
+      "name,startTime,endTime",
+      "Keynote,2026-03-15T09:00:00,2026-03-15T10:00:00",
+    ].join("\n");
+
+    const res = await POST(csvRequest(csv), params);
+    const body = await res.json();
+
+    expect(body.created).toBe(1);
+    const call = mockCreateSession.mock.calls[0][0];
+    expect(call.startTime.toISOString()).toBe("2026-03-15T05:00:00.000Z");
+    expect(call.endTime.toISOString()).toBe("2026-03-15T06:00:00.000Z");
+  });
+
+  it("an explicit Z or ±HH:MM offset is honoured as-is", async () => {
+    const csv = [
+      "name,startTime,endTime",
+      "UTC row,2026-03-15T09:00:00Z,2026-03-15T10:00:00Z",
+      "Offset row,2026-03-16T09:00:00+04:00,2026-03-16T10:00:00+04:00",
+    ].join("\n");
+
+    await POST(csvRequest(csv), params);
+
+    expect(mockCreateSession.mock.calls[0][0].startTime.toISOString()).toBe("2026-03-15T09:00:00.000Z");
+    expect(mockCreateSession.mock.calls[1][0].startTime.toISOString()).toBe("2026-03-16T05:00:00.000Z");
+  });
+
+  it("re-importing skips rows already on the event (name + startTime, case-insensitive) instead of duplicating", async () => {
+    mockDb.eventSession.findMany.mockResolvedValue([
+      { name: "KEYNOTE", startTime: new Date("2026-03-15T05:00:00.000Z") },
+    ]);
+    const csv = [
+      "name,startTime,endTime",
+      "Keynote,2026-03-15T09:00:00,2026-03-15T10:00:00",
+      "New Talk,2026-03-16T09:00:00,2026-03-16T10:00:00",
+    ].join("\n");
+
+    const res = await POST(csvRequest(csv), params);
+    const body = await res.json();
+
+    expect(body.created).toBe(1);
+    expect(body.skipped).toBe(1);
+    expect(body.errors).toEqual([]);
+    expect(mockCreateSession).toHaveBeenCalledTimes(1);
+    expect(mockCreateSession.mock.calls[0][0].name).toBe("New Talk");
+  });
+
+  it("a duplicated row WITHIN the same file imports once", async () => {
+    const csv = [
+      "name,startTime,endTime",
+      "Keynote,2026-03-15T09:00:00,2026-03-15T10:00:00",
+      "Keynote,2026-03-15T09:00:00,2026-03-15T10:00:00",
+    ].join("\n");
+
+    const res = await POST(csvRequest(csv), params);
+    const body = await res.json();
+
+    expect(body.created).toBe(1);
+    expect(body.skipped).toBe(1);
+    expect(mockCreateSession).toHaveBeenCalledTimes(1);
   });
 });
