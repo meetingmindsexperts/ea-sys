@@ -225,23 +225,25 @@ implementation). The post-ship adversarial review of the batches (0 BLOCKER / 0 
 M1 (relative-decrement clamp) + M2 (stable reviewer 500 bodies) + L2 (audit-log error-level restore) fixed
 in-band. Deferred here:
 
-- **Finding 4 — `setSessionSpeakers` consolidation.** The deleteMany→createMany sessionSpeaker swap + the L1
-  `topicSpeaker notIn` cleanup is duplicated in `session-service.updateSession` (~580) and MCP
-  `replace_session_speakers` (sessions.ts ~761). Export a shared `setSessionSpeakers(tx, sessionId, rows)` from
-  session-service and have both call it (service keeps its `topics === undefined` conditional).
-- **Finding 5 — MCP invoice status through the service.** MCP `update_invoice_status` bare-updates CANCELLED,
-  bypassing `cancelInvoice` (today only an idempotency guard + log — but the moment cancelInvoice grows real side
-  effects the agent path silently skips them). Inverse asymmetry: the REST cancel/mark_overdue branches write NO
-  audit row while MCP does. Route MCP through `cancelInvoice` + add a `markInvoiceOverdue`, give REST the audit.
-  Also: the CLAUDE.md "MCP REFUNDED is DB-only" note is stale (M6 narrowed the tool to CANCELLED/OVERDUE).
-- **Finding 6 — canonical `rateLimited()` 429 helper.** 105 files hand-build the 429; exactly 4 omit the
-  RFC-9110 `Retry-After` header (agent execute, public complete-registration, presenter-agreement,
-  speaker-agreement routes) and 4 body shapes exist. Add `rateLimited(rl)` to `src/lib/security.ts`
-  (body `{ error, code: "RATE_LIMITED", retryAfterSeconds, limit?, windowSeconds? }` + header), apply to the 4
-  non-compliant sites first, then sweep the rest opportunistically.
-- **Finding 7 — fold MCP single add/remove-speaker into session-service.** `add_speaker_to_session` /
-  `remove_speaker_from_session` write Prisma directly with their own audits. The break-item guard IS enforced
-  (H1) and remove does the L1 cleanup, so no live gap — pure consolidation alongside Finding 4.
+**Second tranche SHIPPED July 21 (findings 4–7):** `56dcad12` (session roster ops → session-service:
+`setSessionSpeakersTx` shared by updateSession + the new `replaceSessionRoster`, plus `addSessionSpeaker` /
+`removeSessionSpeaker`; the three MCP roster executors are thin wrappers), `14540e81` (invoice status
+transitions → shared `transitionInvoiceStatus` + new `markInvoiceOverdue`; REST invoice status changes are
+audited for the first time; MCP delegates and gains the idempotency guard), `9e9f2ed0` (`rateLimited()`
+canonical 429 in [src/lib/api-errors.ts](../src/lib/api-errors.ts) — NOT security.ts, it's the API-error
+helper home — applied to all 7 call sites in the 4 files missing `Retry-After`). Post-ship review of the
+tranche: 0 BLOCKER / 0 HIGH / 2 MED / 7 LOW; **M1 ("mcp-remote audit FK fails") was REFUTED** — migration
+`20260418000000_seed_mcp_system_user` seeds the User row, the FK holds; L2/L3/L5 riders fixed in-band.
+Still deferred:
+
+- **M2 (owner decision) — no source-state machine on invoice status transitions.** The shared
+  `transitionInvoiceStatus` only guards `status === target`, so a **PAID** invoice can be marked
+  OVERDUE/CANCELLED (and CANCELLED → OVERDUE) from both REST and MCP, desyncing the invoice from Payment rows —
+  same class the M6 target-set fix addressed. Pre-existing on both paths (not a regression); now that one
+  transition path exists, a `PAID`/`CANCELLED`-source guard is a ~5-line change but changes behavior an operator
+  may rely on — needs an owner call.
+- **429 sweep remainder.** The ~100 already-compliant sites keep their inline 429s; migrate to `rateLimited()`
+  opportunistically when a route is next touched (new code must use the helper).
 - **M3 — bulk-status promo re-claim TOCTOU.** The MCP bulk executor computes its seat/promo maps from a
   pre-transaction `findMany` and the row `updateMany` is unconditional on current status, so two concurrent
   identical bulk reactivations double-claim promo usage (seat half is pre-existing + policy-accepted

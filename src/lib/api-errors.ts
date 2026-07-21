@@ -56,19 +56,6 @@ export function zodErrorResponse<T>(
 }
 
 /**
- * Helper for quickly logging + returning ANY non-validation 4xx/5xx.
- * Keeps the "log every failure" discipline enforced at the call site.
- *
- * Usage:
- *   if (!event) {
- *     return apiErrorResponse(404, "Event not found", {
- *       route: "PUT /events/[eventId]",
- *       eventId,
- *       userId: session.user.id,
- *     });
- *   }
- */
-/**
  * Canonical 429 response (duplication-audit finding 6, July 21, 2026).
  *
  * `checkRateLimit` computes `retryAfterSeconds` but every route hand-built its
@@ -117,6 +104,19 @@ export function rateLimited(
   );
 }
 
+/**
+ * Helper for quickly logging + returning ANY non-validation 4xx/5xx.
+ * Keeps the "log every failure" discipline enforced at the call site.
+ *
+ * Usage:
+ *   if (!event) {
+ *     return apiErrorResponse(404, "Event not found", {
+ *       route: "PUT /events/[eventId]",
+ *       eventId,
+ *       userId: session.user.id,
+ *     });
+ *   }
+ */
 export function apiErrorResponse(
   status: number,
   error: string,

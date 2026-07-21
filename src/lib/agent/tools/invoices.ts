@@ -134,10 +134,17 @@ const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
     // pattern (keeps the invoice-service/pdf chain off agent module load).
     const { cancelInvoice, markInvoiceOverdue } = await import("@/lib/invoice-service");
     const transitionCtx = { actorUserId: ctx.userId, source: "mcp" as const };
-    const updated =
-      status === "CANCELLED"
-        ? await cancelInvoice(invoiceId, transitionCtx)
-        : await markInvoiceOverdue(invoiceId, transitionCtx);
+    let updated;
+    if (status === "CANCELLED") {
+      updated = await cancelInvoice(invoiceId, transitionCtx);
+    } else if (status === "OVERDUE") {
+      updated = await markInvoiceOverdue(invoiceId, transitionCtx);
+    } else {
+      // Unreachable while AGENT_SETTABLE_INVOICE_STATUSES = {CANCELLED, OVERDUE};
+      // fails LOUD if that set grows without a matching branch (review L5).
+      apiLogger.error({ msg: "agent:update_invoice_status unrouted status", status });
+      return { error: `Status "${status}" has no transition route`, code: "INVOICE_STATUS_NOT_SETTABLE" };
+    }
 
     return {
       success: true,

@@ -89,7 +89,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
         event: buildEventAccessWhere(session.user),
       },
-      select: { id: true, status: true },
+      select: { id: true },
     });
     if (!invoice) {
       apiLogger.warn({ msg: "invoices:detail:not-found-or-access-denied", eventId, userId: session.user.id, role: session.user.role });

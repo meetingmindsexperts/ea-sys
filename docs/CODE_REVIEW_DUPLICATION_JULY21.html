@@ -52,12 +52,16 @@
 </header>
 
 <div class="note ok">
-  <strong>Status: findings 1–3 SHIPPED July 21</strong> (commits <code>814224aa</code> seat/promo consolidation ·
-  <code>6b66649a</code> promo-code create service · <code>858a50cd</code> reviewer-assignment service, plus the
-  review-checkpoint fixes M1/M2/L2 in the follow-up commit). Post-ship review verdict on the batches:
-  <strong>0 BLOCKER / 0 HIGH / 3 MED / 5 LOW</strong> — M1 + M2 + L2 fixed in-band, the rest deferred to
-  ROADMAP §"Cross-caller duplication audit". Findings 4–7 and the frontend cluster (A4/A6/A8) are consolidation
-  backlog, also in ROADMAP; A5 was already mid-fix in the working tree when the audit ran.
+  <strong>Status: findings 1–7 SHIPPED July 21.</strong> Tranche 1 (drifted clusters): <code>814224aa</code>
+  seat/promo consolidation · <code>6b66649a</code> promo-code create service · <code>858a50cd</code>
+  reviewer-assignment service — post-ship review 0 BLOCKER / 0 HIGH / 3 MED / 5 LOW, M1+M2+L2 fixed in-band.
+  Tranche 2 (pre-drift consolidations): <code>56dcad12</code> session roster ops → session-service ·
+  <code>14540e81</code> invoice status transitions (REST audited for the first time) · <code>9e9f2ed0</code>
+  canonical <code>rateLimited()</code> 429 helper — post-ship review 0 BLOCKER / 0 HIGH / 2 MED / 7 LOW,
+  <strong>M1 of that round REFUTED</strong> (see §6), L2/L3/L5 riders fixed in-band. Remaining backlog in
+  ROADMAP §"Cross-caller duplication audit": M2-invoice source-state gate (owner decision), M3 bulk promo
+  TOCTOU, L4 promo-release unification, the 429 opportunistic sweep, and the frontend cluster A4/A6/A8;
+  A5 was already mid-fix in the working tree when the audit ran.
 </div>
 
 <h2>1 · Why this audit exists</h2>
@@ -86,16 +90,16 @@ characterizations were wrong; verification also surfaced two bugs the audit miss
       <td><span class="pill shipped">SHIPPED 858a50cd</span></td></tr>
   <tr><td>4</td><td>Replace-all session speakers (tx swap + L1 topic cleanup) duplicated in session-service + MCP tool</td>
       <td><span class="pill confirmed">CONFIRMED</span> Same transactional intent; service's cleanup conditional on <code>topics === undefined</code>, MCP's always runs.</td>
-      <td><span class="pill deferred">DEFERRED</span></td></tr>
+      <td><span class="pill shipped">SHIPPED 56dcad12</span></td></tr>
   <tr><td>5</td><td>MCP <code>update_invoice_status</code> bypasses <code>cancelInvoice</code></td>
       <td><span class="pill confirmed">CONFIRMED, low stakes</span> — cancelInvoice today is only an idempotency guard + log. Inverse asymmetry found: <strong>MCP audits, REST does not</strong>. The docs' "MCP REFUNDED is DB-only" note is STALE (M6 narrowed it June 10).</td>
-      <td><span class="pill deferred">DEFERRED</span></td></tr>
+      <td><span class="pill shipped">SHIPPED 14540e81</span></td></tr>
   <tr><td>6</td><td>429 responses hand-built at every <code>checkRateLimit</code> site; some missing <code>Retry-After</code></td>
       <td><span class="pill confirmed">CONFIRMED precisely</span> — 105 files emit a 429, 101 attach Retry-After; the missing set is exactly 4 files (agent execute, complete-registration, both agreement routes). No shared helper; 4 distinct body shapes.</td>
-      <td><span class="pill deferred">DEFERRED</span></td></tr>
+      <td><span class="pill shipped">SHIPPED 9e9f2ed0</span></td></tr>
   <tr><td>7</td><td>MCP single add/remove-speaker mutate the join table directly, bypassing session-service</td>
       <td><span class="pill partial">CONFIRMED but weakened</span> — the break-item guard (H1) IS enforced and remove does the L1 cleanup. Pure consolidation, no live invariant gap. No REST twin exists.</td>
-      <td><span class="pill deferred">DEFERRED</span></td></tr>
+      <td><span class="pill shipped">SHIPPED 56dcad12</span></td></tr>
   <tr><td>A4</td><td>Detail-sheet edit forms hand-roll fields <code>PersonFormFields</code> owns; edit missing state/zip/tags/photo/website</td>
       <td><span class="pill partial">PARTIAL</span> — the real gap is only <strong>state + zipCode</strong> (both sheets; create collects them, edit can't). Tags/photo/website claims were wrong (all editable).</td>
       <td><span class="pill deferred">DEFERRED</span></td></tr>
@@ -212,14 +216,66 @@ promo-codes panel, reviewers card, MCP contracts), and the services conventions.
   <li>Pre-existing (NOT regressions): org-null SUPER_ADMIN 404s on the reviewers routes (hand-rolled <code>organizationId!</code>); the bulk executor's seat-side TOCTOU.</li>
 </ul>
 
-<h2>5 · Remaining consolidation backlog</h2>
-<p>Tracked in ROADMAP §"Cross-caller duplication audit — deferred findings": finding 4
-(<code>setSessionSpeakers</code> shared by session-service + MCP roster tools), finding 5 (route MCP invoice status
-through <code>cancelInvoice</code> + give REST an audit row), finding 6 (a canonical <code>rateLimited()</code> 429 helper —
-the 4 non-compliant sites first, then the ~135-site sweep), finding 7 (fold MCP single add/remove-speaker into
-session-service), A4 (state/zip on both detail-sheet edit forms), A6 (<code>speaker-enums.ts</code> replacing 5 colour maps),
-A8 (one shared free/paid computation for the registration create dialog + page), and M3/L4 above. A5 ships with the
-in-flight CRM form-fields extraction.</p>
+<h2>5 · Tranche 2 — findings 4–7 (shipped same day)</h2>
+<h3><code>56dcad12</code> · session roster ops → session-service (findings 4 + 7)</h3>
+<p><code>setSessionSpeakersTx(tx, sessionId, rows, {cleanTopicSpeakers})</code> is the ONE atomic swap + L1
+topic-cleanup applier — <code>updateSession</code> step 2 and the new <code>replaceSessionRoster</code> both use it
+(updateSession still skips the cleanup when the payload rewrites topics itself). New errors-as-values
+<code>addSessionSpeaker</code> / <code>removeSessionSpeaker</code> / <code>replaceSessionRoster</code> own the H1
+break-item truth table (add: blocked · remove: always allowed · replace: blocked only when non-empty), the
+idempotent upsert / transactional remove, speaker-in-event validation, and the source-tagged audits. The three MCP
+executors are thin wrappers with byte-compatible response shapes; three production <code>as never</code> casts died.
++11 tests.</p>
+<h3><code>14540e81</code> · invoice status transitions (finding 5)</h3>
+<p>Shared <code>transitionInvoiceStatus</code> (idempotency guard + log + optional source-tagged audit) behind
+<code>cancelInvoice(id, ctx?)</code> + the new <code>markInvoiceOverdue</code>. REST passes
+<code>{actorUserId, source: "rest", ip}</code> for both actions — <strong>REST invoice status changes are audited
+for the first time</strong>; MCP delegates (gaining the idempotency guard) with its exact previous response shape.
++4 tests.</p>
+<h3><code>9e9f2ed0</code> · canonical <code>rateLimited()</code> 429 (finding 6)</h3>
+<p>New helper in <code>src/lib/api-errors.ts</code> (the API-error home, not security.ts): always sets the
+RFC-9110 <code>Retry-After</code> header, always carries <code>code: "RATE_LIMITED"</code> +
+<code>retryAfterSeconds</code>, always warn-logs. Applied to all 7 call sites in the 4 non-compliant files —
+user-facing messages and log <code>msg</code> keys byte-identical, body additions purely additive (frontend
+consumers verified). The ~100 compliant sites migrate opportunistically; new code uses the helper. +3 tests.</p>
+
+<h2>6 · Post-ship review of tranche 2</h2>
+<p>Independent adversarial review of the three commits: <strong>0 BLOCKER / 0 HIGH / 2 MED / 7 LOW</strong>.</p>
+<div class="finding medium">
+  <div><span class="sev medium">M1</span> &nbsp;<strong>"MCP audit rows fail the userId FK ('mcp-remote' isn't a User)" — REFUTED</strong> &nbsp;<span class="pill open">FALSE POSITIVE</span></div>
+  <p>Hand-verified: migration <code>20260418000000_seed_mcp_system_user</code> INSERTs a real User row with id
+  <code>mcp-remote</code>, so the AuditLog FK holds and MCP-path audits persist. (The <code>!== "mcp-remote"</code>
+  guards in communications/abstracts exist to avoid attributing human-facing actions — signatures, triggeredBy —
+  to the system user, not for FK safety.) Notably this <em>contradicted</em> the tranche-1 reviewer, who verified
+  the seed migration exists.</p>
+  <div class="learn"><strong>What to learn:</strong> when two independent reviews disagree on a factual claim, neither
+  is authoritative — go read the migration. Fixing a refuted finding would have added dead null-guards and a
+  misleading comment.</div>
+</div>
+<div class="finding medium">
+  <div><span class="sev medium">M2</span> &nbsp;<strong>No source-state machine on invoice transitions</strong> &nbsp;<span class="pill deferred">DEFERRED — owner decision</span></div>
+  <p>The shared transition only guards <code>status === target</code>: a PAID invoice can be marked
+  OVERDUE/CANCELLED (and CANCELLED → OVERDUE) from both surfaces, desyncing from Payment rows. Pre-existing on
+  both paths — not a regression — but now that ONE transition path exists, a source-state guard is a ~5-line
+  change. It changes operator-visible behavior, so it's an owner call (ROADMAP).</p>
+</div>
+<p><strong>LOW riders fixed in-band:</strong> L2 (dead <code>status</code> read in the REST invoice PUT pre-check),
+L3 (<code>apiErrorResponse</code>'s JSDoc orphaned by the helper insertion — reordered), L5 (the MCP invoice
+ternary failed open to OVERDUE — now an exhaustive if/else that fails loud on an unrouted status).
+<strong>Noted, no action:</strong> L1 (MCP roster tools now return a static message on UNKNOWN instead of raw DB
+error text — the info-leak-safe direction), L4 (idempotent invoice transitions no longer bump
+<code>updatedAt</code> — benign), L6 (roster rejections warn-log twice, service + runTool wrapper — consistent
+with the over-alerting preference), L7 (<code>route</code> appears in both the log msg and payload — harmless).
+<strong>Verified clean:</strong> updateSession step-2 parity exact, MCP shapes byte-compatible on all three roster
+tools + the invoice tool, error precedence unchanged, no TOCTOU/org-bypass on the invoice path, all 7 rate-limit
+sites keep identical user-facing messages and log keys.</p>
+
+<h2>7 · Remaining consolidation backlog</h2>
+<p>Tracked in ROADMAP §"Cross-caller duplication audit — deferred findings": M2-invoice source-state gate (owner
+decision), M3 (bulk-status promo re-claim TOCTOU), L4 (<code>releaseExistingRedemption</code> unification), the
+429 opportunistic sweep, A4 (state/zip on both detail-sheet edit forms), A6 (<code>speaker-enums.ts</code>
+replacing 5 colour maps), A8 (one shared free/paid computation for the registration create dialog + page). A5
+ships with the in-flight CRM form-fields extraction.</p>
 
 </div>
 </body>
