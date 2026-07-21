@@ -258,6 +258,9 @@ export function ContactDetailBody({
                 )}
               </Fact>
               <Fact label="Job title">{contact.jobTitle || <Dash />}</Fact>
+              <Fact label="Owner">
+                {contact.owner ? `${contact.owner.firstName} ${contact.owner.lastName}` : <Dash />}
+              </Fact>
               <Fact label="Company">
                 {contact.company ? (
                   <Link href={`/crm/companies/${contact.company.id}`} className="text-primary hover:underline">

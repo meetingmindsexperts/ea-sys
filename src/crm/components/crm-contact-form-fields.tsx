@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { TagInput } from "@/components/ui/tag-input";
-import { useCrmCompanies } from "@/crm/hooks/use-crm-api";
+import { useCrmCompanies, useCrmReps } from "@/crm/hooks/use-crm-api";
 import {
   CONTACT_STATUS_LABELS,
   CONTACT_STATUS_VALUES,
@@ -28,6 +28,7 @@ import {
 export const NO_COMPANY = "__none__";
 export const NO_LIFECYCLE = "__none__";
 export const NO_STATUS = "__none__";
+export const NO_OWNER = "__none__";
 
 export interface CrmContactFormState {
   firstName: string;
@@ -42,6 +43,7 @@ export interface CrmContactFormState {
   lifecycle: string;
   status: string;
   companyId: string;
+  ownerId: string;
   tags: string[];
 }
 
@@ -52,6 +54,8 @@ export function emptyCrmContactForm(defaults?: { companyId?: string }): CrmConta
     jobTitle: "", phone: "", mobile: "", country: "", notes: "",
     lifecycle: NO_LIFECYCLE, status: "NEW",
     companyId: defaults?.companyId ?? NO_COMPANY,
+    // NO_OWNER on create means "the creator" — the service defaults it.
+    ownerId: NO_OWNER,
     tags: [],
   };
 }
@@ -70,6 +74,7 @@ export function crmContactToForm(c: {
   status?: CrmContactStatus | null;
   tags?: string[];
   company?: { id: string; name: string } | null;
+  owner?: { id: string } | null;
 }): CrmContactFormState {
   return {
     firstName: c.firstName,
@@ -83,6 +88,7 @@ export function crmContactToForm(c: {
     lifecycle: c.lifecycleStage ?? NO_LIFECYCLE,
     status: c.status ?? NO_STATUS,
     companyId: c.company?.id ?? NO_COMPANY,
+    ownerId: c.owner?.id ?? NO_OWNER,
     tags: c.tags ?? [],
   };
 }
@@ -101,6 +107,8 @@ export function crmContactFormPayload(f: CrmContactFormState): Record<string, un
     lifecycleStage: f.lifecycle === NO_LIFECYCLE ? null : f.lifecycle,
     status: f.status === NO_STATUS ? null : f.status,
     companyId: f.companyId === NO_COMPANY ? null : f.companyId,
+    // null → the service defaults to the creator on create / unassigns on edit.
+    ownerId: f.ownerId === NO_OWNER ? null : f.ownerId,
     tags: f.tags,
   };
 }
@@ -115,6 +123,7 @@ export function CrmContactFormFields({
   idPrefix,
   emailHint,
   showNotes = true,
+  ownerNoneLabel = "Unassigned",
 }: {
   value: CrmContactFormState;
   onChange: (patch: Partial<CrmContactFormState>) => void;
@@ -123,8 +132,11 @@ export function CrmContactFormFields({
   /** Caller-specific helper under the email input (create's find-or-create note). */
   emailHint?: ReactNode;
   showNotes?: boolean;
+  /** What "no owner picked" means here — create says "Me (default)", edit says "Unassigned". */
+  ownerNoneLabel?: string;
 }) {
   const { data: companies = [] } = useCrmCompanies();
+  const { data: reps = [] } = useCrmReps();
   const f = value;
 
   return (
@@ -237,9 +249,27 @@ export function CrmContactFormFields({
         </div>
       </div>
 
-      <div className="space-y-2">
-        <Label>Country</Label>
-        <CountrySelect value={f.country} onChange={(v) => onChange({ country: v })} />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-owner`}>Owner</Label>
+          <Select value={f.ownerId} onValueChange={(v) => onChange({ ownerId: v })}>
+            <SelectTrigger id={`${idPrefix}-owner`} className="w-full">
+              <SelectValue placeholder={ownerNoneLabel} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_OWNER}>{ownerNoneLabel}</SelectItem>
+              {reps.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.firstName} {u.lastName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Country</Label>
+          <CountrySelect value={f.country} onChange={(v) => onChange({ country: v })} />
+        </div>
       </div>
 
       <div className="space-y-2">

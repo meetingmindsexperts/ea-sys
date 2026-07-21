@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
+import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
@@ -55,6 +56,7 @@ export default function CrmContactsPage() {
   const [q, setQ] = useState("");
   const [lifecycle, setLifecycle] = useState<string>("");
   const [status, setStatus] = useState<string>("");
+  const [owner, setOwner] = useState<string>("");
   const [companyId, setCompanyId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -66,6 +68,7 @@ export default function CrmContactsPage() {
     q: q || undefined,
     lifecycle: lifecycle || undefined,
     status: status || undefined,
+    owner: owner || undefined,
     companyId: companyId || undefined,
     archived: showArchived ? "1" : undefined,
   });
@@ -108,6 +111,15 @@ export default function CrmContactsPage() {
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
+
+        {/* "All contacts" ↔ "My contacts" ↔ a specific rep's book. */}
+        <OwnerFilter
+          value={owner}
+          onChange={(userId) => setOwner(userId ?? "")}
+          placeholder="All contacts"
+          meId={session?.user?.id}
+          meLabel="My contacts"
+        />
 
         <Select value={status || "__all__"} onValueChange={(v) => setStatus(v === "__all__" ? "" : v)}>
           <SelectTrigger className="w-[10rem]">
@@ -163,7 +175,7 @@ export default function CrmContactsPage() {
       </div>
 
       {isLoading ? (
-        <CrmTableSkeleton rows={6} cols={7} />
+        <CrmTableSkeleton rows={6} cols={8} />
       ) : isError ? (
         <CrmLoadError what="contacts" onRetry={() => refetch()} />
       ) : contacts.length === 0 ? (
@@ -202,6 +214,7 @@ export default function CrmContactsPage() {
                 <TableHead>Job title</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Lifecycle</TableHead>
+                <TableHead>Owner</TableHead>
                 <TableHead className="text-right">Score</TableHead>
                 <TableHead className="text-right">Deals</TableHead>
               </TableRow>
@@ -260,6 +273,9 @@ export default function CrmContactsPage() {
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {c.owner ? `${c.owner.firstName} ${c.owner.lastName}` : "—"}
                   </TableCell>
                   <TableCell className="text-right">
                     <Badge variant="outline" className={cn("tabular-nums", contactScoreColor(c.score ?? 0))}>

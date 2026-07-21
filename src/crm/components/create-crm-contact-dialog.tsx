@@ -69,6 +69,7 @@ export function CreateCrmContactDialog({
           onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
           idPrefix="cc"
           showNotes={false}
+          ownerNoneLabel="Me (default)"
           emailHint={
             <p className="text-xs text-muted-foreground">
               If this person already exists, you&apos;ll be linked to them — no duplicate.

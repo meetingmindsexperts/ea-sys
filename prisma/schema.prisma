@@ -94,6 +94,7 @@ model User {
   // CRM module — all SetNull on user delete, so removing a team member never
   // destroys deal/task/note history AND never blocks the delete. See CrmDeal.
   ownedCrmDeals    CrmDeal[] @relation("CrmDealOwner")
+  ownedCrmContacts CrmContact[] @relation("CrmContactOwner")
   ownedCrmTasks    CrmTask[] @relation("CrmTaskOwner")
   authoredCrmNotes CrmNote[] @relation("CrmNoteAuthor")
   crmActivities    CrmActivity[] @relation("CrmActivityActor")
@@ -3145,6 +3146,14 @@ model CrmContact {
 
   lifecycleStage CrmLifecycleStage?
 
+  /// The rep who OWNS this relationship — powers the "My contacts" filter.
+  /// Defaults to the creator (service-level); nullable + SetNull for the same
+  /// reason as CrmDeal.ownerId: deleting a user must never block or destroy
+  /// the contact, it just becomes unowned. Freshsales-imported rows start
+  /// unowned (an import must not hand the whole book to the importer).
+  ownerId String?
+  owner   User?   @relation("CrmContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
   /// Sales-conversation status (NEW → … → WON/LOST). See the enum note for how
   /// this differs from lifecycleStage. Nullable — pre-enrichment rows stay null.
   status CrmContactStatus?
@@ -3187,6 +3196,7 @@ model CrmContact {
   @@index([organizationId])
   @@index([companyId])
   @@index([contactId])
+  @@index([ownerId])
 }
 
 /// Deal ↔ person, with the role that person plays on THIS deal.

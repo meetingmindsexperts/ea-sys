@@ -22,6 +22,7 @@ vi.mock("@/lib/db", () => ({
     },
     crmCompany: { findFirst: vi.fn() },
     contact: { findFirst: vi.fn() },
+    user: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
   },
@@ -44,6 +45,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(db.auditLog.create).mockResolvedValue({} as never);
   vi.mocked(db.crmCompany.findFirst).mockResolvedValue({ id: "c-1" } as never);
+  vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-2", role: "CRM_USER" } as never);
   // updateCrmContact now snapshots the row before writing (for the change log's
   // before→after diff), so give the pre-update read a default row.
   vi.mocked(db.crmContact.findFirst).mockResolvedValue({
@@ -166,6 +168,69 @@ describe("enrichment fields — status / mobile / tags (July 21, 2026)", () => {
     expect(data.status).toBe("NEGOTIATION");
     expect(data.mobile).toBeNull(); // blank clears, same rule as phone
     expect(data.tags).toEqual(["VIP", "sponsor"]);
+  });
+});
+
+describe("contact owner — powers the My-contacts filter (July 21, 2026)", () => {
+  it("defaults the owner to the CREATOR on create, without hitting the owner check", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "cc-1", companyId: null } as never);
+
+    await findOrCreateCrmContact({ ...base, firstName: "A", lastName: "B", email: "a@b.com" });
+
+    const data = vi.mocked(db.crmContact.create).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.ownerId).toBe("u-1"); // the creator
+    // Creator already passed the CRM write gate — no assignee lookup needed.
+    expect(db.user.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("an API-key create (no user) stays unowned", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "cc-1", companyId: null } as never);
+
+    await findOrCreateCrmContact({
+      ...base, userId: null, source: "api", firstName: "A", lastName: "B", email: "a@b.com",
+    });
+
+    const data = vi.mocked(db.crmContact.create).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.ownerId).toBeNull();
+  });
+
+  it("an EXPLICIT owner must be org-bound — a foreign userId is refused (IDOR)", async () => {
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.user.findFirst).mockResolvedValue(null as never);
+
+    const res = await findOrCreateCrmContact({
+      ...base, firstName: "A", lastName: "B", email: "a@b.com", ownerId: "other-org-user",
+    });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("OWNER_NOT_FOUND");
+    expect(db.crmContact.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses handing a contact to a non-CRM-capable role (the deals R2-M5 rule)", async () => {
+    vi.mocked(db.user.findFirst).mockResolvedValue({ id: "u-9", role: "ONSITE" } as never);
+
+    const res = await updateCrmContact({ ...base, crmContactId: "cc-1", ownerId: "u-9" });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("OWNER_ROLE_NOT_ALLOWED");
+    expect(db.crmContact.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("ownerId: null on update unassigns without any owner lookup", async () => {
+    vi.mocked(db.crmContact.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmContact.findUniqueOrThrow).mockResolvedValue({ id: "cc-1" } as never);
+
+    const res = await updateCrmContact({ ...base, crmContactId: "cc-1", ownerId: null });
+
+    expect(res.ok).toBe(true);
+    expect(db.user.findFirst).not.toHaveBeenCalled();
+    const data = vi.mocked(db.crmContact.updateMany).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.ownerId).toBeNull();
   });
 });
 

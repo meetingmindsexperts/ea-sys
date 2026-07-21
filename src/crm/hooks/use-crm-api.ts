@@ -453,6 +453,8 @@ export interface CrmContactFilters {
   companyId?: string;
   lifecycle?: string;
   status?: string;
+  /** Filter to one rep's book — "My contacts" passes the caller's own userId. */
+  owner?: string;
   archived?: string;
 }
 

@@ -90,6 +90,8 @@ export interface CrmContactRow {
   /** Auto-computed on read from live deal involvement (deals-only formula). */
   score?: number;
   company?: { id: string; name: string } | null;
+  /** The rep who owns this relationship — powers the "My contacts" filter. */
+  owner?: CrmPersonRef | null;
   /** Non-null when this rep is ALSO in the event contact store (i.e. they attend). */
   contactId?: string | null;
   archivedAt?: string | null;

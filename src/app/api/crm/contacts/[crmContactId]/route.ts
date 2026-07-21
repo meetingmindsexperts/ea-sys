@@ -21,6 +21,8 @@ const updateSchema = z.object({
   lifecycleStage: z.enum(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]).nullable().optional(),
   status: z.enum(CONTACT_STATUS_VALUES).nullable().optional(),
   tags: z.array(z.string().min(1).max(50)).max(25).optional(),
+  /** Reassign the owning rep; null = unassign. */
+  ownerId: z.string().min(1).nullable().optional(),
   /**
    * Point this business contact at their EVENT contact row — for the rep who also
    * attends. A pointer, not a copy: the two populations stay separate (only the
@@ -40,6 +42,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ crmConta
       where: { id: crmContactId, organizationId: ctx.organizationId },
       include: {
         company: { select: { id: true, name: true } },
+        owner: { select: { id: true, firstName: true, lastName: true } },
         contact: { select: { id: true, firstName: true, lastName: true, email: true } },
         deals: {
           include: {

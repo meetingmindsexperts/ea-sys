@@ -28,9 +28,10 @@ import { Prisma, type CrmContact, type CrmContactStatus, type CrmLifecycleStage 
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
+import { canOwnDeals } from "@/crm/lib/crm-roles";
 
 /** Fields worth showing in the change log when a contact is edited. */
-const CONTACT_DIFF_KEYS = ["firstName", "lastName", "email", "jobTitle", "phone", "mobile", "country", "notes", "lifecycleStage", "status", "tags", "companyId"] as const;
+const CONTACT_DIFF_KEYS = ["firstName", "lastName", "email", "jobTitle", "phone", "mobile", "country", "notes", "lifecycleStage", "status", "tags", "companyId", "ownerId"] as const;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,8 @@ interface ContactFields {
   lifecycleStage?: CrmLifecycleStage | null;
   status?: CrmContactStatus | null;
   tags?: string[];
+  /** The owning rep. On create, omitted/null defaults to the CREATOR. */
+  ownerId?: string | null;
 }
 
 export interface CreateCrmContactInput extends ContactFields {
@@ -71,6 +74,8 @@ export type CrmContactErrorCode =
   | "CONTACT_ARCHIVED"
   | "COMPANY_NOT_FOUND"
   | "EVENT_CONTACT_NOT_FOUND"
+  | "OWNER_NOT_FOUND"
+  | "OWNER_ROLE_NOT_ALLOWED"
   | "NO_FIELDS"
   | "UNKNOWN";
 
@@ -104,6 +109,34 @@ export function normalizeContactTags(tags: string[]): string[] {
     out.push(t);
   }
   return out;
+}
+
+/**
+ * An EXPLICIT owner must be an org team member with a CRM-capable role — the
+ * same assignee rule as deals (review R2-M5): the route gate checks the CALLER,
+ * this checks who the contact is being handed TO. The creator-default path
+ * skips it (the caller already passed the CRM write gate).
+ */
+async function assertOwner(organizationId: string, ownerId?: string | null): Promise<Fail | null> {
+  if (!ownerId) return null;
+  const u = await db.user.findFirst({
+    where: { id: ownerId, organizationId },
+    select: { id: true, role: true },
+  });
+  if (!u) {
+    apiLogger.warn({ msg: "crm-contact:bad-owner-relation", organizationId, ownerId });
+    return { ok: false, code: "OWNER_NOT_FOUND", message: "Owner not found in this organization" };
+  }
+  if (!canOwnDeals(u.role)) {
+    apiLogger.warn({ msg: "crm-contact:owner-role-not-allowed", organizationId, ownerId, role: u.role });
+    return {
+      ok: false,
+      code: "OWNER_ROLE_NOT_ALLOWED",
+      message: "Contacts can only be owned by CRM-capable roles (admin, organizer or sales)",
+      meta: { role: u.role },
+    };
+  }
+  return null;
 }
 
 async function assertCompany(organizationId: string, companyId?: string | null): Promise<Fail | null> {
@@ -149,6 +182,8 @@ export async function findOrCreateCrmContact(
 
   const companyFail = await assertCompany(input.organizationId, input.companyId);
   if (companyFail) return companyFail;
+  const ownerFail = await assertOwner(input.organizationId, input.ownerId);
+  if (ownerFail) return ownerFail;
 
   try {
     const existing = await db.crmContact.findUnique({
@@ -182,6 +217,9 @@ export async function findOrCreateCrmContact(
         // that predate the status field.
         status: input.status ?? "NEW",
         tags: normalizeContactTags(input.tags ?? []),
+        // Whoever enters a contact owns the relationship unless they hand it
+        // to someone else explicitly. API-key callers have no user → unowned.
+        ownerId: input.ownerId ?? input.userId ?? null,
       },
     });
 
@@ -224,7 +262,7 @@ export async function findOrCreateCrmContact(
 // ── Update ───────────────────────────────────────────────────────────────────
 
 export async function updateCrmContact(input: UpdateCrmContactInput): Promise<CrmContactResult> {
-  const data: Prisma.CrmContactUpdateManyMutationInput & { companyId?: string | null } = {};
+  const data: Prisma.CrmContactUpdateManyMutationInput & { companyId?: string | null; ownerId?: string | null } = {};
 
   if (input.firstName !== undefined) {
     const v = input.firstName.trim();
@@ -253,6 +291,7 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
   if (input.status !== undefined) data.status = input.status;
   if (input.tags !== undefined) data.tags = normalizeContactTags(input.tags);
   if (input.companyId !== undefined) data.companyId = input.companyId;
+  if (input.ownerId !== undefined) data.ownerId = input.ownerId; // null = unassign
 
   if (Object.keys(data).length === 0) {
     return { ok: false, code: "NO_FIELDS", message: "No fields to update" };
@@ -260,11 +299,13 @@ export async function updateCrmContact(input: UpdateCrmContactInput): Promise<Cr
 
   const companyFail = await assertCompany(input.organizationId, input.companyId);
   if (companyFail) return companyFail;
+  const ownerFail = await assertOwner(input.organizationId, input.ownerId);
+  if (ownerFail) return ownerFail;
 
   try {
     const before = await db.crmContact.findFirst({
       where: { id: input.crmContactId, organizationId: input.organizationId },
-      select: { firstName: true, lastName: true, email: true, jobTitle: true, phone: true, mobile: true, country: true, notes: true, lifecycleStage: true, status: true, tags: true, companyId: true, archivedAt: true },
+      select: { firstName: true, lastName: true, email: true, jobTitle: true, phone: true, mobile: true, country: true, notes: true, lifecycleStage: true, status: true, tags: true, companyId: true, ownerId: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({

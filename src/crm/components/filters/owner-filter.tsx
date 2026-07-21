@@ -18,12 +18,20 @@ export function OwnerFilter({
   value,
   onChange,
   placeholder = "All reps",
+  meId,
+  meLabel = "Mine",
 }: {
   value: string;
   onChange: (userId: string | null) => void;
   placeholder?: string;
+  /** Pin the signed-in user to the top as a one-click "mine" entry. */
+  meId?: string | null;
+  meLabel?: string;
 }) {
   const { data: reps = [] } = useCrmReps();
+  // The pinned entry replaces my own row in the rep list — two items with the
+  // same Select value would fight over highlighting.
+  const others = meId ? reps.filter((u) => u.id !== meId) : reps;
 
   return (
     <Select value={value || ALL} onValueChange={(v) => onChange(v === ALL ? null : v)}>
@@ -32,7 +40,8 @@ export function OwnerFilter({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={ALL}>{placeholder}</SelectItem>
-        {reps.map((u) => (
+        {meId && <SelectItem value={meId}>{meLabel}</SelectItem>}
+        {others.map((u) => (
           <SelectItem key={u.id} value={u.id}>
             {u.firstName} {u.lastName}
           </SelectItem>

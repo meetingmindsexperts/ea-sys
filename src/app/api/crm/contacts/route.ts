@@ -23,6 +23,8 @@ const createSchema = z.object({
   lifecycleStage: z.enum(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]).optional().nullable(),
   status: z.enum(CONTACT_STATUS_VALUES).optional().nullable(),
   tags: z.array(z.string().min(1).max(50)).max(25).optional(),
+  /** The owning rep; omitted/null defaults to the creator (service-level). */
+  ownerId: z.string().min(1).optional().nullable(),
 });
 
 /**
@@ -41,6 +43,7 @@ export async function GET(req: Request) {
     const companyId = searchParams.get("companyId")?.trim();
     const lifecycle = searchParams.get("lifecycle")?.trim();
     const status = searchParams.get("status")?.trim();
+    const owner = searchParams.get("owner")?.trim();
     const LIFECYCLE = new Set(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]);
     const STATUS = new Set<string>(CONTACT_STATUS_VALUES);
 
@@ -49,6 +52,7 @@ export async function GET(req: Request) {
         organizationId: ctx.organizationId,
         archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
         ...(companyId ? { companyId } : {}),
+        ...(owner ? { ownerId: owner } : {}),
         ...(lifecycle && LIFECYCLE.has(lifecycle) ? { lifecycleStage: lifecycle as "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION" } : {}),
         ...(status && STATUS.has(status) ? { status: status as (typeof CONTACT_STATUS_VALUES)[number] } : {}),
         ...(q
@@ -75,6 +79,7 @@ export async function GET(req: Request) {
         tags: true,
         createdAt: true,
         company: { select: { id: true, name: true } },
+        owner: { select: { id: true, firstName: true, lastName: true } },
         // Non-null when this rep is ALSO in the event contact store (they attend).
         contactId: true,
         archivedAt: true,
