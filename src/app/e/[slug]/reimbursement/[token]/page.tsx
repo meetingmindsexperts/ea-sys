@@ -36,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EventBanner } from "@/components/public/event-banner";
+import { CountrySelect } from "@/components/ui/country-select";
 import {
   CLAIM_ITEMS,
   DOCUMENT_KINDS,
@@ -478,7 +479,10 @@ export default function ReimbursementFormPage() {
                     <Input value={fields.institution} onChange={setField("institution")} />
                   </Field>
                   <Field label="Country" required error={fieldErrors.country}>
-                    <Input value={fields.country} onChange={setField("country")} />
+                    <CountrySelect
+                      value={fields.country}
+                      onChange={(v) => setFields((prev) => ({ ...prev, country: v }))}
+                    />
                   </Field>
                   <Field label="Email address" required error={fieldErrors.email}>
                     <Input type="email" value={fields.email} onChange={setField("email")} />
@@ -487,7 +491,11 @@ export default function ReimbursementFormPage() {
                     <Input value={fields.phone} onChange={setField("phone")} />
                   </Field>
                   <Field label="Nationality" required error={fieldErrors.nationality}>
-                    <Input value={fields.nationality} onChange={setField("nationality")} />
+                    <CountrySelect
+                      value={fields.nationality}
+                      onChange={(v) => setFields((prev) => ({ ...prev, nationality: v }))}
+                      placeholder="Select nationality"
+                    />
                   </Field>
                   <Field label="Passport number" required error={fieldErrors.passportNumber}>
                     <Input value={fields.passportNumber} onChange={setField("passportNumber")} />
@@ -639,7 +647,11 @@ export default function ReimbursementFormPage() {
                     <Input value={bank.bankAddress} onChange={setBankField("bankAddress")} />
                   </Field>
                   <Field label="Bank country">
-                    <Input value={bank.bankCountry} onChange={setBankField("bankCountry")} />
+                    <CountrySelect
+                      value={bank.bankCountry}
+                      onChange={(v) => setBank((prev) => ({ ...prev, bankCountry: v }))}
+                      placeholder="Select bank country"
+                    />
                   </Field>
                   <Field label="Account number (or provide IBAN)">
                     <Input value={bank.accountNumber} onChange={setBankField("accountNumber")} />
