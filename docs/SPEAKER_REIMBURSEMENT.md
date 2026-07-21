@@ -81,7 +81,7 @@ sensitive fields in the system**, stricter than the finance boundary
 |---|---|
 | `GET /api/public/events/[slug]/reimbursement/[token]` | Event branding + prefill (saved snapshot wins, else the Speaker record) + docs + status. |
 | `POST` same | The submission. Enforces the **receipt rule** (400 `MISSING_DOCUMENTS` naming the uncovered kinds), then a **conditional claim on PENDING** (`updateMany` — a double-submit race commits exactly once, loser gets 409 `ALREADY_SUBMITTED`). On success: audit with IP (agreement-acceptance shape), `notifyEventAdmins`, and the automated confirmation email — both failure-isolated. |
-| `POST .../documents` / `DELETE .../documents/[docId]` | Receipt upload/remove while PENDING. PDF/JPG/PNG **magic-byte validated**, 10MB, max 15 per form. |
+| `POST .../documents` / `DELETE .../documents/[docId]` | Receipt upload / remove. Upload is allowed while PENDING **and after submission** (owner decision July 21, 2026 — append-only: a forgotten/illegible receipt can be added without a reopen; post-submission uploads write a `DOCUMENT_ADDED` audit that surfaces on the speaker's Activity timeline). DELETE stays **PENDING-only** — nothing attached to a signed form is speaker-removable. PDF/JPG/PNG **magic-byte validated**, 10MB, max 15 per form. |
 
 ## 4. The receipt rule
 

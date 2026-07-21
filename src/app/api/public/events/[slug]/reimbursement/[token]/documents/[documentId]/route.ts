@@ -35,13 +35,20 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       apiLogger.warn({ slug, stage: "doc-delete" }, "reimbursement-doc-delete:invalid-token");
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
     }
+    // Append-only after submission: new documents may be ADDED (the POST
+    // sibling), but nothing attached to a signed form can be removed by the
+    // speaker — that needs an organizer reopen.
     if (row.status === "SUBMITTED") {
       apiLogger.warn(
         { slug, reimbursementId: row.id, stage: "doc-delete-locked" },
         "reimbursement-doc-delete:locked",
       );
       return NextResponse.json(
-        { error: "This form has already been submitted.", code: "ALREADY_SUBMITTED" },
+        {
+          error:
+            "Documents can be added but not removed after submission. Contact the organizing team if a file must be removed.",
+          code: "ALREADY_SUBMITTED",
+        },
         { status: 409 },
       );
     }

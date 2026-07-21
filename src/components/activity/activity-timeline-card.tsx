@@ -51,6 +51,7 @@ const AUDIT_LABELS: Record<string, string> = {
   // Speaker reimbursement (actions remapped in activity-feed.ts)
   REIMBURSEMENT_SUBMITTED: "Reimbursement form submitted",
   REIMBURSEMENT_REOPENED: "Reimbursement form reopened for edits",
+  REIMBURSEMENT_DOCUMENT_ADDED: "Reimbursement document added (after submission)",
   REIMBURSEMENT_INVITED: "Reimbursement form invite created",
   REIMBURSEMENT_LINK_SENT: "Reimbursement link emailed",
   REIMBURSEMENT_DELETED: "Reimbursement form deleted",

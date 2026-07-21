@@ -172,6 +172,7 @@ async function collect(
     CREATE: "REIMBURSEMENT_INVITED",
     DELETE: "REIMBURSEMENT_DELETED",
     SEND: "REIMBURSEMENT_LINK_SENT",
+    DOCUMENT_ADDED: "REIMBURSEMENT_DOCUMENT_ADDED",
   };
   pushAudit(
     reimbAudit.map((r) => ({ ...r, action: REIMB_ACTIONS[r.action] ?? `REIMBURSEMENT_${r.action}` })),

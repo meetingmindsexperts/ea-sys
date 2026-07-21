@@ -433,8 +433,87 @@ export default function ReimbursementFormPage() {
               <p className="text-slate-600 max-w-md mx-auto">
                 {done
                   ? "We've emailed you a confirmation. Payment will be processed by bank wire transfer within 45 days of receipt of the completed form and all supporting documents."
-                  : "If you need to correct something, please contact the organizing team — they can reopen the form for you."}
+                  : "If you need to correct your details, please contact the organizing team — they can reopen the form for you."}
               </p>
+
+              {/* Append-only documents after submission (owner decision,
+                  July 21 2026): a forgotten or illegible receipt can be
+                  added without a reopen. Details stay locked; files can't
+                  be removed by the speaker once the form is signed. */}
+              <div className="mt-10 text-left border-t border-slate-200 pt-8">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-slate-900 mb-1.5">
+                  Add more documents
+                </h3>
+                <p className="text-sm text-slate-600 mb-4">
+                  Forgot a receipt, or asked for a clearer copy? You can still add documents here
+                  — your submitted details stay unchanged. Added files can&apos;t be removed;
+                  contact the organizing team if something needs to come off.
+                </p>
+                <div className="space-y-2">
+                  {DOCUMENT_KINDS.map((dk) => {
+                    const docsOfKind = documents.filter((d) => d.kind === dk.key);
+                    const uploading = uploadingKind === dk.key;
+                    return (
+                      <div
+                        key={dk.key}
+                        className={`rounded-lg px-3.5 py-3 ${
+                          docsOfKind.length > 0
+                            ? "border border-emerald-300 bg-emerald-50/50"
+                            : "border-[1.5px] border-dashed border-slate-300"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm font-medium text-slate-800 flex items-center gap-2">
+                            {docsOfKind.length > 0 && (
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-white">
+                                <Check className="h-3 w-3" />
+                              </span>
+                            )}
+                            {dk.label}
+                          </span>
+                          <label className="cursor-pointer">
+                            <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:border-primary/60 hover:text-primary transition-colors">
+                              {uploading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Upload className="h-4 w-4" />
+                              )}
+                              Upload
+                            </span>
+                            <input
+                              type="file"
+                              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                              className="hidden"
+                              disabled={uploading}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) void handleUpload(dk.key, file);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                        </div>
+                        {docsOfKind.length > 0 && (
+                          <ul className="mt-2 space-y-1">
+                            {docsOfKind.map((doc) => (
+                              <li
+                                key={doc.id}
+                                className="flex items-center gap-1.5 text-sm text-slate-600 truncate"
+                              >
+                                <FileText className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{doc.filename}</span>
+                                <span className="text-xs shrink-0">
+                                  {(doc.size / 1024).toFixed(0)} KB
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="space-y-12 [&_input]:border-slate-300 [&_input]:bg-white [&_textarea]:border-slate-300 [&_select]:border-slate-300">

@@ -60,13 +60,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ slug, stage: "upload" }, "reimbursement-upload:invalid-token");
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
     }
-    if (row.status === "SUBMITTED") {
-      apiLogger.warn({ slug, reimbursementId: row.id, stage: "upload-locked" }, "reimbursement-upload:locked");
-      return NextResponse.json(
-        { error: "This form has already been submitted.", code: "ALREADY_SUBMITTED" },
-        { status: 409 },
-      );
-    }
+    // Post-submission uploads are ALLOWED (append-only — see the header):
+    // a forgotten/illegible receipt can be added without an organizer
+    // reopen. Removal after submission stays blocked (sibling DELETE route).
     if (row.documents.length >= MAX_REIMBURSEMENT_DOCUMENTS) {
       apiLogger.warn({ slug, reimbursementId: row.id, stage: "upload-cap" }, "reimbursement-upload:too-many");
       return NextResponse.json(
@@ -133,8 +129,38 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true, kind: true, filename: true, size: true, createdAt: true },
     });
 
+    // A document appended AFTER submission changes what finance sees on a
+    // signed form — audit it (with IP) so it shows on the speaker's Activity
+    // timeline. Pre-submission uploads are covered by the submit audit's
+    // document-kind list. Fire-and-forget: the upload already committed.
+    if (row.status === "SUBMITTED") {
+      db.auditLog
+        .create({
+          data: {
+            eventId: row.eventId,
+            userId: null,
+            action: "DOCUMENT_ADDED",
+            entityType: "SPEAKER_REIMBURSEMENT",
+            entityId: row.id,
+            changes: {
+              actor: "SPEAKER",
+              speakerId: row.speaker.id,
+              postSubmission: true,
+              kind: kindParsed.data,
+              filename: document.filename,
+              size: file.size,
+              ip,
+            },
+            ipAddress: ip,
+          },
+        })
+        .catch((err) =>
+          apiLogger.error({ err, reimbursementId: row.id }, "reimbursement-upload:audit-failed"),
+        );
+    }
+
     apiLogger.info(
-      { slug, reimbursementId: row.id, kind: kindParsed.data, size: file.size },
+      { slug, reimbursementId: row.id, kind: kindParsed.data, size: file.size, postSubmission: row.status === "SUBMITTED" },
       "reimbursement-upload:uploaded",
     );
     return NextResponse.json({ document }, { status: 201 });

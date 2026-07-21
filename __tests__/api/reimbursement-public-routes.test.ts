@@ -58,7 +58,23 @@ vi.mock("@/lib/email", () => ({
   brandingCc: () => [],
 }));
 
+// The documents routes touch the filesystem — stub it so upload tests never
+// write to disk. Named + default exports (routes use both import styles).
+vi.mock("fs/promises", () => {
+  const fns = {
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    writeFile: vi.fn().mockResolvedValue(undefined),
+    unlink: vi.fn().mockResolvedValue(undefined),
+    readFile: vi.fn(),
+    stat: vi.fn(),
+    realpath: vi.fn(),
+  };
+  return { ...fns, default: fns };
+});
+
 import { POST } from "@/app/api/public/events/[slug]/reimbursement/[token]/route";
+import { POST as uploadDocPost } from "@/app/api/public/events/[slug]/reimbursement/[token]/documents/route";
+import { DELETE as uploadDocDelete } from "@/app/api/public/events/[slug]/reimbursement/[token]/documents/[documentId]/route";
 import { GET as uploadsGet } from "@/app/uploads/[...path]/route";
 
 const params = (over?: Record<string, string>) =>
@@ -233,6 +249,63 @@ describe("POST /api/public/events/[slug]/reimbursement/[token]", () => {
     mockSendEmail.mockRejectedValueOnce(new Error("SES down"));
     const res = await POST(jsonReq(validBody), params());
     expect(res.status).toBe(200);
+  });
+});
+
+describe("post-submission documents — append-only", () => {
+  const pdfFile = {
+    type: "application/pdf",
+    size: 1234,
+    name: "extra-receipt.pdf",
+    arrayBuffer: async () => new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]).buffer,
+  };
+  const uploadReq = (kind = "FLIGHT_RECEIPT") =>
+    ({
+      formData: async () => ({
+        get: (k: string) => (k === "file" ? pdfFile : kind),
+      }),
+    }) as never;
+
+  it("a SUBMITTED form still accepts an uploaded document, and audits it", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(baseRow({ status: "SUBMITTED" }));
+    mockDb.speakerReimbursementDocument.create.mockResolvedValue({
+      id: "d9",
+      kind: "FLIGHT_RECEIPT",
+      filename: "extra-receipt.pdf",
+      size: 1234,
+      createdAt: new Date(),
+    });
+
+    const res = await uploadDocPost(uploadReq(), params());
+    expect(res.status).toBe(201);
+    expect(mockDb.speakerReimbursementDocument.create).toHaveBeenCalledOnce();
+    // The post-submission append changes what finance sees on a signed form —
+    // it must leave an audit trail (shows on the speaker's Activity timeline).
+    const audit = mockDb.auditLog.create.mock.calls[0]?.[0];
+    expect(audit?.data.action).toBe("DOCUMENT_ADDED");
+    expect(audit?.data.entityType).toBe("SPEAKER_REIMBURSEMENT");
+    expect(audit?.data.changes.postSubmission).toBe(true);
+  });
+
+  it("a PENDING upload is NOT audited (covered by the submit audit)", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(baseRow());
+    mockDb.speakerReimbursementDocument.create.mockResolvedValue({
+      id: "d9",
+      kind: "FLIGHT_RECEIPT",
+      filename: "extra-receipt.pdf",
+      size: 1234,
+      createdAt: new Date(),
+    });
+    const res = await uploadDocPost(uploadReq(), params());
+    expect(res.status).toBe(201);
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("removal stays LOCKED after submission (409)", async () => {
+    mockDb.speakerReimbursement.findUnique.mockResolvedValue(baseRow({ status: "SUBMITTED" }));
+    const res = await uploadDocDelete({} as never, params({ documentId: "d1" }));
+    expect(res.status).toBe(409);
+    expect(mockDb.speakerReimbursementDocument.delete).not.toHaveBeenCalled();
   });
 });
 
