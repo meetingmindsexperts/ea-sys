@@ -33,6 +33,7 @@ import {
   readRequiredReviewCount,
 } from "@/lib/abstract-review";
 import { notifyAbstractStatusChange } from "@/lib/abstract-notifications";
+import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -655,5 +656,313 @@ export async function submitAbstractReview(
   } catch (err) {
     apiLogger.error({ err, msg: "submitAbstractReview:unknown-failure", eventId, abstractId, reviewerUserId, source });
     return { ok: false, code: "UNKNOWN", message: "Failed to submit review" };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reviewer assignment (duplication-audit finding 3, July 21, 2026).
+//
+// The REST POST .../abstracts/[abstractId]/reviewers + DELETE .../[userId] and
+// the MCP assign_reviewer_to_abstract / unassign_reviewer_from_abstract tools
+// used to carry ~130 mirrored lines that had drifted TWICE (H6: the
+// reviewable-status gate was missing on one side; H8: the MCP executor silently
+// dropped conflictFlag, letting a conflicted reviewer's score count). Every fix
+// shipped as a hand-copied "parity with REST" patch. This is now the ONE
+// implementation; both callers keep only parsing + response shaping.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AbstractReviewerRole = "PRIMARY" | "SECONDARY" | "CONSULTING";
+
+export interface AssignReviewerInput {
+  eventId: string;
+  organizationId: string;
+  abstractId: string;
+  reviewerUserId: string;
+  /** undefined = keep the current role on an upsert / default SECONDARY on create. */
+  role?: AbstractReviewerRole;
+  /** undefined = keep the current flag on an upsert / default false on create. */
+  conflictFlag?: boolean;
+  /** Required — AbstractReviewer.assignedById is a non-nullable FK. */
+  actorUserId: string;
+  source: "rest" | "mcp";
+  ip?: string | null;
+}
+
+export type AssignReviewerErrorCode =
+  | "EVENT_NOT_FOUND"
+  | "ABSTRACT_NOT_FOUND"
+  | "USER_NOT_FOUND"
+  | "NOT_REVIEWABLE"
+  | "UNKNOWN";
+
+export interface ReviewerAssignmentSummary {
+  id: string;
+  role: string;
+  conflictFlag: boolean;
+  assignedAt: Date | null;
+}
+
+export interface AssignedReviewerUser {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+}
+
+export type AssignReviewerResult =
+  | {
+      ok: true;
+      /** created = new assignment (notification sent); updated = role/COI flipped; noop = idempotent re-assign. */
+      kind: "created" | "updated" | "noop";
+      assignment: ReviewerAssignmentSummary;
+      reviewer: AssignedReviewerUser;
+    }
+  | { ok: false; code: AssignReviewerErrorCode; message: string };
+
+export async function assignReviewer(input: AssignReviewerInput): Promise<AssignReviewerResult> {
+  const { eventId, abstractId, reviewerUserId } = input;
+  try {
+    const [event, abstract, user] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: input.organizationId },
+        select: { id: true, name: true },
+      }),
+      db.abstract.findFirst({
+        where: { id: abstractId, eventId },
+        select: { id: true, title: true, status: true },
+      }),
+      db.user.findUnique({
+        where: { id: reviewerUserId },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      }),
+    ]);
+
+    if (!event) {
+      apiLogger.warn({ msg: "abstract-reviewer:assign-rejected", code: "EVENT_NOT_FOUND", eventId, abstractId, source: input.source });
+      return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" };
+    }
+    if (!abstract) {
+      apiLogger.warn({ msg: "abstract-reviewer:assign-rejected", code: "ABSTRACT_NOT_FOUND", eventId, abstractId, source: input.source });
+      return { ok: false, code: "ABSTRACT_NOT_FOUND", message: "Abstract not found" };
+    }
+    if (!user) {
+      apiLogger.warn({ msg: "abstract-reviewer:assign-rejected", code: "USER_NOT_FOUND", eventId, abstractId, targetUserId: reviewerUserId, source: input.source });
+      return { ok: false, code: "USER_NOT_FOUND", message: "User not found" };
+    }
+
+    // H6: don't assign a reviewer onto an abstract that isn't up for review —
+    // a DRAFT (author's private WIP), a WITHDRAWN, or an already-decided
+    // abstract. Assignment + its notification email only make sense while the
+    // abstract can actually be scored (parity with the scoring gate).
+    if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) {
+      apiLogger.warn({ msg: "abstract-reviewer:assign-rejected", code: "NOT_REVIEWABLE", eventId, abstractId, status: abstract.status, source: input.source });
+      return {
+        ok: false,
+        code: "NOT_REVIEWABLE",
+        message: `This abstract is ${abstract.status.toLowerCase()} and can't have reviewers assigned.`,
+      };
+    }
+
+    // Upsert: if already assigned, update role/conflictFlag when the caller
+    // passed a changed value (lets the UI/agent flip Primary↔Secondary or
+    // toggle COI without an unassign+reassign round-trip). Nothing changed →
+    // idempotent no-op reporting the current state.
+    const existing = await db.abstractReviewer.findUnique({
+      where: { abstractId_userId: { abstractId, userId: reviewerUserId } },
+      select: { id: true, role: true, conflictFlag: true, assignedAt: true },
+    });
+    if (existing) {
+      const roleChanged = input.role !== undefined && input.role !== existing.role;
+      const conflictChanged = input.conflictFlag !== undefined && input.conflictFlag !== existing.conflictFlag;
+
+      if (!roleChanged && !conflictChanged) {
+        return { ok: true, kind: "noop", assignment: existing, reviewer: user };
+      }
+
+      const updated = await db.abstractReviewer.update({
+        where: { abstractId_userId: { abstractId, userId: reviewerUserId } },
+        data: {
+          ...(roleChanged && { role: input.role }),
+          ...(conflictChanged && { conflictFlag: input.conflictFlag }),
+        },
+        select: { id: true, role: true, assignedAt: true, conflictFlag: true },
+      });
+
+      apiLogger.info({
+        msg: "abstract-reviewer:updated",
+        eventId,
+        abstractId,
+        reviewerUserId,
+        role: updated.role,
+        previousRole: existing.role,
+        conflictFlag: updated.conflictFlag,
+        source: input.source,
+      });
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: input.actorUserId,
+            action: "UPDATE",
+            entityType: "AbstractReviewer",
+            entityId: updated.id,
+            changes: {
+              source: input.source,
+              abstractId,
+              reviewerUserId,
+              role: updated.role,
+              previousRole: existing.role,
+              conflictFlag: updated.conflictFlag,
+              previousConflictFlag: existing.conflictFlag,
+              ...(input.ip ? { ip: input.ip } : {}),
+            },
+          },
+        })
+        .catch((err) => apiLogger.error({ err, eventId, abstractId }, "update-reviewer:audit-log-failed"));
+
+      return { ok: true, kind: "updated", assignment: updated, reviewer: user };
+    }
+
+    const assignment = await db.abstractReviewer.create({
+      data: {
+        abstractId,
+        userId: reviewerUserId,
+        assignedById: input.actorUserId,
+        role: input.role ?? "SECONDARY",
+        conflictFlag: input.conflictFlag ?? false,
+      },
+      select: { id: true, role: true, assignedAt: true, conflictFlag: true },
+    });
+
+    apiLogger.info({ msg: "abstract-reviewer:assigned", eventId, abstractId, reviewerUserId, role: assignment.role, source: input.source });
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: input.actorUserId,
+          action: "ASSIGN",
+          entityType: "AbstractReviewer",
+          entityId: assignment.id,
+          changes: {
+            source: input.source,
+            abstractId,
+            reviewerUserId,
+            role: assignment.role,
+            conflictFlag: assignment.conflictFlag,
+            ...(input.ip ? { ip: input.ip } : {}),
+          },
+        },
+      })
+      .catch((err) => apiLogger.error({ err, eventId, abstractId }, "assign-reviewer:audit-log-failed"));
+
+    // Tell the reviewer they have an abstract to review — only on a NEW
+    // assignment (role/COI flips return above). Failure-isolated inside the
+    // helper; never breaks the assignment.
+    await notifyReviewerAssigned({
+      eventId,
+      organizationId: input.organizationId,
+      reviewer: user,
+      eventName: event.name,
+      abstractTitle: abstract.title,
+      role: assignment.role,
+      source: input.source,
+      triggeredByUserId: input.actorUserId,
+    });
+
+    return { ok: true, kind: "created", assignment, reviewer: user };
+  } catch (err) {
+    apiLogger.error({ err, msg: "assign-reviewer:failed", eventId, abstractId, source: input.source });
+    return {
+      ok: false,
+      code: "UNKNOWN",
+      message: err instanceof Error ? err.message : "Failed to assign reviewer",
+    };
+  }
+}
+
+export interface UnassignReviewerInput {
+  eventId: string;
+  organizationId: string;
+  abstractId: string;
+  reviewerUserId: string;
+  actorUserId: string;
+  source: "rest" | "mcp";
+  ip?: string | null;
+}
+
+export type UnassignReviewerErrorCode =
+  | "EVENT_NOT_FOUND"
+  | "ABSTRACT_NOT_FOUND"
+  | "ASSIGNMENT_NOT_FOUND"
+  | "UNKNOWN";
+
+export type UnassignReviewerResult =
+  | { ok: true; unassignedAssignmentId: string }
+  | { ok: false; code: UnassignReviewerErrorCode; message: string };
+
+/**
+ * Removes the AbstractReviewer row. Any existing AbstractReviewSubmission from
+ * this user gets `abstractReviewerId` nulled via SET NULL FK — the submission
+ * itself is preserved (scores/notes have independent value).
+ */
+export async function unassignReviewer(input: UnassignReviewerInput): Promise<UnassignReviewerResult> {
+  const { eventId, abstractId, reviewerUserId } = input;
+  try {
+    const [event, abstract, assignment] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId, organizationId: input.organizationId },
+        select: { id: true },
+      }),
+      db.abstract.findFirst({
+        where: { id: abstractId, eventId },
+        select: { id: true },
+      }),
+      db.abstractReviewer.findUnique({
+        where: { abstractId_userId: { abstractId, userId: reviewerUserId } },
+        select: { id: true },
+      }),
+    ]);
+    if (!event) {
+      apiLogger.warn({ msg: "abstract-reviewer:unassign-rejected", code: "EVENT_NOT_FOUND", eventId, abstractId, source: input.source });
+      return { ok: false, code: "EVENT_NOT_FOUND", message: "Event not found" };
+    }
+    if (!abstract) {
+      apiLogger.warn({ msg: "abstract-reviewer:unassign-rejected", code: "ABSTRACT_NOT_FOUND", eventId, abstractId, source: input.source });
+      return { ok: false, code: "ABSTRACT_NOT_FOUND", message: "Abstract not found" };
+    }
+    if (!assignment) {
+      apiLogger.warn({ msg: "abstract-reviewer:unassign-rejected", code: "ASSIGNMENT_NOT_FOUND", eventId, abstractId, reviewerUserId, source: input.source });
+      return { ok: false, code: "ASSIGNMENT_NOT_FOUND", message: "Assignment not found" };
+    }
+
+    await db.abstractReviewer.delete({ where: { id: assignment.id } });
+
+    apiLogger.info({ msg: "abstract-reviewer:unassigned", eventId, abstractId, reviewerUserId, source: input.source });
+    db.auditLog
+      .create({
+        data: {
+          eventId,
+          userId: input.actorUserId,
+          action: "UNASSIGN",
+          entityType: "AbstractReviewer",
+          entityId: assignment.id,
+          changes: {
+            source: input.source,
+            abstractId,
+            reviewerUserId,
+            ...(input.ip ? { ip: input.ip } : {}),
+          },
+        },
+      })
+      .catch((err) => apiLogger.error({ err, eventId, abstractId }, "unassign-reviewer:audit-log-failed"));
+
+    return { ok: true, unassignedAssignmentId: assignment.id };
+  } catch (err) {
+    apiLogger.error({ err, msg: "unassign-reviewer:failed", eventId, abstractId, source: input.source });
+    return {
+      ok: false,
+      code: "UNKNOWN",
+      message: err instanceof Error ? err.message : "Failed to unassign reviewer",
+    };
   }
 }

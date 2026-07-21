@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockNotify } = vi.hoisted(() => ({
   mockDb: {
+    event: { findFirst: vi.fn() },
     abstract: { findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
     abstractReviewer: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
@@ -31,6 +32,8 @@ const ctx = { eventId: "ev1", organizationId: "org1", userId: "admin1" } as neve
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The shared service (abstract-service.assignReviewer) org-binds the event.
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", name: "Event" });
   mockDb.abstract.findFirst.mockResolvedValue({
     id: "ab1", title: "T", status: "UNDER_REVIEW",
     event: { id: "ev1", name: "Event", settings: {} },

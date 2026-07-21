@@ -6,7 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
+import { assignReviewer, type AssignReviewerErrorCode } from "@/services/abstract-service";
 
 /**
  * Reviewer assignment for a specific abstract.
@@ -16,6 +16,11 @@ import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
  * `event.settings.reviewerUserIds` still grants global review rights on the
  * event's abstracts. Per-abstract assignments are useful for workload
  * distribution + conflict-of-interest tracking.
+ *
+ * Domain logic (reviewable-status gate, upsert semantics, COI flag, audit,
+ * reviewer notification) lives in abstract-service.assignReviewer, shared
+ * with the MCP assign_reviewer_to_abstract tool — this route keeps auth,
+ * Zod, and HTTP response shaping.
  *
  * Unassign is at DELETE /reviewers/[userId].
  */
@@ -29,6 +34,14 @@ const assignSchema = z.object({
   role: z.enum(["PRIMARY", "SECONDARY", "CONSULTING"]).optional(),
   conflictFlag: z.boolean().optional(),
 });
+
+const HTTP_STATUS_FOR_ASSIGN: Record<AssignReviewerErrorCode, number> = {
+  EVENT_NOT_FOUND: 404,
+  ABSTRACT_NOT_FOUND: 404,
+  USER_NOT_FOUND: 404,
+  NOT_REVIEWABLE: 409,
+  UNKNOWN: 500,
+};
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -50,182 +63,54 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const validated = assignSchema.safeParse(body);
     if (!validated.success) {
-        apiLogger.warn({ msg: "events/abstracts/reviewers:zod-validation-failed", errors: validated.error.flatten() });
+      apiLogger.warn({ msg: "events/abstracts/reviewers:zod-validation-failed", errors: validated.error.flatten() });
       return NextResponse.json(
         { error: "Invalid input", details: validated.error.flatten() },
         { status: 400 },
       );
     }
 
-    const [event, abstract, user] = await Promise.all([
-      db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
-        select: { id: true, name: true },
-      }),
-      db.abstract.findFirst({
-        where: { id: abstractId, eventId },
-        select: { id: true, title: true, status: true },
-      }),
-      db.user.findUnique({
-        where: { id: validated.data.userId },
-        select: { id: true, firstName: true, lastName: true, email: true },
-      }),
-    ]);
-
-    if (!event) {
-      apiLogger.warn({ msg: "abstract-reviewer-assign:event-not-found", eventId, userId: session.user.id });
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
-    if (!abstract) {
-      apiLogger.warn({ msg: "abstract-reviewer-assign:abstract-not-found", eventId, abstractId, userId: session.user.id });
-      return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
-    }
-    if (!user) {
-      apiLogger.warn({ msg: "abstract-reviewer-assign:target-user-not-found", eventId, abstractId, targetUserId: validated.data.userId });
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    // H6: don't assign a reviewer onto an abstract that isn't up for review —
-    // a DRAFT (author's private WIP), a WITHDRAWN, or an already-decided
-    // abstract. Assignment + its notification email only make sense while the
-    // abstract can actually be scored (parity with the scoring gate).
-    const REVIEWABLE_ABSTRACT_STATUSES = new Set(["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"]);
-    if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) {
-      apiLogger.warn({ msg: "abstract-reviewer-assign:not-reviewable-status", eventId, abstractId, status: abstract.status, userId: session.user.id });
-      return NextResponse.json(
-        {
-          error: `This abstract is ${abstract.status.toLowerCase()} and can't have reviewers assigned.`,
-          code: "NOT_REVIEWABLE",
-        },
-        { status: 409 },
-      );
-    }
-
-    // Upsert: if already assigned, update role/conflictFlag when the caller
-    // passed a changed value (lets the UI flip Primary↔Secondary or toggle
-    // COI without an unassign+reassign round-trip). If nothing changed, it's
-    // an idempotent no-op that reports the current state.
-    const existing = await db.abstractReviewer.findUnique({
-      where: { abstractId_userId: { abstractId, userId: validated.data.userId } },
-      select: { id: true, role: true, conflictFlag: true },
+    const result = await assignReviewer({
+      eventId,
+      organizationId: session.user.organizationId!,
+      abstractId,
+      reviewerUserId: validated.data.userId,
+      role: validated.data.role,
+      conflictFlag: validated.data.conflictFlag,
+      actorUserId: session.user.id,
+      source: "rest",
+      ip: getClientIp(req),
     });
-    if (existing) {
-      const roleChanged =
-        validated.data.role !== undefined && validated.data.role !== existing.role;
-      const conflictChanged =
-        validated.data.conflictFlag !== undefined &&
-        validated.data.conflictFlag !== existing.conflictFlag;
 
-      if (!roleChanged && !conflictChanged) {
-        return NextResponse.json(
-          {
-            alreadyAssigned: true,
-            existingAssignmentId: existing.id,
-            currentRole: existing.role,
-            message: `${user.firstName} ${user.lastName} is already assigned to this abstract as ${existing.role}`,
-          },
-          { status: 200 },
-        );
-      }
+    if (!result.ok) {
+      const status = HTTP_STATUS_FOR_ASSIGN[result.code] ?? 500;
+      const payload =
+        result.code === "NOT_REVIEWABLE"
+          ? { error: result.message, code: result.code }
+          : { error: result.message };
+      return NextResponse.json(payload, { status });
+    }
 
-      const updated = await db.abstractReviewer.update({
-        where: { abstractId_userId: { abstractId, userId: validated.data.userId } },
-        data: {
-          ...(roleChanged && { role: validated.data.role }),
-          ...(conflictChanged && { conflictFlag: validated.data.conflictFlag }),
-        },
-        select: { id: true, role: true, assignedAt: true, conflictFlag: true },
-      });
-
-      apiLogger.info({
-        msg: "abstract-reviewer:updated",
-        eventId,
-        abstractId,
-        reviewerUserId: validated.data.userId,
-        role: updated.role,
-      });
-      db.auditLog
-        .create({
-          data: {
-            eventId,
-            userId: session.user.id,
-            action: "UPDATE",
-            entityType: "AbstractReviewer",
-            entityId: updated.id,
-            changes: {
-              source: "api",
-              abstractId,
-              reviewerUserId: validated.data.userId,
-              role: updated.role,
-              conflictFlag: updated.conflictFlag,
-              ip: getClientIp(req),
-            },
-          },
-        })
-        .catch((err) => apiLogger.error({ err, eventId, abstractId }, "update-reviewer:audit-log-failed"));
-
+    const { assignment, reviewer } = result;
+    if (result.kind === "noop") {
       return NextResponse.json(
         {
-          success: true,
-          updated: true,
-          assignment: {
-            ...updated,
-            reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
-          },
+          alreadyAssigned: true,
+          existingAssignmentId: assignment.id,
+          currentRole: assignment.role,
+          message: `${reviewer.firstName} ${reviewer.lastName} is already assigned to this abstract as ${assignment.role}`,
         },
         { status: 200 },
       );
     }
 
-    const assignment = await db.abstractReviewer.create({
-      data: {
-        abstractId,
-        userId: validated.data.userId,
-        assignedById: session.user.id,
-        role: validated.data.role ?? "SECONDARY",
-        conflictFlag: validated.data.conflictFlag ?? false,
-      },
-      select: { id: true, role: true, assignedAt: true, conflictFlag: true },
-    });
-
-    apiLogger.info(
-      { msg: "abstract-reviewer:assigned", eventId, abstractId, reviewerUserId: validated.data.userId, role: assignment.role },
-    );
-
-    db.auditLog.create({
-      data: {
-        eventId,
-        userId: session.user.id,
-        action: "ASSIGN",
-        entityType: "AbstractReviewer",
-        entityId: assignment.id,
-        changes: { source: "api", abstractId, reviewerUserId: validated.data.userId, role: assignment.role, ip: getClientIp(req) },
-      },
-    }).catch((err) => apiLogger.error({ err, eventId, abstractId }, "assign-reviewer:audit-log-failed"));
-
-    // Tell the reviewer they have an abstract to review (only on a NEW
-    // assignment — the role/COI-change branch above returns earlier).
-    // Failure-isolated inside the helper; never breaks the assignment.
-    await notifyReviewerAssigned({
-      eventId,
-      organizationId: session.user.organizationId ?? null,
-      reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
-      eventName: event.name,
-      abstractTitle: abstract.title,
-      role: assignment.role,
-      source: "rest",
-      triggeredByUserId: session.user.id,
-    });
-
     return NextResponse.json(
       {
         success: true,
-        assignment: {
-          ...assignment,
-          reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
-        },
+        ...(result.kind === "updated" ? { updated: true } : {}),
+        assignment: { ...assignment, reviewer },
       },
-      { status: 201 },
+      { status: result.kind === "created" ? 201 : 200 },
     );
   } catch (err) {
     apiLogger.error({ err, msg: "assign-reviewer:failed" });

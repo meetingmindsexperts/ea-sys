@@ -2,7 +2,6 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { AbstractStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { notifyReviewerAssigned } from "@/lib/abstract-reviewer-notify";
 import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
 import {
   computeSubmissionAggregates,
@@ -10,8 +9,10 @@ import {
   readRequiredReviewCount,
 } from "@/lib/abstract-review";
 import {
+  assignReviewer as assignReviewerService,
   changeAbstractStatus,
   submitAbstractReview,
+  unassignReviewer as unassignReviewerService,
   type AbstractTransitionStatus,
 } from "@/services/abstract-service";
 import type { ToolExecutor } from "./_shared";
@@ -284,145 +285,58 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
 
 const ABSTRACT_REVIEWER_ROLES = new Set(["PRIMARY", "SECONDARY", "CONSULTING"]);
 
-// Abstract statuses that are open for review (H6 — shared across the assign +
-// both submit paths; a DRAFT/WITHDRAWN/decided abstract must not receive
-// reviewers or accumulate reviews that then satisfy the requiredReviewCount gate).
-const REVIEWABLE_ABSTRACT_STATUSES = new Set(["SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"]);
-
+// Thin MCP wrappers — the assignment domain logic (H6 reviewable-status gate,
+// upsert role/COI semantics incl. the H8 conflictFlag fix, audit, reviewer
+// notification) lives in abstract-service.assignReviewer / unassignReviewer,
+// shared with the REST reviewers routes (duplication-audit finding 3: the two
+// surfaces used to carry ~130 mirrored lines that drifted twice). This
+// boundary keeps loose-input parsing + the MCP response/message shapes.
 const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
   try {
     const abstractId = String(input.abstractId ?? "").trim();
     const userId = String(input.userId ?? "").trim();
-    const role = input.role ? String(input.role) : "SECONDARY";
     if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
     if (!userId) return { error: "userId is required", code: "MISSING_USER_ID" };
-    if (!ABSTRACT_REVIEWER_ROLES.has(role)) {
+    if (input.role !== undefined && !ABSTRACT_REVIEWER_ROLES.has(String(input.role))) {
       return {
         error: `Invalid role. Must be one of: ${[...ABSTRACT_REVIEWER_ROLES].join(", ")}`,
         code: "INVALID_ROLE",
       };
     }
 
-    const [abstract, user] = await Promise.all([
-      db.abstract.findFirst({
-        where: { id: abstractId, eventId: ctx.eventId },
-        select: { id: true, title: true, status: true, event: { select: { id: true, name: true, settings: true } } },
-      }),
-      db.user.findUnique({ where: { id: userId }, select: { id: true, firstName: true, lastName: true, email: true } }),
-    ]);
-    if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
-    if (!user) return { error: `User ${userId} not found`, code: "USER_NOT_FOUND" };
-    // H6: only a reviewable abstract can receive a reviewer (parity with REST).
-    if (!REVIEWABLE_ABSTRACT_STATUSES.has(abstract.status)) {
-      return { error: `Abstract ${abstractId} is ${abstract.status.toLowerCase()} and can't have reviewers assigned.`, code: "NOT_REVIEWABLE" };
-    }
-
-    // COI flag (review H8, July 13): the tool schema always advertised
-    // `conflictFlag` but the executor silently dropped it — an admin telling
-    // the agent "assign Dr X, flag the conflict" got success with NO flag,
-    // and since June 26 the flag is an ENFORCEMENT input (a conflicted
-    // reviewer is blocked from scoring), so the dropped flag let their score
-    // count. Now persisted on create AND toggleable on the upsert (REST parity).
-    const conflictFlag = input.conflictFlag === undefined ? undefined : input.conflictFlag === true;
-
-    // Upsert role/COI on an existing assignment (parity with the REST route) so
-    // the agent can flip Primary↔Secondary or toggle the conflict flag without
-    // unassign+reassign.
-    const existing = await db.abstractReviewer.findUnique({
-      where: { abstractId_userId: { abstractId, userId } },
-      select: { id: true, role: true, conflictFlag: true },
-    });
-    if (existing) {
-      const roleChanged = input.role !== undefined && role !== existing.role;
-      const conflictChanged = conflictFlag !== undefined && conflictFlag !== existing.conflictFlag;
-      if (!roleChanged && !conflictChanged) {
-        return {
-          alreadyAssigned: true,
-          existingAssignmentId: existing.id,
-          currentRole: existing.role,
-          conflictFlag: existing.conflictFlag,
-          message: `${user.firstName} ${user.lastName} is already assigned to this abstract as ${existing.role}${existing.conflictFlag ? " (conflict flagged)" : ""}`,
-        };
-      }
-      const updated = await db.abstractReviewer.update({
-        where: { abstractId_userId: { abstractId, userId } },
-        data: {
-          ...(roleChanged && { role: role as never }),
-          ...(conflictChanged && { conflictFlag }),
-        },
-        select: { id: true, role: true, conflictFlag: true, assignedAt: true },
-      });
-      apiLogger.info(
-        { abstractId, userId, role: updated.role, previousRole: existing.role, conflictFlag: updated.conflictFlag },
-        "abstract-reviewer:updated",
-      );
-      db.auditLog.create({
-        data: {
-          eventId: ctx.eventId,
-          userId: ctx.userId,
-          action: "UPDATE",
-          entityType: "AbstractReviewer",
-          entityId: updated.id,
-          changes: {
-            source: "mcp", abstractId, reviewerUserId: userId,
-            role: updated.role, previousRole: existing.role,
-            conflictFlag: updated.conflictFlag, previousConflictFlag: existing.conflictFlag,
-          },
-        },
-      }).catch((err) => apiLogger.error({ err }, "agent:assign_reviewer_to_abstract audit-log-failed"));
-      return {
-        success: true,
-        updated: true,
-        assignment: {
-          ...updated,
-          reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
-        },
-      };
-    }
-
-    const assignment = await db.abstractReviewer.create({
-      data: {
-        abstractId,
-        userId,
-        assignedById: ctx.userId,
-        role: role as never,
-        conflictFlag: conflictFlag ?? false,
-      },
-      select: { id: true, role: true, conflictFlag: true, assignedAt: true },
-    });
-
-    apiLogger.info({ abstractId, userId, role, conflictFlag: assignment.conflictFlag }, "abstract-reviewer:assigned");
-
-    db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "ASSIGN",
-        entityType: "AbstractReviewer",
-        entityId: assignment.id,
-        changes: { source: "mcp", abstractId, reviewerUserId: userId, role, conflictFlag: assignment.conflictFlag },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:assign_reviewer_to_abstract audit-log-failed"));
-
-    // Notify the reviewer of the new assignment (parity with the REST route).
-    // Failure-isolated inside the helper; never breaks the assignment.
-    await notifyReviewerAssigned({
+    const result = await assignReviewerService({
       eventId: ctx.eventId,
       organizationId: ctx.organizationId,
-      reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
-      eventName: abstract.event.name,
-      abstractTitle: abstract.title,
-      role,
+      abstractId,
+      reviewerUserId: userId,
+      role: input.role !== undefined ? (String(input.role) as "PRIMARY" | "SECONDARY" | "CONSULTING") : undefined,
+      conflictFlag: input.conflictFlag === undefined ? undefined : input.conflictFlag === true,
+      actorUserId: ctx.userId,
       source: "mcp",
-      triggeredByUserId: ctx.userId,
     });
 
+    if (!result.ok) {
+      const message =
+        result.code === "ABSTRACT_NOT_FOUND" ? `Abstract ${abstractId} not found`
+        : result.code === "USER_NOT_FOUND" ? `User ${userId} not found`
+        : result.message;
+      return { error: message, code: result.code };
+    }
+
+    const { assignment, reviewer } = result;
+    if (result.kind === "noop") {
+      return {
+        alreadyAssigned: true,
+        existingAssignmentId: assignment.id,
+        currentRole: assignment.role,
+        conflictFlag: assignment.conflictFlag,
+        message: `${reviewer.firstName} ${reviewer.lastName} is already assigned to this abstract as ${assignment.role}${assignment.conflictFlag ? " (conflict flagged)" : ""}`,
+      };
+    }
     return {
       success: true,
-      assignment: {
-        ...assignment,
-        reviewer: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
-      },
+      ...(result.kind === "updated" ? { updated: true } : {}),
+      assignment: { ...assignment, reviewer },
     };
   } catch (err) {
     apiLogger.error({ err }, "agent:assign_reviewer_to_abstract failed");
@@ -441,45 +355,26 @@ const unassignReviewerFromAbstract: ToolExecutor = async (input, ctx) => {
     if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
     if (!userId) return { error: "userId is required", code: "MISSING_USER_ID" };
 
-    // Verify abstract belongs to this org scope
-    const abstract = await db.abstract.findFirst({
-      where: { id: abstractId, eventId: ctx.eventId },
-      select: { id: true },
+    const result = await unassignReviewerService({
+      eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
+      abstractId,
+      reviewerUserId: userId,
+      actorUserId: ctx.userId,
+      source: "mcp",
     });
-    if (!abstract) return { error: `Abstract ${abstractId} not found`, code: "ABSTRACT_NOT_FOUND" };
 
-    const assignment = await db.abstractReviewer.findUnique({
-      where: { abstractId_userId: { abstractId, userId } },
-      select: { id: true },
-    });
-    if (!assignment) {
-      return {
-        error: `No assignment found for user ${userId} on abstract ${abstractId}`,
-        code: "ASSIGNMENT_NOT_FOUND",
-      };
+    if (!result.ok) {
+      const message =
+        result.code === "ABSTRACT_NOT_FOUND" ? `Abstract ${abstractId} not found`
+        : result.code === "ASSIGNMENT_NOT_FOUND" ? `No assignment found for user ${userId} on abstract ${abstractId}`
+        : result.message;
+      return { error: message, code: result.code };
     }
-
-    // Deletes the AbstractReviewer row. Any existing AbstractReviewSubmission
-    // from this user gets `abstractReviewerId` nulled via SET NULL FK — the
-    // submission itself is preserved (it has independent value).
-    await db.abstractReviewer.delete({ where: { id: assignment.id } });
-
-    apiLogger.info({ abstractId, userId }, "abstract-reviewer:unassigned");
-
-    db.auditLog.create({
-      data: {
-        eventId: ctx.eventId,
-        userId: ctx.userId,
-        action: "UNASSIGN",
-        entityType: "AbstractReviewer",
-        entityId: assignment.id,
-        changes: { source: "mcp", abstractId, reviewerUserId: userId },
-      },
-    }).catch((err) => apiLogger.error({ err }, "agent:unassign_reviewer_from_abstract audit-log-failed"));
 
     return {
       success: true,
-      unassignedAssignmentId: assignment.id,
+      unassignedAssignmentId: result.unassignedAssignmentId,
       note: "Assignment removed. Any submission this reviewer made is preserved.",
     };
   } catch (err) {
