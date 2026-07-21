@@ -2,7 +2,15 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** July 8, 2026 — dinner RSVP read tool. **71 tools** across 11 domains.
+**Last updated:** July 21, 2026 — incremental-sync date filters on `list_speakers` / `list_registrations`. **71 tools** across 11 domains.
+
+### July 21, 2026 — Incremental-sync date filters on the two people lists
+
+**Additive, backward-compatible; reconnect your MCP client to see the new params** (pkg 0.4.24 is the cache-invalidation hint — claude.ai web: remove + re-add the connector; Claude Desktop: full quit/relaunch; n8n re-reads on its next connection).
+
+- **`list_speakers` + `list_registrations` gained four optional params:** `createdAfter`, `createdBefore`, `updatedAfter`, `updatedBefore` — ISO 8601 datetimes, bounds **inclusive** (`>=` / `<=`). `updatedAfter` is the incremental-sync checkpoint: store your last run's timestamp and pull only what changed since, instead of full-pulling the roster every run. Both tools already return `createdAt` + `updatedAt` per row to checkpoint against.
+- **An unparsable value is an error, not a dropped filter** — the tool returns `{ error, code: "INVALID_DATE_FILTER" }` and runs no query (a typo'd checkpoint can never silently widen to "everything"). The same params exist on the REST `GET /api/events/{eventId}/speakers` + `/registrations` endpoints (documented at `/api-docs`), which 400 with the same code.
+- No behavior change when the params are omitted — existing calls are byte-identical.
 
 ### June 25, 2026 — Speaker companion registrations, faculty-aware counts, multi-role certs
 
@@ -121,7 +129,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 
 | Tool | Description |
 |---|---|
-| `list_registrations` | Filter by status, paymentStatus, ticketTypeId |
+| `list_registrations` | Filter by status, paymentStatus, ticketTypeId, and created/updated date ranges (`createdAfter`/`createdBefore`/`updatedAfter`/`updatedBefore`, ISO 8601, inclusive) |
 | `create_registration` | Register an attendee; returns `existingRegistrationId` on duplicate |
 | `update_registration` | Status, paymentStatus, ticketTypeId, attendee details (auto-adjusts `soldCount`) |
 | `bulk_update_registration_status` | Update status + paymentStatus on up to 200 registrations in one transaction |
@@ -134,7 +142,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 
 | Tool | Description |
 |---|---|
-| `list_speakers` | Filter by status (INVITED/CONFIRMED/DECLINED/CANCELLED) |
+| `list_speakers` | Filter by status (INVITED/CONFIRMED/DECLINED/CANCELLED) and created/updated date ranges (`createdAfter`/`createdBefore`/`updatedAfter`/`updatedBefore`, ISO 8601, inclusive) |
 | `create_speaker` | Add speaker; returns `existingId` on duplicate email |
 | `update_speaker` | Status + title/bio/org/jobTitle/phone/city/country/specialty/tags; post-update `syncToContact` |
 | `list_speaker_agreements` | `filter: signed / unsigned / all`. Reads `Speaker.agreementAcceptedAt` |
