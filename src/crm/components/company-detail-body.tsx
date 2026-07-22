@@ -35,7 +35,13 @@ import { useCrmCompany, useUpdateCompany, useSetCompanyArchived } from "@/crm/ho
 import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { PurgeRecordButton } from "@/crm/components/purge-record-button";
-import { EditCompanyDialog } from "@/crm/components/edit-company-dialog";
+import {
+  CrmCompanyFormFields,
+  crmCompanyFormPayload,
+  crmCompanyToForm,
+  emptyCrmCompanyForm,
+  type CrmCompanyFormState,
+} from "@/crm/components/crm-company-form-fields";
 import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
@@ -60,7 +66,26 @@ export function CompanyDetailBody({
   const { data: stages = [] } = useCrmStages();
   const [newDealOpen, setNewDealOpen] = useState(false);
   const [addContactOpen, setAddContactOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
+
+  // Inline editing (owner request, July 22 — same as the contact + deal pages):
+  // no popup — Edit swaps the record body for the shared account form in place,
+  // Save/Cancel in the header.
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<CrmCompanyFormState>(emptyCrmCompanyForm);
+
+  async function handleSave() {
+    if (!form.name.trim()) {
+      toast.error("Give the account a name");
+      return;
+    }
+    try {
+      await update.mutateAsync(crmCompanyFormPayload(form));
+      toast.success("Account updated");
+      setEditing(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update the account");
+    }
+  }
 
   if (isLoading) {
     return (
@@ -109,6 +134,17 @@ export function CompanyDetailBody({
           { label: "People", value: company.contacts.length },
         ]}
         actions={
+          editing ? (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={update.isPending}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={update.isPending}>
+                {update.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                Save
+              </Button>
+            </>
+          ) : (
           (canWrite || canDelete) && (
             <>
               {canWrite && !company.archivedAt && (
@@ -123,8 +159,16 @@ export function CompanyDetailBody({
                   </Button>
                 </>
               )}
-              {canWrite && (
-                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              {/* An archived account is frozen — restore before editing. */}
+              {canWrite && !company.archivedAt && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setForm(crmCompanyToForm(company));
+                    setEditing(true);
+                  }}
+                >
                   <Pencil className="mr-2 h-3.5 w-3.5" />
                   Edit
                 </Button>
@@ -159,9 +203,22 @@ export function CompanyDetailBody({
                 ))}
             </>
           )
+          )
         }
       />
 
+      {editing ? (
+        <RecordCard icon={Pencil} title="Edit account" className="max-w-2xl">
+          <CrmCompanyFormFields
+            value={form}
+            onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+            idPrefix="edit-company"
+          />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Changes are recorded in the account&apos;s history.
+          </p>
+        </RecordCard>
+      ) : (
       <RecordGrid
         sidebar={
           <>
@@ -314,8 +371,8 @@ export function CompanyDetailBody({
           <CrmActivityTimeline entityType="COMPANY" entityId={company.id} />
         </RecordCard>
       </RecordGrid>
+      )}
 
-      <EditCompanyDialog company={company} open={editOpen} onOpenChange={setEditOpen} />
       {/* keyed by open state so each open remounts with THIS company pre-selected */}
       {newDealOpen && (
         <CreateDealDialog
