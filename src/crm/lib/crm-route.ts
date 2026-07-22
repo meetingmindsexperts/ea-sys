@@ -226,6 +226,8 @@ const STATUS_BY_CODE: Record<string, number> = {
   // archived records are frozen — restore before mutating (CRM review M1; the
   // freeze was extended to field edits / notes / line items in R2-M1)
   DEAL_ARCHIVED: 409,
+  DOCUMENT_NOT_FOUND: 404,
+  DOCUMENT_FILE_MISSING: 409,
   TASK_ARCHIVED: 409,
   COMPANY_ARCHIVED: 409,
   CONTACT_ARCHIVED: 409,

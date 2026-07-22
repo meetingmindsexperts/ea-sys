@@ -30,6 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  useCrmDealDocuments,
   useCrmEmailRecipients,
   useSendCrmEmail,
   useCrmEmailTemplates,
@@ -67,6 +68,11 @@ export function CrmEmailDialog({
 }) {
   const { data, isLoading, isError } = useCrmEmailRecipients(open ? target : null);
   const { data: templates = [] } = useCrmEmailTemplates();
+  // Files stored ON the deal (the prospectus etc.) — offered as opt-in
+  // attachments on deal sends, resolved server-side (no re-upload per send).
+  const { data: dealDocuments = [] } = useCrmDealDocuments(
+    open && target?.kind === "deal" ? target.id : null,
+  );
   const send = useSendCrmEmail();
 
   const [subject, setSubject] = useState("");
@@ -75,6 +81,8 @@ export function CrmEmailDialog({
   // is applied so the editor shows the new body.
   const [editorNonce, setEditorNonce] = useState(0);
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
+  // Stored deal documents the sender HAS ticked (opt-in — owner decision).
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   // Contacts the sender has UNticked. Everyone starts selected.
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
@@ -84,7 +92,10 @@ export function CrmEmailDialog({
     () => recipients.filter((r) => !deselected.has(r.crmContactId)).map((r) => r.crmContactId),
     [recipients, deselected],
   );
-  const totalAttachmentSize = attachments.reduce((s, a) => s + a.size, 0);
+  const selectedDocs = dealDocuments.filter((d) => selectedDocIds.has(d.id));
+  const totalAttachmentSize =
+    attachments.reduce((s, a) => s + a.size, 0) + selectedDocs.reduce((s, d) => s + d.size, 0);
+  const totalFileCount = attachments.length + selectedDocs.length;
   const isDeal = data?.target.kind === "deal";
 
   function resetAndClose() {
@@ -92,8 +103,18 @@ export function CrmEmailDialog({
     setMessage("");
     setEditorNonce((n) => n + 1);
     setAttachments([]);
+    setSelectedDocIds(new Set());
     setDeselected(new Set());
     onOpenChange(false);
+  }
+
+  function toggleDoc(id: string) {
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function applyTemplate(id: string) {
@@ -125,7 +146,7 @@ export function CrmEmailDialog({
   async function handleFileAdd(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files?.length) return;
-    const remaining = MAX_FILES - attachments.length;
+    const remaining = MAX_FILES - totalFileCount;
     for (const file of Array.from(files).slice(0, remaining)) {
       if (totalAttachmentSize + file.size > MAX_ATTACHMENT_SIZE) {
         toast.error("Total attachment size exceeds 10MB");
@@ -165,6 +186,11 @@ export function CrmEmailDialog({
       return;
     }
 
+    if (totalFileCount > MAX_FILES) {
+      toast.error(`At most ${MAX_FILES} attachments (deal documents included)`);
+      return;
+    }
+
     setSending(true);
     try {
       const result = await send.mutateAsync({
@@ -173,6 +199,7 @@ export function CrmEmailDialog({
         message,
         contactIds: selectedIds,
         attachments: attachments.map((a) => ({ name: a.name, content: a.content, contentType: a.contentType })),
+        ...(target.kind === "deal" && selectedDocIds.size > 0 ? { documentIds: [...selectedDocIds] } : {}),
       });
       if (result.failureCount > 0) {
         toast.warning(`Sent to ${result.successCount} of ${result.total}`, {
@@ -343,6 +370,39 @@ export function CrmEmailDialog({
             </p>
           </div>
 
+          {/* ── Stored deal documents (opt-in) ─────────────────────────────── */}
+          {isDeal && dealDocuments.length > 0 && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                Deal documents
+                <span className="text-xs font-normal text-muted-foreground">
+                  — tick to attach (stored on the deal, nothing to re-upload)
+                </span>
+              </Label>
+              <ul className="space-y-1">
+                {dealDocuments.map((d) => (
+                  <li key={d.id}>
+                    <label className="flex cursor-pointer items-center gap-3 rounded-md border bg-muted/20 px-2.5 py-1.5 text-sm hover:bg-muted/40">
+                      <Checkbox checked={selectedDocIds.has(d.id)} onCheckedChange={() => toggleDoc(d.id)} />
+                      <span className="min-w-0 flex-1 truncate">
+                        {d.kind === "PROSPECTUS" && (
+                          <Badge variant="outline" className="mr-2 border-sky-200 bg-sky-50 text-[10px] text-sky-700">
+                            Prospectus
+                          </Badge>
+                        )}
+                        {d.label || d.filename}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {(d.size / 1024).toFixed(0)} KB
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* ── Attachments ────────────────────────────────────────────────── */}
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
@@ -376,7 +436,7 @@ export function CrmEmailDialog({
                 ))}
               </ul>
             )}
-            {attachments.length < MAX_FILES && (
+            {totalFileCount < MAX_FILES && (
               <Input
                 type="file"
                 multiple

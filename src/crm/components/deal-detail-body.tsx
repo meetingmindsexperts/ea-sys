@@ -28,6 +28,7 @@ import {
   Loader2,
   Mail,
   Package,
+  Paperclip,
   Pencil,
   Trash2,
   Users,
@@ -60,6 +61,7 @@ import { PurgeRecordButton } from "@/crm/components/purge-record-button";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
 import { EditDealDialog } from "@/crm/components/edit-deal-dialog";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
+import { CrmDealDocumentsCard } from "@/crm/components/crm-deal-documents-card";
 import { DealProducts } from "@/crm/components/crm-deal-products";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
 
@@ -307,6 +309,11 @@ export function DealDetailBody({
         {/* ── Products (line items) ──────────────────────────────────────── */}
         <RecordCard icon={Package} title="Products">
           <DealProducts dealId={deal.id} canWrite={canWrite} />
+        </RecordCard>
+
+        {/* ── Documents (prospectus + supporting PDFs → Email attachments) ─ */}
+        <RecordCard icon={Paperclip} title="Documents">
+          <CrmDealDocumentsCard dealId={deal.id} canWrite={canWrite} />
         </RecordCard>
 
         {/* ── History (system change log) ────────────────────────────────── */}

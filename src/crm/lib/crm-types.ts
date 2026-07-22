@@ -196,6 +196,23 @@ export function sumDealProducts(lines: CrmDealProductRow[]): number | null {
   return lines.reduce((acc, l) => acc + Number(l.unitPrice ?? 0) * l.quantity, 0);
 }
 
+// ── Deal documents ────────────────────────────────────────────────────────────
+
+export type CrmDealDocumentKind = "PROSPECTUS" | "OTHER";
+
+/** A file held by a deal (the sponsorship prospectus / supporting PDFs). */
+export interface CrmDealDocumentRow {
+  id: string;
+  kind: CrmDealDocumentKind;
+  url: string;
+  filename: string;
+  label?: string | null;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+  uploadedBy?: { firstName: string; lastName: string } | null;
+}
+
 /** An editable CRM email template (org-wide), as returned by /api/crm/email-templates. */
 export interface CrmEmailTemplateRow {
   id: string;
@@ -499,6 +516,8 @@ export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   EMAIL_SENT: "Email sent",
   PRODUCT_ADDED: "Added a product",
   PRODUCT_REMOVED: "Removed a product",
+  DOCUMENT_ADDED: "Added a document",
+  DOCUMENT_REMOVED: "Removed a document",
 };
 
 /**

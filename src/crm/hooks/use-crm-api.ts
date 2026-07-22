@@ -35,6 +35,7 @@ import type {
   CrmEmailTemplateRow,
   CrmProductRow,
   CrmDealProductRow,
+  CrmDealDocumentRow,
   SponsorRecipient,
 } from "@/crm/lib/crm-types";
 
@@ -75,6 +76,7 @@ export const crmKeys = {
   emailTemplates: (includeArchived: boolean) => ["crm", "email-templates", includeArchived] as const,
   products: (includeArchived: boolean) => ["crm", "products", includeArchived] as const,
   dealProducts: (dealId: string) => ["crm", "deal-products", dealId] as const,
+  dealDocuments: (dealId: string) => ["crm", "deal-documents", dealId] as const,
   notifications: ["crm", "notifications"] as const,
   // Invalidation prefixes — match every variant of the corresponding full key.
   dealsPrefix: ["crm", "deals"] as const,
@@ -708,6 +710,52 @@ export function useCrmEvents() {
   });
 }
 
+// ── Deal documents (prospectus + supporting PDFs) ─────────────────────────────
+
+export function useCrmDealDocuments(dealId: string | null | undefined) {
+  return useQuery({
+    queryKey: crmKeys.dealDocuments(dealId ?? ""),
+    queryFn: () =>
+      apiFetch<{ documents: CrmDealDocumentRow[] }>(`/api/crm/deals/${dealId}/documents`).then((r) => r.documents),
+    enabled: !!dealId,
+  });
+}
+
+export function useUploadCrmDealDocument(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    // FormData, not JSON — the file rides as multipart.
+    mutationFn: async (input: { file: File; kind: "PROSPECTUS" | "OTHER"; label?: string }) => {
+      const fd = new FormData();
+      fd.append("file", input.file);
+      fd.append("kind", input.kind);
+      if (input.label) fd.append("label", input.label);
+      const res = await fetch(`/api/crm/deals/${dealId}/documents`, { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      return data as { document: CrmDealDocumentRow };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: crmKeys.dealDocuments(dealId) });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", dealId) });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not upload the document"),
+  });
+}
+
+export function useDeleteCrmDealDocument(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (documentId: string) =>
+      apiDelete<{ removed: true }>(`/api/crm/deals/${dealId}/documents/${documentId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: crmKeys.dealDocuments(dealId) });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", dealId) });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not remove the document"),
+  });
+}
+
 // ── CRM email (sponsor blast + per-deal send) ─────────────────────────────────
 
 /** What a send targets: everyone on an event's deals, or one deal's contacts. */
@@ -894,6 +942,8 @@ export function useSendCrmEmail() {
       message: string;
       contactIds?: string[];
       attachments?: { name: string; content: string; contentType?: string }[];
+      /** Stored deal documents to attach — resolved server-side, deal sends only. */
+      documentIds?: string[];
     }) => apiPostJson<CrmEmailSendResult>("/api/crm/sponsor-email/send", body),
     onSuccess: (_res, vars) => {
       // A send records history on each contact (and, for a deal, on the deal).

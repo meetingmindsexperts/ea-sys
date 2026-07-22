@@ -50,6 +50,7 @@ model Organization {
   crmNotes          CrmNote[]
   crmActivities     CrmActivity[]
   crmNotifications  CrmNotification[]
+  crmDealDocuments  CrmDealDocument[]
   crmEmailTemplates CrmEmailTemplate[]
   crmProducts       CrmProduct[]
 }
@@ -98,6 +99,7 @@ model User {
   ownedCrmTasks    CrmTask[] @relation("CrmTaskOwner")
   authoredCrmNotes CrmNote[] @relation("CrmNoteAuthor")
   crmActivities    CrmActivity[] @relation("CrmActivityActor")
+  uploadedCrmDealDocuments CrmDealDocument[] @relation("CrmDealDocumentUploader")
   crmNotifications CrmNotification[] @relation("CrmNotificationRecipient")
   createdCrmEmailTemplates CrmEmailTemplate[] @relation("CrmEmailTemplateCreator")
   createdCrmProducts CrmProduct[] @relation("CrmProductCreator")
@@ -2796,6 +2798,44 @@ model CrmDealProduct {
   @@index([crmProductId])
 }
 
+/// Which slot a deal document fills. PROSPECTUS is one-per-deal (app-enforced
+/// replace + a partial-unique SQL backstop, the SpeakerDocument pattern) — the
+/// file the Email dialog offers to attach; OTHER is an open list (contract
+/// drafts, rate cards).
+enum CrmDealDocumentKind {
+  PROSPECTUS
+  OTHER
+}
+
+/// Files held BY a deal — the sponsorship prospectus + supporting documents.
+/// PDF-only (owner decision, July 21 2026): what goes to a sponsor is a PDF.
+/// Stored under public/uploads/crm-deal-docs/{dealId}/ — marketing collateral,
+/// not PII, so the public /uploads catch-all may serve it (unlike
+/// reimbursement documents, which are blocked there).
+model CrmDealDocument {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  dealId String
+  deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  kind     CrmDealDocumentKind @default(OTHER)
+  url      String
+  filename String
+  label    String?
+  mimeType String
+  size     Int
+
+  uploadedById String?
+  uploadedBy   User?   @relation("CrmDealDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([dealId])
+  @@index([organizationId])
+}
+
 /// First-class Account. Today Contact.organization is a free-text string, which
 /// is why "Cleveland Clinic" and "Cleveland Clinic Foundation" are two things.
 ///
@@ -2961,9 +3001,10 @@ model CrmDeal {
   /// so the "create sponsor entry" button is offered exactly once.
   sponsorSyncedAt DateTime?
 
-  tasks    CrmTask[]
-  notes    CrmNote[]
-  products CrmDealProduct[]
+  tasks     CrmTask[]
+  notes     CrmNote[]
+  products  CrmDealProduct[]
+  documents CrmDealDocument[]
 
 
   /// External-system provenance (Freshsales CSV import). `externalId` is the
