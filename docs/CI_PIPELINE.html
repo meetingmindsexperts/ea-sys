@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EA-SYS — CI/CD Pipeline & GitHub-VM Capacity</title>
+<style>
+  :root { --ink:#1a2333; --muted:#5b6678; --line:#dbe1ea; --accent:#00aade; --bg:#f7f9fc; --card:#ffffff; --good:#1d8a4e; --warn:#b7791f; --bad:#c0392b; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); margin: 0; padding: 32px 16px 80px; line-height: 1.55; }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 1.7rem; margin: 0 0 4px; }
+  h2 { font-size: 1.25rem; margin: 40px 0 12px; border-bottom: 2px solid var(--accent); padding-bottom: 6px; }
+  h3 { font-size: 1.02rem; margin: 22px 0 8px; }
+  .sub { color: var(--muted); margin-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin: 14px 0; }
+  pre { background: #0f1722; color: #d6e2f0; border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: .82rem; line-height: 1.5; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .86em; background: #eef2f7; padding: 1px 5px; border-radius: 4px; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; margin: 12px 0; }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: #eef4fa; }
+  .pill { display: inline-block; font-size: .72rem; font-weight: 600; padding: 2px 9px; border-radius: 99px; white-space: nowrap; }
+  .pill.live { background: #e2f6ea; color: var(--good); }
+  .pill.pending { background: #fdf3e0; color: var(--warn); }
+  .pill.no { background: #fdeaea; color: var(--bad); }
+  .pill.idea { background: #e8f0fe; color: #2a5db0; }
+  ul { margin: 8px 0 8px 22px; padding: 0; }
+  li { margin: 4px 0; }
+  .note { border-left: 4px solid var(--accent); background: #eaf7fc; padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: .92rem; }
+  .warn { border-left-color: var(--warn); background: #fdf6e8; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>CI/CD Pipeline &amp; GitHub-VM Capacity</h1>
+<p class="sub">What <code>.github/workflows/deploy.yml</code> does after the July&nbsp;22,&nbsp;2026 restructure, what runs on GitHub-hosted VMs vs the EC2 box, and the ranked menu of further work that could be offloaded to Actions. Companion to <code>docs/ROLLBACK.md</code> (rollback mechanics), <code>docs/MULTI_TENANCY.md</code> §0 (the tenancy harness this pipeline now runs), and <code>docs/INCIDENTS.md</code> INC-001 (why images build on GitHub, not the box).</p>
+
+<h2>1. The pipeline today (post-split, July 22 2026)</h2>
+
+<div class="card">
+<pre><code>push to main  (docs-only pushes skipped via paths-ignore)
+   │
+   ├───────────── PARALLEL CI PHASE  (wall clock = slowest job ≈ 3–4 min) ─────────────┐
+   │   checks   lint · type-check · lockfile-sync · migration-safety · tenant-scoping  │
+   │   tests    full unit suite (3,600+ vitest)                                        │
+   │   build    gating `next build`                                                    │
+   │                                                                                   │
+   │   (beside them, nothing waits on these:)                                          │
+   │   tenancy     postgres+pgbouncer containers → 13 isolation tests   [non-gating]   │
+   │   sourcemaps  Sentry map upload (gated on `checks` only)           [non-gating]   │
+   └───────────────────────────────────────────────────────────────────────────────────┘
+   │  needs: [checks, tests, build]
+   ▼
+build-push    Docker web+worker images → ECR (GitHub OIDC, no stored AWS keys)  ~4–5 min
+   ▼
+deploy        SSH → box checks out the EXACT commit → scripts/deploy.sh blue-green ~2–3 min
+   ▼
+notify-failure  (only on failure of any of the five pipeline jobs) → SES page</code></pre>
+<p><strong>Old shape:</strong> one serial <code>ci</code> job (~5–6 min) ran all of checks/tests/build in a row. The split (owner decision, July 22) trades a few extra billed runner-minutes + duplicated setup blocks for ~2–2.5 min less wall clock per deploy. Every gate that blocked image builds before still blocks them — <code>build-push</code> needs all three.</p>
+</div>
+
+<h3>Accepted trade-offs of the split</h3>
+<ul>
+  <li><strong>+3–5 billed Actions minutes per push</strong> — each job pays its own ~40s checkout/Node/cache setup; a lockfile change triggers three concurrent <code>npm ci</code> runs.</li>
+  <li><strong>Broken commits burn more minutes</strong> — previously a lint failure stopped the serial job before the expensive build step; now <code>tests</code> and <code>build</code> run to completion regardless.</li>
+  <li><strong>Three duplicated setup blocks</strong> in the YAML to keep in sync (pattern pre-existed in <code>sourcemaps</code>/<code>tenancy</code>).</li>
+</ul>
+
+<h2>2. What runs where — the one fact to internalize</h2>
+<div class="note">
+<strong>Every CI job — including the postgres/pgbouncer service containers — runs on GitHub-hosted throwaway VMs</strong> (<code>runs-on: ubuntu-latest</code>). They cost the EC2 box <em>nothing</em>: no CPU, no memory, no disk, no network. The box participates in exactly one step of the pipeline: the final <code>deploy</code> job SSHes in, checks out the pinned commit, and runs <code>scripts/deploy.sh</code> (which <em>pulls</em> the pre-built images — building on-box is only the emergency fallback, per INC-001). Service containers live for the duration of one job (~2 min) and are destroyed with the runner.
+</div>
+
+<h2>3. The tenancy job (first tenant of the service-container pattern)</h2>
+<div class="card">
+<p><span class="pill live">LIVE</span> Runs the <code>tests/tenancy</code> suite — 13 assertions against a <em>real</em> postgres:16 + edoburu/pgbouncer in <strong>transaction pool mode</strong> (mirroring the Supabase prod topology), two seeded tenants sharing an event slug, and the pilot Event RLS policy. This is the only automated proof that tenant A cannot read tenant B — RLS + pooler behavior is unprovable with mocked Prisma.</p>
+<ul>
+  <li><strong>Non-gating by design</strong>: nothing <code>needs:</code> it, so a container flake can never block an emergency hotfix for a live event. A failure = red ✗ in the Actions tab only.</li>
+  <li><span class="pill pending">PENDING</span> <strong>Promotion to gating</strong> after ≥5 consecutive green runs — a one-line change (add <code>tenancy</code> to <code>build-push</code>'s <code>needs</code>). Track it; a permanently non-gating isolation suite is theater.</li>
+  <li>Local equivalent: <code>docker compose --profile tenancy up -d</code> → <code>npm run test:tenancy</code>.</li>
+</ul>
+</div>
+
+<h2>4. Menu — what else GitHub VMs could do for us</h2>
+<p>Ranked by value to this repo. Nothing below is built; each is its own decision. Scheduled items belong in <em>separate workflow files</em> (that's the legitimate use of multiple <code>.yml</code>s — per-file <code>schedule:</code> triggers — not parallelism, which jobs already provide).</p>
+
+<table>
+  <tr><th>Idea</th><th>What / why</th><th>Cost &amp; shape</th><th>Status</th></tr>
+  <tr>
+    <td><strong>1. Fresh-DB migration replay</strong></td>
+    <td>Postgres service container + <code>prisma migrate deploy</code> against an <em>empty</em> DB — replays the entire migration chain from scratch. Prod only ever migrates incrementally, so a broken chain surfaces exactly when the <strong>two-silo platform instance</strong> gets its fresh database. This job makes that day boring. Directly protects the Phase-0 endgame.</td>
+    <td>~2 min; per-push (cheap) or per-migration-change via <code>paths:</code> filter. Non-gating → gating once trusted.</td>
+    <td><span class="pill idea">RECOMMENDED NEXT</span></td>
+  </tr>
+  <tr>
+    <td><strong>2. Playwright e2e in CI</strong></td>
+    <td>The e2e suite has <em>never</em> run in CI (local-only, with the 3113-port-drift friction). A CI job owns the whole stack: postgres container → <code>db push</code> + seed → dev server → Playwright. Closes the biggest testing gap; kills the local-port friction because CI starts its own server.</td>
+    <td>~6–8 min. Too slow for the deploy path — run <strong>daily on a schedule</strong> (own workflow file) or non-gating per-push.</td>
+    <td><span class="pill idea">HIGH VALUE</span></td>
+  </tr>
+  <tr>
+    <td><strong>3. Automated DR restore drill</strong></td>
+    <td>Monthly scheduled run of the quarterly-manual drill: pull latest S3 <code>pg_dump</code>, restore into an ephemeral postgres:17, row-count the 9 critical tables (<code>scripts/dr-restore-drill.sh</code>). Continuous proof that backups restore — the point of having them.</td>
+    <td>~5 min/month. <strong>Requires an IAM change</strong>: extend the GitHub OIDC role with read on the Singapore DR bucket + KMS decrypt (owner runs the AWS command — per the AWS instruct-don't-execute rule).</td>
+    <td><span class="pill idea">HIGH VALUE</span></td>
+  </tr>
+  <tr>
+    <td><strong>4. Weekly npm-audit report</strong></td>
+    <td>Scheduled workflow running <code>npm audit</code>, output to the run summary (or SES). Keeps the deliberate policy — audits never gate deploys — but makes the manual check automatic.</td>
+    <td>~1 min/week. Trivial.</td>
+    <td><span class="pill idea">EASY WIN</span></td>
+  </tr>
+  <tr>
+    <td><strong>5. Bundle-size guard</strong></td>
+    <td>Compare <code>next build</code> route sizes per push; warn on a big jump. Catches the accidental-heavyweight-import class (the Zoom-SDK-on-first-paint mistake).</td>
+    <td>Piggybacks on the existing <code>build</code> job output; a small diff step.</td>
+    <td><span class="pill idea">NICE</span></td>
+  </tr>
+  <tr>
+    <td><strong>6. Schema-drift check</strong></td>
+    <td><code>prisma migrate diff</code> asserting <code>schema.prisma</code> matches the migrations folder — catches a hand-edited schema that never got a migration.</td>
+    <td>Seconds; could join the <code>checks</code> job.</td>
+    <td><span class="pill idea">NICE</span></td>
+  </tr>
+</table>
+
+<h3>Deliberately NOT on GitHub VMs</h3>
+<table>
+  <tr><th>Idea</th><th>Why not</th></tr>
+  <tr><td>Load testing</td><td>Needs a real target; pointing k6 at prod from CI is a footgun and no staging exists yet. Save it for the platform instance (the natural dogfood target) — the never-run load test from the conference-readiness audit still matters, just not from here.</td></tr>
+  <tr><td>Synthetic uptime monitoring</td><td>CloudWatch alarms + SES alerting already own this; a scheduled curl workflow would split alerting into two half-systems.</td></tr>
+  <tr><td>CodeQL</td><td>Requires GitHub Advanced Security licensing on private repos. Semgrep's free tier is the alternative if static security scanning is ever wanted.</td></tr>
+  <tr><td>PR preview environments</td><td>No PR workflow exists — pushes go straight to main by owner policy.</td></tr>
+</table>
+
+<h2>5. Quota math</h2>
+<div class="card">
+<p>Private repo → every job spends billed Actions minutes (Linux = 1×). Rough per-push spend after the split: <code>checks</code> ~2 + <code>tests</code> ~1.5 + <code>build</code> ~3.5 + <code>tenancy</code> ~2 + <code>sourcemaps</code> ~3 + <code>build-push</code> ~4.5 + <code>deploy</code> ~2.5 ≈ <strong>~19 min/push</strong> (was ~16 pre-split). At 10 pushes/day ≈ 190 min/day ≈ ~4,000/month — check the org's plan quota (Free = 2,000, Team = 3,000, overage is billed per-minute) before adding per-push jobs; prefer <code>schedule:</code> triggers for anything heavy (e2e daily ≈ 210 min/month vs ~2,100 if per-push).</p>
+</div>
+
+<h2>6. Decision log</h2>
+<table>
+  <tr><th>Date</th><th>Decision</th><th>Rationale</th></tr>
+  <tr><td>2026-07-22</td><td>CI phase split into parallel <code>checks</code>/<code>tests</code>/<code>build</code> (owner choice "B" of A/B/C)</td><td>~2–2.5 min faster per deploy; gates unchanged; minutes cost accepted. Option C (drop the separate gating build, let the Docker build gate) declined — would reverse the July 16 fail-fast decision.</td></tr>
+  <tr><td>2026-07-22</td><td><code>tenancy</code> job added, non-gating</td><td>Real-DB isolation proof per MULTI_TENANCY.md §0; fresh container infra must not block a hotfix. Promote after ≥5 green runs.</td></tr>
+  <tr><td>2026-07-22</td><td><code>check-tenant-scoping.sh</code> added as a gating <code>checks</code> step</td><td>Only fires on new code in the public surface — can't block an unrelated hotfix.</td></tr>
+  <tr><td>2026-07-16</td><td>Gating <code>next build</code> in CI (owner request)</td><td>Fail fast on build errors before images/deploy.</td></tr>
+  <tr><td>2026-07 (INC-001)</td><td>Images build on GitHub runners → ECR; the box only pulls</td><td>An on-box build froze the swapless t3.large during a live deploy.</td></tr>
+</table>
+
+<p class="sub" style="margin-top:28px">Maintained alongside <code>.github/workflows/deploy.yml</code> — update the diagram + decision log when the pipeline changes. Browseable in-app at <code>/admin/docs</code>.</p>
+
+</main>
+</body>
+</html>
