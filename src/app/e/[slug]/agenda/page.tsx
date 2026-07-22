@@ -268,19 +268,20 @@ export default function PublicAgendaPage() {
         </div>
       )}
 
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <div className="relative bg-slate-900 print:bg-white print:border-b print:border-slate-200">
-        <div className="absolute inset-0 opacity-5 bg-dot-pattern print:hidden" />
-        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 py-8 print:py-6">
+      {/* ── Header — light strip (the dark hero band was dropped on organizer
+             request; the banner above carries the branding). Doubles as the
+             print header (event name + dates). ─────────────────────────── */}
+      <div className="bg-white border-b border-slate-100 print:border-slate-200">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 print:py-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-white print:text-slate-900 mb-1">
-                {eventData.name}
-              </h1>
-              <p className="text-primary/80 text-sm font-medium print:text-slate-500">
+              <p className="text-primary text-sm font-semibold tracking-widest uppercase mb-1">
                 Agenda
               </p>
-              <div className="flex items-center gap-1.5 mt-3 text-sm text-white/60 print:text-slate-500">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
+                {eventData.name}
+              </h1>
+              <div className="flex items-center gap-1.5 mt-2 text-sm text-slate-500">
                 <Calendar className="h-3.5 w-3.5" />
                 <span>
                   {format(new Date(eventData.startDate), "MMMM d")} –{" "}
@@ -293,7 +294,7 @@ export default function PublicAgendaPage() {
             <button
               type="button"
               onClick={() => window.print()}
-              className="shrink-0 flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors print:hidden"
+              className="shrink-0 flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-xl shadow-sm transition-colors print:hidden"
             >
               <Printer className="h-4 w-4" />
               Print / Save PDF
@@ -426,7 +427,7 @@ export default function PublicAgendaPage() {
                 return (
                   <div key={day} className="print-day-group">
                     {/* Date heading */}
-                    <div className="flex items-center gap-3 mb-5 print:mb-4">
+                    <div className="flex items-center gap-3 mb-5 print:mb-4 print-day-heading">
                       <div className="flex-1 h-px bg-slate-200 print:bg-slate-300" />
                       <div className="flex items-center gap-2 shrink-0">
                         <Calendar className="h-4 w-4 text-primary print:text-slate-600" />
@@ -494,7 +495,7 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
   if (isBreakSessionType(session.type)) {
     const BreakIcon = BREAK_TYPE_ICONS[session.type ?? ""] ?? Clock;
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-5 py-3.5 print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200">
+      <div className="print-session-card rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-5 py-3.5 print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200">
         <div className="flex items-center gap-4">
           <div className="shrink-0 w-20 sm:w-28 text-right print:w-24">
             <p className="text-base font-semibold text-slate-600 tabular-nums">
@@ -522,7 +523,7 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
 
   return (
     <div
-      className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden transition-shadow hover:shadow-md print:shadow-none print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200"
+      className="print-session-card bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden transition-shadow hover:shadow-md print:shadow-none print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200"
       style={{ borderLeft: `4px solid ${color}` }}
     >
       <button
@@ -624,7 +625,7 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
                           <div className="shrink-0 sm:w-44 sm:pt-0.5">
                             {timeRange ? (
                               <>
-                                <p className="text-sm font-semibold tabular-nums" style={{ color }}>
+                                <p className="print-topic-time text-sm font-semibold tabular-nums" style={{ color }}>
                                   <span className="whitespace-nowrap">{timeRange}</span>
                                   {topic.duration ? (
                                     <span className="sm:hidden font-normal text-slate-400 whitespace-nowrap">

@@ -262,8 +262,20 @@
       background: white;
     }
 
-    .print-day-group {
+    /* Keep each session CARD intact across page breaks — deliberately not
+       the whole day group: a full-day programme is longer than one A4 page,
+       and break-inside:avoid on the group forced ugly blank pages. */
+    .print-session-card {
       break-inside: avoid;
+    }
+    /* Day heading stays with its first session. */
+    .print-day-heading {
+      break-after: avoid;
+    }
+    /* Topic times are track-colored via an inline style on screen; print in
+       readable dark ink (!important outranks the inline style). */
+    .print-topic-time {
+      color: #334155 !important;
     }
 
     * {
