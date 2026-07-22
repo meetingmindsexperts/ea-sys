@@ -141,7 +141,7 @@ function BrandedShell({ event, children }: { event: Event; children: ReactNode }
       {/* Footer */}
       {event.footerHtml && (
         <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6">
-          <div className="prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
+          <div className="rich-content-tables prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
             dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
         </div>
       )}
@@ -432,7 +432,7 @@ export default function AbstractRegisterPage() {
                   <div className="space-y-5">
                     {/* Welcome text — full width */}
                     {event.abstractWelcomeHtml && (
-                      <div className="prose prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0"
+                      <div className="rich-content-tables prose prose-slate max-w-none [&>*]:mb-4 [&>*:last-child]:mb-0"
                         dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.abstractWelcomeHtml) }} />
                     )}
 

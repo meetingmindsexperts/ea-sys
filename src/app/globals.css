@@ -310,3 +310,33 @@
     mask-composite: exclude;
   }
 }
+
+/* Organizer-authored rich HTML (registration welcome / terms / footer) can
+   carry pasted tables with fixed pixel widths (Tiptap/Word paste emits inline
+   `width: 1140px` etc.). On a phone such a table must scroll inside its OWN
+   box — never clip its right-hand columns (the "price column invisible on
+   mobile" report, July 22, 2026) and never force the whole page to pan
+   sideways. The GitHub-markdown treatment: the table becomes a block box
+   that scrolls horizontally when its content is wider than the container; on
+   desktop nothing visibly changes. NOTE: deliberately OUTSIDE every @layer —
+   Tailwind v4 tree-shakes non-simple selectors from @layer components, so a
+   `.rich-content-tables table` descendant rule placed there is silently
+   dropped from the build (verified July 22, 2026). */
+.rich-content-tables table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* display:block on <table> makes the rows lay out in a SHRINK-TO-FIT
+   anonymous table (desktop columns collapse to content width — a visible
+   regression). Re-stretch by making the tbody itself the table, full-width:
+   on desktop it fills the container exactly as before; when min-content is
+   wider than a phone screen it grows past 100% and the block above scrolls.
+   (Tiptap emits tbody-only tables, so header/body live in one tbody and
+   stay aligned; a hand-authored thead would stretch the same way.) */
+.rich-content-tables table > tbody,
+.rich-content-tables table > thead {
+  display: table;
+  width: 100%;
+}

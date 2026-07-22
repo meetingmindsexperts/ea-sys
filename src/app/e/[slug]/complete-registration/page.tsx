@@ -541,7 +541,7 @@ function CompleteRegistrationContent() {
                 <div className="space-y-5">
                   <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Terms and Conditions</h3>
                   <div className="max-h-[300px] overflow-y-auto bg-slate-50 rounded-lg border border-slate-200 p-4">
-                    <div className="prose prose-slate max-w-none text-sm leading-relaxed [&>*]:mb-4 [&>*:last-child]:mb-0"
+                    <div className="rich-content-tables prose prose-slate max-w-none text-sm leading-relaxed [&>*]:mb-4 [&>*:last-child]:mb-0"
                       dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.registrationTermsHtml || DEFAULT_REGISTRATION_TERMS_HTML) }} />
                   </div>
 
