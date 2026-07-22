@@ -139,6 +139,7 @@ export type SessionServiceErrorCode =
   | "ABSTRACT_ALREADY_ASSIGNED"
   | "SPEAKERS_NOT_FOUND"
   | "INVALID_CAPACITY"
+  | "DUPLICATE_SPEAKER_ID"
   | "BREAK_ITEM_HAS_PROGRAM"
   | "WEBINAR_ANCHOR_SESSION"
   | "STALE_WRITE"
@@ -230,17 +231,37 @@ function collectSpeakerIds(input: SessionFieldsInput): Set<string> {
   return ids;
 }
 
-/** `sessionRoles` wins over the legacy flat `speakerIds` when both are present. */
+/**
+ * `sessionRoles` wins over the legacy flat `speakerIds` when both are present.
+ *
+ * Duplicate handling (July 21, 2026 prod alert — P2002 on the roster
+ * createMany): SessionSpeaker's composite PK holds ONE role per speaker per
+ * session, but nothing stopped a payload from listing the same speaker twice
+ * (the dashboard form allows two role rows with the same person). An EXACT
+ * duplicate pair (same speaker, same role — a double-added row) is silently
+ * collapsed; the same speaker under two DIFFERENT roles is a conflict the
+ * caller must reject (`conflictingSpeakerId`) — before this, the atomic swap's
+ * createMany threw P2002 and the save 500'd.
+ */
 function buildSessionSpeakerRows(
   input: SessionFieldsInput,
-): { speakerId: string; role: SessionRole }[] {
-  if (input.sessionRoles && input.sessionRoles.length > 0) {
-    return input.sessionRoles.map((r) => ({ speakerId: r.speakerId, role: r.role }));
+): { rows: { speakerId: string; role: SessionRole }[]; conflictingSpeakerId: string | null } {
+  const source: { speakerId: string; role: SessionRole }[] =
+    input.sessionRoles && input.sessionRoles.length > 0
+      ? input.sessionRoles.map((r) => ({ speakerId: r.speakerId, role: r.role }))
+      : (input.speakerIds ?? []).map((speakerId) => ({ speakerId, role: "SPEAKER" as const }));
+  const byId = new Map<string, SessionRole>();
+  for (const r of source) {
+    const prev = byId.get(r.speakerId);
+    if (prev !== undefined && prev !== r.role) {
+      return { rows: [], conflictingSpeakerId: r.speakerId };
+    }
+    byId.set(r.speakerId, r.role);
   }
-  if (input.speakerIds && input.speakerIds.length > 0) {
-    return input.speakerIds.map((speakerId) => ({ speakerId, role: "SPEAKER" as const }));
-  }
-  return [];
+  return {
+    rows: [...byId.entries()].map(([speakerId, role]) => ({ speakerId, role })),
+    conflictingSpeakerId: null,
+  };
 }
 
 /**
@@ -277,6 +298,20 @@ async function validate(
   });
   if (!event) return fail("EVENT_NOT_FOUND", `Event ${eventId} not found`);
 
+  // One role per speaker per session (composite PK). Same speaker under two
+  // different roles is ambiguous — reject with a message the dashboard toast
+  // can surface (exact duplicate rows are collapsed by buildSessionSpeakerRows).
+  if (input.sessionRoles !== undefined || input.speakerIds !== undefined) {
+    const { conflictingSpeakerId } = buildSessionSpeakerRows(input);
+    if (conflictingSpeakerId) {
+      return fail(
+        "DUPLICATE_SPEAKER_ID",
+        "A speaker is listed under two different roles — a speaker can hold one role per session. Remove the duplicate row and save again.",
+        { speakerId: conflictingSpeakerId },
+      );
+    }
+  }
+
   // A break item (registration desk / coffee / lunch / networking) is a plain
   // agenda time block — it may never END UP with speakers, topics, or an
   // abstract. Checked against the resulting state: converting a real session
@@ -287,7 +322,7 @@ async function validate(
   if (isBreakSessionType(effectiveType)) {
     const resultingSpeakers =
       input.sessionRoles !== undefined || input.speakerIds !== undefined
-        ? buildSessionSpeakerRows(input).length > 0
+        ? buildSessionSpeakerRows(input).rows.length > 0
         : (opts.existing?.hasSpeakers ?? false);
     const resultingTopics =
       input.topics !== undefined ? input.topics.length > 0 : (opts.existing?.hasTopics ?? false);
@@ -422,7 +457,7 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
         status: input.status ?? "SCHEDULED",
         type: input.type ?? "SESSION",
         speakers: (() => {
-          const rows = buildSessionSpeakerRows(input);
+          const { rows } = buildSessionSpeakerRows(input);
           return rows.length > 0 ? { create: rows } : undefined;
         })(),
         topics:
@@ -434,9 +469,11 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
                   duration: t.duration || null,
                   // MCP used to drop client-supplied sortOrder.
                   sortOrder: t.sortOrder ?? i,
+                  // Set-dedupe: a duplicated id in one topic's list used to
+                  // P2002 the whole create (TopicSpeaker composite PK).
                   speakers:
                     t.speakerIds && t.speakerIds.length > 0
-                      ? { create: t.speakerIds.map((speakerId) => ({ speakerId })) }
+                      ? { create: [...new Set(t.speakerIds)].map((speakerId) => ({ speakerId })) }
                       : undefined,
                 })),
               }
@@ -582,7 +619,7 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
       //    cleanup is skipped when the payload replaces topics too — step 3
       //    writes the exact requested per-topic rosters instead.
       if (input.sessionRoles !== undefined || input.speakerIds !== undefined) {
-        await setSessionSpeakersTx(tx, sessionId, buildSessionSpeakerRows(input), {
+        await setSessionSpeakersTx(tx, sessionId, buildSessionSpeakerRows(input).rows, {
           cleanTopicSpeakers: input.topics === undefined,
         });
       }
@@ -627,8 +664,9 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
             await tx.sessionTopic.update({ where: { id: existingId }, data: fields });
             await tx.topicSpeaker.deleteMany({ where: { topicId: existingId } });
             if (t.speakerIds && t.speakerIds.length > 0) {
+              // Set-dedupe: a duplicated id used to P2002 the whole save.
               await tx.topicSpeaker.createMany({
-                data: t.speakerIds.map((speakerId) => ({ topicId: existingId, speakerId })),
+                data: [...new Set(t.speakerIds)].map((speakerId) => ({ topicId: existingId, speakerId })),
               });
             }
           } else {
@@ -638,7 +676,7 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
                 ...fields,
                 speakers:
                   t.speakerIds && t.speakerIds.length > 0
-                    ? { create: t.speakerIds.map((speakerId) => ({ speakerId })) }
+                    ? { create: [...new Set(t.speakerIds)].map((speakerId) => ({ speakerId })) }
                     : undefined,
               },
             });

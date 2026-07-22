@@ -481,3 +481,74 @@ describe("L3: an abstract-uniqueness race maps to ABSTRACT_ALREADY_ASSIGNED, not
     if (!res.ok) expect(res.code).toBe("UNKNOWN");
   });
 });
+
+describe("duplicate speaker in the roster payload (July 21, 2026 prod alert — P2002 on createMany)", () => {
+  beforeEach(() => {
+    mockDb.speaker.findMany.mockResolvedValue([{ id: "sp1" }, { id: "sp2" }]);
+  });
+
+  it("same speaker under two DIFFERENT roles → DUPLICATE_SPEAKER_ID (400), nothing written", async () => {
+    const res = await updateSession({
+      ...BASE_UPDATE,
+      sessionRoles: [
+        { speakerId: "sp1", role: "SPEAKER" },
+        { speakerId: "sp1", role: "MODERATOR" },
+      ],
+    });
+    expect(res).toMatchObject({ ok: false, code: "DUPLICATE_SPEAKER_ID", meta: { speakerId: "sp1" } });
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+    // Create path shares the same validate()
+    const created = await createSession({
+      ...BASE_CREATE,
+      sessionRoles: [
+        { speakerId: "sp1", role: "SPEAKER" },
+        { speakerId: "sp1", role: "PANELIST" },
+      ],
+    });
+    expect(created).toMatchObject({ ok: false, code: "DUPLICATE_SPEAKER_ID" });
+    expect(mockDb.eventSession.create).not.toHaveBeenCalled();
+  });
+
+  it("EXACT duplicate pair (same speaker, same role — a double-added row) collapses silently", async () => {
+    mockTx.sessionSpeaker.createMany.mockResolvedValue({ count: 1 });
+    const res = await updateSession({
+      ...BASE_UPDATE,
+      sessionRoles: [
+        { speakerId: "sp1", role: "SPEAKER" },
+        { speakerId: "sp1", role: "SPEAKER" },
+        { speakerId: "sp2", role: "MODERATOR" },
+      ],
+    });
+    expect(res.ok).toBe(true);
+    expect(mockTx.sessionSpeaker.createMany).toHaveBeenCalledWith({
+      data: [
+        { sessionId: "s1", speakerId: "sp1", role: "SPEAKER" },
+        { sessionId: "s1", speakerId: "sp2", role: "MODERATOR" },
+      ],
+    });
+  });
+
+  it("duplicate ids in the legacy flat speakerIds list collapse silently (no role ambiguity)", async () => {
+    mockTx.sessionSpeaker.createMany.mockResolvedValue({ count: 1 });
+    const res = await updateSession({ ...BASE_UPDATE, speakerIds: ["sp1", "sp1", "sp2"] });
+    expect(res.ok).toBe(true);
+    const data = mockTx.sessionSpeaker.createMany.mock.calls[0][0].data;
+    expect(data).toHaveLength(2);
+  });
+
+  it("duplicate speakerIds within one TOPIC's list are Set-deduped (TopicSpeaker PK)", async () => {
+    mockTx.sessionTopic.findMany.mockResolvedValue([{ id: "t1" }]);
+    mockTx.topicSpeaker.createMany.mockResolvedValue({ count: 1 });
+    const res = await updateSession({
+      ...BASE_UPDATE,
+      topics: [{ id: "t1", title: "Topic A", speakerIds: ["sp1", "sp1", "sp2"] }],
+    });
+    expect(res.ok).toBe(true);
+    expect(mockTx.topicSpeaker.createMany).toHaveBeenCalledWith({
+      data: [
+        { topicId: "t1", speakerId: "sp1" },
+        { topicId: "t1", speakerId: "sp2" },
+      ],
+    });
+  });
+});
