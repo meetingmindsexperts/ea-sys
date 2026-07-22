@@ -71,3 +71,21 @@ export async function publicEventWhere(
 ): Promise<Prisma.EventWhereInput> {
   return publicEventWhereForHost(req.headers.get("host"), slug, opts);
 }
+
+/**
+ * Defense-in-depth check for TOKEN-based public routes (rsvp, reimbursement,
+ * agreements, survey token, complete-registration): their tokens are globally
+ * unique and every route already asserts the event slug, so identity is
+ * correct without tenancy — but a token minted for tenant A shouldn't render
+ * on tenant B's domain. Call AFTER loading the row; pass the loaded event's
+ * organizationId. Under unscoped/default resolution on master this is
+ * tautologically true (behavior-preserving).
+ */
+export async function eventMatchesRequestTenant(
+  req: Request,
+  organizationId: string,
+): Promise<boolean> {
+  const res = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+  if (res.source === "unknown-enforced") return false;
+  return !res.orgId || res.orgId === organizationId;
+}

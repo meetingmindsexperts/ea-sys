@@ -21,6 +21,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rsvpSubmitSchema } from "@/lib/rsvp/rsvp";
 
@@ -38,8 +39,8 @@ function isDinnerOpen(d: { rsvpDeadline: Date | null; dinnerAt: Date }, now: num
   return (d.rsvpDeadline ?? d.dinnerAt).getTime() >= now;
 }
 
-/** Load the invite by token and assert it belongs to the URL's event. */
-async function loadInviteForSlug(slug: string, token: string) {
+/** Load the invite by token and assert it belongs to the URL's event + tenant. */
+async function loadInviteForSlug(req: Request, slug: string, token: string) {
   const invite = await db.rsvpInvite.findUnique({
     where: { token },
     select: {
@@ -52,6 +53,7 @@ async function loadInviteForSlug(slug: string, token: string) {
       event: {
         select: {
           slug: true,
+          organizationId: true,
           name: true,
           bannerImage: true,
           bannerImageMobile: true,
@@ -64,6 +66,12 @@ async function loadInviteForSlug(slug: string, token: string) {
     },
   });
   if (!invite || invite.event.slug !== slug) return null;
+  // Defense-in-depth: a token minted for tenant A must not render on tenant
+  // B's domain (tautologically true on master's unscoped resolution).
+  if (!(await eventMatchesRequestTenant(req, invite.event.organizationId))) {
+    apiLogger.warn({ slug, eventId: invite.eventId }, "rsvp-public:tenant-mismatch");
+    return null;
+  }
   return invite;
 }
 
@@ -84,7 +92,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const invite = await loadInviteForSlug(slug, token);
+    const invite = await loadInviteForSlug(req, slug, token);
     if (!invite) {
       apiLogger.warn({ slug, stage: "load" }, "rsvp-public:invalid-token");
       return NextResponse.json({ error: "This RSVP link is invalid." }, { status: 404 });
@@ -156,7 +164,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const invite = await loadInviteForSlug(slug, token);
+    const invite = await loadInviteForSlug(req, slug, token);
     if (!invite) {
       apiLogger.warn({ slug, stage: "submit-load" }, "rsvp-public:invalid-token");
       return NextResponse.json({ error: "This RSVP link is invalid." }, { status: 404 });

@@ -35,7 +35,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { publicEventWhere } from "@/lib/public-event";
+import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
 import {
   checkRateLimit,
   getClientIp,
@@ -430,6 +430,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             id: true,
             name: true,
             slug: true,
+            organizationId: true,
             bannerImage: true,
             surveyConfig: true,
             surveyIntroHtml: true,
@@ -459,6 +460,13 @@ export async function GET(req: Request, { params }: RouteParams) {
         tokenSlug: registration.event.slug,
         urlSlug: slug,
       });
+      return NextResponse.json(
+        { error: "This link does not match the event. Please use the original link from your email." },
+        { status: 400 },
+      );
+    }
+    if (!(await eventMatchesRequestTenant(req, registration.event.organizationId))) {
+      apiLogger.warn({ msg: "survey:get-tenant-mismatch", registrationId, urlSlug: slug });
       return NextResponse.json(
         { error: "This link does not match the event. Please use the original link from your email." },
         { status: 400 },
@@ -581,10 +589,11 @@ async function handleShareSubmit(
 
   // Same email can map to multiple registrations in an event (multi-ticket
   // / re-registration): prefer an incomplete one, else treat as already
-  // completed. Scoped by event slug (slug is unique) so no cross-event leak.
+  // completed. Scoped by the tenant-resolved event id (the event lookup above
+  // is host-scoped via publicEventWhere) so no cross-event/tenant leak.
   const registrations = await db.registration.findMany({
     where: {
-      event: { slug },
+      eventId: event.id,
       status: { notIn: ["CANCELLED"] },
       attendee: { email: normalizedEmail },
     },
@@ -756,6 +765,13 @@ export async function POST(req: Request, { params }: RouteParams) {
         tokenSlug: registration.event.slug,
         urlSlug: slug,
       });
+      return NextResponse.json(
+        { error: "This link does not match the event." },
+        { status: 400 },
+      );
+    }
+    if (!(await eventMatchesRequestTenant(req, registration.event.organizationId))) {
+      apiLogger.warn({ msg: "survey:post-tenant-mismatch", registrationId, urlSlug: slug });
       return NextResponse.json(
         { error: "This link does not match the event." },
         { status: 400 },

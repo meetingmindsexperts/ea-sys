@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
@@ -83,6 +84,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             id: true,
             name: true,
             slug: true,
+            organizationId: true,
             bannerImage: true,
             speakerAgreementHtml: true,
             organization: { select: { name: true, logo: true } },
@@ -96,6 +98,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     if (speaker.event.slug !== slug) {
+      return NextResponse.json({ error: "This link does not belong to this event." }, { status: 400 });
+    }
+    if (!(await eventMatchesRequestTenant(req, speaker.event.organizationId))) {
+      apiLogger.warn({ slug, speakerId: speaker.id }, "speaker-agreement:tenant-mismatch");
       return NextResponse.json({ error: "This link does not belong to this event." }, { status: 400 });
     }
 
@@ -186,7 +192,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: {
         id: true,
         agreementAcceptedAt: true,
-        event: { select: { id: true, slug: true, speakerAgreementHtml: true } },
+        event: { select: { id: true, slug: true, organizationId: true, speakerAgreementHtml: true } },
       },
     });
 
@@ -195,6 +201,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     if (speaker.event.slug !== slug) {
+      return NextResponse.json({ error: "This link does not belong to this event." }, { status: 400 });
+    }
+    if (!(await eventMatchesRequestTenant(req, speaker.event.organizationId))) {
+      apiLogger.warn({ slug, speakerId: speaker.id }, "speaker-agreement:tenant-mismatch");
       return NextResponse.json({ error: "This link does not belong to this event." }, { status: 400 });
     }
 

@@ -59,7 +59,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const row = await loadReimbursementForSlug(slug, token);
+    const row = await loadReimbursementForSlug(req, slug, token);
     if (!row) {
       apiLogger.warn({ slug, stage: "load" }, "reimbursement-public:invalid-token");
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
@@ -141,7 +141,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const row = await loadReimbursementForSlug(slug, token);
+    const row = await loadReimbursementForSlug(req, slug, token);
     if (!row) {
       apiLogger.warn({ slug, stage: "submit-load" }, "reimbursement-public:invalid-token");
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });

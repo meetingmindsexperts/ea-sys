@@ -261,6 +261,7 @@ describe("post-submission documents — append-only", () => {
   };
   const uploadReq = (kind = "FLIGHT_RECEIPT") =>
     ({
+      headers: new Headers(),
       formData: async () => ({
         get: (k: string) => (k === "file" ? pdfFile : kind),
       }),
@@ -303,7 +304,7 @@ describe("post-submission documents — append-only", () => {
 
   it("removal stays LOCKED after submission (409)", async () => {
     mockDb.speakerReimbursement.findUnique.mockResolvedValue(baseRow({ status: "SUBMITTED" }));
-    const res = await uploadDocDelete({} as never, params({ documentId: "d1" }));
+    const res = await uploadDocDelete({ headers: new Headers() } as never, params({ documentId: "d1" }));
     expect(res.status).toBe(409);
     expect(mockDb.speakerReimbursementDocument.delete).not.toHaveBeenCalled();
   });

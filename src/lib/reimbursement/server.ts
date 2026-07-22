@@ -7,6 +7,8 @@
 
 import crypto from "crypto";
 import { db } from "@/lib/db";
+import { apiLogger } from "@/lib/logger";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
 
 /**
  * 24 random bytes → 32-char base64url token. Unguessable, URL-safe.
@@ -21,11 +23,13 @@ export function generateReimbursementToken(): string {
 /**
  * Public-route loader: resolve a reimbursement by its unique token, then
  * assert it belongs to the URL's event slug (the RSVP pattern — a valid
- * token pasted under another event's slug is a 404, not a cross-event read).
+ * token pasted under another event's slug is a 404, not a cross-event read)
+ * AND to the request's tenant (defense-in-depth: a token minted for tenant A
+ * must not render on tenant B's domain; tautologically true on master).
  * Shared by the token route and its documents sub-routes (Next route files
  * may only export HTTP handlers, so the helper lives here).
  */
-export async function loadReimbursementForSlug(slug: string, token: string) {
+export async function loadReimbursementForSlug(req: Request, slug: string, token: string) {
   const row = await db.speakerReimbursement.findUnique({
     where: { token },
     select: {
@@ -82,5 +86,9 @@ export async function loadReimbursementForSlug(slug: string, token: string) {
     },
   });
   if (!row || row.event.slug !== slug) return null;
+  if (!(await eventMatchesRequestTenant(req, row.event.organizationId))) {
+    apiLogger.warn({ slug, eventId: row.eventId }, "reimbursement-public:tenant-mismatch");
+    return null;
+  }
   return row;
 }

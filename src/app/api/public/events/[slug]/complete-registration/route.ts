@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -96,6 +97,7 @@ export async function GET(req: Request, { params }: RouteParams) {
             id: true,
             name: true,
             slug: true,
+            organizationId: true,
             startDate: true,
             endDate: true,
             venue: true,
@@ -133,6 +135,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Verify event slug matches URL for defense in depth
     if (registration.event.slug !== slug) {
       apiLogger.warn({ msg: "Completion token used on wrong event URL", tokenSlug: registration.event.slug, urlSlug: slug, registrationId });
+      return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
+    }
+    if (!(await eventMatchesRequestTenant(req, registration.event.organizationId))) {
+      apiLogger.warn({ msg: "Completion token used on wrong tenant domain", urlSlug: slug, registrationId });
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
@@ -295,6 +301,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (registration.event.slug !== slug) {
       apiLogger.warn({ msg: "Completion POST token used on wrong event URL", tokenSlug: registration.event.slug, urlSlug: slug, registrationId });
+      return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
+    }
+    if (!(await eventMatchesRequestTenant(req, registration.event.organizationId))) {
+      apiLogger.warn({ msg: "Completion POST token used on wrong tenant domain", urlSlug: slug, registrationId });
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 

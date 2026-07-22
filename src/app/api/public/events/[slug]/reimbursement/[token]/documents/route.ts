@@ -55,7 +55,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const row = await loadReimbursementForSlug(slug, token);
+    const row = await loadReimbursementForSlug(req, slug, token);
     if (!row) {
       apiLogger.warn({ slug, stage: "upload" }, "reimbursement-upload:invalid-token");
       return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });

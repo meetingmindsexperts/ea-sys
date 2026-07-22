@@ -107,6 +107,7 @@ describe("POST /rsvp-invites — created count is the DB's real insert count (M2
     mockDb.rsvpInvite.createMany.mockResolvedValue({ count: 1 });
 
     const req = {
+      headers: new Headers(),
       json: async () => ({
         invitees: [
           { name: "A", email: "a@x.com" },
@@ -154,6 +155,7 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
     const tx = wireInvite();
     // Submit: attending B only; A omitted-as-not-attending. Previously A was attending.
     const req = {
+      headers: new Headers(),
       json: async () => ({
         dietary: "veg",
         dinners: [
@@ -188,6 +190,7 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
   it("declining every dinner clears responses and creates none", async () => {
     const tx = wireInvite();
     const req = {
+      headers: new Headers(),
       json: async () => ({
         dinners: [
           { dinnerId: "A", attending: false, guestCount: 0 },
@@ -212,6 +215,7 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
       { id: "B", rsvpDeadline: null, dinnerAt: FUTURE },
     ]);
     const req = {
+      headers: new Headers(),
       json: async () => ({
         dinners: [
           { dinnerId: "A", attending: true, guestCount: 2 }, // closed — must be ignored
@@ -241,6 +245,7 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
       { id: "B", rsvpDeadline: null, dinnerAt: FUTURE },
     ]);
     const req = {
+      headers: new Headers(),
       json: async () => ({
         dinners: [{ dinnerId: "A", attending: true, guestCount: 0 }],
       }),
@@ -261,6 +266,7 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
       { id: "A", rsvpDeadline: null, dinnerAt: PAST },
     ]);
     const req = {
+      headers: new Headers(),
       json: async () => ({ dinners: [{ dinnerId: "A", attending: true, guestCount: 0 }] }),
     } as unknown as Request;
     const res = await publicSubmit(req, { params: Promise.resolve({ slug: "gala", token: "tok" }) });
@@ -271,6 +277,7 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
   it("writes a fire-and-forget AuditLog row with before→after + IP", async () => {
     wireInvite();
     const req = {
+      headers: new Headers(),
       json: async () => ({
         dinners: [{ dinnerId: "B", attending: true, guestCount: 2 }],
       }),
@@ -294,6 +301,7 @@ describe("POST /dinners — cross-field deadline validation (R2 L7)", () => {
   it("400 DEADLINE_AFTER_DINNER when rsvpDeadline > dinnerAt", async () => {
     mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
     const req = {
+      headers: new Headers(),
       json: async () => ({
         name: "Gala",
         dinnerAt: FUTURE.toISOString(),
