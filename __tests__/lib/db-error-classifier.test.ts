@@ -48,6 +48,12 @@ vi.mock("@prisma/client", () => ({
       if (!eventHandlers[event]) eventHandlers[event] = [];
       eventHandlers[event].push(handler);
     }
+    // db.ts wraps the client in the tenant-isolation $extends (Phase 0).
+    // The extension is behavior-only (flag-gated off here), so returning
+    // `this` keeps the $on handlers + module shape intact for these tests.
+    $extends() {
+      return this;
+    }
   },
 }));
 

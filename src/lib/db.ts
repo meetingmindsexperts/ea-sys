@@ -1,5 +1,6 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { dbLogger } from "./logger";
+import { enterTenantTx, getTenantOrgId, getTenantStore } from "./tenant-context";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -164,7 +165,85 @@ function createPrismaClient() {
   return client;
 }
 
-export const db = globalForPrisma.prisma ?? createPrismaClient();
+/**
+ * Tenant-isolation query extension (multi-tenancy Phase 0 —
+ * docs/MULTI_TENANCY.md §0). When RLS_SET_LOCAL=1 AND a tenant store is
+ * active (src/lib/tenant-context.ts), every model operation is wrapped in a
+ * batch transaction that first issues the transaction-scoped
+ * `set_config('app.current_org', <orgId>, TRUE)` — i.e. SET LOCAL — so
+ * Postgres RLS policies can filter by `current_setting('app.current_org')`.
+ * Transaction-scoped is the ONLY pooler-safe shape: under the Supabase
+ * pgbouncer transaction pooler each transaction gets one backend, so the
+ * GUC and the query land on the same connection and never leak across
+ * pooled clients. (This is the official Prisma-docs RLS pattern.)
+ *
+ * Master today: RLS_SET_LOCAL is unset → the extension is a pure
+ * passthrough (one function frame per query, no behavior change). Nothing
+ * in production populates the tenant store yet either — belt and braces.
+ *
+ * Deliberately NOT wrapped: `$queryRaw`/`$executeRaw`/`$transaction`
+ * client-level ops. Under fail-closed RLS an unwrapped raw query sees zero
+ * rows — the safe failure direction. Interactive transactions must use
+ * `tenantTransaction()` below; ops inside it pass through via the
+ * `inTenantTx` marker (wrapping them again would SET LOCAL on a DIFFERENT
+ * pooled backend than the transaction's — wrong, plus deadlock risk).
+ * ⚠ Phase-2 precondition (recorded in MULTI_TENANCY.md §13): migrate/audit
+ * the existing `db.$transaction` sites to `tenantTransaction` per domain
+ * BEFORE enabling RLS_SET_LOCAL anywhere real.
+ */
+function withTenantIsolation(base: ReturnType<typeof createPrismaClient>) {
+  return base.$extends({
+    name: "tenant-set-local",
+    query: {
+      $allModels: {
+        async $allOperations({ args, query }) {
+          if (process.env.RLS_SET_LOCAL !== "1") return query(args);
+          const store = getTenantStore();
+          if (!store?.orgId || store.inTenantTx) return query(args);
+          const [, result] = await base.$transaction([
+            base.$executeRaw`SELECT set_config('app.current_org', ${store.orgId}, TRUE)`,
+            query(args) as Prisma.PrismaPromise<unknown>,
+          ]);
+          return result;
+        },
+      },
+    },
+  });
+}
+
+/**
+ * The extension changes the client's TYPE to Prisma's DynamicClientExtension
+ * shape, whose interactive-`$transaction` `tx` is structurally incompatible
+ * with the `Prisma.TransactionClient` parameter type used by ~50 existing
+ * service/helper signatures (measured: 52 tsc errors). The extension does NOT
+ * change any operation signature or result shape at runtime — it only wraps
+ * execution — so we confine the type noise here with a cast back to
+ * PrismaClient (the pre-agreed fallback in the Phase-0 plan) instead of
+ * rippling `TransactionClient` generics through the codebase.
+ */
+export const db =
+  globalForPrisma.prisma ??
+  (withTenantIsolation(createPrismaClient()) as unknown as PrismaClient);
+
+/**
+ * The sanctioned interactive-transaction entry point once tenancy is live:
+ * issues the SET LOCAL on the transaction's own backend first, then marks the
+ * async context `inTenantTx` so the query extension passes inner operations
+ * through untouched. Flag off / no tenant store → behaves exactly like
+ * `db.$transaction`.
+ */
+export async function tenantTransaction<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  opts?: { maxWait?: number; timeout?: number },
+): Promise<T> {
+  const orgId = getTenantOrgId();
+  return db.$transaction(async (tx) => {
+    if (process.env.RLS_SET_LOCAL === "1" && orgId) {
+      await tx.$executeRaw`SELECT set_config('app.current_org', ${orgId}, TRUE)`;
+    }
+    return enterTenantTx(() => fn(tx));
+  }, opts);
+}
 
 // Cache the client in dev to prevent HMR from creating new connections
 if (process.env.NODE_ENV !== "production") {

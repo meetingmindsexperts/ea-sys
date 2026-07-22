@@ -35,6 +35,11 @@ vi.mock("@prisma/client", () => ({
     $queryRaw(...args: unknown[]) {
       return queryRawMock(...args);
     }
+    // db.ts wraps the client in the tenant-isolation $extends (Phase 0);
+    // behavior-only + flag-gated off here, so identity keeps the fake intact.
+    $extends() {
+      return this;
+    }
   },
 }));
 
