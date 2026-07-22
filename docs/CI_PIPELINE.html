@@ -53,7 +53,8 @@
    └───────────────────────────────────────────────────────────────────────────────────┘
    │  needs: [checks, tests, build]
    ▼
-build-push    Docker web+worker images → ECR (GitHub OIDC, no stored AWS keys)  ~4–5 min
+build-push    web ∥ worker image matrix → ECR (GitHub OIDC, no stored AWS keys) ~4 min
+              (two parallel legs since July 22 — was one serial job at ~6.6 min)
    ▼
 deploy        SSH → box checks out the EXACT commit → scripts/deploy.sh blue-green ~2–3 min
    ▼

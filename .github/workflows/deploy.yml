@@ -283,12 +283,31 @@ jobs:
   # fast runners and pushes them to ECR (ap-south-1). Auth is via GitHub OIDC —
   # NO stored AWS keys. The deploy job depends on this (Step 2): the box pulls
   # these images instead of building on-box (~8 min → ~1-2 min).
+  #
+  # PARALLEL MATRIX (July 22, 2026, owner decision): the two images used to
+  # build serially in one job (~247s web + ~119s worker = ~6.6 min); they are
+  # independent, so each matrix leg builds one image and the phase's wall
+  # clock is max(web) ≈ 4 min — ~2.5 min saved per deploy. Cache scopes
+  # (web/worker) are unchanged, so existing GHA layer caches carry over.
+  # `needs: build-push` on deploy waits for BOTH legs, exactly as before.
   build-push:
-    name: Build & push images → ECR
+    name: Build & push ${{ matrix.image }} image → ECR
     # Every gate the old serial `ci` job enforced still blocks image builds.
     needs: [checks, tests, build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      # Let the other image finish (its push is harmless — deploy won't run on
+      # any failure) so a red run shows exactly which image broke.
+      fail-fast: false
+      matrix:
+        include:
+          - image: web
+            dockerfile: Dockerfile
+            tag_prefix: ""
+          - image: worker
+            dockerfile: Dockerfile.worker
+            tag_prefix: "worker-"
     permissions:
       id-token: write   # required for GitHub OIDC → AWS role assumption
       contents: read
@@ -317,42 +336,25 @@ jobs:
         id: meta
         run: echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      - name: Build & push WEB image
+      - name: Build & push ${{ matrix.image }} image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:${{ github.sha }}
-            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:latest
+            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:${{ matrix.tag_prefix }}${{ github.sha }}
+            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:${{ matrix.tag_prefix }}latest
           # Bake the commit into the image so /api/health, /admin/infra and every
           # alert email can answer "what SHA is running?" — previously unanswerable.
           build-args: |
             GIT_SHA=${{ github.sha }}
             BUILT_AT=${{ steps.meta.outputs.built_at }}
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,mode=max,scope=web
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           # Don't push provenance/SBOM attestation manifests — buildx defaults to
           # provenance:true, which adds an extra untagged manifest per build that
           # nothing here pulls and just clutters ECR.
-          provenance: false
-          sbom: false
-
-      - name: Build & push WORKER image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.worker
-          push: true
-          tags: |
-            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:worker-${{ github.sha }}
-            803726282629.dkr.ecr.ap-south-1.amazonaws.com/ea-sys:worker-latest
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-            BUILT_AT=${{ steps.meta.outputs.built_at }}
-          cache-from: type=gha,scope=worker
-          cache-to: type=gha,mode=max,scope=worker
           provenance: false
           sbom: false
 
