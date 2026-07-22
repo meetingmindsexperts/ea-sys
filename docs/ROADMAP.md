@@ -212,6 +212,31 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### CI deploy speed — eliminate the duplicated `next build` inside the web Docker image (July 22, 2026)
+
+**Backlogged by owner decision (option B of the deploy-speed pass).** Context: the July 22 measurement of
+run 29911070770 showed `build-push` at 6.6 min (web 247s + worker 119s, serial). Option A — building the two
+images as **parallel matrix legs** — shipped same day (`e813c64b`; first matrix run green, image-phase wall
+clock now bounded by the web leg at ~4–4.8 min; deploy end-to-end ~7.5–8.5 min, was ~10).
+
+**The remaining ~3 min is a straight duplication:** the gating `build` CI job runs `npx next build` on the
+runner and discards the output, then the web Docker build re-runs the identical `next build` inside buildx
+(the `COPY . .` layer invalidates on every code change, so the layer cache never saves it). The fix: the
+`build` job uploads `.next/standalone` + `.next/static` + `public` + the generated Prisma client
+(`node_modules/.prisma` + `node_modules/@prisma`) as an artifact; `build-push`'s web leg downloads it and the
+Dockerfile becomes assemble-only (no `npm ci`, no `next build` in Docker). Expected: web leg ~60–90s,
+**full deploy ≈ 5 min**.
+
+**Why it's parked rather than done:** it restructures the deploy pipeline of a live platform. Care points for
+whoever picks it up: (1) runner build env must match the runtime image — both are Node 24 / glibc x64 /
+OpenSSL 3 today (`.nvmrc` vs `node:24-slim`), and the Prisma engine binary target (`debian-openssl-3.0.x`)
+must be verified to load inside the slim image when generated on ubuntu-latest; (2) keep the on-box
+`deploy.sh` fallback build working (it has no artifact — the Dockerfile needs both paths or a build-arg
+switch); (3) artifact upload/download is ~100–200 MB each way (~30–60s) — net win only because the in-Docker
+build is ~3 min; (4) `Dockerfile.worker` is unaffected (no next build inside it — its time is npm ci + push).
+Verify with a full blue-green deploy + `/api/health` GIT_SHA check + a rollback drill re-run (docs/ROLLBACK.md
+§1.6 — the pinned-rollback path must keep working against assemble-only images).
+
 ### Cross-caller duplication audit — deferred findings (July 21, 2026)
 
 A repo-wide duplication audit (verified finding-by-finding against source before any fix — full report at
