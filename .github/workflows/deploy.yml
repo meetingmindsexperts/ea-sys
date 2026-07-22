@@ -97,6 +97,73 @@ jobs:
       - name: Build
         run: npx next build
 
+  # ── Tenant-isolation harness (parallel, NON-GATING initially) ────────────────
+  # Real Postgres + pgbouncer (transaction mode) service containers running the
+  # tests/tenancy suite: two seeded tenants + the pilot Event RLS policy prove
+  # host→org resolution, the SET LOCAL transport, and cross-tenant isolation
+  # (docs/MULTI_TENANCY.md §0 Phase 0). Deliberately NOT in the deploy path
+  # yet — fresh container infra on the pipeline that deploys a live event
+  # platform must not be able to block an emergency hotfix. Promote to gating
+  # (add to build-push's `needs`) after ≥5 consecutive green runs.
+  tenancy:
+    name: Tenant isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tenancy
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      pgbouncer:
+        image: edoburu/pgbouncer:latest
+        env:
+          DB_HOST: postgres
+          DB_NAME: tenancy
+          DB_USER: app_user
+          DB_PASSWORD: app_user_pw
+          POOL_MODE: transaction
+          AUTH_TYPE: plain
+          MAX_CLIENT_CONN: "100"
+        ports:
+          - 56432:5432
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: tenancy-deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.tenancy-deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Tenant-isolation suite
+        env:
+          TENANCY_DIRECT_URL: postgresql://postgres:postgres@localhost:55432/tenancy
+          TENANCY_DATABASE_URL: postgresql://app_user:app_user_pw@localhost:56432/tenancy?pgbouncer=true&connection_limit=3
+        run: npm run test:tenancy
+
   # ── Sentry source maps (parallel, non-gating) ────────────────────────────────
   # Runs `next build` with the Sentry auth token purely to upload source maps
   # for this commit — the Docker image build deliberately has NO Sentry token,
