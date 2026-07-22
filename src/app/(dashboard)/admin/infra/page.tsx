@@ -824,11 +824,11 @@ export default function InfraPage() {
 
           {/* Email failures */}
           <Card id="email-failures" className="scroll-mt-4">
-            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><MailWarning className="h-4 w-4 text-primary" /> Email failures</CardTitle></CardHeader>
+            <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><MailWarning className="h-4 w-4 text-primary" /> Email failures <span className="text-xs font-normal text-muted-foreground">(last 7 days)</span></CardTitle></CardHeader>
             <CardContent>
               <StatusNote status={snap.emailFailures.status} error={snap.emailFailures.error} unconfiguredHint="No email log." />
               {snap.emailFailures.status === "ok" && (snap.emailFailures.rows.length === 0 ? (
-                <p className="text-sm text-emerald-600 flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> No recent send failures.</p>
+                <p className="text-sm text-emerald-600 flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> No send failures in the last 7 days.</p>
               ) : (
                 <div className="space-y-1.5">
                   {snap.emailFailures.rows.map((e, i) => (

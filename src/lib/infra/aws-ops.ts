@@ -522,12 +522,22 @@ async function fetchRecentErrors(): Promise<InfraSnapshot["recentErrors"]> {
   }
 }
 
+// The failures card is an at-3am operational signal, not an archive — only
+// failures inside this window surface. Older FAILED rows stay in EmailLog
+// (they're audit history on the per-person Email History timelines) but age
+// off this dashboard. Added July 22, 2026 after months-old test-era failures
+// sat on the card forever.
+const EMAIL_FAILURE_WINDOW_DAYS = 7;
+
 async function fetchEmailFailures(): Promise<InfraSnapshot["emailFailures"]> {
   try {
     // Recent failed sends — complements the SES aggregate rates with the
     // actual "which email didn't go and why". Our own EmailLog.
     const rows = await db.emailLog.findMany({
-      where: { status: "FAILED" },
+      where: {
+        status: "FAILED",
+        createdAt: { gte: new Date(Date.now() - EMAIL_FAILURE_WINDOW_DAYS * 24 * 60 * 60 * 1000) },
+      },
       orderBy: { createdAt: "desc" },
       take: 12,
       select: { to: true, subject: true, errorMessage: true, templateSlug: true, createdAt: true },
