@@ -77,6 +77,7 @@ import {
   Copy,
   Save,
   RefreshCw,
+  Download,
 } from "lucide-react";
 import type { CertificateTextBox } from "@/components/certificates/certificate-canvas-editor";
 import { CertEmailEditorDialog } from "@/components/certificates/cert-email-editor-dialog";
@@ -2101,6 +2102,23 @@ export default function CertificatesPage() {
                                   Send emails
                                 </Button>
                               )}
+                              {/* Download all rendered certs as one ZIP —
+                                  available from the review gate onward (the
+                                  PDFs exist before any email goes out), so
+                                  an organizer can hand certificates over
+                                  personally instead of emailing. Plain <a>
+                                  so the browser handles the file download. */}
+                              {!["PENDING", "RENDERING"].includes(runQuery.data.status) &&
+                                runQuery.data.renderedCount > 0 && (
+                                  <Button size="sm" variant="outline" asChild>
+                                    <a
+                                      href={`/api/events/${eventId}/certificates/runs/${runQuery.data.runId}/download`}
+                                    >
+                                      <Download className="h-4 w-4 mr-1" />
+                                      Download all (zip)
+                                    </a>
+                                  </Button>
+                                )}
                               {/* Retry failed — only meaningful when there
                                   ARE failures AND the run is in a status
                                   the API will accept the retry from. */}

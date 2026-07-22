@@ -136,6 +136,9 @@ export function IssuedCertificatesCard({
   const issueMutation = useIssueSingleCertificate(eventId);
   const [issueOpen, setIssueOpen] = useState(false);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  // "Issue & email" (default) vs "issue only" — the organizer can mint the
+  // cert without a delivery email and hand the PDF over via each row's Open.
+  const [sendEmailChecked, setSendEmailChecked] = useState(true);
   // A registration card issues ATTENDANCE templates; a speaker card issues
   // APPRECIATION ones (the facet the recipient can hold).
   const facetCategory = speakerId ? "APPRECIATION" : "ATTENDANCE";
@@ -152,14 +155,17 @@ export function IssuedCertificatesCard({
     if (selectedTemplateIds.length === 0) return;
     try {
       const body = registrationId
-        ? { templateIds: selectedTemplateIds, registrationId }
-        : { templateIds: selectedTemplateIds, speakerId };
+        ? { templateIds: selectedTemplateIds, registrationId, sendEmail: sendEmailChecked }
+        : { templateIds: selectedTemplateIds, speakerId, sendEmail: sendEmailChecked };
       const res = await issueMutation.mutateAsync(body);
       const reused = res.certs.filter((c) => c.reused).length;
       const fresh = res.certs.length - reused;
+      const reusedSuffix =
+        reused > 0 ? ` (${fresh} newly issued, ${reused} already held — re-attached)` : "";
       toast.success(
-        `Emailed ${res.certs.length} certificate${res.certs.length === 1 ? "" : "s"} to ${res.recipientEmail}` +
-          (reused > 0 ? ` (${fresh} newly issued, ${reused} already held — re-attached)` : ""),
+        res.emailed
+          ? `Emailed ${res.certs.length} certificate${res.certs.length === 1 ? "" : "s"} to ${res.recipientEmail}${reusedSuffix}`
+          : `Issued ${res.certs.length} certificate${res.certs.length === 1 ? "" : "s"} — no email sent${reusedSuffix}. Download via each row's Open button.`,
       );
       if (res.failures.length > 0) {
         toast.error(
@@ -170,6 +176,7 @@ export function IssuedCertificatesCard({
       }
       setIssueOpen(false);
       setSelectedTemplateIds([]);
+      setSendEmailChecked(true);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to issue certificates");
     }
@@ -446,7 +453,10 @@ export function IssuedCertificatesCard({
         onOpenChange={(open) => {
           if (issueMutation.isPending) return;
           setIssueOpen(open);
-          if (!open) setSelectedTemplateIds([]);
+          if (!open) {
+            setSelectedTemplateIds([]);
+            setSendEmailChecked(true);
+          }
         }}
       >
         <DialogContent className="sm:max-w-md">
@@ -456,11 +466,13 @@ export function IssuedCertificatesCard({
               Issue certificates
             </DialogTitle>
             <DialogDescription>
-              Select the certificate templates to issue — they render and go out
-              as <strong>one email</strong> to this{" "}
-              {speakerId ? "speaker" : "registration"}, one PDF per certificate.
-              Tags decide who receives what: only templates whose tag this person
-              holds can be issued (&ldquo;no tag, no certificate&rdquo;).
+              Select the certificate templates to issue to this{" "}
+              {speakerId ? "speaker" : "registration"}. With the email option on,
+              they go out as <strong>one email</strong>, one PDF per certificate;
+              with it off, the certificates are issued silently and you download
+              them from this card. Tags decide who receives what: only templates
+              whose tag this person holds can be issued (&ldquo;no tag, no
+              certificate&rdquo;).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -525,13 +537,30 @@ export function IssuedCertificatesCard({
                 ).
               </p>
             )}
-            <p className="text-xs text-slate-400">
-              The email uses the editable{" "}
-              <strong>&ldquo;Certificate Delivery (Multiple Certificates)&rdquo;</strong>{" "}
-              template (Communications → Email Templates) when several certificates
-              are selected; a single certificate uses that template&apos;s own saved
-              cover email.
-            </p>
+            <label className="flex items-start gap-2 rounded-md border p-2.5 text-sm cursor-pointer">
+              <Checkbox
+                className="mt-0.5"
+                checked={sendEmailChecked}
+                onCheckedChange={(c) => setSendEmailChecked(c === true)}
+              />
+              <span>
+                <span className="font-medium">Send certificate email to the recipient</span>
+                <span className="block text-xs text-muted-foreground">
+                  Untick to issue without emailing — you can download the PDF from
+                  this card (each row&apos;s <em>Open</em> button) and hand it over
+                  yourself. You can still email it later with <em>Resend</em>.
+                </span>
+              </span>
+            </label>
+            {sendEmailChecked && (
+              <p className="text-xs text-slate-400">
+                The email uses the editable{" "}
+                <strong>&ldquo;Certificate Delivery (Multiple Certificates)&rdquo;</strong>{" "}
+                template (Communications → Email Templates) when several certificates
+                are selected; a single certificate uses that template&apos;s own saved
+                cover email.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIssueOpen(false)} disabled={issueMutation.isPending}>
@@ -546,7 +575,8 @@ export function IssuedCertificatesCard({
               ) : (
                 <>
                   <Plus className="h-3.5 w-3.5 mr-1.5" />
-                  Issue &amp; email{selectedTemplateIds.length > 0 ? ` (${selectedTemplateIds.length})` : ""}
+                  {sendEmailChecked ? "Issue & email" : "Issue only (no email)"}
+                  {selectedTemplateIds.length > 0 ? ` (${selectedTemplateIds.length})` : ""}
                 </>
               )}
             </Button>

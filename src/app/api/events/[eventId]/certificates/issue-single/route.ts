@@ -32,6 +32,9 @@ const bodySchema = z
     templateIds: z.array(z.string().min(1).max(64)).min(1).max(10).optional(),
     registrationId: z.string().min(1).max(64).optional(),
     speakerId: z.string().min(1).max(64).optional(),
+    // Default true. False = "issue only" — mint + store the certs, skip the
+    // delivery email (operator downloads from the card and hands them over).
+    sendEmail: z.boolean().optional(),
   })
   .refine((d) => Boolean(d.registrationId) !== Boolean(d.speakerId), {
     message: "Provide exactly one of registrationId or speakerId.",
@@ -80,7 +83,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       : [parsed.data.templateId!];
     const result = await issueCertificateBundle(
       { eventId, organizationId: session.user.organizationId, actorUserId: session.user.id, source: "rest" },
-      { templateIds, registrationId: parsed.data.registrationId, speakerId: parsed.data.speakerId },
+      {
+        templateIds,
+        registrationId: parsed.data.registrationId,
+        speakerId: parsed.data.speakerId,
+        sendEmail: parsed.data.sendEmail,
+      },
     );
 
     if (!result.ok) {
@@ -101,6 +109,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       recipientEmail: result.recipientEmail,
       certs: result.certs,
       failures: result.failures,
+      emailed: result.emailed,
       // Legacy single-cert convenience fields (pre-multi clients during the
       // deploy overlap read these).
       certificateId: result.certs[0]?.certificateId,

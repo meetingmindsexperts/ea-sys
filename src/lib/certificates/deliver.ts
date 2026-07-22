@@ -373,6 +373,9 @@ export type BundleIssueResult =
       /** Templates that could NOT be materialized (revoked / render failure).
        *  Non-empty means a partial send — surfaced to the operator. */
       failures: Array<{ templateId: string; templateName: string; error: string }>;
+      /** False when the operator chose "issue only" (sendEmail: false) — the
+       *  certs are minted + downloadable but NO delivery email went out. */
+      emailed: boolean;
       messageId?: string;
     }
   | DeliverFailure;
@@ -392,11 +395,23 @@ export type BundleIssueResult =
  *     (same `selectAutoIssueTargets` predicate as bulk email + survey
  *     auto-issue). Non-matching selections land in `failures[]`; when NO
  *     selection matches, the whole issue is blocked with NO_MATCHING_TAG.
+ *   - `sendEmail: false` (organizer request 2026-07-22) issues WITHOUT the
+ *     delivery email — the operator downloads the PDFs from the card and
+ *     hands them over personally. Everything up to the send step (tag gate,
+ *     dedup, audit) is identical; the recipient still needs an email on
+ *     file only when an email will actually be sent.
  */
 export async function issueCertificateBundle(
   ctx: DeliverContext,
-  input: { templateIds: string[]; registrationId?: string | null; speakerId?: string | null },
+  input: {
+    templateIds: string[];
+    registrationId?: string | null;
+    speakerId?: string | null;
+    /** Default true. False = mint + store the certs, skip the delivery email. */
+    sendEmail?: boolean;
+  },
 ): Promise<BundleIssueResult> {
+  const shouldSendEmail = input.sendEmail !== false;
   const registrationId = input.registrationId ?? null;
   const speakerId = input.speakerId ?? null;
   if ((registrationId && speakerId) || (!registrationId && !speakerId)) {
@@ -449,8 +464,12 @@ export async function issueCertificateBundle(
   if (!recipient || !facetRow) {
     return { ok: false, code: "RECIPIENT_NOT_FOUND", error: "Recipient no longer exists.", status: 404 };
   }
-  const recipientEmail = facetRow.email;
-  if (!recipientEmail) {
+  // An email address is only required when we're actually going to email —
+  // "issue only" works for a recipient with no address on file (the operator
+  // downloads + hands the PDF over). Empty string keeps the result shape
+  // stable for that case.
+  const recipientEmail = facetRow.email ?? "";
+  if (!recipientEmail && shouldSendEmail) {
     return { ok: false, code: "NO_RECIPIENT_EMAIL", error: "Recipient has no email address on file.", status: 409 };
   }
 
@@ -521,6 +540,7 @@ export async function issueCertificateBundle(
         serial: res.cert.serial,
         templateId: t.id,
         recipientEmail,
+        ...(shouldSendEmail ? {} : { emailSkipped: true }),
       });
     }
   }
@@ -531,6 +551,33 @@ export async function issueCertificateBundle(
       code: "ALL_TEMPLATES_FAILED",
       error: `No certificate could be issued — ${failures.map((f) => `${f.templateName}: ${f.error}`).join("; ")}`,
       status: 500,
+    };
+  }
+
+  // "Issue only" — the operator chose to hand the PDFs over personally.
+  // Everything above (tag gate, mint/reuse, audit) already ran; just skip
+  // the delivery email and report the certs for download.
+  if (!shouldSendEmail) {
+    apiLogger.info({
+      msg: "cert-deliver:bundle-issued-no-email",
+      eventId: ctx.eventId,
+      registrationId,
+      speakerId,
+      certCount: bundled.length,
+      reusedCount: bundled.filter((b) => b.cert.reused).length,
+      failureCount: failures.length,
+    });
+    return {
+      ok: true,
+      recipientEmail,
+      certs: bundled.map((b) => ({
+        certificateId: b.cert.certificateId,
+        serial: b.cert.serial,
+        templateName: b.cert.templateName,
+        reused: b.cert.reused,
+      })),
+      failures,
+      emailed: false,
     };
   }
 
@@ -603,6 +650,7 @@ export async function issueCertificateBundle(
       reused: b.cert.reused,
     })),
     failures,
+    emailed: true,
     messageId: send.messageId,
   };
 }

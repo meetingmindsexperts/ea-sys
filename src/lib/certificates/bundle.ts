@@ -513,6 +513,74 @@ export async function buildPersonCertificateWhere(
   };
 }
 
+// ── Run-item cert collection ─────────────────────────────────────────────────
+
+export interface RunItemCertRow {
+  pdfUrl: string | null;
+  serial: string;
+  type: CertificateType;
+  certificateTemplate: { name: string } | null;
+}
+
+/**
+ * Deterministic collection of the certs a RUN ITEM carries: the certs for
+ * (the item's stamped templateIds × the item's facets). Deliberately NOT
+ * keyed on the issueRunItemId provenance pointer — a cert reused across
+ * overlapping runs keeps its original pointer, and pointer-based collection
+ * would silently drop it from this run's set (review finding, 2026-07-10).
+ * Legacy items (no templateIds anywhere) fall back to the single
+ * issuedCertificateId pointer.
+ *
+ * ONE definition of "the certs this run item covers" — shared by the
+ * worker's send phase (what the email attaches) and the run's
+ * download-all-zip route (what the operator downloads), so the two can
+ * never disagree.
+ */
+export async function collectRunItemCertRows(args: {
+  eventId: string;
+  /** The run-level template set (fallback when the item wasn't stamped). */
+  runTemplateIds: string[];
+  item: {
+    registrationId: string | null;
+    speakerId: string | null;
+    templateIds: string[];
+    issuedCertificateId: string | null;
+  };
+}): Promise<RunItemCertRow[]> {
+  const certSelect = {
+    pdfUrl: true,
+    serial: true,
+    type: true,
+    certificateTemplate: { select: { name: true } },
+  } as const;
+  const { item } = args;
+  const itemTemplateIds = item.templateIds.length ? item.templateIds : args.runTemplateIds;
+  let certRows: RunItemCertRow[] = [];
+  if (itemTemplateIds.length > 0) {
+    certRows = await db.issuedCertificate.findMany({
+      where: {
+        eventId: args.eventId,
+        certificateTemplateId: { in: itemTemplateIds },
+        revokedAt: null,
+        OR: [
+          ...(item.registrationId ? [{ registrationId: item.registrationId }] : []),
+          ...(item.speakerId ? [{ speakerId: item.speakerId }] : []),
+        ],
+      },
+      select: certSelect,
+      orderBy: { issuedAt: "asc" },
+    });
+  }
+  if (certRows.length === 0 && item.issuedCertificateId) {
+    const single = await db.issuedCertificate.findUnique({
+      where: { id: item.issuedCertificateId },
+      select: certSelect,
+    });
+    if (single) certRows = [single];
+  }
+  return certRows;
+}
+
 // ── Bundle email ─────────────────────────────────────────────────────────────
 
 export interface BundleEmailCert {

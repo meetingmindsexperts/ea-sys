@@ -46,6 +46,7 @@ import {
   loadCertTemplate,
   findOrIssueCertificate,
   loadBundleCoverEmailTemplate,
+  collectRunItemCertRows,
 } from "./bundle";
 import { defaultCoverEmailFor } from "./email-tokens";
 import type { CertificateData, CertificateTemplate } from "./types";
@@ -771,48 +772,15 @@ async function processSendPhase(
       continue;
     }
     try {
-      // Collect the item's full cert set DETERMINISTICALLY: the certs for
-      // (item's stamped templateIds × item facets). Deliberately NOT keyed
-      // on the issueRunItemId provenance pointer — a cert reused across
-      // overlapping runs keeps its original pointer, and pointer-based
-      // collection would silently drop it from this run's bundle (review
-      // finding, 2026-07-10). Legacy items (no templateIds anywhere) fall
-      // back to the single issuedCertificateId pointer.
-      const certSelect = {
-        pdfUrl: true,
-        serial: true,
-        type: true,
-        certificateTemplate: { select: { name: true } },
-      } as const;
-      const itemTemplateIds = item.templateIds.length ? item.templateIds : runRow.templateIds;
-      let certRows: Array<{
-        pdfUrl: string | null;
-        serial: string;
-        type: CertificateType;
-        certificateTemplate: { name: string } | null;
-      }> = [];
-      if (itemTemplateIds.length > 0) {
-        certRows = await db.issuedCertificate.findMany({
-          where: {
-            eventId,
-            certificateTemplateId: { in: itemTemplateIds },
-            revokedAt: null,
-            OR: [
-              ...(item.registrationId ? [{ registrationId: item.registrationId }] : []),
-              ...(item.speakerId ? [{ speakerId: item.speakerId }] : []),
-            ],
-          },
-          select: certSelect,
-          orderBy: { issuedAt: "asc" },
-        });
-      }
-      if (certRows.length === 0 && item.issuedCertificateId) {
-        const single = await db.issuedCertificate.findUnique({
-          where: { id: item.issuedCertificateId },
-          select: certSelect,
-        });
-        if (single) certRows = [single];
-      }
+      // Deterministic per-item cert collection — shared with the run's
+      // download-all-zip route via collectRunItemCertRows (one definition of
+      // "the certs this item covers"; see the helper's doc for the
+      // provenance-pointer rationale).
+      const certRows = await collectRunItemCertRows({
+        eventId,
+        runTemplateIds: runRow.templateIds,
+        item,
+      });
       if (certRows.length === 0) {
         throw new Error("No certificates linked to this item — render phase didn't persist them");
       }

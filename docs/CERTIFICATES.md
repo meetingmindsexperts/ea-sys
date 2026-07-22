@@ -464,6 +464,40 @@ The `CertificateIssueRunItem` uniqueness is enforced as **partial unique indexes
 facet cannot collide. Deferred MEDIUM/LOW → see
 [ROADMAP.md](ROADMAP.md) §"Certificate rework — deferred review findings (July 9, 2026)".
 
+## Issue without email + per-run ZIP download (July 22, 2026)
+
+Organizer request: issue a certificate WITHOUT sending the delivery email
+(hand the PDF over personally), or issue + email as before.
+
+**Single issue — "issue only" option.** `issueCertificateBundle()` takes
+`sendEmail?: boolean` (default true; `POST .../issue-single` accepts the same
+field). When false: the tag gate, mint/reuse dedup, and audit all run
+unchanged (audit rows carry `emailSkipped: true`), but the cover-email step is
+skipped entirely and the result reports `emailed: false`. A recipient with
+**no email on file** can still be issued to in this mode (the
+`NO_RECIPIENT_EMAIL` 409 only fires when an email would actually be sent).
+The card's Issue dialog has a **"Send certificate email to the recipient"**
+checkbox (default on); unticked, the button reads "Issue only (no email)" and
+the operator downloads via each row's Open button. The email can still go out
+later via Resend. **Bulk runs deliberately did NOT get this option** (owner
+decision, July 22) — the AWAITING_REVIEW gate already holds emails until the
+operator clicks Send, and the certs are fully rendered + downloadable at that
+point.
+
+**Per-run "Download all (zip)".** `GET .../certificates/runs/[runId]/download`
+zips every rendered cert of a run (entry names `{serial} - {recipientName}.pdf`
+via `certZipEntryName` in [zip.ts](../src/lib/certificates/zip.ts)). Follows
+the **invoices ZIP-export pattern** (jszip in-memory — deliberately NOT a
+second zip mechanism): hard caps (500 certs / 300 MB per export → 400
+`EXPORT_TOO_LARGE`), per-PDF failure isolation, 20/hr/user rate limit,
+org-bound, 409 `NOT_RENDERED` while PENDING/RENDERING. Cert collection per
+run item goes through the shared **`collectRunItemCertRows`** in
+[bundle.ts](../src/lib/certificates/bundle.ts) — extracted from the worker's
+send phase so "what the zip contains" can never drift from "what the emails
+attach". The run panel shows a **Download all (zip)** button from
+AWAITING_REVIEW onward (incl. FAILED/CANCELLED runs whose already-rendered
+certs are still real).
+
 ## Bulk-email certificate send — audience is ALL registrations (July 10, 2026)
 
 The Communications → **Send Certificates** tile used to pre-filter the

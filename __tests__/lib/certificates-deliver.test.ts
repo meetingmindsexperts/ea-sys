@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb, mockSend, mockRender, mockUpload, mockLoadRecipient, mockLoadEvent, mockAllocSerial, mockGetEventTemplate } = vi.hoisted(() => ({
   mockDb: {
     certificateTemplate: { findFirst: vi.fn() },
-    issuedCertificate: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    issuedCertificate: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
     registration: { findUnique: vi.fn(), findFirst: vi.fn() },
     speaker: { findUnique: vi.fn() },
     event: { findUnique: vi.fn() },
@@ -409,6 +409,128 @@ describe("issueCertificateBundle", () => {
     if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
     expect(res.certs).toHaveLength(1);
     expect(res.recipientEmail).toBe("spk@x.com");
+  });
+
+  // ── "Issue only" — sendEmail: false (organizer request 2026-07-22) ──
+
+  it("sendEmail:false mints + audits the certs but sends NO email (emailed:false)", async () => {
+    const res = await issueCertificateBundle(CTX, {
+      templateIds: ["tpl-a", "tpl-b"],
+      registrationId: "reg-1",
+      sendEmail: false,
+    });
+    if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
+    expect(res.emailed).toBe(false);
+    expect(res.certs).toHaveLength(2);
+    expect(mockDb.issuedCertificate.create).toHaveBeenCalledTimes(2);
+    expect(mockSend).not.toHaveBeenCalled();
+    // Audits still written, flagged emailSkipped so the trail says no email went.
+    expect(mockDb.auditLog.create).toHaveBeenCalledTimes(2);
+    expect(mockDb.auditLog.create.mock.calls[0][0].data.changes).toMatchObject({ emailSkipped: true });
+  });
+
+  it("sendEmail:false works for a recipient with no email on file", async () => {
+    mockDb.registration.findUnique.mockResolvedValue({
+      attendee: { email: null, tags: ["delegate"] },
+    });
+    const res = await issueCertificateBundle(CTX, {
+      templateIds: ["tpl-a"],
+      registrationId: "reg-1",
+      sendEmail: false,
+    });
+    if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
+    expect(res.emailed).toBe(false);
+    expect(res.certs).toHaveLength(1);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("email mode still 409s NO_RECIPIENT_EMAIL when no address is on file", async () => {
+    mockDb.registration.findUnique.mockResolvedValue({
+      attendee: { email: null, tags: ["delegate"] },
+    });
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a"], registrationId: "reg-1" });
+    expect(res).toMatchObject({ ok: false, code: "NO_RECIPIENT_EMAIL", status: 409 });
+  });
+
+  it("default (sendEmail omitted) still emails and reports emailed:true", async () => {
+    const res = await issueCertificateBundle(CTX, { templateIds: ["tpl-a"], registrationId: "reg-1" });
+    if (!res.ok) throw new Error(`expected ok, got ${JSON.stringify(res)}`);
+    expect(res.emailed).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("sendEmail:false still enforces the tag gate (NO_MATCHING_TAG blocks)", async () => {
+    mockDb.registration.findUnique.mockResolvedValue({
+      attendee: { email: "jane@x.com", tags: [] },
+    });
+    const res = await issueCertificateBundle(CTX, {
+      templateIds: ["tpl-a"],
+      registrationId: "reg-1",
+      sendEmail: false,
+    });
+    expect(res).toMatchObject({ ok: false, code: "NO_MATCHING_TAG", status: 422 });
+    expect(mockDb.issuedCertificate.create).not.toHaveBeenCalled();
+  });
+});
+
+// ── collectRunItemCertRows — the ONE definition of "a run item's certs" ──────
+// Shared by the worker send phase (email attachments) and the run
+// download-all-zip route.
+
+describe("collectRunItemCertRows", () => {
+  const ROW = { pdfUrl: "/uploads/certificates/e/a.pdf", serial: "OMM-ATT-0001", type: "ATTENDANCE", certificateTemplate: { name: "Attendance" } };
+
+  it("queries by the item's STAMPED template subset + both facets", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([ROW]);
+    const { collectRunItemCertRows } = await import("@/lib/certificates/bundle");
+    const rows = await collectRunItemCertRows({
+      eventId: "evt-1",
+      runTemplateIds: ["tpl-a", "tpl-b"],
+      item: { registrationId: "reg-1", speakerId: "spk-1", templateIds: ["tpl-a"], issuedCertificateId: null },
+    });
+    expect(rows).toEqual([ROW]);
+    const where = mockDb.issuedCertificate.findMany.mock.calls[0][0].where;
+    expect(where.certificateTemplateId).toEqual({ in: ["tpl-a"] });
+    expect(where.revokedAt).toBeNull();
+    expect(where.OR).toEqual([{ registrationId: "reg-1" }, { speakerId: "spk-1" }]);
+  });
+
+  it("falls back to the RUN's template set for an unstamped item", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([ROW]);
+    const { collectRunItemCertRows } = await import("@/lib/certificates/bundle");
+    await collectRunItemCertRows({
+      eventId: "evt-1",
+      runTemplateIds: ["tpl-a", "tpl-b"],
+      item: { registrationId: "reg-1", speakerId: null, templateIds: [], issuedCertificateId: null },
+    });
+    const where = mockDb.issuedCertificate.findMany.mock.calls[0][0].where;
+    expect(where.certificateTemplateId).toEqual({ in: ["tpl-a", "tpl-b"] });
+  });
+
+  it("legacy items with no template ids anywhere fall back to the 1:1 pointer", async () => {
+    const { collectRunItemCertRows } = await import("@/lib/certificates/bundle");
+    mockDb.issuedCertificate.findUnique.mockResolvedValue(ROW);
+    const rows = await collectRunItemCertRows({
+      eventId: "evt-1",
+      runTemplateIds: [],
+      item: { registrationId: "reg-1", speakerId: null, templateIds: [], issuedCertificateId: "cert-legacy" },
+    });
+    expect(rows).toEqual([ROW]);
+    expect(mockDb.issuedCertificate.findMany).not.toHaveBeenCalled();
+    expect(mockDb.issuedCertificate.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "cert-legacy" } }),
+    );
+  });
+
+  it("returns [] when nothing matches and there is no pointer", async () => {
+    mockDb.issuedCertificate.findMany.mockResolvedValue([]);
+    const { collectRunItemCertRows } = await import("@/lib/certificates/bundle");
+    const rows = await collectRunItemCertRows({
+      eventId: "evt-1",
+      runTemplateIds: ["tpl-a"],
+      item: { registrationId: "reg-1", speakerId: null, templateIds: [], issuedCertificateId: null },
+    });
+    expect(rows).toEqual([]);
   });
 });
 
