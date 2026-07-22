@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
 import { getClientIp, checkRateLimit } from "@/lib/security";
@@ -52,7 +53,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
-        event: { slug },
+        event: await publicEventWhere(req, slug),
       },
       include: {
         attendee: true,

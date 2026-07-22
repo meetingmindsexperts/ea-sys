@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readWebinarSettings } from "@/lib/webinar";
 
@@ -22,12 +24,12 @@ const LOBBY_TTL_MS = 3000;
 
 /** Single-query lobby state; returns "not-found" if the event/session is invalid. */
 async function computeLobbyBody(
-  slug: string,
+  eventWhere: Prisma.EventWhereInput,
   sessionId: string,
 ): Promise<LobbyBody | "not-found"> {
-  // One query (session joined to its event) instead of two sequential ones.
+  // One query (session joined to its tenant-scoped event) instead of two.
   const session = await db.eventSession.findFirst({
-    where: { id: sessionId, event: { slug, status: { in: ["DRAFT", "PUBLISHED", "LIVE"] } } },
+    where: { id: sessionId, event: eventWhere },
     select: {
       status: true,
       startTime: true,
@@ -90,11 +92,17 @@ export async function GET(req: Request, { params }: RouteParams) {
     // per 3s per container — and is invisible to the user (producer "open"
     // propagates within ~3s + the client poll). The Cache-Control also lets a
     // future CDN cache it at the edge.
-    const cacheKey = `${slug}:${sessionId}`;
+    // The tenant resolve happens BEFORE the cache lookup (it is itself
+    // micro-cached, so this adds no steady-state queries) and the org lands in
+    // the cache key — two tenants sharing an event slug never share an entry.
+    const eventWhere = await publicEventWhere(req, slug, {
+      statuses: ["DRAFT", "PUBLISHED", "LIVE"],
+    });
+    const cacheKey = `${eventWhere.organizationId ?? "none"}:${slug}:${sessionId}`;
     const cached = lobbyCache.get(cacheKey);
     const cachedBody = cached && Date.now() - cached.at < LOBBY_TTL_MS ? cached.body : null;
 
-    const body = cachedBody ?? (await computeLobbyBody(slug, sessionId));
+    const body = cachedBody ?? (await computeLobbyBody(eventWhere, sessionId));
     if (body === "not-found") {
       apiLogger.warn({ slug, sessionId }, "lobby-status:session-not-found");
       return NextResponse.json({ error: "Not found" }, { status: 404 });

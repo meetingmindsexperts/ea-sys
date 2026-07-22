@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import {
   applyPromoCodeToRegistration,
@@ -49,10 +50,10 @@ function statusFor(code: ApplyPromoErrorCode): number {
   }
 }
 
-/** Resolve the registration bound to the event slug (never by id alone). */
-async function slugBoundRegistration(slug: string, registrationId: string) {
+/** Resolve the registration bound to the tenant-scoped event slug (never by id alone). */
+async function slugBoundRegistration(req: Request, slug: string, registrationId: string) {
   return db.registration.findFirst({
-    where: { id: registrationId, event: { slug } },
+    where: { id: registrationId, event: await publicEventWhere(req, slug) },
     select: { id: true, eventId: true },
   });
 }
@@ -74,7 +75,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const reg = await slugBoundRegistration(slug, registrationId);
+    const reg = await slugBoundRegistration(req, slug, registrationId);
     if (!reg) {
       apiLogger.warn({ msg: "public/promo:registration-not-found", slug, registrationId });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
@@ -123,7 +124,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    const reg = await slugBoundRegistration(slug, registrationId);
+    const reg = await slugBoundRegistration(req, slug, registrationId);
     if (!reg) {
       apiLogger.warn({ msg: "public/promo:registration-not-found", slug, registrationId });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });

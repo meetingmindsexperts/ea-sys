@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { emailTemplates, sendEmail } from "@/lib/email";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 
@@ -79,19 +80,15 @@ export async function POST(req: Request) {
     // we use downstream — preserves case + format from the source
     // of truth.
     // Note: Event.slug is unique PER organization (compound unique
-    // `organizationId_slug`), not globally. findFirst lets us look
-    // up the slug across all orgs — the multi-org collision case is
-    // theoretical at current single-org scale, but if it ever
-    // happens, falling back to "first match by slug" is safe because
-    // the slug only drives the reset URL's branding path. The
-    // password reset itself is still gated by the email + token,
-    // which are user-bound regardless of which event's branding
-    // appears on the reset page.
+    // `organizationId_slug`), not globally — so the lookup is tenant-scoped
+    // via publicEventWhere (host → org). Branding-only either way: the reset
+    // itself stays gated by the email + token, which are user-bound
+    // regardless of which event's branding appears on the reset page.
     let verifiedEventSlug: string | undefined;
     if (eventSlug) {
       try {
         const event = await db.event.findFirst({
-          where: { slug: eventSlug },
+          where: await publicEventWhere(req, eventSlug),
           select: { slug: true },
         });
         if (event) {

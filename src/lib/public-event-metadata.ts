@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { cache } from "react";
+import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhereForHost } from "@/lib/public-event";
 
 /**
  * Shared builder for the per-event SEO metadata on the public `/e/[slug]/*`
@@ -18,9 +20,13 @@ import { apiLogger } from "@/lib/logger";
 const SITE_NAME = "Meeting Minds Events";
 const MAX_DESCRIPTION = 160;
 
-const getEventForMeta = cache(async (slug: string) =>
+// `host` participates in the React cache() key so two layouts on the same
+// request (same host) still share one query, while the lookup stays
+// tenant-scoped (generateMetadata has no Request object — the host comes from
+// next/headers in buildEventMetadata below).
+const getEventForMeta = cache(async (host: string | null, slug: string) =>
   db.event.findFirst({
-    where: { slug },
+    where: await publicEventWhereForHost(host, slug),
     select: {
       name: true,
       description: true,
@@ -33,9 +39,9 @@ const getEventForMeta = cache(async (slug: string) =>
   }),
 );
 
-const getSessionName = cache(async (slug: string, sessionId: string) => {
+const getSessionName = cache(async (host: string | null, slug: string, sessionId: string) => {
   const session = await db.eventSession.findFirst({
-    where: { id: sessionId, event: { slug } },
+    where: { id: sessionId, event: await publicEventWhereForHost(host, slug) },
     select: { name: true },
   });
   return session?.name ?? null;
@@ -82,12 +88,13 @@ export async function buildEventMetadata({
   sessionId,
 }: EventMetadataOptions): Promise<Metadata> {
   try {
-    const event = await getEventForMeta(slug);
+    const host = (await headers()).get("host");
+    const event = await getEventForMeta(host, slug);
     if (!event) return {};
 
     let sectionLabel = section;
     if (sessionId) {
-      sectionLabel = (await getSessionName(slug, sessionId)) ?? "Session";
+      sectionLabel = (await getSessionName(host, slug, sessionId)) ?? "Session";
     }
 
     const title = sectionLabel ? `${sectionLabel} — ${event.name}` : event.name;
