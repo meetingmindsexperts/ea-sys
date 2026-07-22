@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 
 interface RouteParams {
@@ -14,9 +15,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
-        event: {
-          OR: [{ slug }, { id: slug }],
-        },
+        event: await publicEventWhere(req, slug, { allowIdFallback: true }),
       },
       select: {
         status: true,

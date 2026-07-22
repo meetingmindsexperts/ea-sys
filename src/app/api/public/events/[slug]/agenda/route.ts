@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 interface RouteParams {
@@ -27,10 +28,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     const { slug } = await params;
 
     const event = await db.event.findFirst({
-      where: {
-        OR: [{ slug }, { id: slug }],
-        status: { in: ["PUBLISHED", "LIVE"] },
-      },
+      where: await publicEventWhere(req, slug, {
+        allowIdFallback: true,
+        statuses: ["PUBLISHED", "LIVE"],
+      }),
       select: {
         id: true,
         name: true,

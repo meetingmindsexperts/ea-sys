@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -156,12 +157,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Find the event (supports both slug and event ID)
+    // Find the event (supports both slug and event ID; tenant-scoped by host)
     const event = await db.event.findFirst({
-      where: {
-        OR: [{ slug }, { id: slug }],
-        status: { in: ["PUBLISHED", "LIVE"] },
-      },
+      where: await publicEventWhere(req, slug, {
+        allowIdFallback: true,
+        statuses: ["PUBLISHED", "LIVE"],
+      }),
       select: {
         id: true,
         name: true,

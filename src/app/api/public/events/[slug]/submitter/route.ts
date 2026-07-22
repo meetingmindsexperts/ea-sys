@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
@@ -76,12 +77,12 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { slug } = await params;
 
-    // Look up event
+    // Look up event (tenant-scoped by request host)
     const event = await db.event.findFirst({
-      where: {
-        OR: [{ slug }, { id: slug }],
-        status: { in: ["PUBLISHED", "LIVE"] },
-      },
+      where: await publicEventWhere(req, slug, {
+        allowIdFallback: true,
+        statuses: ["PUBLISHED", "LIVE"],
+      }),
       select: {
         id: true,
         name: true,

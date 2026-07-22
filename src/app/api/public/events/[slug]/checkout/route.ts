@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { getStripe, isZeroDecimalCurrency } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
@@ -59,14 +60,14 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { registrationId } = validated.data;
 
-    // Look up registration with ticket and event details
+    // Look up registration with ticket and event details (event tenant-scoped)
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
-        event: {
-          OR: [{ slug }, { id: slug }],
-          status: { in: ["PUBLISHED", "LIVE"] },
-        },
+        event: await publicEventWhere(req, slug, {
+          allowIdFallback: true,
+          statuses: ["PUBLISHED", "LIVE"],
+        }),
         status: { not: "CANCELLED" },
       },
       include: {
