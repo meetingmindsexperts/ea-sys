@@ -71,6 +71,34 @@
 > **Still open (unchanged by this decision):** the user-identity model (§14 "Users",
 > `MULTI_TENANCY_IMPACT.md §8.1`) and Stripe Connect rollout details (§6) — both are
 > platform-instance concerns and don't block the spine.
+>
+> **PHASE 0 BUILD STATUS (July 22, 2026): the spine is BUILT.** Shipped as 11 gated
+> commits (`2473d8ab`…`548e9b54`), each tsc/lint/vitest/build green, all
+> behavior-preserving on master: the `TenantDomain` table + `scripts/add-tenant-domain.ts`;
+> the host→org resolver (`src/lib/tenant/resolver.ts`, bounded negative-caching
+> micro-cache, three-stage unknown-host ramp); `publicEventWhere`
+> (`src/lib/public-event.ts`) + the full **slug cut** — all ~26 public event-by-slug
+> lookup sites org-scoped by construction, token routes carrying an
+> `eventMatchesRequestTenant` defense-in-depth assert (independent review: SAFE TO
+> SHIP, 0 blocker/high); the ALS tenant context + flag-gated `SET LOCAL` Prisma
+> extension + `tenantTransaction` (`src/lib/tenant-context.ts`, `src/lib/db.ts` — OFF
+> on master); the **tenant-isolation harness** (`tests/tenancy/**`, real Postgres +
+> pgbouncer-transaction-mode via `docker compose --profile tenancy`, two-role split,
+> pilot Event RLS as harness-only SQL, 13 assertions incl. the 50-way pooler
+> interleave — 13/13 green locally); the non-gating CI `tenancy` job (service
+> containers); and the gating `scripts/check-tenant-scoping.sh` CI guard.
+> **Remaining Phase-0 steps:** promote the CI job to gating after ≥5 green runs;
+> the master ops step (seed the prod `TenantDomain` row + `DEFAULT_ORG_ID` — until
+> then the resolver warn-logs `tenant:host-unresolved-unscoped` ~once/min/container,
+> accepted per the over-alerting preference).
+>
+> **Runtime flags** (`.env.example` is untracked, so recorded here):
+> `DEFAULT_ORG_ID` — org an unknown Host falls back to (unset ⇒ legacy org-unscoped
+> public lookups; master's mode today). `TENANCY_ENFORCE_HOST=1` — unknown Host = 404
+> (platform instance only). `RLS_SET_LOCAL=1` — the Prisma extension issues
+> `SET LOCAL app.current_org` per query; **never enable before the Phase-2
+> `tenantTransaction` migration** (§13). Harness: `TENANCY_DIRECT_URL` (owner, raw
+> :55432) + `TENANCY_DATABASE_URL` (app_user via pgbouncer :56432).
 
 ---
 
@@ -144,8 +172,9 @@ Every request must resolve **which tenant** it belongs to, as early as possible.
 
 - **Custom domains** (`events.theircompany.com`) and/or **subdomains** (`theircompany.events.<your-platform>.com`). Support both: subdomains are zero-config (wildcard cert), custom domains are the premium white-label.
 - New table `TenantDomain { id, organizationId, domain @unique, isPrimary, verifiedAt, tlsStatus }`. A domain maps to exactly one org.
-- **Resolution in middleware** (`src/proxy.ts` / Next middleware): read the `Host` header → look up `TenantDomain` → attach `organizationId` to the request (header, or via a request-scoped store). Cache the host→org map in-process (it changes rarely) with a short TTL — this is a per-request hot path (same micro-cache pattern used for the webinar `lobby-status`).
+- ~~**Resolution in middleware**~~ **AS BUILT (Phase 0, July 22, 2026): resolution lives in a LIBRARY, not middleware** — `src/lib/tenant/resolver.ts`, called internally by the public-event where-builder (`src/lib/public-event.ts`), so the resolver and the org-scoped slug lookups execute atomically and `src/proxy.ts` stays byte-identical (no Prisma coupling in the routing layer; the matcher doesn't cover `/e/*` anyway, and `generateMetadata` has no Request so it needs the host-string API regardless). The host→org map is micro-cached in-process (bounded 500 entries, negative results cached, 60s TTL — the Host header is attacker-controlled, unlike the lobby-status cache this mirrors). Middleware-based resolution is re-evaluated at the platform phase (apex-domain routing, marketing-site carve-out).
 - **Edge case:** the marketing site / signup / platform-admin live on the *apex* platform domain, not a tenant domain. Route those before tenant resolution.
+- **Token-link caveat for later phases:** token routes (rsvp, agreements, reimbursement, survey, complete-registration) assert the loaded event belongs to the request's tenant (defense-in-depth — tokens are globally unique + slug-asserted, so identity was already correct). Consequence once domains are enforced: a link emailed for tenant A will 404 on tenant B's domain **including old links if a tenant later moves domains** — re-send links after a domain migration.
 
 ### 3.2 Tenant context propagation
 
@@ -154,6 +183,8 @@ The resolved tenant must reach the data layer on **every** code path (API route,
 - **`AsyncLocalStorage`** — a per-request store holding the tenant, read by a Prisma client extension that injects the RLS session var (see §5). This is the cleanest for RLS because the DB filter doesn't depend on the developer remembering to pass `orgId`.
 
 **Recommendation:** keep explicit scoping at the app layer (defence #1) **and** add RLS via `AsyncLocalStorage` + a Prisma extension (defence #2). Belt and braces — exactly because the audit showed defence #1 alone is fallible.
+
+**AS BUILT (Phase 0):** `src/lib/tenant-context.ts` (ALS) + the flag-gated `SET LOCAL` extension in `src/lib/db.ts` (`RLS_SET_LOCAL=1`, OFF on master; the official Prisma batch-`set_config` pattern — pooler-safe because the GUC and query share one transaction = one pgbouncer backend). Two lessons the isolation harness taught, now pinned by tests: **(1) PrismaPromises are lazy** — `runWithTenant(org, () => db.x.find())` would exit the ALS scope before the query executed, so `runWithTenant` forces execution inside the scope (without this, fail-closed RLS returns empty results that look like data loss); **(2) interactive transactions must go through `tenantTransaction()`** (db.ts) — wrapping inner ops again would SET LOCAL on a different pooled backend. Migrating the existing `db.$transaction` sites to `tenantTransaction` per-domain is the **hard precondition** before the flag ever turns on for real (§13 Phase 2).
 
 ### 3.3 Custom domains + TLS automation
 
