@@ -11,6 +11,15 @@
 > **Read [MULTI_TENANCY.md](MULTI_TENANCY.md) first for the target architecture**
 > (shared-DB + Postgres RLS default; DB-per-tenant premium; host→tenant routing;
 > tenant-scoped identity; Stripe Connect). This doc assesses the gap to *that* target.
+>
+> **Topology DECIDED July 22, 2026 — the two-silo plan** ([MULTI_TENANCY.md §0](MULTI_TENANCY.md)):
+> master (current box, MM Group only) + a new **platform** instance (fresh DB, all
+> external tenants, Pool+ with RLS from day one), one repo / one image / two deploy
+> targets. Consequence for this doc: the RLS enablement + `organizationId` backfills in
+> §2/§6 land on the **greenfield platform DB**, not on MMG's live DB — the live-DB
+> risk called out below applies only if/when MMG merges in (deferred to the §0
+> re-evaluation trigger). The findings themselves (what must be scoped, what leaks)
+> are unchanged.
 
 ---
 
@@ -150,18 +159,20 @@ hard part already done right.
 
 ---
 
-## 7. Recommended sequencing (maps to MULTI_TENANCY.md §13)
+## 7. Recommended sequencing (maps to MULTI_TENANCY.md §13, recast for the §0 two-silo decision)
 
 **Do now, regardless of multi-tenant timeline (latent-bug hygiene + foundation):**
 1. **CI lint** for `where:{id}`/`where:{slug}` without an org bind (cheap; stops IDOR recurrence the audit keeps finding).
-2. Decide the **identity model** (recommend: shared `User` + `Membership` join table) and the **isolation model** (recommend: shared-DB + RLS default per MULTI_TENANCY.md).
-3. Start **denormalizing `organizationId`** onto the 25 event-scoped tables (additive + backfill) — this is the prerequisite for flat RLS and is safe to do incrementally now.
+2. ~~Decide the **isolation model**~~ ✅ decided (two-silo topology + Pool+/RLS on the platform instance, MULTI_TENANCY.md §0). Still open: the **identity model** (recommend: shared `User` + `Membership` join table).
+3. **Denormalizing `organizationId`** onto the 25 event-scoped tables (the prerequisite for flat RLS) happens per-domain during the Phase-2 sweeps. Under two-silo it's trivial on the greenfield platform DB; on master it's only needed if/when MMG merges in — no live-DB backfill campaign now.
 
-**Phase 1 — isolation foundation (the gate):** host→tenant routing + `TenantDomain`; tenant context via `AsyncLocalStorage` + a pooler-safe Prisma `SET LOCAL` extension; **RLS on every tenant table**; the slug-routing cut shipped *with* the resolver; a **tenant-isolation test suite** (seed 2 tenants, prove A can't read B per PR). Close the `organizationId!` IDOR class. **Nothing onboards to shared infra until this is proven.**
+**Phase 0/1 — the spine (the gate):** stand up the platform instance (second box + fresh DB, same image, first-class prod from birth); host→tenant routing + `TenantDomain`; tenant context via `AsyncLocalStorage` + a pooler-safe Prisma `SET LOCAL` extension; the slug-routing cut shipped *with* the resolver; a **tenant-isolation test suite** (seed 2 tenants, prove A can't read B per PR). Master gets the identical code inert (one `TenantDomain` row).
 
-**Phase 2 — platform features:** Stripe Connect; per-tenant email sender-domain verification; custom-domain TLS; per-tenant logging/quotas (Redis limiter); tenant lifecycle + suspension.
+**Phase 2 — domain-by-domain isolation sweeps:** per domain: `organizationId` column → org-bind queries → enable RLS → domain isolation tests green. Pilot **Contacts**, then blast-radius order (§5). Close the `organizationId!` IDOR class. **No external tenant onboards until the domains they touch are proven.**
 
-**Phase 3 — scale & consolidate:** per-tenant cost attribution; worker fairness + the `DIRECT_URL` lock fix before a 2nd worker; per-tenant secret keys/KMS; migrate MM Group in last (or keep it siloed).
+**Phase 3 — platform features:** Stripe Connect; per-tenant email sender-domain verification; custom-domain TLS; per-tenant logging/quotas (Redis limiter — platform-instance concern); tenant lifecycle + suspension. Dogfood one MMG event on platform before customer #1.
+
+**Phase 4 — scale & consolidate:** per-tenant cost attribution; worker fairness + the `DIRECT_URL` lock fix before a 2nd worker shares a DB; per-tenant secret keys/KMS; the §0 re-evaluation trigger — merge MM Group into platform vs silo-forever.
 
 ---
 

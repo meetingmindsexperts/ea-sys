@@ -15,8 +15,68 @@
 
 ---
 
+## 0. Decision record — topology DECIDED: the two-silo plan (July 22, 2026)
+
+> **Owner decision (Krishna, July 22, 2026).** After steelmanning both options
+> (pooled-on-current-prod vs a second deployment), EA-SYS multi-tenancy will run as
+> **one codebase, two deployments**:
+>
+> - **Master** — the current Mumbai instance + Supabase DB. Stays **MM Group only**.
+>   Live events keep zero blast radius; nothing risky lands here.
+> - **Platform** — a second deployment (own box + **fresh DB**) running the **same
+>   Docker image**, multi-tenant from birth (**Pool+ / shared DB + RLS**, §2). **All
+>   external tenants live here — including customer #1** (this supersedes the earlier
+>   "customer #1 on its own Silo++ instance" lean in §2/§13).
+>
+> **Why:** asymmetry of worst cases. The pooled plan's failure modes are *safety*
+> failures on live revenue-bearing events (silent RLS bugs — wrong policies return
+> empty rows, not errors; `organizationId` backfills ×25 on a live DB; the first
+> external tenant sharing MMG's failure domain). The two-silo plan's failure modes are
+> *cost/discipline* failures (2× ops surface, soft-fork drift) — certain but bounded,
+> visible, and reversible. The platform DB being **greenfield** converts the scariest
+> single step of the pooled plan (enabling RLS table-by-table on a live prod DB) into
+> a non-event.
+>
+> **Guardrails (without these the plan degrades into a fork):**
+> 1. **One repo, one image, one migrations folder — flags/data, never code forks.**
+>    A forked repo or long-lived divergent branch is explicitly rejected. Master runs
+>    the identical build with a real `TenantDomain` row from day one; RLS is enabled
+>    on master too once proven on platform, so master converges to "a tenant that
+>    happens to have its own box" and the merge option stays a data migration, not a
+>    re-platforming. Migrations stay additive + idempotent (house rule) and apply to
+>    both DBs on each deploy.
+> 2. **Platform is first-class prod from birth** — DR cron, monitoring, fail2ban,
+>    CloudWatch, runbooks stamped from `FROM_SCRATCH_REBUILD.md` / `infra/dr`
+>    **before** tenant #1 onboards, not after.
+> 3. **Dogfood before selling** — run one real (or shadow) MM Group event on platform
+>    to give its RLS/routing/pooler code paths real traffic before an external tenant
+>    depends on them.
+> 4. **Re-evaluation trigger, defined now:** after ~6 months of stable platform
+>    operation, or the first ops incident caused by the two-environment split
+>    (whichever comes first), explicitly decide **merge-MMG-into-platform vs
+>    silo-forever**. Both are acceptable end states; drifting without deciding is not.
+> 5. **Cap silos at two.** No tenant ever gets its own box; tenants #2..N go on
+>    platform. Silo-per-tenant is rejected (§15). DB-per-tenant *within* platform
+>    remains available later as a premium tier (§2).
+>
+> **Build order:** the **Phase 0 spine** first — `TenantDomain` + host→tenant
+> resolver (§3.1), `AsyncLocalStorage` context + pooler-safe `SET LOCAL` (§3.2, §5.2),
+> the 2-tenant **isolation test harness** (§5.4), and the org-scoped slug-routing cut
+> landing *atomically with* the resolver — built and proven against the platform
+> target. Then **domain-by-domain sweeps** (add/backfill `organizationId` → org-bind
+> the domain's queries → enable RLS on its tables → domain isolation tests green),
+> piloting on a small already-org-keyed domain (**Contacts**) to debug the recipe
+> cheaply, then blast-radius order (`MULTI_TENANCY_IMPACT.md §5`).
+>
+> **Still open (unchanged by this decision):** the user-identity model (§14 "Users",
+> `MULTI_TENANCY_IMPACT.md §8.1`) and Stripe Connect rollout details (§6) — both are
+> platform-instance concerns and don't block the spine.
+
+---
+
 ## Table of contents
 
+0. [Decision record — the two-silo plan (July 22, 2026)](#0-decision-record--topology-decided-the-two-silo-plan-july-22-2026)
 1. [Where EA-SYS is today (the starting line)](#1-where-ea-sys-is-today-the-starting-line)
 2. [Tenancy models — the isolation spectrum](#2-tenancy-models--the-isolation-spectrum)
 3. [System design / architecture](#3-system-design--architecture)
@@ -63,16 +123,16 @@ The industry frames this as **Pool → Bridge → Silo** (AWS SaaS terminology).
 | **Pool — shared DB, app-scoping only** | One DB, every query `where organizationId` | **Weak** (one missed filter = leak) | Lowest | Trivial | ❌ Not with EA-SYS's IDOR history + medical data |
 | **Pool+ — shared DB + RLS** ⭐ | One DB; Postgres enforces tenant filter on every query | **Strong** (DB blocks leaks regardless of code) | Low–moderate | Easy | ✅ **Default** for the many |
 | **Silo — DB per tenant** | Each tenant a separate DB / Supabase project | **Strongest** (physical separation) | Highest (N migrations, N backups, N pools) | Hard (federate) | ✅ **Premium tier** + the fast path for early customers |
-| **Silo++ — instance per tenant** | Separate app deployment + DB + domain | Strongest + compute isolation | Highest | Hardest | ✅ **Customer #1 today** (zero risk to MM Group) |
+| **Silo++ — instance per tenant** | Separate app deployment + DB + domain | Strongest + compute isolation | Highest | Hardest | ✅ **MM Group's master instance** (zero risk to live events) — capped at this one silo, see §0 |
 
 **Why RLS is the centre of gravity for EA-SYS.** Today isolation depends on every developer remembering `where organizationId`. The audit proved that's not guaranteeable. RLS moves enforcement into Postgres: you set the current tenant per request, and the database filters *every* query — a forgotten app-level filter can no longer leak. It is **native to Supabase** (RLS is what Supabase is built around) and is the standard SaaS B2B answer. It directly addresses EA-SYS's actual risk.
 
-**The pragmatic combination (recommended):**
-- **Default: Pool+ (shared DB + RLS)** — SaaS economics for the bulk of tenants.
-- **Premium: Silo (DB per tenant)** — for any regulated/high-value tenant that *demands* physical separation or in-region data residency. A flag on the tenant picks the connection.
-- **Today: Silo++ (separate instance)** — stand up customer #1 on its own instance + DB. This is *both* the fast/safe launch path *and* a valid isolation model, so nothing is wasted.
+**The combination — DECIDED July 22, 2026 (full record in §0):**
+- **Platform instance: Pool+ (shared DB + RLS)** — a second deployment + **fresh DB** where **all external tenants (including customer #1)** live. RLS from day one on a greenfield DB — the scariest step of a pooled migration (enabling RLS on live prod) never happens.
+- **Master instance: Silo++ for MM Group only** — the current Mumbai box + DB, behaviorally unchanged. Runs the *same image* with a real `TenantDomain` row (tenancy code identical-but-single-tenant, never forked).
+- **Premium: Silo (DB per tenant)** — remains available *later, within platform*, for a regulated/high-value tenant that demands physical separation or data residency; a flag on the tenant picks the connection. Not the default, and it never means a separate app instance — silos are capped at two (§0 guardrail 5).
 
-You do not have to commit to the end-state now. Start Silo++, build Pool+ when the ops cost of many silos exceeds the engineering cost of RLS.
+> Superseded: the earlier lean of putting **customer #1 on its own Silo++ instance**. That would mint a third environment and start the silo-per-tenant slide; customer #1 goes on platform, where the isolation suite protects them like everyone else.
 
 ---
 
@@ -126,7 +186,7 @@ PostgreSQL  ── RLS policy filters every row by current_org
 
 ### 3.5 Where MM Group fits
 
-MM Group is **tenant zero**, but its data is *live production*. Do **not** casually merge it into a fresh shared multi-tenant DB. Either keep MM Group on its own DB (silo) indefinitely, or migrate it into the Pool+ DB only after the RLS isolation suite is proven. Treat MM Group's migration as its own risk-managed step, last.
+**DECIDED (§0):** MM Group is **tenant zero and stays on the master instance** — its own box + DB, physically siloed from every external tenant. Master runs the same image as platform with a real `TenantDomain` row (`events.meetingmindsgroup.com` → MMG's org), so the tenancy code paths are exercised identically and never fork. Whether MM Group ever merges into the platform Pool+ DB is deliberately deferred to the §0 re-evaluation trigger (~6 months of stable platform operation, or the first two-environment ops incident); if it happens it is its own risk-managed data migration, last, long after the isolation suite is proven. **Silo-forever is an acceptable end state** — keeping your own biggest customer on dedicated infrastructure is a defensible pattern.
 
 ---
 
@@ -366,17 +426,17 @@ Costs split into **platform fixed cost** (amortised across all tenants) and **pe
 
 ---
 
-## 13. Phased roadmap
+## 13. Phased roadmap *(recast July 22, 2026 for the two-silo decision — §0)*
 
-**Phase 0 — Customer #1 on a separate instance (now).** Own container + DB + domain + branding + their Zoom/Stripe/email. Revenue + reference customer, zero risk to MM Group. = Silo++ (valid isolation, not throwaway).
+**Phase 0 — the spine, built against the new platform instance.** Stand up the **platform** deployment (second box + fresh DB, same image; first-class prod from birth — DR/monitoring/runbooks per §0 guardrail 2; CI gains a second deploy target pulling the same ECR tag). Build the spine there: `TenantDomain` + host→tenant middleware (§3.1); `AsyncLocalStorage` tenant context + pooler-safe `SET LOCAL` (§3.2, §5.2); the 2-tenant **isolation test harness** (§5.4); the org-scoped **slug-routing cut landing atomically with the resolver**. Master receives the identical code inert (one `TenantDomain` row, one tenant).
 
-**Phase 1 — Design & decide (short).** Lock: Pool+ + RLS as default, silo as premium; Stripe Connect (Express); tenant-scoped users; custom-domain TLS via Caddy on-demand. Output: this doc's decisions ratified + a schema/identity migration plan.
+**Phase 1 — Design & decide (short; partially done).** ~~Topology~~ (✅ §0: two-silo). Still to lock: tenant-scoped user identity; Stripe Connect (Express); custom-domain TLS via Caddy on-demand. Output: remaining decisions ratified + a schema/identity migration plan.
 
-**Phase 2 — Isolation foundation (the security project).** Host→tenant routing + `TenantDomain` + middleware; `AsyncLocalStorage` tenant context; **RLS on every tenant table + the isolation test suite**; close the known IDOR-class findings; per-tenant logging (tenant on every Pino line + Sentry scope + `/logs` filter). This is the gate — nothing onboards to shared infra until isolation is proven.
+**Phase 2 — Domain-by-domain isolation sweeps (the security project).** Per domain, one recipe: add/backfill `organizationId` (additive + idempotent) → org-bind every query (the services layer makes this one edit, not N route copies) → enable **RLS** on the domain's tables → the domain's isolation tests green. Pilot on **Contacts** (small, already org-keyed) to debug the recipe cheaply, then blast-radius order (`MULTI_TENANCY_IMPACT.md §5`). Close IDOR-class findings + add per-tenant logging (tenant on every Pino line + Sentry scope + `/logs` filter) as domains are swept. **This is the gate — no external tenant onboards until the domains they touch are proven isolated.** On the greenfield platform DB the backfill step is trivial; master only needs it if/when MMG merges in.
 
-**Phase 3 — Platform features.** Custom-domain TLS automation + verification; **Stripe Connect** (onboarding, destination charges, Connect webhooks, refunds); per-tenant email sender-domain verification; self-serve onboarding pipeline; per-tenant quotas + the **Redis** rate limiter; zero-downtime deploys; impersonation + suspension/lifecycle.
+**Phase 3 — Platform features.** Custom-domain TLS automation + verification; **Stripe Connect** (onboarding, destination charges, Connect webhooks, refunds); per-tenant email sender-domain verification; self-serve onboarding pipeline; per-tenant quotas + the **Redis** rate limiter (platform-instance concern; master's single-container in-memory limiter is fine as-is); zero-downtime deploys; impersonation + suspension/lifecycle. **Dogfood gate (§0 guardrail 3): one real/shadow MM Group event runs on platform before customer #1.**
 
-**Phase 4 — Scale & consolidate.** Per-tenant cost attribution + usage billing; capacity planning for concurrent big webinars; promote heavy tenants to silo; **migrate MM Group in last** (or keep it siloed). DR fan-out; the worker session-mode fix before a 2nd worker.
+**Phase 4 — Scale & consolidate.** Per-tenant cost attribution + usage billing; capacity planning for concurrent big webinars; promote heavy tenants to DB-per-tenant silo *within platform*; **the §0 re-evaluation trigger fires here** — decide merge-MMG-into-platform vs silo-forever. DR fan-out; the worker session-mode (`DIRECT_URL`) lock fix before any second worker shares a DB.
 
 ---
 
@@ -384,9 +444,10 @@ Costs split into **platform fixed cost** (amortised across all tenants) and **pe
 
 | Decision | Recommendation | Why |
 |---|---|---|
-| Isolation default | **Shared DB + RLS (Pool+)** | SaaS economics; Supabase-native; fixes the IDOR-class risk by enforcing in the DB |
-| Isolation premium | **DB per tenant (Silo)** for regulated/high-value | Physical separation + residency for those who pay |
-| First customer | **Separate instance (Silo++) now** | Fast, safe, zero risk to MM Group, valid isolation, not throwaway |
+| **Topology** | ✅ **DECIDED July 22, 2026: two-silo** — master (MMG-only, current box) + platform (all external tenants, Pool+, fresh DB); one repo, one image, two deploy targets (§0) | Worst-case asymmetry: pooled-plan failures are safety failures on live events; two-silo failures are bounded cost/discipline failures. Greenfield RLS. |
+| Isolation default (platform) | **Shared DB + RLS (Pool+)** | SaaS economics; Supabase-native; fixes the IDOR-class risk by enforcing in the DB |
+| Isolation premium | **DB per tenant (Silo)** for regulated/high-value — *within* platform, never a separate app instance | Physical separation + residency for those who pay; silos capped at two (§0) |
+| First customer | ✅ **DECIDED: on the platform instance (Pool+)** — supersedes the Silo++-per-customer lean | A third environment would start the silo-per-tenant slide |
 | Tenant resolution | **Host → `TenantDomain` in middleware**, cached | Custom domains are the white-label requirement |
 | TLS | **Caddy on-demand TLS** (custom domains) + wildcard (subdomains) | Lowest-ops auto-issuance |
 | Tenant context | **`AsyncLocalStorage` + Prisma extension `SET LOCAL`** | Works under pgbouncer transaction mode; drives RLS without manual threading |
@@ -402,6 +463,7 @@ Costs split into **platform fixed cost** (amortised across all tenants) and **pe
 ## 15. Anti-patterns & pitfalls
 
 - **"It's already org-scoped, multi-tenant is a flag."** No — the audit found cross-tenant IDOR. App-scoping alone is not provable isolation. RLS + an isolation test suite is the real work.
+- **A code fork per deployment** ("keep the master and redo everything in a copy") — the two-silo plan (§0) is one repo / one image / two deploy *targets*. A forked repo or long-lived divergent branch doubles maintenance, drifts within weeks (see the July 2026 cross-caller duplication audit for what drift does *inside one repo*), and turns two deployments into two products. Behavior differences are data/env-driven, never code-conditional.
 - **Shipping a new table without an RLS policy** in a Pool+ DB — a silent leak. Enforce in CI.
 - **Becoming a money-services business** by collecting + remitting instead of Stripe Connect — compliance/liability you don't want.
 - **In-memory rate limiting at platform scale** — resets on deploy, per-container; one tenant's abuse or your own deploy removes protection. Move to Redis.
@@ -427,4 +489,4 @@ Costs split into **platform fixed cost** (amortised across all tenants) and **pe
 
 ---
 
-*Companion docs: `ARCHITECTURE.md` (current single-org architecture), `AWS_OPERATIONS.md` (ops + the add-Cloudflare-later playbook), `LIVE_STREAMING.md` (the 5k HLS/CDN design), `ROADMAP.md` (deferred items that become mandatory at multi-tenant scale), `HANDOVER.md`. This doc is the forward-looking multi-tenant reference; it does not describe shipped code — EA-SYS is single-org today.*
+*Companion docs: `ARCHITECTURE.md` (current single-org architecture), `AWS_OPERATIONS.md` (ops + the add-Cloudflare-later playbook), `LIVE_STREAMING.md` (the 5k HLS/CDN design), `ROADMAP.md` (deferred items that become mandatory at multi-tenant scale), `HANDOVER.md`. This doc is the forward-looking multi-tenant reference; it does not describe shipped code — EA-SYS is single-org today. The §0 topology decision (two-silo) is made; the build has not started.*

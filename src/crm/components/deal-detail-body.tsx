@@ -50,16 +50,26 @@ import { cn } from "@/lib/utils";
 import {
   useAddDealContact,
   useCloseDeal,
+  useCreateCompany,
   useCreateTask,
   useCrmContacts,
   useRemoveDealContact,
   useSetDealArchived,
+  useUpdateDeal,
 } from "@/crm/hooks/use-crm-api";
 import { canDeleteCrm } from "@/crm/lib/crm-roles";
 import { CrmActivityTimeline } from "@/crm/components/crm-activity-timeline";
 import { PurgeRecordButton } from "@/crm/components/purge-record-button";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
-import { EditDealDialog } from "@/crm/components/edit-deal-dialog";
+import {
+  CrmDealFormFields,
+  crmDealFormPayload,
+  crmDealToForm,
+  emptyCrmDealForm,
+  resolveDealCompanyId,
+  validateDealForm,
+  type CrmDealFormState,
+} from "@/crm/components/crm-deal-form-fields";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
 import { CrmDealDocumentsCard } from "@/crm/components/crm-deal-documents-card";
 import { DealProducts } from "@/crm/components/crm-deal-products";
@@ -82,12 +92,39 @@ export function DealDetailBody({
   const [taskDue, setTaskDue] = useState("");
   const [lostReason, setLostReason] = useState("");
   const [closing, setClosing] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
 
+  // Inline editing (owner request, July 22 — same as the contact page): no
+  // popup — Edit swaps the record body for the shared deal form in place,
+  // Save/Cancel in the header.
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<CrmDealFormState>(emptyCrmDealForm);
+
   const createTask = useCreateTask();
+  const createCompany = useCreateCompany();
+  const updateDeal = useUpdateDeal(deal.id);
   const closeDeal = useCloseDeal(deal.id);
   const setArchived = useSetDealArchived(deal.id);
+
+  const saving = updateDeal.isPending || createCompany.isPending;
+
+  async function handleSave() {
+    const invalid = validateDealForm(form);
+    if (invalid) {
+      toast.error(invalid);
+      return;
+    }
+    try {
+      // A typed-but-new company is find-or-created first, so the deal always
+      // hangs off a real account row (server dedups — same as the dialogs did).
+      const companyId = await resolveDealCompanyId(form.company, (b) => createCompany.mutateAsync(b));
+      await updateDeal.mutateAsync(crmDealFormPayload(form, companyId));
+      toast.success("Deal updated");
+      setEditing(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update the deal");
+    }
+  }
 
   const value = formatDealValue(deal.dealValue, deal.currency);
   const isClosed = deal.status !== "OPEN";
@@ -167,10 +204,29 @@ export function DealDetailBody({
           { label: "Owner", value: personName(deal.owner) },
         ]}
         actions={
+          editing ? (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={saving}>
+                {saving && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                Save
+              </Button>
+            </>
+          ) : (
           (canWrite || canDelete) && (
             <>
-              {canWrite && (
-                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              {/* An archived deal is frozen — restore before editing. */}
+              {canWrite && !deal.archivedAt && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setForm(crmDealToForm(deal));
+                    setEditing(true);
+                  }}
+                >
                   <Pencil className="mr-2 h-3.5 w-3.5" />
                   Edit
                 </Button>
@@ -218,9 +274,22 @@ export function DealDetailBody({
                 ))}
             </>
           )
+          )
         }
       />
 
+      {editing ? (
+        <RecordCard icon={Pencil} title="Edit deal" className="max-w-2xl">
+          <CrmDealFormFields
+            value={form}
+            onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+            idPrefix="edit-deal"
+          />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Stage moves on the board; won/lost is the Close action. Changes are recorded in the deal&apos;s history.
+          </p>
+        </RecordCard>
+      ) : (
       <RecordGrid
         sidebar={
           <>
@@ -321,8 +390,8 @@ export function DealDetailBody({
           <CrmActivityTimeline entityType="DEAL" entityId={deal.id} />
         </RecordCard>
       </RecordGrid>
+      )}
 
-      <EditDealDialog deal={deal} open={editOpen} onOpenChange={setEditOpen} />
       <CrmEmailDialog open={emailOpen} onOpenChange={setEmailOpen} target={{ kind: "deal", id: deal.id }} />
     </div>
   );
