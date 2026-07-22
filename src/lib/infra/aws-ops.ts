@@ -417,9 +417,13 @@ async function fetchMetrics(instanceId: string | null): Promise<InfraSnapshot["m
           { Id: "netin", MetricStat: { Metric: { Namespace: "AWS/EC2", MetricName: "NetworkIn", Dimensions: dim }, Period: 300, Stat: "Sum" }, ReturnData: true },
           { Id: "netout", MetricStat: { Metric: { Namespace: "AWS/EC2", MetricName: "NetworkOut", Dimensions: dim }, Period: 300, Stat: "Sum" }, ReturnData: true },
           { Id: "status", MetricStat: { Metric: { Namespace: "AWS/EC2", MetricName: "StatusCheckFailed", Dimensions: dim }, Period: 300, Stat: "Maximum" }, ReturnData: true },
-          // CWAgent mem/disk if published — SEARCH tolerates the extra dimensions.
-          { Id: "mem", Expression: `SEARCH('{CWAgent} MetricName="mem_used_percent" InstanceId="${instanceId}"', 'Average', 300)`, ReturnData: true },
-          { Id: "disk", Expression: `SEARCH('{CWAgent} MetricName="disk_used_percent" InstanceId="${instanceId}"', 'Average', 300)`, ReturnData: true },
+          // CWAgent mem/disk if published. The SEARCH schema must name the
+          // dimension keys — '{CWAgent}' alone matches only dimensionless
+          // metrics, and ours carry InstanceId (that mismatch rendered "—%").
+          // '{CWAgent,InstanceId}' matches exactly the InstanceId-aggregated
+          // series (aggregation_dimensions [["InstanceId"]] in the agent config).
+          { Id: "mem", Expression: `SEARCH('{CWAgent,InstanceId} MetricName="mem_used_percent" InstanceId="${instanceId}"', 'Average', 300)`, ReturnData: true },
+          { Id: "disk", Expression: `SEARCH('{CWAgent,InstanceId} MetricName="disk_used_percent" InstanceId="${instanceId}"', 'Average', 300)`, ReturnData: true },
         ],
       }),
     );
