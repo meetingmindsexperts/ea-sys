@@ -38,6 +38,43 @@ services:
   #   networks:
   #     - ea-network
 
+  # Tenant-isolation harness DB (multi-tenancy Phase 0): real Postgres +
+  # pgbouncer in TRANSACTION pool mode, mirroring the Supabase prod topology.
+  # Start with `docker compose --profile tenancy up -d`, then set
+  # TENANCY_DIRECT_URL / TENANCY_DATABASE_URL (see .env.example) and run
+  # `npm run test:tenancy`. Off by default (profile-gated).
+  tenancy-postgres:
+    image: postgres:16-alpine
+    container_name: ea-sys-tenancy-db
+    profiles: ["tenancy"]
+    ports:
+      - "55432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tenancy
+    networks:
+      - ea-network
+
+  tenancy-pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: ea-sys-tenancy-pgbouncer
+    profiles: ["tenancy"]
+    ports:
+      - "56432:5432"
+    environment:
+      DB_HOST: tenancy-postgres
+      DB_NAME: tenancy
+      DB_USER: app_user
+      DB_PASSWORD: app_user_pw
+      POOL_MODE: transaction
+      AUTH_TYPE: plain
+      MAX_CLIENT_CONN: "100"
+    depends_on:
+      - tenancy-postgres
+    networks:
+      - ea-network
+
   # Uncomment for Redis (caching, queues)
   # redis:
   #   image: redis:7-alpine

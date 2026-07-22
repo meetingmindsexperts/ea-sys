@@ -31,9 +31,20 @@ export interface TenantStore {
 
 const als = new AsyncLocalStorage<TenantStore>();
 
-/** Run `fn` with the given tenant org bound to the async context. */
+/**
+ * Run `fn` with the given tenant org bound to the async context.
+ *
+ * The async wrapper is LOAD-BEARING: PrismaPromises are lazy (they execute on
+ * `await`/`.then`, not on creation), so a shorthand callback like
+ * `runWithTenant(org, () => db.event.findMany())` would otherwise return the
+ * un-executed thenable, exit the ALS scope, and run the query with NO tenant
+ * store — the extension passes through and fail-closed RLS returns zero rows
+ * (caught by the tenancy harness). Awaiting inside the `als.run` forces the
+ * thenable to begin execution while the context is live; AsyncLocalStorage
+ * then propagates through its continuations.
+ */
 export function runWithTenant<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
-  return als.run({ orgId }, fn);
+  return als.run({ orgId }, async () => await fn());
 }
 
 export function getTenantStore(): TenantStore | undefined {
@@ -52,5 +63,6 @@ export function getTenantOrgId(): string | null {
 export function enterTenantTx<T>(fn: () => Promise<T>): Promise<T> {
   const store = als.getStore();
   if (!store) return fn();
-  return als.run({ ...store, inTenantTx: true }, fn);
+  // Same lazy-thenable guard as runWithTenant.
+  return als.run({ ...store, inTenantTx: true }, async () => await fn());
 }

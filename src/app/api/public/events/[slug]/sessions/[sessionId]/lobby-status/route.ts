@@ -98,7 +98,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     const eventWhere = await publicEventWhere(req, slug, {
       statuses: ["DRAFT", "PUBLISHED", "LIVE"],
     });
-    const cacheKey = `${eventWhere.organizationId ?? "none"}:${slug}:${sessionId}`;
+    // typeof guard (review LOW-2): organizationId's type admits a StringFilter
+    // object; if the builder ever emitted one, template interpolation would
+    // collapse every tenant to "[object Object]:…" — a silent shared entry.
+    const orgKey =
+      typeof eventWhere.organizationId === "string" ? eventWhere.organizationId : "none";
+    const cacheKey = `${orgKey}:${slug}:${sessionId}`;
     const cached = lobbyCache.get(cacheKey);
     const cachedBody = cached && Date.now() - cached.at < LOBBY_TTL_MS ? cached.body : null;
 

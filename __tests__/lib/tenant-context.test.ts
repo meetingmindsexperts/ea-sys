@@ -40,6 +40,25 @@ describe("tenant context (AsyncLocalStorage)", () => {
     expect(getTenantStore()).toBeUndefined();
   });
 
+  it("LAZY-THENABLE GUARD: a non-async callback returning a lazy promise still executes IN scope", async () => {
+    // PrismaPromises execute on .then, not on creation. Without the async
+    // wrapper inside runWithTenant, `runWithTenant(org, () => db.x.find())`
+    // would exit the ALS scope before the query ran — the extension would see
+    // no store and fail-closed RLS would return zero rows (found by the
+    // tenancy harness). Pin: the store must be visible when the thenable's
+    // executor actually runs.
+    let orgSeenAtExecution: string | null = "not-run";
+    const lazyThenable = {
+      then(resolve: (v: string) => void) {
+        orgSeenAtExecution = getTenantOrgId();
+        resolve("done");
+      },
+    } as PromiseLike<string> as Promise<string>;
+    const result = await runWithTenant("org-a", () => lazyThenable);
+    expect(result).toBe("done");
+    expect(orgSeenAtExecution).toBe("org-a");
+  });
+
   it("nested runs shadow and restore", async () => {
     await runWithTenant("org-a", async () => {
       await runWithTenant("org-b", async () => {
