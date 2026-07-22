@@ -41,7 +41,8 @@ vi.mock("@/lib/security", () => ({
 import { POST } from "@/app/api/public/events/[slug]/sessions/[sessionId]/presence/route";
 
 function call(body: unknown) {
-  const req = { json: async () => body } as unknown as Request;
+  // headers present so publicEventWhere can read Host (absent → unscoped where)
+  const req = { json: async () => body, headers: new Headers() } as unknown as Request;
   return POST(req, { params: Promise.resolve({ slug: "evt", sessionId: "sess1" }) });
 }
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
@@ -50,7 +51,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { slug, status: { in: ["DRAFT", "PUBLISHED", "LIVE"] } },
+      where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
       select: { id: true, organizationId: true },
     });
     if (!event) {

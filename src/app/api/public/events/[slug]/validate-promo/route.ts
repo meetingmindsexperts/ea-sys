@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const validatePromoSchema = z.object({
@@ -45,7 +46,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { code, ticketTypeId, pricingTierId, email } = parsed.data;
 
     const event = await db.event.findFirst({
-      where: { slug, status: "PUBLISHED" },
+      where: await publicEventWhere(req, slug, { statuses: ["PUBLISHED"] }),
       select: { id: true },
     });
     if (!event) {

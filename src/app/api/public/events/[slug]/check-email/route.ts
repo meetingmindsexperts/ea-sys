@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 /**
@@ -54,7 +55,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const email = parsed.data.email.toLowerCase();
 
     const event = await db.event.findFirst({
-      where: { slug, status: { in: ["PUBLISHED", "LIVE"] } },
+      where: await publicEventWhere(req, slug, { statuses: ["PUBLISHED", "LIVE"] }),
       select: { id: true },
     });
     if (!event) {

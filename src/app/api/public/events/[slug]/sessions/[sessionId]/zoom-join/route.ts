@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { generateZoomSignatureForOrg } from "@/lib/zoom";
 
@@ -41,12 +42,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    // Find event by slug — include organizationId for SDK credentials
+    // Find event by slug (tenant-scoped) — include organizationId for SDK credentials
     const event = await db.event.findFirst({
-      where: {
-        slug,
-        status: { in: ["DRAFT", "PUBLISHED", "LIVE"] },
-      },
+      where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
       select: { id: true, organizationId: true, status: true },
     });
 

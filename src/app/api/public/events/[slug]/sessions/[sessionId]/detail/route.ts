@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { isBreakSessionType } from "@/lib/session-enums";
 import { readSponsors } from "@/lib/webinar";
@@ -45,14 +46,11 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Event + session fetched in parallel. Event settings are included
     // so we can surface the sponsor list on the public page.
+    // DRAFT is filtered out below unless the caller is org staff; keep it in
+    // the query so we can distinguish "no such event" from "not yet published"
+    // and log the difference. Tenant-scoped by request host.
     const event = await db.event.findFirst({
-      where: {
-        slug,
-        // DRAFT is filtered out below unless the caller is org staff; keep it
-        // in the query so we can distinguish "no such event" from "not yet
-        // published" and log the difference.
-        status: { in: ["DRAFT", "PUBLISHED", "LIVE"] },
-      },
+      where: await publicEventWhere(req, slug, { statuses: ["DRAFT", "PUBLISHED", "LIVE"] }),
       select: {
         id: true,
         name: true,

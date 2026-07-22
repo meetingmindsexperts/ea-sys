@@ -35,6 +35,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { publicEventWhere } from "@/lib/public-event";
 import {
   checkRateLimit,
   getClientIp,
@@ -271,7 +272,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         );
       }
       const event = await db.event.findFirst({
-        where: { slug },
+        where: await publicEventWhere(req, slug),
         select: { id: true, name: true, slug: true, bannerImage: true, surveyConfig: true, surveyIntroHtml: true },
       });
       if (!event) {
@@ -310,7 +311,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         );
       }
       const event = await db.event.findFirst({
-        where: { slug },
+        where: await publicEventWhere(req, slug),
         select: {
           id: true, name: true, slug: true, bannerImage: true,
           surveyConfig: true, surveyShareLink: true, surveyIntroHtml: true,
@@ -557,7 +558,7 @@ async function handleShareSubmit(
   const normalizedEmail = email.trim().toLowerCase();
 
   const event = await db.event.findFirst({
-    where: { slug },
+    where: await publicEventWhere(req, slug),
     select: { id: true, surveyShareLink: true },
   });
   if (!event) {
