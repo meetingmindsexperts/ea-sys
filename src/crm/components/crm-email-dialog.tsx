@@ -391,6 +391,11 @@ export function CrmEmailDialog({
                             Prospectus
                           </Badge>
                         )}
+                        {d.kind === "QUOTE" && (
+                          <Badge variant="outline" className="mr-2 border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700">
+                            Quote
+                          </Badge>
+                        )}
                         {d.label || d.filename}
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">

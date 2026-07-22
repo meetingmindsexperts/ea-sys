@@ -380,9 +380,14 @@ export function DealDetailBody({
           <DealProducts dealId={deal.id} canWrite={canWrite} />
         </RecordCard>
 
-        {/* ── Documents (prospectus + supporting PDFs → Email attachments) ─ */}
+        {/* ── Documents (prospectus + quotes + supporting PDFs → Email attachments) ─ */}
         <RecordCard icon={Paperclip} title="Documents">
-          <CrmDealDocumentsCard dealId={deal.id} canWrite={canWrite} />
+          <CrmDealDocumentsCard
+            dealId={deal.id}
+            canWrite={canWrite}
+            defaultTaxRate={deal.event?.taxRate}
+            defaultTaxLabel={deal.event?.taxLabel}
+          />
         </RecordCard>
 
         {/* ── History (system change log) ────────────────────────────────── */}

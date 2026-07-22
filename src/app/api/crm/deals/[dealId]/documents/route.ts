@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
+import { canViewDealValues } from "@/crm/lib/crm-visibility";
 import { addDealDocument, DEAL_DOCUMENT_SELECT } from "@/crm/services/deal-document-service";
 
 /**
@@ -43,7 +44,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const documents = await db.crmDealDocument.findMany({
-      where: { dealId },
+      // A generated quote PDF PRINTS the deal's prices — the same money the
+      // dealValue redaction hides from MEMBER. Key-based redaction can't reach
+      // inside a PDF, so a money-blind caller doesn't get the pointer at all.
+      where: {
+        dealId,
+        ...(canViewDealValues(ctx.role, ctx.fromApiKey) ? {} : { kind: { not: "QUOTE" as const } }),
+      },
       select: DEAL_DOCUMENT_SELECT,
       orderBy: [{ kind: "asc" }, { createdAt: "desc" }],
     });

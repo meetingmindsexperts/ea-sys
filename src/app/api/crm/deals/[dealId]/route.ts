@@ -39,7 +39,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ dealId: 
             crmContact: { select: { id: true, firstName: true, lastName: true, email: true, jobTitle: true, phone: true } },
           },
         },
-        event: { select: { id: true, name: true, slug: true } },
+        // taxRate/taxLabel pre-fill the quote dialog (FINANCIAL_KEYS strips them for MEMBER).
+        event: { select: { id: true, name: true, slug: true, taxRate: true, taxLabel: true } },
         owner: { select: { id: true, firstName: true, lastName: true, email: true } },
         stage: { select: { id: true, name: true, isTerminal: true } },
         tasks: { where: { archivedAt: null }, orderBy: { dueAt: "asc" }, take: 100 },

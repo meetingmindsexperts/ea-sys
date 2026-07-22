@@ -198,7 +198,7 @@ export function sumDealProducts(lines: CrmDealProductRow[]): number | null {
 
 // ── Deal documents ────────────────────────────────────────────────────────────
 
-export type CrmDealDocumentKind = "PROSPECTUS" | "OTHER";
+export type CrmDealDocumentKind = "PROSPECTUS" | "QUOTE" | "OTHER";
 
 /** A file held by a deal (the sponsorship prospectus / supporting PDFs). */
 export interface CrmDealDocumentRow {
@@ -258,7 +258,14 @@ export interface CrmBoardDeal {
   createdAt: string;
   company?: { id: string; name: string } | null;
   contacts?: CrmDealContactRef[];
-  event?: { id: string; name: string; slug: string } | null;
+  event?: {
+    id: string;
+    name: string;
+    slug: string;
+    /** Pre-fill for the quote dialog — absent for MEMBER (finance-gated). */
+    taxRate?: string | number | null;
+    taxLabel?: string | null;
+  } | null;
   owner?: CrmPersonRef | null;
   _count?: { tasks: number; notes: number };
 }
@@ -518,6 +525,7 @@ export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   PRODUCT_REMOVED: "Removed a product",
   DOCUMENT_ADDED: "Added a document",
   DOCUMENT_REMOVED: "Removed a document",
+  QUOTE_GENERATED: "Generated a quote",
 };
 
 /**

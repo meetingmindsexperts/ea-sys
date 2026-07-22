@@ -743,6 +743,19 @@ export function useUploadCrmDealDocument(dealId: string) {
   });
 }
 
+export function useGenerateCrmDealQuote(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { taxRate?: number | null; taxLabel?: string; validityDays: number; notes?: string | null }) =>
+      apiPostJson<{ document: CrmDealDocumentRow; quoteNumber: string }>(`/api/crm/deals/${dealId}/quote`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: crmKeys.dealDocuments(dealId) });
+      qc.invalidateQueries({ queryKey: crmKeys.activity("DEAL", dealId) });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not generate the quote"),
+  });
+}
+
 export function useDeleteCrmDealDocument(dealId: string) {
   const qc = useQueryClient();
   return useMutation({

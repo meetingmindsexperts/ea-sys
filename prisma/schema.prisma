@@ -2800,11 +2800,21 @@ model CrmDealProduct {
 
 /// Which slot a deal document fills. PROSPECTUS is one-per-deal (app-enforced
 /// replace + a partial-unique SQL backstop, the SpeakerDocument pattern) — the
-/// file the Email dialog offers to attach; OTHER is an open list (contract
-/// drafts, rate cards).
+/// file the Email dialog offers to attach; QUOTE rows are GENERATED quote PDFs
+/// (org-sequential number via CrmQuoteCounter, every generation kept as
+/// history); OTHER is an open list (contract drafts, rate cards).
 enum CrmDealDocumentKind {
   PROSPECTUS
+  QUOTE
   OTHER
+}
+
+/// Org-sequential quote numbering (Q-0001…) — the atomic upsert+increment
+/// counter pattern (RegistrationSerialCounter / CertificateSerialCounter), so
+/// two reps generating at once can never mint the same number.
+model CrmQuoteCounter {
+  organizationId String @id
+  lastNumber     Int    @default(0)
 }
 
 /// Files held BY a deal — the sponsorship prospectus + supporting documents.

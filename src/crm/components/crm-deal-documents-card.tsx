@@ -10,13 +10,24 @@
  */
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, FileText, Loader2, Trash2, Upload } from "lucide-react";
+import { Download, FileText, Loader2, ReceiptText, Trash2, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   useCrmDealDocuments,
   useDeleteCrmDealDocument,
+  useGenerateCrmDealQuote,
   useUploadCrmDealDocument,
 } from "@/crm/hooks/use-crm-api";
 import type { CrmDealDocumentRow } from "@/crm/lib/crm-types";
@@ -67,17 +78,63 @@ function DocRow({
   );
 }
 
-export function CrmDealDocumentsCard({ dealId, canWrite }: { dealId: string; canWrite: boolean }) {
+export function CrmDealDocumentsCard({
+  dealId,
+  canWrite,
+  defaultTaxRate,
+  defaultTaxLabel,
+}: {
+  dealId: string;
+  canWrite: boolean;
+  /** Pre-fill for the quote dialog — the linked event's tax config, if any. */
+  defaultTaxRate?: string | number | null;
+  defaultTaxLabel?: string | null;
+}) {
   const { data: documents = [], isLoading } = useCrmDealDocuments(dealId);
   const upload = useUploadCrmDealDocument(dealId);
   const remove = useDeleteCrmDealDocument(dealId);
+  const generateQuote = useGenerateCrmDealQuote(dealId);
 
   const prospectusInput = useRef<HTMLInputElement>(null);
   const otherInput = useRef<HTMLInputElement>(null);
   const [label, setLabel] = useState("");
 
+  // Quote dialog state — tax pre-filled from the linked event.
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [taxRate, setTaxRate] = useState(defaultTaxRate != null ? String(defaultTaxRate) : "");
+  const [taxLabel, setTaxLabel] = useState(defaultTaxLabel || "VAT");
+  const [validityDays, setValidityDays] = useState("30");
+  const [quoteNotes, setQuoteNotes] = useState("");
+
   const prospectus = documents.find((d) => d.kind === "PROSPECTUS");
+  const quotes = documents.filter((d) => d.kind === "QUOTE");
   const others = documents.filter((d) => d.kind === "OTHER");
+
+  async function handleGenerateQuote() {
+    const rate = taxRate.trim() ? Number(taxRate) : null;
+    if (rate !== null && (!Number.isFinite(rate) || rate < 0 || rate > 100)) {
+      toast.error("Tax rate must be between 0 and 100");
+      return;
+    }
+    const days = Number(validityDays);
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
+      toast.error("Validity must be between 1 and 365 days");
+      return;
+    }
+    try {
+      const res = await generateQuote.mutateAsync({
+        taxRate: rate,
+        taxLabel: taxLabel.trim() || undefined,
+        validityDays: days,
+        notes: quoteNotes.trim() || null,
+      });
+      toast.success(`Quote ${res.quoteNumber} generated`);
+      setQuoteOpen(false);
+      setQuoteNotes("");
+    } catch {
+      // Surfaced by the hook's onError toast (e.g. no products / mixed currencies).
+    }
+  }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>, kind: "PROSPECTUS" | "OTHER") {
     const file = e.target.files?.[0];
@@ -147,6 +204,43 @@ export function CrmDealDocumentsCard({ dealId, canWrite }: { dealId: string; can
         )}
       </div>
 
+      {/* ── Quotes (generated from the deal's Products — numbered, history kept) ── */}
+      <div className="space-y-2">
+        <p className="flex items-center gap-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+          Quotes
+          <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] font-normal normal-case text-emerald-700">
+            from the Products card
+          </Badge>
+        </p>
+        {quotes.length > 0 ? (
+          <ul className="space-y-1">
+            {quotes.map((d) => (
+              <DocRow
+                key={d.id}
+                doc={d}
+                canWrite={canWrite}
+                deleting={remove.isPending}
+                onDelete={() => remove.mutate(d.id)}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No quotes yet — add products to the deal, then generate one.
+          </p>
+        )}
+        {canWrite && (
+          <Button size="sm" variant="outline" disabled={generateQuote.isPending} onClick={() => setQuoteOpen(true)}>
+            {generateQuote.isPending ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ReceiptText className="mr-2 h-3.5 w-3.5" />
+            )}
+            Generate quote
+          </Button>
+        )}
+      </div>
+
       {/* ── Other documents ───────────────────────────────────────────────── */}
       <div className="space-y-2">
         <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">Other documents</p>
@@ -187,6 +281,71 @@ export function CrmDealDocumentsCard({ dealId, canWrite }: { dealId: string; can
           </div>
         )}
       </div>
+
+      {/* ── Generate-quote dialog ─────────────────────────────────────────── */}
+      <Dialog open={quoteOpen} onOpenChange={setQuoteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Generate a quote</DialogTitle>
+            <DialogDescription asChild>
+              <span>
+                Line items come from the deal&apos;s Products card. The quote gets the next
+                number, lands under Documents, and can be attached in Email.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="quote-tax-rate">Tax rate %</Label>
+                <Input
+                  id="quote-tax-rate"
+                  inputMode="decimal"
+                  value={taxRate}
+                  onChange={(e) => setTaxRate(e.target.value)}
+                  placeholder="none"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quote-tax-label">Tax label</Label>
+                <Input id="quote-tax-label" value={taxLabel} onChange={(e) => setTaxLabel(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="quote-validity">Valid for (days)</Label>
+              <Input
+                id="quote-validity"
+                inputMode="numeric"
+                value={validityDays}
+                onChange={(e) => setValidityDays(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="quote-notes">Notes (printed on the quote)</Label>
+              <Textarea
+                id="quote-notes"
+                rows={3}
+                value={quoteNotes}
+                onChange={(e) => setQuoteNotes(e.target.value)}
+                placeholder="Payment terms, inclusions…"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuoteOpen(false)} disabled={generateQuote.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={handleGenerateQuote} disabled={generateQuote.isPending}>
+              {generateQuote.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Generate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
