@@ -19,9 +19,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ── CI: Lint, type-check, build (runs once) ──────────────────────────────────
-  ci:
-    name: CI
+  # ── CI phase: THREE PARALLEL JOBS (split July 22, 2026, owner decision) ─────
+  # The old single `ci` job ran lint → tests → guards → build serially on one
+  # runner (~5-6 min). checks/tests/build are independent, so they run
+  # concurrently — the CI phase's wall clock becomes max(build ≈ 3-4 min),
+  # saving ~2-2.5 min per deploy. Every gate that blocked build-push before
+  # still blocks it (needs: [checks, tests, build]). Trade-off accepted:
+  # each job pays its own ~40s checkout+node+cache setup (a few extra billed
+  # runner-minutes, no wall-clock cost) and a broken commit burns minutes in
+  # all three jobs instead of failing fast in one. All jobs run on
+  # GitHub-hosted runners — the EC2 box is only touched by `deploy`.
+
+  checks:
+    name: Lint · types · guards
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -70,14 +80,6 @@ jobs:
           npm run lint
           wait
 
-      # The unit suite (2747 tests across 205 files) runs in ~4 seconds and
-      # covers the invariants we most need protected on a live system — RBAC,
-      # finance visibility, barcode visibility, seat accounting, the worker-job
-      # drift guard. Until now CI deployed to production without running any of
-      # it. There is no reason for that; it costs 4 seconds.
-      - name: Unit tests
-        run: npm test
-
       # Blue-green migrates BEFORE the nginx swap, so a DROP/RENAME/SET NOT NULL
       # breaks the old slot while it is still serving real users — and a code
       # rollback re-runs `migrate deploy` and cannot undo it. See the script's
@@ -96,6 +98,66 @@ jobs:
       # (`npm audit` on demand.) Deliberate: CI gates what a commit BREAKS, not
       # what the ecosystem happens to have disclosed today, which is not something
       # a deploy should be blocked on.
+
+  tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # The unit suite (3600+ tests) runs in seconds and covers the invariants
+      # we most need protected on a live system — RBAC, finance visibility,
+      # barcode visibility, seat accounting, the worker-job drift guard.
+      - name: Unit tests
+        run: npm test
+
+  build:
+    name: Build (gating)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
 
       # Gating build (restored by owner request, July 16, 2026): fail fast on
       # any build error before images are built or anything deploys. No Sentry
@@ -181,7 +243,9 @@ jobs:
   # half-deployed", which would be false for a map-upload hiccup).
   sourcemaps:
     name: Sentry source maps
-    needs: ci
+    # Gated on the cheap checks job only (was: the whole serial ci) — starts
+    # ~3 min earlier while still not wasting a Sentry build on a broken commit.
+    needs: checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -221,7 +285,8 @@ jobs:
   # these images instead of building on-box (~8 min → ~1-2 min).
   build-push:
     name: Build & push images → ECR
-    needs: ci
+    # Every gate the old serial `ci` job enforced still blocks image builds.
+    needs: [checks, tests, build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -357,7 +422,7 @@ jobs:
   # ea-sys-gha role, which is an AWS change to make deliberately.
   notify-failure:
     name: Alert on failure
-    needs: [ci, build-push, deploy]
+    needs: [checks, tests, build, build-push, deploy]
     if: failure()
     runs-on: ubuntu-latest
     timeout-minutes: 5
