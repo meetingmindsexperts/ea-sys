@@ -40,6 +40,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         endDate: true,
         timezone: true,
         supportEmail: true,
+        bannerImage: true,
+        bannerImageMobile: true,
         settings: true,
         organization: { select: { name: true, logo: true } },
         tracks: {
@@ -119,6 +121,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       endDate: event.endDate,
       timezone: event.timezone,
       supportEmail: event.supportEmail,
+      bannerImage: event.bannerImage,
+      bannerImageMobile: event.bannerImageMobile,
       organization: event.organization,
       tracks: event.tracks,
       sessions: event.eventSessions,
