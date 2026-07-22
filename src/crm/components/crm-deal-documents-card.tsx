@@ -162,6 +162,43 @@ export function CrmDealDocumentsCard({
 
   return (
     <div className="space-y-4">
+      {/* ── Quotes (generated from the deal's Products — numbered, history kept) ── */}
+      <div className="space-y-2">
+        <p className="flex items-center gap-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+          Quotes
+          <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] font-normal normal-case text-emerald-700">
+            from the Products card
+          </Badge>
+        </p>
+        {quotes.length > 0 ? (
+          <ul className="space-y-1">
+            {quotes.map((d) => (
+              <DocRow
+                key={d.id}
+                doc={d}
+                canWrite={canWrite}
+                deleting={remove.isPending}
+                onDelete={() => remove.mutate(d.id)}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No quotes yet — add products to the deal, then generate one.
+          </p>
+        )}
+        {canWrite && (
+          <Button size="sm" variant="outline" disabled={generateQuote.isPending} onClick={() => setQuoteOpen(true)}>
+            {generateQuote.isPending ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ReceiptText className="mr-2 h-3.5 w-3.5" />
+            )}
+            Generate quote
+          </Button>
+        )}
+      </div>
+
       {/* ── The prospectus slot (one per deal — upload replaces) ──────────── */}
       <div className="space-y-2">
         <p className="flex items-center gap-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
@@ -201,43 +238,6 @@ export function CrmDealDocumentsCard({
               onChange={(e) => handleFile(e, "PROSPECTUS")}
             />
           </>
-        )}
-      </div>
-
-      {/* ── Quotes (generated from the deal's Products — numbered, history kept) ── */}
-      <div className="space-y-2">
-        <p className="flex items-center gap-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
-          Quotes
-          <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] font-normal normal-case text-emerald-700">
-            from the Products card
-          </Badge>
-        </p>
-        {quotes.length > 0 ? (
-          <ul className="space-y-1">
-            {quotes.map((d) => (
-              <DocRow
-                key={d.id}
-                doc={d}
-                canWrite={canWrite}
-                deleting={remove.isPending}
-                onDelete={() => remove.mutate(d.id)}
-              />
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No quotes yet — add products to the deal, then generate one.
-          </p>
-        )}
-        {canWrite && (
-          <Button size="sm" variant="outline" disabled={generateQuote.isPending} onClick={() => setQuoteOpen(true)}>
-            {generateQuote.isPending ? (
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ReceiptText className="mr-2 h-3.5 w-3.5" />
-            )}
-            Generate quote
-          </Button>
         )}
       </div>
 
