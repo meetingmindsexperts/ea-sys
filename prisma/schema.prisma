@@ -40,6 +40,7 @@ model Organization {
   scheduledEmails ScheduledEmail[]
   emailLogs       EmailLog[]
   billingAccounts BillingAccount[]
+  tenantDomains   TenantDomain[]
 
   // CRM module — see docs/CRM_MODULE_PLAN.md
   crmCompanies      CrmCompany[]
@@ -53,6 +54,26 @@ model Organization {
   crmDealDocuments  CrmDealDocument[]
   crmEmailTemplates CrmEmailTemplate[]
   crmProducts       CrmProduct[]
+}
+
+// Host → organization mapping for multi-tenant routing (Phase 0 spine —
+// docs/MULTI_TENANCY.md §0/§3.1). A domain maps to exactly one org; an org may
+// hold several domains (subdomain + custom apex). `domain` is stored
+// lowercased with no port. Rows are seeded via scripts/add-tenant-domain.ts
+// (never a data migration). Unknown hosts fall back per the resolver's safety
+// ramp in src/lib/tenant/resolver.ts — master keeps working with zero rows.
+model TenantDomain {
+  id             String    @id @default(cuid())
+  organizationId String
+  domain         String    @unique
+  isPrimary      Boolean   @default(false)
+  verifiedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 model User {
