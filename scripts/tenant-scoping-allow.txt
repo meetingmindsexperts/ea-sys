@@ -1,0 +1,6 @@
+# Files allowed to look up events by slug WITHOUT the tenant-scoped helper
+# (checked by scripts/check-tenant-scoping.sh — one repo-relative path per
+# line, followed by a one-line reason). Think hard before adding anything:
+# an unscoped public slug lookup can serve another tenant's event.
+#
+# (empty — every public lookup goes through publicEventWhere)

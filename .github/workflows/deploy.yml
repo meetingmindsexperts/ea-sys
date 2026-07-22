@@ -85,6 +85,13 @@ jobs:
       - name: Migration safety (blue-green)
         run: bash scripts/check-migration-safety.sh
 
+      # Event.slug is only unique PER ORG — a public route that hand-rolls a
+      # slug lookup instead of publicEventWhere reopens the cross-tenant hole
+      # the Phase-0 sweep closed. Gating: only fires on new code in the
+      # public surface, so it can't block an unrelated hotfix.
+      - name: Tenant scoping (public event lookups)
+        run: bash scripts/check-tenant-scoping.sh
+
       # Dependency auditing is done manually, locally, before a push — not in CI.
       # (`npm audit` on demand.) Deliberate: CI gates what a commit BREAKS, not
       # what the ecosystem happens to have disclosed today, which is not something
