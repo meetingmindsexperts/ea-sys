@@ -178,9 +178,9 @@ hard part already done right.
 
 ## 8. The decisions that need a human call (before any build)
 
-1. **Identity:** per-tenant user rows vs shared `User` + `Membership` (recommend the latter — preserves cross-org reviewer, avoids forcing `organizationId` NOT NULL).
-2. **Isolation:** shared-DB + RLS (recommend, default) vs DB-per-tenant (premium tier only) — and **flat RLS via denormalized `organizationId`** vs **join-policy RLS** on the 25 tables.
-3. **Payments:** Stripe Connect destination charges + application fee (recommend) — confirms "tenant's money → tenant's account, you take a fee."
-4. **MM Group's place:** stay siloed on its own DB, or become tenant-zero in the shared DB (recommend: migrate it **last**, after the isolation suite is proven — it's live prod with real money).
+1. **Identity:** per-tenant user rows vs shared `User` + `Membership` (recommend the latter — preserves cross-org reviewer, avoids forcing `organizationId` NOT NULL). **OPEN.**
+2. **Isolation:** ✅ **DECIDED July 22, 2026** — two-silo topology; the platform instance is shared-DB + RLS (Pool+), DB-per-tenant reserved as a premium tier *within* platform ([MULTI_TENANCY.md §0](MULTI_TENANCY.md)). Still open within this: **flat RLS via denormalized `organizationId`** vs **join-policy RLS** on the 25 tables (recommend flat; decide during the Contacts pilot sweep).
+3. **Payments:** Stripe Connect destination charges + application fee (recommend) — confirms "tenant's money → tenant's account, you take a fee." **OPEN.**
+4. **MM Group's place:** ✅ **DECIDED July 22, 2026** — stays siloed on the master instance; merge-vs-silo-forever deliberately deferred to the §0 re-evaluation trigger (~6 months stable platform, or the first two-env ops incident).
 
 *Cross-reference: [MULTI_TENANCY.md](MULTI_TENANCY.md) (architecture + cost), [PRODUCTION_AUDIT.md](PRODUCTION_AUDIT.md) Round 2 (the IDOR class this formalizes), [HANDOVER.md](HANDOVER.md).*
