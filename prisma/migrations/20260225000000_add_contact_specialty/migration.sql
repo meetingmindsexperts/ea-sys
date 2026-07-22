@@ -1,2 +1,12 @@
 -- AlterTable: add specialty column to Contact
-ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "specialty" TEXT;
+--
+-- FRESH-REPLAY GUARD (edited July 22, 2026 — behavior-invisible on prod):
+-- At this point in the chain the "Contact" table does not exist yet — it was
+-- created on prod via `db push` before migration discipline, and only enters
+-- the chain in 20260303000000_sync_schema_changes (which creates it WITH
+-- "specialty"). On a fresh database this statement therefore has nothing to
+-- do; IF EXISTS makes it a clean no-op instead of a chain-breaking error.
+-- On prod this migration is already applied and `migrate deploy` skips it by
+-- name (checksums are only verified by `migrate dev`), so the edit changes
+-- nothing there. Caught by the migration-replay CI job's from-scratch run.
+ALTER TABLE IF EXISTS "Contact" ADD COLUMN IF NOT EXISTS "specialty" TEXT;

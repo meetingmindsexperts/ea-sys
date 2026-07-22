@@ -48,8 +48,9 @@
    │   build    gating `next build`                                                    │
    │                                                                                   │
    │   (beside them, nothing waits on these:)                                          │
-   │   tenancy     postgres+pgbouncer containers → 13 isolation tests   [non-gating]   │
-   │   sourcemaps  Sentry map upload (gated on `checks` only)           [non-gating]   │
+   │   tenancy           postgres+pgbouncer containers → 13 isolation tests [non-gating] │
+   │   migration-replay  full chain vs empty postgres + schema diff        [non-gating] │
+   │   sourcemaps        Sentry map upload (gated on `checks` only)        [non-gating] │
    └───────────────────────────────────────────────────────────────────────────────────┘
    │  needs: [checks, tests, build]
    ▼
@@ -91,9 +92,9 @@ notify-failure  (only on failure of any of the five pipeline jobs) → SES page<
   <tr><th>Idea</th><th>What / why</th><th>Cost &amp; shape</th><th>Status</th></tr>
   <tr>
     <td><strong>1. Fresh-DB migration replay</strong></td>
-    <td>Postgres service container + <code>prisma migrate deploy</code> against an <em>empty</em> DB — replays the entire migration chain from scratch. Prod only ever migrates incrementally, so a broken chain surfaces exactly when the <strong>two-silo platform instance</strong> gets its fresh database. This job makes that day boring. Directly protects the Phase-0 endgame.</td>
-    <td>~2 min; per-push (cheap) or per-migration-change via <code>paths:</code> filter. Non-gating → gating once trusted.</td>
-    <td><span class="pill idea">RECOMMENDED NEXT</span></td>
+    <td>Postgres service container + <code>prisma migrate deploy</code> against an <em>empty</em> DB — replays the entire migration chain from scratch, then <code>prisma migrate diff --exit-code</code> asserts the result matches <code>schema.prisma</code>. Prod only ever migrates incrementally, so a broken chain surfaces exactly when the <strong>two-silo platform instance</strong> gets its fresh database. <strong>The first local run proved the point:</strong> 2 migrations failed from scratch (out-of-order <code>Contact</code> alter; a backfill reading the never-migrated <code>serialId</code>) plus ~250 lines of <code>db push</code> drift the chain never captured — repaired via guarded edits + the sentinel-gated <code>20260722140000_sync_chain_to_prod_schema</code> (verified no-op on prod-shaped DBs). See the CLAUDE.md entry of the same date.</td>
+    <td>~2 min per push; non-gating → gating after ≥5 green runs (same rule as <code>tenancy</code>).</td>
+    <td><span class="pill live">LIVE (July 22, 2026)</span></td>
   </tr>
   <tr>
     <td><strong>2. Playwright e2e in CI</strong></td>
@@ -138,7 +139,7 @@ notify-failure  (only on failure of any of the five pipeline jobs) → SES page<
 
 <h2>5. Quota math</h2>
 <div class="card">
-<p>Private repo → every job spends billed Actions minutes (Linux = 1×). Rough per-push spend after the split: <code>checks</code> ~2 + <code>tests</code> ~1.5 + <code>build</code> ~3.5 + <code>tenancy</code> ~2 + <code>sourcemaps</code> ~3 + <code>build-push</code> ~4.5 + <code>deploy</code> ~2.5 ≈ <strong>~19 min/push</strong> (was ~16 pre-split). At 10 pushes/day ≈ 190 min/day ≈ ~4,000/month — check the org's plan quota (Free = 2,000, Team = 3,000, overage is billed per-minute) before adding per-push jobs; prefer <code>schedule:</code> triggers for anything heavy (e2e daily ≈ 210 min/month vs ~2,100 if per-push).</p>
+<p>Private repo → every job spends billed Actions minutes (Linux = 1×). Rough per-push spend after the split: <code>checks</code> ~2 + <code>tests</code> ~1.5 + <code>build</code> ~3.5 + <code>tenancy</code> ~2 + <code>migration-replay</code> ~2 + <code>sourcemaps</code> ~3 + <code>build-push</code> ~4.5 + <code>deploy</code> ~2.5 ≈ <strong>~21 min/push</strong> (was ~16 pre-split). At 10 pushes/day ≈ 190 min/day ≈ ~4,000/month — check the org's plan quota (Free = 2,000, Team = 3,000, overage is billed per-minute) before adding per-push jobs; prefer <code>schedule:</code> triggers for anything heavy (e2e daily ≈ 210 min/month vs ~2,100 if per-push).</p>
 </div>
 
 <h2>6. Decision log</h2>
@@ -147,6 +148,7 @@ notify-failure  (only on failure of any of the five pipeline jobs) → SES page<
   <tr><td>2026-07-22</td><td>CI phase split into parallel <code>checks</code>/<code>tests</code>/<code>build</code> (owner choice "B" of A/B/C)</td><td>~2–2.5 min faster per deploy; gates unchanged; minutes cost accepted. Option C (drop the separate gating build, let the Docker build gate) declined — would reverse the July 16 fail-fast decision.</td></tr>
   <tr><td>2026-07-22</td><td><code>tenancy</code> job added, non-gating</td><td>Real-DB isolation proof per MULTI_TENANCY.md §0; fresh container infra must not block a hotfix. Promote after ≥5 green runs.</td></tr>
   <tr><td>2026-07-22</td><td><code>check-tenant-scoping.sh</code> added as a gating <code>checks</code> step</td><td>Only fires on new code in the public surface — can't block an unrelated hotfix.</td></tr>
+  <tr><td>2026-07-22</td><td><code>migration-replay</code> job added, non-gating</td><td>Full chain vs empty Postgres + schema diff; first run found 2 broken migrations + ~250 lines of db-push drift (repaired same day). Promote after ≥5 green runs.</td></tr>
   <tr><td>2026-07-16</td><td>Gating <code>next build</code> in CI (owner request)</td><td>Fail fast on build errors before images/deploy.</td></tr>
   <tr><td>2026-07 (INC-001)</td><td>Images build on GitHub runners → ECR; the box only pulls</td><td>An on-box build froze the swapless t3.large during a live deploy.</td></tr>
 </table>

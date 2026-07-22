@@ -35,10 +35,29 @@ CREATE TABLE "RegistrationSerialCounter" (
 -- Backfill one row per event that already has registrations.
 -- Events with no registrations (or created later) get their row lazily via
 -- the upsert's create path on first registration.
-INSERT INTO "RegistrationSerialCounter" ("eventId", "lastSerial")
-SELECT "eventId", COALESCE(MAX("serialId"), 0)
-FROM "Registration"
-GROUP BY "eventId";
+--
+-- FRESH-REPLAY GUARD (edited July 22, 2026 — behavior-invisible on prod):
+-- "Registration"."serialId" was added to prod via `db push` and is not
+-- created by any migration in the chain (it lands in the July 22 corrective
+-- sync migration, which is dated AFTER this one). On a fresh database the
+-- column therefore doesn't exist yet at this point — and there are no
+-- registrations to backfill anyway — so the INSERT is skipped. On prod this
+-- migration is already applied and `migrate deploy` skips it by name, so the
+-- edit changes nothing there.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'Registration'
+          AND column_name = 'serialId'
+    ) THEN
+        INSERT INTO "RegistrationSerialCounter" ("eventId", "lastSerial")
+        SELECT "eventId", COALESCE(MAX("serialId"), 0)
+        FROM "Registration"
+        GROUP BY "eventId";
+    END IF;
+END $$;
 
 ALTER TABLE "RegistrationSerialCounter"
     ADD CONSTRAINT "RegistrationSerialCounter_eventId_fkey"

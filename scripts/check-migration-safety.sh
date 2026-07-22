@@ -32,10 +32,19 @@
 # with a one-line reason. That file shows up in review, which is the whole point:
 # this guard does not forbid the operation, it forbids doing it by accident.
 #
-# We deliberately do NOT ask you to annotate the migration.sql itself — Prisma
-# stores a checksum of every applied migration in `_prisma_migrations` and
-# `migrate deploy` rejects a file that changed after it was applied. Applied
-# migrations are immutable. Never edit one.
+# We deliberately do NOT ask you to annotate the migration.sql itself — treat
+# applied migrations as immutable. (Corrected July 22, 2026: `migrate deploy`
+# actually skips applied migrations BY NAME and never re-verifies checksums —
+# only `migrate dev` does; verified empirically. So an edit won't break prod,
+# but it silently diverges the file from what actually ran there. The ONE
+# sanctioned reason to edit an applied migration is repairing the from-scratch
+# replay — see the FRESH-REPLAY GUARD edits of July 22, 2026 — and any such
+# edit must be provably behavior-invisible on databases that already applied
+# it. The migration-replay CI job pins the from-scratch result. Side effect to
+# know about: `migrate dev` DOES checksum — against a DB that applied the
+# original file it reports the edited migrations as "modified" and offers a
+# DATABASE RESET. Local dev points at prod Supabase, so never accept that
+# prompt; `migrate dev` against prod was always forbidden anyway.)
 #
 # Usage: bash scripts/check-migration-safety.sh
 # Exit:  0 = clean, 1 = unacknowledged destructive migration found
@@ -113,8 +122,9 @@ if [ "$violations" -gt 0 ]; then
 
      e.g. "no readers left after <commit>", or "table is empty in prod".
 
-  Do NOT edit the migration.sql to silence this — Prisma checksums applied
-  migrations and 'migrate deploy' will reject a modified file.
+  Do NOT edit an applied migration.sql to silence this — 'migrate deploy'
+  skips applied migrations by name (it won't reject the edit), but the file
+  then silently diverges from what actually ran on prod.
 
 EOF
   exit 1

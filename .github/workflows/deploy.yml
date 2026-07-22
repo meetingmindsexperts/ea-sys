@@ -233,6 +233,76 @@ jobs:
           TENANCY_DATABASE_URL: postgresql://app_user:app_user_pw@localhost:56432/tenancy?pgbouncer=true&connection_limit=3
         run: npm run test:tenancy
 
+  # ── Fresh-DB migration replay (parallel, NON-GATING initially) ───────────────
+  # Replays the ENTIRE prisma/migrations chain against an empty Postgres, then
+  # asserts the result matches schema.prisma exactly. Prod only ever migrates
+  # incrementally, so a chain that is broken from scratch (ordering bugs,
+  # backfills that assume data, db-push drift never captured in a migration
+  # file) stays invisible until the first fresh database needs it — which is
+  # exactly how the future platform instance (docs/MULTI_TENANCY.md §0) gets
+  # born. First local run of this check found 2 broken migrations + ~250 lines
+  # of uncaptured drift, repaired in 20260722140000_sync_chain_to_prod_schema.
+  # Same promotion rule as `tenancy`: gate it (add to build-push's `needs`)
+  # after ≥5 consecutive green runs.
+  migration-replay:
+    name: Migration replay (fresh DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        # PG 17 to match prod Supabase (and therefore the future platform
+        # DB's first real `migrate deploy`) — fidelity, per review.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: replay
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+
+      - name: Cache dependencies
+        id: replay-deps-cache
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.replay-deps-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Replay full migration chain from empty
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:55433/replay
+          DIRECT_URL: postgresql://postgres:postgres@localhost:55433/replay
+        run: npx prisma migrate deploy
+
+      # The replayed database must be indistinguishable from schema.prisma —
+      # a chain that *completes* but produces a different schema is still a
+      # broken chain (that is the db-push-drift failure class).
+      - name: Assert replayed schema matches schema.prisma
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:55433/replay
+          DIRECT_URL: postgresql://postgres:postgres@localhost:55433/replay
+        run: >
+          npx prisma migrate diff
+          --from-url "$DATABASE_URL"
+          --to-schema-datamodel prisma/schema.prisma
+          --exit-code
+
   # ── Sentry source maps (parallel, non-gating) ────────────────────────────────
   # Runs `next build` with the Sentry auth token purely to upload source maps
   # for this commit — the Docker image build deliberately has NO Sentry token,
@@ -424,7 +494,13 @@ jobs:
   # ea-sys-gha role, which is an AWS change to make deliberately.
   notify-failure:
     name: Alert on failure
-    needs: [checks, tests, build, build-push, deploy]
+    # migration-replay is in this list so a red replay PAGES (it is the sole
+    # detector for a from-scratch-broken migration chain — see the job's
+    # comment) while still gating nothing. The alert script branches on
+    # REPLAY_RESULT/DEPLOY_RESULT so a replay-only failure sends a truthful
+    # "chain broken, deploy itself fine" message instead of the scary
+    # half-deployed one. sourcemaps stays deliberately excluded.
+    needs: [checks, tests, build, build-push, deploy, migration-replay]
     if: failure()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -437,7 +513,7 @@ jobs:
           key: ${{ secrets.MUMBAI_EC2_SSH_KEY }}
           port: 22
           command_timeout: 3m
-          envs: RUN_URL,SHA,ACTOR,BRANCH
+          envs: RUN_URL,SHA,ACTOR,BRANCH,REPLAY_RESULT,DEPLOY_RESULT
           script: |
             cd /home/ubuntu/ea-sys
 
@@ -447,6 +523,31 @@ jobs:
             if [ ! -f scripts/ops-alert.sh ]; then
               git fetch origin main --quiet || true
               git checkout origin/main -- scripts/ops-alert.sh || true
+            fi
+
+            # Replay-only failure (deploy path fine) gets its own truthful
+            # message — the half-deployed warning below would be false for it.
+            if [ "$REPLAY_RESULT" = "failure" ] && [ "$DEPLOY_RESULT" != "failure" ]; then
+              SUBJECT="EA-SYS MIGRATION REPLAY RED — ${SHA:0:7} (${BRANCH})"
+              BODY="The fresh-DB migration-replay CI job FAILED. The deploy itself
+            did NOT fail — prod is fine — but the migration chain no longer
+            builds a correct database from scratch (a broken/out-of-order
+            migration, or schema changed outside a migration file).
+
+            This is the ONLY check for that failure class. Left red, the
+            future platform instance's database bootstrap will fail the same
+            way (docs/MULTI_TENANCY.md §0).
+
+            Commit : ${SHA}
+            Branch : ${BRANCH}
+            By     : ${ACTOR}
+            Run    : ${RUN_URL}
+
+            Reproduce locally: empty postgres + 'npx prisma migrate deploy',
+            then 'npx prisma migrate diff --from-url <db> --to-schema-datamodel
+            prisma/schema.prisma --exit-code'."
+              bash scripts/ops-alert.sh "$SUBJECT" "$BODY" || exit 1
+              exit 0
             fi
 
             SUBJECT="EA-SYS DEPLOY FAILED — ${SHA:0:7} (${BRANCH})"
@@ -482,3 +583,5 @@ jobs:
           SHA: ${{ github.sha }}
           ACTOR: ${{ github.actor }}
           BRANCH: ${{ github.ref_name }}
+          REPLAY_RESULT: ${{ needs.migration-replay.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
