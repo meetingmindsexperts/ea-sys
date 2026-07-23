@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dependency Upgrades — Round 1 (July 2026)</title>
+<style>
+  :root { --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --bg:#f8fafc; --accent:#00aade;
+          --ok:#059669; --warn:#d97706; --bad:#dc2626; --hold:#7c3aed; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:var(--ink);
+         background:var(--bg); margin:0; padding:2rem 1rem; line-height:1.55; font-size:15px; }
+  .wrap { max-width:1080px; margin:0 auto; }
+  h1 { font-size:1.7rem; margin:.2rem 0 .3rem; }
+  h2 { font-size:1.25rem; margin:2.2rem 0 .6rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+  h3 { font-size:1.05rem; margin:1.4rem 0 .4rem; }
+  p, li { color:var(--ink); }
+  .sub { color:var(--muted); margin:0 0 1rem; }
+  .banner { border-left:5px solid var(--warn); background:#fffbeb; padding:.8rem 1rem; border-radius:6px; margin:1rem 0; }
+  .banner.ok { border-color:var(--ok); background:#ecfdf5; }
+  table { border-collapse:collapse; width:100%; margin:.8rem 0 1.2rem; background:#fff; font-size:.9rem; }
+  th, td { border:1px solid var(--line); padding:.5rem .6rem; text-align:left; vertical-align:top; }
+  th { background:#f1f5f9; font-weight:600; }
+  code { background:#eef2f7; border-radius:4px; padding:.08rem .35rem; font-size:.85em;
+         font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .pill { display:inline-block; font-size:.72rem; font-weight:700; padding:.1rem .5rem; border-radius:999px; letter-spacing:.02em; }
+  .pill.go   { background:#d1fae5; color:#065f46; }
+  .pill.hold { background:#ede9fe; color:#5b21b6; }
+  .pill.no   { background:#fee2e2; color:#991b1b; }
+  .pill.next { background:#dbeafe; color:#1e40af; }
+  .small { font-size:.85rem; color:var(--muted); }
+  ol li, ul li { margin:.3rem 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem 1.2rem; margin:.8rem 0; }
+  .risk-t { font-weight:600; }
+  footer { margin-top:3rem; color:var(--muted); font-size:.85rem; border-top:1px solid var(--line); padding-top:1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Dependency Upgrades — Round 1</h1>
+<p class="sub">EA-SYS · Prepared July 23, 2026 · Snapshot taken against <code>ea-sys@0.4.24</code> on <code>main</code></p>
+
+<div class="banner">
+  <strong>Status: PROPOSED — awaiting owner go-ahead.</strong> Nothing in this document has been applied.
+  This is the first structured dependency-upgrade round for this project; the format here is the template
+  for future rounds. Re-run <code>npm outdated</code> and <code>npm audit</code> before executing —
+  versions drift weekly.
+</div>
+
+<h2>1 · Principles for a live production platform</h2>
+<ul>
+  <li><strong>Minors and patches within our current majors only.</strong> These are the versions a fresh
+      <code>npm install</code> would already resolve for a new developer — we are catching the lockfile up,
+      not changing any API contract.</li>
+  <li><strong>Vendor SDK majors are projects, not hygiene.</strong> A Stripe or Prisma major changes the
+      contract with the vendor and gets its own planned round with dedicated testing.</li>
+  <li><strong>One revertable commit, one deploy.</strong> The whole batch ships as a single commit so the
+      drilled 22-second pinned rollback (<code>docs/ROLLBACK.md</code>) covers all of it at once.</li>
+  <li><strong>Full verification gate before push</strong> (<code>tsc</code> · <code>lint</code> ·
+      3,666 unit tests · <code>next build</code>) <strong>plus</strong> the e2e suite and a post-deploy
+      production smoke (§5).</li>
+  <li><strong>Dormant code paths are not upgraded.</strong> Upgrading an SDK we don't actively run
+      (Brevo, SendGrid, Postmark) buys risk and zero value.</li>
+</ul>
+
+<h2>2 · Vendor-by-vendor verdicts</h2>
+<p class="small">The external services EA-SYS depends on, and whether moving their SDK keeps us "in par" with the vendor or changes the contract.</p>
+<table>
+  <tr><th>Vendor / SDK</th><th>Current → Latest</th><th>Verdict</th><th>Why</th></tr>
+  <tr>
+    <td><strong>Stripe</strong> <code>stripe</code></td>
+    <td>20.4.1 → 22.3.2 <em>(major)</em></td>
+    <td><span class="pill no">DO NOT TOUCH</span></td>
+    <td>We pin no <code>apiVersion</code> in <code>src/lib/stripe.ts</code>, so the SDK's built-in pin
+        applies. A major bump silently moves requests to a newer <strong>Stripe API version</strong> —
+        payload shapes on the money path (checkout, webhooks, refunds) can change. Stripe supports old API
+        versions indefinitely; 20.x is fully vendor-supported. Upgrading is a dedicated round with webhook
+        replay testing.</td>
+  </tr>
+  <tr>
+    <td><strong>Zoom</strong> <code>@zoom/meetingsdk</code></td>
+    <td>6.0.0 → 6.2.0 <em>(minor)</em></td>
+    <td><span class="pill no">DO NOT TOUCH — PIN</span></td>
+    <td>Production loads the SDK from Zoom's CDN pinned at 6.0.0 (the React-19 crash workaround in
+        <code>src/lib/zoom/load-embedded-sdk.ts</code>); the npm copy is not what runs. 6.2.0 was inspected
+        (July 23): still externalizes React, still reads the React-18-only <code>ReactCurrentOwner</code>
+        internal, peer-pinned to exactly React 18.2.0 — <strong>still incompatible with our React 19</strong>.
+        This round pins the npm entry to <code>6.0.0</code> exact so future
+        <code>npm update</code> runs can't drift it away from the CDN pin. Revisit when a release drops the
+        <code>ReactCurrentOwner</code> access.</td>
+  </tr>
+  <tr>
+    <td><strong>AWS</strong> <code>@aws-sdk/client-sesv2 / -s3 / -cloudwatch</code></td>
+    <td>3.1051–3.1086 → 3.1093 <em>(minor)</em></td>
+    <td><span class="pill go">UPGRADE</span></td>
+    <td>AWS ships v3 minors weekly; staying current <em>is</em> the vendor-aligned posture. No API changes
+        within v3. SESv2 is the live email sender — covered by the post-deploy test-send check (§5).</td>
+  </tr>
+  <tr>
+    <td><strong>Sentry</strong> <code>@sentry/nextjs</code></td>
+    <td>10.48.0 → 10.67.0 <em>(minor)</em></td>
+    <td><span class="pill go">UPGRADE</span></td>
+    <td>Same major, actively maintained line; also clears its <code>npm audit</code> moderates.</td>
+  </tr>
+  <tr>
+    <td><strong>Supabase</strong> <code>@supabase/supabase-js</code></td>
+    <td>2.103.0 → 2.110.8 <em>(minor)</em></td>
+    <td><span class="pill go">UPGRADE</span></td>
+    <td>Only used by the optional storage provider (<code>src/lib/storage.ts</code>;
+        prod runs <code>STORAGE_PROVIDER=local</code>). Note the <em>database</em> talks to Supabase through
+        Prisma, not this SDK — DB access is unaffected either way.</td>
+  </tr>
+  <tr>
+    <td><strong>Anthropic</strong> <code>@anthropic-ai/sdk</code></td>
+    <td>0.82.0 → 0.113.0 <em>(0.x — breaking allowed)</em></td>
+    <td><span class="pill hold">HOLD — deliberate later</span></td>
+    <td>Powers the in-app AI Agent + help chatbot. 0.x minors may break; already tracked in ROADMAP's
+        npm-audit entry as a deliberate upgrade with its own verification against the agent surfaces.</td>
+  </tr>
+  <tr>
+    <td><strong>MCP</strong> <code>@modelcontextprotocol/sdk</code></td>
+    <td>1.29.0 (audit flags a semver-major fix path)</td>
+    <td><span class="pill hold">HOLD — deliberate later</span></td>
+    <td>The MCP server (claude.ai, Claude Desktop, n8n). Any behavior change requires client reconnects +
+        a <code>package.json</code> version bump. Same ROADMAP entry.</td>
+  </tr>
+  <tr>
+    <td><strong>Email fallbacks</strong> <code>@getbrevo/brevo · @sendgrid/mail · postmark</code></td>
+    <td>majors available</td>
+    <td><span class="pill no">SKIP — dormant</span></td>
+    <td>SES is the live provider (since May 2026); these are inactive fallback paths in
+        <code>src/lib/email.ts</code>. Upgrading dead code is pure risk.</td>
+  </tr>
+  <tr>
+    <td><strong>Prisma</strong> <code>prisma / @prisma/client</code></td>
+    <td>6.19.3 → 7.9.0 <em>(major)</em></td>
+    <td><span class="pill no">SKIP</span></td>
+    <td>6.x is fully supported. v7 is a migration project against a database shared with production —
+        its own round, never a batch rider.</td>
+  </tr>
+  <tr>
+    <td><strong>Next.js</strong> <code>next</code></td>
+    <td>16.1.4 → 16.2.11 <em>(minor)</em></td>
+    <td><span class="pill next">RECOMMENDED — separate deploy</span></td>
+    <td>The security upgrade (middleware/proxy bypass, SSRF in Server Actions/rewrites, DoS vectors) deferred
+        by owner decision July 23 — see ROADMAP § "npm audit". Deliberately <strong>not</strong> part of this
+        batch so each ships and reverts independently. <code>eslint-config-next</code> moves with it.</td>
+  </tr>
+  <tr>
+    <td><strong>Auth</strong> <code>next-auth</code></td>
+    <td>5.0.0-beta.30 → beta.32</td>
+    <td><span class="pill hold">HOLD</span></td>
+    <td>Beta-channel package on the most critical path (every login, every session). Betas carry no semver
+        promise. Upgrade alone, with the login e2e specs as the gate, when there's a reason to.</td>
+  </tr>
+</table>
+
+<h2>3 · The batch — what actually gets upgraded (~36 packages)</h2>
+<p class="small">Everything below is a minor/patch within the major we already run. "Used in" is from a grep of the
+actual import sites, not the README.</p>
+
+<h3>3a · Backend / runtime</h3>
+<table>
+  <tr><th>Package</th><th>Now → Target</th><th>Used in</th><th>What could go wrong</th><th>Mitigation</th></tr>
+  <tr><td><code>@aws-sdk/client-sesv2</code></td><td>3.1051 → 3.1093</td>
+      <td><code>src/lib/email.ts</code> (every outgoing email), <code>src/lib/infra/aws-ops.ts</code></td>
+      <td>Regression in the send call → emails fail</td>
+      <td>Post-deploy template <strong>test-send</strong> + confirm an <code>EmailLog</code> row lands
+          <code>SENT</code>; failures page via the existing error-alert path within minutes.</td></tr>
+  <tr><td><code>@aws-sdk/client-s3</code>, <code>@aws-sdk/client-cloudwatch</code></td><td>→ 3.1093</td>
+      <td><code>src/lib/infra/aws-ops.ts</code> (/admin/infra dashboard only)</td>
+      <td>Infra dashboard card errors</td>
+      <td>Open /admin/infra post-deploy — cards degrade per-source, never crash the page.</td></tr>
+  <tr><td><code>node-cron</code></td><td>4.2.1 → 4.6.0</td>
+      <td><code>worker/index.ts</code> — schedules all 7 background jobs</td>
+      <td>A schedule mis-fires → certs/scheduled emails/webinar syncs stall</td>
+      <td>Post-deploy: <code>/worker/health</code> 200 with fresh <code>lastTickAt</code> + search
+          <code>worker:tick-end</code> in /logs at expected cadences.</td></tr>
+  <tr><td><code>tsx</code></td><td>4.22.4 → 4.23.1</td>
+      <td>Worker container runtime (<code>npx tsx worker/index.ts</code>) + ops scripts</td>
+      <td>Worker fails to boot</td>
+      <td>Worker container has a Docker healthcheck (3-retry restart); same /worker/health check as above.
+          Blue-green deploy verifies health before nginx switch.</td></tr>
+  <tr><td><code>zod</code></td><td>4.3.6 → 4.4.3</td>
+      <td>Every API route's input validation (~100+ routes)</td>
+      <td>Error-shape/message drift changes 400 <code>details</code> payloads</td>
+      <td>Widest blast radius but same major; the 3,666-test suite exercises the schemas heavily, and
+          clients branch on <code>code</code> fields, not message text.</td></tr>
+  <tr><td><code>isomorphic-dompurify</code></td><td>3.8.0 → 3.19.0</td>
+      <td><code>src/lib/sanitize.ts</code> — sanitizes organizer-authored HTML before public render</td>
+      <td>Stricter sanitizer strips markup organizers rely on (welcome/terms/guidelines)</td>
+      <td>Security-positive direction; smoke the public register page (welcome + terms blocks) and an
+          abstract-guidelines page after deploy.</td></tr>
+  <tr><td><code>bwip-js</code></td><td>4.9.2 → 4.11.2</td>
+      <td><code>src/lib/barcode.ts</code> — badge + entry barcodes</td>
+      <td>Barcode render regression → badge PDFs wrong</td>
+      <td>Print one badge post-deploy and scan it with the check-in scanner page.</td></tr>
+  <tr><td><code>docxtemplater</code></td><td>3.68.4 → 3.69.2</td>
+      <td><code>src/lib/speaker-agreement.ts</code> — personalized .docx agreements</td>
+      <td>Merge-render failure on agreement sends</td>
+      <td>Patch-level; generation failures are already best-effort (send proceeds CTA-only) and logged.</td></tr>
+  <tr><td><code>uuid</code></td><td>13.0.0 → 13.0.2</td>
+      <td>Upload filename generation and similar</td>
+      <td>—</td>
+      <td>Pure patch; clears its <code>npm audit</code> moderate.</td></tr>
+  <tr><td><code>@auth/prisma-adapter</code></td><td>2.11.1 → 2.11.3</td>
+      <td>NextAuth ↔ Prisma glue (<code>src/lib/auth.ts</code>)</td>
+      <td>Auth-adjacent — session/user lookups</td>
+      <td>Patch-level only (next-auth itself is HELD). Login e2e spec + a manual login on prod post-deploy.</td></tr>
+</table>
+
+<h3>3b · Frontend</h3>
+<table>
+  <tr><th>Package</th><th>Now → Target</th><th>Used in</th><th>What could go wrong</th><th>Mitigation</th></tr>
+  <tr><td><code>react</code> + <code>react-dom</code></td><td>19.2.3 → 19.2.8</td>
+      <td>Everything (exact-pinned, bumped explicitly)</td>
+      <td>Framework patch regression</td>
+      <td>Patch-level within 19.2; full build + e2e + smoke. The Zoom embed is unaffected — it runs its own
+          isolated React 18 from Zoom's CDN.</td></tr>
+  <tr><td>14 × <code>@radix-ui/*</code> (dialog, select, popover, dropdown, tabs, switch…)</td><td>minors</td>
+      <td>Every Shadcn/ui primitive — detail sheets, dialogs, selects</td>
+      <td>Focus-trap / portal / pointer behavior shifts in dialogs &amp; sheets</td>
+      <td>The e2e suite drives dialogs and sheets end-to-end; manual spot-check of one detail sheet
+          (open → edit → save) post-deploy.</td></tr>
+  <tr><td><code>@tanstack/react-query</code></td><td>5.99.0 → 5.101.4</td>
+      <td><code>src/hooks/use-api.ts</code> — all client-side data fetching</td>
+      <td>Cache/refetch behavior drift</td>
+      <td>Same major, small jump; navigation-heavy e2e specs cover the cache paths.</td></tr>
+  <tr><td><code>react-hook-form</code> + <code>@hookform/resolvers</code></td><td>7.72 → 7.82 / 5.2 → 5.4</td>
+      <td>All forms (registration, speakers, settings…)</td>
+      <td>Validation-timing or dirty-state edge cases</td>
+      <td>Biggest minor jump in the frontend set — the manual-registration e2e spec drives a full form
+          submit; smoke one admin form on prod.</td></tr>
+  <tr><td><code>date-fns</code></td><td>4.1.0 → 4.4.0</td>
+      <td>Display formatting across dashboard pages</td>
+      <td>Format-output drift</td>
+      <td>Display-only usage (event-timezone logic lives in our own <code>Intl</code>-based
+          <code>event-time.ts</code>, not date-fns).</td></tr>
+  <tr><td><code>tailwind-merge</code></td><td>3.5.0 → 3.6.0</td>
+      <td><code>src/lib/utils.ts</code> (<code>cn()</code> class merging)</td>
+      <td>Class-conflict resolution changes</td>
+      <td>Minor; visual smoke covers it.</td></tr>
+</table>
+
+<h3>3c · Build toolchain &amp; dev-only</h3>
+<table>
+  <tr><th>Package</th><th>Now → Target</th><th>Affects production?</th><th>Notes / mitigation</th></tr>
+  <tr><td><code>tailwindcss</code> + <code>@tailwindcss/postcss</code> + <code>@tailwindcss/typography</code></td>
+      <td>4.2.2 → 4.3.3</td><td><strong>Yes — built CSS output</strong></td>
+      <td>The one build-time change that reaches users. Known project gotcha: Tailwind v4 tree-shakes
+          descendant selectors inside <code>@layer</code> — our custom rules already live outside layers
+          (see <code>globals.css</code> comments), so they survive. Mitigation: sanity-diff the built CSS
+          size, then visual smoke of dashboard + public register + agenda at desktop/mobile widths.</td></tr>
+  <tr><td><code>vitest</code></td><td>4.1.4 → 4.1.10</td><td>No (dev)</td><td>Test runner patch.</td></tr>
+  <tr><td><code>@playwright/test</code></td><td>1.59.1 → 1.61.1</td><td>No (dev)</td><td>Bundled browser build changes; re-run the e2e suite locally as part of the gate.</td></tr>
+  <tr><td><code>eslint</code></td><td>9.39.4 → 9.39.5</td><td>No (dev)</td><td>Patch. (eslint 10 major is excluded.)</td></tr>
+  <tr><td><code>@types/node · @types/react · @types/pdfkit</code></td><td>patches</td><td>No (dev)</td><td>Type-only; <code>tsc</code> gate catches any fallout instantly.</td></tr>
+</table>
+
+<h2>4 · Explicitly excluded (and why)</h2>
+<table>
+  <tr><th>Package</th><th>Pending</th><th>Reason to exclude from this round</th></tr>
+  <tr><td><code>stripe</code></td><td>20 → 22 major</td><td>Changes the pinned Stripe API version on the money path — dedicated round with webhook testing (§2).</td></tr>
+  <tr><td><code>@zoom/meetingsdk</code></td><td>6.0.0 → 6.2.0</td><td>Prod runs the CDN copy pinned at 6.0.0; 6.2.0 still React-18-only. <strong>Action in this round: pin to 6.0.0 exact.</strong></td></tr>
+  <tr><td><code>next</code> + <code>eslint-config-next</code></td><td>16.1.4 → 16.2.11</td><td>The security upgrade — its own separate deploy (ROADMAP § npm audit).</td></tr>
+  <tr><td><code>next-auth</code></td><td>beta.30 → beta.32</td><td>Beta channel on the auth path — held; upgrade alone with login e2e as the gate.</td></tr>
+  <tr><td><code>prisma</code> / <code>@prisma/client</code></td><td>6 → 7 major</td><td>Migration project against the shared prod DB.</td></tr>
+  <tr><td><code>@tiptap/*</code> (×16)</td><td>2 → 3 major</td><td>v2 was chosen deliberately (v3 ships source-only, no compiled dist). Ecosystem-wide editor swap = own project.</td></tr>
+  <tr><td><code>pdfjs-dist</code></td><td>4 → 6 major</td><td>Certificate canvas editor + the self-hosted worker copied by <code>scripts/copy-pdfjs-worker.mjs</code> — worker file and API must move in lockstep.</td></tr>
+  <tr><td><code>@anthropic-ai/sdk</code> / <code>@modelcontextprotocol/sdk</code></td><td>0.x / semver-major</td><td>AI agent + MCP server — deliberate upgrades tracked in ROADMAP.</td></tr>
+  <tr><td><code>@getbrevo/brevo · @sendgrid/mail · postmark · juice</code></td><td>majors</td><td>Dormant or low-churn email plumbing; SES is the live sender.</td></tr>
+  <tr><td><code>lucide-react · react-day-picker · @dnd-kit/sortable · typescript 7 · eslint 10 · @types/node 26</code></td><td>majors</td><td>No functional need; each is a breaking bump with UI or toolchain fallout. Revisit opportunistically.</td></tr>
+</table>
+
+<h2>5 · Rollout plan</h2>
+<div class="card">
+<ol>
+  <li><strong>Pre-flight:</strong> re-run <code>npm outdated</code>/<code>npm audit</code> (targets may have moved);
+      confirm CI idle (<code>gh run list</code>) and no live event in the next 48h.</li>
+  <li><strong>Apply:</strong> explicit <code>npm update &lt;the §3 list&gt;</code> (not a blanket update — Zoom/next-auth
+      must not move), bump exact-pinned <code>react</code>/<code>react-dom</code> to 19.2.8, pin
+      <code>@zoom/meetingsdk</code> to <code>6.0.0</code>. Lockfile + <code>package.json</code> in one commit.</li>
+  <li><strong>Gate (local):</strong> <code>npm ci</code> → <code>npx tsc --noEmit</code> → <code>npm run lint</code> →
+      <code>npx vitest run</code> (3,666) → <code>npm run build</code> → <code>npm run test:e2e</code>
+      (stop the dev server first — port 3113 collision).</li>
+  <li><strong>Deploy:</strong> push to main → CI (checks ∥ tests ∥ build → parallel image build → blue-green deploy,
+      ~8 min). Health-gated container swap means a boot-time failure never reaches nginx.</li>
+  <li><strong>Post-deploy smoke (~10 min):</strong>
+    <ul>
+      <li>Login + dashboard loads; open one registration detail sheet (Radix), edit → save (RHF/zod)</li>
+      <li>Public register page: welcome + terms render (dompurify), price table, mobile width</li>
+      <li>Template test-send → <code>EmailLog</code> row SENT (SESv2)</li>
+      <li>Badge print one registration (bwip-js/pdfkit) — scan it on the check-in page</li>
+      <li><code>/worker/health</code> 200 + <code>worker:tick-end</code> lines in /logs (node-cron/tsx)</li>
+      <li>/admin/infra cards populate (AWS clients); Sentry receives a test event</li>
+      <li>Public agenda + a session page render (CSS/Tailwind visual check)</li>
+    </ul></li>
+  <li><strong>Rollback if needed:</strong> <code>IMAGE_TAG=&lt;previous-sha&gt; bash scripts/deploy.sh</code> —
+      drilled, ~22 s, zero downtime (<code>docs/ROLLBACK.md</code>). No DB migrations in this batch, so
+      rollback has no data dimension.</li>
+</ol>
+</div>
+
+<h2>6 · Risk register (ranked)</h2>
+<table>
+  <tr><th>#</th><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr>
+  <tr><td>1</td><td class="risk-t">Tailwind 4.2→4.3 shifts built CSS (visual drift on any page)</td>
+      <td>Low–Med</td><td>Cosmetic</td>
+      <td>Only build-time risk that reaches users; visual smoke of the 3 highest-traffic surfaces + CSS size sanity-diff. Reverts with the image rollback.</td></tr>
+  <tr><td>2</td><td class="risk-t">react-hook-form 7.72→7.82 changes validation timing in an edge-case form</td>
+      <td>Low</td><td>A form mis-validates</td>
+      <td>e2e drives full form submits; server-side Zod remains the authoritative gate on every route, so a client quirk cannot corrupt data.</td></tr>
+  <tr><td>3</td><td class="risk-t">zod 4.3→4.4 alters error <code>details</code> shapes</td>
+      <td>Low</td><td>Noisier 400 payloads</td>
+      <td>Clients branch on <code>code</code>, not messages; suite covers schemas broadly.</td></tr>
+  <tr><td>4</td><td class="risk-t">SESv2 client jump (42 weekly releases) breaks the send call</td>
+      <td>Very low</td><td>High if missed</td>
+      <td>Test-send in the smoke; every send failure writes EmailLog FAILED + pages via the error alert. AWS v3 minors are contract-stable.</td></tr>
+  <tr><td>5</td><td class="risk-t">node-cron 4.2→4.6 mis-schedules a worker job</td>
+      <td>Very low</td><td>Delayed emails/certs</td>
+      <td>Worker healthcheck + /logs cadence check; jobs are idempotent with advisory locks, so a stall recovers on restart with no double-processing.</td></tr>
+  <tr><td>6</td><td class="risk-t">Radix minors change dialog focus/portal behavior</td>
+      <td>Low</td><td>Cosmetic/UX</td>
+      <td>e2e + one manual sheet interaction; no data risk.</td></tr>
+</table>
+
+<h2>7 · Future rounds — standing triggers</h2>
+<ul>
+  <li><strong>Next 16.2.11</strong> — next quiet week (already in ROADMAP with full advisory list). Highest standing priority.</li>
+  <li><strong>Stripe major</strong> — only when a feature needs a newer API version; plan webhook replay tests + a review of Stripe's API changelog between pinned versions.</li>
+  <li><strong>Zoom</strong> — re-inspect each SDK release: grep the embedded UMD for <code>ReactCurrentOwner</code> + check peer deps. When clean, bump the CDN loader URLs + npm pin together and retire the CDN workaround via <code>NEXT_PUBLIC_ZOOM_EMBED_LOADER=npm</code>.</li>
+  <li><strong>Anthropic/MCP SDKs</strong> — deliberate round against the agent + MCP surfaces (clients must reconnect; bump <code>package.json</code> version).</li>
+  <li><strong>Cadence</strong> — repeat a Round like this one roughly quarterly, or immediately when <code>npm audit</code> shows a critical.</li>
+</ul>
+
+<footer>
+  EA-SYS · docs/DEPENDENCY_UPGRADES.html · Round 1 authored July 23, 2026 (proposed, not applied).
+  Companion entries: <code>docs/ROADMAP.md</code> § "npm audit — security updates deferred" ·
+  <code>docs/ROLLBACK.md</code> § pinned rollback.
+</footer>
+
+</div>
+</body>
+</html>
