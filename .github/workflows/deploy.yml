@@ -166,14 +166,14 @@ jobs:
       - name: Build
         run: npx next build
 
-  # ── Tenant-isolation harness (parallel, NON-GATING initially) ────────────────
+  # ── Tenant-isolation harness (parallel, GATING since July 23, 2026) ──────────
   # Real Postgres + pgbouncer (transaction mode) service containers running the
-  # tests/tenancy suite: two seeded tenants + the pilot Event RLS policy prove
-  # host→org resolution, the SET LOCAL transport, and cross-tenant isolation
-  # (docs/MULTI_TENANCY.md §0 Phase 0). Deliberately NOT in the deploy path
-  # yet — fresh container infra on the pipeline that deploys a live event
-  # platform must not be able to block an emergency hotfix. Promote to gating
-  # (add to build-push's `needs`) after ≥5 consecutive green runs.
+  # tests/tenancy suite: two seeded tenants + the Event pilot + the Contacts
+  # domain policies (prisma/rls/*) prove host→org resolution, the SET LOCAL
+  # transport, and cross-tenant isolation (docs/MULTI_TENANCY.md §0/§13).
+  # Ran non-gating first per the house rule; PROMOTED to build-push's `needs`
+  # after 8 consecutive green runs (threshold was ≥5) — a broken isolation
+  # property now blocks the deploy.
   tenancy:
     name: Tenant isolation
     runs-on: ubuntu-latest
@@ -233,7 +233,7 @@ jobs:
           TENANCY_DATABASE_URL: postgresql://app_user:app_user_pw@localhost:56432/tenancy?pgbouncer=true&connection_limit=3
         run: npm run test:tenancy
 
-  # ── Fresh-DB migration replay (parallel, NON-GATING initially) ───────────────
+  # ── Fresh-DB migration replay (parallel, GATING since July 23, 2026) ─────────
   # Replays the ENTIRE prisma/migrations chain against an empty Postgres, then
   # asserts the result matches schema.prisma exactly. Prod only ever migrates
   # incrementally, so a chain that is broken from scratch (ordering bugs,
@@ -242,8 +242,10 @@ jobs:
   # exactly how the future platform instance (docs/MULTI_TENANCY.md §0) gets
   # born. First local run of this check found 2 broken migrations + ~250 lines
   # of uncaptured drift, repaired in 20260722140000_sync_chain_to_prod_schema.
-  # Same promotion rule as `tenancy`: gate it (add to build-push's `needs`)
-  # after ≥5 consecutive green runs.
+  # Ran non-gating first per the house rule; PROMOTED to build-push's `needs`
+  # July 23, 2026 after 5 consecutive green runs — a broken chain now blocks
+  # the deploy. (It stays in notify-failure's needs too, so a red run both
+  # blocks AND pages with the replay-specific message.)
   migration-replay:
     name: Migration replay (fresh DB)
     runs-on: ubuntu-latest
@@ -363,7 +365,11 @@ jobs:
   build-push:
     name: Build & push ${{ matrix.image }} image → ECR
     # Every gate the old serial `ci` job enforced still blocks image builds.
-    needs: [checks, tests, build]
+    # tenancy + migration-replay PROMOTED TO GATING July 23, 2026 per the
+    # standing ≥5-consecutive-green rule (tenancy 8/8, replay 5/5 at
+    # promotion): a broken tenant-isolation property or a from-scratch-broken
+    # migration chain now BLOCKS the deploy instead of only paging.
+    needs: [checks, tests, build, tenancy, migration-replay]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

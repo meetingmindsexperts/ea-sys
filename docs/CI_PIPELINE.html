@@ -47,19 +47,20 @@
    │   tests    full unit suite (3,600+ vitest)                                        │
    │   build    gating `next build`                                                    │
    │                                                                                   │
-   │   (beside them, nothing waits on these:)                                          │
-   │   tenancy           postgres+pgbouncer containers → 13 isolation tests [non-gating] │
-   │   migration-replay  full chain vs empty postgres + schema diff        [non-gating] │
+   │   tenancy           postgres+pgbouncer containers → 25 isolation tests [GATING]    │
+   │   migration-replay  full chain vs empty postgres + schema diff         [GATING]    │
+   │                                                                                   │
+   │   (beside them, nothing waits on this:)                                           │
    │   sourcemaps        Sentry map upload (gated on `checks` only)        [non-gating] │
    └───────────────────────────────────────────────────────────────────────────────────┘
-   │  needs: [checks, tests, build]
+   │  needs: [checks, tests, build, tenancy, migration-replay]
    ▼
 build-push    web ∥ worker image matrix → ECR (GitHub OIDC, no stored AWS keys) ~4 min
               (two parallel legs since July 22 — was one serial job at ~6.6 min)
    ▼
 deploy        SSH → box checks out the EXACT commit → scripts/deploy.sh blue-green ~2–3 min
    ▼
-notify-failure  (only on failure of any of the five pipeline jobs) → SES page</code></pre>
+notify-failure  (on failure of any gating job OR migration-replay) → SES page</code></pre>
 <p><strong>Old shape:</strong> one serial <code>ci</code> job (~5–6 min) ran all of checks/tests/build in a row. The split (owner decision, July 22) trades a few extra billed runner-minutes + duplicated setup blocks for ~2–2.5 min less wall clock per deploy. Every gate that blocked image builds before still blocks them — <code>build-push</code> needs all three.</p>
 </div>
 
@@ -77,10 +78,10 @@ notify-failure  (only on failure of any of the five pipeline jobs) → SES page<
 
 <h2>3. The tenancy job (first tenant of the service-container pattern)</h2>
 <div class="card">
-<p><span class="pill live">LIVE</span> Runs the <code>tests/tenancy</code> suite — 13 assertions against a <em>real</em> postgres:16 + edoburu/pgbouncer in <strong>transaction pool mode</strong> (mirroring the Supabase prod topology), two seeded tenants sharing an event slug, and the pilot Event RLS policy. This is the only automated proof that tenant A cannot read tenant B — RLS + pooler behavior is unprovable with mocked Prisma.</p>
+<p><span class="pill live">LIVE · GATING</span> Runs the <code>tests/tenancy</code> suite — 25 assertions (13 spine + 12 Contacts-pilot) against a <em>real</em> postgres:16 + edoburu/pgbouncer in <strong>transaction pool mode</strong> (mirroring the Supabase prod topology), two seeded tenants sharing an event slug, and the pilot Event RLS policy. This is the only automated proof that tenant A cannot read tenant B — RLS + pooler behavior is unprovable with mocked Prisma.</p>
 <ul>
-  <li><strong>Non-gating by design</strong>: nothing <code>needs:</code> it, so a container flake can never block an emergency hotfix for a live event. A failure = red ✗ in the Actions tab only.</li>
-  <li><span class="pill pending">PENDING</span> <strong>Promotion to gating</strong> after ≥5 consecutive green runs — a one-line change (add <code>tenancy</code> to <code>build-push</code>'s <code>needs</code>). Track it; a permanently non-gating isolation suite is theater.</li>
+  <li><strong>Ran non-gating first by design</strong> (a container flake must not block an emergency hotfix) until the green-run record earned promotion:</li>
+  <li><span class="pill live">DONE July 23, 2026</span> <strong>Promoted to gating</strong> after 8 consecutive green runs (threshold ≥5) — <code>tenancy</code> and <code>migration-replay</code> are both in <code>build-push</code>'s <code>needs</code>; a broken isolation property or migration chain now blocks the deploy. The suite grew 13 → 25 assertions with the Contacts pilot (Contact RLS + the boot tripwire mechanism).</li>
   <li>Local equivalent: <code>docker compose --profile tenancy up -d</code> → <code>npm run test:tenancy</code>.</li>
 </ul>
 </div>
@@ -149,6 +150,7 @@ notify-failure  (only on failure of any of the five pipeline jobs) → SES page<
   <tr><td>2026-07-22</td><td><code>tenancy</code> job added, non-gating</td><td>Real-DB isolation proof per MULTI_TENANCY.md §0; fresh container infra must not block a hotfix. Promote after ≥5 green runs.</td></tr>
   <tr><td>2026-07-22</td><td><code>check-tenant-scoping.sh</code> added as a gating <code>checks</code> step</td><td>Only fires on new code in the public surface — can't block an unrelated hotfix.</td></tr>
   <tr><td>2026-07-22</td><td><code>migration-replay</code> job added, non-gating</td><td>Full chain vs empty Postgres + schema diff; first run found 2 broken migrations + ~250 lines of db-push drift (repaired same day). Promote after ≥5 green runs.</td></tr>
+  <tr><td>2026-07-23</td><td><code>tenancy</code> + <code>migration-replay</code> PROMOTED to gating</td><td>Standing ≥5-green rule met (tenancy 8/8, replay 5/5). Both now in <code>build-push</code>'s <code>needs</code>; replay stays in the failure-alert's needs too (blocks AND pages).</td></tr>
   <tr><td>2026-07-16</td><td>Gating <code>next build</code> in CI (owner request)</td><td>Fail fast on build errors before images/deploy.</td></tr>
   <tr><td>2026-07 (INC-001)</td><td>Images build on GitHub runners → ECR; the box only pulls</td><td>An on-box build froze the swapless t3.large during a live deploy.</td></tr>
 </table>
