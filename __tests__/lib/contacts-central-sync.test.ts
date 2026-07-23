@@ -1,12 +1,23 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { AttendeeRole } from "@prisma/client";
 import {
   buildCentralRow,
+  buildCentralRows,
   mergeWithExisting,
   type ContactForSync,
   type EventMeta,
   type CentralContactRow,
 } from "@/lib/contacts-central-sync";
+
+// db is only touched by buildCentralRows' query path (the guard tests below);
+// the pure-mapper suites never reach it.
+vi.mock("@/lib/db", () => ({
+  db: {
+    contact: { findMany: vi.fn().mockResolvedValue([]) },
+    event: { findMany: vi.fn().mockResolvedValue([]) },
+    registration: { findMany: vi.fn().mockResolvedValue([]) },
+  },
+}));
 import { formatAttendeeRole } from "@/lib/schemas";
 
 const NOW = "2026-07-06T00:00:00.000Z";
@@ -170,5 +181,22 @@ describe("mergeWithExisting", () => {
   it("last_updated is always ours (freshness marker)", () => {
     const p = mergeWithExisting(ours, { email: "ada@example.com", last_updated: "2000-01-01T00:00:00.000Z" });
     expect(p.last_updated).toBe(NOW);
+  });
+});
+
+describe("buildCentralRows — multi-tenant refusal guard (Contacts pilot C4)", () => {
+  afterEach(() => {
+    delete process.env.TENANCY_ENFORCE_HOST;
+  });
+
+  it("refuses to run on a multi-tenant deployment (TENANCY_ENFORCE_HOST=1)", async () => {
+    process.env.TENANCY_ENFORCE_HOST = "1";
+    await expect(buildCentralRows()).rejects.toThrow(/org-blind|multi-tenant/i);
+  });
+
+  it("runs normally on master (flag unset) — the guard must NOT fire there", async () => {
+    // Master legitimately has >1 Organization row, which is exactly why the
+    // guard keys on the deployment flag, not an org count.
+    await expect(buildCentralRows()).resolves.toEqual([]);
   });
 });

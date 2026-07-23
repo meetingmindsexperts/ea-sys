@@ -124,6 +124,20 @@ export function buildCentralRow(
  * (incremental worker); omit it for a full reconcile (backfill).
  */
 export async function buildCentralRows(opts: { since?: Date } = {}): Promise<CentralContactRow[]> {
+  // Tenancy guard (Contacts pilot C4): this sync is ORG-BLIND BY DESIGN — it
+  // mirrors the whole Contact store into MMG's EU marketing table and is a
+  // MASTER-ONLY feature, forever. On a multi-tenant deployment (the platform
+  // sets TENANCY_ENFORCE_HOST=1 as part of its identity) an org-blind
+  // export would union every tenant's contacts into one external table —
+  // refuse loudly rather than filter silently. Deliberately NOT an org-count
+  // check: master legitimately has more than one Organization row.
+  if (process.env.TENANCY_ENFORCE_HOST === "1") {
+    throw new Error(
+      "contacts-central sync is org-blind by design (master-only). Refusing to run on a " +
+        "multi-tenant deployment (TENANCY_ENFORCE_HOST=1).",
+    );
+  }
+
   const contacts = await db.contact.findMany({
     where: opts.since ? { updatedAt: { gte: opts.since } } : {},
     select: {
