@@ -74,12 +74,21 @@ interface Session {
 }
 
 // Break items (registration desk / coffee / lunch / networking) render as a
-// slim muted band instead of a full session card.
+// slim band instead of a full session card.
 const BREAK_TYPE_ICONS: Record<string, LucideIcon> = {
   REGISTRATION: ClipboardList,
   BREAK: Coffee,
   LUNCH: Utensils,
   NETWORKING: Users,
+};
+
+// Soft per-type accent (icon chip tint + left border) so each break kind is
+// recognizable at a glance without competing with the session cards.
+const BREAK_TYPE_ACCENTS: Record<string, { chip: string; icon: string; border: string }> = {
+  REGISTRATION: { chip: "bg-sky-100", icon: "text-sky-600", border: "#38bdf8" },
+  BREAK: { chip: "bg-amber-100", icon: "text-amber-600", border: "#fbbf24" },
+  LUNCH: { chip: "bg-emerald-100", icon: "text-emerald-600", border: "#34d399" },
+  NETWORKING: { chip: "bg-violet-100", icon: "text-violet-600", border: "#a78bfa" },
 };
 
 interface EventData {
@@ -490,24 +499,43 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
     [session.startTime, session.topics, timezone],
   );
 
-  // Break items — a slim, muted, non-interactive band. They carry no
-  // speakers/topics (server-enforced), so none of the card machinery applies.
+  // Break items — a slim, non-interactive band. They carry no speakers/topics
+  // (server-enforced), so none of the card machinery applies. Styled as an
+  // intentional divider (soft per-type accent chip + left border echoing the
+  // session cards' language) rather than the old dashed "placeholder" look,
+  // which read as an empty state next to the rich session cards.
   if (isBreakSessionType(session.type)) {
     const BreakIcon = BREAK_TYPE_ICONS[session.type ?? ""] ?? Clock;
+    const accent =
+      BREAK_TYPE_ACCENTS[session.type ?? ""] ?? {
+        chip: "bg-slate-100",
+        icon: "text-slate-500",
+        border: "#94a3b8",
+      };
     return (
-      <div className="print-session-card rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-5 py-3.5 print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200">
+      <div
+        className="print-session-card rounded-xl border border-slate-200 bg-slate-50 px-5 py-3 print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200"
+        style={{ borderLeft: `4px solid ${accent.border}` }}
+      >
         <div className="flex items-center gap-4">
           <div className="shrink-0 w-20 sm:w-28 text-right print:w-24">
-            <p className="text-base font-semibold text-slate-600 tabular-nums">
+            <p className="text-base font-semibold text-slate-700 tabular-nums">
               {formatTimeInTz(new Date(session.startTime), timezone)}
             </p>
             <p className="text-sm text-slate-400 tabular-nums">
               {formatTimeInTz(new Date(session.endTime), timezone)}
             </p>
           </div>
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <BreakIcon className="h-5 w-5 text-slate-400 shrink-0" />
-            <span className="text-base font-medium text-slate-600 truncate">{session.name}</span>
+          <span
+            className={cn(
+              "flex h-9 w-9 items-center justify-center rounded-full shrink-0 print:hidden",
+              accent.chip
+            )}
+          >
+            <BreakIcon className={cn("h-[18px] w-[18px]", accent.icon)} />
+          </span>
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <span className="text-base font-semibold text-slate-700 truncate">{session.name}</span>
             {session.location && (
               <span className="flex items-center gap-1 text-sm text-slate-400 shrink-0">
                 <MapPin className="h-3.5 w-3.5" />
@@ -515,7 +543,9 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
               </span>
             )}
           </div>
-          <span className="text-sm text-slate-400 shrink-0">{duration} min</span>
+          <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-medium text-slate-500 print:border-0">
+            {duration} min
+          </span>
         </div>
       </div>
     );
