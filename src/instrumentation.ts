@@ -5,6 +5,20 @@ export async function register() {
     validateEnv();
 
     await import("../sentry.server.config");
+
+    // RLS tripwire (owner decision July 23, 2026: refuse to boot). When a
+    // deployment claims tenant isolation (RLS_SET_LOCAL=1) but the DB
+    // connection bypasses RLS (owner role — e.g. Supabase's default string —
+    // or policies never applied), throwing here stops the server from ever
+    // serving a request with silently-disabled isolation. Flag off (master):
+    // returns immediately, no DB call.
+    if (process.env.RLS_SET_LOCAL === "1") {
+      const [{ assertRlsEnforced }, { db }] = await Promise.all([
+        import("./lib/tenant/rls-assert"),
+        import("./lib/db"),
+      ]);
+      await assertRlsEnforced(db);
+    }
   }
 
   if (process.env.NEXT_RUNTIME === "edge") {

@@ -18,6 +18,11 @@ import {
   EVENT_B_SHARED_ID,
   ORG_B_ONLY_SLUG,
   EVENT_B_ONLY_ID,
+  SHARED_CONTACT_EMAIL,
+  CONTACT_A_SHARED_ID,
+  CONTACT_B_SHARED_ID,
+  ORG_B_ONLY_CONTACT_EMAIL,
+  CONTACT_B_ONLY_ID,
 } from "../tests/tenancy/constants";
 
 const url = process.env.TENANCY_DIRECT_URL;
@@ -25,7 +30,12 @@ if (!url) throw new Error("TENANCY_DIRECT_URL must be set for the tenancy seed")
 
 const db = new PrismaClient({ datasourceUrl: url });
 
-async function seedOrg(orgId: string, host: string, events: { id: string; slug: string }[]) {
+async function seedOrg(
+  orgId: string,
+  host: string,
+  events: { id: string; slug: string }[],
+  contacts: { id: string; email: string }[] = [],
+) {
   await db.organization.create({
     data: {
       id: orgId,
@@ -55,19 +65,44 @@ async function seedOrg(orgId: string, host: string, events: { id: string; slug: 
       },
     });
   }
+  // Contacts pilot fixtures (org cascade wipes these on re-run too).
+  for (const ct of contacts) {
+    await db.contact.create({
+      data: {
+        id: ct.id,
+        organizationId: orgId,
+        email: ct.email,
+        firstName: "Tenancy",
+        lastName: `Contact ${ct.id}`,
+      },
+    });
+  }
 }
 
 async function main() {
   // Cascade wipes events + tenant domains of prior runs.
   await db.organization.deleteMany({ where: { id: { in: [ORG_A_ID, ORG_B_ID] } } });
 
-  await seedOrg(ORG_A_ID, HOST_A, [{ id: EVENT_A_SHARED_ID, slug: SHARED_SLUG }]);
-  await seedOrg(ORG_B_ID, HOST_B, [
-    { id: EVENT_B_SHARED_ID, slug: SHARED_SLUG },
-    { id: EVENT_B_ONLY_ID, slug: ORG_B_ONLY_SLUG },
-  ]);
+  await seedOrg(
+    ORG_A_ID,
+    HOST_A,
+    [{ id: EVENT_A_SHARED_ID, slug: SHARED_SLUG }],
+    [{ id: CONTACT_A_SHARED_ID, email: SHARED_CONTACT_EMAIL }],
+  );
+  await seedOrg(
+    ORG_B_ID,
+    HOST_B,
+    [
+      { id: EVENT_B_SHARED_ID, slug: SHARED_SLUG },
+      { id: EVENT_B_ONLY_ID, slug: ORG_B_ONLY_SLUG },
+    ],
+    [
+      { id: CONTACT_B_SHARED_ID, email: SHARED_CONTACT_EMAIL },
+      { id: CONTACT_B_ONLY_ID, email: ORG_B_ONLY_CONTACT_EMAIL },
+    ],
+  );
 
-  console.log("[tenancy:seed] two tenants seeded (shared slug on both)");
+  console.log("[tenancy:seed] two tenants seeded (shared slug + shared contact email on both)");
 }
 
 main()

@@ -161,21 +161,43 @@ function wrapTick(job: {
 // day-of-week). Each schedule string also lives on the job module
 // (`SCHEDULE`) so adding/changing one job touches a single file.
 
-const tasks = JOBS.map((job) => cron.schedule(job.SCHEDULE, wrapTick(job)));
+async function boot() {
+  // RLS tripwire (owner decision July 23, 2026: refuse to boot). A deployment
+  // claiming tenant isolation (RLS_SET_LOCAL=1) whose DB connection bypasses
+  // RLS (owner role / policies never applied) must not run jobs against the
+  // shared database — the assert runs BEFORE any schedule registers, so not a
+  // single tick can fire against a mis-isolated DB. Flag off (master): no-op,
+  // no DB call. (boot() is async only for this await; the file is CJS under
+  // tsx, so no top-level await.)
+  if (process.env.RLS_SET_LOCAL === "1") {
+    const [{ assertRlsEnforced }, { db }] = await Promise.all([
+      import("@/lib/tenant/rls-assert"),
+      import("@/lib/db"),
+    ]);
+    await assertRlsEnforced(db);
+  }
 
-const healthServer = startHealthServer(HEALTH_PORT, state);
+  const tasks = JOBS.map((job) => cron.schedule(job.SCHEDULE, wrapTick(job)));
 
-installShutdownHandler({
-  tasks,
-  healthServer,
-  healthState: state,
-  inFlight,
-});
+  const healthServer = startHealthServer(HEALTH_PORT, state);
 
-apiLogger.info({
-  msg: "worker:started",
-  jobs: tasks.length,
-  healthPort: HEALTH_PORT,
-  gitSha: process.env.GIT_SHA ?? "unknown",
-  schedules: state.schedules,
+  installShutdownHandler({
+    tasks,
+    healthServer,
+    healthState: state,
+    inFlight,
+  });
+
+  apiLogger.info({
+    msg: "worker:started",
+    jobs: tasks.length,
+    healthPort: HEALTH_PORT,
+    gitSha: process.env.GIT_SHA ?? "unknown",
+    schedules: state.schedules,
+  });
+}
+
+boot().catch((err) => {
+  apiLogger.error({ err, msg: "worker:boot-refused" });
+  process.exit(1);
 });

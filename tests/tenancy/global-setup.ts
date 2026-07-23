@@ -12,7 +12,7 @@
  * makes the policy actually apply. See tests/tenancy/policies/00-roles.sql.
  */
 import { execSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
@@ -35,18 +35,41 @@ export default async function globalSetup() {
   console.log("[tenancy:setup] syncing schema to the harness DB");
   execSync("npx prisma db push --skip-generate", { env, stdio: "inherit" });
 
-  console.log("[tenancy:setup] applying role split + pilot RLS policies");
+  console.log("[tenancy:setup] applying role split + RLS policies");
   const owner = new PrismaClient({ datasourceUrl: direct });
   try {
-    const policiesDir = path.resolve(process.cwd(), "tests/tenancy/policies");
-    for (const file of readdirSync(policiesDir).filter((f) => f.endsWith(".sql")).sort()) {
-      const sql = readFileSync(path.join(policiesDir, file), "utf8");
-      // Prisma can't run multi-statement strings via $executeRaw; split on
-      // statement boundaries while keeping DO $$ ... $$ blocks intact.
-      for (const statement of splitSql(sql)) {
-        await owner.$executeRawUnsafe(statement);
+    // Two sources, in order:
+    //   1. tests/tenancy/policies/ — harness-specific (role split, the
+    //      original Event pilot policy)
+    //   2. prisma/rls/            — the SHARED per-domain policy files the
+    //      future platform bootstrap applies too (single source of truth;
+    //      the harness proving exactly the SQL the platform will run is the
+    //      point of reading them from here)
+    const sqlDirs = [
+      path.resolve(process.cwd(), "tests/tenancy/policies"),
+      path.resolve(process.cwd(), "prisma/rls"),
+    ];
+    for (const dir of sqlDirs) {
+      if (!existsSync(dir)) {
+        // Explicit, contract-naming failure instead of a raw ENOENT: git does
+        // not track empty directories, so moving the last .sql out of
+        // prisma/rls/ would otherwise crash every fresh checkout with a
+        // message that looks like harness infra, not a broken contract.
+        throw new Error(
+          `${dir} is missing. Both SQL dirs are load-bearing: tests/tenancy/policies ` +
+            `(role split + harness pilots) and prisma/rls (the SHARED per-domain ` +
+            `policies the platform bootstrap applies). Restore the dir/files.`,
+        );
       }
-      console.log(`[tenancy:setup]   applied ${file}`);
+      for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+        const sql = readFileSync(path.join(dir, file), "utf8");
+        // Prisma can't run multi-statement strings via $executeRaw; split on
+        // statement boundaries while keeping DO $$ ... $$ blocks intact.
+        for (const statement of splitSql(sql)) {
+          await owner.$executeRawUnsafe(statement);
+        }
+        console.log(`[tenancy:setup]   applied ${path.basename(dir)}/${file}`);
+      }
     }
   } finally {
     await owner.$disconnect();
