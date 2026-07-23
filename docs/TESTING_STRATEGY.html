@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Testing Strategy — mocked units vs real-DB integration (assessment)</title>
+<style>
+  :root { --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --bg:#f8fafc; --accent:#00aade;
+          --ok:#059669; --warn:#d97706; --bad:#dc2626; --hold:#7c3aed; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:var(--ink);
+         background:var(--bg); margin:0; padding:2rem 1rem; line-height:1.55; font-size:15px; }
+  .wrap { max-width:1060px; margin:0 auto; }
+  h1 { font-size:1.7rem; margin:.2rem 0 .3rem; }
+  h2 { font-size:1.25rem; margin:2.2rem 0 .6rem; border-bottom:2px solid var(--accent); padding-bottom:.3rem; }
+  h3 { font-size:1.05rem; margin:1.4rem 0 .4rem; }
+  p, li { color:var(--ink); }
+  .sub { color:var(--muted); margin:0 0 1rem; }
+  .banner { border-left:5px solid var(--warn); background:#fffbeb; padding:.8rem 1rem; border-radius:6px; margin:1rem 0; }
+  .banner.ok { border-color:var(--ok); background:#ecfdf5; }
+  table { border-collapse:collapse; width:100%; margin:.8rem 0 1.2rem; background:#fff; font-size:.9rem; }
+  th, td { border:1px solid var(--line); padding:.5rem .6rem; text-align:left; vertical-align:top; }
+  th { background:#f1f5f9; font-weight:600; }
+  code { background:#eef2f7; border-radius:4px; padding:.08rem .35rem; font-size:.85em;
+         font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:#0f172a; color:#e2e8f0; border-radius:8px; padding:.9rem 1rem; overflow-x:auto; font-size:.82rem; line-height:1.5; }
+  pre code { background:none; padding:0; color:inherit; }
+  .pill { display:inline-block; font-size:.72rem; font-weight:700; padding:.1rem .5rem; border-radius:999px; letter-spacing:.02em; }
+  .pill.go   { background:#d1fae5; color:#065f46; }
+  .pill.hold { background:#ede9fe; color:#5b21b6; }
+  .pill.no   { background:#fee2e2; color:#991b1b; }
+  .small { font-size:.85rem; color:var(--muted); }
+  ol li, ul li { margin:.3rem 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem 1.2rem; margin:.8rem 0; }
+  footer { margin-top:3rem; color:var(--muted); font-size:.85rem; border-top:1px solid var(--line); padding-top:1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Testing Strategy — mocked units vs real-DB integration</h1>
+<p class="sub">EA-SYS · Assessment prepared July 23, 2026 · <code>ea-sys@0.4.25</code> on <code>main</code></p>
+
+<div class="banner">
+  <strong>Status: ASSESSMENT — no code changed.</strong> Written because the question came up: the unit
+  suite mocks the database (<code>vi.mock("@/lib/db")</code>) — should it use a real local DB instead?
+  Short answer: <strong>don't replace the 3,718 wholesale</strong> — but <strong>do</strong> add a
+  targeted real-DB integration layer for the paths where mocks demonstrably let bugs through. This doc
+  lays out why, and a concrete plan, so it's a considered decision.
+</div>
+
+<h2>1 · Where we are today — it's already three tiers, not one</h2>
+<p>The codebase is not "all mocked." It already runs real databases in two of its four test tiers:</p>
+<table>
+  <tr><th>Tier</th><th>Command</th><th>DB</th><th>Count / speed</th><th>What it proves</th></tr>
+  <tr>
+    <td><strong>Unit</strong></td>
+    <td><code>npm run test</code> (vitest)</td>
+    <td><span class="pill no">mocked</span> <code>vi.mock("@/lib/db")</code></td>
+    <td>3,718 tests · <strong>~4.2 s</strong></td>
+    <td>Logic: validation, pricing, mapping, business rules, and <em>that</em> the code calls the DB with the right args.</td>
+  </tr>
+  <tr>
+    <td><strong>e2e</strong></td>
+    <td><code>npm run test:e2e</code> (Playwright)</td>
+    <td><span class="pill go">real</span> local <code>ea_sys_test</code></td>
+    <td>~70 specs · minutes</td>
+    <td>Full user flows through the real app + real Postgres. <code>workers: 1</code> — shared seeded DB.</td>
+  </tr>
+  <tr>
+    <td><strong>Tenancy</strong></td>
+    <td><code>npm run test:tenancy</code></td>
+    <td><span class="pill go">real</span> Docker Postgres + pgbouncer</td>
+    <td>~25 tests · CI service container</td>
+    <td>RLS isolation against a real pooler in transaction mode. Separate vitest project, <code>fileParallelism: false</code>.</td>
+  </tr>
+  <tr>
+    <td><strong>Migration replay</strong></td>
+    <td>CI job</td>
+    <td><span class="pill go">real</span> empty Postgres</td>
+    <td>every deploy · GATING</td>
+    <td>The full migration chain applies cleanly against a fresh DB + schema-diff.</td>
+  </tr>
+</table>
+<p><strong>Of the 264 unit-test files, ~164 mock <code>@/lib/db</code>; ~100 are pure logic</strong> (no DB at
+all — validators, formatters, calculators). The pure ones gain nothing from a real DB.</p>
+
+<h2>2 · The real problem: mock drift lets bugs through</h2>
+<p>The weakness isn't philosophical — it has bitten this codebase repeatedly. A mocked test asserts
+<em>"the code called <code>db.x.update</code> with these args,"</em> not <em>"this actually works against
+Postgres."</em> So a test can be green while the feature is broken. Documented instances:</p>
+<ul>
+  <li><strong>MCP bulk-email HTML escaping (A1, July 16):</strong> the parity test <em>"mocked
+      <code>executeBulkEmail</code> and asserted only the call shape"</em> — it passed while every agent/n8n
+      bulk email rendered HTML as literal source code, audience-wide, with <code>success: true</code>.</li>
+  <li><strong>Contacts sync (H4, July 13):</strong> <em>"a test that only checked '<code>syncToContact</code>
+      was called' would have passed against the bug"</em> — the fix note explicitly re-instates the lesson:
+      <strong>assert the effect, not the call.</strong></li>
+  <li><strong>The class in general:</strong> Prisma semantics that mocks can't reproduce — interactive
+      <code>$transaction</code> atomicity, <code>SELECT … FOR UPDATE</code> row locks, <code>updateMany</code>
+      predicate-guard return counts, <code>@@unique</code> race → P2002, cascade behaviour. These are exactly
+      the primitives the money + concurrency code relies on, and exactly what a mock returns "whatever you
+      told it to."</li>
+</ul>
+<p class="small">Note the mitigation already in the culture: several fix notes call for "effect-level" tests.
+But an effect-level test against a <em>mock</em> still can't prove a real row lock serializes two writers —
+only a real DB can.</p>
+
+<h2>3 · The three options (honest trade-offs)</h2>
+<table>
+  <tr><th>Option</th><th>Confidence gain</th><th>Cost</th><th>Verdict</th></tr>
+  <tr>
+    <td><strong>A. Add a targeted integration layer</strong><br><span class="small">keep 3,718 mocked; new <code>test:integration</code> hits real <code>ea_sys_test</code> for DB-semantics paths only</span></td>
+    <td>High <em>where it matters</em> — money, concurrency, constraints</td>
+    <td>Low — extends a pattern the repo already runs twice; ~40–60 new tests, not a rewrite</td>
+    <td><span class="pill go">RECOMMENDED</span></td>
+  </tr>
+  <tr>
+    <td><strong>B. Full migration to real DB</strong><br><span class="small">rewrite all 3,718 to hit real Postgres (pglite or <code>ea_sys_test</code> + per-test rollback)</span></td>
+    <td>High everywhere — but most of it on tests that don't need it</td>
+    <td><strong>Severe:</strong> 4 s → minutes; flakiness + ordering deps; kills parallelism; total rewrite of every <code>mockDb.x.mockResolvedValue</code>; multi-session effort</td>
+    <td><span class="pill no">NOT ADVISED</span></td>
+  </tr>
+  <tr>
+    <td><strong>C. Status quo</strong><br><span class="small">keep mocking; rely on e2e + tenancy for real-DB coverage</span></td>
+    <td>None new — the money/concurrency guards stay mock-tested</td>
+    <td>Zero</td>
+    <td><span class="pill hold">acceptable, but leaves the known gap open</span></td>
+  </tr>
+</table>
+
+<h2>4 · Recommendation — Option A, and why it's low-risk here</h2>
+<div class="card">
+<p>The decisive fact: <strong>the real-DB-vitest pattern already exists in this repo</strong> —
+<code>tests/tenancy/</code> is a second vitest project (<code>vitest.config.tenancy.ts</code>) with a
+<code>globalSetup</code> that does <code>prisma db push</code> + seed against a real Postgres, runs
+<code>fileParallelism: false</code>, and is wired into CI as its own service-container job. An integration
+layer is a <em>copy of that shape</em> pointed at <code>ea_sys_test</code> — not new infrastructure.</p>
+<p>And the scope is small because the gap is narrow: only the <strong>DB-semantics paths</strong> need a real
+Postgres. Everything else (the ~100 pure-logic files + the ~164 mocked-logic files where the DB is incidental)
+stays fast and mocked. You keep the 4-second loop <em>and</em> get real-Postgres proof exactly where mocks lie.</p>
+</div>
+
+<h2>5 · The plan for Option A (when approved)</h2>
+
+<h3>5.1 Tooling — reuse <code>ea_sys_test</code>, no new dependency</h3>
+<table>
+  <tr><th>Candidate</th><th>Call</th></tr>
+  <tr><td><strong>Local <code>ea_sys_test</code> + CI Postgres service container</strong></td>
+      <td><span class="pill go">chosen</span> — the e2e suite already proves this exact path (real Prisma → real Postgres). Zero new deps. Matches the tenancy/e2e CI job shape we already run.</td></tr>
+  <tr><td><code>@electric-sql/pglite</code> (embedded WASM Postgres)</td>
+      <td>No server, fast-ish, real PG semantics — but Prisma support is via a newer driver adapter; would need to verify our schema (<code>gen_random_uuid()</code>, extensions, enums) loads cleanly. Deferred: a new-dep risk for no benefit over the DB we already run.</td></tr>
+  <tr><td><code>testcontainers</code> (Postgres per run)</td>
+      <td>Most faithful, heaviest. Unnecessary while <code>ea_sys_test</code> + a CI service container already give real Postgres.</td></tr>
+</table>
+
+<h3>5.2 Isolation — truncate-between-tests, not outer-transaction-rollback</h3>
+<p>The usual "wrap each test in a transaction and roll back" trick <strong>does not work for our target
+paths</strong>: they are exactly the code that opens its <em>own</em> interactive <code>$transaction</code> +
+<code>SELECT … FOR UPDATE</code>, and Prisma can't nest a rollback-only outer transaction around code that
+manages its own. So: <strong>truncate the touched tables between tests</strong> (fast on a small DB) + build
+each test's fixtures explicitly. <code>fileParallelism: false</code> (same as the tenancy project) avoids
+cross-file races. This is slower per-test than mocks — which is why it stays a <em>small, separate</em> suite.</p>
+
+<h3>5.3 What to cover FIRST — the money + concurrency guards</h3>
+<p>The paths where a mock gives false confidence and a real DB earns its keep:</p>
+<ul>
+  <li><code>payment-service</code> — refund optimistic lock (<code>refundedAmount</code> conditional
+      <code>updateMany</code>), credit-note cap under <code>SELECT … FOR UPDATE</code>, cancel-refund-before-cancel.</li>
+  <li><code>registration-service</code> + <code>registration-seat-db</code> — <code>claimSeat</code> /
+      <code>claimSeats</code> <code>soldCount &lt; quantity</code> guard, promo <code>usedCount</code>
+      release/claim, the <code>@@unique</code> duplicate-registration race.</li>
+  <li><code>accommodation-service</code> — the atomic overbooking guard
+      (<code>bookedRooms &lt; totalRooms</code> <code>updateMany</code>).</li>
+  <li><code>invoice-service.createPaidInvoice</code> — the reuse-or-promote under the registration row lock
+      (the M1 "two PAID invoices mint" guard).</li>
+  <li><code>registration-serial</code> — the atomic counter upsert (the P2024/collision fix).</li>
+</ul>
+<p class="small">That's ~6–10 service files → an estimated <strong>40–60 integration tests</strong>, each proving
+a guard actually serializes/rejects against real Postgres (e.g. fire two concurrent claims, assert exactly one
+wins). Contrast: 3,718 to migrate under Option B.</p>
+
+<h3>5.4 Wiring</h3>
+<pre><code># package.json
+"test:integration": "vitest run -c vitest.config.integration.ts"
+
+# vitest.config.integration.ts  (copy of vitest.config.tenancy.ts)
+#   include: ["tests/integration/**/*.test.ts"]
+#   globalSetup: prisma db push + (optional light seed) against DATABASE_URL_TEST
+#   fileParallelism: false, testTimeout: 30_000
+
+# CI: new job with a postgres:16 service container, mirroring the
+# tenancy/migration-replay jobs. NON-GATING first; promote to gating
+# after >=5 green runs (the repo's own promotion rule).</code></pre>
+
+<h3>5.5 Effort</h3>
+<p>~1 focused session to stand up the harness (config + globalSetup + truncate helper + CI job) and convert
+the <strong>first</strong> money-path service as the reference pattern. Then incremental — one service per
+sitting. No big-bang; the mocked suite is untouched throughout.</p>
+
+<h2>6 · Why NOT Option B (the numbers)</h2>
+<ul>
+  <li><strong>4.2 s → minutes.</strong> 3,718 tests each seeding/truncating real rows destroys the
+      instant feedback loop that makes the suite worth running on every save.</li>
+  <li><strong>Flakiness + no parallelism.</strong> Shared DB state means ordering dependencies; the e2e suite
+      already runs <code>workers: 1</code> for exactly this reason. That's fine for 70 specs, ruinous for 3,718.</li>
+  <li><strong>Total rewrite.</strong> Every <code>mockDb.x.findFirst.mockResolvedValue(...)</code> becomes
+      "insert real rows first" — a different authoring model, ~164 files.</li>
+  <li><strong>Most of it is wasted.</strong> A Zod validator, a price calc, a token formatter gains nothing
+      from a real Postgres. You'd pay the full cost to cover code that was never at risk.</li>
+</ul>
+
+<h2>7 · Decision</h2>
+<div class="card">
+<p><strong>Recommended:</strong> Option A — keep the fast mocked suite, add a small
+<code>test:integration</code> layer (real <code>ea_sys_test</code>, copy of the tenancy-harness shape),
+cover the money + concurrency guards first, wire a non-gating CI job that promotes to gating after ≥5 green.
+Incremental, reversible, extends a proven pattern.</p>
+<p class="small">This doc changes nothing on its own. When you want it built, the §5 plan is ready to execute.</p>
+</div>
+
+<footer>
+  EA-SYS · docs/TESTING_STRATEGY.html · assessment July 23, 2026 (nothing changed). Related:
+  <code>vitest.config.tenancy.ts</code> + <code>tests/tenancy/</code> (the real-DB pattern to copy) ·
+  <code>e2e/global-setup.ts</code> (the <code>ea_sys_test</code> seed path) ·
+  <code>docs/CI_PIPELINE.html</code> (where a gating job slots in).
+</footer>
+
+</div>
+</body>
+</html>
