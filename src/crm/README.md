@@ -347,6 +347,16 @@ version (the MCP cache-invalidation hint). See the plan §7.7.
 **Always run the gate before you push:** `npx tsc --noEmit && npm run lint &&
 npm run test && npm run build`.
 
+**Real-DB integration tests (`npm run test:crm-db`):** the mocked suite
+(`__tests__/crm/*`) is fast but can't verify what only Postgres enforces — a
+`@@unique` race, a `$transaction` rollback, a conditional-claim `updateMany`, the
+junction `organizationId`. Those go in `tests/crm-db/*.test.ts`, which run against
+a REAL Postgres (`db` pointed at a `crm_test` database on the shared test
+container — `docker compose --profile crm-test up -d`, then `CRM_TEST_DATABASE_URL`
+per `.env.example`). Mirrors the tenancy harness; a separate vitest project, so it
+stays out of the fast `vitest run`. CI runs both. **New CRM logic whose
+correctness depends on a DB constraint/transaction gets a real-DB test here.**
+
 ---
 
 ## 6. Status & what's next

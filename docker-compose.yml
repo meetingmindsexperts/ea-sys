@@ -43,10 +43,18 @@ services:
   # Start with `docker compose --profile tenancy up -d`, then set
   # TENANCY_DIRECT_URL / TENANCY_DATABASE_URL (see .env.example) and run
   # `npm run test:tenancy`. Off by default (profile-gated).
+  # ONE shared test-Postgres container, two databases on it (raised for either
+  # profile):
+  #   - `tenancy`  — the RLS harness DB (role split + pgbouncer, app_user). See
+  #     the tenancy-pgbouncer service below.
+  #   - `crm_test` — the CRM integration DB, created by the crm-db global-setup,
+  #     connected owner-direct (55432, no pgbouncer, no RLS) so constraints +
+  #     transactions apply as the app runs them.
+  # Different databases on the same server → isolated, no second container.
   tenancy-postgres:
     image: postgres:16-alpine
     container_name: ea-sys-tenancy-db
-    profiles: ["tenancy"]
+    profiles: ["tenancy", "crm-test"]
     ports:
       - "55432:5432"
     environment:

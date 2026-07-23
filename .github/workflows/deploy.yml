@@ -175,7 +175,7 @@ jobs:
   # after 8 consecutive green runs (threshold was ≥5) — a broken isolation
   # property now blocks the deploy.
   tenancy:
-    name: Tenant isolation
+    name: DB integration (tenancy + CRM)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -232,6 +232,14 @@ jobs:
           TENANCY_DIRECT_URL: postgresql://postgres:postgres@localhost:55432/tenancy
           TENANCY_DATABASE_URL: postgresql://app_user:app_user_pw@localhost:56432/tenancy?pgbouncer=true&connection_limit=3
         run: npm run test:tenancy
+
+      # Reuses the SAME postgres service — the harness's global-setup creates a
+      # separate `crm_test` database on it (owner-direct, no pgbouncer/RLS). One
+      # DB container, two databases, isolated.
+      - name: CRM integration suite
+        env:
+          CRM_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:55432/crm_test
+        run: npm run test:crm-db
 
   # ── Fresh-DB migration replay (parallel, GATING since July 23, 2026) ─────────
   # Replays the ENTIRE prisma/migrations chain against an empty Postgres, then
