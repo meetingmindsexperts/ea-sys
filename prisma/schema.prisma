@@ -54,6 +54,7 @@ model Organization {
   crmDealDocuments  CrmDealDocument[]
   crmEmailTemplates CrmEmailTemplate[]
   crmProducts       CrmProduct[]
+  crmEmailThreads   CrmEmailThread[]
 }
 
 // Host → organization mapping for multi-tenant routing (Phase 0 spine —
@@ -124,6 +125,7 @@ model User {
   crmNotifications CrmNotification[] @relation("CrmNotificationRecipient")
   createdCrmEmailTemplates CrmEmailTemplate[] @relation("CrmEmailTemplateCreator")
   createdCrmProducts CrmProduct[] @relation("CrmProductCreator")
+  sentCrmEmailMessages CrmEmailMessage[] @relation("CrmEmailMessageSender")
   uploadedSpeakerDocuments SpeakerDocument[] @relation("SpeakerDocumentUploader")
 
   @@index([organizationId])
@@ -2876,6 +2878,87 @@ model CrmDealDocument {
   @@index([organizationId])
 }
 
+enum CrmEmailDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// CRM email inbox (July 23, 2026) — one conversation with one external person.
+/// Minted on every CRM outbound send; the unique `replyToken` becomes the
+/// tokenized Reply-To local part (`<token>@$CRM_REPLY_DOMAIN`), so an inbound
+/// reply resolves to its thread exactly — no fuzzy matching. Contact/deal FKs
+/// are SetNull so the correspondence history survives a contact purge or deal
+/// deletion; `counterpartyEmail/Name` are snapshots for the same reason.
+model CrmEmailThread {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  dealId String?
+  deal   CrmDeal? @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  crmContactId String?
+  crmContact   CrmContact? @relation(fields: [crmContactId], references: [id], onDelete: SetNull)
+
+  subject           String
+  replyToken        String  @unique
+  counterpartyEmail String
+  counterpartyName  String?
+
+  /// Shared-inbox semantics: set on inbound arrival, cleared when anyone opens
+  /// the thread (owner decision — one bulk inbox, not per-user read state).
+  hasUnread     Boolean   @default(false)
+  lastMessageAt DateTime  @default(now())
+  lastInboundAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  messages CrmEmailMessage[]
+
+  @@index([organizationId, lastMessageAt(sort: Desc)])
+  @@index([dealId])
+  @@index([crmContactId])
+}
+
+model CrmEmailMessage {
+  id             String @id @default(cuid())
+  organizationId String
+
+  threadId String
+  thread   CrmEmailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  direction CrmEmailDirection
+
+  fromEmail String
+  fromName  String?
+  subject   String?
+  textBody  String? @db.Text
+  /// Outbound: the rendered branded HTML actually sent. Inbound: the sender's
+  /// raw HTML part — UNTRUSTED, rendered only inside a sandboxed iframe.
+  htmlBody  String? @db.Text
+
+  /// RFC Message-ID of this message (threading headers for the reply composer).
+  messageId  String?
+  inReplyTo  String?
+  /// Outbound: provider (SES) message id. Inbound: S3 key of the raw MIME.
+  providerMessageId String?
+  s3Key             String?
+
+  /// Inbound only: [{ filename, size, mimeType, path }] under the private
+  /// crm-email-attachments upload prefix (blocked on the public /uploads route).
+  attachments Json?
+  /// SES receipt verdicts (inbound): "PASS"/"FAIL"/etc. — FAIL is quarantined
+  /// before it ever gets a row, so this is informational.
+  spamVerdict String?
+
+  sentByUserId String?
+  sentBy       User?   @relation("CrmEmailMessageSender", fields: [sentByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([threadId, createdAt])
+  @@index([organizationId])
+}
+
 /// First-class Account. Today Contact.organization is a free-text string, which
 /// is why "Cleveland Clinic" and "Cleveland Clinic Foundation" are two things.
 ///
@@ -3041,10 +3124,11 @@ model CrmDeal {
   /// so the "create sponsor entry" button is offered exactly once.
   sponsorSyncedAt DateTime?
 
-  tasks     CrmTask[]
-  notes     CrmNote[]
-  products  CrmDealProduct[]
-  documents CrmDealDocument[]
+  tasks        CrmTask[]
+  notes        CrmNote[]
+  products     CrmDealProduct[]
+  documents    CrmDealDocument[]
+  emailThreads CrmEmailThread[]
 
 
   /// External-system provenance (Freshsales CSV import). `externalId` is the
@@ -3266,9 +3350,10 @@ model CrmContact {
   contactId String?
   contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
-  deals    CrmDealContact[]
-  tasks    CrmTask[]
-  crmNotes CrmNote[]
+  deals        CrmDealContact[]
+  tasks        CrmTask[]
+  crmNotes     CrmNote[]
+  emailThreads CrmEmailThread[]
 
 
   /// External-system provenance (Freshsales CSV import). `externalId` is the

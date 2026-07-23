@@ -24,6 +24,11 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import {
+  crmReplyAddress,
+  mintReplyToken,
+  recordOutboundEmail,
+} from "@/crm/services/crm-email-thread-service";
+import {
   collectSponsorRecipients,
   narrowToSelected,
   type RawDealForRecipients,
@@ -299,6 +304,11 @@ interface DispatchArgs {
   actorUserId: string | null;
   /** CRM history action recorded on each contact on a successful send. */
   contactActivityAction: string;
+  /**
+   * Deal to attach each recipient's inbox thread to. Null for event-wide blasts
+   * (a contact there may span deals) — the thread still exists, just deal-less.
+   */
+  threadDealId: string | null;
   /** For the "dropped a non-sponsor id" log line. */
   logScope: Record<string, unknown>;
 }
@@ -365,6 +375,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
           organizationId: args.organizationId,
           actorUserId: args.actorUserId,
           contactActivityAction: args.contactActivityAction,
+          threadDealId: args.threadDealId,
         }),
       ),
     );
@@ -421,6 +432,7 @@ async function sendOne(
     organizationId: string;
     actorUserId: string | null;
     contactActivityAction: string;
+    threadDealId: string | null;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const tokenVars = {
@@ -440,10 +452,17 @@ async function sendOne(
     RAW_KEYS,
   );
 
+  // Inbox threading: every recipient gets their own thread + reply token. While
+  // CRM_REPLY_DOMAIN is unset the address is null (no Reply-To — behavior
+  // unchanged) but the thread still records as sent-history.
+  const replyToken = mintReplyToken();
+  const replyAddress = crmReplyAddress(replyToken);
+
   const res = await sendEmail({
     to: [{ email: r.email, name: `${r.firstName} ${r.lastName}`.trim() || undefined }],
     cc: ctx.cc,
     from: ctx.from,
+    ...(replyAddress ? { replyTo: { email: replyAddress, name: ctx.from?.name } } : {}),
     subject: rendered.subject,
     htmlContent: rendered.htmlContent,
     textContent: rendered.textContent,
@@ -462,6 +481,24 @@ async function sendOne(
   });
 
   if (!res.success) return { ok: false, error: res.error ?? "send failed" };
+
+  void recordOutboundEmail({
+    organizationId: ctx.organizationId,
+    dealId: ctx.threadDealId,
+    crmContactId: r.crmContactId,
+    counterpartyEmail: r.email,
+    counterpartyName: `${r.firstName} ${r.lastName}`.trim() || null,
+    subject: rendered.subject,
+    htmlBody: rendered.htmlContent,
+    textBody: rendered.textContent ?? null,
+    replyToken,
+    providerMessageId: res.messageId ?? null,
+    sentByUserId: ctx.actorUserId,
+    // brandingFrom() returns undefined when the event has no sender override —
+    // sendEmail then uses the env default, so mirror that here.
+    fromEmail: ctx.from?.email ?? process.env.EMAIL_FROM ?? "",
+    fromName: ctx.from?.name ?? null,
+  });
 
   void recordCrmActivity({
     organizationId: ctx.organizationId,
@@ -513,6 +550,7 @@ export async function sendSponsorProspectus(args: {
     attachments,
     actorUserId: args.actorUserId,
     contactActivityAction: "PROSPECTUS_SENT",
+    threadDealId: null,
     logScope: { organizationId: args.organizationId, eventId: args.eventId, source: args.source },
   });
 }
@@ -552,6 +590,7 @@ export async function sendDealEmail(args: {
     attachments,
     actorUserId: args.actorUserId,
     contactActivityAction: "EMAIL_SENT",
+    threadDealId: args.dealId,
     logScope: { organizationId: args.organizationId, dealId: args.dealId, source: args.source },
   });
 

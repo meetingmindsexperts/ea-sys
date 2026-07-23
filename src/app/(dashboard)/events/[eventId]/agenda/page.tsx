@@ -164,7 +164,20 @@ interface SessionRoleForm {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const HOUR_HEIGHT = 64; // px per hour
+// ── Adaptive time axis (organizer request, July 23 2026) ──
+// The grid is non-linear: an hour that CONTAINS sessions renders at
+// HOUR_HEIGHT (96px — was 64, where a 15-minute session was 16px tall but
+// cards enforced a 28px minimum, so a 3:00–3:15 card physically painted
+// 12px into the 3:15–4:00 card below: the reported "cramped and
+// overlapping" grid). An EMPTY hour (e.g. 6–7 AM with nothing scheduled)
+// compresses to EMPTY_HOUR_HEIGHT so the day doesn't waste a screen of
+// blank rows. All positions come from the prefix-sum in `timeAxis` below —
+// never from `hour × constant`.
+const HOUR_HEIGHT = 96;       // px per hour that contains sessions
+const EMPTY_HOUR_HEIGHT = 32; // px per empty hour
+// Daylight carved off each card's bottom so consecutive cards show a visible
+// seam instead of touching. Positions stay true — only the height is inset.
+const CARD_GAP = 2;
 const START_HOUR = 6;   // 6 AM
 const END_HOUR = 23;    // exclusive — last label is 10 PM
 
@@ -175,7 +188,8 @@ const TIME_SLOTS = Array.from({ length: END_HOUR - START_HOUR }, (_, i) => {
   return { hour: h, label: `${display}:00 ${suffix}` };
 });
 
-const GRID_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
+// NOTE: no GRID_HEIGHT constant — the grid's total height is the prefix-sum
+// of per-hour heights (timeAxis.gridHeight), recomputed per rendered day.
 
 const SPEAKER_STATUS_COLORS: Record<string, string> = {
   CONFIRMED: "bg-green-100 text-green-700",
@@ -233,14 +247,8 @@ function padZ(n: number) {
 // Grid positions come from the EVENT's clock, not the browser's — this page
 // used to mix a browser-local grid with Dubai-fixed list labels (M8,
 // program/agenda review), so a travelling organizer built the agenda against
-// a mis-drawn grid.
-function getSessionStyle(s: Session, timezone: string) {
-  const startH = hourFractionInTz(new Date(s.startTime), timezone);
-  const endH = hourFractionInTz(new Date(s.endTime), timezone);
-  const top = (startH - START_HOUR) * HOUR_HEIGHT;
-  const height = Math.max((endH - startH) * HOUR_HEIGHT, 28);
-  return { top: `${top}px`, height: `${height}px` };
-}
+// a mis-drawn grid. Position math itself lives in the per-day `timeAxis`
+// memo inside the component (the axis is non-linear — see the constants).
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
@@ -538,8 +546,10 @@ export default function AgendaPage() {
     if (isReviewer) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
-    // Snap to nearest 15-minute mark
-    const totalMins = Math.floor((y / HOUR_HEIGHT) * 60);
+    // Pixel → event-local hour via the non-linear axis, then snap to the
+    // nearest 15-minute mark.
+    const clickedHour = timeAxis.hourForY(y);
+    const totalMins = Math.floor((clickedHour - START_HOUR) * 60);
     const snapped = Math.round(totalMins / 15) * 15;
     const h = START_HOUR + Math.floor(snapped / 60);
     const m = snapped % 60;
@@ -601,6 +611,52 @@ export default function AgendaPage() {
     () => filteredSessions.filter((s) => isBreakSessionType(s.type)),
     [filteredSessions]
   );
+
+  // The non-linear time axis for the rendered day: hours containing sessions
+  // get HOUR_HEIGHT, empty hours compress to EMPTY_HOUR_HEIGHT. Every grid
+  // position — labels, dashed lines, cards, break bands, slot-clicks — maps
+  // through this prefix-sum, never through `hour × constant`.
+  const timeAxis = useMemo(() => {
+    const heights = TIME_SLOTS.map(() => EMPTY_HOUR_HEIGHT);
+    for (const s of filteredSessions) {
+      const startH = hourFractionInTz(new Date(s.startTime), eventTz);
+      const endH = hourFractionInTz(new Date(s.endTime), eventTz);
+      const first = Math.max(Math.floor(startH), START_HOUR);
+      const lastExclusive = Math.min(Math.ceil(endH), END_HOUR);
+      for (let h = first; h < lastExclusive; h++) heights[h - START_HOUR] = HOUR_HEIGHT;
+    }
+    const offsets: number[] = [0];
+    for (const h of heights) offsets.push(offsets[offsets.length - 1] + h);
+    const gridHeight = offsets[offsets.length - 1];
+
+    /** y-position (px) for a fractional event-local hour, clamped to the axis. */
+    const yFor = (hour: number) => {
+      const clamped = Math.min(Math.max(hour, START_HOUR), END_HOUR);
+      const idx = Math.min(Math.floor(clamped) - START_HOUR, heights.length - 1);
+      const frac = clamped - (idx + START_HOUR);
+      return offsets[idx] + frac * heights[idx];
+    };
+
+    /** Card geometry: true positions, CARD_GAP inset so back-to-back cards
+     *  show a seam, 22px floor (exactly one title line). */
+    const styleFor = (s: { startTime: string; endTime: string }) => {
+      const top = yFor(hourFractionInTz(new Date(s.startTime), eventTz));
+      const bottom = yFor(hourFractionInTz(new Date(s.endTime), eventTz));
+      return { top: `${top}px`, height: `${Math.max(bottom - top - CARD_GAP, 22)}px` };
+    };
+
+    /** Inverse mapping for slot-clicks: pixel y → fractional hour. */
+    const hourForY = (y: number) => {
+      let idx = heights.length - 1;
+      for (let i = 0; i < heights.length; i++) {
+        if (y < offsets[i + 1]) { idx = i; break; }
+      }
+      const frac = heights[idx] > 0 ? (y - offsets[idx]) / heights[idx] : 0;
+      return START_HOUR + idx + Math.min(Math.max(frac, 0), 0.999);
+    };
+
+    return { heights, offsets, gridHeight, styleFor, hourForY };
+  }, [filteredSessions, eventTz]);
 
   // Track group IDs visible on this day (for multi-column layout)
   const visibleTrackIds = useMemo(
@@ -892,11 +948,11 @@ export default function AgendaPage() {
               <div className="w-16 flex-shrink-0 border-r bg-muted/20 select-none">
                 {/* Spacer matching track-header height */}
                 <div className="h-9 border-b" />
-                {TIME_SLOTS.map((slot) => (
+                {TIME_SLOTS.map((slot, i) => (
                   <div
                     key={slot.hour}
                     className="flex items-start justify-end pr-2 text-xs text-muted-foreground"
-                    style={{ height: `${HOUR_HEIGHT}px` }}
+                    style={{ height: `${timeAxis.heights[i]}px` }}
                   >
                     <span className="mt-[-9px]">{slot.label}</span>
                   </div>
@@ -909,7 +965,7 @@ export default function AgendaPage() {
                   // Multi-column: one column per track group. Break items are
                   // NOT columns — they overlay as full-width bands below.
                   <div className="relative">
-                  <div className="flex" style={{ minHeight: `${GRID_HEIGHT + 36}px` }}>
+                  <div className="flex" style={{ minHeight: `${timeAxis.gridHeight + 36}px` }}>
                     {visibleTrackIds.map((tid) => {
                       const track = (tracks as Track[]).find((t) => t.id === tid);
                       const col = sessionsByTrack[tid] || [];
@@ -936,14 +992,14 @@ export default function AgendaPage() {
                           {/* Clickable time area */}
                           <div
                             className={`relative${!isReviewer ? " cursor-crosshair" : ""}`}
-                            style={{ height: `${GRID_HEIGHT}px` }}
+                            style={{ height: `${timeAxis.gridHeight}px` }}
                             onClick={!isReviewer ? (e) => handleSlotClick(e, tid) : undefined}
                           >
                             {TIME_SLOTS.map((slot, i) => (
                               <div
                                 key={slot.hour}
                                 className="absolute w-full border-b border-dashed border-muted/60"
-                                style={{ top: `${i * HOUR_HEIGHT}px` }}
+                                style={{ top: `${timeAxis.offsets[i]}px` }}
                               />
                             ))}
                             {col.map((s) => (
@@ -951,7 +1007,7 @@ export default function AgendaPage() {
                                 key={s.id}
                                 session={s}
                                 timezone={eventTz}
-                                style={getSessionStyle(s, eventTz)}
+                                style={timeAxis.styleFor(s)}
                                 onClick={() => openEditSession(s)}
                                 onViewDetails={() => { setDetailSessionId(s.id); setDetailSheetOpen(true); }}
                               />
@@ -970,6 +1026,7 @@ export default function AgendaPage() {
                       key={s.id}
                       session={s}
                       timezone={eventTz}
+                      style={timeAxis.styleFor(s)}
                       headerOffset={36}
                       onClick={() => openEditSession(s)}
                     />
@@ -1011,14 +1068,14 @@ export default function AgendaPage() {
                     {/* Clickable time area */}
                     <div
                       className={`relative${!isReviewer ? " cursor-crosshair" : ""}`}
-                      style={{ height: `${GRID_HEIGHT}px` }}
+                      style={{ height: `${timeAxis.gridHeight}px` }}
                       onClick={!isReviewer ? (e) => handleSlotClick(e) : undefined}
                     >
                       {TIME_SLOTS.map((slot, i) => (
                         <div
                           key={slot.hour}
                           className="absolute w-full border-b border-dashed border-muted/60"
-                          style={{ top: `${i * HOUR_HEIGHT}px` }}
+                          style={{ top: `${timeAxis.offsets[i]}px` }}
                         />
                       ))}
                       {filteredSessions.map((s) => (
@@ -1026,7 +1083,7 @@ export default function AgendaPage() {
                           key={s.id}
                           session={s}
                           timezone={eventTz}
-                          style={getSessionStyle(s, eventTz)}
+                          style={timeAxis.styleFor(s)}
                           onClick={() => openEditSession(s)}
                           onViewDetails={() => { setDetailSessionId(s.id); setDetailSheetOpen(true); }}
                         />
@@ -1672,16 +1729,18 @@ export default function AgendaPage() {
 function BreakBand({
   session,
   timezone,
+  style,
   headerOffset,
   onClick,
 }: {
   session: Session;
   timezone: string;
+  /** Computed by the caller's timeAxis (the grid axis is non-linear). */
+  style: { top: string; height: string };
   headerOffset: number;
   onClick: () => void;
 }) {
   const BreakIcon = BREAK_TYPE_ICONS[session.type] ?? Coffee;
-  const style = getSessionStyle(session, timezone);
   const top = headerOffset + parseFloat(style.top);
   return (
     <button
@@ -1744,7 +1803,7 @@ function SessionCard({
             borderLeft: `3px solid ${color}`,
           }}
         >
-          <div className="px-2 py-1">
+          <div className={heightPx < 28 ? "px-2 py-0.5" : "px-2 py-1"}>
             <div className="text-xs font-semibold truncate leading-tight flex items-center gap-1">
               {BreakIcon && <BreakIcon className="h-3 w-3 shrink-0 text-slate-500" />}
               <span className={isBreak ? "text-slate-600" : undefined}>{session.name}</span>

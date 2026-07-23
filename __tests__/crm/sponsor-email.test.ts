@@ -34,6 +34,14 @@ vi.mock("@/crm/lib/crm-activity", () => ({
   recordCrmActivity: vi.fn(() => Promise.resolve({})),
 }));
 
+// Inbox threading is bookkeeping AFTER the send — covered by its own suite
+// (crm-email-threads.test.ts); mocked here so the audience tests stay focused.
+vi.mock("@/crm/services/crm-email-thread-service", () => ({
+  mintReplyToken: vi.fn(() => "tok-test"),
+  crmReplyAddress: vi.fn(() => null),
+  recordOutboundEmail: vi.fn(() => Promise.resolve()),
+}));
+
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
