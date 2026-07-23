@@ -212,6 +212,32 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### npm audit — security updates deferred by owner decision (July 23, 2026)
+
+**Snapshot: 32 vulnerabilities (13 high, 16 moderate, 3 low), 0 critical** — owner chose "not now" (live
+platform, no change window); schedule deliberately. Three buckets, in priority order:
+
+1. **Next.js 16.1.4 → 16.2.11 (the one that matters).** ~30 advisories against our exact version, the
+   relevant ones for EA-SYS: **middleware/proxy bypass** (several variants — our `src/proxy.ts` RBAC
+   redirects are affected, mitigated because the API layer is the authoritative gate, but the middleware
+   confinement of ONSITE/CRM_USER/REGISTRANT is bypassable until patched), **SSRF in Server Actions /
+   rewrites**, request-smuggling in rewrites, cache-poisoning/confusion of response bodies, and a pile of
+   DoS vectors that matter on a self-hosted single box (image optimizer, PPR resume, connection
+   exhaustion). It's a **minor** upgrade (16.1→16.2) but Next minors shift behavior — ship as its OWN
+   commit/deploy with the full gate + e2e + a Playwright smoke (login, public register, dashboard,
+   check-in), so it's independently revertable via the drilled 22s pinned rollback (docs/ROLLBACK.md).
+   Also clears the bundled `sharp` + `postcss` advisories.
+2. **`npm audit fix` (no `--force`) — ~25 transitive in-range patch bumps.** axios, form-data, undici, ws,
+   dompurify, @sentry/*, qs, uuid, opentelemetry, etc. No semver-major, no API changes; one commit,
+   full gate, deploy. Lowest risk of the three.
+3. **Deliberate upgrades, NOT audit-driven (semver-major, moderate-only):** `@anthropic-ai/sdk`
+   0.82 → 0.113 (touches the in-app AI agent + help chat) and `@modelcontextprotocol/sdk` (touches the
+   MCP server — clients must reconnect after; bump `package.json` version). Each needs its own
+   verification pass against the agent/MCP surfaces when picked up.
+
+Re-run `npm audit` when picking this up — counts drift weekly. Suggested trigger: next quiet week with no
+live event in the following 7 days, buckets 2 then 1 as two separate deploys.
+
 ### CI deploy speed — eliminate the duplicated `next build` inside the web Docker image (July 22, 2026)
 
 **Backlogged by owner decision (option B of the deploy-speed pass).** Context: the July 22 measurement of
