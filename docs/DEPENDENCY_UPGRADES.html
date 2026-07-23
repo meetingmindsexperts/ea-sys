@@ -334,6 +334,32 @@ actual import sites, not the README.</p>
   <li><strong>Cadence</strong> — repeat a Round like this one roughly quarterly, or immediately when <code>npm audit</code> shows a critical.</li>
 </ul>
 
+<h3>7a · Automation design — zero-impact set via Dependabot (designed July 23, 2026; NOT set up — owner deferred)</h3>
+<div class="card">
+<p><strong>The truly zero-production-impact set</strong> — packages whose output never enters the shipped
+artifact, so they can break CI at worst, never prod: <code>@types/*</code> (type-only),
+<code>vitest</code> and <code>@playwright/test</code> (test runners), <code>eslint</code> + plugins
+(<em>excluding</em> <code>eslint-config-next</code>, which tracks Next), and <strong>GitHub Actions
+versions</strong> (<code>actions/checkout</code> etc.).</p>
+<p><strong>Two traps that look zero-impact but are NOT:</strong> <code>tailwindcss</code>/<code>@tailwindcss/postcss</code>
+are devDependencies whose output <em>is</em> the production CSS, and <code>tsx</code> is the worker
+container's runtime. Neither ever goes in the auto set.</p>
+<p><strong>Setup when picked up (two files):</strong></p>
+<ol>
+  <li><code>.github/dependabot.yml</code> — weekly, <code>npm</code> ecosystem restricted by an
+      <code>allow</code>/<code>groups</code> config to the zero-impact list (one grouped "dev-tooling" PR),
+      plus the <code>github-actions</code> ecosystem (one "gh-actions" PR).</li>
+  <li>A lightweight <code>pull_request</code> CI workflow running the gate only (tsc · lint · vitest ·
+      build — <strong>no deploy, no secrets</strong>). Required because the existing workflow triggers on
+      push-to-main only, so Dependabot PRs would otherwise get <em>zero</em> CI and any auto-merge would
+      be blind.</li>
+</ol>
+<p><strong>Merge policy:</strong> start with automated PR creation + automated gating but a <em>human merge
+click</em> — merging to main is a production deploy on this repo (blue-green, health-gated, but still a
+container swap), and the manual click respects live-event freeze windows. Enable auto-merge only after a
+few boring cycles.</p>
+</div>
+
 <footer>
   EA-SYS · docs/DEPENDENCY_UPGRADES.html · Round 1 authored July 23, 2026 (proposed, not applied).
   Companion entries: <code>docs/ROADMAP.md</code> § "npm audit — security updates deferred" ·
