@@ -50,7 +50,8 @@ describe("addDealContact", () => {
     );
     expect(db.crmDealContact.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        create: expect.objectContaining({ role: "PROCUREMENT" }),
+        // Multi-tenant prep: junction rows carry the org directly (RLS-readiness).
+        create: expect.objectContaining({ role: "PROCUREMENT", organizationId: ORG }),
         update: expect.objectContaining({ role: "PROCUREMENT" }),
       }),
     );

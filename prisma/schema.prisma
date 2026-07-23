@@ -2794,8 +2794,14 @@ model CrmProduct {
 /// add-time so a later catalog edit never rewrites a deal's line.
 model CrmDealProduct {
   id     String  @id @default(cuid())
-  dealId String
-  deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  // Multi-tenant prep (July 23, 2026): junction rows carry the org directly so a
+  // future RLS policy is a cheap single-column predicate instead of a join through
+  // the parent deal. Nullable ONLY for blue-green safety on the shared prod DB
+  // (an old container mid-swap still inserts without it); always written by the
+  // app and backfilled by migration — tighten to NOT NULL on the platform silo.
+  organizationId String?
+  dealId         String
+  deal           CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
 
   crmProductId String?
   crmProduct   CrmProduct? @relation(fields: [crmProductId], references: [id], onDelete: SetNull)
@@ -2819,6 +2825,7 @@ model CrmDealProduct {
   // column covers dealId lookups, so no separate @@index([dealId]).
   @@unique([dealId, crmProductId])
   @@index([crmProductId])
+  @@index([organizationId])
 }
 
 /// Which slot a deal document fills. PROSPECTUS is one-per-deal (app-enforced
@@ -3295,6 +3302,10 @@ model CrmContact {
 model CrmDealContact {
   id String @id @default(cuid())
 
+  // Multi-tenant prep — see the CrmDealProduct.organizationId comment (same
+  // rationale: cheap RLS predicate; nullable for blue-green, always app-written).
+  organizationId String?
+
   dealId String
   deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
 
@@ -3307,4 +3318,5 @@ model CrmDealContact {
 
   @@unique([dealId, crmContactId])
   @@index([crmContactId])
+  @@index([organizationId])
 }

@@ -249,6 +249,8 @@ export async function addDealProduct(input: {
   try {
     const line = await db.crmDealProduct.create({
       data: {
+        // Denormalized org for RLS-readiness — the deal is already org-bound above.
+        organizationId: input.organizationId,
         dealId: input.dealId,
         crmProductId: product.id,
         // Snapshot so a later catalog rename/re-category never rewrites this deal.

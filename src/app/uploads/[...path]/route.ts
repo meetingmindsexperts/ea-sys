@@ -44,6 +44,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
+  // CRM deal documents (sponsorship prospectus, generated QUOTE PDFs — which
+  // print deal money — contract drafts) are likewise PRIVATE: same volume/DR
+  // ride, but they stream only through the authed
+  // GET /api/crm/deals/[dealId]/documents/[documentId]. Multi-tenant prep —
+  // one tenant's quote must never be a guessable URL for another.
+  if (path[0] === "crm-deal-docs") {
+    apiLogger.warn({ msg: "Private CRM deal upload blocked on public route", path: path.join("/") });
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
   // Only serve from /uploads/ — no other subdirectory of public
   const uploadsRoot = resolve(process.cwd(), "public", "uploads");
   const filePath = join(uploadsRoot, ...path);

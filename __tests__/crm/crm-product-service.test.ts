@@ -175,6 +175,8 @@ describe("addDealProduct — the guards", () => {
     expect(data.productName).toBe("Sponsorship - Gold");
     expect(data.category).toBe("Sponsorship");
     expect(Number(data.unitPrice)).toBe(50000); // pre-filled from catalog list price
+    // Multi-tenant prep: junction rows carry the org directly (RLS-readiness).
+    expect(data.organizationId).toBe(base.organizationId);
     expect(recordCrmActivity).toHaveBeenCalledWith(
       expect.objectContaining({ entityType: "DEAL", entityId: "d-1", action: "PRODUCT_ADDED" }),
     );

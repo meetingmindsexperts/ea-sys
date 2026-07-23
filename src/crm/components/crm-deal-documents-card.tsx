@@ -36,11 +36,13 @@ const MAX_SIZE = 10 * 1024 * 1024;
 
 function DocRow({
   doc,
+  dealId,
   canWrite,
   onDelete,
   deleting,
 }: {
   doc: CrmDealDocumentRow;
+  dealId: string;
   canWrite: boolean;
   onDelete: () => void;
   deleting: boolean;
@@ -54,8 +56,15 @@ function DocRow({
           {(doc.size / 1024).toFixed(0)} KB
         </span>
       </span>
+      {/* Files are private (blocked on the public /uploads route) — download via
+          the authed streaming endpoint, not the raw disk URL. */}
       <Button asChild variant="ghost" size="icon" className="h-7 w-7 shrink-0">
-        <a href={doc.url} target="_blank" rel="noopener noreferrer" title="Download">
+        <a
+          href={`/api/crm/deals/${dealId}/documents/${doc.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Download"
+        >
           <Download className="h-3.5 w-3.5" />
         </a>
       </Button>
@@ -175,6 +184,7 @@ export function CrmDealDocumentsCard({
             {quotes.map((d) => (
               <DocRow
                 key={d.id}
+                dealId={dealId}
                 doc={d}
                 canWrite={canWrite}
                 deleting={remove.isPending}
@@ -210,6 +220,7 @@ export function CrmDealDocumentsCard({
         {prospectus ? (
           <ul>
             <DocRow
+              dealId={dealId}
               doc={prospectus}
               canWrite={canWrite}
               deleting={remove.isPending}
@@ -249,6 +260,7 @@ export function CrmDealDocumentsCard({
             {others.map((d) => (
               <DocRow
                 key={d.id}
+                dealId={dealId}
                 doc={d}
                 canWrite={canWrite}
                 deleting={remove.isPending}

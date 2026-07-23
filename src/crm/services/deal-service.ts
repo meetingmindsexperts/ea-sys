@@ -808,7 +808,13 @@ export async function addDealContact(input: {
 
     await db.crmDealContact.upsert({
       where: { dealId_crmContactId: { dealId: deal.id, crmContactId: contact.id } },
-      create: { dealId: deal.id, crmContactId: contact.id, role: input.role ?? "PRIMARY" },
+      // Denormalized org for RLS-readiness — both parents are org-bound above.
+      create: {
+        organizationId: input.organizationId,
+        dealId: deal.id,
+        crmContactId: contact.id,
+        role: input.role ?? "PRIMARY",
+      },
       update: { role: input.role ?? "PRIMARY" },
     });
 
