@@ -41,8 +41,12 @@
 <h1>Dependency Upgrades — Round 1</h1>
 <p class="sub">EA-SYS · Prepared July 23, 2026 · Snapshot taken against <code>ea-sys@0.4.24</code> on <code>main</code></p>
 
+<div class="banner ok">
+  <strong>Next.js 16.2.11: APPLIED + DEPLOYED July 23, 2026</strong> — shipped as its own commit ahead of
+  the batch (owner go-ahead after local verification; full record in §8). All ~30 Next advisories cleared.
+</div>
 <div class="banner">
-  <strong>Status: PROPOSED — awaiting owner go-ahead.</strong> Nothing in this document has been applied.
+  <strong>The §3 minors batch: still PROPOSED — awaiting owner go-ahead.</strong>
   This is the first structured dependency-upgrade round for this project; the format here is the template
   for future rounds. Re-run <code>npm outdated</code> and <code>npm audit</code> before executing —
   versions drift weekly.
@@ -142,10 +146,11 @@
   <tr>
     <td><strong>Next.js</strong> <code>next</code></td>
     <td>16.1.4 → 16.2.11 <em>(minor)</em></td>
-    <td><span class="pill next">RECOMMENDED — separate deploy</span></td>
-    <td>The security upgrade (middleware/proxy bypass, SSRF in Server Actions/rewrites, DoS vectors) deferred
-        by owner decision July 23 — see ROADMAP § "npm audit". Deliberately <strong>not</strong> part of this
-        batch so each ships and reverts independently. <code>eslint-config-next</code> moves with it.</td>
+    <td><span class="pill go">SHIPPED July 23, 2026</span></td>
+    <td>The security upgrade (middleware/proxy bypass, SSRF in Server Actions/rewrites, DoS vectors) —
+        applied as its own commit/deploy after full local verification; see §8 for the applied record,
+        including the Turbopack standalone-trace regression found during verification and its Dockerfile
+        fix. <code>eslint-config-next</code> moved with it.</td>
   </tr>
   <tr>
     <td><strong>Auth</strong> <code>next-auth</code></td>
@@ -263,7 +268,7 @@ actual import sites, not the README.</p>
   <tr><th>Package</th><th>Pending</th><th>Reason to exclude from this round</th></tr>
   <tr><td><code>stripe</code></td><td>20 → 22 major</td><td>Changes the pinned Stripe API version on the money path — dedicated round with webhook testing (§2).</td></tr>
   <tr><td><code>@zoom/meetingsdk</code></td><td>6.0.0 → 6.2.0</td><td>Prod runs the CDN copy pinned at 6.0.0; 6.2.0 still React-18-only. <strong>Action in this round: pin to 6.0.0 exact.</strong></td></tr>
-  <tr><td><code>next</code> + <code>eslint-config-next</code></td><td>16.1.4 → 16.2.11</td><td>The security upgrade — its own separate deploy (ROADMAP § npm audit).</td></tr>
+  <tr><td><code>next</code> + <code>eslint-config-next</code></td><td>16.1.4 → 16.2.11</td><td><strong>SHIPPED July 23, 2026</strong> as its own deploy — see §8.</td></tr>
   <tr><td><code>next-auth</code></td><td>beta.30 → beta.32</td><td>Beta channel on the auth path — held; upgrade alone with login e2e as the gate.</td></tr>
   <tr><td><code>prisma</code> / <code>@prisma/client</code></td><td>6 → 7 major</td><td>Migration project against the shared prod DB.</td></tr>
   <tr><td><code>@tiptap/*</code> (×16)</td><td>2 → 3 major</td><td>v2 was chosen deliberately (v3 ships source-only, no compiled dist). Ecosystem-wide editor swap = own project.</td></tr>
@@ -358,6 +363,61 @@ container's runtime. Neither ever goes in the auto set.</p>
 click</em> — merging to main is a production deploy on this repo (blue-green, health-gated, but still a
 container swap), and the manual click respects live-event freeze windows. Enable auto-merge only after a
 few boring cycles.</p>
+</div>
+
+<h2>8 · Applied log</h2>
+
+<h3>8a · Next.js 16.1.4 → 16.2.11 + eslint-config-next (July 23, 2026)</h3>
+<div class="card">
+<p><strong>Shipped as its own commit/deploy</strong> after the owner chose "verify locally first, report
+before pushing". Verification record:</p>
+<ul>
+  <li><strong>Dependency compatibility verified, not assumed:</strong> peer ranges checked against the
+      registry — <code>next-auth</code> beta.30 declares <code>next ^16.0.0</code>, <code>@sentry/nextjs</code>
+      10.48 declares <code>^16.0.0-0</code>, next 16.2.11 wants <code>react ^19</code> (we run 19.2.3) and
+      <code>@playwright/test ^1.51</code> (we run 1.59). Zero conflicts.</li>
+  <li><strong>Security outcome:</strong> all ~30 Next advisories cleared (middleware/proxy bypass variants,
+      SSRF in Server Actions/rewrites, request smuggling, cache poisoning/confusion, DoS family).
+      <code>npm audit</code>'s <em>package count</em> did not drop because <code>next</code> stays flagged
+      transitively: it bundles <code>postcss@8.4.31</code> + <code>sharp@0.34.5</code> internally with open
+      advisories that even the newest Next hasn't bumped — upstream-bound, low relevance (postcss is
+      build-time-only; sharp only serves the image optimizer).</li>
+  <li><strong>Gate:</strong> tsc 0 · lint 0 · 3,668 unit tests · production build clean.</li>
+  <li><strong>Regression found during verification — Turbopack whole-repo standalone trace.</strong>
+      Next ≥16.2's file tracer treats the log-archive module's env-overridable fs root
+      (<code>src/lib/log-archive.ts getArchiveDir()</code>) as "this app reads arbitrary project files" and
+      mirrors the ENTIRE repo into <code>.next/standalone</code> — docs/, src/, e2e/ (~+65&nbsp;MB in the
+      image), and in a non-Docker local build even a real <code>.env</code>. No secret exposure in CI/on-box
+      builds (<code>.dockerignore</code> excludes <code>.env</code>), but wrong regardless. Both documented
+      suppressions — the <code>turbopackIgnore</code> comment (every placement) and
+      <code>outputFileTracingExcludes</code> — are <strong>no-ops under Turbopack</strong>
+      (<a href="https://github.com/vercel/next.js/issues/95125">nextjs#95125</a>). Fixed at the layer the
+      tracer can't defeat: the <strong>Dockerfile runner copies the standalone output by ALLOWLIST</strong>
+      (server.js, package.json, .next, node_modules) instead of wholesale. Verified by building a local
+      runner image: contents were exactly the allowlist (no .env, no repo files) and it booted + served
+      HTTP&nbsp;200 under 16.2.11. A cosmetic "unexpected file in NFT list" warning remains in build logs
+      (noted in next.config.ts); drop the note when upstream fixes the tracer.</li>
+  <li><strong>E2E: zero regressions attributable to the upgrade — established by baseline diff.</strong>
+      Suite on 16.2.11: 16 failed / 70 passed. Stash-reverted to 16.1.4, identical run: 16 failed.
+      <strong>15 failures are byte-identical on both versions</strong> (pre-existing suite drift, listed
+      below); each run's single unique failure was a different flaky screenshot-capture spec, and the
+      16.2.11 one passes on retry.</li>
+</ul>
+<p><strong>The 15 pre-existing e2e failures</strong> (unrelated to this upgrade; tracked in ROADMAP as an
+e2e-suite cleanup item):</p>
+<ul>
+  <li><strong>12 × certificates API-contract specs</strong> (<code>certificates.spec.ts</code> ×10 +
+      <code>certificates-resend.spec.ts</code> ×2) — one shared root cause: the specs' admin API calls get
+      <strong>403 where the contract expects 404/200</strong>, i.e. the test session/auth setup has drifted
+      from the app since the specs were written (June 3), so the whole family fails together. The
+      production cert flows themselves work (in daily organizer use).</li>
+  <li><strong>2 × UI-drift specs</strong> — <code>abstract-submitter.spec.ts</code> (submitter flow was
+      redesigned July 2: details landing page) and <code>bulk-email-payment-filter.spec.ts</code> (dialog
+      redesigned into workflow tiles; this spec was already noted failing in May) — locators no longer
+      match the current UI.</li>
+  <li><strong>1 × flaky redirect spec</strong> — <code>rbac-redirects.spec.ts</code> REGISTRANT →
+      /my-registration: <code>net::ERR_ABORTED</code> navigation race under the dev server.</li>
+</ul>
 </div>
 
 <footer>

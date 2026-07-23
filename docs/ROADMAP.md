@@ -217,7 +217,11 @@ The platform handles the entire event lifecycle — from public registration and
 **Snapshot: 32 vulnerabilities (13 high, 16 moderate, 3 low), 0 critical** — owner chose "not now" (live
 platform, no change window); schedule deliberately. Three buckets, in priority order:
 
-1. **Next.js 16.1.4 → 16.2.11 (the one that matters).** ~30 advisories against our exact version, the
+1. ~~**Next.js 16.1.4 → 16.2.11 (the one that matters).**~~ **✅ SHIPPED July 23, 2026** (owner go-ahead
+   after local verification) — all ~30 advisories cleared; the Turbopack standalone whole-repo-trace
+   regression found during verification was neutralized via the Dockerfile standalone ALLOWLIST copy.
+   Full applied record: docs/DEPENDENCY_UPGRADES.html §8a. Original rationale kept below for context.
+   ~30 advisories against our exact version, the
    relevant ones for EA-SYS: **middleware/proxy bypass** (several variants — our `src/proxy.ts` RBAC
    redirects are affected, mitigated because the API layer is the authoritative gate, but the middleware
    confinement of ONSITE/CRM_USER/REGISTRANT is bypassable until patched), **SSRF in Server Actions /
@@ -236,7 +240,22 @@ platform, no change window); schedule deliberately. Three buckets, in priority o
    verification pass against the agent/MCP surfaces when picked up.
 
 Re-run `npm audit` when picking this up — counts drift weekly. Suggested trigger: next quiet week with no
-live event in the following 7 days, buckets 2 then 1 as two separate deploys.
+live event in the following 7 days; bucket 2 is the remaining deploy (bucket 1 shipped July 23).
+
+### E2E suite drift — 15 standing local failures (July 23, 2026)
+
+Surfaced by the Next 16.2.11 baseline diff (identical failures on 16.1.4 and 16.2.11 — NOT
+upgrade-related; full listing in docs/DEPENDENCY_UPGRADES.html §8a). Three clusters: **(1) 12 ×
+certificates API-contract specs** fail together on one root cause — the specs' admin API calls receive
+403 where the contract expects 404/200, i.e. the test auth/session setup drifted from the app since
+June 3 (prod cert flows fine in daily use); **(2) 2 × UI-drift specs** — `abstract-submitter.spec.ts`
+(July 2 submitter-flow redesign) + `bulk-email-payment-filter.spec.ts` (dialog → workflow tiles;
+already noted failing in May) point at locators that no longer exist; **(3) 1 × flaky
+`rbac-redirects.spec.ts`** REGISTRANT redirect (`net::ERR_ABORTED` navigation race on the dev server).
+Fix order when picked up: diagnose the shared 403 first (likely one fixture/session repair un-fails 12
+specs), then rewrite the two drifted specs against the current UI, then stabilize or retry-tag the
+redirect spec. Until then, local e2e runs must be compared against this known-failure baseline rather
+than expected green.
 
 ### CI deploy speed — eliminate the duplicated `next build` inside the web Docker image (July 22, 2026)
 
