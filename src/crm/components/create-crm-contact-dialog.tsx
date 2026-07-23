@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useCreateCrmContact } from "@/crm/hooks/use-crm-api";
+import type { CrmContactRow } from "@/crm/lib/crm-types";
 import {
   CrmContactFormFields,
   crmContactFormPayload,
@@ -31,11 +32,19 @@ export function CreateCrmContactDialog({
   open,
   onOpenChange,
   defaultCompanyId,
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   /** Pre-select the account — the "Add contact" button on a company page. */
   defaultCompanyId?: string;
+  /**
+   * Fired after a successful create/find-or-create with the resolved contact —
+   * lets the caller link it onward (e.g. the deal People card also attaches it
+   * to the deal). Its own errors are its concern; a failure here does not
+   * un-create the contact.
+   */
+  onCreated?: (contact: CrmContactRow) => void | Promise<void>;
 }) {
   const [form, setForm] = useState<CrmContactFormState>(() => emptyCrmContactForm({ companyId: defaultCompanyId }));
   const create = useCreateCrmContact();
@@ -46,7 +55,8 @@ export function CreateCrmContactDialog({
 
   async function handleSubmit() {
     if (!crmContactFormValid(form)) return;
-    await create.mutateAsync(crmContactFormPayload(form));
+    const res = await create.mutateAsync(crmContactFormPayload(form));
+    await onCreated?.(res.contact);
     reset();
     onOpenChange(false);
   }

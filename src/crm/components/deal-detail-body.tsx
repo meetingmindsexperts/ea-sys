@@ -31,6 +31,7 @@ import {
   Paperclip,
   Pencil,
   Trash2,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,7 @@ import {
 } from "@/crm/components/crm-deal-form-fields";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
 import { CrmDealDocumentsCard } from "@/crm/components/crm-deal-documents-card";
+import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
 import { DealProducts } from "@/crm/components/crm-deal-products";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
 
@@ -410,6 +412,7 @@ export function DealDetailBody({
 function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolean }) {
   const [picked, setPicked] = useState("");
   const [role, setRole] = useState<CrmDealContactRole>("PRIMARY");
+  const [createOpen, setCreateOpen] = useState(false);
 
   const { data: allContacts = [] } = useCrmContacts();
   const add = useAddDealContact(deal.id);
@@ -461,45 +464,63 @@ function DealContacts({ deal, canWrite }: { deal: CrmBoardDeal; canWrite: boolea
         </ul>
       )}
 
-      {canWrite && available.length > 0 && (
+      {canWrite && (
         <div className="space-y-2 border-t pt-3">
-          <Select value={picked} onValueChange={setPicked}>
+          {/* Role applies to whichever add path is used (pick-existing or create-new). */}
+          <Select value={role} onValueChange={(v) => setRole(v as CrmDealContactRole)}>
             <SelectTrigger className="w-full">
-              <SelectValue placeholder="Add a contact…" />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {available.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.firstName} {c.lastName}
-                  {c.company ? ` — ${c.company.name}` : ""}
+              {(Object.keys(DEAL_CONTACT_ROLE_LABELS) as CrmDealContactRole[]).map((r) => (
+                <SelectItem key={r} value={r}>
+                  {DEAL_CONTACT_ROLE_LABELS[r]}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <div className="flex gap-2">
-            <Select value={role} onValueChange={(v) => setRole(v as CrmDealContactRole)}>
-              <SelectTrigger className="flex-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(DEAL_CONTACT_ROLE_LABELS) as CrmDealContactRole[]).map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {DEAL_CONTACT_ROLE_LABELS[r]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              size="sm"
-              disabled={!picked || add.isPending}
-              onClick={() => {
-                add.mutate({ crmContactId: picked, role });
-                setPicked("");
-              }}
-            >
-              Add
-            </Button>
-          </div>
+
+          {available.length > 0 && (
+            <div className="flex gap-2">
+              <Select value={picked} onValueChange={setPicked}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder="Add an existing contact…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {available.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.firstName} {c.lastName}
+                      {c.company ? ` — ${c.company.name}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                disabled={!picked || add.isPending}
+                onClick={() => {
+                  add.mutate({ crmContactId: picked, role });
+                  setPicked("");
+                }}
+              >
+                Add
+              </Button>
+            </div>
+          )}
+
+          {/* Create a NEW contact — pre-linked to the deal's company (companyId
+              default) AND attached to the deal (onCreated → addDealContact). An
+              existing email find-or-creates, then still links to the deal. */}
+          <Button size="sm" variant="outline" className="w-full" onClick={() => setCreateOpen(true)}>
+            <UserPlus className="mr-2 h-3.5 w-3.5" />
+            New contact
+          </Button>
+          <CreateCrmContactDialog
+            open={createOpen}
+            onOpenChange={setCreateOpen}
+            defaultCompanyId={deal.company?.id}
+            onCreated={(contact) => add.mutate({ crmContactId: contact.id, role })}
+          />
         </div>
       )}
     </div>
