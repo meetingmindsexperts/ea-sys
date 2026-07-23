@@ -107,7 +107,7 @@
 <h1>CRM — Build Status</h1>
 <p class="sub">
   What is built, what is wired to the rest of EA-SYS, and what is not.<br>
-  <span class="stamp">Last updated: <b>17 July 2026</b> (in-app CRM notifications — own bell, own table, separate from the core notification service) · HEAD <code>WORKING</code> ·
+  <span class="stamp">Last updated: <b>23 July 2026</b> (email inbox — tokenized reply capture + shared Inbox tab; quote generation; deal documents; contact enrichment/ownership; inline editing ×3; multi-tenant prep) · HEAD <code>WORKING</code> ·
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
@@ -469,6 +469,29 @@ exactly which of those exist today.</p>
     <li><b>Triggers:</b> deal assigned to you (create + re-assign), your deal stage-moved / <b>won</b> / <b>lost</b> (a drag into a mapped terminal column announces the outcome, not a generic move), task assigned to you, and the reminders worker's <b>task-due</b> nudge — minted right after the <code>remindedAt</code> claim, so it rides the same idempotency as the email and reaches mailbox-less temp accounts.</li>
     <li><b>One writer</b> (<code>notifyCrmUser</code> in <code>crm-notifications.ts</code>, the recordCrmActivity rule): the never-notify-yourself compare and the never-throw guarantee live in the writer, not at nine call sites. In-app only — no email, no push. Messages carry <b>no deal money</b>, so the redaction question never arises.</li>
     <li><b>Reads are IDOR-proof by construction:</b> list / unread-count / mark-read all scope the query to the caller's own <code>userId</code> + org; API-key callers get an explicit 400 <code>NO_USER_CONTEXT</code>. The route passes the source-level gate-drift test like every other CRM route.</li>
+  </ul>
+</details>
+
+<details>
+  <summary>July 21–22 round — contact enrichment, ownership, company rollups, inline editing, deal documents, quotes <span class="tag done">DONE</span></summary>
+  <ul>
+    <li><b>Contact enrichment (Jul 21):</b> <code>CrmContact</code> gains <code>status</code> (Freshsales-style ladder NEW→…→WON/LOST/UNQUALIFIED, kept ALONGSIDE lifecycleStage), <code>mobile</code>, <code>tags</code>, and an <b>auto-computed score</b> (deals-only formula: first open deal 30, +15 each extra cap 60, any won +40, clamp 100 — derived on read, never stored/stale). Freshsales CSV import maps mobile + tags.</li>
+    <li><b>Contact ownership (Jul 21):</b> real <code>ownerId</code> (defaults to creator, reassignable to any deal-owner-capable rep); list filter defaults to <b>All contacts</b> with a "My contacts" pin (owner decision).</li>
+    <li><b>Company rollups (Jul 21):</b> the Companies table shows per-currency Open+Won deal totals (never summed across currencies) + a derived primary contact (PRIMARY role on the newest deal, fallback newest company contact).</li>
+    <li><b>Inline editing (Jul 21–22):</b> deal, company AND contact record pages edit in place (shared form-fields components — create dialog + inline editor render the same fields, no duplication); the three edit dialogs are deleted.</li>
+    <li><b>Deal documents (Jul 22):</b> a deal holds a <b>sponsorship prospectus</b> (one slot, upload replaces, partial-unique backstop) + other PDFs (magic-byte validated, 10MB); the deal Email dialog offers them as <b>opt-in attachments</b> (unticked by default; unresolvable/unreadable stored attachments REFUSE the send — never silently ship without the promised prospectus).</li>
+    <li><b>Quote generation (Jul 22):</b> Documents → Generate quote builds a PDF from the deal's <b>Products</b> lines via the core document-layout engine (org branding, bill-to + Attn: primary contact, category-grouped lines, optional tax pre-filled from the linked event) with an org-sequential number (<code>Q-NNNN</code>, atomic counter table); stored as a kind-QUOTE deal document (history kept), attachable in Email. <b>MEMBER never sees quote rows</b> — the PDF prints deal money and key-redaction can't reach inside a PDF.</li>
+    <li><b>Multi-tenant prep (Jul 23):</b> the two junction tables (<code>CrmDealProduct</code>/<code>CrmDealContact</code>) gained <code>organizationId</code> (backfilled; every Crm* model is now org-scoped) and <b>deal files went private</b> — blocked on the public /uploads catch-all, streamed only via the authed org-bound route.</li>
+  </ul>
+</details>
+
+<details>
+  <summary>Email inbox — reply capture + shared Inbox tab <span class="tag done">DONE — Jul 23 (code) · needs AWS setup to go live</span></summary>
+  <ul>
+    <li><b>The model:</b> every CRM outbound send mints a <code>CrmEmailThread</code> whose unique <code>replyToken</code> becomes the tokenized Reply-To (<code>&lt;token&gt;@$CRM_REPLY_DOMAIN</code>) — an inbound reply resolves to its thread EXACTLY, no fuzzy matching. <b>DORMANT without env</b>: no Reply-To until the SES setup lands, but threads record as sent-history from day one.</li>
+    <li><b>Intake:</b> SES inbound (ap-south-1, verified available) → S3 → the <code>crm-inbound-email</code> worker job (every minute, JOB_ID 1012): MIME parse (mailparser), SES spam/virus FAILs quarantined, attachments to a private upload prefix, thread flagged unread, <code>EMAIL_RECEIVED</code> on the deal History, bell + <b>forward-copy to the deal owner's real mailbox</b> (owner decision). Per-object failure isolation + s3Key dedupe = crash-retry safe.</li>
+    <li><b>UI:</b> CRM → <b>Inbox</b> tab — shared org-wide (owner decision: one bulk inbox), two-pane, inbound HTML sandboxed in an iframe, authed attachment streaming, reply composer that reuses the thread's own token so conversations keep threading. <b>Staff-only via new <code>canViewCrmInbox</code></b> — MEMBER (sponsor-side accounts) never reads negotiation threads; the tab hides AND every route 403s.</li>
+    <li><b>To go LIVE:</b> the operator runbook <a href="CRM_INBOX_SETUP.md">docs/CRM_INBOX_SETUP.md</a> — S3 bucket + MX record on <code>reply.meetingmindsdubai.com</code> + SES receipt rule + IAM + 3 env vars. M365 mailboxes untouched. Known v1 limitation: replies don't set RFC threading headers (clients group by subject).</li>
   </ul>
 </details>
 

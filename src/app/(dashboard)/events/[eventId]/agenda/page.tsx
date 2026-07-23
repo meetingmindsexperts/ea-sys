@@ -674,16 +674,24 @@ export default function AgendaPage() {
     return s.size;
   }, [sessions, eventTz]);
 
-  // The Sessions/Scheduled tiles count real program sessions only — break
-  // items (registration/coffee/lunch) are agenda furniture, not sessions.
+  // Overview tiles (organizer decision, July 23 2026): Workshops and
+  // Symposia are NOT "sessions" — the Sessions/Scheduled pair counts only
+  // true SESSION-type entries, and each of the other two program formats
+  // gets its own tile. Break items (registration/coffee/lunch/networking)
+  // remain agenda furniture and count nowhere.
   const programSessions = useMemo(
     () => (sessions as Session[]).filter((s) => !isBreakSessionType(s.type)),
     [sessions]
   );
 
+  const sessionsOnly = programSessions.filter(
+    (s) => s.type !== "WORKSHOP" && s.type !== "SYMPOSIUM"
+  );
   const stats = {
-    total: programSessions.length,
-    scheduled: programSessions.filter((s) => s.status === "SCHEDULED").length,
+    total: sessionsOnly.length,
+    scheduled: sessionsOnly.filter((s) => s.status === "SCHEDULED").length,
+    workshops: programSessions.filter((s) => s.type === "WORKSHOP").length,
+    symposia: programSessions.filter((s) => s.type === "SYMPOSIUM").length,
     tracks: (tracks as Track[]).length,
     days: allEventDates,
   };
@@ -774,7 +782,7 @@ export default function AgendaPage() {
         </div>
 
         {/* ── Stats ────────────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <Card
             className="py-3 cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-colors"
             onClick={() => setIsSessionListOpen(true)}
@@ -789,6 +797,8 @@ export default function AgendaPage() {
           </Card>
           {[
             { label: "Scheduled", value: stats.scheduled },
+            { label: "Workshops", value: stats.workshops },
+            { label: "Symposia", value: stats.symposia },
             { label: "Tracks", value: stats.tracks },
             { label: "Event Days", value: stats.days },
           ].map(({ label, value }) => (
@@ -1591,7 +1601,10 @@ export default function AgendaPage() {
                 <List className="h-5 w-5" />
                 All Sessions
                 <span className="ml-auto text-sm font-normal text-muted-foreground">
-                  {stats.total} total
+                  {/* The sheet lists EVERY agenda entry (sessions, workshops,
+                      symposia, breaks) — its badge counts what it shows, not
+                      the SESSION-only tile. */}
+                  {(sessions as Session[]).length} total
                 </span>
               </SheetTitle>
             </SheetHeader>
