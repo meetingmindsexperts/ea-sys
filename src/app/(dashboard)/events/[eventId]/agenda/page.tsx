@@ -574,7 +574,11 @@ export default function AgendaPage() {
     return (sessions as Session[]).filter((s) => {
       const sd = localDateInTz(new Date(s.startTime), eventTz);
       const matchDate = sd === resolvedDate;
-      const matchTrack = selectedTrack === "all" || s.track?.id === selectedTrack;
+      // Break items span the whole event, so they show under ANY track filter.
+      const matchTrack =
+        selectedTrack === "all" ||
+        isBreakSessionType(s.type) ||
+        s.track?.id === selectedTrack;
       return matchDate && matchTrack;
     });
   }, [sessions, resolvedDate, selectedTrack, eventTz]);
@@ -582,11 +586,21 @@ export default function AgendaPage() {
   const sessionsByTrack = useMemo(() => {
     const grouped: Record<string, Session[]> = {};
     filteredSessions.forEach((s) => {
+      // Break items are excluded from track grouping: they carry no track by
+      // design, and grouping them used to sprout a phantom "No Track" column
+      // the moment a coffee break was added to a fully-tracked agenda. They
+      // render as full-width bands spanning all columns instead (dayBreaks).
+      if (isBreakSessionType(s.type)) return;
       const tid = s.track?.id || "no-track";
       (grouped[tid] ??= []).push(s);
     });
     return grouped;
   }, [filteredSessions]);
+
+  const dayBreaks = useMemo(
+    () => filteredSessions.filter((s) => isBreakSessionType(s.type)),
+    [filteredSessions]
+  );
 
   // Track group IDs visible on this day (for multi-column layout)
   const visibleTrackIds = useMemo(
@@ -892,7 +906,9 @@ export default function AgendaPage() {
               {/* Sessions area */}
               <div className="flex-1 overflow-x-auto">
                 {showMultiColumn ? (
-                  // Multi-column: one column per track group
+                  // Multi-column: one column per track group. Break items are
+                  // NOT columns — they overlay as full-width bands below.
+                  <div className="relative">
                   <div className="flex" style={{ minHeight: `${GRID_HEIGHT + 36}px` }}>
                     {visibleTrackIds.map((tid) => {
                       const track = (tracks as Track[]).find((t) => t.id === tid);
@@ -944,6 +960,20 @@ export default function AgendaPage() {
                         </div>
                       );
                     })}
+                  </div>
+                  {/* Break bands: full width across ALL track columns, offset
+                      past the 36px track headers. z-[5] keeps them above the
+                      column backgrounds but below session cards (z-10), so an
+                      overlapping workshop stays visible + clickable. */}
+                  {dayBreaks.map((s) => (
+                    <BreakBand
+                      key={s.id}
+                      session={s}
+                      timezone={eventTz}
+                      headerOffset={36}
+                      onClick={() => openEditSession(s)}
+                    />
+                  ))}
                   </div>
                 ) : (
                   // Single column
@@ -1635,6 +1665,51 @@ export default function AgendaPage() {
 
 // ── Session Card ─────────────────────────────────────────────────────────────
 
+/** A break item on the multi-column grid: one full-width band spanning every
+ *  track column (a coffee break belongs to the whole event, not one track).
+ *  Replaces the old behavior where a trackless break minted a phantom
+ *  "No Track" column. Styling mirrors SessionCard's break look. */
+function BreakBand({
+  session,
+  timezone,
+  headerOffset,
+  onClick,
+}: {
+  session: Session;
+  timezone: string;
+  headerOffset: number;
+  onClick: () => void;
+}) {
+  const BreakIcon = BREAK_TYPE_ICONS[session.type] ?? Coffee;
+  const style = getSessionStyle(session, timezone);
+  const top = headerOffset + parseFloat(style.top);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="absolute left-0 right-0 z-[5] rounded border border-dashed border-slate-300 text-left overflow-hidden hover:shadow-md transition-all"
+      style={{
+        top: `${top}px`,
+        height: style.height,
+        backgroundColor: `${BREAK_COLOR}18`,
+        borderLeft: `3px solid ${BREAK_COLOR}`,
+      }}
+    >
+      <div className="px-3 h-full flex items-center gap-2">
+        <BreakIcon className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+        <span className="text-xs font-semibold text-slate-600 truncate">{session.name}</span>
+        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+          {formatTimeInTz(new Date(session.startTime), timezone)} –{" "}
+          {formatTimeInTz(new Date(session.endTime), timezone)}
+        </span>
+      </div>
+    </button>
+  );
+}
+
 function SessionCard({
   session,
   timezone,
@@ -1662,7 +1737,7 @@ function SessionCard({
             e.stopPropagation();
             onClick();
           }}
-          className={`absolute left-1 right-1 rounded text-left overflow-hidden hover:shadow-md hover:z-20 transition-all group/card${isBreak ? " border border-dashed border-slate-300" : ""}`}
+          className={`absolute left-1 right-1 z-10 rounded text-left overflow-hidden hover:shadow-md hover:z-20 transition-all group/card${isBreak ? " border border-dashed border-slate-300" : ""}`}
           style={{
             ...style,
             backgroundColor: `${color}18`,

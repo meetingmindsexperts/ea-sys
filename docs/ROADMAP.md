@@ -359,9 +359,14 @@ lingering capacity). Deferred here:
   dashboard is the workaround.
 - **L4 — registration-page agenda preview renders break items as ordinary entries**
   (`speakers-agenda-preview.tsx` ignores `type`; cosmetic, no crash — name + time still read fine).
-- **Multi-track calendar layout**: on the dashboard multi-column (per-track) grid, a track-less
-  break item renders in the "No Track" column rather than as a band spanning all track columns.
-  Known v1 limitation; revisit if a multi-track event complains.
+- ~~**Multi-track calendar layout**: on the dashboard multi-column (per-track) grid, a track-less
+  break item renders in the "No Track" column rather than as a band spanning all track columns.~~
+  **✅ SHIPPED July 23, 2026** — a multi-track event complained (BHS2026: adding a coffee break
+  appeared to "create a new track"). Break items are now excluded from the track-column grouping
+  and render as full-width muted bands spanning ALL track columns (`BreakBand` in the agenda page;
+  bands sit at z-[5] below session cards at z-10, so a workshop running through lunch stays visible
+  + clickable; breaks also bypass the track filter since they span the event). Verified visually
+  against a seeded 2-track + 2-break day on the test DB.
 
 ### CRM module whole-module review (July 16, 2026) — ALL HIGHs + MEDs shipped, 8 LOWs deferred
 
