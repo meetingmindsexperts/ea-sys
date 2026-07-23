@@ -526,6 +526,7 @@ export const CRM_ACTIVITY_ACTION_LABELS: Record<string, string> = {
   DOCUMENT_ADDED: "Added a document",
   DOCUMENT_REMOVED: "Removed a document",
   QUOTE_GENERATED: "Generated a quote",
+  EMAIL_RECEIVED: "Email reply received",
 };
 
 /**

@@ -34,7 +34,8 @@ export type CrmNotificationType =
   | "DEAL_WON"
   | "DEAL_LOST"
   | "TASK_ASSIGNED"
-  | "TASK_DUE";
+  | "TASK_DUE"
+  | "EMAIL_RECEIVED";
 
 export interface CrmNotificationEntry {
   organizationId: string;

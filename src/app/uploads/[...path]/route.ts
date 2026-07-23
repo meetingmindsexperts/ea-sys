@@ -54,6 +54,13 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
+  // Inbound CRM email attachments (sponsor-sent files) — same policy: private,
+  // streamed only through the authed inbox attachment route.
+  if (path[0] === "crm-email-attachments") {
+    apiLogger.warn({ msg: "Private CRM email attachment blocked on public route", path: path.join("/") });
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
   // Only serve from /uploads/ — no other subdirectory of public
   const uploadsRoot = resolve(process.cwd(), "public", "uploads");
   const filePath = join(uploadsRoot, ...path);

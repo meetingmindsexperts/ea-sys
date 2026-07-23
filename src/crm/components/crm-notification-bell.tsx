@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import {
   AlarmClock,
+  Mail,
   Bell,
   CheckCheck,
   CheckSquare,
@@ -33,6 +34,7 @@ const typeIcons: Record<string, React.ElementType> = {
   DEAL_LOST: XCircle,
   TASK_ASSIGNED: CheckSquare,
   TASK_DUE: AlarmClock,
+  EMAIL_RECEIVED: Mail,
 };
 
 export function CrmNotificationBell() {

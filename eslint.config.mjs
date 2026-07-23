@@ -69,11 +69,11 @@ const eslintConfig = defineConfig([
     },
   },
 
-  // Same rule for the worker tier: only the reminders job shim may reach into
+  // Same rule for the worker tier: only the CRM job shims may reach into
   // src/crm/.
   {
     files: ["worker/**/*.ts"],
-    ignores: ["worker/jobs/crm-reminders.ts"],
+    ignores: ["worker/jobs/crm-reminders.ts", "worker/jobs/crm-inbound-email.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -82,7 +82,7 @@ const eslintConfig = defineConfig([
             {
               group: ["@/crm", "@/crm/*", "@/crm/**"],
               message:
-                "Only worker/jobs/crm-reminders.ts may import from src/crm/. See docs/CRM_MODULE_PLAN.md §7.0.",
+                "Only the CRM job shims (worker/jobs/crm-reminders.ts, crm-inbound-email.ts) may import from src/crm/. See docs/CRM_MODULE_PLAN.md §7.0.",
             },
           ],
         },

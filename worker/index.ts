@@ -56,6 +56,7 @@ import * as contactsCentralSync from "./jobs/contacts-central-sync";
 import * as contactsCentralReconcile from "./jobs/contacts-central-reconcile";
 import * as logArchive from "./jobs/log-archive";
 import * as emailLogPrune from "./jobs/email-log-prune";
+import * as crmInboundEmail from "./jobs/crm-inbound-email";
 
 import { startHealthServer, type HealthState } from "./lib/health-server";
 import { installShutdownHandler } from "./lib/shutdown";
@@ -87,6 +88,7 @@ const JOBS = [
   logArchive,
   crmReminders,
   emailLogPrune,
+  crmInboundEmail,
 ];
 
 // Shared state — populated as jobs tick. The health endpoint reads

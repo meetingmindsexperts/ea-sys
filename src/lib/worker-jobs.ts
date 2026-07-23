@@ -18,6 +18,7 @@ export interface ExpectedJob {
 
 export const EXPECTED_JOBS: ExpectedJob[] = [
   { name: "scheduled-emails", cadence: "every minute" },
+  { name: "crm-inbound-email", cadence: "every minute" },
   { name: "cert-issue", cadence: "every 3 min" },
   { name: "webinar-recordings", cadence: "every 5 min" },
   { name: "crm-reminders", cadence: "every 5 min" },
