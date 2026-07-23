@@ -40,13 +40,17 @@
 <h2>1. The pipeline today (post-split, July 22 2026)</h2>
 
 <div class="card" style="border-left:4px solid #d97706; background:#fffbeb; padding:0.8rem 1rem; margin-bottom:1rem;">
-<strong>⚠ paths-ignore gotcha (hit for real July 23, 2026):</strong> a push whose <em>HEAD commit</em> is
-docs-only can be skipped by <code>paths-ignore</code> even when an earlier commit in the same push carries
-code — the Next 16.2.11 upgrade push (code commit + docs commit on top) produced <strong>zero workflow
-runs</strong>, and prod silently stayed on the old build until noticed. Rules: <strong>never end a deploy
-push with a docs-only commit at HEAD</strong> (docs first, code last — or separate pushes), always confirm
-a run appeared after pushing code (<code>gh run list</code>), and recover with
-<code>gh workflow run "Deploy to EC2" --ref main</code> (workflow_dispatch, docs/ROLLBACK.md §1.5).
+<strong>⚠ Run-creation latency gotcha (hit for real July 23, 2026):</strong> GitHub can create the
+push-triggered workflow run <strong>minutes late</strong> — the Next 16.2.11 push showed <em>zero</em> runs
+for its SHA a full 3+ minutes after pushing (<code>gh api …/runs?head_sha=…</code> returned 0), which read
+exactly like a paths-ignore skip; the real run then materialized ~8 minutes after the push. A premature
+<code>workflow_dispatch</code> "recovery" produced a duplicate deploy of the same SHA (the
+<code>deploy-main</code> concurrency group queued it behind the dispatch; it was cancelled before its
+deploy job, harmless). Rules: after pushing code, <strong>wait up to ~10 minutes before concluding no run
+was triggered</strong>; re-check with <code>gh api "repos/…/actions/runs?head_sha=&lt;sha&gt;"</code>; only
+then dispatch manually (<code>gh workflow run "Deploy to EC2" --ref main</code>) — and if a late twin
+appears afterwards, cancel whichever hasn't reached its deploy job. Prod stays safe throughout: the
+concurrency group serializes deploys and a same-SHA redeploy is idempotent.
 </div>
 
 <div class="card">
