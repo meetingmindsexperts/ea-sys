@@ -39,6 +39,16 @@
 
 <h2>1. The pipeline today (post-split, July 22 2026)</h2>
 
+<div class="card" style="border-left:4px solid #d97706; background:#fffbeb; padding:0.8rem 1rem; margin-bottom:1rem;">
+<strong>⚠ paths-ignore gotcha (hit for real July 23, 2026):</strong> a push whose <em>HEAD commit</em> is
+docs-only can be skipped by <code>paths-ignore</code> even when an earlier commit in the same push carries
+code — the Next 16.2.11 upgrade push (code commit + docs commit on top) produced <strong>zero workflow
+runs</strong>, and prod silently stayed on the old build until noticed. Rules: <strong>never end a deploy
+push with a docs-only commit at HEAD</strong> (docs first, code last — or separate pushes), always confirm
+a run appeared after pushing code (<code>gh run list</code>), and recover with
+<code>gh workflow run "Deploy to EC2" --ref main</code> (workflow_dispatch, docs/ROLLBACK.md §1.5).
+</div>
+
 <div class="card">
 <pre><code>push to main  (docs-only pushes skipped via paths-ignore)
    │
