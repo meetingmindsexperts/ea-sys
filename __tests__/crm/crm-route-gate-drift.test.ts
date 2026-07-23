@@ -109,6 +109,32 @@ describe("every /api/crm/* handler is gated", () => {
   });
 });
 
+describe("every /api/crm/inbox/* handler ALSO gates on canViewCrmInbox", () => {
+  // The base gate (requireCrmRead) admits MEMBER — the read-only account we hand
+  // to sponsor-side stakeholders. The inbox is the one CRM surface MEMBER must
+  // NOT reach (a sponsor must never read a rival's negotiation thread), so every
+  // inbox handler layers the narrower canViewCrmInbox on top. That layer is
+  // hand-applied, so this asserts it's present on every inbox route — the same
+  // "a route just didn't call it" failure mode the base drift test guards.
+  const inboxHandlers = allHandlers().filter((h) => h.rel.includes("/api/crm/inbox/"));
+
+  it("finds the inbox routes (not testing nothing)", () => {
+    expect(inboxHandlers.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it.each(inboxHandlers.map((h) => [`${h.method} ${h.rel}`, h] as const))(
+    "%s calls canViewCrmInbox",
+    (label, h) => {
+      expect(
+        h.source.includes("canViewCrmInbox"),
+        `${label} is an inbox route but does not call canViewCrmInbox. requireCrmRead alone ` +
+          `admits MEMBER, so this would leak sponsor negotiation threads/attachments to a ` +
+          `sponsor-side account — the review-M6 gap.`,
+      ).toBe(true);
+    },
+  );
+});
+
 describe("the write gate carries the rate limit", () => {
   it("requireCrmWrite calls checkRateLimit, so no CRM write can be unlimited", () => {
     // The rate limit is deliberately inside the gate rather than pasted into each

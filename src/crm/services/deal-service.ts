@@ -726,6 +726,23 @@ export async function setDealArchived(input: {
 
     const deal = await db.crmDeal.findUniqueOrThrow({ where: { id: current.id } });
 
+    // Token lifecycle (inbox review M1): archiving a deal REVOKES its email
+    // threads' reply tokens so a "closed" deal stops being an open injection
+    // channel; restoring clears the revocation. Best-effort — a bookkeeping
+    // failure here must not fail the archive.
+    void db.crmEmailThread
+      .updateMany({
+        where: { dealId: deal.id, organizationId: input.organizationId },
+        data: { revokedAt: input.archived ? new Date() : null },
+      })
+      .catch((err) =>
+        apiLogger.warn({
+          msg: "crm-deal:archive-token-revoke-failed",
+          dealId: deal.id,
+          err: err instanceof Error ? err.message : String(err),
+        }),
+      );
+
     void recordCrmActivity({
       organizationId: input.organizationId,
       entityType: "DEAL",

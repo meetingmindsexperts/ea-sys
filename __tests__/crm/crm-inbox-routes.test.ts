@@ -17,9 +17,13 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     crmEmailThread: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn(), updateMany: vi.fn() },
+    crmEmailMessage: { findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
   },
 }));
+
+const fsMock = vi.hoisted(() => ({ realpath: vi.fn(), readFile: vi.fn() }));
+vi.mock("fs/promises", () => ({ default: fsMock, ...fsMock }));
 
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
 vi.mock("@/crm/lib/crm-activity", () => ({ recordCrmActivity: vi.fn(() => Promise.resolve({})) }));
@@ -48,6 +52,7 @@ import { recordOutboundEmail } from "@/crm/services/crm-email-thread-service";
 import { GET as listThreads } from "@/app/api/crm/inbox/route";
 import { GET as getThread } from "@/app/api/crm/inbox/[threadId]/route";
 import { POST as postReply, composeReplyHtml } from "@/app/api/crm/inbox/[threadId]/reply/route";
+import { GET as getAttachment } from "@/app/api/crm/inbox/messages/[messageId]/attachments/[index]/route";
 
 const threadDetail = {
   id: "t-1",
@@ -84,15 +89,25 @@ beforeEach(() => {
     lastName: "K",
   } as never);
   vi.mocked(sendEmail).mockResolvedValue({ success: true, messageId: "ses-1" } as never);
+  vi.mocked(db.crmEmailMessage.findFirst).mockResolvedValue({
+    attachments: [{ filename: "quote.pdf", mimeType: "application/pdf", path: "/uploads/crm-email-attachments/t-1/abc.pdf" }],
+  } as never);
+  fsMock.realpath.mockImplementation(async (p: string) => p);
+  fsMock.readFile.mockResolvedValue(Buffer.from("%PDF-1.7"));
 });
 
+const attParams = Promise.resolve({ messageId: "m-1", index: "0" });
+
 describe("staff-only boundary (real canViewCrmInbox)", () => {
-  it("MEMBER is 403 on the list, the thread AND the reply — never reads rival negotiations", async () => {
+  it("MEMBER is 403 on the list, the thread, the reply AND an attachment — never reads rival negotiations", async () => {
     gate.role = "MEMBER";
     expect((await listThreads(new Request("http://test/api/crm/inbox"))).status).toBe(403);
     expect((await getThread(new Request("http://test"), { params: threadParams })).status).toBe(403);
     expect((await postReply(replyReq(), { params: threadParams })).status).toBe(403);
+    expect((await getAttachment(new Request("http://test"), { params: attParams })).status).toBe(403);
     expect(db.crmEmailThread.findMany).not.toHaveBeenCalled();
+    expect(db.crmEmailMessage.findFirst).not.toHaveBeenCalled();
+    expect(fsMock.readFile).not.toHaveBeenCalled();
     expect(sendEmail).not.toHaveBeenCalled();
   });
 

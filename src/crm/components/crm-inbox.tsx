@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
-import { ArrowDownLeft, ArrowUpRight, Inbox, Loader2, Paperclip, Send } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Inbox, Loader2, Paperclip, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -54,6 +54,14 @@ function MessageBubble({ message }: { message: CrmInboxMessageRow }) {
           <span className="font-medium text-foreground/80">{sender}</span>
           <span>· {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}</span>
         </p>
+
+        {inbound && message.unverifiedSender && (
+          <p className="mb-1.5 flex items-center gap-1.5 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            Unverified sender — the From address didn&apos;t match this contact. Confirm any
+            request (esp. payment/bank changes) out of band before acting.
+          </p>
+        )}
 
         {message.textBody ? (
           <p className="whitespace-pre-wrap break-words">{message.textBody}</p>

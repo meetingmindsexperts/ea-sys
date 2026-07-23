@@ -17,6 +17,11 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
+/** Rolling token window (review M1) — kept in sync with the inbound worker. A
+ *  thread's token expires this long after its last message; every send/reply
+ *  rolls it forward, so an active conversation never lapses. */
+const TOKEN_TTL_MS = 180 * 24 * 60 * 60 * 1000;
+
 /** The subdomain inbound replies route to (e.g. "reply.meetingmindsdubai.com"). */
 export function crmReplyDomain(): string | null {
   const d = process.env.CRM_REPLY_DOMAIN?.trim();
@@ -76,11 +81,15 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
       sentByUserId: input.sentByUserId,
     };
 
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + TOKEN_TTL_MS);
+
     if (input.threadId) {
-      // Org-bound append — a foreign threadId records nothing.
+      // Org-bound append — a foreign threadId records nothing. Sending also
+      // rolls the token window forward (review M1) and un-nothing else.
       const updated = await db.crmEmailThread.updateMany({
         where: { id: input.threadId, organizationId: input.organizationId },
-        data: { lastMessageAt: new Date() },
+        data: { lastMessageAt: now, expiresAt },
       });
       if (updated.count === 0) {
         apiLogger.warn({
@@ -105,6 +114,7 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
         replyToken: input.replyToken,
         counterpartyEmail: input.counterpartyEmail.toLowerCase(),
         counterpartyName: input.counterpartyName,
+        expiresAt,
         messages: { create: messageData },
       },
     });

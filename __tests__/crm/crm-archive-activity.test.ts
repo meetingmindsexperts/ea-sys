@@ -23,6 +23,8 @@ vi.mock("@/lib/db", () => ({
     event: { findFirst: vi.fn() },
     user: { findFirst: vi.fn() },
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
+    // Archiving a deal revokes its email-thread tokens (inbox review M1).
+    crmEmailThread: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
   },
 }));
 

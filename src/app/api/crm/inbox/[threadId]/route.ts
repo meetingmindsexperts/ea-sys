@@ -46,6 +46,7 @@ export async function GET(
             textBody: true,
             htmlBody: true,
             attachments: true,
+            unverifiedSender: true,
             sentBy: { select: { firstName: true, lastName: true } },
             createdAt: true,
           },

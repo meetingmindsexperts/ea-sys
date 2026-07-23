@@ -38,6 +38,8 @@ vi.mock("@/lib/db", () => ({
     crmEmailMessage: { findFirst: vi.fn(), create: vi.fn() },
     crmEmailThread: { findUnique: vi.fn(), update: vi.fn() },
     user: { findUnique: vi.fn() },
+    // The store is a $transaction([create, update]) — execute the passed ops.
+    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   },
 }));
 
@@ -45,22 +47,24 @@ vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
 vi.mock("@/crm/lib/crm-activity", () => ({ recordCrmActivity: vi.fn(() => Promise.resolve({})) }));
 vi.mock("@/crm/lib/crm-notifications", () => ({ notifyCrmUser: vi.fn(() => Promise.resolve({})) }));
 
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
-import { runTick, extractReplyToken } from "@/crm/inbound-email-worker";
+import { runTick, extractReplyToken, verifySender } from "@/crm/inbound-email-worker";
 
 const TOKEN = "abcdef0123456789abcd";
 const BUCKET = "test-inbound";
 
-function rawEmail(over: { to?: string; spam?: string } = {}): string {
+function rawEmail(over: { to?: string; spam?: string; from?: string; dmarc?: string } = {}): string {
   return [
-    "From: Jane Doe <jane@abbott.com>",
+    `From: ${over.from ?? "Jane Doe <jane@abbott.com>"}`,
     `To: ${over.to ?? `${TOKEN}@reply.mmg.com`}`,
     "Subject: Re: Sponsorship",
     "Message-ID: <msg-1@abbott.com>",
     `X-SES-Spam-Verdict: ${over.spam ?? "PASS"}`,
     "X-SES-Virus-Verdict: PASS",
+    ...(over.dmarc ? [`Authentication-Results: mx.ses; dmarc=${over.dmarc} header.from=abbott.com`] : []),
     "Content-Type: text/plain; charset=utf-8",
     "",
     "Sounds good, send the contract.",
@@ -72,6 +76,10 @@ const thread = {
   organizationId: "org-1",
   subject: "Sponsorship",
   crmContactId: "c-1",
+  // verifySender compares the From domain against this — jane@abbott.com matches.
+  counterpartyEmail: "jane@abbott.com",
+  expiresAt: null,
+  revokedAt: null,
   deal: { id: "d-1", name: "Abbott deal", ownerId: "u-owner" },
 };
 
@@ -207,5 +215,97 @@ describe("runTick", () => {
     const res = await runTick();
     expect(res.stored).toBe(1);
     expect(db.crmEmailMessage.create).toHaveBeenCalledOnce();
+  });
+
+  // ── H1: sender verification / anti-BEC ─────────────────────────────────────
+  it("a verified sender (From domain matches counterparty) is stored verified + forwarded", async () => {
+    mockS3({ "inbound/v": rawEmail() });
+    await runTick();
+    const row = vi.mocked(db.crmEmailMessage.create).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(row.unverifiedSender).toBe(false);
+    expect(sendEmail).toHaveBeenCalled(); // the forward went out
+  });
+
+  it("a SPOOFED sender (foreign domain) is stored UNVERIFIED and the forward is SUPPRESSED", async () => {
+    mockS3({ "inbound/bec": rawEmail({ from: `"Jane at Abbott" <attacker@evil.com>` }) });
+    const res = await runTick();
+    expect(res.stored).toBe(1); // stored (visible with a warning badge), not dropped
+
+    const row = vi.mocked(db.crmEmailMessage.create).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(row.unverifiedSender).toBe(true);
+    // In-app bell still fires (staff-only, safe) but with the ⚠ wording…
+    expect(notifyCrmUser).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "EMAIL_RECEIVED", title: expect.stringContaining("Unverified") }),
+    );
+    // …and NO email forward to a real mailbox under our branding.
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("an explicit DMARC=fail is unverified even from the right domain", async () => {
+    mockS3({ "inbound/dmarc": rawEmail({ dmarc: "fail" }) });
+    await runTick();
+    const row = vi.mocked(db.crmEmailMessage.create).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(row.unverifiedSender).toBe(true);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  // ── M1: token lifecycle ────────────────────────────────────────────────────
+  it("a REVOKED token (deal archived) goes unmatched — never filed", async () => {
+    vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue({ ...thread, revokedAt: new Date() } as never);
+    mockS3({ "inbound/rev": rawEmail() });
+    const res = await runTick();
+    expect(res.unmatched).toBe(1);
+    expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+  });
+
+  it("an EXPIRED token goes unmatched", async () => {
+    vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue({
+      ...thread,
+      expiresAt: new Date(Date.now() - 1000),
+    } as never);
+    mockS3({ "inbound/exp": rawEmail() });
+    const res = await runTick();
+    expect(res.unmatched).toBe(1);
+    expect(db.crmEmailMessage.create).not.toHaveBeenCalled();
+  });
+
+  // ── H2: s3Key race dedupe ──────────────────────────────────────────────────
+  it("a P2002 on the store (concurrent tick won the s3Key race) is a duplicate, not a double-forward", async () => {
+    vi.mocked(db.$transaction).mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "x" }) as never,
+    );
+    mockS3({ "inbound/race": rawEmail() });
+    const res = await runTick();
+    expect(res.duplicates).toBe(1);
+    expect(sendEmail).not.toHaveBeenCalled(); // the loser never forwards
+    const cmds = s3Send.mock.calls.map((c) => (c[0] as { cmd: string }).cmd);
+    expect(cmds).toContain("Copy"); // still moved out of inbound/
+  });
+});
+
+describe("verifySender", () => {
+  const parsed = (from: string, auth?: string) =>
+    ({
+      from: { value: [{ address: from }] },
+      headers: new Map(auth ? [["authentication-results", auth]] : []),
+    }) as never;
+
+  it("same domain as the counterparty → verified", () => {
+    expect(verifySender(parsed("bob@abbott.com"), "jane@abbott.com").verified).toBe(true);
+  });
+  it("foreign domain → unverified (domain-mismatch)", () => {
+    expect(verifySender(parsed("x@evil.com"), "jane@abbott.com")).toMatchObject({
+      verified: false,
+      reason: "domain-mismatch",
+    });
+  });
+  it("explicit dmarc=fail → unverified even on the right domain", () => {
+    expect(verifySender(parsed("jane@abbott.com", "mx; dmarc=fail"), "jane@abbott.com")).toMatchObject({
+      verified: false,
+      reason: "dmarc-fail",
+    });
+  });
+  it("missing From address → unverified", () => {
+    expect(verifySender(parsed(""), "jane@abbott.com").verified).toBe(false);
   });
 });

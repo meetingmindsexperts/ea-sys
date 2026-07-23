@@ -2912,6 +2912,15 @@ model CrmEmailThread {
   lastInboundAt DateTime?
   createdAt     DateTime  @default(now())
 
+  /// Token lifecycle (review M1): the reply token is a durable credential in
+  /// every outbound Reply-To, so it must not be an eternal injection channel.
+  /// `expiresAt` rolls forward on every message (mint/send/inbound) — a leaked
+  /// token to a dormant thread stops accepting mail after the window of silence.
+  /// `revokedAt` is explicit kill (set when the deal is archived, cleared on
+  /// restore). The worker refuses inbound to a revoked or expired thread.
+  expiresAt DateTime?
+  revokedAt DateTime?
+
   messages CrmEmailMessage[]
 
   @@index([organizationId, lastMessageAt(sort: Desc)])
@@ -2940,8 +2949,11 @@ model CrmEmailMessage {
   messageId  String?
   inReplyTo  String?
   /// Outbound: provider (SES) message id. Inbound: S3 key of the raw MIME.
+  /// s3Key is UNIQUE (review H2): it's the idempotency key for the inbound
+  /// drain, so two racing ticks can't both file the same email (the loser hits
+  /// P2002 before any forward). NULLs (outbound rows) are distinct in Postgres.
   providerMessageId String?
-  s3Key             String?
+  s3Key             String? @unique
 
   /// Inbound only: [{ filename, size, mimeType, path }] under the private
   /// crm-email-attachments upload prefix (blocked on the public /uploads route).
@@ -2949,6 +2961,12 @@ model CrmEmailMessage {
   /// SES receipt verdicts (inbound): "PASS"/"FAIL"/etc. — FAIL is quarantined
   /// before it ever gets a row, so this is informational.
   spamVerdict String?
+  /// Inbound only (review H1): true when the sender could not be verified
+  /// against the thread's counterparty (domain mismatch / DMARC fail). The
+  /// message is stored + shown with a warning badge, but the auto-forward to
+  /// the deal owner is SUPPRESSED — a spoofed "reply" must not reach a real
+  /// mailbox under our branding (BEC / changed-bank-details fraud).
+  unverifiedSender Boolean @default(false)
 
   sentByUserId String?
   sentBy       User?   @relation("CrmEmailMessageSender", fields: [sentByUserId], references: [id], onDelete: SetNull)

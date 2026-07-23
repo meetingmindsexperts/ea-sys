@@ -247,6 +247,8 @@ export interface CrmInboxMessageRow {
   textBody?: string | null;
   htmlBody?: string | null;
   attachments?: CrmEmailAttachmentMeta[] | null;
+  /** Inbound only — sender could not be verified against the counterparty. */
+  unverifiedSender?: boolean;
   sentBy?: { firstName: string; lastName: string } | null;
   createdAt: string;
 }

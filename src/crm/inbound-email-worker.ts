@@ -28,7 +28,9 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { simpleParser, type ParsedMail, type AddressObject } from "mailparser";
-import type { Prisma } from "@prisma/client";
+// Value import (not `import type`): Prisma.PrismaClientKnownRequestError is used
+// at runtime in the P2002 race check, and Prisma.InputJsonValue as a type.
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail } from "@/lib/email";
@@ -41,6 +43,9 @@ const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 /** Reply tokens are 20 hex chars (crm-email-thread-service.mintReplyToken). */
 const TOKEN_RE = /^([0-9a-f]{20})@(.+)$/i;
+/** Rolling token window (review M1): a thread's token expires this many days
+ *  after its last activity, killing a leaked token on a dormant conversation. */
+export const TOKEN_TTL_DAYS = 180;
 
 let s3: S3Client | null = null;
 function s3Client(): S3Client {
@@ -96,6 +101,55 @@ export function failedVerdict(parsed: ParsedMail): string | null {
     if (s.toUpperCase() === "FAIL") return `${h}:FAIL`;
   }
   return null;
+}
+
+function emailDomain(addr: string): string {
+  return (addr.toLowerCase().split("@")[1] ?? "").trim();
+}
+
+/**
+ * Verify an inbound reply's sender against the thread's counterparty (review
+ * H1 — the anti-BEC gate). The reply token authenticates the THREAD, never the
+ * SENDER, and the token leaks through forwarded mail; without this, anyone with
+ * a token can inject a spoofed "Abbott replied — new bank details" message.
+ *
+ * Signals (any failure ⇒ unverified):
+ *   - explicit DMARC=fail in SES's Authentication-Results (spoofed envelope), and
+ *   - From domain must equal the counterparty's domain (the realistic attack is
+ *     a spoofed display name from a foreign domain; a same-org colleague reply
+ *     still passes).
+ *
+ * Fails toward UNVERIFIED: a false-unverified only adds a warning badge and
+ * skips the auto-forward (recoverable — the message is still in the inbox); a
+ * false-verified is fraud. Asymmetric, so we err strict.
+ */
+export function verifySender(
+  parsed: ParsedMail,
+  counterpartyEmail: string,
+): { verified: boolean; reason: string } {
+  const from = parsed.from?.value?.[0]?.address ?? "";
+  const fromDomain = emailDomain(from);
+  const cpDomain = emailDomain(counterpartyEmail);
+
+  const authRaw = parsed.headers.get("authentication-results");
+  const auth = typeof authRaw === "string" ? authRaw : Array.isArray(authRaw) ? authRaw.join(" ") : "";
+  if (/dmarc\s*=\s*fail/i.test(auth)) return { verified: false, reason: "dmarc-fail" };
+
+  if (!fromDomain || !cpDomain || fromDomain !== cpDomain) {
+    return { verified: false, reason: "domain-mismatch" };
+  }
+  return { verified: true, reason: "domain-match" };
+}
+
+/** Best-effort unlink of just-written attachment files when the row never lands. */
+async function cleanupAttachmentFiles(paths: string[]): Promise<void> {
+  for (const rel of paths) {
+    if (!rel.startsWith("/uploads/crm-email-attachments/")) continue;
+    const abs = path.resolve(process.cwd(), "public", rel.slice(1));
+    await fs.unlink(abs).catch((err) =>
+      apiLogger.warn({ msg: "crm-inbound:orphan-unlink-failed", abs, err: err instanceof Error ? err.message : String(err) }),
+    );
+  }
 }
 
 async function moveObject(bucket: string, fromKey: string, toKey: string): Promise<void> {
@@ -162,23 +216,30 @@ async function notifyOwner(args: {
   fromName: string | null;
   textBody: string | null;
   htmlBody: string | null;
+  /** review H1: an unverified sender still bells (in-app, staff-only) but the
+   *  email forward to the owner's real mailbox is SUPPRESSED. */
+  unverified: boolean;
 }): Promise<void> {
   const ownerId = args.thread.deal?.ownerId ?? null;
   if (!ownerId) return;
 
   const senderLabel = args.fromName ? `${args.fromName} (${args.fromEmail})` : args.fromEmail;
 
-  void notifyCrmUser({
+  await notifyCrmUser({
     organizationId: args.thread.organizationId,
     recipientId: ownerId,
     actorId: null,
     type: "EMAIL_RECEIVED",
-    title: "New reply in the CRM inbox",
-    message: `${senderLabel} replied on ${args.thread.deal?.name ?? "a deal"}: ${args.thread.subject}`,
+    title: args.unverified ? "⚠ Unverified reply in the CRM inbox" : "New reply in the CRM inbox",
+    message: args.unverified
+      ? `An UNVERIFIED sender (${senderLabel}) replied on ${args.thread.deal?.name ?? "a deal"} — verify before acting: ${args.thread.subject}`
+      : `${senderLabel} replied on ${args.thread.deal?.name ?? "a deal"}: ${args.thread.subject}`,
     link: `/crm/inbox?thread=${args.thread.id}`,
-  }).catch(() => {
-    // notifyCrmUser never throws by contract; belt-and-braces.
   });
+
+  // Anti-BEC: never forward an unverified "reply" to a real mailbox under our
+  // branding — the in-app bell + inbox badge are the safe surface for it.
+  if (args.unverified) return;
 
   const owner = await db.user.findUnique({
     where: { id: ownerId },
@@ -252,6 +313,9 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
           organizationId: true,
           subject: true,
           crmContactId: true,
+          counterpartyEmail: true,
+          expiresAt: true,
+          revokedAt: true,
           deal: { select: { id: true, name: true, ownerId: true } },
         },
       })
@@ -262,35 +326,78 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
     return "unmatched";
   }
 
+  // Token lifecycle (review M1): a revoked (deal archived) or expired (dormant)
+  // token no longer accepts mail — it goes unmatched, not into the thread.
+  const now = new Date();
+  if (thread.revokedAt || (thread.expiresAt && thread.expiresAt < now)) {
+    await moveObject(bucket, key, `unmatched/${basename}`);
+    apiLogger.warn({
+      msg: "crm-inbound:token-inactive",
+      key,
+      threadId: thread.id,
+      reason: thread.revokedAt ? "revoked" : "expired",
+    });
+    return "unmatched";
+  }
+
   const fromEmail = parsed.from?.value?.[0]?.address ?? "unknown";
   const fromName = parsed.from?.value?.[0]?.name || null;
   const textBody = parsed.text ?? null;
   const htmlBody = typeof parsed.html === "string" ? parsed.html : null;
-  const attachments = await storeAttachments(parsed, thread.id);
 
-  await db.crmEmailMessage.create({
-    data: {
-      organizationId: thread.organizationId,
-      threadId: thread.id,
-      direction: "INBOUND",
-      fromEmail,
-      fromName,
-      subject: parsed.subject ?? null,
-      textBody,
-      htmlBody,
-      messageId: parsed.messageId ?? null,
-      inReplyTo: parsed.inReplyTo ?? null,
-      s3Key: processedKey,
-      attachments: attachments.length
-        ? (attachments as unknown as Prisma.InputJsonValue)
-        : undefined,
-      spamVerdict: "PASS",
-    },
-  });
-  await db.crmEmailThread.update({
-    where: { id: thread.id },
-    data: { hasUnread: true, lastMessageAt: new Date(), lastInboundAt: new Date() },
-  });
+  // Anti-BEC (review H1): authenticate the sender against the counterparty.
+  const sender = verifySender(parsed, thread.counterpartyEmail);
+  if (!sender.verified) {
+    apiLogger.warn({ msg: "crm-inbound:unverified-sender", key, threadId: thread.id, reason: sender.reason, fromEmail });
+  }
+
+  const attachments = await storeAttachments(parsed, thread.id);
+  const rolledExpiry = new Date(now.getTime() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+  // Store the message + flag the thread ATOMICALLY (review H3): a transient blip
+  // between the two must never leave a stored-but-invisible reply. The s3Key
+  // unique (review H2) makes a racing tick's create throw P2002 — the loser
+  // treats it as the already-filed duplicate BEFORE any forward.
+  try {
+    await db.$transaction([
+      db.crmEmailMessage.create({
+        data: {
+          organizationId: thread.organizationId,
+          threadId: thread.id,
+          direction: "INBOUND",
+          fromEmail,
+          fromName,
+          subject: parsed.subject ?? null,
+          textBody,
+          htmlBody,
+          messageId: parsed.messageId ?? null,
+          inReplyTo: parsed.inReplyTo ?? null,
+          s3Key: processedKey,
+          attachments: attachments.length
+            ? (attachments as unknown as Prisma.InputJsonValue)
+            : undefined,
+          spamVerdict: "PASS",
+          unverifiedSender: !sender.verified,
+        },
+      }),
+      db.crmEmailThread.update({
+        where: { id: thread.id },
+        data: { hasUnread: true, lastMessageAt: now, lastInboundAt: now, expiresAt: rolledExpiry },
+      }),
+    ]);
+  } catch (err) {
+    // The row never landed — don't leave the just-written attachment files orphaned.
+    await cleanupAttachmentFiles(attachments.map((a) => a.path));
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      // A concurrent tick won the s3Key race — same email, already filed.
+      await moveObject(bucket, key, processedKey);
+      apiLogger.warn({ msg: "crm-inbound:duplicate-race", key, threadId: thread.id });
+      return "duplicate";
+    }
+    // Transient (pooler blip / SIGTERM) — leave in inbound/, retry next tick
+    // (no row was committed, so the retry re-processes cleanly).
+    throw err;
+  }
 
   if (thread.deal) {
     void recordCrmActivity({
@@ -299,12 +406,12 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
       entityId: thread.deal.id,
       action: "EMAIL_RECEIVED",
       actorId: null,
-      changes: { from: fromEmail, subject: parsed.subject ?? thread.subject },
+      changes: { from: fromEmail, subject: parsed.subject ?? thread.subject, unverified: !sender.verified },
     });
   }
 
   try {
-    await notifyOwner({ thread, fromEmail, fromName, textBody, htmlBody });
+    await notifyOwner({ thread, fromEmail, fromName, textBody, htmlBody, unverified: !sender.verified });
   } catch (err) {
     apiLogger.warn({
       msg: "crm-inbound:notify-failed",
@@ -319,6 +426,7 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
     threadId: thread.id,
     dealId: thread.deal?.id ?? null,
     attachments: attachments.length,
+    unverified: !sender.verified,
   });
   return "stored";
 }
