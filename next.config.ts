@@ -4,6 +4,15 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig: NextConfig = {
   output: "standalone",
 
+  // NOTE (Next ≥16.2): the Turbopack file tracer mirrors the whole repo into
+  // .next/standalone (triggered by the log-archive module's env-overridable fs
+  // root) and emits an "unexpected file in NFT list" build warning. Both
+  // documented suppressions — the turbopackIgnore comment and
+  // outputFileTracingExcludes — are no-ops under Turbopack (nextjs#95125).
+  // The guard lives in the Dockerfile instead: the runner copies the
+  // standalone output by ALLOWLIST, so the over-trace never reaches the image.
+  // The warning itself is cosmetic; drop this note when upstream fixes it.
+
   // Security headers
   async headers() {
     return [

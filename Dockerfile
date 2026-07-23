@@ -70,8 +70,19 @@ RUN useradd --system --uid 1001 nextjs
 ARG DOCKER_GID=988
 RUN groupadd --gid $DOCKER_GID docker || true && usermod -aG docker nextjs
 
-# Standalone output + static assets
-COPY --from=builder /app/.next/standalone ./
+# Standalone output + static assets — copied by ALLOWLIST, not wholesale.
+# Next ≥16.2's Turbopack file tracer can decide a dynamic fs path (e.g. the
+# env-overridable log-archive dir) means "this app reads arbitrary project
+# files" and mirror the ENTIRE repo into .next/standalone (src/, e2e/, docs/,
+# ~+65 MB; outside Docker it even embeds a local .env). Neither the documented
+# turbopackIgnore comment nor outputFileTracingExcludes suppresses it under
+# Turbopack (nextjs#95125), so the image copies only the four things a
+# standalone server actually consists of — anything else the tracer stuffs in
+# can never reach the image, on any Next version.
+COPY --from=builder /app/.next/standalone/server.js ./server.js
+COPY --from=builder /app/.next/standalone/package.json ./package.json
+COPY --from=builder /app/.next/standalone/.next ./.next
+COPY --from=builder /app/.next/standalone/node_modules ./node_modules
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
