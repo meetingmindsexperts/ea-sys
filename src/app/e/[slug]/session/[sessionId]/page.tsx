@@ -34,7 +34,7 @@ import {
   resolveTimezone,
   tzLabel,
 } from "@/lib/event-time";
-import { formatSessionRole } from "@/lib/session-enums";
+import { formatSessionRole, formatSessionType } from "@/lib/session-enums";
 
 /**
  * "9:00 AM GST on Jun 15" — join-availability timestamps must render in the
@@ -139,6 +139,7 @@ interface SessionDetail {
   location?: string | null;
   capacity?: number | null;
   status: string;
+  type?: string;
   speakers: SpeakerInfo[];
   topics: TopicInfo[];
   track?: { name: string; color: string } | null;
@@ -537,6 +538,9 @@ export default function PublicSessionPage() {
               >
                 {session.track.name}
               </Badge>
+            )}
+            {(session?.type === "WORKSHOP" || session?.type === "SYMPOSIUM") && (
+              <Badge variant="secondary">{formatSessionType(session.type)}</Badge>
             )}
             {joinInfo && (
               <Badge variant="outline" className="text-blue-600 border-blue-200 gap-1">

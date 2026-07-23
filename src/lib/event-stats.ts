@@ -15,6 +15,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
+import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
 import type { EventStats } from "@prisma/client";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -75,9 +76,9 @@ async function _doRefresh(eventId: string): Promise<void> {
       where: { eventId },
       _count: true,
     }),
-    // Program sessions only — break items (coffee/lunch/registration) are
-    // agenda furniture, not sessions.
-    db.eventSession.count({ where: { eventId, type: "SESSION" } }),
+    // Program sessions only (SESSION/WORKSHOP/SYMPOSIUM) — break items
+    // (coffee/lunch/registration) are agenda furniture, not sessions.
+    db.eventSession.count({ where: { eventId, type: { notIn: BREAK_SESSION_TYPES } } }),
     db.track.count({ where: { eventId } }),
     db.registration.count({
       where: { eventId, checkedInAt: { not: null }, ...EXCLUDE_FACULTY_WHERE },

@@ -2,6 +2,7 @@ import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
+import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
 import { getEventStatsRow, refreshEventStats } from "@/lib/event-stats";
 import { computeEventAnalytics } from "@/lib/event-analytics";
 import type { ToolExecutor } from "./_shared";
@@ -26,11 +27,12 @@ const getEventDashboard: ToolExecutor = async (_input, ctx) => {
         where: { id: eventId, organizationId: ctx.organizationId },
         select: { id: true, name: true, slug: true, status: true, eventType: true, startDate: true, endDate: true, timezone: true },
       }),
-      // "Session" here means program session — break items (coffee/lunch/
-      // registration) are agenda furniture and would inflate these counts.
-      db.eventSession.count({ where: { eventId, type: "SESSION", startTime: { gt: now } } }),
-      db.eventSession.count({ where: { eventId, type: "SESSION", startTime: { lte: now }, endTime: { gte: now } } }),
-      db.eventSession.count({ where: { eventId, type: "SESSION", endTime: { lt: now } } }),
+      // "Session" here means program session (SESSION/WORKSHOP/SYMPOSIUM) —
+      // break items (coffee/lunch/registration) are agenda furniture and
+      // would inflate these counts.
+      db.eventSession.count({ where: { eventId, type: { notIn: BREAK_SESSION_TYPES }, startTime: { gt: now } } }),
+      db.eventSession.count({ where: { eventId, type: { notIn: BREAK_SESSION_TYPES }, startTime: { lte: now }, endTime: { gte: now } } }),
+      db.eventSession.count({ where: { eventId, type: { notIn: BREAK_SESSION_TYPES }, endTime: { lt: now } } }),
       db.registration.findMany({
         where: { eventId },
         orderBy: { createdAt: "desc" },
@@ -155,8 +157,8 @@ const getEventStats: ToolExecutor = async (_input, ctx) => {
       db.registration.groupBy({ by: ["paymentStatus"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
       db.speaker.groupBy({ by: ["status"], where: { eventId }, _count: true }),
       db.abstract.groupBy({ by: ["status"], where: { eventId }, _count: true }),
-      // Program sessions only — break items are excluded.
-      db.eventSession.count({ where: { eventId, type: "SESSION" } }),
+      // Program sessions only (SESSION/WORKSHOP/SYMPOSIUM) — break items are excluded.
+      db.eventSession.count({ where: { eventId, type: { notIn: BREAK_SESSION_TYPES } } }),
       db.track.count({ where: { eventId } }),
     ]);
 

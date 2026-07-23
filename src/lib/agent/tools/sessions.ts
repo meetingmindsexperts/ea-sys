@@ -17,6 +17,7 @@ import {
   type SessionRole,
   type SessionStatus,
 } from "@/services/session-service";
+import { BREAK_SESSION_TYPES, isBreakSessionType } from "@/lib/session-enums";
 
 // Derived from the Prisma enums so a new value can't silently drift out of
 // the agent's whitelists (the session-enums.ts pattern).
@@ -185,10 +186,10 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
     if (!session) return { error: `Session ${sessionId} not found in this event` };
     // H1 (break-items review): this executor bypasses the session service, so
     // it must enforce the break-item invariant itself.
-    if (session.type !== "SESSION") {
+    if (isBreakSessionType(session.type)) {
       return {
         error:
-          "This is a break item (registration/coffee/lunch/networking) — it cannot have topics. Convert it to type SESSION first via update_session.",
+          "This is a break item (registration/coffee/lunch/networking) — it cannot have topics. Convert it to a program type (SESSION/WORKSHOP/SYMPOSIUM) first via update_session.",
         code: "BREAK_ITEM_HAS_PROGRAM",
       };
     }
@@ -265,7 +266,8 @@ const listLiveSessionsNow: ToolExecutor = async (input, ctx) => {
         status: { not: "CANCELLED" },
         // Break items (registration/coffee/lunch/networking) are agenda time
         // blocks, not joinable program sessions — exclude them here.
-        type: "SESSION",
+        // Workshops/symposia ARE joinable program sessions.
+        type: { notIn: BREAK_SESSION_TYPES },
         // Currently live OR starting within the lookahead window
         OR: [
           { startTime: { lte: now }, endTime: { gte: now } },
@@ -397,7 +399,7 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "create_session",
     description:
-      "Create a new session or agenda break item. Requires name, startTime, and endTime (ISO 8601 datetime strings). Optionally assign to a trackId, location, description, speakerIds, sessionRoles (with role per speaker), and topics (with per-topic speakers). Set type to REGISTRATION/BREAK/LUNCH/NETWORKING for a break item — a plain agenda time block that cannot carry speakers, topics, or a track.",
+      "Create a new session or agenda break item. Requires name, startTime, and endTime (ISO 8601 datetime strings). Optionally assign to a trackId, location, description, speakerIds, sessionRoles (with role per speaker), and topics (with per-topic speakers). Set type to WORKSHOP or SYMPOSIUM for those program formats (they carry speakers/topics/track exactly like SESSION), or to REGISTRATION/BREAK/LUNCH/NETWORKING for a break item — a plain agenda time block that cannot carry speakers, topics, or a track.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -477,7 +479,7 @@ export const SESSION_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "update_session",
     description:
-      "Update a session's metadata (name, description, startTime, endTime, location, capacity, trackId, status, type). Validates startTime/endTime fall within the event's date range. Does NOT touch topics or speakers — use add_topic_to_session / add_speaker_to_session / replace_session_speakers for those. Converting type to a break item (REGISTRATION/BREAK/LUNCH/NETWORKING) is rejected with BREAK_ITEM_HAS_PROGRAM while the session still has speakers or topics — remove them first.",
+      "Update a session's metadata (name, description, startTime, endTime, location, capacity, trackId, status, type). Validates startTime/endTime fall within the event's date range. Does NOT touch topics or speakers — use add_topic_to_session / add_speaker_to_session / replace_session_speakers for those. WORKSHOP/SYMPOSIUM are program types (same rules as SESSION); converting type to a break item (REGISTRATION/BREAK/LUNCH/NETWORKING) is rejected with BREAK_ITEM_HAS_PROGRAM while the session still has speakers or topics — remove them first.",
     input_schema: {
       type: "object" as const,
       properties: {

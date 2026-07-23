@@ -1403,6 +1403,8 @@ enum SessionRole {
 // deliberately track-less in the UI and never get a public detail page.
 enum SessionType {
   SESSION
+  WORKSHOP
+  SYMPOSIUM
   REGISTRATION
   BREAK
   LUNCH

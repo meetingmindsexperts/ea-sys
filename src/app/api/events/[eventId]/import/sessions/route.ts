@@ -33,6 +33,8 @@ function parseImportDate(raw: string, eventTz: string): Date {
 // would otherwise silently flip how the agenda renders the row).
 const SESSION_TYPE_ALIASES: Record<string, SessionType> = {
   "SESSION": "SESSION",
+  "WORKSHOP": "WORKSHOP",
+  "SYMPOSIUM": "SYMPOSIUM",
   "REGISTRATION": "REGISTRATION",
   "BREAK": "BREAK",
   "COFFEE": "BREAK",
@@ -186,7 +188,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         const mapped = SESSION_TYPE_ALIASES[typeRaw];
         if (!mapped) {
           errors.push(
-            `Row ${rowNum}: unknown type "${typeRaw}" — use SESSION, REGISTRATION, BREAK (or "Coffee Break"), LUNCH, or NETWORKING`,
+            `Row ${rowNum}: unknown type "${typeRaw}" — use SESSION, WORKSHOP, SYMPOSIUM, REGISTRATION, BREAK (or "Coffee Break"), LUNCH, or NETWORKING`,
           );
           continue;
         }

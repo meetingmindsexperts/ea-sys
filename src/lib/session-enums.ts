@@ -55,36 +55,64 @@ export const SESSION_STATUS_COLORS: Record<SessionStatus, string> = {
   CANCELLED: "bg-red-100 text-red-700",
 };
 
-// ── Session type (break items) ───────────────────────────────────────────────
+// ── Session type ─────────────────────────────────────────────────────────────
 //
-// SESSION is a real program session; every other value is a "break item" —
-// an agenda time block with no speakers/topics/Zoom (registration desk,
-// coffee break, lunch, networking). The label is a default: the item's own
-// `name` is what renders on the agenda ("Morning Coffee Break"), the type
-// drives styling + which form sections apply.
+// Two kinds of type: PROGRAM types (SESSION, WORKSHOP, SYMPOSIUM) carry
+// speakers/topics/track/Zoom, render inside their assigned track's column,
+// and count as program content; BREAK types (registration desk, coffee break,
+// lunch, networking) are plain time blocks with none of that, rendered as
+// full-width muted bands. The label is a default: the item's own `name` is
+// what renders on the agenda ("Morning Coffee Break"), the type drives
+// styling + which form sections apply.
 
 export const SESSION_TYPE_LABELS: Record<SessionType, string> = {
   SESSION: "Session",
+  WORKSHOP: "Workshop",
+  SYMPOSIUM: "Symposium",
   REGISTRATION: "Registration",
   BREAK: "Coffee Break",
   LUNCH: "Lunch Break",
   NETWORKING: "Networking",
 };
 
-/** Type-picker order: the real session first, then break items in a
- *  typical conference-day order. */
+/** Program-vs-break classification. Exhaustive over the Prisma enum on
+ *  purpose — a future SessionType value fails the BUILD until someone
+ *  decides which kind it is, instead of silently inheriting one (the old
+ *  "everything except SESSION is a break" rule would have made Workshop a
+ *  break item). */
+export const SESSION_TYPE_KIND: Record<SessionType, "program" | "break"> = {
+  SESSION: "program",
+  WORKSHOP: "program",
+  SYMPOSIUM: "program",
+  REGISTRATION: "break",
+  BREAK: "break",
+  LUNCH: "break",
+  NETWORKING: "break",
+};
+
+/** The break-item values, for Prisma `notIn` filters (counts must exclude
+ *  breaks, not require exactly SESSION — Workshop/Symposium count). */
+export const BREAK_SESSION_TYPES = (
+  Object.keys(SESSION_TYPE_KIND) as SessionType[]
+).filter((t) => SESSION_TYPE_KIND[t] === "break");
+
+/** Type-picker order: program types first, then break items in a typical
+ *  conference-day order. */
 export const SESSION_TYPE_OPTIONS: { value: SessionType; label: string }[] = [
   { value: "SESSION", label: SESSION_TYPE_LABELS.SESSION },
+  { value: "WORKSHOP", label: SESSION_TYPE_LABELS.WORKSHOP },
+  { value: "SYMPOSIUM", label: SESSION_TYPE_LABELS.SYMPOSIUM },
   { value: "REGISTRATION", label: SESSION_TYPE_LABELS.REGISTRATION },
   { value: "BREAK", label: SESSION_TYPE_LABELS.BREAK },
   { value: "LUNCH", label: SESSION_TYPE_LABELS.LUNCH },
   { value: "NETWORKING", label: SESSION_TYPE_LABELS.NETWORKING },
 ];
 
-/** True for any non-SESSION type. Null/undefined (rows read before the
- *  column existed, or payloads that omit it) count as a real session. */
+/** True only for the explicit break-item types. Null/undefined (rows read
+ *  before the column existed, or payloads that omit it) and unknown values
+ *  count as a real program session — fails OPEN, pinned by tests. */
 export function isBreakSessionType(type: string | null | undefined): boolean {
-  return type != null && type !== "SESSION" && type in SESSION_TYPE_LABELS;
+  return type != null && SESSION_TYPE_KIND[type as SessionType] === "break";
 }
 
 /** Display label for a session type coming off the wire. */

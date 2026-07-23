@@ -23,7 +23,7 @@ import {
 import { cn, formatPersonName } from "@/lib/utils";
 import { EventBanner } from "@/components/public/event-banner";
 import { formatTimeInTz, localDateInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
-import { formatSessionRole, isBreakSessionType } from "@/lib/session-enums";
+import { formatSessionRole, formatSessionType, isBreakSessionType } from "@/lib/session-enums";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -552,6 +552,13 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-slate-900 text-lg leading-snug">
                   {session.name}
+                  {/* Workshop/Symposium: program types beyond plain SESSION get
+                      a small format chip so attendees can tell them apart. */}
+                  {(session.type === "WORKSHOP" || session.type === "SYMPOSIUM") && (
+                    <span className="ml-2 inline-block align-middle rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                      {formatSessionType(session.type)}
+                    </span>
+                  )}
                 </h3>
 
                 {/* Meta row */}

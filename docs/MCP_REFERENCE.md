@@ -152,7 +152,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | Tool | Description |
 |---|---|
 | `list_sessions` | Filter by track. Each row carries `type` (`SESSION` or a break item) |
-| `create_session` | Includes topics (with optional per-topic `abstractId`) + per-session roles + `capacity`; validates times fall within event dates in the event's timezone. `type: REGISTRATION/BREAK/LUNCH/NETWORKING` creates a **break item** — a plain agenda time block that cannot carry speakers/topics (rejected with `BREAK_ITEM_HAS_PROGRAM`) |
+| `create_session` | Includes topics (with optional per-topic `abstractId`) + per-session roles + `capacity`; validates times fall within event dates in the event's timezone. `type: WORKSHOP/SYMPOSIUM` are program types (speakers/topics/track allowed, like SESSION); `type: REGISTRATION/BREAK/LUNCH/NETWORKING` creates a **break item** — a plain agenda time block that cannot carry speakers/topics (rejected with `BREAK_ITEM_HAS_PROGRAM`) |
 | `update_session` | Name/description/times/location/capacity/trackId/status/`type` with same tz-aware date validation. Converting to a break item is rejected with `BREAK_ITEM_HAS_PROGRAM` while the session still has speakers/topics or an attached Zoom meeting, and with `WEBINAR_ANCHOR_SESSION` for a webinar's anchor session |
 | `add_topic_to_session` | Append a topic with speaker assignments. Refuses break items (`BREAK_ITEM_HAS_PROGRAM`) — as do `add_speaker_to_session` / `replace_session_speakers` |
 | `list_live_sessions_now` | Currently running sessions + optional lookahead window. Break items are excluded (as they are from `get_event_dashboard` / `get_event_stats` session counts) |

@@ -332,9 +332,9 @@ export function registerAllMcpTools(
       bio: z.string().optional(), organization: z.string().optional(), jobTitle: z.string().optional(),
       status: z.enum(["INVITED", "CONFIRMED"]).optional(),
     }},
-    { name: "create_session", description: "Create a session or agenda break item. Set type to REGISTRATION/BREAK/LUNCH/NETWORKING for a break item — a plain agenda time block that cannot carry speakers or topics.", params: {
+    { name: "create_session", description: "Create a session or agenda break item. Set type to WORKSHOP or SYMPOSIUM for those program formats (speakers/topics/track allowed, like SESSION), or REGISTRATION/BREAK/LUNCH/NETWORKING for a break item — a plain agenda time block that cannot carry speakers or topics.", params: {
       name: z.string(), startTime: z.string(), endTime: z.string(),
-      type: z.enum(["SESSION", "REGISTRATION", "BREAK", "LUNCH", "NETWORKING"]).optional().describe("Defaults to SESSION. Any other value creates a break item (no speakers/topics allowed)."),
+      type: z.enum(["SESSION", "WORKSHOP", "SYMPOSIUM", "REGISTRATION", "BREAK", "LUNCH", "NETWORKING"]).optional().describe("Defaults to SESSION. WORKSHOP/SYMPOSIUM are program types (speakers/topics allowed); REGISTRATION/BREAK/LUNCH/NETWORKING create a break item (no speakers/topics allowed)."),
       trackId: z.string().optional(), location: z.string().optional(), description: z.string().optional(),
       capacity: z.number().optional(),
       speakerIds: z.array(z.string()).optional(),
@@ -511,7 +511,7 @@ export function registerAllMcpTools(
       capacity: z.number().optional(),
       trackId: z.string().nullable().optional(),
       status: z.enum(["DRAFT", "SCHEDULED", "LIVE", "COMPLETED", "CANCELLED"]).optional(),
-      type: z.enum(["SESSION", "REGISTRATION", "BREAK", "LUNCH", "NETWORKING"]).optional().describe("SESSION or a break item (plain agenda time block). Converting to a break item is rejected with BREAK_ITEM_HAS_PROGRAM while the session still has speakers or topics."),
+      type: z.enum(["SESSION", "WORKSHOP", "SYMPOSIUM", "REGISTRATION", "BREAK", "LUNCH", "NETWORKING"]).optional().describe("Program types (SESSION/WORKSHOP/SYMPOSIUM) or a break item (plain agenda time block). Converting to a break item is rejected with BREAK_ITEM_HAS_PROGRAM while the session still has speakers or topics."),
     }},
     { name: "bulk_update_registration_status", description: "Bulk-update status and/or paymentStatus on up to 200 registrations in a single transaction. Returns count of rows updated. paymentStatus accepts the admin-settable subset only (UNASSIGNED/UNPAID/PAID/COMPLIMENTARY/INCLUSIVE) — PENDING/REFUNDED/FAILED are owned by the payment webhook + the credit-note-gated refund flow and are rejected.", params: {
       registrationIds: z.array(z.string()).max(200),
