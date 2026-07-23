@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { deleteMedia } from "@/lib/storage";
+import { findMediaReferences, mediaInUseMessage } from "@/lib/media-references";
 
 export async function DELETE(
   _req: Request,
@@ -38,6 +39,24 @@ export async function DELETE(
     if (!mediaFile) {
       apiLogger.warn({ msg: "Event media delete: file not found", mediaId, eventId, userId: session.user.id });
       return NextResponse.json({ error: "Media file not found" }, { status: 404 });
+    }
+
+    // Refuse while anything still references the URL (see media-references.ts
+    // — deleting a referenced image 404s it in every email/page forever).
+    const references = await findMediaReferences(mediaFile.url, session.user.organizationId!);
+    if (references.length > 0) {
+      apiLogger.warn({
+        msg: "media:delete-refused-in-use",
+        mediaId,
+        eventId,
+        url: mediaFile.url,
+        references: references.map((r) => r.label),
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: mediaInUseMessage(references), code: "MEDIA_IN_USE", references },
+        { status: 409 }
+      );
     }
 
     await Promise.all([

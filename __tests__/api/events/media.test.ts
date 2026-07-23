@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockAuth, mockDb, mockApiLogger, mockUploadMedia, mockDeleteMedia } = vi.hoisted(() => ({
+const { mockAuth, mockDb, mockApiLogger, mockUploadMedia, mockDeleteMedia, mockFindMediaReferences } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockDb: {
     event: { findFirst: vi.fn() },
@@ -17,6 +17,7 @@ const { mockAuth, mockDb, mockApiLogger, mockUploadMedia, mockDeleteMedia } = vi
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   mockUploadMedia: vi.fn(),
   mockDeleteMedia: vi.fn(),
+  mockFindMediaReferences: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -30,6 +31,12 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
+// The media-delete in-use guard has its own suite (media-references.test.ts);
+// here it defaults to "no references" so the delete paths under test proceed.
+vi.mock("@/lib/media-references", () => ({
+  findMediaReferences: (...args: unknown[]) => mockFindMediaReferences(...args),
+  mediaInUseMessage: (refs: { label: string }[]) => `This image is still in use: ${refs.map((r) => r.label).join("; ")}.`,
+}));
 vi.mock("@/lib/auth-guards", () => ({
   denyReviewer: vi.fn((session: { user: { role: string } }) => {
     if (["REVIEWER", "SUBMITTER"].includes(session.user.role)) {
@@ -480,6 +487,21 @@ describe("DELETE /events/[eventId]/media/[mediaId]: success", () => {
     });
     mockDeleteMedia.mockResolvedValue(undefined);
     mockDb.mediaFile.delete.mockResolvedValue({});
+    mockFindMediaReferences.mockResolvedValue([]);
+  });
+
+  it("refuses with 409 MEDIA_IN_USE while event branding still references the file", async () => {
+    mockFindMediaReferences.mockResolvedValue([
+      { kind: "event-branding", label: "4GHH2026 — email footer image" },
+    ]);
+    const req = new Request("http://localhost/api/events/evt-1/media/media-1", { method: "DELETE" });
+    const res = await DELETE(req, makeMediaParams());
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("MEDIA_IN_USE");
+    expect(body.error).toContain("email footer image");
+    expect(mockDeleteMedia).not.toHaveBeenCalled();
+    expect(mockDb.mediaFile.delete).not.toHaveBeenCalled();
   });
 
   it("returns success:true", async () => {

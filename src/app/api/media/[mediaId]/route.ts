@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { deleteMedia } from "@/lib/storage";
+import { findMediaReferences, mediaInUseMessage } from "@/lib/media-references";
 
 type RouteParams = { params: Promise<{ mediaId: string }> };
 
@@ -28,6 +29,24 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     if (!mediaFile) {
       return NextResponse.json({ error: "Media file not found" }, { status: 404 });
+    }
+
+    // Refuse while anything still references the URL — deleting removes the
+    // file from disk, so a referenced image becomes a permanent 404 in every
+    // email/page that carries it (the July 23 dangling-emailFooterImage bug).
+    const references = await findMediaReferences(mediaFile.url, session.user.organizationId!);
+    if (references.length > 0) {
+      apiLogger.warn({
+        msg: "media:delete-refused-in-use",
+        mediaId,
+        url: mediaFile.url,
+        references: references.map((r) => r.label),
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: mediaInUseMessage(references), code: "MEDIA_IN_USE", references },
+        { status: 409 }
+      );
     }
 
     // Delete from storage + database in parallel
