@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -31,6 +32,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     // API-key auth (role null) passes through as admin-equivalent.
     const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
     if (denied) return denied;
+
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
 
     const changeLimit = checkRateLimit({
       key: `contact-email-change:org:${ctx.organizationId}`,
@@ -119,6 +123,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ contact: updated });
+    });
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {
       return NextResponse.json(

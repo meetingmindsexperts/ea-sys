@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyContactAccess, denyContactExport } from "@/lib/contact-visibility";
@@ -25,6 +26,9 @@ export async function GET(req: Request) {
 
     const denied = denyContactAccess(ctx);
     if (denied) return denied;
+
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
 
     // Export is a narrower boundary than read: CRM_USER may search/read the
     // store (to link a rep to a registration) but may NOT pull the whole org
@@ -124,6 +128,7 @@ export async function GET(req: Request) {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="contacts-${Date.now()}.csv"`,
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error exporting contacts" });

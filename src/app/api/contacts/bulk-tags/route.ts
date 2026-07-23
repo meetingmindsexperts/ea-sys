@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -30,6 +31,9 @@ export async function PATCH(req: Request) {
     // API-key auth (role null) passes through as admin-equivalent.
     const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
     if (denied) return denied;
+
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
 
     const validated = bulkTagsSchema.safeParse(body);
     if (!validated.success) {
@@ -91,6 +95,7 @@ export async function PATCH(req: Request) {
     );
 
     return NextResponse.json({ updated: results.length, contacts: results });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error bulk-updating contact tags" });
     return NextResponse.json({ error: "Failed to update tags" }, { status: 500 });

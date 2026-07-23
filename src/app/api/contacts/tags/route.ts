@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyContactAccess } from "@/lib/contact-visibility";
@@ -16,6 +17,9 @@ export async function GET(req: Request) {
     const denied = denyContactAccess(ctx);
     if (denied) return denied;
 
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
+
     const contacts = await db.contact.findMany({
       where: { organizationId: ctx.organizationId },
       select: { tags: true },
@@ -28,6 +32,7 @@ export async function GET(req: Request) {
     const response = NextResponse.json({ tags });
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching contact tags" });
     return NextResponse.json({ error: "Failed to fetch tags" }, { status: 500 });

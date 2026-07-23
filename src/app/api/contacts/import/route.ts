@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { getOrgContext } from "@/lib/api-auth";
@@ -18,6 +19,9 @@ export async function POST(req: Request) {
     // API-key auth (role null) passes through as admin-equivalent.
     const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
     if (denied) return denied;
+
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
 
     const importRateLimit = checkRateLimit({
       key: `contacts-import:org:${ctx.organizationId}`,
@@ -136,6 +140,7 @@ export async function POST(req: Request) {
     const skipped = contacts.length - created;
 
     return NextResponse.json({ created, skipped, errors });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing contacts" });
     return NextResponse.json({ error: "Failed to import contacts" }, { status: 500 });

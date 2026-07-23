@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -56,6 +57,10 @@ export async function GET(req: Request) {
     const denied = denyContactAccess(ctx);
     if (denied) return denied;
 
+    // Tenancy pilot: populate the ALS tenant store for this request. With
+    // RLS_SET_LOCAL off (master) this is a pure async wrapper — no behavior
+    // change; on an RLS deployment every query below rides the org's lane.
+    return await runWithTenant(ctx.organizationId, async () => {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
     const tagsParam = searchParams.get("tags") || "";
@@ -112,6 +117,7 @@ export async function GET(req: Request) {
     });
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching contacts" });
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -134,6 +140,8 @@ export async function POST(req: Request) {
     const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
     if (denied) return denied;
 
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const contactLimit = checkRateLimit({
       key: `contact-create:org:${ctx.organizationId}`,
       limit: 50,
@@ -204,6 +212,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(contact, { status: 201 });
+    });
   } catch (error) {
     // The dup-check above is check-then-act; two concurrent creates for the
     // same email both pass it and one loses the unique index. That is a

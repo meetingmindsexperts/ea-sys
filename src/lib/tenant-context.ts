@@ -7,13 +7,15 @@
  * without every query author remembering to pass orgId (defence #2 — app-level
  * `where organizationId` scoping stays defence #1).
  *
- * Phase-0 status: NOTHING in production populates this store — only the
- * tenant-isolation harness (tests/tenancy) runs inside `runWithTenant`, and
- * the extension is additionally gated by RLS_SET_LOCAL=1 (unset on master).
- * Wiring `getOrgContext`/route handlers into `runWithTenant` is Phase-2 work,
- * gated on migrating interactive transactions to `tenantTransaction` (see
- * db.ts) — enabling the flag before that migration would mis-scope the ~88
- * existing `db.$transaction` sites.
+ * Status: the CONTACTS domain is wired (Phase-2 pilot, July 2026) — every
+ * /api/contacts/* handler + the contact agent executors wrap their body in
+ * `runWithTenant(ctx.organizationId, …)` after auth/role guards, and the
+ * domain's two interactive transactions use `tenantTransaction`. With
+ * RLS_SET_LOCAL unset (master) all of it is a pure passthrough. Other
+ * domains remain unwired: wiring each one + migrating its `db.$transaction`
+ * sites to `tenantTransaction` (see db.ts) is that domain's Phase-2 sweep —
+ * enabling the flag before ALL domains are migrated would mis-scope the
+ * remaining ~86 plain `db.$transaction` sites.
  *
  * Deliberately import-free of db.ts/logger (leaf module, no cycles).
  */

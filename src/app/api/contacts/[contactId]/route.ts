@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -61,6 +62,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     const denied = denyContactAccess(ctx);
     if (denied) return denied;
 
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const contact = await db.contact.findFirst({
       where: { id: contactId, organizationId: ctx.organizationId },
     });
@@ -123,6 +126,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     return NextResponse.json({ contact, eventHistory });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching contact" });
     return NextResponse.json({ error: "Failed to fetch contact" }, { status: 500 });
@@ -142,6 +146,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
     if (denied) return denied;
 
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const updateLimit = checkRateLimit({
       key: `contact-update:org:${ctx.organizationId}`,
       limit: 100,
@@ -216,6 +222,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(updated);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating contact" });
     return NextResponse.json({ error: "Failed to update contact" }, { status: 500 });
@@ -235,6 +242,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer({ user: { role: ctx.role ?? undefined } });
     if (denied) return denied;
 
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const contact = await db.contact.findFirst({
       where: { id: contactId, organizationId: ctx.organizationId },
       select: { id: true, email: true, photo: true },
@@ -262,6 +271,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting contact" });
     return NextResponse.json({ error: "Failed to delete contact" }, { status: 500 });

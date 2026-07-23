@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
@@ -29,6 +30,12 @@ export async function POST(req: Request) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Captured as a const so the guard's narrowing survives into the closure.
+    const organizationId = session.user.organizationId;
+
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(organizationId, async () => {
+
     const validated = importSchema.safeParse(body);
     if (!validated.success) {
       apiLogger.warn({ msg: "contacts/import-eventsair:zod-validation-failed", errors: validated.error.flatten() });
@@ -37,7 +44,7 @@ export async function POST(req: Request) {
 
     // Get org credentials
     const org = await db.organization.findUnique({
-      where: { id: session.user.organizationId },
+      where: { id: organizationId },
       select: { settings: true },
     });
     const settings = (org?.settings as Record<string, unknown>) || {};
@@ -66,8 +73,6 @@ export async function POST(req: Request) {
       validated.data.offset,
       validated.data.limit,
     );
-
-    const organizationId = session.user.organizationId;
 
     // Look up EA-SYS event mapped to this EventsAir event (for event activity tracking)
     const mappedEvent = await db.event.findFirst({
@@ -190,6 +195,7 @@ export async function POST(req: Request) {
       errors,
       hasMore,
       nextOffset: validated.data.offset + contacts.length,
+    });
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";

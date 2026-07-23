@@ -1,12 +1,15 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { EMAIL_RE, TITLE_VALUES, type ToolExecutor } from "./_shared";
 
 const listContacts: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const limit = Math.min(Number(input.limit ?? 50), 200);
     const search = input.search ? String(input.search).trim() : undefined;
     const tag = input.tag ? String(input.tag).trim() : undefined;
@@ -31,6 +34,7 @@ const listContacts: ToolExecutor = async (input, ctx) => {
       orderBy: { lastName: "asc" },
     });
     return { contacts, total: contacts.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_contacts failed");
     return { error: "Failed to fetch contacts" };
@@ -39,6 +43,8 @@ const listContacts: ToolExecutor = async (input, ctx) => {
 
 const createContact: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const email = String(input.email ?? "").trim().toLowerCase();
     const firstName = String(input.firstName ?? "").trim();
     const lastName = String(input.lastName ?? "").trim();
@@ -74,6 +80,7 @@ const createContact: ToolExecutor = async (input, ctx) => {
       select: { id: true, email: true, firstName: true, lastName: true },
     });
     return { contact };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_contact failed");
     return { error: "Failed to create contact" };
@@ -84,6 +91,8 @@ const createContact: ToolExecutor = async (input, ctx) => {
 
 const updateContact: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const contactId = String(input.contactId ?? "").trim();
     if (!contactId) return { error: "contactId is required", code: "MISSING_CONTACT_ID" };
 
@@ -163,6 +172,7 @@ const updateContact: ToolExecutor = async (input, ctx) => {
     }).catch((err) => apiLogger.error({ err }, "agent:update_contact audit-log-failed"));
 
     return { success: true, contact: updated };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:update_contact failed");
     return { error: err instanceof Error ? err.message : "Failed to update contact" };
