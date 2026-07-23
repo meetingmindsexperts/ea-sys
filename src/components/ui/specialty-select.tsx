@@ -1,15 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./select";
-import { Input } from "./input";
-import { Search } from "lucide-react";
+import { SearchableSelect } from "./searchable-select";
 
 export const SPECIALTIES = [
   "Anesthesia & Pain Medicine",
@@ -72,41 +63,15 @@ export function SpecialtySelect({
   disabled = false,
   placeholder = "Select specialty",
 }: SpecialtySelectProps) {
-  const [searchTerm, setSearchTerm] = useState("");
-
-  const filtered = SPECIALTIES.filter((s) =>
-    s.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   return (
-    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger className="w-full">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent position="popper" sideOffset={4} className="min-w-[250px]">
-        <div className="flex items-center gap-2 px-2 pb-2 sticky top-0 bg-popover">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search specialties..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="h-8"
-          />
-        </div>
-        <div className="max-h-[200px] overflow-y-auto">
-          {filtered.length > 0 ? (
-            filtered.map((specialty) => (
-              <SelectItem key={specialty} value={specialty}>
-                {specialty}
-              </SelectItem>
-            ))
-          ) : (
-            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
-              No specialties found
-            </div>
-          )}
-        </div>
-      </SelectContent>
-    </Select>
+    <SearchableSelect
+      value={value}
+      onChange={onChange}
+      options={SPECIALTIES.map((s) => ({ value: s, label: s }))}
+      disabled={disabled}
+      placeholder={placeholder}
+      searchPlaceholder="Search specialties..."
+      emptyText="No specialties found"
+    />
   );
 }
