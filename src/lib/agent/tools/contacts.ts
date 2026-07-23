@@ -133,7 +133,7 @@ const updateContact: ToolExecutor = async (input, ctx) => {
     }
 
     const updated = await db.contact.update({
-      where: { id: contactId },
+      where: { id: contactId, organizationId: ctx.organizationId },
       data: updates,
       select: {
         id: true,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -97,8 +97,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const skipped = contacts.length - toCreate.length;
 
     if (toCreate.length > 0) {
-      // Create attendees and registrations in a transaction
-      await db.$transaction(async (tx) => {
+      // Create attendees and registrations in a transaction.
+      // tenantTransaction (tenancy pilot): identical to db.$transaction while
+      // RLS_SET_LOCAL is off; on an RLS deployment it pins the tx to the org.
+      await tenantTransaction(async (tx) => {
         for (const contact of toCreate) {
           const attendee = await tx.attendee.create({
             data: {

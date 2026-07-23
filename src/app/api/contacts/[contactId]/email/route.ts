@@ -91,7 +91,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
 
     const updated = await db.contact.update({
-      where: { id: contactId },
+      where: { id: contactId, organizationId: ctx.organizationId },
       data: { email: newEmail },
     });
 

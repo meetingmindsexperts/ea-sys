@@ -516,7 +516,7 @@ describe("PATCH /api/contacts/[contactId]/email", () => {
     const res = await contactPatch(makeReq({ newEmail: "new@x.com" }), contactParams);
     expect(res.status).toBe(200);
     expect(mockDb.contact.update).toHaveBeenCalledWith({
-      where: { id: "c-1" },
+      where: { id: "c-1", organizationId: "org-1" },
       data: { email: "new@x.com" },
     });
     expect(mockDb.auditLog.create).toHaveBeenCalled();

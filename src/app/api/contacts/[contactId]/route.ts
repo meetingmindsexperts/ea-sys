@@ -207,8 +207,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }),
     };
 
+    // Compound where (tenancy pilot): the mutation itself is org-bound, so a
+    // race with a cross-org move/delete can never land the write outside the
+    // caller's org — the findFirst above still owns the friendly 404 path.
     const updated = await db.contact.update({
-      where: { id: contactId },
+      where: { id: contactId, organizationId: ctx.organizationId },
       data: updateData,
     });
 
@@ -247,7 +250,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This contact is protected and cannot be deleted" }, { status: 403 });
     }
 
-    await db.contact.delete({ where: { id: contactId } });
+    await db.contact.delete({
+      where: { id: contactId, organizationId: ctx.organizationId },
+    });
 
     // Clean up photo file if present
     if (contact.photo) {

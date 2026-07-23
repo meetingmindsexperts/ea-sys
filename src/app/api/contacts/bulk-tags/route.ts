@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
 import { normalizeTag } from "@/lib/utils";
 
 const bulkTagsSchema = z.object({
-  contactIds: z.array(z.string()).min(1),
+  // Cap keeps the sequential in-tx update loop bounded well under the 30s
+  // transaction timeout (review LOW-1); dashboard selections are page-bound
+  // and far below this — only an unbounded API-key payload could hit it.
+  contactIds: z.array(z.string()).min(1).max(1000),
   tags: z.array(z.string().transform(normalizeTag)),
   // add: union new tags with existing (deduped)
   // remove: filter out specified tags from existing
@@ -52,24 +55,40 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "No contacts found" }, { status: 404 });
     }
 
-    const updates = contacts.map((contact) => {
-      let newTags: string[];
-      if (mode === "add") {
-        newTags = [...new Set([...contact.tags, ...tags])];
-      } else if (mode === "remove") {
-        const toRemove = new Set(tags);
-        newTags = contact.tags.filter((t) => !toRemove.has(t));
-      } else {
-        newTags = tags;
-      }
-      return db.contact.update({
-        where: { id: contact.id },
-        data: { tags: newTags },
-        select: { id: true, tags: true },
-      });
-    });
-
-    const results = await db.$transaction(updates);
+    // tenantTransaction (tenancy pilot): the sanctioned interactive-tx wrapper
+    // — with RLS_SET_LOCAL off (master) it is exactly db.$transaction.
+    // Sequential per-row updates (per-row tag merges need per-row writes);
+    // generous timeout so a large selection can't trip the 5s interactive
+    // default the old array-form transaction never had.
+    const results = await tenantTransaction(
+      async (tx) => {
+        const rows: { id: string; tags: string[] }[] = [];
+        for (const contact of contacts) {
+          let newTags: string[];
+          if (mode === "add") {
+            newTags = [...new Set([...contact.tags, ...tags])];
+          } else if (mode === "remove") {
+            const toRemove = new Set(tags);
+            newTags = contact.tags.filter((t) => !toRemove.has(t));
+          } else {
+            newTags = tags;
+          }
+          rows.push(
+            await tx.contact.update({
+              // Compound where: ids come from the org-bound findMany above,
+              // but the write itself stays org-bound too.
+              where: { id: contact.id, organizationId: ctx.organizationId },
+              data: { tags: newTags },
+              select: { id: true, tags: true },
+            })
+          );
+        }
+        return rows;
+      },
+      // maxWait raised from the 2s interactive default toward the old
+      // array-form's pool-queue patience (review LOW-1).
+      { timeout: 30_000, maxWait: 10_000 }
+    );
 
     return NextResponse.json({ updated: results.length, contacts: results });
   } catch (error) {
