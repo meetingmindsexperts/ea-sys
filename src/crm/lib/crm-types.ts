@@ -213,6 +213,48 @@ export interface CrmDealDocumentRow {
   uploadedBy?: { firstName: string; lastName: string } | null;
 }
 
+// ── Inbox (email threads) ────────────────────────────────────────────────────────
+
+export interface CrmEmailAttachmentMeta {
+  filename: string;
+  size: number;
+  mimeType: string;
+  path: string;
+}
+
+/** One inbox thread as returned by GET /api/crm/inbox. */
+export interface CrmInboxThreadRow {
+  id: string;
+  subject: string;
+  counterpartyEmail: string;
+  counterpartyName?: string | null;
+  hasUnread: boolean;
+  lastMessageAt: string;
+  lastInboundAt?: string | null;
+  createdAt: string;
+  deal?: { id: string; name: string } | null;
+  crmContact?: { id: string; firstName: string; lastName: string } | null;
+  _count?: { messages: number };
+}
+
+/** One message inside GET /api/crm/inbox/[threadId]. */
+export interface CrmInboxMessageRow {
+  id: string;
+  direction: "INBOUND" | "OUTBOUND";
+  fromEmail: string;
+  fromName?: string | null;
+  subject?: string | null;
+  textBody?: string | null;
+  htmlBody?: string | null;
+  attachments?: CrmEmailAttachmentMeta[] | null;
+  sentBy?: { firstName: string; lastName: string } | null;
+  createdAt: string;
+}
+
+export interface CrmInboxThreadDetail extends CrmInboxThreadRow {
+  messages: CrmInboxMessageRow[];
+}
+
 /** An editable CRM email template (org-wide), as returned by /api/crm/email-templates. */
 export interface CrmEmailTemplateRow {
   id: string;

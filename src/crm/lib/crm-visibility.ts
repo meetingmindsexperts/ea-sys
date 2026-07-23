@@ -19,7 +19,7 @@ import { apiLogger } from "@/lib/logger";
 import { canViewCrm, canOwnDeals, canDeleteCrm, canPurgeCrm } from "@/crm/lib/crm-roles";
 
 // Re-exported so server code has one import site for both predicates and guards.
-export { canViewCrm, canOwnDeals, canViewDealValues, canDeleteCrm, canPurgeCrm } from "@/crm/lib/crm-roles";
+export { canViewCrm, canOwnDeals, canViewDealValues, canViewCrmInbox, canDeleteCrm, canPurgeCrm } from "@/crm/lib/crm-roles";
 
 /**
  * Returns a 403 if the caller may not read the CRM, else null.

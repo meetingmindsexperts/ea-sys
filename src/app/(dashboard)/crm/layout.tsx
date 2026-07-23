@@ -15,8 +15,10 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, CheckSquare, FileText, Handshake, Package, Users } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { BarChart3, Building2, CheckSquare, FileText, Handshake, Inbox, Package, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { canViewCrmInbox } from "@/crm/lib/crm-roles";
 import { CrmNotificationBell } from "@/crm/components/crm-notification-bell";
 
 const TABS = [
@@ -24,6 +26,8 @@ const TABS = [
   { href: "/crm/companies", label: "Companies", icon: Building2 },
   // Business contacts — reps, exhibitor sales, procurement. NOT the event HCP store.
   { href: "/crm/contacts", label: "Contacts", icon: Users },
+  // Staff-only (canViewCrmInbox) — hidden for MEMBER; the API is the real gate.
+  { href: "/crm/inbox", label: "Inbox", icon: Inbox, staffOnly: true },
   { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
   { href: "/crm/reports", label: "Reports", icon: BarChart3 },
   { href: "/crm/products", label: "Products", icon: Package },
@@ -32,6 +36,8 @@ const TABS = [
 
 export default function CrmLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const tabs = TABS.filter((t) => !t.staffOnly || canViewCrmInbox(session?.user?.role));
 
   return (
     <div className="flex flex-col">
@@ -48,7 +54,7 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="-mb-px mt-4 flex gap-1" aria-label="CRM sections">
-          {TABS.map((tab) => {
+          {tabs.map((tab) => {
             const active = pathname.startsWith(tab.href);
             const Icon = tab.icon;
             return (

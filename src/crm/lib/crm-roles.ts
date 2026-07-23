@@ -86,6 +86,21 @@ export function canOwnDeals(role: string | null | undefined, isApiKey = false): 
 }
 
 /**
+ * True when the caller may read the CRM email inbox (sponsor correspondence).
+ *
+ * Staff only — deliberately NARROWER than the CRM read set: MEMBER is the
+ * account handed to sponsor-side stakeholders, and negotiation threads with
+ * OTHER sponsors are exactly what they must never read (owner decision,
+ * July 23 2026 — same rationale as canViewDealValues, kept as its own named
+ * predicate because "who reads correspondence" and "who sees money" are
+ * different questions that happen to have the same answer today).
+ */
+export function canViewCrmInbox(role: string | null | undefined, isApiKey = false): boolean {
+  if (isApiKey) return true;
+  return !!role && CRM_STAFF_ROLES.has(role);
+}
+
+/**
  * True when the caller may see deal VALUES (money).
  *
  * Deliberately NOT `canViewFinance()`. MEMBER *is* finance-capable elsewhere in

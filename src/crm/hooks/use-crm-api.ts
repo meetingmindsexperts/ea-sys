@@ -36,6 +36,8 @@ import type {
   CrmProductRow,
   CrmDealProductRow,
   CrmDealDocumentRow,
+  CrmInboxThreadRow,
+  CrmInboxThreadDetail,
   SponsorRecipient,
 } from "@/crm/lib/crm-types";
 
@@ -78,6 +80,8 @@ export const crmKeys = {
   dealProducts: (dealId: string) => ["crm", "deal-products", dealId] as const,
   dealDocuments: (dealId: string) => ["crm", "deal-documents", dealId] as const,
   notifications: ["crm", "notifications"] as const,
+  inbox: (dealId?: string) => ["crm", "inbox", dealId ?? ""] as const,
+  inboxThread: (threadId: string) => ["crm", "inbox-thread", threadId] as const,
   // Invalidation prefixes — match every variant of the corresponding full key.
   dealsPrefix: ["crm", "deals"] as const,
   dealPrefix: ["crm", "deal"] as const,
@@ -88,6 +92,7 @@ export const crmKeys = {
   notesPrefix: ["crm", "notes"] as const,
   emailTemplatesPrefix: ["crm", "email-templates"] as const,
   productsPrefix: ["crm", "products"] as const,
+  inboxPrefix: ["crm", "inbox"] as const,
 };
 
 // ── Pipeline ─────────────────────────────────────────────────────────────────
@@ -425,6 +430,46 @@ export function useMarkCrmNotificationsRead() {
       apiPatchJson<{ updated: number }>("/api/crm/notifications", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: crmKeys.notifications }),
     onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update notifications"),
+  });
+}
+
+// ── Inbox ────────────────────────────────────────────────────────────────────
+
+export function useCrmInboxThreads(dealId?: string) {
+  const qs = dealId ? `?dealId=${encodeURIComponent(dealId)}` : "";
+  return useQuery({
+    queryKey: crmKeys.inbox(dealId),
+    queryFn: () =>
+      apiFetch<{ threads: CrmInboxThreadRow[]; unreadCount: number }>(`/api/crm/inbox${qs}`),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useCrmInboxThread(threadId: string | null) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: crmKeys.inboxThread(threadId ?? ""),
+    queryFn: async () => {
+      const res = await apiFetch<{ thread: CrmInboxThreadDetail }>(`/api/crm/inbox/${threadId}`);
+      // Opening a thread clears its unread flag server-side — refresh the list
+      // so the dot disappears without waiting for the 30s poll.
+      void qc.invalidateQueries({ queryKey: crmKeys.inboxPrefix });
+      return res;
+    },
+    enabled: !!threadId,
+  });
+}
+
+export function useReplyCrmInboxThread(threadId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { message: string }) =>
+      apiPostJson<{ sent: boolean }>(`/api/crm/inbox/${threadId}/reply`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: crmKeys.inboxThread(threadId) });
+      qc.invalidateQueries({ queryKey: crmKeys.inboxPrefix });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not send the reply"),
   });
 }
 
