@@ -12,7 +12,7 @@ const { mockDb, mockAuth, updateEventSettingsSpy, readSponsorsSpy } = vi.hoisted
   mockDb: { event: { findFirst: vi.fn() } },
   mockAuth: vi.fn(),
   updateEventSettingsSpy: vi.fn().mockResolvedValue(undefined),
-  readSponsorsSpy: vi.fn(() => []),
+  readSponsorsSpy: vi.fn((): Array<{ id: string; name: string; sortOrder: number }> => []),
 }));
 
 vi.mock("next/server", () => ({
