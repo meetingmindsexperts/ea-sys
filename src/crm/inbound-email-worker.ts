@@ -295,7 +295,12 @@ async function notifyOwner(args: {
     ownerName,
     partnerships: process.env.CRM_EMAIL_FROM_ADDRESS?.trim() || null,
     notifyEmails: args.thread.notifyEmails,
-    replierEmail: args.thread.counterpartyEmail,
+    // Exclude whoever ACTUALLY sent this inbound (args.fromEmail) — NOT the
+    // thread counterparty. They differ when a CC'd colleague replies: that
+    // colleague is in notifyEmails, so using counterpartyEmail here would
+    // bounce their own reply back to them (the counterparty is the outbound
+    // To, so it is never in the audience and excluding it is a no-op anyway).
+    replierEmail: args.fromEmail,
   });
 
   if (audience.length === 0) return;

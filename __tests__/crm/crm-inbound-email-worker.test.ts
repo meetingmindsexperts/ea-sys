@@ -254,6 +254,31 @@ describe("runTick", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
+  // Review M1 (July 24 regression): a CC'd colleague who replies must NOT get
+  // their own reply forwarded back. The exclusion keys on the ACTUAL sender
+  // (fromEmail), not the thread counterparty — the two differ for a CC reply.
+  it("does NOT forward a reply back to the CC'd colleague who actually sent it", async () => {
+    delete process.env.CRM_EMAIL_FROM_ADDRESS; // deterministic audience
+    // The thread CC'd a colleague at send time (stored in notifyEmails); the
+    // reply now comes FROM that colleague (same domain → verified).
+    vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue({
+      ...thread,
+      notifyEmails: ["alice@abbott.com"],
+    } as never);
+    mockS3({ "inbound/cc": rawEmail({ from: "Alice <alice@abbott.com>" }) });
+
+    await runTick();
+
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(sendEmail).mock.calls[0]![0] as {
+      to: { email: string }[];
+      bcc?: { email: string }[];
+    };
+    const recipients = [...call.to, ...(call.bcc ?? [])].map((r) => r.email);
+    expect(recipients).toContain("owner@mmg.com"); // owner still gets it
+    expect(recipients).not.toContain("alice@abbott.com"); // …but not the replier
+  });
+
   // ── M1: token lifecycle ────────────────────────────────────────────────────
   it("a REVOKED token (deal archived) goes unmatched — never filed", async () => {
     vi.mocked(db.crmEmailThread.findUnique).mockResolvedValue({ ...thread, revokedAt: new Date() } as never);

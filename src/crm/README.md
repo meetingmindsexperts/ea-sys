@@ -47,8 +47,10 @@ entire reason to exist, so `CrmDeal.eventId` is a first-class link and `CrmCompa
 
 **Out of scope (v1) — do not build these without a fresh decision:**
 
-- Two-way email inbox sync (Gmail/Outlook). *Integrate a real Freshsales/HubSpot via
-  n8n if it's ever needed — replicating inbox sync is months of work.*
+- Full two-way mailbox sync (Gmail/Outlook). *NOTE: an inbound-reply inbox now EXISTS
+  (sponsor replies thread back into CRM → Inbox via SES; see `inbound-email-worker.ts`).
+  What remains out of scope is replicating a full bidirectional mailbox sync — integrate
+  a real Freshsales/HubSpot via n8n if that's ever needed.*
 - Lead scoring / workflow automation.
 - Hard delete as an ordinary action (a deal is revenue history — close it LOST; a company
   is merged, not deleted). **The one exception**: a SUPER_ADMIN may permanently delete an
@@ -363,8 +365,9 @@ correctness depends on a DB constraint/transaction gets a real-DB test here.**
 
 The current, honest state — done / pending / linked-vs-not — is in
 [`docs/CRM_STATUS.html`](../../docs/CRM_STATUS.html), and that is the page to keep
-current. As of this writing the module is **built and tested but NOT deployed** (the
-migration has not been applied to prod). Notable open items: **pipeline-stage
+current. As of Jul 24, 2026 the module is **deployed and live in production** (migrations
+applied; the CRM entry is visible in the staff sidebar; the inbound-reply email pipeline
+runs on SES). Notable open items: **pipeline-stage
 management UI** (rename/add/reorder is script/seed only today — no in-app editor), **MCP
 tools**, the `Contact.organization → CrmCompany` backfill, the won-deal →
 `Event.settings.sponsors[]` handoff, and the **Week-4 adversarial review** — which,

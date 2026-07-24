@@ -6,9 +6,10 @@
  * the API enforces that, this component just renders what it's given).
  *
  * Two panes: threads left (unread dot, deal chip, counterparty), conversation
- * right with a reply composer. Inbound HTML is UNTRUSTED and renders only
- * inside a sandboxed iframe (no scripts, no same-origin) — the same
- * containment the admin docs viewer uses.
+ * right. The inbox is READ-ONLY — there is no reply composer here; replies are
+ * sent from the deal ("Email from the deal" button). Inbound HTML is UNTRUSTED
+ * and renders only inside a sandboxed iframe (no scripts, no same-origin) — the
+ * same containment the admin docs viewer uses.
  */
 import { useEffect, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";

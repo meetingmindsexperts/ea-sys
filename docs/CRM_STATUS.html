@@ -111,11 +111,12 @@
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
-<div class="callout stop">
-  <p><b>NOT DEPLOYED.</b> Everything below is merged to <code>main</code> but <b>not running in
-  production</b>. The migration has <b>not</b> been applied to the prod database, and no user can
-  reach any of it. Deploy is a separate, explicit step (<code>bash scripts/deploy.sh</code> on the
-  box).</p>
+<div class="callout note">
+  <p><b>DEPLOYED &amp; LIVE (Jul 24, 2026).</b> The CRM module runs in production: its migrations are
+  applied to the prod DB, the inbound-reply email pipeline (SES) is live, and the <b>CRM entry is
+  now visible in the staff sidebar</b> (<code>CRM_IN_SIDEBAR = true</code>) for roles with
+  <code>canCrm</code> (SUPER_ADMIN / ADMIN / ORGANIZER / MEMBER / CRM_USER). Deploys remain a
+  separate explicit step (<code>bash scripts/deploy.sh</code> on the box).</p>
   <p>The migration is additive + idempotent, and no existing code path touches the new tables, so
   deploying is low-risk — but it is a decision, not a formality.</p>
 </div>
@@ -443,7 +444,7 @@ exactly which of those exist today.</p>
   <summary>UI — 4 pages <span class="tag part">PARTIAL — see §4</span></summary>
   <ul>
     <li><b>Dedicated record pages (Jul 15):</b> deal, account AND contact each have their OWN page — <code>/crm/deals/[dealId]</code>, <code>/crm/companies/[companyId]</code>, <code>/crm/contacts/[crmContactId]</code> (deep-linkable, back-button-friendly). <b>All detail sheets are retired.</b> The pages use a shared <b>two-column record layout</b> (identity header + main work area + sticky facts sidebar, grouped into cards) via <code>record-layout.tsx</code> primitives; records cross-link (account→deals/people, contact→deals/company).</li>
-    <li><b>Sidebar:</b> the CRM entry is HIDDEN for everyone except CRM_USER since <code>b152f45</code> (parked / not deployed — <code>CRM_IN_SIDEBAR = false</code> in sidebar.tsx). Inside the module, Deals / Companies / Tasks are tabs in the right pane (real routes, so deep links and the back button work).</li>
+    <li><b>Sidebar:</b> the CRM entry is <b>VISIBLE</b> to roles with <code>canCrm</code> (<code>CRM_IN_SIDEBAR = true</code> in sidebar.tsx, since Jul 24, 2026); a dedicated CRM_USER was always routed there. Inside the module, Deals / Companies / Tasks are tabs in the right pane (real routes, so deep links and the back button work).</li>
     <li><b>Deals board</b> — drag-and-drop kanban. The drag captures the card's stage at <i>drag start</i> and sends it, so the server's race check holds. The optimistic move has a real rollback: on 409 it restores <i>and refetches</i>, because “put it back where it was” is wrong if the colleague moved it somewhere else.</li>
     <li><b>Companies</b> — list, search, “Needs review” duplicate worklist, account page.</li>
     <li><b>Tasks</b> — overdue surfaced first.</li>
@@ -584,7 +585,7 @@ exactly which of those exist today.</p>
 
 <h3>Deliberately not built (v1)</h3>
 <ul>
-  <li><b>Two-way email inbox sync</b> — integrate, don't build. Months of work to replicate; connect a real Freshsales/HubSpot via n8n if it's ever needed.</li>
+  <li><b>Full two-way mailbox sync (Gmail/Outlook)</b> — still out of scope. NOTE: an <b>inbound-reply inbox DOES exist now</b> (sponsor replies to a CRM email thread back into <b>CRM → Inbox</b> via SES, forward-copied to the owner + partnerships + CC/BCC). What's out of scope is replicating a full bidirectional mailbox sync — connect a real Freshsales/HubSpot via n8n if that's ever needed.</li>
   <li><b>Lead scoring / workflow automation.</b></li>
   <li><b>Hard delete as an ordinary action</b> — a deal is revenue history. A mistaken deal is closed LOST; a mistaken company is merged. <b>(Exception shipped Jul 20: a SUPER_ADMIN may permanently delete ARCHIVED records — see §4.)</b></li>
   <li><b>Multi-currency pipeline rollups</b> — currency is stored per deal; report per-currency.</li>
