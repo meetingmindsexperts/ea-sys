@@ -439,6 +439,29 @@ describe("importFreshsalesDeals", () => {
     expect(upd.data).not.toHaveProperty("lostAt");
   });
 
+  it("re-import PRESERVES the existing owner when the CSV owner is no longer matchable — never silently un-owns (CRM review LOW)", async () => {
+    mockDealFixtures();
+    // The rep who owns this deal has since had their role changed to a non-CRM
+    // role, so `rep@mmg.com` no longer resolves in the owner map.
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+    const imported = new Date("2026-07-01T10:00:00Z");
+    vi.mocked(db.crmDeal.findFirst).mockImplementation((async (args: { where: { externalId?: string } }) =>
+      args.where.externalId === "d-1"
+        ? { id: "x-1", status: "WON", ownerId: "u-existing", updatedAt: imported, lastImportedAt: imported }
+        : null) as never);
+
+    const csv = `Id,Name,Amount,Deal stage,Closed date,Sales account,Sales owner email\nd-1,Abbott — BRIDGES 2026 Gold,"40,000",Closed won,2026-03-15,Abbott,rep@mmg.com`;
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback",
+    });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(res.updated).toBe(1);
+    const upd = vi.mocked(db.crmDeal.update).mock.calls[0]![0] as { data: Record<string, unknown> };
+    // Pre-fix this was `ownerId: null` — a role change (not a CSV change) silently un-owned the deal.
+    expect(upd.data.ownerId).toBe("u-existing");
+  });
+
   it("R2-M4: the company resolver's P2002 loser REUSES the concurrently-created winner instead of failing the row", async () => {
     mockDealFixtures();
     vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never); // prefetch predates the winner

@@ -209,7 +209,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
       // any per-row surprise stays a per-row error — one bad row never kills a file.
       const msg =
         err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002"
-          ? "Another company already uses this name"
+          ? "A company with this name already exists (a duplicate row in this file, or a concurrent import) — re-run to converge"
           : "Row failed — see server logs";
       apiLogger.error({
         msg: "crm-import:company-row-failed", organizationId: ctx.organizationId, row: rowNo,
@@ -355,11 +355,20 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
         }
       }
     } catch (err) {
+      // A P2002 here is a duplicate email/externalId in this file OR a concurrent
+      // import of the same export (the find-then-create both saw null) — no row
+      // is duplicated (the unique index holds); re-running converges via update.
+      const dup = err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
       apiLogger.error({
         msg: "crm-import:contact-row-failed", organizationId: ctx.organizationId, row: rowNo,
         err: err instanceof Error ? err.message : String(err),
       });
-      report.errors.push({ row: rowNo, error: "Row failed — see server logs" });
+      report.errors.push({
+        row: rowNo,
+        error: dup
+          ? "A contact with this email or id already exists (a duplicate in this file, or a concurrent import) — re-run to converge"
+          : "Row failed — see server logs",
+      });
     }
   }
 
@@ -619,7 +628,15 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
           // NOT re-pointed on update: a human may have re-pointed it in EA-SYS,
           // and the CSV knows nothing about our events anyway. Close stamps are
           // the R2-M6 preserving variant — see closeStampsForUpdate above.
-          await db.crmDeal.update({ where: { id: existing!.id }, data: { ...common, ...closeStampsForUpdate } });
+          // OWNER: preserve the existing owner when the CSV owner is
+          // UNMATCHABLE (e.g. the rep's role changed to a non-CRM role since the
+          // last import, so `ownerByEmail` no longer resolves them) — a mapping
+          // failure must not silently un-own a live deal (CRM review LOW). A
+          // matchable CSV owner still wins; only a null (unresolved) is skipped.
+          await db.crmDeal.update({
+            where: { id: existing!.id },
+            data: { ...common, ownerId: ownerId ?? existing!.ownerId, ...closeStampsForUpdate },
+          });
           activity.push({
             organizationId: ctx.organizationId, entityType: "DEAL", entityId: existing!.id,
             action: "IMPORTED", actorId: ctx.userId,
@@ -628,11 +645,20 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
         }
       }
     } catch (err) {
+      // A P2002 here is a duplicate externalId in this file OR a concurrent
+      // import of the same export — no duplicate row is created (the unique
+      // index holds); re-running converges via the update path.
+      const dup = err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
       apiLogger.error({
         msg: "crm-import:deal-row-failed", organizationId: ctx.organizationId, row: rowNo,
         err: err instanceof Error ? err.message : String(err),
       });
-      report.errors.push({ row: rowNo, error: "Row failed — see server logs" });
+      report.errors.push({
+        row: rowNo,
+        error: dup
+          ? "A deal with this id already exists (a duplicate in this file, or a concurrent import) — re-run to converge"
+          : "Row failed — see server logs",
+      });
     }
   }
 

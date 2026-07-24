@@ -405,9 +405,15 @@ export async function moveDealStage(input: MoveDealStageInput): Promise<MoveDeal
   if (toOutcome) {
     // Into a mapped terminal column = closing the deal. Clear a stale lostReason
     // when the outcome is WON (CRM review M10 — closeDeal already does this).
+    // Only (re)stamp wonAt/lostAt on a GENUINE transition into this outcome —
+    // dragging between two columns that share an outcome (WON→WON, e.g. "Won —
+    // Signed" → "Won — Invoiced") must PRESERVE the original close date, not
+    // reset it to today, which would corrupt "won in month X" reports (CRM
+    // review LOW). Same outcome on both ends ⇒ status is already right, leave
+    // the timestamps alone.
     statusData = {
       status: toOutcome,
-      ...closeStamps(toOutcome),
+      ...(fromOutcome === toOutcome ? {} : closeStamps(toOutcome)),
       ...(toOutcome === "WON" ? { lostReason: null } : {}),
     };
   } else if (toStage.isTerminal) {

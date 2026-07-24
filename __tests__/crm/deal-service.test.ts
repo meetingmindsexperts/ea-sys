@@ -156,6 +156,25 @@ describe("moveDealStage — the two-people-one-card race", () => {
     expect(data.lostReason).toBeNull();
   });
 
+  it("dragging between two WON-mapped terminal columns does NOT re-stamp wonAt (CRM review LOW)", async () => {
+    // Two terminal columns sharing the WON outcome ("Won — Signed" → "Won —
+    // Invoiced"). The deal is already WON; re-stamping wonAt to today would
+    // corrupt "won in month X" reports.
+    mockStages({
+      "s-won1": stage({ id: "s-won1", name: "Won — Signed", isTerminal: true, terminalOutcome: "WON" }),
+      "s-won2": stage({ id: "s-won2", name: "Won — Invoiced", isTerminal: true, terminalOutcome: "WON" }),
+    });
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", status: "WON", eventId: null } as never);
+
+    await moveDealStage({ ...base, dealId: "d-1", fromStageId: "s-won1", toStageId: "s-won2" });
+
+    const data = vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.status).toBe("WON"); // status stays WON…
+    expect(data).not.toHaveProperty("wonAt"); // …but the close date is preserved, not re-stamped
+    expect(data).not.toHaveProperty("lostAt");
+  });
+
   it("dragging back OUT of a terminal column reopens the deal, clears the stamps, and records REOPENED", async () => {
     mockStages({
       "s-neg": stage({ id: "s-neg", isTerminal: false }),

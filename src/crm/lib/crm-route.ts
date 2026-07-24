@@ -35,6 +35,18 @@ export async function requireCrmRead(
 ): Promise<{ error: NextResponse; ctx?: never } | { error?: never; ctx: OrgContext }> {
   const ctx = await getOrgContext(req);
   if (!ctx) {
+    // Log the 401 here — this is the one choke point every /api/crm/* handler
+    // (reads AND, transitively, writes/deletes/purges) passes through, and the
+    // core getOrgContext returns null silently on any auth failure (no session,
+    // expired session, invalid/expired API key). "Every failure path logs"
+    // (CRM review M1). No PII — auth failed, so there's no user/org yet.
+    let route = "";
+    try {
+      route = new URL(req.url).pathname;
+    } catch {
+      /* malformed URL — route stays "" */
+    }
+    apiLogger.warn({ msg: "crm-route:unauthorized", method: req.method, route });
     return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
   const denied = denyCrmAccess(ctx); // logs its own refusal
