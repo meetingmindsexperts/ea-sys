@@ -7,11 +7,16 @@ sent-history only; after it, replies thread.
 
 ## What this enables
 
-Every email sent from the CRM (deal Email button, sponsor blasts, inbox
-replies) carries a tokenized `Reply-To` like `a1b2…@reply.meetingmindsexperts.com`.
-When the sponsor hits reply, SES receives it, writes the raw MIME to S3, and the
+Every email sent from the CRM (deal **Email** button + sponsor blasts) carries a
+tokenized `Reply-To` like `a1b2…@reply.meetingmindsexperts.com`. When the sponsor
+hits reply, SES receives it, writes the raw MIME to S3, and the
 `crm-inbound-email` worker job (every minute) files it into the right thread in
 **CRM → Inbox** — bell-notifying and forward-copying the deal owner.
+
+The **Inbox is read-only** (owner decision): it's where incoming replies land and
+are read; you never compose there. Sending is centralized on the **deal's Email
+action** — open the deal and email the contact. So one deal email + its reply
+form a thread; a fresh response is a new deal email (a new thread).
 
 ```
 sponsor replies → MX → SES inbound (ap-south-1) → s3://ea-sys-crm-inbound/inbound/
@@ -50,6 +55,29 @@ routes to SES; every existing mailbox on `meetingmindsexperts.com` is untouched.
 | SES rule set / rule | `ea-sys-crm-inbound` / `crm-reply-to-s3` (Active) |
 | IAM inline policy | `CrmInboundEmailS3` on `ea-sys-mumbai-ec2-role` |
 | Worker job | `crm-inbound-email` (JOB_ID 1012, every minute) |
+| Outbound From | `Partnerships <partnerships@meetingmindsdubai.com>` |
+
+## CRM sender identity (outbound From)
+
+CRM outbound (deal emails + sponsor blasts) sends **From** its own identity, not
+the platform default `EMAIL_FROM` (which still brands registration confirmations
+etc.). Set by env:
+
+```
+CRM_EMAIL_FROM_NAME="Partnerships"
+CRM_EMAIL_FROM_ADDRESS="partnerships@meetingmindsdubai.com"
+```
+
+- The address **MUST be an SES-verified identity** in `ap-south-1` or SES rejects
+  the send (`MessageRejected`). `partnerships@meetingmindsdubai.com` is verified
+  as an **email identity** (July 24, 2026). Reply-To is unaffected — it stays the
+  tokenized inbox address, so replies still thread.
+- **Deliverability:** email-identity verification has no DKIM, so mail From
+  `@meetingmindsdubai.com` may hit some sponsors' spam. For real outreach volume,
+  upgrade to full **domain** verification of `meetingmindsdubai.com` (Easy DKIM
+  CNAMEs) — that gives DKIM/DMARC alignment. See `crmSenderFrom()` in
+  `src/crm/services/sponsor-email-service.ts` for the precedence (CRM env → the
+  deal's linked-event sender → global `EMAIL_FROM`).
 
 ## One-time setup (operator-run — AWS mutations are hand-run, CLI or Console)
 

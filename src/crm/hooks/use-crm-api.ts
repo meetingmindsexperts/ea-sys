@@ -460,18 +460,8 @@ export function useCrmInboxThread(threadId: string | null) {
   });
 }
 
-export function useReplyCrmInboxThread(threadId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { message: string }) =>
-      apiPostJson<{ sent: boolean }>(`/api/crm/inbox/${threadId}/reply`, body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: crmKeys.inboxThread(threadId) });
-      qc.invalidateQueries({ queryKey: crmKeys.inboxPrefix });
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not send the reply"),
-  });
-}
+// (Inbox is read-only — sending is centralized on the deal's Email action, so
+// there is no reply-from-inbox hook. See src/crm/components/crm-inbox.tsx.)
 
 // ── Notes ────────────────────────────────────────────────────────────────────
 

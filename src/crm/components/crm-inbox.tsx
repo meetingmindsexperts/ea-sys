@@ -10,18 +10,15 @@
  * inside a sandboxed iframe (no scripts, no same-origin) — the same
  * containment the admin docs viewer uses.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { toast } from "sonner";
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Inbox, Loader2, Paperclip, Send } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Inbox, Loader2, Mail, Paperclip } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import {
   useCrmInboxThread,
   useCrmInboxThreads,
-  useReplyCrmInboxThread,
 } from "@/crm/hooks/use-crm-api";
 import type { CrmInboxMessageRow, CrmInboxThreadRow } from "@/crm/lib/crm-types";
 
@@ -107,9 +104,7 @@ export function CrmInbox() {
 
   const { data, isLoading, isError } = useCrmInboxThreads();
   const { data: detail, isLoading: detailLoading } = useCrmInboxThread(selectedId);
-  const reply = useReplyCrmInboxThread(selectedId ?? "");
 
-  const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const threads = useMemo(() => data?.threads ?? [], [data?.threads]);
@@ -121,18 +116,6 @@ export function CrmInbox() {
 
   function select(id: string) {
     router.replace(`/crm/inbox?thread=${id}`, { scroll: false });
-  }
-
-  async function handleSend() {
-    const message = draft.trim();
-    if (!message || !selectedId) return;
-    try {
-      await reply.mutateAsync({ message });
-      setDraft("");
-      toast.success("Reply sent");
-    } catch {
-      // Toasted by the hook's onError.
-    }
   }
 
   if (isLoading) {
@@ -229,27 +212,19 @@ export function CrmInbox() {
               <div ref={bottomRef} />
             </div>
 
-            <div className="border-t p-3">
-              <Textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                rows={3}
-                placeholder={`Reply to ${thread.counterpartyName || thread.counterpartyEmail}…`}
-                disabled={reply.isPending}
-              />
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">
-                  Sent from the org address — their reply lands back in this thread.
-                </p>
-                <Button size="sm" onClick={handleSend} disabled={reply.isPending || !draft.trim()}>
-                  {reply.isPending ? (
-                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Send className="mr-2 h-3.5 w-3.5" />
-                  )}
-                  Send reply
+            {/* Read-only inbox: sending is centralized on the deal (owner
+                decision) — no compose here. To respond, open the deal and use
+                its Email action. */}
+            <div className="flex items-center justify-between gap-2 border-t bg-muted/20 p-3 text-xs text-muted-foreground">
+              <span>Replies are sent from the deal, not here.</span>
+              {thread.deal && (
+                <Button asChild size="sm" variant="outline">
+                  <a href={`/crm/deals/${thread.deal.id}`}>
+                    <Mail className="mr-2 h-3.5 w-3.5" />
+                    Email from the deal
+                  </a>
                 </Button>
-              </div>
+              )}
             </div>
           </>
         )}

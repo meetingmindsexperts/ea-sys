@@ -86,7 +86,7 @@ function brandingFromEventRow(e: EventBrandingRow): EmailBranding {
 }
 
 /**
- * The From identity for CRM outbound (sponsor blasts, deal emails, inbox replies).
+ * The From identity for CRM outbound (sponsor blasts + deal emails).
  * CRM mail comes from the partnerships team, NOT the platform's default sender —
  * so a dedicated CRM_EMAIL_FROM_ADDRESS/NAME governs it, independent of the
  * system-wide EMAIL_FROM (which still brands registration confirmations etc.).

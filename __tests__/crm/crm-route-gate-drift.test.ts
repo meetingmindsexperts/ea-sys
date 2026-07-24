@@ -119,7 +119,8 @@ describe("every /api/crm/inbox/* handler ALSO gates on canViewCrmInbox", () => {
   const inboxHandlers = allHandlers().filter((h) => h.rel.includes("/api/crm/inbox/"));
 
   it("finds the inbox routes (not testing nothing)", () => {
-    expect(inboxHandlers.length).toBeGreaterThanOrEqual(4);
+    // list + thread-detail + attachment-stream (read-only inbox; no reply route).
+    expect(inboxHandlers.length).toBeGreaterThanOrEqual(3);
   });
 
   it.each(inboxHandlers.map((h) => [`${h.method} ${h.rel}`, h] as const))(
