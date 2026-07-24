@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { createBillingAccount } from "@/services/billing-account-service";
 
 /**
@@ -38,6 +39,10 @@ export async function GET(req: Request) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    const orgId = session.user.organizationId!; // capture before the closure
+    // Tenancy: populate the ALS tenant store. RLS_SET_LOCAL off (master) → a
+    // pure async passthrough; on an RLS deployment every query rides the lane.
+    return await runWithTenant(orgId, async () => {
     const { searchParams } = new URL(req.url);
     const includeInactive = searchParams.get("includeInactive") === "1";
     const needsReviewOnly = searchParams.get("needsReview") === "1";
@@ -74,6 +79,7 @@ export async function GET(req: Request) {
     });
 
     return NextResponse.json(accounts);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error listing billing accounts" });
     return NextResponse.json({ error: "Failed to list billing accounts" }, { status: 500 });
@@ -91,6 +97,8 @@ export async function POST(req: Request) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    const orgId = session.user.organizationId!; // capture before the closure
+    return await runWithTenant(orgId, async () => {
     const body = await req.json().catch(() => null);
     const parsed = createSchema.safeParse(body);
     if (!parsed.success) {
@@ -123,6 +131,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(result.billingAccount, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating billing account" });
     return NextResponse.json({ error: "Failed to create billing account" }, { status: 500 });

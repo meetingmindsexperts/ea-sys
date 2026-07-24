@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { findOrCreateBillingAccount } from "@/services/billing-account-service";
 
 /**
@@ -52,6 +53,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    const orgId = session.user.organizationId!; // capture before the closure
+    return await runWithTenant(orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId! },
       select: { id: true },
@@ -99,6 +102,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       { billingAccount: result.billingAccount, reused: result.reused, needsReview: result.flaggedReview },
       { status: result.reused ? 200 : 201 },
     );
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating/attaching billing account for event" });
     return NextResponse.json({ error: "Failed to add billing account" }, { status: 500 });

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   mergeBillingAccounts,
   type MergeBillingAccountsErrorCode,
@@ -47,6 +48,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    const orgId = session.user.organizationId!; // capture before the closure
+    // Tenancy: the store must be set before mergeBillingAccounts' tenantTransaction.
+    return await runWithTenant(orgId, async () => {
     // A merge deletes a payer row — keep a modest ceiling on the operation.
     const rate = checkRateLimit({
       key: `billing-account-merge:${session.user.id}`,
@@ -108,6 +112,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ success: true, ...result.merge });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error merging billing accounts" });
     return NextResponse.json({ error: "Failed to merge billing accounts" }, { status: 500 });

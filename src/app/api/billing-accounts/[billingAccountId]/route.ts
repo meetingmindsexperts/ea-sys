@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { updateBillingAccount } from "@/services/billing-account-service";
 
 interface RouteParams {
@@ -37,6 +38,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    const orgId = session.user.organizationId!; // capture before the closure
+    // Tenancy: populate the ALS tenant store (passthrough on master).
+    return await runWithTenant(orgId, async () => {
     // Org-scoped — never trust the id alone (IDOR).
     const account = await db.billingAccount.findFirst({
       where: { id: billingAccountId, organizationId: session.user.organizationId! },
@@ -84,6 +88,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       registrationCount: registrations.length,
       attachedEvents,
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching billing account" });
     return NextResponse.json({ error: "Failed to fetch billing account" }, { status: 500 });
@@ -101,6 +106,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    const orgId = session.user.organizationId!; // capture before the closure
+    return await runWithTenant(orgId, async () => {
     const body = await req.json().catch(() => null);
     const parsed = updateSchema.safeParse(body);
     if (!parsed.success) {
@@ -141,6 +148,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result.billingAccount);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating billing account" });
     return NextResponse.json({ error: "Failed to update billing account" }, { status: 500 });
