@@ -65,3 +65,50 @@ export function isWebinarTemplateSlug(slug: string): boolean {
 export function isCustomTemplateSlug(slug: string): boolean {
   return !SYSTEM_TEMPLATE_SLUGS.has(slug);
 }
+
+/**
+ * Human-readable labels for slugs that don't Title-case cleanly. Anything not
+ * listed here falls back to kebab → Title Case (with a few acronyms preserved),
+ * so a brand-new slug renders reasonably without needing an entry.
+ *
+ * Note: `certificate-delivery` is a synthetic slug the cert pipeline threads
+ * onto its EmailLog rows (not a stored EmailTemplate), so it lives here too.
+ */
+const TEMPLATE_LABEL_OVERRIDES: Readonly<Record<string, string>> = {
+  "certificate-delivery": "Certificate",
+  "certificate-bundle-delivery": "Certificate (bundle)",
+  "document-delivery": "Document Delivery",
+  "custom-notification": "Custom Email",
+  "dinner-rsvp-invitation": "Dinner RSVP Invitation",
+  "speaker-reimbursement-invitation": "Reimbursement Invitation",
+  "speaker-reimbursement-received": "Reimbursement Received",
+  "webinar-reminder-1h": "Webinar Reminder (1h)",
+  "webinar-reminder-24h": "Webinar Reminder (24h)",
+};
+
+/** Words to keep as acronyms when Title-casing a slug. */
+const TEMPLATE_LABEL_ACRONYMS: Readonly<Record<string, string>> = {
+  rsvp: "RSVP",
+  cme: "CME",
+  qa: "Q&A",
+};
+
+/**
+ * A friendly display label for an email-template slug — e.g.
+ * `speaker-invitation` → "Speaker Invitation", `webinar-reminder-24h` →
+ * "Webinar Reminder (24h)". A null/absent slug (a raw one-off send with no
+ * template) reads as "Custom email". Client-safe (leaf module, no imports).
+ */
+export function formatTemplateLabel(slug: string | null | undefined): string {
+  if (!slug) return "Custom email";
+  const override = TEMPLATE_LABEL_OVERRIDES[slug];
+  if (override) return override;
+  return slug
+    .split("-")
+    .map(
+      (word) =>
+        TEMPLATE_LABEL_ACRONYMS[word] ??
+        (word.length ? word.charAt(0).toUpperCase() + word.slice(1) : word),
+    )
+    .join(" ");
+}

@@ -607,9 +607,10 @@ export default function TicketsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Registration Type Dialog */}
+      {/* Registration Type Dialog — wider (2xl) so the Tiptap description
+          toolbar + the seat-limit/approval fields breathe. */}
       <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editingType ? "Edit Registration Type" : "New Registration Type"}</DialogTitle>
           </DialogHeader>

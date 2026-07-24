@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Event-wide attendee cap (Option B): "Maximum Attendees" is now enforced (July 24)
+
+The Settings → Registration "Maximum Attendees" input existed but enforced
+nothing. It is now a real, race-safe event-wide cap. Commits `0b4be2f4` +
+review-fix follow-up.
+
+- **Schema:** `Event.maxAttendees` (null = unlimited) + `Event.seatCount`
+  enforcement counter (additive+idempotent migration `20260724120000`). The
+  legacy `settings.maxAttendees` JSON key is deliberately NOT migrated — it was
+  never enforced, and silently activating a forgotten value could block a live
+  event's registration; organizers re-enter the cap.
+- **Invariant:** an event seat is held IFF the registration holds a ticket/tier
+  seat (non-CANCELLED + IN_PERSON + not a speaker companion) — virtual
+  attendees and faculty never consume the cap; PENDING/WAITLISTED do.
+  `planSeatTransition` gains `eventDelta`; the shared
+  `applyRegistrationTransition` applies it centrally.
+- **Enforcement:** hard-blocks public register, single manual/MCP creates, and
+  single reactivations (`EVENT_FULL`); CSV/contacts/EventsAir imports + MCP
+  bulk proceed past the cap with an oversold warn (owner decision); cancel /
+  delete release the seat; type-change is a no-op by construction. The guarded
+  claim is a raw conditional UPDATE (`seatCount + n <= maxAttendees`) because
+  Prisma can't compare two columns in `updateMany`.
+- **Recompute-on-set:** saving a cap recounts `seatCount` from row-truth under
+  a `FOR UPDATE` row lock in the same tx (heals any pre-cap drift — also what
+  makes the blue-green window safe); a cap below the current attendee count is
+  rejected (400 `EVENT_CAP_BELOW_COUNT`, use Registration Open to stop sales).
+- **Public UX:** the event API exposes an `eventFull` flag (raw counters
+  stripped); register pages show a branded "Registration Full" state; HYBRID
+  events stay open with an amber "in-person full — virtual available" banner.
+  Clone copies the cap, never the counter.
+- **Review round (adversarial, post-ship per owner instruction):** HIGH-1 —
+  MCP `bulk_update_registration_status` is org-scoped, so event-seat deltas now
+  group per each row's OWN event (was: all applied to `ctx.eventId`,
+  corrupting two events' counters on a cross-event bulk). MED-1 — a CSV row
+  imported as CANCELLED no longer claims either counter (also closes the
+  pre-existing deferred M6 soldCount inflation). LOWs 1–4 tracked in ROADMAP.
+- **Tests:** +28 unit (eventDelta truth table, helpers, transition EVENT_FULL,
+  event-PUT recompute/reject, cross-event bulk grouping) and **+10 REAL-
+  Postgres integration tests** (`tests/crm-db/seat-capacity.db.test.ts`) —
+  raw-SQL boundary exactness, a 10-concurrent-claims-vs-cap-5 race admitting
+  exactly 5, guarded-release floor, and tx-rollback conservation. Suite 3753 +
+  15 crm-db.
+
+
 ### Added — Seat capacity settable from the UI (type + tier limits, seats-left opt-in) (July 24)
 
 The `soldCount < quantity` enforcement guards were already live on every

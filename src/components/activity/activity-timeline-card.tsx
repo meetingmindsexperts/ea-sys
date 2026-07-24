@@ -20,13 +20,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
 import type { ActivitySource, ActivityItem, ActivityFeed } from "@/lib/activity-feed-types";
 
 interface Props {
@@ -115,23 +109,10 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
   const items = data?.items ?? [];
   const linked = data?.linked ?? null;
 
-  // "View email" — the stored audit copy of a sent email's final HTML
-  // (certificate deliveries opt in via EmailLogContext.storeBody). Item ids
-  // are `email:{emailLogId}`; the body is fetched on open, never in the feed.
+  // "View email" — the stored audit copy of a sent email's final HTML (every
+  // send since July 16, 2026; older rows opt-in). Item ids are
+  // `email:{emailLogId}`; the body is fetched on open by ViewEmailDialog.
   const [viewEmailId, setViewEmailId] = useState<string | null>(null);
-  const emailBodyQuery = useQuery<{ subject: string; to: string; htmlBody: string }>({
-    queryKey: ["email-log-body", viewEmailId],
-    queryFn: async () => {
-      const res = await fetch(`/api/email-logs/${viewEmailId}/body`);
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(data?.error ?? `Failed to load the email (${res.status})`);
-      }
-      return res.json();
-    },
-    enabled: !!viewEmailId,
-    staleTime: 5 * 60_000,
-  });
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -263,41 +244,7 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
       )}
 
       {/* Sent-email viewer — the stored audit copy, rendered sandboxed. */}
-      <Dialog open={!!viewEmailId} onOpenChange={(open) => !open && setViewEmailId(null)}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Mail className="h-4 w-4" />
-              Sent email
-            </DialogTitle>
-            <DialogDescription>
-              {emailBodyQuery.data
-                ? `To ${emailBodyQuery.data.to} — “${emailBodyQuery.data.subject}”`
-                : "The stored copy of exactly what was sent."}
-            </DialogDescription>
-          </DialogHeader>
-          {emailBodyQuery.isLoading && (
-            <div className="flex items-center gap-2 p-4 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading the stored email…
-            </div>
-          )}
-          {emailBodyQuery.isError && (
-            <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              {emailBodyQuery.error instanceof Error
-                ? emailBodyQuery.error.message
-                : "Failed to load the email"}
-            </p>
-          )}
-          {emailBodyQuery.data && (
-            <iframe
-              title="Sent email"
-              sandbox=""
-              srcDoc={emailBodyQuery.data.htmlBody}
-              className="h-[28rem] w-full rounded-md border border-slate-200 bg-white"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      <ViewEmailDialog emailLogId={viewEmailId} onClose={() => setViewEmailId(null)} />
     </div>
   );
 }
