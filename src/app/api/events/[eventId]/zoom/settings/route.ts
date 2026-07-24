@@ -21,6 +21,18 @@ export async function GET(
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    // Org-independent roles (REVIEWER/SUBMITTER/REGISTRANT) have a null org.
+    // Guard before the query: `organizationId: null` is a Prisma validation
+    // error (Event.organizationId is non-nullable) — the `organizationId!`
+    // footgun that fired zoom:settings-fetch-failed.
+    const organizationId = session.user.organizationId;
+    if (!organizationId) {
+      apiLogger.warn(
+        { userId: session.user.id, role: session.user.role, eventId },
+        "zoom:settings-no-org",
+      );
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     // Fetch the event's per-event Zoom settings AND whether the ORG has Zoom
     // credentials configured. The org-credentials endpoint is ADMIN-only, but
@@ -30,11 +42,11 @@ export async function GET(
     // without depending on the admin-only credentials route.
     const [event, org] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
+        where: { id: eventId, organizationId },
         select: { id: true, settings: true },
       }),
       db.organization.findUnique({
-        where: { id: session.user.organizationId! },
+        where: { id: organizationId },
         select: { settings: true },
       }),
     ]);
@@ -74,6 +86,15 @@ export async function PUT(
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    const organizationId = session.user.organizationId;
+    if (!organizationId) {
+      apiLogger.warn(
+        { userId: session.user.id, role: session.user.role, eventId },
+        "zoom:settings-update-no-org",
+      );
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const validated = zoomSettingsSchema.safeParse(body);
     if (!validated.success) {
       apiLogger.warn({ errors: validated.error.flatten() }, "zoom:settings-validation-failed");
@@ -81,7 +102,7 @@ export async function PUT(
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId },
       select: { id: true, settings: true },
     });
 
