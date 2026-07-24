@@ -266,6 +266,11 @@ describe("create_registrations_bulk — M8 parity", () => {
     const tx = {
       attendee: { create: vi.fn().mockResolvedValue({ id: "att1", email: "a@b.com" }) },
       ticketType: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      // Event-wide cap: bulk creates use the unguarded overselling increment.
+      event: {
+        findUnique: vi.fn().mockResolvedValue({ seatCount: 0, maxAttendees: null }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
       registration: {
         create: vi.fn().mockImplementation(async (args: { data: Record<string, unknown> }) => ({
           id: "reg1", serialId: 7, qrCode: args.data.qrCode,

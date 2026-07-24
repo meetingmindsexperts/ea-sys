@@ -395,6 +395,88 @@ describe("PUT /api/events/[eventId]", () => {
 
 // ── DELETE Tests ──────────────────────────────────────────────────────────────
 
+describe("PUT /api/events/[eventId] — maxAttendees (event-wide cap, Option B)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /** tx mock for the cap block: row lock ($queryRaw) → registration.count →
+   *  event.update, all inside db.$transaction. */
+  function setupCapTx(currentCount: number) {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: "evt-1" }]),
+      registration: { count: vi.fn().mockResolvedValue(currentCount) },
+      event: { update: vi.fn().mockResolvedValue({}) },
+    };
+    (mockDb as unknown as { $transaction: unknown }).$transaction = vi.fn(
+      async (cb: (t: unknown) => unknown) => cb(tx),
+    );
+    return tx;
+  }
+
+  it("sets the cap and RECOMPUTES seatCount from row-truth in the same tx", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue(sampleEvent);
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    const tx = setupCapTx(40);
+
+    const res = await PUT(makePutRequest({ maxAttendees: 100 }), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+    expect(tx.event.update).toHaveBeenCalledWith({
+      where: { id: "evt-1" },
+      data: { maxAttendees: 100, seatCount: 40 },
+    });
+    // Recount excludes cancelled / virtual / companions and keeps null-source rows.
+    expect(tx.registration.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        eventId: "evt-1",
+        status: { not: "CANCELLED" },
+        attendanceMode: "IN_PERSON",
+        ticketTypeId: { not: null },
+        OR: [{ createdSource: null }, { createdSource: { not: "SPEAKER_COMPANION" } }],
+      }),
+    });
+  });
+
+  it("rejects a cap below the current attendee count with 400 + the count", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue(sampleEvent);
+    const tx = setupCapTx(150);
+
+    const res = await PUT(makePutRequest({ maxAttendees: 100 }), makeParams("evt-1"));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("EVENT_CAP_BELOW_COUNT");
+    expect(body.currentCount).toBe(150);
+    expect(tx.event.update).not.toHaveBeenCalled();
+  });
+
+  it("maxAttendees 0 clears the cap to null (unlimited) — never blocked by the count", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue(sampleEvent);
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    const tx = setupCapTx(5000);
+
+    const res = await PUT(makePutRequest({ maxAttendees: 0 }), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+    expect(tx.event.update).toHaveBeenCalledWith({
+      where: { id: "evt-1" },
+      data: { maxAttendees: null, seatCount: 5000 },
+    });
+  });
+
+  it("a PUT without maxAttendees never touches the cap tx", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst
+      .mockResolvedValueOnce(sampleEvent) // existing event
+      .mockResolvedValueOnce(null); // slug dup check
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    const tx = setupCapTx(0);
+
+    const res = await PUT(makePutRequest({ name: "Renamed Event" }), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+    expect(tx.registration.count).not.toHaveBeenCalled();
+  });
+});
+
 describe("DELETE /api/events/[eventId]", () => {
   beforeEach(() => vi.clearAllMocks());
 

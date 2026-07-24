@@ -278,7 +278,10 @@ export default function EventSettingsPage() {
           registrationOpen: settings.registrationOpen ?? true,
           waitlistEnabled: settings.waitlistEnabled ?? false,
           requireApproval: settings.requireApproval ?? false,
-          maxAttendees: settings.maxAttendees ?? 0,
+          // Read from the REAL column (enforced since July 24, 2026) — the
+          // legacy settings.maxAttendees JSON key is deliberately ignored
+          // (it was never enforced; organizers re-enter the cap).
+          maxAttendees: data.maxAttendees ?? 0,
           showRemainingTickets: settings.showRemainingTickets ?? false,
         });
 
@@ -377,12 +380,17 @@ export default function EventSettingsPage() {
   const handleSaveSettings = async () => {
     setSaving(true);
     try {
+      // maxAttendees is a real Event column (enforced cap) — sent top-level so
+      // the PUT runs the recompute-on-set + below-count guard; everything else
+      // stays in the settings JSON blob.
+      const { maxAttendees, ...registrationSettingsJson } = registrationSettings;
       const res = await fetch(`/api/events/${eventId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          maxAttendees,
           settings: {
-            ...registrationSettings,
+            ...registrationSettingsJson,
             ...agendaSettings,
             ...abstractSettings,
             ...notificationSettings,
@@ -932,6 +940,13 @@ export default function EventSettingsPage() {
                   }
                   className="w-48"
                 />
+                <p className="text-sm text-muted-foreground">
+                  Event-wide cap on in-person attendees, across all registration
+                  types. Public sign-ups and single manual adds are blocked once
+                  reached; bulk imports proceed with a warning. Virtual attendees
+                  and faculty never count. Cannot be set below the current
+                  attendee count.
+                </p>
               </div>
 
               <div className="space-y-2">

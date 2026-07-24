@@ -34,7 +34,7 @@ import { sendRegistrationConfirmation } from "@/lib/email";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { readSponsors } from "@/lib/webinar";
 import { needsQrCode } from "@/lib/registration-seat";
-import { applyRegistrationTransition } from "@/lib/registration-seat-db";
+import { applyRegistrationTransition, claimEventSeats } from "@/lib/registration-seat-db";
 import { resolveRepricing } from "@/lib/registration-repricing";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
@@ -337,6 +337,7 @@ export type CreateRegistrationErrorCode =
   | "SALES_NOT_STARTED"
   | "SALES_ENDED"
   | "SOLD_OUT"
+  | "EVENT_FULL"
   | "PRICING_TIER_NOT_FOUND"
   | "ALREADY_REGISTERED"
   | "INVALID_PAYMENT_STATUS"
@@ -728,6 +729,14 @@ export async function createRegistration(
         if (updated.count === 0) {
           throw new RegistrationServiceSentinel("SOLD_OUT", {});
         }
+        // Event-wide cap (Event.maxAttendees): a registration that holds a
+        // ticket seat also holds an event seat. Atomic conditional claim —
+        // null maxAttendees (the default) never blocks. Same-tx as the
+        // ticket claim so a failure rolls both back.
+        const eventClaimed = await claimEventSeats(tx, eventId);
+        if (!eventClaimed) {
+          throw new RegistrationServiceSentinel("EVENT_FULL", {});
+        }
       }
 
       // Entry barcode only for in-person attendees — virtual has nothing to
@@ -784,6 +793,14 @@ export async function createRegistration(
           ok: false,
           code: "SOLD_OUT",
           message: "Tickets sold out (race: sold out between pre-check and commit)",
+        };
+      }
+      if (err.code === "EVENT_FULL") {
+        apiLogger.warn({ msg: "registration:create-event-full", eventId, source }, "registration-service:event-full");
+        return {
+          ok: false,
+          code: "EVENT_FULL",
+          message: "This event has reached its maximum number of attendees. Raise the cap in Settings → Registration to admit more.",
         };
       }
     }
@@ -909,13 +926,13 @@ export async function createRegistration(
 
 /**
  * Typed sentinel so the outer catch can discriminate domain errors
- * (ALREADY_REGISTERED, SOLD_OUT) from genuine infrastructure failures.
- * Raw `throw new Error("ALREADY_REGISTERED")` would also work but makes
- * the discrimination fragile to message changes.
+ * (ALREADY_REGISTERED, SOLD_OUT, EVENT_FULL) from genuine infrastructure
+ * failures. Raw `throw new Error("ALREADY_REGISTERED")` would also work but
+ * makes the discrimination fragile to message changes.
  */
 class RegistrationServiceSentinel extends Error {
   constructor(
-    public readonly code: "ALREADY_REGISTERED" | "SOLD_OUT",
+    public readonly code: "ALREADY_REGISTERED" | "SOLD_OUT" | "EVENT_FULL",
     public readonly meta: Record<string, unknown>,
   ) {
     super(code);
@@ -1022,6 +1039,7 @@ export type UpdateRegistrationErrorCode =
   | "UNIQUE_CONSTRAINT"
   | "STALE_WRITE"
   | "CAPACITY_EXCEEDED"
+  | "EVENT_FULL"
   | "REPRICING_BLOCKED"
   | "UNKNOWN";
 
@@ -1260,6 +1278,7 @@ export async function updateRegistration(
           createdSource: existing.createdSource,
         },
         promoCodeId: existing.promoCodeId,
+        eventId,
       });
 
       // Keep attendee.registrationType synced with the ticket type name when
@@ -1352,8 +1371,8 @@ export async function updateRegistration(
         },
       });
     }).catch((err) => {
-      if (err instanceof Error && ["STALE_WRITE", "REGISTRATION_DISAPPEARED", "CAPACITY_EXCEEDED"].includes(err.message)) {
-        return err.message as "STALE_WRITE" | "REGISTRATION_DISAPPEARED" | "CAPACITY_EXCEEDED";
+      if (err instanceof Error && ["STALE_WRITE", "REGISTRATION_DISAPPEARED", "CAPACITY_EXCEEDED", "EVENT_FULL"].includes(err.message)) {
+        return err.message as "STALE_WRITE" | "REGISTRATION_DISAPPEARED" | "CAPACITY_EXCEEDED" | "EVENT_FULL";
       }
       throw err;
     });
@@ -1375,6 +1394,14 @@ export async function updateRegistration(
         ok: false,
         code: "CAPACITY_EXCEEDED",
         message: "Cannot reactivate/move this registration — the target registration type is sold out. Increase its quantity or pick another type.",
+      };
+    }
+    if (registration === "EVENT_FULL") {
+      apiLogger.warn({ msg: "registration:update-event-full", registrationId, eventId, source });
+      return {
+        ok: false,
+        code: "EVENT_FULL",
+        message: "Cannot reactivate this registration — the event has reached its maximum attendees. Raise the cap in Settings → Registration first.",
       };
     }
 

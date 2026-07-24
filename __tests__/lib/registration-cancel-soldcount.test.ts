@@ -16,6 +16,11 @@ const { mockDb, mockApiLogger, mockRefreshEventStats } = vi.hoisted(() => {
   const promoUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
   const tx = {
     ticketType: { updateMany: ttUpdateMany, findUnique: ttFindUnique },
+    event: {
+      findUnique: vi.fn().mockResolvedValue({ seatCount: 0, maxAttendees: null }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    $executeRaw: vi.fn(async () => 1),
     pricingTier: { updateMany: tierUpdateMany, findUnique: tierFindUnique },
     registration: { updateMany: regUpdateMany },
     promoCode: { updateMany: promoUpdateMany },

@@ -110,6 +110,8 @@ interface Event {
   agendaPublished?: boolean;
   /** "Show Remaining Tickets" toggle (opt-in, hidden by default). */
   showRemainingTickets?: boolean;
+  /** Event-wide attendee cap reached (Settings → Maximum Attendees). */
+  eventFull?: boolean;
 }
 
 // quantity >= this sentinel means "unlimited" — never show a seats-left count.
@@ -493,6 +495,12 @@ function CategoryRegistrationContent() {
   // Closed when the master switch is off (Settings → Registration) OR this tier
   // has no purchasable option. The master switch wins regardless of tier state.
   const isClosed = event.registrationOpen === false || purchasableOptions.length === 0;
+  // Event-wide cap reached. Virtual attendance never consumes the cap, so a
+  // HYBRID event stays open (with an in-person-full notice) — the register
+  // POST still enforces the cap atomically for in-person picks.
+  const isHybrid = event.eventType === "HYBRID";
+  const fullBlocksAll = event.eventFull === true && !isHybrid;
+  const fullInPersonOnly = event.eventFull === true && isHybrid;
   // When every purchasable option is free, "Free" on each row is noise —
   // hide the price column entirely. If even one option costs money, keep
   // the per-row label so users can see which is which at a glance.
@@ -563,18 +571,26 @@ function CategoryRegistrationContent() {
           </div>
 
           <div className="p-6 sm:px-10">
-            {isClosed ? (
+            {isClosed || fullBlocksAll ? (
               <div className="text-center py-12">
                 <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
                   <AlertCircle className="h-7 w-7 text-slate-400" />
                 </div>
-                <p className="font-medium text-slate-700">{formLabel} registration is currently closed</p>
-                <p className="text-sm text-slate-400 mt-1">Check back later or contact the organizer.</p>
+                <p className="font-medium text-slate-700">
+                  {fullBlocksAll && !isClosed
+                    ? "This event is fully booked"
+                    : `${formLabel} registration is currently closed`}
+                </p>
+                <p className="text-sm text-slate-400 mt-1">
+                  {fullBlocksAll && !isClosed
+                    ? "The event has reached its maximum number of attendees."
+                    : "Check back later or contact the organizer."}
+                </p>
                 {/* Disabled CTA — reads "Registration Closed" whenever this tier
                     (standard / onsite / early-bird) is toggled off, instead of
                     a register button. */}
                 <Button type="button" disabled aria-disabled className="mt-6 w-full max-w-xs mx-auto rounded-lg font-semibold py-3 text-base">
-                  Registration Closed
+                  {fullBlocksAll && !isClosed ? "Registration Full" : "Registration Closed"}
                 </Button>
               </div>
             ) : (
@@ -968,6 +984,14 @@ function CategoryRegistrationContent() {
                         venue barcode/badge; joining instructions are emailed
                         before the event. Drives pricing (flat virtual price)
                         and the confirmation email server-side. */}
+                    {/* HYBRID + event cap reached: in-person is full but virtual
+                        (uncapped) stays open — steer the registrant; the server
+                        enforces the cap atomically on in-person picks. */}
+                    {fullInPersonOnly && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        In-person registration is fully booked — you can still register to attend virtually.
+                      </div>
+                    )}
                     {event?.eventType === "HYBRID" && (
                       <FormField control={form.control} name="attendanceMode"
                         render={({ field }) => (

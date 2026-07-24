@@ -787,6 +787,7 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
           prev: { status: fresh.status, attendanceMode: fresh.attendanceMode, ticketTypeId: fresh.ticketTypeId, pricingTierId: fresh.pricingTierId, createdSource: fresh.createdSource },
           next: { status: "CANCELLED", attendanceMode: fresh.attendanceMode, ticketTypeId: fresh.ticketTypeId, pricingTierId: fresh.pricingTierId, createdSource: fresh.createdSource },
           promoCodeId: fresh.promoCodeId,
+          eventId,
         });
         return true;
       });

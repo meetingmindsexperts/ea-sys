@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   holdsSeat,
+  holdsEventSeat,
   seatCounter,
   planSeatTransition,
   needsQrCode,
@@ -71,28 +72,28 @@ describe("seatCounter — which counter the seat is tallied on", () => {
 
 describe("planSeatTransition — ticket-type axis (hybrid)", () => {
   it("virtual → in-person: claims a seat (the primary hybrid gap)", () => {
-    expect(planSeatTransition(s("CONFIRMED", VI, T), s("CONFIRMED", IN, T))).toEqual({ release: null, claim: TT(T) });
+    expect(planSeatTransition(s("CONFIRMED", VI, T), s("CONFIRMED", IN, T))).toEqual({ release: null, claim: TT(T), eventDelta: 1 });
   });
   it("in-person → virtual: releases the seat", () => {
-    expect(planSeatTransition(s("CONFIRMED", IN, T), s("CONFIRMED", VI, T))).toEqual({ release: TT(T), claim: null });
+    expect(planSeatTransition(s("CONFIRMED", IN, T), s("CONFIRMED", VI, T))).toEqual({ release: TT(T), claim: null, eventDelta: -1 });
   });
   it("cancelling an in-person reg releases its seat", () => {
-    expect(planSeatTransition(s("CONFIRMED", IN, T), s("CANCELLED", IN, T))).toEqual({ release: TT(T), claim: null });
+    expect(planSeatTransition(s("CONFIRMED", IN, T), s("CANCELLED", IN, T))).toEqual({ release: TT(T), claim: null, eventDelta: -1 });
   });
   it("cancelling a VIRTUAL reg is a no-op (never held a seat)", () => {
-    expect(planSeatTransition(s("CONFIRMED", VI, T), s("CANCELLED", VI, T))).toEqual({ release: null, claim: null });
+    expect(planSeatTransition(s("CONFIRMED", VI, T), s("CANCELLED", VI, T))).toEqual({ release: null, claim: null, eventDelta: 0 });
   });
   it("reactivating to in-person claims a seat", () => {
-    expect(planSeatTransition(s("CANCELLED", IN, T), s("CONFIRMED", IN, T))).toEqual({ release: null, claim: TT(T) });
+    expect(planSeatTransition(s("CANCELLED", IN, T), s("CONFIRMED", IN, T))).toEqual({ release: null, claim: TT(T), eventDelta: 1 });
   });
   it("type change while in-person: release old, claim new", () => {
-    expect(planSeatTransition(s("CONFIRMED", IN, T), s("CONFIRMED", IN, T2))).toEqual({ release: TT(T), claim: TT(T2) });
+    expect(planSeatTransition(s("CONFIRMED", IN, T), s("CONFIRMED", IN, T2))).toEqual({ release: TT(T), claim: TT(T2), eventDelta: 0 });
   });
   it("no change is a no-op", () => {
-    expect(planSeatTransition(s("CONFIRMED", IN, T), s("CONFIRMED", IN, T))).toEqual({ release: null, claim: null });
+    expect(planSeatTransition(s("CONFIRMED", IN, T), s("CONFIRMED", IN, T))).toEqual({ release: null, claim: null, eventDelta: 0 });
   });
   it("missing ticketTypeId never holds a seat", () => {
-    expect(planSeatTransition(s("CONFIRMED", IN, null), s("CONFIRMED", IN, null))).toEqual({ release: null, claim: null });
+    expect(planSeatTransition(s("CONFIRMED", IN, null), s("CONFIRMED", IN, null))).toEqual({ release: null, claim: null, eventDelta: 0 });
   });
 });
 
@@ -102,7 +103,7 @@ describe("planSeatTransition — tier axis (P1.1 double-leak fix)", () => {
   it("cancelling a PUBLIC+TIER reg releases the TIER, never the ticket type", () => {
     expect(
       planSeatTransition(s("CONFIRMED", IN, T, pub), s("CANCELLED", IN, T, pub)),
-    ).toEqual({ release: TIER(P), claim: null });
+    ).toEqual({ release: TIER(P), claim: null, eventDelta: -1 });
   });
 
   it("cancelling an ADMIN+TIER reg releases the TICKET TYPE (admin tier counts on the type)", () => {
@@ -111,13 +112,13 @@ describe("planSeatTransition — tier axis (P1.1 double-leak fix)", () => {
         s("CONFIRMED", IN, T, { createdSource: "ADMIN_DASHBOARD", pricingTierId: P }),
         s("CANCELLED", IN, T, { createdSource: "ADMIN_DASHBOARD", pricingTierId: P }),
       ),
-    ).toEqual({ release: TT(T), claim: null });
+    ).toEqual({ release: TT(T), claim: null, eventDelta: -1 });
   });
 
   it("reactivating a PUBLIC+TIER reg re-claims the TIER", () => {
     expect(
       planSeatTransition(s("CANCELLED", IN, T, pub), s("CONFIRMED", IN, T, pub)),
-    ).toEqual({ release: null, claim: TIER(P) });
+    ).toEqual({ release: null, claim: TIER(P), eventDelta: 1 });
   });
 
   it("type-change of a PUBLIC+TIER reg (caller nulls next tier) → release TIER, claim new TICKET TYPE", () => {
@@ -128,19 +129,42 @@ describe("planSeatTransition — tier axis (P1.1 double-leak fix)", () => {
         s("CONFIRMED", IN, T, pub),
         s("CONFIRMED", IN, T2, { createdSource: "PUBLIC_REGISTER", pricingTierId: null }),
       ),
-    ).toEqual({ release: TIER(P), claim: TT(T2) });
+    ).toEqual({ release: TIER(P), claim: TT(T2), eventDelta: 0 });
   });
 
   it("PUBLIC+TIER no-op (same tier, still active) moves nothing", () => {
     expect(
       planSeatTransition(s("CONFIRMED", IN, T, pub), s("CONFIRMED", IN, T, pub)),
-    ).toEqual({ release: null, claim: null });
+    ).toEqual({ release: null, claim: null, eventDelta: 0 });
   });
 
   it("PUBLIC+TIER going virtual releases the TIER (virtual is uncapped)", () => {
     expect(
       planSeatTransition(s("CONFIRMED", IN, T, pub), s("CONFIRMED", VI, T, pub)),
-    ).toEqual({ release: TIER(P), claim: null });
+    ).toEqual({ release: TIER(P), claim: null, eventDelta: -1 });
+  });
+});
+
+describe("holdsEventSeat — the event-wide cap invariant (Option B)", () => {
+  it("holds an event seat IFF it holds a ticket/tier seat", () => {
+    expect(holdsEventSeat(s("CONFIRMED", IN, T))).toBe(true);
+    expect(holdsEventSeat(s("PENDING", IN, T))).toBe(true); // PENDING counts (owner decision)
+    expect(holdsEventSeat(s("WAITLISTED", IN, T))).toBe(true);
+  });
+  it("virtual never consumes the event cap", () => {
+    expect(holdsEventSeat(s("CONFIRMED", VI, T))).toBe(false);
+  });
+  it("cancelled never consumes the event cap", () => {
+    expect(holdsEventSeat(s("CANCELLED", IN, T))).toBe(false);
+  });
+  it("speaker companions (faculty) never consume the event cap", () => {
+    expect(holdsEventSeat(s("CONFIRMED", IN, "faculty_tt", { createdSource: "SPEAKER_COMPANION" }))).toBe(false);
+  });
+  it("no ticket type → no event seat", () => {
+    expect(holdsEventSeat(s("CONFIRMED", IN, null))).toBe(false);
+  });
+  it("public+tier holds an event seat (counted on the tier counter)", () => {
+    expect(holdsEventSeat(s("CONFIRMED", IN, T, { createdSource: "PUBLIC_REGISTER", pricingTierId: P }))).toBe(true);
   });
 });
 

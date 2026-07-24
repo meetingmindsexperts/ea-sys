@@ -5,6 +5,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { getNextSerialId } from "@/lib/registration-serial";
+import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -145,6 +146,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
         if (claimed.count === 0) {
           throw new Error("CAPACITY_EXCEEDED");
+        }
+        // Event-wide cap: imports BYPASS the cap (owner decision July 24, 2026)
+        // — unguarded increment, warn when over.
+        const eventSeat = await incrementEventSeatsOverselling(tx, eventId, toCreate.length);
+        if (eventSeat.oversold) {
+          apiLogger.warn({
+            msg: "import:event-oversold",
+            eventId,
+            newSeatCount: eventSeat.newSeatCount,
+            maxAttendees: eventSeat.maxAttendees,
+            source: "import-contacts",
+          });
         }
       });
     }

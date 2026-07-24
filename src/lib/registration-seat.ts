@@ -79,12 +79,30 @@ export function seatCounter(
   return null;
 }
 
+/**
+ * True when this registration consumes a seat against the EVENT-wide cap
+ * (`Event.maxAttendees` / `Event.seatCount`). One invariant, owner decision
+ * July 24, 2026: an event seat is held IFF the registration holds a
+ * ticket/tier seat — i.e. non-CANCELLED + IN_PERSON + counted on SOME counter
+ * (speaker companions live on no counter, so faculty never consume the cap;
+ * virtual is uncapped everywhere). PENDING/WAITLISTED hold seats today and
+ * therefore count against the event cap too.
+ */
+export function holdsEventSeat(state: SeatState): boolean {
+  return holdsSeat(state.status, state.attendanceMode) && seatCounter(state) !== null;
+}
+
 export interface SeatTransition {
   /** Release a seat on this counter (guarded decrement). null = none. */
   release: SeatCounter | null;
   /** Claim a seat on this counter (atomic capacity-guarded increment by the
    *  caller, which maps a failed claim to CAPACITY_EXCEEDED). null = none. */
   claim: SeatCounter | null;
+  /** Net change to the EVENT-wide seat counter (`Event.seatCount`): +1 when the
+   *  registration starts holding an event seat, -1 when it stops, 0 otherwise
+   *  (including type/tier changes — the seat moves counters but the person is
+   *  still one attendee). */
+  eventDelta: -1 | 0 | 1;
 }
 
 function sameCounter(a: SeatCounter | null, b: SeatCounter | null): boolean {
@@ -108,10 +126,14 @@ export function planSeatTransition(prev: SeatState, next: SeatState): SeatTransi
   const prevTarget = holdsSeat(prev.status, prev.attendanceMode) ? seatCounter(prev) : null;
   const nextTarget = holdsSeat(next.status, next.attendanceMode) ? seatCounter(next) : null;
 
+  // Event-wide delta: +1/-1 only when the "holds an event seat" boolean flips.
+  // A counter move (type/tier change) keeps the person as one attendee → 0.
+  const eventDelta = ((nextTarget ? 1 : 0) - (prevTarget ? 1 : 0)) as -1 | 0 | 1;
+
   if (sameCounter(prevTarget, nextTarget)) {
-    return { release: null, claim: null };
+    return { release: null, claim: null, eventDelta };
   }
-  return { release: prevTarget, claim: nextTarget };
+  return { release: prevTarget, claim: nextTarget, eventDelta };
 }
 
 /**

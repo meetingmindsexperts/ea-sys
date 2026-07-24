@@ -119,6 +119,9 @@ export async function POST(
             badgeVerticalOffset: source.badgeVerticalOffset,
             cmeHours: source.cmeHours,
             requiresDtcmBarcode: source.requiresDtcmBarcode,
+            // Event-wide attendee cap is config → copy; seatCount deliberately
+            // NOT copied (the clone starts with zero registrations).
+            maxAttendees: source.maxAttendees,
           },
         });
 

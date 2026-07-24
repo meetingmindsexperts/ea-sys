@@ -6,6 +6,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
+import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
 import { ATTENDEE_ROLE_ORDER } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
@@ -332,6 +333,19 @@ export async function POST(req: Request, { params }: RouteParams) {
             });
             if (claimed.count === 0) {
               throw new Error("CAPACITY_EXCEEDED");
+            }
+            // Event-wide cap: imports BYPASS the cap (owner decision July 24,
+            // 2026) — unguarded increment, warn when over, mirroring the bulk
+            // oversell posture. The event counter moves with the ticket counter.
+            const eventSeat = await incrementEventSeatsOverselling(tx, eventId);
+            if (eventSeat.oversold) {
+              apiLogger.warn({
+                msg: "import:event-oversold",
+                eventId,
+                newSeatCount: eventSeat.newSeatCount,
+                maxAttendees: eventSeat.maxAttendees,
+                source: "csv-import",
+              });
             }
           }
 

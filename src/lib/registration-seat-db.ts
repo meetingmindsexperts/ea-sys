@@ -79,6 +79,86 @@ export async function claimSeat(
   return claimSeats(tx, counter, 1);
 }
 
+/**
+ * Claim N seats against the EVENT-wide cap (`Event.maxAttendees` /
+ * `Event.seatCount`) — atomic conditional increment. Returns false when the
+ * event is full so the caller can map it to EVENT_FULL. Raw SQL because the
+ * guard compares two columns (`seatCount + N <= maxAttendees`), which Prisma
+ * `updateMany` cannot express (same reason as the accommodation
+ * `bookedRooms < totalRooms` fix). A null `maxAttendees` (unlimited — the
+ * default for every event) still increments so the counter stays warm, but
+ * never blocks.
+ */
+export async function claimEventSeats(
+  tx: Prisma.TransactionClient,
+  eventId: string,
+  count = 1,
+): Promise<boolean> {
+  if (count <= 0) return true;
+  const affected = await tx.$executeRaw`
+    UPDATE "Event"
+    SET "seatCount" = "seatCount" + ${count}
+    WHERE "id" = ${eventId}
+      AND ("maxAttendees" IS NULL OR "seatCount" + ${count} <= "maxAttendees")
+  `;
+  return affected > 0;
+}
+
+/**
+ * Release N event-wide seats — guarded decrement (`seatCount >= N`), never
+ * below 0, mirroring `releaseSeats`. Silent no-op on pre-guard drift; the
+ * recompute-on-cap-set in the event PUT self-heals any residue.
+ */
+export async function releaseEventSeats(
+  tx: Prisma.TransactionClient,
+  eventId: string,
+  count = 1,
+): Promise<void> {
+  if (count <= 0) return;
+  await tx.event.updateMany({
+    where: { id: eventId, seatCount: { gte: count } },
+    data: { seatCount: { decrement: count } },
+  });
+}
+
+export interface EventOversellResult {
+  /** true when the increment pushed seatCount past maxAttendees — caller must warn-log. */
+  oversold: boolean;
+  newSeatCount: number | null;
+  maxAttendees: number | null;
+}
+
+/**
+ * Increment the EVENT-wide seat counter WITHOUT the cap guard — the
+ * imports-bypass policy (owner decision July 24, 2026): admin bulk imports
+ * (CSV / contacts / EventsAir) and bulk reactivation always succeed and the
+ * over-cap condition is reported for the caller to warn-log, mirroring
+ * `claimSeatsOverselling`. Single manual adds + public register + single
+ * reactivations hard-block via `claimEventSeats` instead.
+ */
+export async function incrementEventSeatsOverselling(
+  tx: Prisma.TransactionClient,
+  eventId: string,
+  count = 1,
+): Promise<EventOversellResult> {
+  const none: EventOversellResult = { oversold: false, newSeatCount: null, maxAttendees: null };
+  if (count <= 0) return none;
+  const event = await tx.event.findUnique({
+    where: { id: eventId },
+    select: { seatCount: true, maxAttendees: true },
+  });
+  await tx.event.updateMany({
+    where: { id: eventId },
+    data: { seatCount: { increment: count } },
+  });
+  if (!event) return none;
+  return {
+    oversold: event.maxAttendees != null && event.seatCount + count > event.maxAttendees,
+    newSeatCount: event.seatCount + count,
+    maxAttendees: event.maxAttendees,
+  };
+}
+
 export interface OversellingClaimResult {
   /** true when the increment pushed soldCount past quantity — caller must log it. */
   oversold: boolean;
@@ -200,6 +280,9 @@ export interface RegistrationTransitionInput {
   prev: SeatState;
   next: SeatState;
   promoCodeId?: string | null;
+  /** The registration's event — required so the EVENT-wide seat counter
+   *  (`Event.seatCount`) moves with the ticket/tier counter. */
+  eventId: string;
 }
 
 /**
@@ -237,6 +320,14 @@ export async function applyRegistrationTransition(
   if (seat.claim) {
     const claimed = await claimSeat(tx, seat.claim);
     if (!claimed) throw new Error("CAPACITY_EXCEEDED");
+  }
+  // Event-wide cap: single-path transitions hard-block when reactivating into a
+  // full event (bulk paths use incrementEventSeatsOverselling instead).
+  if (seat.eventDelta === -1) {
+    await releaseEventSeats(tx, input.eventId);
+  } else if (seat.eventDelta === 1) {
+    const eventClaimed = await claimEventSeats(tx, input.eventId);
+    if (!eventClaimed) throw new Error("EVENT_FULL");
   }
   if (!input.promoCodeId) return;
   const becomingCancelled = input.next.status === "CANCELLED" && input.prev.status !== "CANCELLED";

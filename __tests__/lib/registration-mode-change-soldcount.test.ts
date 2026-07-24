@@ -18,6 +18,11 @@ const { mockDb } = vi.hoisted(() => {
   const promoUpdate = vi.fn().mockResolvedValue({});
   const tx = {
     ticketType: { update: ticketTypeUpdate, findUnique: ticketTypeFindUnique, updateMany: ticketTypeUpdateMany },
+    event: {
+      findUnique: vi.fn().mockResolvedValue({ seatCount: 0, maxAttendees: null }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    $executeRaw: vi.fn(async () => 1),
     registration: { updateMany: regUpdateMany, findUniqueOrThrow: regFindUniqueOrThrow },
     attendee: { update: attendeeUpdate },
     promoCode: { update: promoUpdate },

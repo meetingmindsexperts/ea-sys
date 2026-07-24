@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
+import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 import { syncToContact } from "@/lib/contact-sync";
 import { downloadExternalPhoto } from "@/lib/storage";
@@ -170,6 +171,18 @@ export async function POST(req: Request, { params }: RouteParams) {
           });
           if (claimed.count === 0) {
             throw new Error("TICKET_CAPACITY_REACHED");
+          }
+          // Event-wide cap: imports BYPASS the cap (owner decision July 24,
+          // 2026) — unguarded increment, warn when over.
+          const eventSeat = await incrementEventSeatsOverselling(tx, eventId);
+          if (eventSeat.oversold) {
+            apiLogger.warn({
+              msg: "import:event-oversold",
+              eventId,
+              newSeatCount: eventSeat.newSeatCount,
+              maxAttendees: eventSeat.maxAttendees,
+              source: "eventsair-import",
+            });
           }
         });
         created++;

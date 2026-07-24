@@ -17,6 +17,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb } = vi.hoisted(() => {
   const tx = {
     ticketType: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
+    event: {
+      findUnique: vi.fn().mockResolvedValue({ seatCount: 0, maxAttendees: null }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    $executeRaw: vi.fn(async () => 1),
     pricingTier: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
     registration: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),

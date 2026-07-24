@@ -9,6 +9,8 @@ import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-sea
 import {
   claimPromoUsage,
   claimSeatsOverselling,
+  incrementEventSeatsOverselling,
+  releaseEventSeats,
   releasePromoUsage,
   releaseSeats,
 } from "@/lib/registration-seat-db";
@@ -420,6 +422,7 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
             prev: { status: reg.status, ...seatFields },
             next: { status: "CHECKED_IN", ...seatFields },
             promoCodeId: reg.promoCodeId,
+            eventId: ctx.eventId,
           }
         : undefined,
     });
@@ -431,6 +434,13 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
       return {
         error: "Cannot check in this cancelled registration — its registration type is sold out. Increase its quantity first.",
         code: "CAPACITY_EXCEEDED",
+      };
+    }
+    if (err instanceof Error && err.message === "EVENT_FULL") {
+      apiLogger.warn({ msg: "agent:check-in-reactivate-event-full", source: "mcp" });
+      return {
+        error: "Cannot check in this cancelled registration — the event has reached its maximum attendees. Raise the cap in Settings → Registration first.",
+        code: "EVENT_FULL",
       };
     }
     apiLogger.error({ err }, "agent:check_in_registration failed");
@@ -666,6 +676,10 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
       const toClaim = new Map<string, { counter: SeatCounter; count: number }>();
       const promoRelease = new Map<string, number>(); // promoCodeId → uses released on cancel
       const promoClaim = new Map<string, number>(); // promoCodeId → uses re-claimed on reactivation (H6 symmetry)
+      // Event-wide seat counter: rows whose "holds an event seat" boolean flips
+      // (a row holds an event seat iff it holds a seat on ANY counter).
+      let eventSeatRelease = 0;
+      let eventSeatClaim = 0;
       const bump = (m: Map<string, { counter: SeatCounter; count: number }>, c: SeatCounter) => {
         const k = `${c.kind}:${c.id}`;
         const e = m.get(k);
@@ -689,13 +703,19 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
           // Release only the seat it actually held (in-person + was non-cancelled).
           if (holdsSeat(r.status, r.attendanceMode)) {
             const c = seatCounter(r);
-            if (c) bump(toRelease, c);
+            if (c) {
+              bump(toRelease, c);
+              eventSeatRelease++;
+            }
           }
         } else if (reactivating) {
           // Claim only if it will hold a seat after reactivation (in-person).
           if (holdsSeat(status as typeof r.status, r.attendanceMode)) {
             const c = seatCounter(r);
-            if (c) bump(toClaim, c);
+            if (c) {
+              bump(toClaim, c);
+              eventSeatClaim++;
+            }
           }
         }
       }
@@ -724,6 +744,23 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
                 : { ticketTypeId: counter.id, ticketName: res.counterName }),
               newSoldCount: res.newSoldCount,
               quantity: res.quantity,
+              source: "mcp",
+            });
+          }
+        }
+        // Event-wide counter moves with the per-counter seats. Bulk reactivation
+        // keeps the oversell-and-warn posture (never partial-fails 200 rows).
+        if (eventSeatRelease > 0) {
+          await releaseEventSeats(tx, ctx.eventId, eventSeatRelease);
+        }
+        if (eventSeatClaim > 0) {
+          const evRes = await incrementEventSeatsOverselling(tx, ctx.eventId, eventSeatClaim);
+          if (evRes.oversold) {
+            apiLogger.warn({
+              msg: "registration:bulk-reactivate-event-oversold",
+              eventId: ctx.eventId,
+              newSeatCount: evRes.newSeatCount,
+              maxAttendees: evRes.maxAttendees,
               source: "mcp",
             });
           }
@@ -936,6 +973,21 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
             data: { soldCount: { increment: 1 } },
           });
           if (incremented.count === 0) throw new Error("SOLD_OUT");
+
+          // Event-wide cap: bulk creates follow the imports-bypass policy
+          // (owner decision July 24, 2026) — proceed past a full event and
+          // warn-log, mirroring claimSeatsOverselling. Single creates
+          // hard-block via the service's EVENT_FULL instead.
+          const eventSeat = await incrementEventSeatsOverselling(tx, ctx.eventId);
+          if (eventSeat.oversold) {
+            apiLogger.warn({
+              msg: "registration:bulk-create-event-oversold",
+              eventId: ctx.eventId,
+              newSeatCount: eventSeat.newSeatCount,
+              maxAttendees: eventSeat.maxAttendees,
+              source: "mcp",
+            });
+          }
 
           const qrCode = generateBarcode();
           const serialId = await getNextSerialId(tx, ctx.eventId);

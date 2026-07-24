@@ -58,6 +58,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         abstractWelcomeHtml: true,
         registrationConfirmationHtml: true,
         settings: true,
+        maxAttendees: true,
+        seatCount: true,
         organization: {
           select: {
             name: true,
@@ -178,6 +180,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     return NextResponse.json({
       ...event,
       settings: undefined,
+      // Raw counters stay private — the public payload carries only the flag.
+      maxAttendees: undefined,
+      seatCount: undefined,
+      // Event-wide attendee cap reached (Settings → Registration → Maximum
+      // Attendees). The register pages show a "Registration Full" state; the
+      // register POST enforces it atomically regardless.
+      eventFull: event.maxAttendees != null && event.seatCount >= event.maxAttendees,
       ticketTypes,
       hasPromoCodes,
       abstractSettings: {

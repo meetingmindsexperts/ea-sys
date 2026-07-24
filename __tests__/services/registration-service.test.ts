@@ -46,8 +46,13 @@ const {
             updateMany: (...a: unknown[]) =>
               (mockDb.ticketType.updateMany as (...a: unknown[]) => unknown)(...a),
           },
+          // Event-wide cap (Option B): claimEventSeats runs a raw conditional
+          // UPDATE. Default 1 affected row = event not full.
+          $executeRaw: (...a: unknown[]) =>
+            (mockDb.$executeRaw as (...a: unknown[]) => unknown)(...a),
         });
       }),
+      $executeRaw: vi.fn(async () => 1),
     },
     mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
     mockSyncToContact: vi.fn(),

@@ -62,6 +62,11 @@ const updateEventSchema = z.object({
   taxLabel: z.string().max(50).nullable().optional(),
   bankDetails: z.string().max(5000).nullable().optional(),
   badgeVerticalOffset: z.number().int().min(-200).max(200).optional(),
+  // Event-wide attendee cap. 0 or null = unlimited (the Settings UI labels the
+  // input "0 = unlimited"); stored as null. Setting a cap RECOMPUTES
+  // Event.seatCount from row-truth in the same transaction (self-healing) and
+  // is rejected when below the current attendee count.
+  maxAttendees: z.number().int().min(0).max(1000000).nullable().optional(),
   // Dubai (DET/DTCM) compliance toggle — surfaces the per-registration
   // DTCM barcode field for this event only.
   requiresDtcmBarcode: z.boolean().optional(),
@@ -208,6 +213,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       bankDetails,
       badgeVerticalOffset,
       requiresDtcmBarcode,
+      maxAttendees,
       surveyConfig,
       settings,
     } = validated.data;
@@ -292,6 +298,69 @@ export async function PUT(req: Request, { params }: RouteParams) {
           { status: 400 },
         );
       }
+    }
+
+    // Event-wide attendee cap (maxAttendees): recompute-on-set. The counter
+    // (Event.seatCount) starts at 0 and can drift while no cap is active, so
+    // the moment a cap is set/changed we recompute it from row-truth INSIDE the
+    // same transaction, under a row lock on the Event so concurrent
+    // registration claims serialize against the recount. Reject a cap below
+    // the current count (same rule as the type/tier quantity guards) — to stop
+    // sales, use the Registration Open toggle instead.
+    if (maxAttendees !== undefined) {
+      const effectiveMax = maxAttendees === 0 ? null : maxAttendees;
+      const capResult = await db.$transaction(async (tx) => {
+        // Row lock: claimEventSeats/releaseEventSeats UPDATEs block until this
+        // tx commits, so the recount can't be raced by a concurrent claim.
+        await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${eventId} FOR UPDATE`;
+        // Row-truth mirror of holdsEventSeat()/seatCounter(): non-cancelled,
+        // in-person, not a speaker companion, on a ticket type. The explicit
+        // OR keeps null createdSource rows IN (Prisma `not` excludes nulls).
+        const currentCount = await tx.registration.count({
+          where: {
+            eventId,
+            status: { not: "CANCELLED" },
+            attendanceMode: "IN_PERSON",
+            ticketTypeId: { not: null },
+            OR: [
+              { createdSource: null },
+              { createdSource: { not: "SPEAKER_COMPANION" } },
+            ],
+          },
+        });
+        if (effectiveMax != null && effectiveMax < currentCount) {
+          return { ok: false as const, currentCount };
+        }
+        await tx.event.update({
+          where: { id: eventId },
+          data: { maxAttendees: effectiveMax, seatCount: currentCount },
+        });
+        return { ok: true as const, currentCount };
+      });
+      if (!capResult.ok) {
+        apiLogger.warn({
+          msg: "event-update:max-attendees-below-count",
+          eventId,
+          requestedMax: effectiveMax,
+          currentCount: capResult.currentCount,
+          userId: session.user.id,
+        });
+        return NextResponse.json(
+          {
+            error: `Maximum attendees cannot be less than the current attendee count (${capResult.currentCount}). To stop new registrations, switch Registration Open off instead.`,
+            code: "EVENT_CAP_BELOW_COUNT",
+            currentCount: capResult.currentCount,
+          },
+          { status: 400 },
+        );
+      }
+      apiLogger.info({
+        msg: "event-update:max-attendees-set",
+        eventId,
+        maxAttendees: effectiveMax,
+        recomputedSeatCount: capResult.currentCount,
+        userId: session.user.id,
+      });
     }
 
     // Merge settings if provided — protect managed keys from being overwritten.

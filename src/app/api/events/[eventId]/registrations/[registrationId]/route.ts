@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { RegistrationStatus, AttendanceMode } from "@prisma/client";
 import { holdsSeat, seatCounter } from "@/lib/registration-seat";
-import { releasePromoUsage, releaseSeat } from "@/lib/registration-seat-db";
+import { releaseEventSeats, releasePromoUsage, releaseSeat } from "@/lib/registration-seat-db";
 import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -127,6 +127,7 @@ const HTTP_STATUS_FOR_UPDATE_CODE: Partial<Record<UpdateRegistrationErrorCode, n
   UNIQUE_CONSTRAINT: 409,
   STALE_WRITE: 409,
   CAPACITY_EXCEEDED: 409,
+  EVENT_FULL: 409,
   UNKNOWN: 500,
 };
 
@@ -556,6 +557,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         : null;
       if (heldSeat) {
         await releaseSeat(tx, heldSeat);
+        // A registration that held a ticket/tier seat also held an event-wide
+        // seat (Event.seatCount) — release it in the same tx.
+        await releaseEventSeats(tx, eventId);
       }
       // DATA-1: release the promo code's usage count on delete (unless this row
       // was already CANCELLED, in which case the cancel already released it).

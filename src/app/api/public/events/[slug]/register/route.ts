@@ -13,6 +13,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
+import { claimEventSeats } from "@/lib/registration-seat-db";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 
 const registrationSchema = z.object({
@@ -173,6 +174,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         city: true,
         organizationId: true,
         settings: true,
+        maxAttendees: true,
+        seatCount: true,
         taxRate: true,
         taxLabel: true,
         bankDetails: true,
@@ -277,6 +280,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Sold out" }, { status: 400 });
     }
 
+    // Event-wide cap pre-check (non-authoritative — the atomic claim is inside
+    // the transaction). Virtual never consumes the event cap.
+    if (!isVirtual && event.maxAttendees != null && event.seatCount >= event.maxAttendees) {
+      apiLogger.warn({ msg: "public/register:event-full", eventId: event.id, maxAttendees: event.maxAttendees });
+      return NextResponse.json({ error: "This event is fully booked" }, { status: 400 });
+    }
+
     // Derive registrationType from the selected ticket type name
     const registrationType = ticketType.name;
     const regTypeLower = registrationType.toLowerCase();
@@ -375,6 +385,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           });
           if (updated.count === 0) throw new Error("SOLD_OUT");
         }
+        // Event-wide cap (Event.maxAttendees): an in-person public registration
+        // also holds an event seat. Atomic conditional claim in the same tx —
+        // null maxAttendees (the default) never blocks.
+        const eventClaimed = await claimEventSeats(tx, event.id);
+        if (!eventClaimed) throw new Error("EVENT_FULL");
       }
 
       // Virtual uses the ticket's flat virtualPrice (null ⇒ in-person price);
@@ -711,6 +726,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const businessRejections = [
         "ALREADY_REGISTERED",
         "SOLD_OUT",
+        "EVENT_FULL",
         "INVALID_PROMO_CODE",
         "PROMO_CODE_NOT_APPLICABLE",
         "PROMO_CODE_EXHAUSTED",
@@ -728,6 +744,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (error.message === "SOLD_OUT") {
         return NextResponse.json(
           { error: "Tickets sold out" },
+          { status: 400 }
+        );
+      }
+      if (error.message === "EVENT_FULL") {
+        return NextResponse.json(
+          { error: "This event is fully booked" },
           { status: 400 }
         );
       }

@@ -308,6 +308,20 @@ model Event {
   taxLabel                     String?     @default("VAT")
   bankDetails                  String?     @db.Text
   badgeVerticalOffset          Int         @default(0)
+  // Event-wide attendee cap (July 24, 2026). Null = unlimited. Deliberately
+  // NOT seeded from the legacy (never-enforced) `settings.maxAttendees` JSON
+  // key — silently activating a forgotten number could block a live event's
+  // registration; organizers re-enter the cap deliberately in Settings.
+  maxAttendees                 Int?
+  // The enforcement counter for maxAttendees — mirrors TicketType.soldCount.
+  // Counts registrations that hold a ticket/tier seat (non-CANCELLED +
+  // IN_PERSON + not a speaker companion; see seatCounter() in
+  // src/lib/registration-seat.ts) — so virtual attendees and faculty never
+  // consume the cap. Maintained via raw conditional UPDATEs (Prisma updateMany
+  // can't compare seatCount < maxAttendees column-to-column); RECOMPUTED from
+  // row-truth inside the same tx whenever an organizer sets/changes
+  // maxAttendees, so pre-cap drift self-heals at the moment a cap goes live.
+  seatCount                    Int         @default(0)
   // CME / CPD hours awarded for attending this event. Read by the CME
   // certificate template. Decimal(4,1) allows fractional hours up to
   // 999.9 — accreditors routinely award half-hour increments.

@@ -65,6 +65,9 @@ interface Event {
   bannerImageMobile?: string | null;
   footerHtml: string | null;
   registrationOpen?: boolean;
+  eventType?: string | null;
+  /** Event-wide attendee cap reached (Settings → Maximum Attendees). */
+  eventFull?: boolean;
   organization: { name: string; logo: string | null };
   ticketTypes: TicketType[];
 }
@@ -147,8 +150,12 @@ export default function RegisterOverviewPage() {
     // regardless of which individual tiers (standard/onsite) are active — so we
     // skip the redirect and fall through to the branded closed page below.
     const registrationOpen = event.registrationOpen !== false;
+    // Event-wide cap reached: block like closed — EXCEPT on HYBRID events,
+    // where virtual attendance (uncapped) is still open, so we redirect to the
+    // tier page which shows the in-person-full notice.
+    const eventFullBlocks = event.eventFull === true && event.eventType !== "HYBRID";
     // Find first active tier by priority, excluding "Presenter" (presenter has its own direct link)
-    const activeTier = !registrationOpen
+    const activeTier = !registrationOpen || eventFullBlocks
       ? undefined
       : event.ticketTypes
           ?.flatMap((tt: TicketType) => (tt.pricingTiers || []).filter((t: PricingTier) => t.canPurchase))
@@ -212,14 +219,18 @@ export default function RegisterOverviewPage() {
             <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-slate-50 flex items-center justify-center">
               <AlertCircle className="h-7 w-7 text-slate-400" />
             </div>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Registration Closed</h2>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">
+              {eventFullBlocks && registrationOpen ? "Registration Full" : "Registration Closed"}
+            </h2>
             <p className="text-slate-500 text-sm mb-6">
-              Registration is not currently open for {event.name}. Please contact the organizer for more information.
+              {eventFullBlocks && registrationOpen
+                ? `${event.name} has reached its maximum number of attendees. Please contact the organizer for more information.`
+                : `Registration is not currently open for ${event.name}. Please contact the organizer for more information.`}
             </p>
             {/* Disabled CTA — always reads "Registration Closed" regardless of
                 which tiers (standard / onsite / early-bird) are toggled. */}
             <Button type="button" disabled aria-disabled className="w-full rounded-lg font-semibold py-3 text-base">
-              Registration Closed
+              {eventFullBlocks && registrationOpen ? "Registration Full" : "Registration Closed"}
             </Button>
           </div>
         </div>

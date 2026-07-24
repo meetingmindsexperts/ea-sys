@@ -39,6 +39,9 @@ const { mockDb, mockEmail, mockNotifications, mockContactSync, mockEventStats, m
             findFirst: (...args: unknown[]) => (mockDb.registration.findFirst as (...a: unknown[]) => unknown)(...args),
             create: (...args: unknown[]) => (mockDb.registration.create as (...a: unknown[]) => unknown)(...args),
           },
+          // Event-wide cap (Option B): claimEventSeats raw conditional UPDATE —
+          // 1 affected row = not full.
+          $executeRaw: vi.fn(async () => 1),
         });
       }),
     },
