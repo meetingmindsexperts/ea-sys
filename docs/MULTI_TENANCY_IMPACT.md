@@ -168,7 +168,7 @@ hard part already done right.
 
 **Phase 0/1 — the spine (the gate):** stand up the platform instance (second box + fresh DB, same image, first-class prod from birth); host→tenant routing + `TenantDomain`; tenant context via `AsyncLocalStorage` + a pooler-safe Prisma `SET LOCAL` extension; the slug-routing cut shipped *with* the resolver; a **tenant-isolation test suite** (seed 2 tenants, prove A can't read B per PR). Master gets the identical code inert (one `TenantDomain` row).
 
-**Phase 2 — domain-by-domain isolation sweeps:** per domain: `organizationId` column → org-bind queries → enable RLS → domain isolation tests green. Pilot **Contacts**, then blast-radius order (§5). Close the `organizationId!` IDOR class. **No external tenant onboards until the domains they touch are proven.**
+**Phase 2 — domain-by-domain isolation sweeps:** per domain: `organizationId` column → org-bind queries → enable RLS → domain isolation tests green. Pilot **Contacts** (full sweep, July 23), then blast-radius order (§5); **MediaFile** RLS policy + harness landed July 24 (policy-only — the DB backstop; the already-org-keyed trivial case, route wiring deferred). Close the `organizationId!` IDOR class. **No external tenant onboards until the domains they touch are proven.**
 
 **Phase 3 — platform features:** Stripe Connect; per-tenant email sender-domain verification; custom-domain TLS; per-tenant logging/quotas (Redis limiter — platform-instance concern); tenant lifecycle + suspension. Dogfood one MMG event on platform before customer #1.
 
