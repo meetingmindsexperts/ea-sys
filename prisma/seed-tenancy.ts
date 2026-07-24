@@ -30,6 +30,11 @@ import {
   MEDIA_B_SHARED_ID,
   ORG_B_ONLY_MEDIA_URL,
   MEDIA_B_ONLY_ID,
+  SHARED_PAYER_NAME,
+  BILLING_A_SHARED_ID,
+  BILLING_B_SHARED_ID,
+  ORG_B_ONLY_PAYER_NAME,
+  BILLING_B_ONLY_ID,
 } from "../tests/tenancy/constants";
 
 const url = process.env.TENANCY_DIRECT_URL;
@@ -43,6 +48,7 @@ async function seedOrg(
   events: { id: string; slug: string }[],
   contacts: { id: string; email: string }[] = [],
   uploader?: { id: string; media: { id: string; url: string }[] },
+  billing: { id: string; name: string }[] = [],
 ) {
   await db.organization.create({
     data: {
@@ -113,6 +119,12 @@ async function seedOrg(
       });
     }
   }
+  // BillingAccount sweep fixtures (org cascade wipes these — no FK to User).
+  for (const ba of billing) {
+    await db.billingAccount.create({
+      data: { id: ba.id, organizationId: orgId, name: ba.name },
+    });
+  }
 }
 
 async function main() {
@@ -131,6 +143,7 @@ async function main() {
     [{ id: EVENT_A_SHARED_ID, slug: SHARED_SLUG }],
     [{ id: CONTACT_A_SHARED_ID, email: SHARED_CONTACT_EMAIL }],
     { id: UPLOADER_A_ID, media: [{ id: MEDIA_A_SHARED_ID, url: SHARED_MEDIA_URL }] },
+    [{ id: BILLING_A_SHARED_ID, name: SHARED_PAYER_NAME }],
   );
   await seedOrg(
     ORG_B_ID,
@@ -150,10 +163,14 @@ async function main() {
         { id: MEDIA_B_ONLY_ID, url: ORG_B_ONLY_MEDIA_URL },
       ],
     },
+    [
+      { id: BILLING_B_SHARED_ID, name: SHARED_PAYER_NAME },
+      { id: BILLING_B_ONLY_ID, name: ORG_B_ONLY_PAYER_NAME },
+    ],
   );
 
   console.log(
-    "[tenancy:seed] two tenants seeded (shared slug + shared contact email + shared media url on both)",
+    "[tenancy:seed] two tenants seeded (shared slug + contact email + media url + payer name on both)",
   );
 }
 

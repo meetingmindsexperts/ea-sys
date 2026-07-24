@@ -51,3 +51,18 @@ export const MEDIA_B_SHARED_ID = "tenancy-mf-b-shared";
 
 export const ORG_B_ONLY_MEDIA_URL = "/uploads/media/2027/01/only-b-tenancy.png";
 export const MEDIA_B_ONLY_ID = "tenancy-mf-b-only";
+
+/**
+ * BillingAccount sweep (Phase 2, domain pass #3 — the first FULL finance
+ * sweep). BillingAccount is `@@unique([organizationId, name])`, so — like the
+ * Contact email — BOTH orgs hold a payer on the SAME name, proving per-org
+ * coexistence + that an unscoped `where:{ name }` returns only the caller's
+ * row. Plus a B-only payer for cross-tenant-miss assertions. No FK to User
+ * (unlike MediaFile), so it cascades cleanly from Organization.
+ */
+export const SHARED_PAYER_NAME = "Shared Payer Co";
+export const BILLING_A_SHARED_ID = "tenancy-ba-a-shared";
+export const BILLING_B_SHARED_ID = "tenancy-ba-b-shared";
+
+export const ORG_B_ONLY_PAYER_NAME = "Only-In-B Payer";
+export const BILLING_B_ONLY_ID = "tenancy-ba-b-only";
