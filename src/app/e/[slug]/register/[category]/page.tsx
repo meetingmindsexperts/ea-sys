@@ -108,7 +108,12 @@ interface Event {
     abstractDeadline: string | null;
   };
   agendaPublished?: boolean;
+  /** "Show Remaining Tickets" toggle (opt-in, hidden by default). */
+  showRemainingTickets?: boolean;
 }
+
+// quantity >= this sentinel means "unlimited" — never show a seats-left count.
+const UNLIMITED_SENTINEL = 999999;
 
 /** A registration type option within the matched tier */
 interface RegTypeOption {
@@ -122,6 +127,8 @@ interface RegTypeOption {
   currency: string;
   available: number;
   canPurchase: boolean;
+  /** True when the tier/type has a real seat limit (quantity < sentinel). */
+  hasSeatLimit: boolean;
 }
 
 const registrationSchema = z.object({
@@ -261,6 +268,7 @@ function CategoryRegistrationContent() {
                 currency: tier.currency,
                 available: tier.available,
                 canPurchase: tier.canPurchase,
+                hasSeatLimit: tier.quantity < UNLIMITED_SENTINEL,
               });
             }
           }
@@ -308,6 +316,7 @@ function CategoryRegistrationContent() {
               currency: t.currency,
               available: t.available,
               canPurchase: t.canPurchase,
+              hasSeatLimit: t.quantity < UNLIMITED_SENTINEL,
             }));
 
           setRegTypeOptions(options);
@@ -1055,8 +1064,15 @@ function CategoryRegistrationContent() {
                                       </div>
                                     )}
                                   </div>
-                                  {opt.available <= 0 && (
+                                  {opt.available <= 0 ? (
                                     <p className="text-xs text-red-500 mt-1 ml-8">Sold out</p>
+                                  ) : (
+                                    event.showRemainingTickets === true &&
+                                    opt.hasSeatLimit && (
+                                      <p className={`text-xs mt-1 ml-8 ${opt.available <= 10 ? "text-amber-600 font-medium" : "text-slate-400"}`}>
+                                        {opt.available} seat{opt.available !== 1 ? "s" : ""} left
+                                      </p>
+                                    )
                                   )}
                                 </button>
                               );

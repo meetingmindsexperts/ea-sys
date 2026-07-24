@@ -84,6 +84,8 @@ const sampleTicketType = {
   isDefault: true,
   isActive: true,
   sortOrder: 0,
+  quantity: 999999,
+  soldCount: 5,
   pricingTiers: [],
   _count: { registrations: 5 },
 };
@@ -182,6 +184,40 @@ describe("POST /api/events/[eventId]/tickets", () => {
       makeListParams("evt-1")
     );
     expect(res.status).toBe(403);
+  });
+
+  it("creates with a seat limit", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.ticketType.findFirst.mockResolvedValue(null);
+    mockDb.ticketType.create.mockResolvedValue({ ...sampleTicketType, id: "tt-cap", quantity: 300 });
+
+    const res = await CreateTicket(
+      makeRequest("POST", { name: "VIP", quantity: 300 }),
+      makeListParams("evt-1")
+    );
+    expect(res.status).toBe(201);
+    expect(mockDb.ticketType.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ quantity: 300 }),
+      })
+    );
+  });
+
+  it("defaults quantity to unlimited (999999) when absent", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.ticketType.findFirst.mockResolvedValue(null);
+    mockDb.ticketType.create.mockResolvedValue({ ...sampleTicketType, id: "tt-unl" });
+
+    const res = await CreateTicket(
+      makeRequest("POST", { name: "General" }),
+      makeListParams("evt-1")
+    );
+    expect(res.status).toBe(201);
+    expect(mockDb.ticketType.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ quantity: 999999 }),
+      })
+    );
   });
 
   it("returns 400 on invalid input (missing name)", async () => {
@@ -283,6 +319,67 @@ describe("PUT /api/events/[eventId]/tickets/[ticketId]", () => {
       makeDetailParams("evt-1", "tt-missing")
     );
     expect(res.status).toBe(404);
+  });
+
+  it("sets a seat limit (quantity persisted)", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst.mockResolvedValueOnce(sampleTicketType); // existing (soldCount 5)
+    mockDb.ticketType.update.mockResolvedValue({ ...sampleTicketType, quantity: 100 });
+
+    const res = await UpdateTicket(
+      makeRequest("PUT", { quantity: 100 }),
+      makeDetailParams("evt-1", "tt-1")
+    );
+    expect(res.status).toBe(200);
+    expect(mockDb.ticketType.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ quantity: 100 }),
+      })
+    );
+  });
+
+  it("rejects a seat limit below soldCount with 400 + warn log", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst.mockResolvedValueOnce({ ...sampleTicketType, soldCount: 50 });
+
+    const res = await UpdateTicket(
+      makeRequest("PUT", { quantity: 10 }),
+      makeDetailParams("evt-1", "tt-1")
+    );
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("already sold (50)");
+    expect(mockDb.ticketType.update).not.toHaveBeenCalled();
+    expect(mockApiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "events/tickets:quantity-below-sold-count" })
+    );
+  });
+
+  it("accepts a seat limit equal to soldCount", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst.mockResolvedValueOnce({ ...sampleTicketType, soldCount: 50 });
+    mockDb.ticketType.update.mockResolvedValue({ ...sampleTicketType, quantity: 50, soldCount: 50 });
+
+    const res = await UpdateTicket(
+      makeRequest("PUT", { quantity: 50 }),
+      makeDetailParams("evt-1", "tt-1")
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects a zero/negative seat limit", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1" });
+    mockDb.ticketType.findFirst.mockResolvedValueOnce(sampleTicketType);
+
+    const res = await UpdateTicket(
+      makeRequest("PUT", { quantity: 0 }),
+      makeDetailParams("evt-1", "tt-1")
+    );
+    expect(res.status).toBe(400);
   });
 
   it("logs update with apiLogger.info", async () => {

@@ -27,6 +27,9 @@ const createTicketTypeSchema = z.object({
   // from the UI even though every create path honors it.
   requiresApproval: z.boolean().default(false),
   sortOrder: z.number().int().optional(),
+  // Type-level seat limit. 999999 = unlimited (the schema default) — caps
+  // admin/desk/import creates and public sign-ups on tier-less types.
+  quantity: z.number().int().min(1).default(999999),
   // Optional: create initial pricing tiers alongside the registration type
   pricingTiers: z
     .array(
@@ -140,7 +143,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { name, description, isActive, requiresApproval, sortOrder, pricingTiers } = validated.data;
+    const { name, description, isActive, requiresApproval, sortOrder, quantity, pricingTiers } = validated.data;
 
     // Check for duplicate name within the event
     const existing = await db.ticketType.findFirst({
@@ -161,6 +164,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         description: description || null,
         isActive,
         requiresApproval,
+        quantity,
         sortOrder: sortOrder ?? 99,
         ...(pricingTiers && pricingTiers.length > 0
           ? {

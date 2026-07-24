@@ -14,6 +14,11 @@ const updateTicketTypeSchema = z.object({
   // Type-level approval gate — editable so a tier-less type can toggle it.
   requiresApproval: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  // Seat limit. 999999 (the schema default) = unlimited — the UI sends the
+  // sentinel for an empty input. Caps admin/desk/import creates and public
+  // sign-ups on tier-less types; public tier sign-ups are capped by each
+  // tier's own quantity (independent counters — see registration-seat.ts).
+  quantity: z.number().int().min(1).optional(),
 });
 
 interface RouteParams {
@@ -107,6 +112,23 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
 
+    // Seat limit can never drop below what's already sold (mirrors the
+    // pricing-tier PUT guard).
+    if (data.quantity !== undefined && data.quantity < existing.soldCount) {
+      apiLogger.warn({
+        msg: "events/tickets:quantity-below-sold-count",
+        eventId,
+        ticketTypeId: ticketId,
+        requestedQuantity: data.quantity,
+        soldCount: existing.soldCount,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        { error: `Seat limit cannot be less than seats already sold (${existing.soldCount})` },
+        { status: 400 }
+      );
+    }
+
     // Check uniqueness if name is changing
     if (data.name && data.name !== existing.name) {
       const dup = await db.ticketType.findFirst({
@@ -129,6 +151,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.isActive !== undefined && { isActive: data.isActive }),
         ...(data.requiresApproval !== undefined && { requiresApproval: data.requiresApproval }),
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
+        ...(data.quantity !== undefined && { quantity: data.quantity }),
       },
       include: {
         pricingTiers: {

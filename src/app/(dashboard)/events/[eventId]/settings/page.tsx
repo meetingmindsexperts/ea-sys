@@ -211,7 +211,9 @@ export default function EventSettingsPage() {
     waitlistEnabled: false,
     requireApproval: false,
     maxAttendees: 0,
-    showRemainingTickets: true,
+    // OFF by default — the public register page only shows "N seats left"
+    // when this is explicitly enabled (owner decision, July 2026).
+    showRemainingTickets: false,
   });
 
   const [agendaSettings, setAgendaSettings] = useState({
@@ -277,7 +279,7 @@ export default function EventSettingsPage() {
           waitlistEnabled: settings.waitlistEnabled ?? false,
           requireApproval: settings.requireApproval ?? false,
           maxAttendees: settings.maxAttendees ?? 0,
-          showRemainingTickets: settings.showRemainingTickets ?? true,
+          showRemainingTickets: settings.showRemainingTickets ?? false,
         });
 
         setAgendaSettings({
@@ -900,7 +902,8 @@ export default function EventSettingsPage() {
                 <div className="space-y-0.5">
                   <Label>Show Remaining Tickets</Label>
                   <p className="text-sm text-muted-foreground">
-                    Display the number of tickets remaining publicly
+                    Show &quot;N seats left&quot; on the public registration form for
+                    types/tiers that have a seat limit set (Registration Types page)
                   </p>
                 </div>
                 <Switch

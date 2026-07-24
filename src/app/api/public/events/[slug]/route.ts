@@ -190,6 +190,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       // When false, the public register flow shows "Registration Closed"
       // regardless of individual tier (standard/onsite) states.
       registrationOpen: settings.registrationOpen !== false,
+      // "Show Remaining Tickets" (Settings → Registration). Opt-IN (=== true,
+      // hidden by default): the register page only renders "N seats left" when
+      // the organizer explicitly enabled it AND the tier/type has a real seat
+      // limit (quantity < 999999 sentinel).
+      showRemainingTickets: settings.showRemainingTickets === true,
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching public event" });

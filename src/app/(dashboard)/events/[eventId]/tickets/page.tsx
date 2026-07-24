@@ -80,11 +80,29 @@ interface TicketType {
   isActive: boolean;
   requiresApproval: boolean;
   sortOrder: number;
+  quantity: number;
+  soldCount: number;
   pricingTiers: PricingTier[];
   _count: { registrations: number };
 }
 
 const DEFAULT_TIER_NAMES = ["Early Bird", "Standard", "Onsite", "Presenter"];
+
+// `quantity` >= this sentinel (the schema default) means "unlimited".
+// The UI shows an empty seat-limit input for it and sends it back for an
+// empty input — a nullable column would touch every soldCount guard.
+const UNLIMITED_SENTINEL = 999999;
+
+const hasSeatLimit = (quantity: number | null | undefined): quantity is number =>
+  quantity != null && quantity < UNLIMITED_SENTINEL;
+
+/** Parse a seat-limit input: "" → unlimited sentinel; else the positive int, or null when invalid. */
+function parseSeatLimit(raw: string): number | null {
+  if (!raw.trim()) return UNLIMITED_SENTINEL;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return null;
+  return n;
+}
 
 function toSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -125,6 +143,8 @@ export default function TicketsPage() {
   // Type-level approval gate — previously only exposed inside the pricing-tier
   // dialog, so a type with NO tiers couldn't enable it from the UI.
   const [typeApproval, setTypeApproval] = useState(false);
+  // Seat limit as raw input text; "" = unlimited (999999 sentinel).
+  const [typeSeatLimit, setTypeSeatLimit] = useState("");
 
   const [tierDialogOpen, setTierDialogOpen] = useState(false);
   const [editingTier, setEditingTier] = useState<PricingTier | null>(null);
@@ -135,6 +155,8 @@ export default function TicketsPage() {
     currency: "USD",
     isActive: true,
     requiresApproval: false,
+    // Raw input text; "" = unlimited (999999 sentinel).
+    seatLimit: "",
   });
 
   const showDelayedLoader = useDelayedLoading(isLoading, 1000);
@@ -145,6 +167,7 @@ export default function TicketsPage() {
     setTypeName("");
     setTypeDesc("");
     setTypeApproval(false);
+    setTypeSeatLimit("");
     setTypeDialogOpen(true);
   };
 
@@ -153,17 +176,24 @@ export default function TicketsPage() {
     setTypeName(tt.name);
     setTypeDesc(tt.description || "");
     setTypeApproval(!!tt.requiresApproval);
+    setTypeSeatLimit(hasSeatLimit(tt.quantity) ? String(tt.quantity) : "");
     setTypeDialogOpen(true);
   };
 
   const handleSaveType = async () => {
     if (!typeName.trim()) { toast.error("Name is required"); return; }
+    const quantity = parseSeatLimit(typeSeatLimit);
+    if (quantity === null) { toast.error("Seat limit must be a whole number of 1 or more (leave empty for unlimited)"); return; }
+    if (editingType && quantity < editingType.soldCount) {
+      toast.error(`Seat limit cannot be less than seats already sold (${editingType.soldCount})`);
+      return;
+    }
     try {
       if (editingType) {
-        await updateTicket.mutateAsync({ ticketId: editingType.id, data: { name: typeName, description: typeDesc, requiresApproval: typeApproval } });
+        await updateTicket.mutateAsync({ ticketId: editingType.id, data: { name: typeName, description: typeDesc, requiresApproval: typeApproval, quantity } });
         toast.success("Registration type updated");
       } else {
-        await createTicket.mutateAsync({ name: typeName, description: typeDesc, requiresApproval: typeApproval });
+        await createTicket.mutateAsync({ name: typeName, description: typeDesc, requiresApproval: typeApproval, quantity });
         toast.success("Registration type created");
       }
       setTypeDialogOpen(false);
@@ -194,19 +224,32 @@ export default function TicketsPage() {
   const openCreateTier = (ticketTypeId: string) => {
     setEditingTier(null);
     setTierParentId(ticketTypeId);
-    setTierForm({ name: "", price: 0, currency: "USD", isActive: true, requiresApproval: false });
+    setTierForm({ name: "", price: 0, currency: "USD", isActive: true, requiresApproval: false, seatLimit: "" });
     setTierDialogOpen(true);
   };
 
   const openEditTier = (ticketTypeId: string, tier: PricingTier) => {
     setEditingTier(tier);
     setTierParentId(ticketTypeId);
-    setTierForm({ name: tier.name, price: Number(tier.price), currency: tier.currency, isActive: tier.isActive, requiresApproval: tier.requiresApproval });
+    setTierForm({
+      name: tier.name,
+      price: Number(tier.price),
+      currency: tier.currency,
+      isActive: tier.isActive,
+      requiresApproval: tier.requiresApproval,
+      seatLimit: hasSeatLimit(tier.quantity) ? String(tier.quantity) : "",
+    });
     setTierDialogOpen(true);
   };
 
   const handleSaveTier = async () => {
     if (!tierForm.name.trim()) { toast.error("Tier name is required"); return; }
+    const quantity = parseSeatLimit(tierForm.seatLimit);
+    if (quantity === null) { toast.error("Seat limit must be a whole number of 1 or more (leave empty for unlimited)"); return; }
+    if (editingTier && quantity < editingTier.soldCount) {
+      toast.error(`Seat limit cannot be less than seats already sold (${editingTier.soldCount})`);
+      return;
+    }
     try {
       const url = editingTier
         ? `/api/events/${eventId}/tickets/${tierParentId}/tiers/${editingTier.id}`
@@ -214,7 +257,14 @@ export default function TicketsPage() {
       const res = await fetch(url, {
         method: editingTier ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(tierForm),
+        body: JSON.stringify({
+          name: tierForm.name,
+          price: tierForm.price,
+          currency: tierForm.currency,
+          isActive: tierForm.isActive,
+          requiresApproval: tierForm.requiresApproval,
+          quantity,
+        }),
       });
       if (!res.ok) { const err = await res.json(); throw new Error(err.error || "Failed"); }
       toast.success(editingTier ? "Pricing tier updated" : "Pricing tier created");
@@ -411,6 +461,15 @@ export default function TicketsPage() {
                     )}
                     <p className="text-xs text-muted-foreground mt-1">
                       {tt._count.registrations} registration{tt._count.registrations !== 1 ? "s" : ""}
+                      {hasSeatLimit(tt.quantity) && (
+                        <>
+                          {" · "}
+                          <span className={tt.soldCount >= tt.quantity ? "font-semibold text-red-600" : ""}>
+                            {tt.soldCount}/{tt.quantity} seats
+                            {tt.soldCount >= tt.quantity ? " — sold out" : ""}
+                          </span>
+                        </>
+                      )}
                     </p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0 ml-2">
@@ -459,6 +518,12 @@ export default function TicketsPage() {
                           {/* Tier info */}
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-slate-800 truncate">{tier.name}</p>
+                            {hasSeatLimit(tier.quantity) && (
+                              <p className={`text-[11px] ${tier.soldCount >= tier.quantity ? "font-semibold text-red-600" : "text-muted-foreground"}`}>
+                                {tier.soldCount}/{tier.quantity} seats
+                                {tier.soldCount >= tier.quantity ? " — sold out" : ""}
+                              </p>
+                            )}
                           </div>
 
                           {/* Price — the tickets API redacts price for the
@@ -558,6 +623,26 @@ export default function TicketsPage() {
               <Label>Description</Label>
               <TiptapEditor content={typeDesc} onChange={setTypeDesc} />
             </div>
+            <div className="space-y-2">
+              <Label>Seat Limit</Label>
+              <Input
+                type="number"
+                min={1}
+                placeholder="Unlimited"
+                className="w-48"
+                value={typeSeatLimit}
+                onChange={(e) => setTypeSeatLimit(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty for unlimited. Caps registrations added by admins/the desk
+                and public sign-ups on types without pricing tiers. Public tier
+                sign-ups are capped by each tier&apos;s own seat limit.
+                {editingType && editingType.soldCount > 0 && (
+                  <> {editingType.soldCount} seat{editingType.soldCount !== 1 ? "s" : ""} already
+                  sold — the limit can&apos;t go below that.</>
+                )}
+              </p>
+            </div>
             <div className="flex items-start gap-2">
               <Checkbox
                 id="type-approval"
@@ -608,7 +693,7 @@ export default function TicketsPage() {
                 <Input value={tierForm.name} onChange={(e) => setTierForm({ ...tierForm, name: e.target.value })} />
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Price</Label>
                 <Input type="number" min={0} step={0.01} value={tierForm.price}
@@ -619,7 +704,20 @@ export default function TicketsPage() {
                 <Input value={tierForm.currency}
                   onChange={(e) => setTierForm({ ...tierForm, currency: e.target.value })} />
               </div>
+              <div className="space-y-2">
+                <Label>Seat Limit</Label>
+                <Input type="number" min={1} placeholder="Unlimited" value={tierForm.seatLimit}
+                  onChange={(e) => setTierForm({ ...tierForm, seatLimit: e.target.value })} />
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Seat limit caps public self-registrations on this tier (e.g. allocate
+              100 Early Bird seats). Leave empty for unlimited.
+              {editingTier && editingTier.soldCount > 0 && (
+                <> {editingTier.soldCount} seat{editingTier.soldCount !== 1 ? "s" : ""} already
+                sold — the limit can&apos;t go below that.</>
+              )}
+            </p>
             <div className="flex gap-6">
               <div className="flex items-center gap-2">
                 <Checkbox id="tier-active" checked={tierForm.isActive}
