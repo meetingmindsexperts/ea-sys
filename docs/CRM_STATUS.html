@@ -213,8 +213,8 @@
     </tr>
     <tr>
       <td>Adversarial review</td>
-      <td><span class="tag none">NOT DONE</span></td>
-      <td>Week-4 gate. <b>Treat as required, not a formality</b> — see §7.</td>
+      <td><span class="tag done">DONE Jul 24</span></td>
+      <td>4-angle (lifecycle · RBAC/PII/finance · concurrency · drift/logging): <b>0 BLOCKER / 0 HIGH</b>. Security + concurrency verified clean. M1 (reply-forward exclusion) + M2 (persistent send dedup) + LOW cluster shipped; accepted edges + the multi-tenant email-leak note deferred (ROADMAP §"CRM adversarial review").</td>
     </tr>
   </tbody>
 </table>
@@ -519,9 +519,9 @@ exactly which of those exist today.</p>
       <td>All closed: edit dialogs (Jul 15), standalone task + notes on the account/contact pages via the shared <code>CrmNotesCard</code> (Jul 16). Also new: “New deal” / “Add contact” on the account page, pre-linked to that account.</td>
     </tr>
     <tr>
-      <td><b>Adversarial review (Week-4 gate)</b></td>
-      <td>~1 day</td>
-      <td>4-angle: lifecycle · RBAC/finance leaks · concurrency · drift/logging. <b>Do not skip</b> — see §7.</td>
+      <td><b>Adversarial review (Week-4 gate)</b> <span class="tag done">DONE Jul 24</span></td>
+      <td>—</td>
+      <td>4-angle (lifecycle · RBAC/PII/finance · concurrency · drift/logging): <b>0 BLOCKER / 0 HIGH</b>; security + concurrency clean. M1/M2 + LOW cluster shipped; edges deferred (ROADMAP §"CRM adversarial review").</td>
     </tr>
     <tr>
       <td><b>Backfill: <code>Contact.organization</code> → <code>CrmCompany</code></b> <span class="tag part">SCRIPT READY Jul 16</span></td>

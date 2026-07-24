@@ -212,6 +212,48 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### CRM adversarial review (July 24, 2026) — 0 BLOCKER / 0 HIGH; actionable fixes shipped, edges deferred
+
+A 4-angle adversarial review of the whole CRM module (lifecycle · RBAC/PII/finance ·
+concurrency · drift/logging) after it was surfaced in the sidebar + the July-24 email
+work. **Verdict: 0 BLOCKER, 0 HIGH.** Security (cross-org IDOR across all 38 routes + 15
+services, finance redaction, inbox staff-only, reply-forward audience not
+inbound-injectable) and concurrency (conditional-claim on every transition, data-layer
+idempotency on both workers) came back clean.
+
+**Shipped** (see CLAUDE.md): M1 reply-forward-excludes-actual-replier (`f16c8020`), M2
+persistent send dedup (`675708b6`), + the LOW cluster — `wonAt` re-stamp guard, Freshsales
+owner-preserve, import P2002 messages, CRM 401 logging (`a044bc86`).
+
+**Deferred / left as-is (owner-accepted edges):**
+- **M2 residual scope** — the persistent dedup closes the realistic double-submit but does
+  NOT resume a genuine crash MID-send (that was the heavier full-jobification path, not
+  chosen). Sponsor fan-outs are small + fast, so the residual is narrow.
+- **M3 — silent 401s are systemic, not CRM-specific.** Fixed at the CRM gate
+  (`crm-route:unauthorized` log); the deeper cause is core `getOrgContext` returning null
+  silently on every route in the app — a separate, app-wide decision.
+- **Quote-number gaps on render failure** — the org-sequential quote counter commits before
+  the PDF renders; a render/disk failure burns a number (gap). Accepted (an atomic counter
+  can't roll back without reintroducing collision risk).
+- **BEC same-domain residual** — `verifySender` treats a From-domain matching the
+  counterparty domain as verified when SES emits no `dmarc=fail`; a spoof against a
+  counterparty domain that publishes NO DMARC would pass. Acknowledged best-effort (the
+  common cross-domain display-name spoof IS caught; tightening to require an explicit
+  `dmarc=pass`/`spf=pass` would false-reject legit DMARC-less senders).
+- **MCP `move_crm_deal_stage`** uses a fresh read as its `fromStageId` precondition (weaker
+  TOCTOU guarantee than the REST route, which passes the stage the client saw) — documented
+  + accepted (the MCP caller doesn't know the board's current state).
+- **Enrich-forever `externalId` thrash** — an EA-born row matched by name across two
+  conflicting-id exports can ping-pong its `externalId` (bounded — a genuine collision hits
+  the unique index + surfaces as a row error). Edge.
+- **Inbound worker 3-way tick overlap** — a spurious `crm-inbound:object-failed` log when a
+  loser moves the object before the winner's own move (no correctness impact; the `s3Key`
+  unique + P2002-before-forward keep the store/forward exactly-once).
+- **Multi-tenancy (future platform, not now)** — the CRM email plumbing's global env vars,
+  incl. the reply-forward cross-tenant leak, are recorded in
+  [MULTI_TENANCY_IMPACT.md](MULTI_TENANCY_IMPACT.md) §7.1 as a hard precondition before the
+  platform onboards a 2nd tenant. Harmless on single-org master.
+
 ### npm audit — security updates deferred by owner decision (July 23, 2026)
 
 **Snapshot: 32 vulnerabilities (13 high, 16 moderate, 3 low), 0 critical** — owner chose "not now" (live
