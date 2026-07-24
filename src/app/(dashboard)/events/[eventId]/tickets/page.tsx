@@ -608,9 +608,10 @@ export default function TicketsPage() {
       </Tabs>
 
       {/* Registration Type Dialog — wider (2xl) so the Tiptap description
-          toolbar + the seat-limit/approval fields breathe. */}
+          toolbar + the seat-limit/approval fields breathe; height capped to
+          the viewport (long descriptions scroll inside the dialog). */}
       <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingType ? "Edit Registration Type" : "New Registration Type"}</DialogTitle>
           </DialogHeader>
@@ -622,7 +623,10 @@ export default function TicketsPage() {
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <TiptapEditor content={typeDesc} onChange={setTypeDesc} />
+              {/* Compact height — a type description is a couple of lines, not
+                  an email body (the 300px composer default made the dialog
+                  overflow the viewport). */}
+              <TiptapEditor content={typeDesc} onChange={setTypeDesc} minHeightClass="min-h-[120px]" />
             </div>
             <div className="space-y-2">
               <Label>Seat Limit</Label>

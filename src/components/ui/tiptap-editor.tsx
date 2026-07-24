@@ -161,6 +161,14 @@ interface TiptapEditorProps {
   content: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  /**
+   * Tailwind min-height class for the editable area. Defaults to the email-
+   * composer height (`min-h-[300px]`); compact contexts (e.g. the Registration
+   * Type description dialog) pass something smaller like `min-h-[120px]`.
+   * Read once at editor init — fine, because every dialog mount re-creates
+   * the editor.
+   */
+  minHeightClass?: string;
 }
 
 function ToolbarButton({
@@ -505,7 +513,7 @@ function formatHtml(html: string): string {
   return formatted.trim();
 }
 
-export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorProps) {
+export function TiptapEditor({ content, onChange, placeholder, minHeightClass = "min-h-[300px]" }: TiptapEditorProps) {
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceHtml, setSourceHtml] = useState("");
 
@@ -551,7 +559,7 @@ export function TiptapEditor({ content, onChange, placeholder }: TiptapEditorPro
     },
     editorProps: {
       attributes: {
-        class: "prose prose-sm max-w-none focus:outline-none min-h-[300px] px-4 py-3 [&>*]:mb-2 [&>*:last-child]:mb-0",
+        class: `prose prose-sm max-w-none focus:outline-none ${minHeightClass} px-4 py-3 [&>*]:mb-2 [&>*:last-child]:mb-0`,
       },
     },
   });
