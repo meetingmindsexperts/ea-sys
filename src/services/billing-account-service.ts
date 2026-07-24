@@ -19,7 +19,7 @@
  */
 
 import type { Prisma, BillingAccount, BillingAccountType } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
@@ -254,7 +254,9 @@ export async function updateBillingAccount(
 
   try {
     const billingAccount = await db.billingAccount.update({
-      where: { id: billingAccountId },
+      // Compound-where (defence #1): org binding atomic with the write, not
+      // only via the findFirst above. RLS-independent — holds on master too.
+      where: { id: billingAccountId, organizationId },
       data,
     });
 
@@ -342,7 +344,7 @@ export async function mergeBillingAccounts(
   }
 
   try {
-    const result = await db.$transaction(async (tx) => {
+    const result = await tenantTransaction(async (tx) => {
       // Both rows must belong to the caller's org — a foreign id is a 404,
       // never a cross-tenant merge.
       const [survivor, duplicate] = await Promise.all([
@@ -394,9 +396,9 @@ export async function mergeBillingAccounts(
       // Delete the duplicate (registrations re-pointed above, so the Restrict
       // FK can't fire) and clear the survivor's review flag — the merge IS the
       // review.
-      await tx.billingAccount.delete({ where: { id: duplicateId } });
+      await tx.billingAccount.delete({ where: { id: duplicateId, organizationId } });
       await tx.billingAccount.update({
-        where: { id: survivorId },
+        where: { id: survivorId, organizationId },
         data: { needsReview: false },
       });
 

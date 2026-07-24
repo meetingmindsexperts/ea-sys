@@ -21,7 +21,14 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => ({
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenantTransaction with the flag off IS db.$transaction — delegate so the
+// merge test's dynamically-set mockDb.$transaction still drives it (the C1
+// sweep switched mergeBillingAccounts onto tenantTransaction).
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    (mockDb as unknown as { $transaction: (f: (tx: unknown) => unknown) => unknown }).$transaction(fn),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 
 import {
@@ -119,7 +126,8 @@ describe("updateBillingAccount", () => {
 
     expect(res.ok).toBe(true);
     const updArg = mockDb.billingAccount.update.mock.calls[0][0];
-    expect(updArg.where).toEqual({ id: "ba-1" });
+    // C1: org binding is now atomic with the write (compound-where).
+    expect(updArg.where).toEqual({ id: "ba-1", organizationId: "org-1" });
     expect(updArg.data.isActive).toBe(false);
   });
 
@@ -270,9 +278,12 @@ describe("mergeBillingAccounts", () => {
       where: { id: { in: ["j2"] } },
       data: { billingAccountId: "ba-keep" },
     });
-    expect(tx.billingAccount.delete).toHaveBeenCalledWith({ where: { id: "ba-dup" } });
+    // C1: the survivor/duplicate mutations are compound-where org-bound.
+    expect(tx.billingAccount.delete).toHaveBeenCalledWith({
+      where: { id: "ba-dup", organizationId: "org-1" },
+    });
     expect(tx.billingAccount.update).toHaveBeenCalledWith({
-      where: { id: "ba-keep" },
+      where: { id: "ba-keep", organizationId: "org-1" },
       data: { needsReview: false },
     });
     // Post-commit audit row on the survivor.
