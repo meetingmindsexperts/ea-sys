@@ -664,6 +664,10 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
         // (tier vs ticket type), and skip virtual regs (no seat) — P1.1 + hybrid.
         select: {
           id: true,
+          // The tool contract is ORG-scoped (ids may span sibling events), so
+          // event-seat deltas must group per row's OWN event — applying them
+          // to ctx.eventId would corrupt two events' counters (review HIGH-1).
+          eventId: true,
           status: true,
           ticketTypeId: true,
           promoCodeId: true,
@@ -678,8 +682,9 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
       const promoClaim = new Map<string, number>(); // promoCodeId → uses re-claimed on reactivation (H6 symmetry)
       // Event-wide seat counter: rows whose "holds an event seat" boolean flips
       // (a row holds an event seat iff it holds a seat on ANY counter).
-      let eventSeatRelease = 0;
-      let eventSeatClaim = 0;
+      // Grouped PER ROW'S EVENT — never ctx.eventId (review HIGH-1).
+      const eventSeatRelease = new Map<string, number>(); // eventId → seats released
+      const eventSeatClaim = new Map<string, number>(); // eventId → seats re-claimed
       const bump = (m: Map<string, { counter: SeatCounter; count: number }>, c: SeatCounter) => {
         const k = `${c.kind}:${c.id}`;
         const e = m.get(k);
@@ -705,7 +710,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
             const c = seatCounter(r);
             if (c) {
               bump(toRelease, c);
-              eventSeatRelease++;
+              eventSeatRelease.set(r.eventId, (eventSeatRelease.get(r.eventId) ?? 0) + 1);
             }
           }
         } else if (reactivating) {
@@ -714,7 +719,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
             const c = seatCounter(r);
             if (c) {
               bump(toClaim, c);
-              eventSeatClaim++;
+              eventSeatClaim.set(r.eventId, (eventSeatClaim.get(r.eventId) ?? 0) + 1);
             }
           }
         }
@@ -748,17 +753,19 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
             });
           }
         }
-        // Event-wide counter moves with the per-counter seats. Bulk reactivation
-        // keeps the oversell-and-warn posture (never partial-fails 200 rows).
-        if (eventSeatRelease > 0) {
-          await releaseEventSeats(tx, ctx.eventId, eventSeatRelease);
+        // Event-wide counter moves with the per-counter seats, grouped per each
+        // row's OWN event (the tool is org-scoped — ids may span sibling
+        // events). Bulk reactivation keeps the oversell-and-warn posture
+        // (never partial-fails 200 rows).
+        for (const [evId, n] of eventSeatRelease) {
+          await releaseEventSeats(tx, evId, n);
         }
-        if (eventSeatClaim > 0) {
-          const evRes = await incrementEventSeatsOverselling(tx, ctx.eventId, eventSeatClaim);
+        for (const [evId, n] of eventSeatClaim) {
+          const evRes = await incrementEventSeatsOverselling(tx, evId, n);
           if (evRes.oversold) {
             apiLogger.warn({
               msg: "registration:bulk-reactivate-event-oversold",
-              eventId: ctx.eventId,
+              eventId: evId,
               newSeatCount: evRes.newSeatCount,
               maxAttendees: evRes.maxAttendees,
               source: "mcp",

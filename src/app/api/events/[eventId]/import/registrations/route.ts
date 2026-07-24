@@ -326,7 +326,13 @@ export async function POST(req: Request, { params }: RouteParams) {
           // Atomic: the `soldCount < quantity` predicate ON the update is the
           // guard (not a stale pre-read), so a concurrent import / public
           // registration can't oversell the last seat.
-          if (!rowIsVirtual) {
+          // A row imported as CANCELLED holds no seat (mirrors holdsSeat /
+          // holdsEventSeat) — skip BOTH counters. Closes the deferred M6
+          // "CSV import claims a seat for CANCELLED rows" (permanent soldCount
+          // inflation) and review MEDIUM-1 (a historical-data import eating
+          // real event-cap capacity via phantom seatCount claims).
+          const rowIsCancelled = rowRegistrationStatus === "CANCELLED";
+          if (!rowIsVirtual && !rowIsCancelled) {
             const claimed = await tx.ticketType.updateMany({
               where: { id: ticketType.id, soldCount: { lt: ticketType.quantity } },
               data: { soldCount: { increment: 1 } },

@@ -58,6 +58,9 @@ const ctx = {
 // type). Override createdSource/pricingTierId/attendanceMode per case.
 function row(over: Record<string, unknown>) {
   return {
+    // The tool is ORG-scoped — ids may span sibling events, so the executor
+    // selects each row's own eventId for the event-seat grouping (review HIGH-1).
+    eventId: "ev1",
     status: "CONFIRMED",
     ticketTypeId: "tt1",
     promoCodeId: null,
@@ -188,6 +191,47 @@ describe("bulk_update_registration_status — soldCount on cancel", () => {
     expect(mockDb._tx.promoCode.updateMany).toHaveBeenCalledWith({
       where: { id: "promo1" },
       data: { usedCount: { increment: 1 } },
+    });
+  });
+
+  it("event-seat deltas group per each row's OWN event, never ctx.eventId (review HIGH-1)", async () => {
+    // 2 cancels on ev1 + 1 cancel on sibling ev2, called with ctx.eventId=ev1 —
+    // before the fix all 3 releases hit ev1 (draining it below truth) and ev2
+    // stayed inflated.
+    mockDb.registration.findMany.mockResolvedValue([
+      row({ id: "r1", eventId: "ev1" }),
+      row({ id: "r2", eventId: "ev1" }),
+      row({ id: "r3", eventId: "ev2", ticketTypeId: "tt2" }),
+    ]);
+    mockDb.registration.updateMany.mockResolvedValue({ count: 3 });
+
+    await bulk({ registrationIds: ["r1", "r2", "r3"], status: "CANCELLED" }, ctx);
+
+    expect(mockDb._tx.event.updateMany).toHaveBeenCalledWith({
+      where: { id: "ev1", seatCount: { gte: 2 } },
+      data: { seatCount: { decrement: 2 } },
+    });
+    expect(mockDb._tx.event.updateMany).toHaveBeenCalledWith({
+      where: { id: "ev2", seatCount: { gte: 1 } },
+      data: { seatCount: { decrement: 1 } },
+    });
+    expect(mockDb._tx.event.updateMany).toHaveBeenCalledTimes(2);
+  });
+
+  it("bulk reactivation increments the event counter per event (oversell-and-warn, no hard block)", async () => {
+    mockDb.registration.findMany.mockResolvedValue([
+      row({ id: "r1", eventId: "ev2", status: "CANCELLED", ticketTypeId: "tt2" }),
+    ]);
+    mockDb._tx.ticketType.findUnique.mockResolvedValue({ quantity: 100, soldCount: 10, name: "Standard" });
+    mockDb._tx.event.findUnique.mockResolvedValue({ seatCount: 0, maxAttendees: null });
+    mockDb.registration.updateMany.mockResolvedValue({ count: 1 });
+
+    await bulk({ registrationIds: ["r1"], status: "CONFIRMED" }, ctx);
+
+    // Unguarded increment on the ROW's event (ev2), not ctx.eventId (ev1).
+    expect(mockDb._tx.event.updateMany).toHaveBeenCalledWith({
+      where: { id: "ev2" },
+      data: { seatCount: { increment: 1 } },
     });
   });
 
