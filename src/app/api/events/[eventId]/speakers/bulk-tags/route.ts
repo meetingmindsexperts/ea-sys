@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
@@ -27,13 +28,15 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     // Restricted roles must not rewrite tags (drive email cohorts + cert eligibility).
     const denied = denyReviewer(session);
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
     });
 

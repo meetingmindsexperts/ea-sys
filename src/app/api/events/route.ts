@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { slugify, deriveEventCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
@@ -102,6 +103,8 @@ export async function POST(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -124,7 +127,7 @@ export async function POST(req: Request) {
     let slug = slugify(name);
     const existingEvent = await db.event.findFirst({
       where: {
-        organizationId: session.user.organizationId!,
+        organizationId: orgGuard.orgId,
         slug,
       },
     });
@@ -139,7 +142,7 @@ export async function POST(req: Request) {
 
     const event = await db.event.create({
       data: {
-        organizationId: session.user.organizationId!,
+        organizationId: orgGuard.orgId,
         name,
         slug,
         code: resolvedCode,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AccommodationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -54,6 +55,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get("status");
@@ -66,7 +69,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.event.findFirst({
         where: {
           id: eventId,
-          organizationId: session.user.organizationId!,
+          organizationId: orgGuard.orgId,
         },
         select: { id: true },
       }),
@@ -152,6 +155,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -178,7 +183,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const result = await createAccommodation({
       eventId,
-      organizationId: session.user.organizationId!,
+      organizationId: orgGuard.orgId,
       userId: session.user.id,
       registrationId,
       speakerId,

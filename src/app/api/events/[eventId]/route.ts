@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -90,6 +91,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
@@ -141,6 +144,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -222,7 +227,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (slug && slug !== existingEvent.slug) {
       const slugExists = await db.event.findFirst({
         where: {
-          organizationId: session.user.organizationId!,
+          organizationId: orgGuard.orgId,
           slug,
           id: { not: eventId },
         },
@@ -473,6 +478,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const deniedDel = denyReviewer(session);
     if (deniedDel) return deniedDel;

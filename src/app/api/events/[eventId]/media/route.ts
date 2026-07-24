@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -46,6 +47,8 @@ export async function GET(
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -102,6 +105,8 @@ export async function POST(
       apiLogger.warn({ msg: "Unauthorized event media upload attempt" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -166,7 +171,7 @@ export async function POST(
     try {
       mediaFile = await db.mediaFile.create({
         data: {
-          organizationId: session.user.organizationId!,
+          organizationId: orgGuard.orgId,
           eventId,
           uploadedById: session.user.id,
           filename: safeFilename,

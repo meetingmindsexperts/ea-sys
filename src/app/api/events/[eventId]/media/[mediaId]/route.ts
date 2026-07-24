@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -17,6 +18,8 @@ export async function DELETE(
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -43,7 +46,7 @@ export async function DELETE(
 
     // Refuse while anything still references the URL (see media-references.ts
     // — deleting a referenced image 404s it in every email/page forever).
-    const references = await findMediaReferences(mediaFile.url, session.user.organizationId!);
+    const references = await findMediaReferences(mediaFile.url, orgGuard.orgId);
     if (references.length > 0) {
       apiLogger.warn({
         msg: "media:delete-refused-in-use",

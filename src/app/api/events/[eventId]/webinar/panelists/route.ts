@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -93,10 +94,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      session.user.organizationId!,
+      orgGuard.orgId,
     );
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
@@ -126,6 +129,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -160,7 +165,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      session.user.organizationId!,
+      orgGuard.orgId,
     );
     if (!resolved.ok) {
       apiLogger.warn(
@@ -240,6 +245,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -255,7 +262,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
-      session.user.organizationId!,
+      orgGuard.orgId,
     );
     if (!resolved.ok) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });

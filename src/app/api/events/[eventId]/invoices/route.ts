@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
@@ -21,6 +22,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
@@ -89,6 +92,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
     const denied = denyReviewer(session);
     if (denied) return denied;
 
@@ -127,7 +132,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const invoice = await createInvoice({
       registrationId: validated.data.registrationId,
       eventId,
-      organizationId: session.user.organizationId!,
+      organizationId: orgGuard.orgId,
       dueDate: validated.data.dueDate ? new Date(validated.data.dueDate) : undefined,
     });
 

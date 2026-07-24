@@ -17,6 +17,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
@@ -81,12 +82,14 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
     const denied = denyReviewer(session);
     if (denied) return denied;
 
     // Combined lookup binds event to org + template to event in one query.
     const template = await db.certificateTemplate.findFirst({
-      where: { id: templateId, event: { organizationId: session.user.organizationId! } },
+      where: { id: templateId, event: { organizationId: orgGuard.orgId } },
       select: { id: true, eventId: true },
     });
     if (!template || template.eventId !== eventId) {
@@ -160,11 +163,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
     const denied = denyReviewer(session);
     if (denied) return denied;
 
     const template = await db.certificateTemplate.findFirst({
-      where: { id: templateId, event: { organizationId: session.user.organizationId! } },
+      where: { id: templateId, event: { organizationId: orgGuard.orgId } },
       include: {
         _count: { select: { issuedCertificates: true, issueRuns: true } },
       },

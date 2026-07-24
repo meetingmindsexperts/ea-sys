@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -49,6 +50,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -82,7 +85,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       where: {
         id,
         eventId,
-        organizationId: session.user.organizationId!,
+        organizationId: orgGuard.orgId,
         status: "PENDING",
       },
       data: {
@@ -97,7 +100,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       // Either the row doesn't exist, doesn't belong to this org, or has
       // already been claimed by the cron / cancelled / sent.
       const existing = await db.scheduledEmail.findFirst({
-        where: { id, eventId, organizationId: session.user.organizationId! },
+        where: { id, eventId, organizationId: orgGuard.orgId },
         select: { status: true },
       });
       if (!existing) {
@@ -145,6 +148,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -160,7 +165,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       where: {
         id,
         eventId,
-        organizationId: session.user.organizationId!,
+        organizationId: orgGuard.orgId,
         status: { in: ["PENDING", "PROCESSING"] },
       },
       data: { status: "CANCELLED" },
@@ -168,7 +173,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     if (result.count === 0) {
       const existing = await db.scheduledEmail.findFirst({
-        where: { id, eventId, organizationId: session.user.organizationId! },
+        where: { id, eventId, organizationId: orgGuard.orgId },
         select: { status: true },
       });
       if (!existing) {

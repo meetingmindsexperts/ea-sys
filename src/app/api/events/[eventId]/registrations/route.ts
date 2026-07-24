@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
@@ -397,6 +398,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     // Registration-desk roles (ONSITE + MEMBER) are allowed to create registrations.
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
@@ -427,7 +430,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const result = await createRegistration({
       eventId,
-      organizationId: session.user.organizationId!,
+      organizationId: orgGuard.orgId,
       userId: session.user.id,
       ticketTypeId,
       pricingTierId,

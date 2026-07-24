@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -16,6 +17,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -35,7 +38,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     const [event, zoomMeeting, sessionSpeakers] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
+        where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true, organizationId: true },
       }),
       db.zoomMeeting.findUnique({ where: { sessionId } }),
@@ -93,10 +96,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
+        where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true, organizationId: true },
       }),
       db.zoomMeeting.findUnique({ where: { sessionId } }),
@@ -128,6 +133,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -140,7 +147,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
+        where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true, organizationId: true },
       }),
       db.zoomMeeting.findUnique({ where: { sessionId } }),

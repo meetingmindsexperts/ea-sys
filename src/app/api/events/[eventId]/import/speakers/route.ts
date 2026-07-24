@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -25,6 +26,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -84,7 +87,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Verify event belongs to org
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
     });
     if (!event) {
@@ -194,7 +197,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Sync imported speakers to org contact store (fire-and-forget)
     syncManyToContacts(
       speakers.map((s) => ({
-        organizationId: session.user.organizationId!,
+        organizationId: orgGuard.orgId,
         eventId,
         email: s.email,
         firstName: s.firstName,

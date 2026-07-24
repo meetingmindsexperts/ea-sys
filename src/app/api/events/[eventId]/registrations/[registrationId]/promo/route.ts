@@ -54,7 +54,7 @@ async function authorize(eventId: string) {
   if (financeDenied) return { error: financeDenied };
 
   const event = await db.event.findFirst({
-    where: { id: eventId, organizationId: session.user.organizationId! },
+    where: { id: eventId, organizationId: (session.user.organizationId ?? "") },
     select: { id: true },
   });
   if (!event) return { error: NextResponse.json({ error: "Event not found" }, { status: 404 }) };

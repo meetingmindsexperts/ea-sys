@@ -48,7 +48,7 @@ async function authGuard(params: RouteParams["params"]) {
     session,
     eventId,
     billingAccountId,
-    orgId: session.user.organizationId!,
+    orgId: (session.user.organizationId ?? ""),
   };
 }
 

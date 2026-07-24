@@ -29,7 +29,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       where: {
         id: invoiceId,
         eventId,
-        organizationId: session.user.organizationId!,
+        organizationId: (session.user.organizationId ?? ""),
         // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
         event: buildEventAccessWhere(session.user),
       },
@@ -85,7 +85,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       where: {
         id: invoiceId,
         eventId,
-        organizationId: session.user.organizationId!,
+        organizationId: (session.user.organizationId ?? ""),
         // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
         event: buildEventAccessWhere(session.user),
       },

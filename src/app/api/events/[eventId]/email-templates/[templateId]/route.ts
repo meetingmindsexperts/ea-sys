@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -18,13 +19,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     // Tenant isolation: bind the event to the caller's org BEFORE touching
     // the template — both eventId and templateId come from the URL, so
     // without this any authenticated user could read another org's
     // templates. 404 (not 403) to avoid existence enumeration.
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
     });
     if (!event) {
@@ -56,12 +59,14 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
     });
     if (!event) {
@@ -104,12 +109,14 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
     });
     if (!event) {
@@ -152,6 +159,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -164,7 +173,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // org (or doesn't exist) — POST renders + can email template content,
       // so this must be tenant-isolated like the other handlers.
       db.event.findFirst({
-        where: { id: eventId, organizationId: session.user.organizationId! },
+        where: { id: eventId, organizationId: orgGuard.orgId },
         select: {
           // Full branding set — must match getEventTemplate so a test/preview
           // renders the SAME header image, footer image, and footer HTML a real
@@ -271,12 +280,14 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
     });
     if (!event) {

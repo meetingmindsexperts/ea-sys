@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
@@ -48,15 +49,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
     const denied = denyReviewer(session);
     if (denied) return denied;
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
-    const orgId = session.user.organizationId!; // capture before the closure
+    const orgId = orgGuard.orgId; // capture before the closure
     return await runWithTenant(orgId, async () => {
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
     });
     if (!event) {
@@ -73,7 +76,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const result = await findOrCreateBillingAccount({
       ...parsed.data,
       email: parsed.data.email || null,
-      organizationId: session.user.organizationId!,
+      organizationId: orgGuard.orgId,
       userId: session.user.id,
       source: "rest",
       requestIp: getClientIp(req),

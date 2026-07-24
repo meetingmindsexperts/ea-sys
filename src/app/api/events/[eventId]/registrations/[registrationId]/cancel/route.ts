@@ -82,7 +82,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   const result = await cancelRegistration({
     registrationId,
     eventId,
-    organizationId: session.user.organizationId!,
+    organizationId: (session.user.organizationId ?? ""),
     refund: parsed.data.refund,
     source: "rest",
     issuedByUserId: session.user.id,

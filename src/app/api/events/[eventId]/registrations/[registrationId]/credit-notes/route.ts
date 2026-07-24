@@ -79,7 +79,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   const result = await issueCreditNoteForRegistration({
     registrationId,
     eventId,
-    organizationId: session.user.organizationId!,
+    organizationId: (session.user.organizationId ?? ""),
     amount: parsed.data.amount,
     reason: parsed.data.reason,
     send: parsed.data.send,

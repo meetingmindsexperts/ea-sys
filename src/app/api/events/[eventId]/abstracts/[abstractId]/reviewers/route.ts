@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -54,6 +55,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -72,7 +75,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const result = await assignReviewer({
       eventId,
-      organizationId: session.user.organizationId!,
+      organizationId: orgGuard.orgId,
       abstractId,
       reviewerUserId: validated.data.userId,
       role: validated.data.role,
@@ -143,6 +146,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     // Scope by role, not org: reviewers + submitters are org-independent
     // (organizationId = null), so the old `organizationId!` filter threw a

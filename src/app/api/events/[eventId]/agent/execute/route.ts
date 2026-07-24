@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam, ToolUnion, WebSearchTool20250305 } from "@anthropic-ai/sdk/resources/messages";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { rateLimited } from "@/lib/api-errors";
@@ -243,6 +244,8 @@ export async function POST(
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
   // Role gate. NOTE: we deliberately do NOT call denyReviewer() here —
   // that guard 403s MEMBER, but MEMBER is allowed to use the agent in
@@ -298,7 +301,7 @@ export async function POST(
 
   // Pre-verify event belongs to this org — fail fast before spending Anthropic tokens
   const event = await db.event.findFirst({
-    where: { id: eventId, organizationId: session.user.organizationId! },
+    where: { id: eventId, organizationId: orgGuard.orgId },
     select: { id: true },
   });
   if (!event) {
@@ -324,7 +327,7 @@ export async function POST(
 
   const context: AgentContext = {
     eventId,
-    organizationId: session.user.organizationId!,
+    organizationId: orgGuard.orgId,
     userId: session.user.id,
     counters: { creates: 0, emailsSent: 0 },
   };

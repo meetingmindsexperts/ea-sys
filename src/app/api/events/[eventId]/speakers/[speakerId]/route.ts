@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
@@ -75,6 +76,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const [event, speaker] = await Promise.all([
       db.event.findFirst({
@@ -168,6 +171,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -178,7 +183,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
-        organizationId: session.user.organizationId!,
+        organizationId: orgGuard.orgId,
       },
       select: { id: true },
     });
@@ -226,7 +231,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const result = await updateSpeaker({
       speakerId,
       eventId,
-      organizationId: session.user.organizationId!,
+      organizationId: orgGuard.orgId,
       fields: {
         title: data.title,
         role: data.role,
@@ -290,6 +295,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -298,7 +305,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       db.event.findFirst({
         where: {
           id: eventId,
-          organizationId: session.user.organizationId!,
+          organizationId: orgGuard.orgId,
         },
         select: { id: true },
       }),

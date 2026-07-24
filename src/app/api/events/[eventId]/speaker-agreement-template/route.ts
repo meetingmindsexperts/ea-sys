@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -32,8 +33,10 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
-    const event = await loadEvent(eventId, session.user.organizationId!);
+    const event = await loadEvent(eventId, orgGuard.orgId);
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
@@ -53,6 +56,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -70,7 +75,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const event = await loadEvent(eventId, session.user.organizationId!);
+    const event = await loadEvent(eventId, orgGuard.orgId);
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
@@ -96,7 +101,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     try {
       meta = await saveSpeakerAgreementTemplate({
         eventId,
-        organizationId: session.user.organizationId!,
+        organizationId: orgGuard.orgId,
         buffer,
         filename: file.name,
         actorUserId: session.user.id,
@@ -137,11 +142,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const event = await loadEvent(eventId, session.user.organizationId!);
+    const event = await loadEvent(eventId, orgGuard.orgId);
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
