@@ -486,12 +486,12 @@ exactly which of those exist today.</p>
 </details>
 
 <details>
-  <summary>Email inbox — reply capture + shared Inbox tab <span class="tag done">DONE — Jul 23 (code) · needs AWS setup to go live</span></summary>
+  <summary>Email inbox — reply capture + shared Inbox tab <span class="tag done">DONE — Jul 23 (code) · AWS pipeline configured Jul 24</span></summary>
   <ul>
     <li><b>The model:</b> every CRM outbound send mints a <code>CrmEmailThread</code> whose unique <code>replyToken</code> becomes the tokenized Reply-To (<code>&lt;token&gt;@$CRM_REPLY_DOMAIN</code>) — an inbound reply resolves to its thread EXACTLY, no fuzzy matching. <b>DORMANT without env</b>: no Reply-To until the SES setup lands, but threads record as sent-history from day one.</li>
     <li><b>Intake:</b> SES inbound (ap-south-1, verified available) → S3 → the <code>crm-inbound-email</code> worker job (every minute, JOB_ID 1012): MIME parse (mailparser), SES spam/virus FAILs quarantined, attachments to a private upload prefix, thread flagged unread, <code>EMAIL_RECEIVED</code> on the deal History, bell + <b>forward-copy to the deal owner's real mailbox</b> (owner decision). Per-object failure isolation + s3Key dedupe = crash-retry safe.</li>
     <li><b>UI:</b> CRM → <b>Inbox</b> tab — shared org-wide (owner decision: one bulk inbox), two-pane, inbound HTML sandboxed in an iframe, authed attachment streaming, reply composer that reuses the thread's own token so conversations keep threading. <b>Staff-only via new <code>canViewCrmInbox</code></b> — MEMBER (sponsor-side accounts) never reads negotiation threads; the tab hides AND every route 403s.</li>
-    <li><b>To go LIVE:</b> the operator runbook <a href="CRM_INBOX_SETUP.md">docs/CRM_INBOX_SETUP.md</a> — S3 bucket + MX record on <code>reply.meetingmindsdubai.com</code> + SES receipt rule + IAM + 3 env vars. M365 mailboxes untouched. Known v1 limitation: replies don't set RFC threading headers (clients group by subject).</li>
+    <li><b>LIVE pipeline (Jul 24):</b> configured on prod per <a href="CRM_INBOX_SETUP.md">docs/CRM_INBOX_SETUP.md</a> — reply domain <code>reply.meetingmindsexperts.com</code>, S3 bucket <code>ea-sys-crm-inbound</code> (ap-south-1), active SES receipt rule <code>crm-reply-to-s3</code>, IAM <code>CrmInboundEmailS3</code>, 3 env vars + deploy. No SES identity needed (receiving = MX + active rule only). M365 mailboxes untouched. Known v1 limitation: replies don't set RFC threading headers (clients group by subject).</li>
   </ul>
 </details>
 
