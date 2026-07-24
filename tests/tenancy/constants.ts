@@ -33,3 +33,21 @@ export const CONTACT_B_SHARED_ID = "tenancy-ct-b-shared";
 
 export const ORG_B_ONLY_CONTACT_EMAIL = "only.in.b@tenancy.test";
 export const CONTACT_B_ONLY_ID = "tenancy-ct-b-only";
+
+/**
+ * MediaFile fast-follow (Phase 2, domain pass #2). MediaFile carries a direct
+ * organizationId column (the trivial case) but has NO per-org-unique field, so
+ * BOTH orgs hold a file on the SAME url string — proving an unscoped
+ * `where:{ url }` still returns only the caller's row under RLS. Plus a B-only
+ * file for cross-tenant-miss assertions. Each org needs an uploader User row
+ * (MediaFile.uploadedById is a required FK).
+ */
+export const UPLOADER_A_ID = "tenancy-user-a";
+export const UPLOADER_B_ID = "tenancy-user-b";
+
+export const SHARED_MEDIA_URL = "/uploads/media/2027/01/shared-tenancy.png";
+export const MEDIA_A_SHARED_ID = "tenancy-mf-a-shared";
+export const MEDIA_B_SHARED_ID = "tenancy-mf-b-shared";
+
+export const ORG_B_ONLY_MEDIA_URL = "/uploads/media/2027/01/only-b-tenancy.png";
+export const MEDIA_B_ONLY_ID = "tenancy-mf-b-only";

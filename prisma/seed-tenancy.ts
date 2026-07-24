@@ -23,6 +23,13 @@ import {
   CONTACT_B_SHARED_ID,
   ORG_B_ONLY_CONTACT_EMAIL,
   CONTACT_B_ONLY_ID,
+  UPLOADER_A_ID,
+  UPLOADER_B_ID,
+  SHARED_MEDIA_URL,
+  MEDIA_A_SHARED_ID,
+  MEDIA_B_SHARED_ID,
+  ORG_B_ONLY_MEDIA_URL,
+  MEDIA_B_ONLY_ID,
 } from "../tests/tenancy/constants";
 
 const url = process.env.TENANCY_DIRECT_URL;
@@ -35,6 +42,7 @@ async function seedOrg(
   host: string,
   events: { id: string; slug: string }[],
   contacts: { id: string; email: string }[] = [],
+  uploader?: { id: string; media: { id: string; url: string }[] },
 ) {
   await db.organization.create({
     data: {
@@ -77,10 +85,44 @@ async function seedOrg(
       },
     });
   }
+  // MediaFile fast-follow fixtures. uploadedById is a required FK, so mint an
+  // uploader User per org first (cascade-wiped with the org; also cleaned
+  // explicitly in main() because MediaFile→User is a cross-child FK).
+  if (uploader) {
+    await db.user.create({
+      data: {
+        id: uploader.id,
+        organizationId: orgId,
+        email: `${uploader.id}@tenancy.test`,
+        passwordHash: "x", // no login happens in the harness
+        firstName: "Tenancy",
+        lastName: "Uploader",
+      },
+    });
+    for (const m of uploader.media) {
+      await db.mediaFile.create({
+        data: {
+          id: m.id,
+          organizationId: orgId,
+          uploadedById: uploader.id,
+          filename: `${m.id}.png`,
+          url: m.url,
+          mimeType: "image/png",
+          size: 1024,
+        },
+      });
+    }
+  }
 }
 
 async function main() {
-  // Cascade wipes events + tenant domains of prior runs.
+  // MediaFile → User is a cross-child FK (not org-cascade-ordered), so wipe the
+  // media + uploader users explicitly before the org cascade handles the rest.
+  await db.mediaFile.deleteMany({
+    where: { id: { in: [MEDIA_A_SHARED_ID, MEDIA_B_SHARED_ID, MEDIA_B_ONLY_ID] } },
+  });
+  await db.user.deleteMany({ where: { id: { in: [UPLOADER_A_ID, UPLOADER_B_ID] } } });
+  // Cascade wipes events + contacts + tenant domains of prior runs.
   await db.organization.deleteMany({ where: { id: { in: [ORG_A_ID, ORG_B_ID] } } });
 
   await seedOrg(
@@ -88,6 +130,7 @@ async function main() {
     HOST_A,
     [{ id: EVENT_A_SHARED_ID, slug: SHARED_SLUG }],
     [{ id: CONTACT_A_SHARED_ID, email: SHARED_CONTACT_EMAIL }],
+    { id: UPLOADER_A_ID, media: [{ id: MEDIA_A_SHARED_ID, url: SHARED_MEDIA_URL }] },
   );
   await seedOrg(
     ORG_B_ID,
@@ -100,9 +143,18 @@ async function main() {
       { id: CONTACT_B_SHARED_ID, email: SHARED_CONTACT_EMAIL },
       { id: CONTACT_B_ONLY_ID, email: ORG_B_ONLY_CONTACT_EMAIL },
     ],
+    {
+      id: UPLOADER_B_ID,
+      media: [
+        { id: MEDIA_B_SHARED_ID, url: SHARED_MEDIA_URL },
+        { id: MEDIA_B_ONLY_ID, url: ORG_B_ONLY_MEDIA_URL },
+      ],
+    },
   );
 
-  console.log("[tenancy:seed] two tenants seeded (shared slug + shared contact email on both)");
+  console.log(
+    "[tenancy:seed] two tenants seeded (shared slug + shared contact email + shared media url on both)",
+  );
 }
 
 main()
