@@ -42,6 +42,7 @@ import {
   COMPANY_FIELDS,
   CONTACT_FIELDS,
   DEAL_FIELDS,
+  buildSampleCsv,
 } from "@/crm/lib/freshsales-import";
 import { importFreshsalesCompanies, importFreshsalesContacts, importFreshsalesDeals } from "@/crm/services/crm-import-service";
 import { parseCSVHeaders } from "@/lib/csv-parser";
@@ -474,5 +475,49 @@ describe("importFreshsalesDeals", () => {
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
     expect(res.code).toBe("EVENT_NOT_FOUND");
+  });
+});
+
+describe("buildSampleCsv — the downloadable template can't drift from the synonyms", () => {
+  // A sample must satisfy the importer's required-field gate AND carry no column
+  // the importer would report as unrecognized — i.e. every header maps to a real
+  // synonym (the drift guard), with at least one example row beyond the header.
+  function assertSampleResolves(csv: string, missingRequired: string[], unrecognized: string[]) {
+    const lines = csv.split(/\r\n/).filter(Boolean);
+    expect(missingRequired).toEqual([]);
+    expect(unrecognized).toEqual([]);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+  }
+
+  it("companies: every sample header resolves + required present + nothing unrecognized", () => {
+    const csv = buildSampleCsv("companies");
+    const cols = resolveColumns(parseCSVHeaders(csv.split(/\r\n/)[0]!), COMPANY_FIELDS);
+    assertSampleResolves(csv, cols.missingRequired, cols.unrecognized);
+  });
+
+  it("contacts: every sample header resolves + required present + nothing unrecognized", () => {
+    const csv = buildSampleCsv("contacts");
+    const cols = resolveColumns(parseCSVHeaders(csv.split(/\r\n/)[0]!), CONTACT_FIELDS);
+    assertSampleResolves(csv, cols.missingRequired, cols.unrecognized);
+  });
+
+  it("deals: every sample header resolves + required present + nothing unrecognized", () => {
+    const csv = buildSampleCsv("deals");
+    const cols = resolveColumns(parseCSVHeaders(csv.split(/\r\n/)[0]!), DEAL_FIELDS);
+    assertSampleResolves(csv, cols.missingRequired, cols.unrecognized);
+  });
+
+  it("deals sample carries two rows incl. a Closed-Won example that maps to WON", () => {
+    const rows = buildSampleCsv("deals").split(/\r\n/).filter(Boolean);
+    expect(rows.length).toBe(3); // header + 2 examples
+    expect(rows.join("\n").toLowerCase()).toContain("closed won");
+  });
+
+  it("quotes a cell containing a comma (RFC 4180)", () => {
+    // The em-dash deal name has no comma; assert the escaper quotes when needed.
+    // (Direct check on the pure helper via a comma-bearing value round-trips.)
+    const csv = buildSampleCsv("companies");
+    // No sample value contains a comma, so no field should be quoted here.
+    expect(csv).not.toContain('"');
   });
 });

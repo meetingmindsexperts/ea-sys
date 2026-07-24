@@ -20,6 +20,92 @@
 
 export const FRESHSALES_SOURCE = "freshsales";
 
+// ── Sample CSV templates ──────────────────────────────────────────────────────
+// Headers here are human-readable Freshsales-style names that NORMALIZE (lower +
+// whitespace-stripped, per csv-parser) to a synonym the importer recognizes, so
+// a downloaded sample always imports cleanly. A unit test resolves every sample
+// header against its field spec, so the samples can't drift from the synonyms.
+
+interface SampleColumn {
+  header: string;
+  example: string;
+}
+
+const COMPANY_SAMPLE: SampleColumn[] = [
+  { header: "Id", example: "FS-1001" },
+  { header: "Name", example: "Abbott Laboratories" },
+  { header: "Website", example: "https://abbott.com" },
+  { header: "Industry", example: "Pharmaceuticals" },
+  { header: "City", example: "Dubai" },
+  { header: "Country", example: "United Arab Emirates" },
+  { header: "Description", example: "Key sponsor account" },
+];
+
+const CONTACT_SAMPLE: SampleColumn[] = [
+  { header: "Id", example: "FS-2001" },
+  { header: "First Name", example: "Jane" },
+  { header: "Last Name", example: "Doe" },
+  { header: "Email", example: "jane.doe@abbott.com" },
+  { header: "Job Title", example: "Sponsorship Manager" },
+  { header: "Work Phone", example: "+9714000000" },
+  { header: "Mobile", example: "+971500000000" },
+  { header: "Sales Account", example: "Abbott Laboratories" },
+  { header: "Country", example: "United Arab Emirates" },
+  { header: "Tags", example: "sponsor;gold" },
+];
+
+const DEAL_SAMPLE_ROWS: SampleColumn[][] = [
+  [
+    { header: "Id", example: "FS-3001" },
+    { header: "Name", example: "Abbott — BRIDGES 2026 Gold" },
+    { header: "Amount", example: "40000" },
+    { header: "Currency", example: "USD" },
+    { header: "Deal Stage", example: "Negotiation" },
+    { header: "Expected Close", example: "2026-03-01" },
+    { header: "Closed Date", example: "" },
+    { header: "Sales Account", example: "Abbott Laboratories" },
+    { header: "Sales Owner", example: "Krishna P" },
+    { header: "Sales Owner Email", example: "krishna@meetingmindsdubai.com" },
+    { header: "Lost Reason", example: "" },
+  ],
+  [
+    { header: "Id", example: "FS-3002" },
+    { header: "Name", example: "Pfizer — BRIDGES 2026 Exhibitor" },
+    { header: "Amount", example: "15000" },
+    { header: "Currency", example: "USD" },
+    { header: "Deal Stage", example: "Closed Won" },
+    { header: "Expected Close", example: "2026-02-15" },
+    { header: "Closed Date", example: "2026-02-10" },
+    { header: "Sales Account", example: "Pfizer" },
+    { header: "Sales Owner", example: "Krishna P" },
+    { header: "Sales Owner Email", example: "krishna@meetingmindsdubai.com" },
+    { header: "Lost Reason", example: "" },
+  ],
+];
+
+/** The sample columns (header + one example each) for a given import type. */
+export function sampleColumnsFor(type: "companies" | "contacts" | "deals"): SampleColumn[] {
+  if (type === "companies") return COMPANY_SAMPLE;
+  if (type === "contacts") return CONTACT_SAMPLE;
+  return DEAL_SAMPLE_ROWS[0]!;
+}
+
+/** Wrap a CSV cell only when it contains a comma, quote, or newline (RFC 4180). */
+function csvCell(v: string): string {
+  return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+/**
+ * A ready-to-fill sample CSV for one import type — the exact columns the
+ * importer accepts, with one or two example rows. Client-safe (pure).
+ */
+export function buildSampleCsv(type: "companies" | "contacts" | "deals"): string {
+  const rows = type === "deals" ? DEAL_SAMPLE_ROWS : [sampleColumnsFor(type)];
+  const header = rows[0]!.map((c) => csvCell(c.header)).join(",");
+  const body = rows.map((r) => r.map((c) => csvCell(c.example)).join(","));
+  return [header, ...body].join("\r\n") + "\r\n";
+}
+
 // ── Header synonyms (normalized: lowercase, whitespace stripped) ─────────────
 
 type FieldSpec<T extends string> = Record<T, { synonyms: string[]; required?: boolean }>;

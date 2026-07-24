@@ -15,8 +15,9 @@
  */
 import { useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, FileUp, Loader2, TriangleAlert, Upload } from "lucide-react";
+import { CheckCircle2, Download, FileUp, Loader2, TriangleAlert, Upload } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { buildSampleCsv } from "@/crm/lib/freshsales-import";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -102,6 +103,18 @@ export function FreshsalesImportDialog({
     setCsv(await file.text());
   }
 
+  function downloadSample() {
+    const blob = new Blob([buildSampleCsv(type)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `freshsales-${type}-sample.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   async function runPreview() {
     if (type === "deals" && !fallbackEventId) {
       toast.error("Pick the fallback event first — deals whose name matches no event land there");
@@ -145,7 +158,19 @@ export function FreshsalesImportDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="fs-file">CSV file</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="fs-file">CSV file</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 px-2 text-xs text-[#0090b8]"
+                onClick={downloadSample}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download sample template
+              </Button>
+            </div>
             <Input
               id="fs-file"
               type="file"
@@ -158,6 +183,10 @@ export function FreshsalesImportDialog({
                 {fileName}
               </p>
             )}
+            <p className="text-xs text-muted-foreground">
+              A real Freshsales {TYPE_COPY[type].source.replace("Freshsales ", "").replace(" export", "")}{" "}
+              export works directly. Not sure of the format? Download the sample to see the exact columns.
+            </p>
           </div>
 
           {type === "deals" && (
