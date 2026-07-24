@@ -176,6 +176,16 @@ hard part already done right.
 
 ---
 
+## 7.1 CRM email — per-tenant plumbing (one gap is a confidentiality LEAK)
+
+The CRM email subsystem (deal/sponsor sends, the reply Inbox, reply-forwarding — shipped through July 24, 2026) is **data-model ready** for multi-tenancy: `CrmEmailThread` / `CrmEmailMessage` carry `organizationId`, and `CrmEmailThread.notifyEmails` (the CC/BCC copy-list) is just a column on an org-scoped row — it gets an RLS policy exactly like the Contacts pilot. The **plumbing**, however, leans on three *global* env vars, not per-tenant config. On **master** (MMG-only) all three are correct and there is no issue; they only bite in a silo hosting **more than one** tenant (the platform instance).
+
+1. **🔴 CROSS-TENANT LEAK — the reply-forward to `partnerships@` (introduced July 24, 2026).** [inbound-email-worker.ts](src/crm/inbound-email-worker.ts) forwards every inbound reply to `process.env.CRM_EMAIL_FROM_ADDRESS` (a single global value) alongside the deal owner + the thread's CC/BCC. Owner + CC/BCC resolve from the org-scoped thread (fine); the **hardcoded partnerships constant does not** — so on a multi-tenant silo, **tenant B's sponsor-reply content forwards into the ONE shared partnerships mailbox**, exposing it cross-tenant. This is confidentiality, not branding. **Fix: resolve the "partnerships" forward address from the thread's org (a per-org setting), never a global env. HARD PRECONDITION before the platform onboards a 2nd tenant.**
+2. **🟠 Sender identity + reply subdomain are global.** `CRM_EMAIL_FROM_ADDRESS` (the From, via `crmSenderFrom()` in [sponsor-email-service.ts](src/crm/services/sponsor-email-service.ts)) and `CRM_REPLY_DOMAIN` (the tokenized Reply-To, via `crmReplyDomain()` in [crm-email-thread-service.ts](src/crm/services/crm-email-thread-service.ts)) are one value each. Every tenant would send *from* MMG's address and receive replies at MMG's subdomain — functional but wrong-branded and not DKIM-aligned to the tenant's own domain. This is the "per-tenant email sender-domain verification" Phase-3 item above, **plus its reply-domain half** (per-tenant reply subdomain, or subdomain-per-tenant token routing).
+3. **🟡 The inbound worker is org-blind by construction.** It resolves a thread by globally-unique `replyToken` *before* it can know the org. Under RLS it needs the same treatment as `contacts-central-sync` — a bypass role, or set `app.current_org` *after* resolving the thread. Known, precedented pattern.
+
+---
+
 ## 8. The decisions that need a human call (before any build)
 
 1. **Identity:** per-tenant user rows vs shared `User` + `Membership` (recommend the latter — preserves cross-org reviewer, avoids forcing `organizationId` NOT NULL). **OPEN.**
