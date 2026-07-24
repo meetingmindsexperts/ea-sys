@@ -94,6 +94,13 @@ jobs:
       - name: Tenant scoping (public event lookups)
         run: bash scripts/check-tenant-scoping.sh
 
+      # A domain that finished its Phase-2 isolation sweep wraps every handler
+      # in runWithTenant. That wrap is inert on master but load-bearing on the
+      # platform — dropping it is SILENT here and only surfaces as data-loss/
+      # leak once RLS turns on. This gate pins the swept domains' wraps.
+      - name: Tenant ALS (swept-domain runWithTenant wraps)
+        run: bash scripts/check-tenant-als.sh
+
       # Dependency auditing is done manually, locally, before a push — not in CI.
       # (`npm audit` on demand.) Deliberate: CI gates what a commit BREAKS, not
       # what the ecosystem happens to have disclosed today, which is not something
