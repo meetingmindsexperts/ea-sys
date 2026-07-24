@@ -42,6 +42,17 @@ export function crmReplyAddress(token: string): string | null {
   return domain ? `${token}@${domain}` : null;
 }
 
+/** Lowercase + trim + dedupe an address list, dropping empties. */
+function dedupeLower(list: string[] | undefined): string[] {
+  if (!list?.length) return [];
+  const seen = new Set<string>();
+  for (const raw of list) {
+    const e = raw.trim().toLowerCase();
+    if (e) seen.add(e);
+  }
+  return [...seen];
+}
+
 export interface RecordOutboundEmailInput {
   organizationId: string;
   /** Null for event-wide blasts where the recipient spans deals. */
@@ -59,6 +70,12 @@ export interface RecordOutboundEmailInput {
   /** The org sender address the email went out under. */
   fromEmail: string;
   fromName: string | null;
+  /**
+   * Internal addresses (this send's CC + BCC, incl. the sender's own copy) to
+   * forward-copy inbound replies to. Stored on a NEW thread only; the reply
+   * partnerships address + deal owner are added by the worker at forward time.
+   */
+  notifyEmails?: string[];
   /** Append to an existing thread (the inbox reply composer) instead of minting. */
   threadId?: string;
 }
@@ -114,6 +131,7 @@ export async function recordOutboundEmail(input: RecordOutboundEmailInput): Prom
         replyToken: input.replyToken,
         counterpartyEmail: input.counterpartyEmail.toLowerCase(),
         counterpartyName: input.counterpartyName,
+        notifyEmails: dedupeLower(input.notifyEmails),
         expiresAt,
         messages: { create: messageData },
       },

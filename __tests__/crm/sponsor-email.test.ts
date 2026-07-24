@@ -366,6 +366,61 @@ describe("sendDealEmail", () => {
   });
 });
 
+describe("CC / BCC + copy-to-sender", () => {
+  const lastSend = () => vi.mocked(sendEmail).mock.calls.at(-1)?.[0];
+
+  function mockDealWithSender(email: string | null) {
+    mockDeal([contact({ id: "c1", email: "a@a.com", emailKey: "a@a.com" })]);
+    vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null, email } as never);
+  }
+
+  it("auto-BCCs the sender when copyToSender is on (the 'see it in my Outlook' copy)", async () => {
+    mockDealWithSender("rep@mmg.com");
+    const res = await sendDealEmail({ ...DEAL_SEND, copyToSender: true });
+    expect(res.ok).toBe(true);
+    expect(lastSend()?.bcc).toEqual([{ email: "rep@mmg.com" }]);
+  });
+
+  it("does NOT BCC the sender when copyToSender is off", async () => {
+    mockDealWithSender("rep@mmg.com");
+    await sendDealEmail({ ...DEAL_SEND, copyToSender: false });
+    // No manual bcc + no sender copy → bcc omitted entirely.
+    expect(lastSend()?.bcc).toBeUndefined();
+  });
+
+  it("merges manual CC + BCC and lowercases/dedupes; sender copy joins the BCC list", async () => {
+    mockDealWithSender("Rep@MMG.com");
+    await sendDealEmail({
+      ...DEAL_SEND,
+      cc: ["Manager@MMG.com", "manager@mmg.com"], // dup, mixed case
+      bcc: ["audit@mmg.com"],
+      copyToSender: true,
+    });
+    const call = lastSend();
+    expect(call?.cc).toEqual([{ email: "manager@mmg.com" }]); // deduped + lowercased
+    expect(call?.bcc).toEqual([{ email: "audit@mmg.com" }, { email: "rep@mmg.com" }]);
+  });
+
+  it("omits the sender copy when the acting user has no email on file", async () => {
+    mockDealWithSender(null);
+    await sendDealEmail({ ...DEAL_SEND, copyToSender: true });
+    expect(lastSend()?.bcc).toBeUndefined();
+  });
+
+  it("applies CC/BCC per recipient (each send carries them) on a multi-contact deal", async () => {
+    mockDeal([
+      contact({ id: "c1", email: "a@a.com", emailKey: "a@a.com" }),
+      contact({ id: "c2", email: "b@b.com", emailKey: "b@b.com" }),
+    ]);
+    vi.mocked(db.user.findUnique).mockResolvedValue({ emailSignature: null, email: "rep@mmg.com" } as never);
+    await sendDealEmail({ ...DEAL_SEND, copyToSender: true });
+    expect(sendEmail).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(sendEmail).mock.calls) {
+      expect(call[0].bcc).toEqual([{ email: "rep@mmg.com" }]);
+    }
+  });
+});
+
 // ── built-in templates ─────────────────────────────────────────────────────────────
 
 describe("CRM_EMAIL_TEMPLATES", () => {

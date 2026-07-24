@@ -51,7 +51,12 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
-import { runTick, extractReplyToken, verifySender } from "@/crm/inbound-email-worker";
+import {
+  runTick,
+  extractReplyToken,
+  verifySender,
+  buildForwardAudience,
+} from "@/crm/inbound-email-worker";
 
 const TOKEN = "abcdef0123456789abcd";
 const BUCKET = "test-inbound";
@@ -307,5 +312,57 @@ describe("verifySender", () => {
   });
   it("missing From address → unverified", () => {
     expect(verifySender(parsed(""), "jane@abbott.com").verified).toBe(false);
+  });
+});
+
+describe("buildForwardAudience — a reply loops in owner + partnerships + CC/BCC", () => {
+  it("includes owner, partnerships, and the send's notifyEmails, deduped + lowercased", () => {
+    const audience = buildForwardAudience({
+      ownerEmail: "Owner@mmg.com",
+      ownerName: "Owner O",
+      partnerships: "Partnerships@meetingmindsdubai.com",
+      notifyEmails: ["manager@mmg.com", "MANAGER@mmg.com", "rep@mmg.com"],
+      replierEmail: "jane@abbott.com",
+    });
+    expect(audience).toEqual([
+      { email: "owner@mmg.com", name: "Owner O" },
+      { email: "partnerships@meetingmindsdubai.com", name: undefined },
+      { email: "manager@mmg.com", name: undefined },
+      { email: "rep@mmg.com", name: undefined },
+    ]);
+  });
+
+  it("NEVER includes the person who replied (even if they're in notifyEmails somehow)", () => {
+    const audience = buildForwardAudience({
+      ownerEmail: "jane@abbott.com", // owner == replier (edge)
+      partnerships: "partnerships@meetingmindsdubai.com",
+      notifyEmails: ["jane@abbott.com"],
+      replierEmail: "Jane@Abbott.com",
+    });
+    expect(audience.map((a) => a.email)).toEqual(["partnerships@meetingmindsdubai.com"]);
+  });
+
+  it("still forwards to partnerships + watchers when the thread has no deal owner (a blast)", () => {
+    const audience = buildForwardAudience({
+      ownerEmail: null,
+      partnerships: "partnerships@meetingmindsdubai.com",
+      notifyEmails: ["rep@mmg.com"],
+      replierEmail: "jane@abbott.com",
+    });
+    expect(audience.map((a) => a.email)).toEqual([
+      "partnerships@meetingmindsdubai.com",
+      "rep@mmg.com",
+    ]);
+  });
+
+  it("is empty when there's no owner, no partnerships, and no watchers", () => {
+    expect(
+      buildForwardAudience({
+        ownerEmail: null,
+        partnerships: null,
+        notifyEmails: [],
+        replierEmail: "jane@abbott.com",
+      }),
+    ).toEqual([]);
   });
 });

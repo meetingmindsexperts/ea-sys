@@ -311,6 +311,22 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   "image/gif",
 ]);
 
+/** Dedupe + lowercase a set of email addresses into sendEmail's {email}[] shape. */
+function toAddressList(...groups: (string[] | undefined)[]): { email: string }[] {
+  const seen = new Set<string>();
+  const out: { email: string }[] = [];
+  for (const g of groups) {
+    for (const raw of g ?? []) {
+      const e = raw.trim().toLowerCase();
+      if (e && !seen.has(e)) {
+        seen.add(e);
+        out.push({ email: e });
+      }
+    }
+  }
+  return out;
+}
+
 interface DispatchArgs {
   organizationId: string;
   recipients: SponsorRecipient[];
@@ -321,6 +337,15 @@ interface DispatchArgs {
   message: string;
   attachments: SponsorAttachment[];
   actorUserId: string | null;
+  /** Manual CC — added to the event-branding CC on every recipient's send. */
+  cc?: string[];
+  /** Manual BCC — added on every recipient's send. */
+  bcc?: string[];
+  /**
+   * Auto-BCC the sending CRM user's own address (default ON at the routes), so a
+   * copy of every send lands in their Outlook alongside the in-system record.
+   */
+  copyToSender?: boolean;
   /** CRM history action recorded on each contact on a successful send. */
   contactActivityAction: string;
   /**
@@ -356,18 +381,30 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
   }
 
   // The sender's own signature (same feature as the event bulk-email organizer
-  // signature). Appended raw beneath the body.
+  // signature). Appended raw beneath the body. We fetch the sender's email in
+  // the same query for the "copy to me" BCC below.
   let signatureHtml = "";
+  let senderEmail: string | null = null;
   if (args.actorUserId) {
     const sender = await db.user.findUnique({
       where: { id: args.actorUserId },
-      select: { emailSignature: true },
+      select: { emailSignature: true, email: true },
     });
     signatureHtml = sender?.emailSignature ?? "";
+    senderEmail = sender?.email ?? null;
   }
 
   const from = crmSenderFrom(args.branding);
-  const cc = brandingCc(args.branding);
+  // CC = event-branding CC + any manual CC. BCC = manual BCC + (when copyToSender
+  // is on) the sender's own address, so the rep gets the email in their Outlook.
+  // These are the same on every recipient's send (not personalized) — a per-
+  // recipient send model means a CC'd/BCC'd address receives one copy per
+  // recipient, which is intended for the sender-copy case.
+  const cc = toAddressList(
+    (brandingCc(args.branding) ?? []).map((c) => c.email),
+    args.cc,
+  );
+  const bcc = toAddressList(args.bcc, args.copyToSender && senderEmail ? [senderEmail] : undefined);
   const sendAttachments = args.attachments.map((a) => ({
     name: a.name,
     content: a.content,
@@ -390,6 +427,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
           branding: args.branding,
           from,
           cc,
+          bcc,
           sendAttachments,
           organizationId: args.organizationId,
           actorUserId: args.actorUserId,
@@ -446,7 +484,8 @@ async function sendOne(
     eventName: string;
     branding: EmailBranding;
     from: ReturnType<typeof brandingFrom>;
-    cc: ReturnType<typeof brandingCc>;
+    cc: { email: string }[];
+    bcc: { email: string }[];
     sendAttachments: SponsorAttachment[];
     organizationId: string;
     actorUserId: string | null;
@@ -480,6 +519,7 @@ async function sendOne(
   const res = await sendEmail({
     to: [{ email: r.email, name: `${r.firstName} ${r.lastName}`.trim() || undefined }],
     cc: ctx.cc,
+    ...(ctx.bcc.length ? { bcc: ctx.bcc } : {}),
     from: ctx.from,
     ...(replyAddress ? { replyTo: { email: replyAddress, name: ctx.from?.name } } : {}),
     subject: rendered.subject,
@@ -517,6 +557,9 @@ async function sendOne(
     // sendEmail then uses the env default, so mirror that here.
     fromEmail: ctx.from?.email ?? process.env.EMAIL_FROM ?? "",
     fromName: ctx.from?.name ?? null,
+    // Loop these (CC + BCC, incl. the sender's own copy) in when a reply lands,
+    // so the conversation reaches Outlook, not just the CRM inbox.
+    notifyEmails: [...ctx.cc, ...ctx.bcc].map((a) => a.email),
   });
 
   void recordCrmActivity({
@@ -545,6 +588,9 @@ export async function sendSponsorProspectus(args: {
   message: string;
   attachments?: SponsorAttachment[];
   contactIds?: string[];
+  cc?: string[];
+  bcc?: string[];
+  copyToSender?: boolean;
   actorUserId: string | null;
   source: "rest" | "api";
 }): Promise<CrmEmailSendResult | ServiceFail> {
@@ -567,6 +613,9 @@ export async function sendSponsorProspectus(args: {
     subject: valid.subject,
     message: valid.message,
     attachments,
+    cc: args.cc,
+    bcc: args.bcc,
+    copyToSender: args.copyToSender,
     actorUserId: args.actorUserId,
     contactActivityAction: "PROSPECTUS_SENT",
     threadDealId: null,
@@ -585,6 +634,9 @@ export async function sendDealEmail(args: {
   message: string;
   attachments?: SponsorAttachment[];
   contactIds?: string[];
+  cc?: string[];
+  bcc?: string[];
+  copyToSender?: boolean;
   actorUserId: string | null;
   source: "rest" | "api";
 }): Promise<CrmEmailSendResult | ServiceFail> {
@@ -607,6 +659,9 @@ export async function sendDealEmail(args: {
     subject: valid.subject,
     message: valid.message,
     attachments,
+    cc: args.cc,
+    bcc: args.bcc,
+    copyToSender: args.copyToSender,
     actorUserId: args.actorUserId,
     contactActivityAction: "EMAIL_SENT",
     threadDealId: args.dealId,

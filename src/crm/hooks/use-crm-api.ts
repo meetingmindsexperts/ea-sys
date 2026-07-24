@@ -992,6 +992,10 @@ export function useSendCrmEmail() {
       attachments?: { name: string; content: string; contentType?: string }[];
       /** Stored deal documents to attach — resolved server-side, deal sends only. */
       documentIds?: string[];
+      /** Manual CC / BCC recipients + auto-copy-to-sender toggle (default ON). */
+      cc?: string[];
+      bcc?: string[];
+      copyToSender?: boolean;
     }) => apiPostJson<CrmEmailSendResult>("/api/crm/sponsor-email/send", body),
     onSuccess: (_res, vars) => {
       // A send records history on each contact (and, for a deal, on the deal).

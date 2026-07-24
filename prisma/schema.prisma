@@ -2919,6 +2919,15 @@ model CrmEmailThread {
   counterpartyEmail String
   counterpartyName  String?
 
+  /// Internal addresses to loop in when a reply arrives on this thread — the
+  /// outbound send's CC + BCC (which includes the sender's own "copy to me"
+  /// address). The inbound worker forward-copies replies to these + the deal
+  /// owner + the partnerships shared mailbox, so a conversation stays visible in
+  /// Outlook, not just the CRM inbox. Captured per-send (each CRM send is a
+  /// fresh thread); the partnerships address is added at forward time (a runtime
+  /// constant), never stored here.
+  notifyEmails String[] @default([])
+
   /// Shared-inbox semantics: set on inbound arrival, cleared when anyone opens
   /// the thread (owner decision — one bulk inbox, not per-user read state).
   hasUnread     Boolean   @default(false)

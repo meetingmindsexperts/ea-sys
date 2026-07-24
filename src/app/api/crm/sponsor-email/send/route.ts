@@ -46,6 +46,14 @@ const sendSchema = z
      * 5-file/10MB caps.
      */
     documentIds: z.array(z.string().min(1)).max(5).optional(),
+    /** Extra CC / BCC recipients (manual). Each is added to every send. */
+    cc: z.array(z.string().email()).max(50).optional(),
+    bcc: z.array(z.string().email()).max(50).optional(),
+    /**
+     * Auto-BCC the sending user's own address so a copy lands in their Outlook.
+     * Defaults ON (undefined → true) — the "see it in my mailbox" behavior.
+     */
+    copyToSender: z.boolean().optional(),
   })
   // Exactly one target — an ambiguous or targetless send is a client bug, not a
   // "send to everything" (the narrow-never-widen posture).
@@ -203,6 +211,10 @@ export async function POST(req: Request) {
     message: parsed.data.message,
     attachments: attachments.length > 0 ? attachments : undefined,
     contactIds: parsed.data.contactIds,
+    cc: parsed.data.cc,
+    bcc: parsed.data.bcc,
+    // Default ON — an API caller must explicitly send false to opt out.
+    copyToSender: parsed.data.copyToSender ?? true,
     actorUserId: ctx.userId,
     source: (ctx.fromApiKey ? "api" : "rest") as "api" | "rest",
   };

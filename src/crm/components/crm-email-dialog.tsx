@@ -49,6 +49,17 @@ const MAX_FILES = 5;
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB total
 const TOKENS = ["{{firstName}}", "{{lastName}}", "{{companyName}}", "{{eventName}}"];
 const BLANK = "__blank__";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Split a comma/space/semicolon-separated address field into valid + invalid. */
+function parseAddressField(raw: string): { emails: string[]; invalid: string[] } {
+  const emails: string[] = [];
+  const invalid: string[] = [];
+  for (const part of raw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean)) {
+    (EMAIL_RE.test(part) ? emails : invalid).push(part);
+  }
+  return { emails, invalid };
+}
 
 interface LocalAttachment {
   name: string;
@@ -85,6 +96,10 @@ export function CrmEmailDialog({
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   // Contacts the sender has UNticked. Everyone starts selected.
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
+  // CC/BCC (manual) + "send me a copy" (auto-BCC the sender, default ON).
+  const [cc, setCc] = useState("");
+  const [bcc, setBcc] = useState("");
+  const [copyToSender, setCopyToSender] = useState(true);
   const [sending, setSending] = useState(false);
 
   const recipients = useMemo(() => data?.recipients ?? [], [data]);
@@ -105,6 +120,9 @@ export function CrmEmailDialog({
     setAttachments([]);
     setSelectedDocIds(new Set());
     setDeselected(new Set());
+    setCc("");
+    setBcc("");
+    setCopyToSender(true);
     onOpenChange(false);
   }
 
@@ -191,6 +209,14 @@ export function CrmEmailDialog({
       return;
     }
 
+    const ccParsed = parseAddressField(cc);
+    const bccParsed = parseAddressField(bcc);
+    const firstInvalid = ccParsed.invalid[0] ?? bccParsed.invalid[0];
+    if (firstInvalid) {
+      toast.error(`Not a valid CC/BCC email: ${firstInvalid}`);
+      return;
+    }
+
     setSending(true);
     try {
       const result = await send.mutateAsync({
@@ -200,6 +226,9 @@ export function CrmEmailDialog({
         contactIds: selectedIds,
         attachments: attachments.map((a) => ({ name: a.name, content: a.content, contentType: a.contentType })),
         ...(target.kind === "deal" && selectedDocIds.size > 0 ? { documentIds: [...selectedDocIds] } : {}),
+        ...(ccParsed.emails.length ? { cc: ccParsed.emails } : {}),
+        ...(bccParsed.emails.length ? { bcc: bccParsed.emails } : {}),
+        copyToSender,
       });
       if (result.failureCount > 0) {
         toast.warning(`Sent to ${result.successCount} of ${result.total}`, {
@@ -311,6 +340,40 @@ export function CrmEmailDialog({
                 {skipped?.archivedContacts ? `${skipped.archivedContacts} archived` : ""}
               </p>
             )}
+          </div>
+
+          {/* ── CC / BCC + copy-to-me ──────────────────────────────────────── */}
+          <div className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="crm-email-cc">CC</Label>
+                <Input
+                  id="crm-email-cc"
+                  value={cc}
+                  onChange={(e) => setCc(e.target.value)}
+                  placeholder="manager@…, teammate@…"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="crm-email-bcc">BCC</Label>
+                <Input
+                  id="crm-email-bcc"
+                  value={bcc}
+                  onChange={(e) => setBcc(e.target.value)}
+                  placeholder="hidden@…"
+                />
+              </div>
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox
+                checked={copyToSender}
+                onCheckedChange={(v) => setCopyToSender(v === true)}
+              />
+              Send a copy to me — so it shows in my Outlook too
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Separate multiple addresses with commas. CC/BCC applies to every recipient.
+            </p>
           </div>
 
           {/* ── Template ───────────────────────────────────────────────────── */}

@@ -204,12 +204,48 @@ async function storeAttachments(parsed: ParsedMail, threadId: string): Promise<S
   return out;
 }
 
-/** Forward-copy + bell for the deal owner. Both best-effort — the row is truth. */
+/**
+ * Compute who a reply forward-copies to: the deal owner, the partnerships shared
+ * mailbox, and the outbound send's CC/BCC (`notifyEmails`, incl. the sender's own
+ * "copy to me"). Deduped + lowercased, and the person who just replied is NEVER
+ * included (don't bounce their own message back). Pure — unit-tested directly.
+ */
+export function buildForwardAudience(input: {
+  ownerEmail?: string | null;
+  ownerName?: string;
+  partnerships?: string | null;
+  notifyEmails?: string[] | null;
+  replierEmail: string;
+}): { email: string; name?: string }[] {
+  const replier = input.replierEmail.trim().toLowerCase();
+  const seen = new Set<string>();
+  const out: { email: string; name?: string }[] = [];
+  const add = (email: string | null | undefined, name?: string) => {
+    const e = email?.trim().toLowerCase();
+    if (!e || e === replier || seen.has(e)) return;
+    seen.add(e);
+    out.push({ email: e, name });
+  };
+  add(input.ownerEmail, input.ownerName);
+  add(input.partnerships);
+  for (const e of input.notifyEmails ?? []) add(e);
+  return out;
+}
+
+/**
+ * Bell the deal owner + forward-copy the reply to everyone on the thread — the
+ * deal owner, the partnerships shared mailbox, and the CC/BCC addresses the
+ * outbound send carried (`notifyEmails`, which includes the sender's own "copy
+ * to me"). So a reply reaches Outlook, not just the CRM inbox. All best-effort —
+ * the stored message row is the source of truth.
+ */
 async function notifyOwner(args: {
   thread: {
     id: string;
     organizationId: string;
     subject: string;
+    counterpartyEmail: string;
+    notifyEmails: string[];
     deal: { id: string; name: string; ownerId: string | null } | null;
   };
   fromEmail: string;
@@ -217,36 +253,56 @@ async function notifyOwner(args: {
   textBody: string | null;
   htmlBody: string | null;
   /** review H1: an unverified sender still bells (in-app, staff-only) but the
-   *  email forward to the owner's real mailbox is SUPPRESSED. */
+   *  email forward to a real mailbox is SUPPRESSED. */
   unverified: boolean;
 }): Promise<void> {
   const ownerId = args.thread.deal?.ownerId ?? null;
-  if (!ownerId) return;
-
   const senderLabel = args.fromName ? `${args.fromName} (${args.fromEmail})` : args.fromEmail;
 
-  await notifyCrmUser({
-    organizationId: args.thread.organizationId,
-    recipientId: ownerId,
-    actorId: null,
-    type: "EMAIL_RECEIVED",
-    title: args.unverified ? "⚠ Unverified reply in the CRM inbox" : "New reply in the CRM inbox",
-    message: args.unverified
-      ? `An UNVERIFIED sender (${senderLabel}) replied on ${args.thread.deal?.name ?? "a deal"} — verify before acting: ${args.thread.subject}`
-      : `${senderLabel} replied on ${args.thread.deal?.name ?? "a deal"}: ${args.thread.subject}`,
-    link: `/crm/inbox?thread=${args.thread.id}`,
-  });
+  // In-app bell — owner only (the shared inbox is the staff-wide surface).
+  if (ownerId) {
+    await notifyCrmUser({
+      organizationId: args.thread.organizationId,
+      recipientId: ownerId,
+      actorId: null,
+      type: "EMAIL_RECEIVED",
+      title: args.unverified ? "⚠ Unverified reply in the CRM inbox" : "New reply in the CRM inbox",
+      message: args.unverified
+        ? `An UNVERIFIED sender (${senderLabel}) replied on ${args.thread.deal?.name ?? "a deal"} — verify before acting: ${args.thread.subject}`
+        : `${senderLabel} replied on ${args.thread.deal?.name ?? "a deal"}: ${args.thread.subject}`,
+      link: `/crm/inbox?thread=${args.thread.id}`,
+    });
+  }
 
   // Anti-BEC: never forward an unverified "reply" to a real mailbox under our
   // branding — the in-app bell + inbox badge are the safe surface for it.
   if (args.unverified) return;
 
-  const owner = await db.user.findUnique({
-    where: { id: ownerId },
-    select: { email: true, firstName: true, lastName: true },
+  // Build the forward audience: deal owner + partnerships shared mailbox + the
+  // send's CC/BCC (incl. the sender's copy). Deduped (lowercased), minus the
+  // person who just replied (never bounce their own message back to them).
+  const owner = ownerId
+    ? await db.user.findUnique({
+        where: { id: ownerId },
+        select: { email: true, firstName: true, lastName: true },
+      })
+    : null;
+  const ownerName = owner
+    ? `${owner.firstName ?? ""} ${owner.lastName ?? ""}`.trim() || undefined
+    : undefined;
+  const audience = buildForwardAudience({
+    ownerEmail: owner?.email,
+    ownerName,
+    partnerships: process.env.CRM_EMAIL_FROM_ADDRESS?.trim() || null,
+    notifyEmails: args.thread.notifyEmails,
+    replierEmail: args.thread.counterpartyEmail,
   });
-  if (!owner?.email) return;
-  const ownerName = `${owner.firstName ?? ""} ${owner.lastName ?? ""}`.trim() || undefined;
+
+  if (audience.length === 0) return;
+
+  // Primary recipient in To, everyone else BCC — keeps the internal
+  // distribution list private (BCC'd watchers stay hidden from each other).
+  const [primary, ...rest] = audience;
 
   const banner =
     `<div style="padding:10px 14px;margin:0 0 16px;background:#f0f9ff;border-left:3px solid #0284c7;font-size:13px;color:#0c4a6e">` +
@@ -256,7 +312,8 @@ async function notifyOwner(args: {
     `<pre style="white-space:pre-wrap;font-family:inherit">${escapeHtml(args.textBody ?? "")}</pre>`;
 
   const res = await sendEmail({
-    to: [{ email: owner.email, name: ownerName }],
+    to: [{ email: primary.email, name: primary.name }],
+    ...(rest.length ? { bcc: rest.map((r) => ({ email: r.email, name: r.name })) } : {}),
     subject: `Fwd: ${args.thread.subject}`,
     htmlContent: `${banner}${bodyHtml}`,
     textContent: `Sponsor reply received in the CRM inbox — read & reply there.\n\nFrom: ${senderLabel}\n\n${args.textBody ?? ""}`,
@@ -264,7 +321,7 @@ async function notifyOwner(args: {
     stream: "transactional",
     logContext: {
       organizationId: args.thread.organizationId,
-      entityType: "USER",
+      entityType: ownerId ? "USER" : "OTHER",
       entityId: ownerId,
       templateSlug: "crm-inbound-forward",
       triggeredByUserId: null,
@@ -314,6 +371,7 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
           subject: true,
           crmContactId: true,
           counterpartyEmail: true,
+          notifyEmails: true,
           expiresAt: true,
           revokedAt: true,
           deal: { select: { id: true, name: true, ownerId: true } },
