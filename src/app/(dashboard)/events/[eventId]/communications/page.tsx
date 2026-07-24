@@ -63,6 +63,7 @@ import { SESSION_ROLE_OPTIONS } from "@/lib/session-enums";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
 import { excludesCancelledByDefault } from "@/lib/bulk-email-audience";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
+import { EmailActivityCard } from "@/components/communications/email-activity-card";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 
@@ -975,6 +976,11 @@ export default function CommunicationsPage() {
 
       {/* Scheduled Emails */}
       <ScheduledEmailsList eventId={eventId} />
+
+      {/* Email Activity — the team/user rollup of everything sent for this event */}
+      <div className="mt-6">
+        <EmailActivityCard eventId={eventId} />
+      </div>
 
       {/* Bulk Email Dialog */}
       {/* Select by IDs — paste a list, email exactly those registrations */}

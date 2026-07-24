@@ -12,6 +12,7 @@ import {
   WEBINAR_TEMPLATE_SLUGS,
   isCustomTemplateSlug,
   isWebinarTemplateSlug,
+  formatTemplateLabel,
 } from "@/lib/email-template-slugs";
 
 describe("email-template-slugs", () => {
@@ -55,5 +56,41 @@ describe("email-template-slugs", () => {
     // one of the system sequence slugs) is NOT treated as a webinar template.
     expect(isWebinarTemplateSlug("webinar-custom-blast")).toBe(false);
     expect(WEBINAR_TEMPLATE_SLUGS.size).toBe(6);
+  });
+
+  describe("formatTemplateLabel", () => {
+    it("Title-cases a kebab slug by default", () => {
+      expect(formatTemplateLabel("speaker-invitation")).toBe("Speaker Invitation");
+      expect(formatTemplateLabel("payment-reminder")).toBe("Payment Reminder");
+    });
+
+    it("uses friendly overrides for slugs that don't Title-case cleanly", () => {
+      expect(formatTemplateLabel("certificate-delivery")).toBe("Certificate");
+      expect(formatTemplateLabel("webinar-reminder-24h")).toBe("Webinar Reminder (24h)");
+      expect(formatTemplateLabel("custom-notification")).toBe("Custom Email");
+      expect(formatTemplateLabel("dinner-rsvp-invitation")).toBe("Dinner RSVP Invitation");
+    });
+
+    it("preserves acronyms when falling back to Title Case", () => {
+      // 'survey-invitation' has no override, so RSVP/CME must come from the
+      // acronym table, not naive capitalization.
+      expect(formatTemplateLabel("cme-notice")).toBe("CME Notice");
+    });
+
+    it("reads a null/absent slug as a one-off custom email", () => {
+      expect(formatTemplateLabel(null)).toBe("Custom email");
+      expect(formatTemplateLabel(undefined)).toBe("Custom email");
+      expect(formatTemplateLabel("")).toBe("Custom email");
+    });
+
+    it("renders every system template slug without throwing", () => {
+      // Guards the fallback path: a brand-new default slug must produce a
+      // reasonable label even without a dedicated override entry.
+      for (const slug of SYSTEM_TEMPLATE_SLUGS) {
+        const label = formatTemplateLabel(slug);
+        expect(label.length).toBeGreaterThan(0);
+        expect(label).not.toContain("-");
+      }
+    });
   });
 });
