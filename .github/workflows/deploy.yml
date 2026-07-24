@@ -101,6 +101,12 @@ jobs:
       - name: Tenant ALS (swept-domain runWithTenant wraps)
         run: bash scripts/check-tenant-als.sh
 
+      # A null-org user (REVIEWER/SUBMITTER/REGISTRANT) hitting a route that
+      # asserts session.user.organizationId! sends organizationId: null to
+      # Prisma → a 500 (JAVASCRIPT-NEXTJS-1N). Keeps the event API swept.
+      - name: Org guard (organizationId! footgun)
+        run: bash scripts/check-org-guard.sh
+
       # Dependency auditing is done manually, locally, before a push — not in CI.
       # (`npm audit` on demand.) Deliberate: CI gates what a commit BREAKS, not
       # what the ecosystem happens to have disclosed today, which is not something
