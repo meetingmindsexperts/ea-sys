@@ -47,7 +47,15 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Domains that have completed the Phase-2 isolation sweep (org-bound queries +
 # runWithTenant wrap + RLS policy). GROW this as domains are swept.
 SWEPT_ROUTE_DIRS=(
-  "src/app/api/contacts"   # Contacts pilot (July 23, 2026)
+  "src/app/api/contacts"          # Contacts pilot (July 23, 2026)
+  "src/app/api/billing-accounts"  # BillingAccount sweep (July 24, 2026)
+)
+# Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
+# nested under src/app/api/events, where sweeping the dir would wrongly demand a
+# wrap on every unrelated event route.
+SWEPT_ROUTE_FILES=(
+  "src/app/api/events/[eventId]/billing-accounts/route.ts"                    # BillingAccount (July 24, 2026)
+  "src/app/api/events/[eventId]/billing-accounts/[billingAccountId]/route.ts" # BillingAccount (July 24, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
@@ -79,6 +87,20 @@ fail_header() {
   violations=$((violations + 1))
 }
 
+# Per-file invariant: a route.ts must carry at least as many runWithTenant(
+# calls as it has exported HTTP handlers.
+check_one_route_file() {
+  local file="$1" rel src handlers wraps
+  rel="${file#"$REPO_ROOT"/}"
+  src="$(executable_ts "$file")"
+  handlers="$(count_re "$src" "$HANDLER_RE")"
+  wraps="$(count_fixed "$src" "runWithTenant(")"
+  if [ "$handlers" -gt 0 ] && [ "$wraps" -lt "$handlers" ]; then
+    fail_header
+    echo "  $rel — $handlers HTTP handler(s) but only $wraps runWithTenant( wrap(s)"
+  fi
+}
+
 # --- route dirs: runWithTenant( count >= HTTP handler count, per file ---
 for dir in "${SWEPT_ROUTE_DIRS[@]}"; do
   abs="$REPO_ROOT/$dir"
@@ -88,15 +110,19 @@ for dir in "${SWEPT_ROUTE_DIRS[@]}"; do
     continue
   fi
   while IFS= read -r file; do
-    rel="${file#"$REPO_ROOT"/}"
-    src="$(executable_ts "$file")"
-    handlers="$(count_re "$src" "$HANDLER_RE")"
-    wraps="$(count_fixed "$src" "runWithTenant(")"
-    if [ "$handlers" -gt 0 ] && [ "$wraps" -lt "$handlers" ]; then
-      fail_header
-      echo "  $rel — $handlers HTTP handler(s) but only $wraps runWithTenant( wrap(s)"
-    fi
+    check_one_route_file "$file"
   done < <(find "$abs" -name "route.ts" -type f)
+done
+
+# --- explicit swept route files (their dir can't be swept wholesale) ---
+for file in "${SWEPT_ROUTE_FILES[@]}"; do
+  abs="$REPO_ROOT/$file"
+  if [ ! -f "$abs" ]; then
+    fail_header
+    echo "  swept route file missing: $file"
+    continue
+  fi
+  check_one_route_file "$abs"
 done
 
 # --- module files: must contain a runWithTenant( call ---
