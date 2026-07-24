@@ -117,6 +117,30 @@ describe("Prisma error classifier — connectivity errors", () => {
     expect(payload.retryable).toBe(true);
   });
 
+  // The 2026-07-23 19:02 Dubai blip: Supabase's Supavisor pooler emitted the
+  // lowercase Elixir-tuple `:econnrefused` + "Server has closed the connection"
+  // + a "Failed to connect to database" FATAL. Pre-fix these fell through the
+  // classifier (uppercase-only ECONNREFUSED, word-order-sensitive "connection
+  // closed") → logged at error → fed the admin-alert feedback loop (130 lines).
+  it("classifies Supavisor lowercase ':econnrefused' as retryable DB connection refused", async () => {
+    const payload = await fireError(
+      "FATAL: Failed to connect to database: {:error, :econnrefused}",
+    );
+    expect(payload.retryable).toBe(true);
+  });
+
+  it("classifies 'Server has closed the connection' as retryable DB connection closed", async () => {
+    const payload = await fireError("Server has closed the connection.");
+    expect(payload.msg).toBe("DB connection closed");
+    expect(payload.retryable).toBe(true);
+  });
+
+  it("classifies 'Failed to connect to database' as retryable DB unreachable", async () => {
+    const payload = await fireError("Error in connector: Failed to connect to database");
+    expect(payload.msg).toBe("DB unreachable");
+    expect(payload.retryable).toBe(true);
+  });
+
   // The webinar-recordings incident: Supabase pooler (Supavisor) closed a
   // held connection. Two message shapes appeared — the connector event
   // (`Error { kind: Closed }`) and the application-level invocation error

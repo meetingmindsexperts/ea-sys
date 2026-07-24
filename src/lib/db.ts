@@ -33,7 +33,11 @@ export function classifyPrismaError(message: string): {
   if (/Connection timed out|TimedOut|ETIMEDOUT|code:\s*110\b/.test(m)) {
     return { category: "DB connectivity timeout", retryable: true };
   }
-  if (/Connection refused|ECONNREFUSED/.test(m)) {
+  // `/i` + bare `econnrefused` so the lowercase Elixir-tuple form Supabase's
+  // Supavisor pooler emits — `FATAL: Failed to connect to database: {:error,
+  // :econnrefused}` (the 2026-07-23 19:02 Dubai blip) — is matched, not just
+  // Node's uppercase ECONNREFUSED.
+  if (/Connection refused|ECONNREFUSED/i.test(m)) {
     return { category: "DB connection refused", retryable: true };
   }
   if (/ECONNRESET|Connection reset/.test(m)) {
@@ -48,7 +52,7 @@ export function classifyPrismaError(message: string): {
   // idle-reap / maintenance churn — Prisma re-establishes on the next
   // query, so it's retryable.
   if (
-    /connection to database closed|connection closed|kind:\s*Closed|EDBHANDLEREXITED/i.test(
+    /connection to database closed|connection closed|closed the connection|kind:\s*Closed|EDBHANDLEREXITED/i.test(
       m,
     )
   ) {
@@ -81,7 +85,11 @@ export function classifyPrismaError(message: string): {
   ) {
     return { category: "DB TLS error", retryable: false };
   }
-  if (/Can't reach database|server is not allowing connections/i.test(m)) {
+  if (
+    /Can't reach database|server is not allowing connections|Failed to connect to database/i.test(
+      m,
+    )
+  ) {
     return { category: "DB unreachable", retryable: true };
   }
   // Constraint violations are application-level, not connectivity. They get
@@ -95,6 +103,24 @@ export function classifyPrismaError(message: string): {
   }
   return null;
 }
+
+// One-summarized-alert-per-outage (option c, 2026-07-24). A Supabase
+// connectivity blip is now retryable → logs at warn (no per-error page, and the
+// old error→alert→alertState-query-fails→error feedback loop is broken). But the
+// operator should still be told ONCE. The set below is the genuine
+// connection-to-DB outage categories; "DB connection pool timeout" (P2024) is
+// deliberately EXCLUDED — that's an app-capacity signal the worker self-heals by
+// skipping the tick, not a Supabase outage worth paging for.
+const CONNECTIVITY_OUTAGE_CATEGORIES = new Set([
+  "DB connectivity timeout",
+  "DB connection refused",
+  "DB connection reset",
+  "DB connection terminated",
+  "DB connection closed",
+  "DB unreachable",
+]);
+const CONNECTIVITY_ALERT_THROTTLE_MS = 5 * 60 * 1000; // in-memory, per-process
+let lastConnectivityAlertAt = 0;
 
 function createPrismaClient() {
   const client = new PrismaClient({
@@ -151,6 +177,40 @@ function createPrismaClient() {
       classification: classification?.category ?? null,
       retryable: classification?.retryable ?? null,
     });
+
+    // Option (c): ONE summarized alert per DB-connectivity outage window. The
+    // per-error logs above are warn now (below the page threshold), so surface
+    // a single "Supabase blipped" ping. The in-memory throttle is what stops
+    // re-entry: the alert's OWN alertState query failing during the same outage
+    // is itself a connectivity error — the `alertState` target skip + the
+    // throttle both prevent it from re-firing the alert (the 2026-07-23 loop).
+    if (
+      classification?.retryable &&
+      CONNECTIVITY_OUTAGE_CATEGORIES.has(classification.category) &&
+      !e.target?.includes("alertState") &&
+      Date.now() - lastConnectivityAlertAt > CONNECTIVITY_ALERT_THROTTLE_MS
+    ) {
+      lastConnectivityAlertAt = Date.now();
+      const category = classification.category;
+      const underlying = e.message;
+      void import("./admin-alert")
+        .then(({ notifyAdminAlert }) =>
+          notifyAdminAlert({
+            subject: "EA-SYS: database connectivity blip",
+            body:
+              `A transient database connection error occurred (${category}).\n` +
+              `The app self-heals on the next query; this is one summarized alert for the outage window.\n\n` +
+              `Underlying: ${underlying}`,
+            dedupKey: "db-connectivity-outage",
+            detail: underlying,
+            logsSearch: "Prisma",
+          }),
+        )
+        .catch(() => {
+          // notifyAdminAlert is no-throw, but the dynamic import itself could
+          // reject — never let alert plumbing poison the connector channel.
+        });
+    }
   });
 
   client.$on("warn" as never, (e: { message: string }) => {
