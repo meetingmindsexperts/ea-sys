@@ -64,9 +64,22 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    // Org-independent roles (REVIEWER / SUBMITTER / REGISTRANT) have a null
+    // organizationId. Guard before the query: `organizationId: null` in the
+    // where is a Prisma validation error (Event.organizationId is non-nullable),
+    // which is exactly the 500 Sentry JAVASCRIPT-NEXTJS-1N caught. Fixes the
+    // `organizationId!` footgun on this route.
+    const organizationId = session.user.organizationId;
+    if (!organizationId) {
+      apiLogger.warn(
+        { userId: session.user.id, role: session.user.role, eventId },
+        "sponsors:list-no-org",
+      );
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId },
       select: { id: true, settings: true },
     });
     if (!event) {
@@ -99,6 +112,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Defence in depth: denyReviewer already blocks the null-org roles, but
+    // guard explicitly so the query never sees `organizationId: null` (and drop
+    // the unsafe `!` below).
+    const organizationId = session.user.organizationId;
+    if (!organizationId) {
+      apiLogger.warn(
+        { userId: session.user.id, role: session.user.role, eventId },
+        "sponsors:update-no-org",
+      );
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const { allowed, retryAfterSeconds } = checkRateLimit({
       key: `sponsors-update:${eventId}`,
       limit: 20,
@@ -128,7 +153,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId! },
+      where: { id: eventId, organizationId },
       select: { id: true, settings: true },
     });
     if (!event) {
