@@ -56,6 +56,8 @@ routes to SES; every existing mailbox on `meetingmindsexperts.com` is untouched.
 | IAM inline policy | `CrmInboundEmailS3` on `ea-sys-mumbai-ec2-role` |
 | Worker job | `crm-inbound-email` (JOB_ID 1012, every minute) |
 | Outbound From | `Partnerships <partnerships@meetingmindsdubai.com>` |
+| Outbound domain (DKIM) | `meetingmindsdubai.com` — SES **domain** identity, Easy DKIM RSA-2048 |
+| Custom MAIL FROM | `bounce.meetingmindsdubai.com` (SES status: **SUCCESS**) |
 
 ## CRM sender identity (outbound From)
 
@@ -70,14 +72,34 @@ CRM_EMAIL_FROM_ADDRESS="partnerships@meetingmindsdubai.com"
 
 - The address **MUST be an SES-verified identity** in `ap-south-1` or SES rejects
   the send (`MessageRejected`). `partnerships@meetingmindsdubai.com` is verified
-  as an **email identity** (July 24, 2026). Reply-To is unaffected — it stays the
-  tokenized inbox address, so replies still thread.
-- **Deliverability:** email-identity verification has no DKIM, so mail From
-  `@meetingmindsdubai.com` may hit some sponsors' spam. For real outreach volume,
-  upgrade to full **domain** verification of `meetingmindsdubai.com` (Easy DKIM
-  CNAMEs) — that gives DKIM/DMARC alignment. See `crmSenderFrom()` in
-  `src/crm/services/sponsor-email-service.ts` for the precedence (CRM env → the
-  deal's linked-event sender → global `EMAIL_FROM`).
+  as an **email identity**, AND the whole **domain** `meetingmindsdubai.com` is now
+  a verified SES **domain identity** (July 24, 2026 — see Deliverability below).
+  Reply-To is unaffected — it stays the tokenized inbox address, so replies thread.
+- **Deliverability — domain DKIM set up July 24, 2026.** Originally the sender was
+  only an *email-address* identity (no DKIM → mail From `@meetingmindsdubai.com`
+  landed in spam under the domain's `p=quarantine` DMARC). Fixed by verifying the
+  **domain** `meetingmindsdubai.com` as a full SES identity with **Easy DKIM**
+  (RSA-2048) + a **custom MAIL FROM** subdomain. `partnerships@…` mail is now
+  DKIM-signed as the domain and passes DMARC (relaxed alignment `adkim=r`), so it
+  reaches inboxes. **No app/env change** — the domain identity covers the existing
+  email-address sender automatically.
+  - **DNS added** (in the `meetingmindsdubai.com` cPanel/WHM zone — `ns1/ns2.
+    meetingmindsdubai.com`, NOT GoDaddy): 3× DKIM `CNAME`
+    (`<token>._domainkey` → `<token>.dkim.amazonses.com`) + on `bounce.` a
+    `MX` (`10 feedback-smtp.ap-south-1.amazonses.com`) + a `TXT`
+    (`v=spf1 include:amazonses.com ~all`).
+  - **Left untouched** (deliberately): the root `MX` (M365 mailboxes), the root
+    `SPF` (M365 / Zoho / EventsAir / web), and the existing `DMARC` record. The
+    MAIL FROM uses **`bounce.`** because `mail.meetingmindsdubai.com` was already
+    taken by an existing SPF record.
+  - **Status (as of setup):** custom MAIL FROM = `SUCCESS`; DKIM = `PENDING` — the
+    3 CNAMEs are correct + live on the authoritative NS, SES just re-checks on its
+    own schedule (usually <1h). Confirm with `aws sesv2 get-email-identity
+    --email-identity meetingmindsdubai.com --region ap-south-1 --query
+    DkimAttributes.Status` → wait for `SUCCESS`. **Do NOT run real sponsor outreach
+    until DKIM shows SUCCESS** (before then, mail is still unaligned → spam).
+- Precedence: see `crmSenderFrom()` in `src/crm/services/sponsor-email-service.ts`
+  (CRM env → the deal's linked-event sender → global `EMAIL_FROM`).
 
 ## One-time setup (operator-run — AWS mutations are hand-run, CLI or Console)
 
