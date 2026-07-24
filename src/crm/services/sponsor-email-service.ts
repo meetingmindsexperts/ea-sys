@@ -85,6 +85,25 @@ function brandingFromEventRow(e: EventBrandingRow): EmailBranding {
   };
 }
 
+/**
+ * The From identity for CRM outbound (sponsor blasts, deal emails, inbox replies).
+ * CRM mail comes from the partnerships team, NOT the platform's default sender —
+ * so a dedicated CRM_EMAIL_FROM_ADDRESS/NAME governs it, independent of the
+ * system-wide EMAIL_FROM (which still brands registration confirmations etc.).
+ *
+ * Precedence: the CRM sender (env) wins for every CRM send → else the deal's
+ * linked-event sender → else undefined (the global EMAIL_FROM default).
+ *
+ * NOTE: the address must be an SES-verified identity in the sending region or
+ * SES rejects the send. Reply-To is unaffected — it stays the tokenized inbox
+ * address so replies still thread.
+ */
+export function crmSenderFrom(branding?: EmailBranding): ReturnType<typeof brandingFrom> {
+  const addr = process.env.CRM_EMAIL_FROM_ADDRESS?.trim();
+  if (addr) return { email: addr, name: process.env.CRM_EMAIL_FROM_NAME?.trim() || undefined };
+  return brandingFrom(branding ?? { emailCcAddresses: [] });
+}
+
 const CONTACT_ON_DEAL_SELECT = {
   crmContact: {
     select: {
@@ -347,7 +366,7 @@ async function dispatchCrmEmail(args: DispatchArgs): Promise<CrmEmailSendResult 
     signatureHtml = sender?.emailSignature ?? "";
   }
 
-  const from = brandingFrom(args.branding);
+  const from = crmSenderFrom(args.branding);
   const cc = brandingCc(args.branding);
   const sendAttachments = args.attachments.map((a) => ({
     name: a.name,

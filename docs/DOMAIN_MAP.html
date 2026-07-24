@@ -189,6 +189,7 @@
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
 <div class="gotcha">Seat accounting is tier-aware (<code>seatCounter</code>) — public+tier regs count on the tier, everything else on the ticket type; companions count nowhere.</div>
+<div class="gotcha">Seat limits are UI-settable since July 24, 2026 (Registration Types page — type + tier dialogs); <code>quantity = 999999</code> is the "unlimited" sentinel (empty input), NOT null. Tier limit caps public sign-ups; type limit caps admin/desk adds + tier-less types — independent counters, no dual-count. Public "N seats left" is opt-in via <code>settings.showRemainingTickets === true</code>.</div>
 <div class="gotcha">VIRTUAL regs hold no seat and mint no qrCode; switching virtual→in-person lazily mints one (capacity-guarded).</div>
 <div class="gotcha">Email edits ONLY via the dedicated <code>/email</code> PATCH routes — they cascade to User / Contact / Speaker facet; the general PUT 400s with <code>EMAIL_IMMUTABLE</code>.</div>
 </div></details>

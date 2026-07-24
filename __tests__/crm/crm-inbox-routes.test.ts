@@ -32,6 +32,12 @@ vi.mock("@/crm/services/crm-email-thread-service", () => ({
   recordOutboundEmail: vi.fn(() => Promise.resolve()),
 }));
 
+// The reply route resolves its From via crmSenderFrom — stub it (its real impl
+// calls brandingFrom from @/lib/email, which this file mocks down to sendEmail).
+vi.mock("@/crm/services/sponsor-email-service", () => ({
+  crmSenderFrom: vi.fn(() => undefined),
+}));
+
 // Gates pass-through with a configurable role — canViewCrmInbox stays REAL.
 // Full module mock (importOriginal would drag next-auth into vitest via
 // getOrgContext); the gates themselves are pinned by the gate-drift test.

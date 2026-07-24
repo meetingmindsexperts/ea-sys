@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Seat capacity settable from the UI (type + tier limits, seats-left opt-in) (July 24)
+
+The `soldCount < quantity` enforcement guards were already live on every
+registration path, but `quantity` was stuck at the 999999 "unlimited" sentinel —
+no UI (and for ticket types, no API field) ever let an organizer lower it.
+Commit `6a816ac9`.
+
+- **API:** ticket-type PUT/POST schemas accept `quantity` (int ≥ 1); PUT rejects
+  a limit below `soldCount` (400 + warn log, mirroring the existing tier guard).
+  The tier PATCH already accepted `quantity` — unchanged.
+- **Registration Types page:** "Seat Limit" input on both the type and tier
+  dialogs (empty = unlimited → sends the 999999 sentinel; no migration).
+  Type cards + tier rows show `sold/limit seats` with a red sold-out state.
+- **Semantics (owner decision — independent counters, no dual-count):** a
+  tier's limit caps public self-registrations on that tier (Early Bird /
+  Standard / Onsite allocation); the type-level limit caps admin/desk/import
+  adds and public sign-ups on tier-less types. Helper text in both dialogs
+  explains this.
+- **Public register page:** "N seats left" per option (amber at ≤ 10), rendered
+  only when the tier/type has a real limit AND the event's **Show Remaining
+  Tickets** toggle is explicitly ON — the toggle (previously dormant/unwired) is
+  now exposed by the public event API as `showRemainingTickets` (strict
+  `=== true`) and its default flipped to OFF.
+- Cancel/reactivate correctness rides the existing tier-aware seat-transition
+  model (June 29): cancelling releases the same counter the seat was claimed
+  on; reactivation re-claims through the atomic capacity guard.
+- Deliberately untouched (owner decisions): the dormant Settings
+  "Maximum Attendees" / "Enable Waitlist" controls (event-level cap = a future
+  own pass), and the held `reconcile-soldcounts.ts --write` data repair (no
+  past events need limits; counters are correct going forward).
+- +7 route tests (limit persisted, below-soldCount 400 + warn, == soldCount
+  accepted, zero rejected, create with/without limit). Suite 3739.
+
 ### Added — Responsive mobile banner (art-directed `<picture>`) (July 7)
 
 Public event banners were a single wide image scaled to fit, so on phones a wide

@@ -9,6 +9,7 @@ import { escapeHtml } from "@/lib/html";
 import { requireCrmWrite } from "@/crm/lib/crm-route";
 import { canViewCrmInbox } from "@/crm/lib/crm-visibility";
 import { crmReplyAddress, recordOutboundEmail } from "@/crm/services/crm-email-thread-service";
+import { crmSenderFrom } from "@/crm/services/sponsor-email-service";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 
 /**
@@ -91,11 +92,15 @@ export async function POST(
     const html = composeReplyHtml(parsed.data.message, sender?.emailSignature ?? "");
     const subject = /^re:/i.test(thread.subject) ? thread.subject : `Re: ${thread.subject}`;
     const replyAddress = crmReplyAddress(thread.replyToken);
-    const fromEmail = process.env.EMAIL_FROM ?? "";
-    const fromName = process.env.EMAIL_FROM_NAME ?? null;
+    // Same CRM sender identity as outbound deal emails (Partnerships), not the
+    // platform default. Reply-To stays the tokenized inbox address.
+    const from = crmSenderFrom();
+    const fromEmail = from?.email ?? process.env.EMAIL_FROM ?? "";
+    const fromName = from?.name ?? process.env.EMAIL_FROM_NAME ?? null;
 
     const res = await sendEmail({
       to: [{ email: thread.counterpartyEmail, name: thread.counterpartyName ?? undefined }],
+      ...(from ? { from } : {}),
       ...(replyAddress ? { replyTo: { email: replyAddress, name: fromName ?? undefined } } : {}),
       subject,
       htmlContent: html,
