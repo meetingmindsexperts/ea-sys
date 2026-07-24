@@ -55,6 +55,7 @@ model Organization {
   crmEmailTemplates CrmEmailTemplate[]
   crmProducts       CrmProduct[]
   crmEmailThreads   CrmEmailThread[]
+  crmEmailSendClaims CrmEmailSendClaim[]
 }
 
 // Host → organization mapping for multi-tenant routing (Phase 0 spine —
@@ -2949,6 +2950,24 @@ model CrmEmailThread {
   @@index([organizationId, lastMessageAt(sort: Desc)])
   @@index([dealId])
   @@index([crmContactId])
+}
+
+/// Persistent double-submit guard for a CRM email BLAST (sponsor prospectus /
+/// deal email). The send is synchronous and can fan out to the whole audience,
+/// so a gateway-timeout-then-re-click must not re-email everyone. One row per
+/// (org, content-hash) claim; a second identical send inside the dedup window
+/// is refused. DB-backed (not the in-memory rate limiter) so it survives a
+/// blue-green swap and holds across containers. Rows are ephemeral — pruned
+/// opportunistically (claims older than ~1h) on each send (CRM review M2).
+model CrmEmailSendClaim {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dedupHash      String
+  claimedAt      DateTime     @default(now())
+
+  @@unique([organizationId, dedupHash])
+  @@index([organizationId, claimedAt])
 }
 
 model CrmEmailMessage {

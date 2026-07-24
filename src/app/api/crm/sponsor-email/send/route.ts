@@ -18,9 +18,7 @@ import { checkRateLimit } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
 import { sendSponsorProspectus, sendDealEmail } from "@/crm/services/sponsor-email-service";
-
-/** Double-submit window: an identical blast inside this window is a repeat, not a new send. */
-const DEDUP_WINDOW_MS = 2 * 60 * 1000;
+import { claimCrmEmailSend, CRM_EMAIL_DEDUP_WINDOW_MS } from "@/crm/lib/crm-email-dedup";
 
 const sendSchema = z
   .object({
@@ -156,13 +154,13 @@ export async function POST(req: Request) {
     return zodErrorResponse(parsed, { route: "crm/sponsor-email/send:POST", organizationId: ctx.organizationId });
   }
 
-  // Double-submit idempotency (CRM review M3): the send is synchronous and slow
+  // Double-submit idempotency (CRM review M2): the send is synchronous and slow
   // (base64 attachments, batches of 25), so a double-click / browser retry /
   // impatient second press used to re-email the WHOLE audience — the 10/hr
   // bucket happily admits both halves of a double-click. A content+audience hash
-  // with a 2-minute window makes the identical request a 409, same posture as
-  // the event bulk-email dedup (comms review H2). Best-effort (in-memory, like
-  // every rate bucket) — the backstop, not the audit trail.
+  // is claimed in a DB row so an identical request is a 409. DB-backed (not the
+  // in-memory rate limiter) so it holds across containers and survives a
+  // blue-green swap, with a longer (10-min) window than the old 2-min bucket.
   const dedupHash = createHash("sha256")
     .update(
       JSON.stringify({
@@ -174,12 +172,8 @@ export async function POST(req: Request) {
       }),
     )
     .digest("hex");
-  const dedup = checkRateLimit({
-    key: `crm-sponsor-email-dedup:${ctx.organizationId}:${dedupHash}`,
-    limit: 1,
-    windowMs: DEDUP_WINDOW_MS,
-  });
-  if (!dedup.allowed) {
+  const claimed = await claimCrmEmailSend(ctx.organizationId, dedupHash);
+  if (!claimed) {
     apiLogger.warn({
       msg: "crm/sponsor-email/send:duplicate-suppressed",
       organizationId: ctx.organizationId,
@@ -188,9 +182,9 @@ export async function POST(req: Request) {
     });
     return NextResponse.json(
       {
-        error: "This exact email was just sent — it is not being sent twice. Wait a couple of minutes if you really mean to repeat it.",
+        error: "This exact email was just sent — it is not being sent twice. Wait a few minutes if you really mean to repeat it.",
         code: "DUPLICATE_SEND",
-        retryAfterSeconds: dedup.retryAfterSeconds,
+        retryAfterSeconds: Math.ceil(CRM_EMAIL_DEDUP_WINDOW_MS / 1000),
       },
       { status: 409 },
     );
