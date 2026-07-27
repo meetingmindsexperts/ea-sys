@@ -35,6 +35,16 @@ import {
   BILLING_B_SHARED_ID,
   ORG_B_ONLY_PAYER_NAME,
   BILLING_B_ONLY_ID,
+  ATTENDEE_A_ID,
+  ATTENDEE_B_ID,
+  REG_A_ID,
+  REG_B_ID,
+  INVOICE_A_ID,
+  INVOICE_A_NUMBER,
+  INVOICE_B_ID,
+  INVOICE_B_NUMBER,
+  INVOICE_B_ONLY_ID,
+  INVOICE_B_ONLY_NUMBER,
 } from "../tests/tenancy/constants";
 
 const url = process.env.TENANCY_DIRECT_URL;
@@ -49,6 +59,12 @@ async function seedOrg(
   contacts: { id: string; email: string }[] = [],
   uploader?: { id: string; media: { id: string; url: string }[] },
   billing: { id: string; name: string }[] = [],
+  invoicing?: {
+    eventId: string;
+    attendeeId: string;
+    registrationId: string;
+    invoices: { id: string; number: string; seq: number }[];
+  },
 ) {
   await db.organization.create({
     data: {
@@ -125,6 +141,43 @@ async function seedOrg(
       data: { id: ba.id, organizationId: orgId, name: ba.name },
     });
   }
+  // Invoice sweep fixtures. Invoice → Registration → Attendee chain. The
+  // Registration cascades from the Event (org cascade reaches it); the Invoice
+  // cascades from the Registration. The Attendee is the PARENT of Registration
+  // and does NOT cascade — main() cleans it explicitly.
+  if (invoicing) {
+    await db.attendee.create({
+      data: {
+        id: invoicing.attendeeId,
+        email: `${invoicing.attendeeId}@tenancy.test`,
+        firstName: "Tenancy",
+        lastName: "Invoicee",
+      },
+    });
+    await db.registration.create({
+      data: {
+        id: invoicing.registrationId,
+        eventId: invoicing.eventId,
+        attendeeId: invoicing.attendeeId,
+      },
+    });
+    for (const inv of invoicing.invoices) {
+      await db.invoice.create({
+        data: {
+          id: inv.id,
+          organizationId: orgId,
+          eventId: invoicing.eventId,
+          registrationId: invoicing.registrationId,
+          type: "INVOICE",
+          invoiceNumber: inv.number,
+          sequenceNumber: inv.seq,
+          subtotal: 100,
+          total: 100,
+          currency: "USD",
+        },
+      });
+    }
+  }
 }
 
 async function main() {
@@ -134,8 +187,12 @@ async function main() {
     where: { id: { in: [MEDIA_A_SHARED_ID, MEDIA_B_SHARED_ID, MEDIA_B_ONLY_ID] } },
   });
   await db.user.deleteMany({ where: { id: { in: [UPLOADER_A_ID, UPLOADER_B_ID] } } });
-  // Cascade wipes events + contacts + tenant domains of prior runs.
+  // Cascade wipes events + contacts + tenant domains + (via Event→Registration
+  // →Invoice) the invoice fixtures of prior runs.
   await db.organization.deleteMany({ where: { id: { in: [ORG_A_ID, ORG_B_ID] } } });
+  // Attendee is the PARENT of Registration (no org cascade) — now that the org
+  // cascade removed the registrations that referenced them, they're deletable.
+  await db.attendee.deleteMany({ where: { id: { in: [ATTENDEE_A_ID, ATTENDEE_B_ID] } } });
 
   await seedOrg(
     ORG_A_ID,
@@ -144,6 +201,12 @@ async function main() {
     [{ id: CONTACT_A_SHARED_ID, email: SHARED_CONTACT_EMAIL }],
     { id: UPLOADER_A_ID, media: [{ id: MEDIA_A_SHARED_ID, url: SHARED_MEDIA_URL }] },
     [{ id: BILLING_A_SHARED_ID, name: SHARED_PAYER_NAME }],
+    {
+      eventId: EVENT_A_SHARED_ID,
+      attendeeId: ATTENDEE_A_ID,
+      registrationId: REG_A_ID,
+      invoices: [{ id: INVOICE_A_ID, number: INVOICE_A_NUMBER, seq: 1 }],
+    },
   );
   await seedOrg(
     ORG_B_ID,
@@ -167,10 +230,19 @@ async function main() {
       { id: BILLING_B_SHARED_ID, name: SHARED_PAYER_NAME },
       { id: BILLING_B_ONLY_ID, name: ORG_B_ONLY_PAYER_NAME },
     ],
+    {
+      eventId: EVENT_B_SHARED_ID,
+      attendeeId: ATTENDEE_B_ID,
+      registrationId: REG_B_ID,
+      invoices: [
+        { id: INVOICE_B_ID, number: INVOICE_B_NUMBER, seq: 1 },
+        { id: INVOICE_B_ONLY_ID, number: INVOICE_B_ONLY_NUMBER, seq: 2 },
+      ],
+    },
   );
 
   console.log(
-    "[tenancy:seed] two tenants seeded (shared slug + contact email + media url + payer name on both)",
+    "[tenancy:seed] two tenants seeded (shared slug + contact email + media url + payer name on both; A=1 invoice, B=2)",
   );
 }
 

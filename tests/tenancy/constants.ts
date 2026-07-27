@@ -66,3 +66,29 @@ export const BILLING_B_SHARED_ID = "tenancy-ba-b-shared";
 
 export const ORG_B_ONLY_PAYER_NAME = "Only-In-B Payer";
 export const BILLING_B_ONLY_ID = "tenancy-ba-b-only";
+
+/**
+ * Invoice sweep (Phase 2, domain pass #4 — second finance domain). Invoice has
+ * a direct organizationId column but `invoiceNumber` is GLOBALLY @unique, so
+ * unlike Contact/BillingAccount there is no shared-value collision to lean on —
+ * scoping is proven by (a) each lane's findMany returning only ITS invoices and
+ * (b) an unscoped by-invoiceNumber / by-id lookup of B's invoice missing under
+ * A's store. An Invoice requires a Registration → Attendee chain, so each org
+ * gets one Attendee + Registration to hang its invoices on. Attendee has NO
+ * organizationId (event-scoped via Registration) and is the PARENT of
+ * Registration, so it does NOT cascade from Organization — main() deletes the
+ * attendees explicitly (after the org cascade removes the registrations that
+ * reference them), same cross-child-FK care as MediaFile→User.
+ */
+export const ATTENDEE_A_ID = "tenancy-att-a";
+export const ATTENDEE_B_ID = "tenancy-att-b";
+export const REG_A_ID = "tenancy-reg-a";
+export const REG_B_ID = "tenancy-reg-b";
+
+export const INVOICE_A_ID = "tenancy-inv-a";
+export const INVOICE_A_NUMBER = "TEN-A-INV-001";
+export const INVOICE_B_ID = "tenancy-inv-b";
+export const INVOICE_B_NUMBER = "TEN-B-INV-001";
+// B-only second invoice — the target for cross-tenant-miss + defence-#1 tests.
+export const INVOICE_B_ONLY_ID = "tenancy-inv-b-only";
+export const INVOICE_B_ONLY_NUMBER = "TEN-B-INV-002";
