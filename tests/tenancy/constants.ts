@@ -92,3 +92,20 @@ export const INVOICE_B_NUMBER = "TEN-B-INV-001";
 // B-only second invoice — the target for cross-tenant-miss + defence-#1 tests.
 export const INVOICE_B_ONLY_ID = "tenancy-inv-b-only";
 export const INVOICE_B_ONLY_NUMBER = "TEN-B-INV-002";
+
+/**
+ * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
+ * MediaFile's first pass; unblocked July 24 when the CRM deployed).
+ * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event
+ * Contact — BOTH orgs hold a business contact on the SAME emailKey, proving
+ * per-org coexistence + that an unscoped `where:{ emailKey }` returns only the
+ * caller's row. Plus a B-only contact for cross-tenant-miss assertions. All
+ * FKs (company/owner/contactId) are nullable, so rows cascade cleanly from
+ * Organization — no cross-child cleanup needed.
+ */
+export const SHARED_CRM_EMAIL_KEY = "shared.rep@tenancy.test";
+export const CRM_CT_A_SHARED_ID = "tenancy-crmct-a-shared";
+export const CRM_CT_B_SHARED_ID = "tenancy-crmct-b-shared";
+
+export const ORG_B_ONLY_CRM_EMAIL_KEY = "only.in.b.rep@tenancy.test";
+export const CRM_CT_B_ONLY_ID = "tenancy-crmct-b-only";

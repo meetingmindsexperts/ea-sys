@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Multi-tenancy Phase 2: CrmContact RLS policy pass (Domain #5) + Phase-0 status verification (July 27)
+
+Small-prep round (owner: "small prep items first" before the Webinar domain
+sweep).
+
+- **Verified already in place:** the tenancy CI job was promoted to GATING on
+  July 23 (`needs: [checks, tests, build, tenancy, migration-replay]`, 8/8
+  green) — the "remaining Phase-0 steps: promote the CI job" doc note was
+  stale and is corrected.
+- **CrmContact policy pass (policy-only, MediaFile-style):** unblocked when
+  the CRM deployed July 24. New flat `prisma/rls/crmcontact.sql` (direct
+  `organizationId`, the trivial case) + harness fixtures — the same `emailKey`
+  in BOTH orgs (`@@unique([organizationId, emailKey])`), all FKs nullable so
+  rows org-cascade cleanly — + an 8-assertion `crmcontact-rls.test.ts`
+  (scoped read, unscoped-emailKey miss, by-id miss, fail-closed no-store,
+  per-lane shared-emailKey, WITH CHECK create-smuggle + org-re-home blocks,
+  cross-tenant DELETE P2025). **Harness 52 → 60 green** against real
+  postgres:16 + pgbouncer as the non-owner app_user. CrmContact goes first in
+  the Crm* family because it holds the CRM's PII; the rest land with the
+  future full CRM-domain sweep (queued, alongside Webinar/Zoom).
+- The master ops step (prod `TenantDomain` seed + `DEFAULT_ORG_ID`) remains
+  operator-run — exact commands now recorded in MULTI_TENANCY.md §0.
+
 ### Fixed — Webinar deferred-findings batch: security MEDs + waiting-room UX (July 27)
 
 Both deferred webinar clusters closed in one gated batch (owner: "both

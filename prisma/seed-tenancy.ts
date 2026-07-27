@@ -45,6 +45,11 @@ import {
   INVOICE_B_NUMBER,
   INVOICE_B_ONLY_ID,
   INVOICE_B_ONLY_NUMBER,
+  SHARED_CRM_EMAIL_KEY,
+  CRM_CT_A_SHARED_ID,
+  CRM_CT_B_SHARED_ID,
+  ORG_B_ONLY_CRM_EMAIL_KEY,
+  CRM_CT_B_ONLY_ID,
 } from "../tests/tenancy/constants";
 
 const url = process.env.TENANCY_DIRECT_URL;
@@ -65,6 +70,7 @@ async function seedOrg(
     registrationId: string;
     invoices: { id: string; number: string; seq: number }[];
   },
+  crmContacts: { id: string; emailKey: string }[] = [],
 ) {
   await db.organization.create({
     data: {
@@ -178,6 +184,19 @@ async function seedOrg(
       });
     }
   }
+  // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
+  for (const cc of crmContacts) {
+    await db.crmContact.create({
+      data: {
+        id: cc.id,
+        organizationId: orgId,
+        firstName: "Tenancy",
+        lastName: `CrmContact ${cc.id}`,
+        email: cc.emailKey,
+        emailKey: cc.emailKey,
+      },
+    });
+  }
 }
 
 async function main() {
@@ -207,6 +226,7 @@ async function main() {
       registrationId: REG_A_ID,
       invoices: [{ id: INVOICE_A_ID, number: INVOICE_A_NUMBER, seq: 1 }],
     },
+    [{ id: CRM_CT_A_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY }],
   );
   await seedOrg(
     ORG_B_ID,
@@ -239,10 +259,14 @@ async function main() {
         { id: INVOICE_B_ONLY_ID, number: INVOICE_B_ONLY_NUMBER, seq: 2 },
       ],
     },
+    [
+      { id: CRM_CT_B_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY },
+      { id: CRM_CT_B_ONLY_ID, emailKey: ORG_B_ONLY_CRM_EMAIL_KEY },
+    ],
   );
 
   console.log(
-    "[tenancy:seed] two tenants seeded (shared slug + contact email + media url + payer name on both; A=1 invoice, B=2)",
+    "[tenancy:seed] two tenants seeded (shared slug + contact email + media url + payer name + crm emailKey on both; A=1 invoice, B=2)",
   );
 }
 
