@@ -147,6 +147,16 @@ export interface CrmActivityRecord {
   actor: { id: string; firstName: string; lastName: string } | null;
 }
 
+const ACTIVITY_SELECT = {
+  id: true,
+  entityType: true,
+  entityId: true,
+  action: true,
+  changes: true,
+  createdAt: true,
+  actor: { select: { id: true, firstName: true, lastName: true } },
+} satisfies Prisma.CrmActivitySelect;
+
 /**
  * Read the change log for one entity, newest first. Org-scoped by the caller (the
  * activity row carries the org it was written under), so no cross-tenant leak.
@@ -165,14 +175,165 @@ export async function listCrmActivity(args: {
     },
     orderBy: { createdAt: "desc" },
     take: Math.min(args.limit ?? 200, 500),
-    select: {
-      id: true,
-      entityType: true,
-      entityId: true,
-      action: true,
-      changes: true,
-      createdAt: true,
-      actor: { select: { id: true, firstName: true, lastName: true } },
-    },
+    select: ACTIVITY_SELECT,
   });
+}
+
+// ── Org-wide activity feed (the "Activity" tab) ────────────────────────────────
+
+export interface OrgActivityFilters {
+  organizationId: string;
+  /** Filter to one actor (user). */
+  actorId?: string | null;
+  entityType?: CrmActivityEntity | null;
+  action?: string | null;
+  /** Inclusive lower bound. */
+  from?: Date | null;
+  /** Inclusive upper bound (the route stamps it to end-of-day). */
+  to?: Date | null;
+}
+
+export interface OrgActivityRecord extends CrmActivityRecord {
+  /** Resolved entity name (deal/company/contact title), null once purged. */
+  entityName: string | null;
+}
+
+/**
+ * Build the WHERE for an org-wide activity query. Shared by the feed (cursor-paged)
+ * and the CSV export so they can never disagree on what a filter means. Always
+ * org-scoped; every other clause is optional.
+ */
+export function buildOrgActivityWhere(f: OrgActivityFilters): Prisma.CrmActivityWhereInput {
+  const where: Prisma.CrmActivityWhereInput = { organizationId: f.organizationId };
+  if (f.actorId) where.actorId = f.actorId;
+  if (f.entityType) where.entityType = f.entityType;
+  if (f.action) where.action = f.action;
+  if (f.from || f.to) {
+    where.createdAt = {};
+    if (f.from) where.createdAt.gte = f.from;
+    if (f.to) where.createdAt.lte = f.to;
+  }
+  return where;
+}
+
+/**
+ * Batch-resolve the display name of each row's entity — one findMany per type,
+ * org-scoped (defence in depth; a mis-scoped id can't surface another org's name).
+ * A purged entity has no row, so its name resolves to null (rendered "(removed)").
+ */
+async function resolveEntityNames(
+  organizationId: string,
+  rows: readonly CrmActivityRecord[],
+): Promise<Map<string, string>> {
+  const ids: Record<CrmActivityEntity, Set<string>> = {
+    DEAL: new Set(),
+    COMPANY: new Set(),
+    CONTACT: new Set(),
+    TASK: new Set(),
+  };
+  for (const r of rows) ids[r.entityType].add(r.entityId);
+  const key = (t: CrmActivityEntity, id: string) => `${t}:${id}`;
+  const map = new Map<string, string>();
+
+  const [deals, companies, contacts, tasks] = await Promise.all([
+    ids.DEAL.size
+      ? db.crmDeal.findMany({ where: { organizationId, id: { in: [...ids.DEAL] } }, select: { id: true, name: true } })
+      : [],
+    ids.COMPANY.size
+      ? db.crmCompany.findMany({ where: { organizationId, id: { in: [...ids.COMPANY] } }, select: { id: true, name: true } })
+      : [],
+    ids.CONTACT.size
+      ? db.crmContact.findMany({
+          where: { organizationId, id: { in: [...ids.CONTACT] } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : [],
+    ids.TASK.size
+      ? db.crmTask.findMany({ where: { organizationId, id: { in: [...ids.TASK] } }, select: { id: true, title: true } })
+      : [],
+  ]);
+  for (const d of deals) map.set(key("DEAL", d.id), d.name);
+  for (const c of companies) map.set(key("COMPANY", c.id), c.name);
+  for (const c of contacts) map.set(key("CONTACT", c.id), `${c.firstName} ${c.lastName}`.trim());
+  for (const t of tasks) map.set(key("TASK", t.id), t.title);
+  return map;
+}
+
+function attachNames(organizationId: string, rows: CrmActivityRecord[]): Promise<OrgActivityRecord[]> {
+  return resolveEntityNames(organizationId, rows).then((names) =>
+    rows.map((r) => ({ ...r, entityName: names.get(`${r.entityType}:${r.entityId}`) ?? null })),
+  );
+}
+
+/**
+ * The org-wide feed, newest first, cursor-paged. Orders by (createdAt, id) both
+ * descending so the id tiebreak keeps the cursor stable when two rows share a
+ * timestamp. Returns up to `limit` rows plus the id to pass as the next cursor.
+ */
+export async function listOrgCrmActivity(
+  f: OrgActivityFilters & { cursor?: string | null; limit?: number },
+): Promise<{ rows: OrgActivityRecord[]; nextCursor: string | null }> {
+  const take = Math.min(f.limit ?? 50, 200);
+  const found = await db.crmActivity.findMany({
+    where: buildOrgActivityWhere(f),
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: take + 1, // one extra to know whether there's another page
+    ...(f.cursor ? { cursor: { id: f.cursor }, skip: 1 } : {}),
+    select: ACTIVITY_SELECT,
+  });
+  const hasMore = found.length > take;
+  const page = hasMore ? found.slice(0, take) : found;
+  const rows = await attachNames(f.organizationId, page);
+  return { rows, nextCursor: hasMore ? page[page.length - 1]!.id : null };
+}
+
+const ORG_ACTIVITY_ENTITY_TYPES = new Set<CrmActivityEntity>(["DEAL", "COMPANY", "CONTACT", "TASK"]);
+
+/**
+ * Parse the org-wide-activity query params into a filter object — shared by the
+ * feed AND the export route so a filter means the same thing in both. `entityType`
+ * is validated against the enum (a hand-crafted bad value is a 400, not a silent
+ * widen); an unparseable date is treated as absent (a read-only view showing more
+ * rows is harmless, unlike a bad send-audience filter).
+ */
+export function parseOrgActivityFilters(
+  searchParams: URLSearchParams,
+  organizationId: string,
+): { ok: true; filters: OrgActivityFilters } | { ok: false } {
+  const entityTypeRaw = searchParams.get("entityType")?.trim() || null;
+  if (entityTypeRaw && !ORG_ACTIVITY_ENTITY_TYPES.has(entityTypeRaw as CrmActivityEntity)) {
+    return { ok: false };
+  }
+  const parseDate = (s: string | null, endOfDay: boolean): Date | null => {
+    if (!s) return null;
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    if (endOfDay) d.setHours(23, 59, 59, 999);
+    return d;
+  };
+  return {
+    ok: true,
+    filters: {
+      organizationId,
+      actorId: searchParams.get("actorId")?.trim() || null,
+      entityType: (entityTypeRaw as CrmActivityEntity | null) ?? null,
+      action: searchParams.get("action")?.trim() || null,
+      from: parseDate(searchParams.get("from"), false),
+      to: parseDate(searchParams.get("to"), true),
+    },
+  };
+}
+
+/** The same query, un-paged (capped), for the CSV export. */
+export async function listOrgCrmActivityForExport(
+  f: OrgActivityFilters,
+  cap = 5000,
+): Promise<OrgActivityRecord[]> {
+  const found = await db.crmActivity.findMany({
+    where: buildOrgActivityWhere(f),
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: cap,
+    select: ACTIVITY_SELECT,
+  });
+  return attachNames(f.organizationId, found);
 }

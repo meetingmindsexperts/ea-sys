@@ -16,7 +16,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { BarChart3, Building2, CheckSquare, FileText, Handshake, Home, Inbox, Package, Users } from "lucide-react";
+import { Activity, BarChart3, Building2, CheckSquare, FileText, Handshake, Home, Inbox, Package, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewCrmInbox } from "@/crm/lib/crm-roles";
 import { CrmNotificationBell } from "@/crm/components/crm-notification-bell";
@@ -32,6 +32,7 @@ const TABS = [
   { href: "/crm/inbox", label: "Inbox", icon: Inbox, staffOnly: true },
   { href: "/crm/tasks", label: "Tasks", icon: CheckSquare },
   { href: "/crm/reports", label: "Reports", icon: BarChart3 },
+  { href: "/crm/activity", label: "Activity", icon: Activity },
   { href: "/crm/products", label: "Products", icon: Package },
   { href: "/crm/templates", label: "Templates", icon: FileText },
 ];

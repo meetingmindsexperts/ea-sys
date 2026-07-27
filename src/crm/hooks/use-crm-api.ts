@@ -16,11 +16,12 @@
  *      the colleague moved it somewhere else entirely.
  * An optimistic update with no rollback path is a lie the UI tells the user.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, apiFetch, apiPostJson, apiPatchJson, apiDelete } from "@/lib/api-fetch";
 import type {
   CrmActivityRow,
+  CrmActivityFeedRow,
   CrmActivityEntityType,
   CrmBoardDeal,
   CrmCompanyRow,
@@ -677,6 +678,37 @@ export function useCrmActivity(entityType: CrmActivityEntityType, entityId: stri
         `/api/crm/activity?entityType=${entityType}&entityId=${entityId}`,
       ).then((r) => r.activity),
     enabled: !!entityId,
+  });
+}
+
+// ── Org-wide activity feed (the "Activity" tab) ───────────────────────────────
+
+export interface CrmActivityFeedFilters {
+  actorId?: string;
+  entityType?: string;
+  action?: string;
+  from?: string;
+  to?: string;
+}
+
+/**
+ * The org-wide change log, cursor-paged (newest first). `fetchNextPage` loads older
+ * rows via the server's nextCursor. Money is redacted server-side for MEMBER.
+ */
+export function useCrmActivityFeed(filters: CrmActivityFeedFilters = {}) {
+  return useInfiniteQuery({
+    queryKey: ["crm", "activity-feed", filters],
+    queryFn: ({ pageParam }) => {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
+      if (pageParam) qs.set("cursor", pageParam);
+      const s = qs.toString();
+      return apiFetch<{ activity: CrmActivityFeedRow[]; nextCursor: string | null }>(
+        `/api/crm/activity/feed${s ? `?${s}` : ""}`,
+      );
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
   });
 }
 

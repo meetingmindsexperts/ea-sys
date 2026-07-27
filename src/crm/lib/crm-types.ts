@@ -417,6 +417,24 @@ export interface CrmActivityRow {
   actor?: { id: string; firstName: string; lastName: string } | null;
 }
 
+/**
+ * A row of the ORG-WIDE activity feed — a CrmActivityRow plus the resolved name of
+ * the entity it's about (deal/company/contact title), so the feed reads "Won ·
+ * Abbott — BRIDGES 2026" instead of a bare id. `entityName` is null when the entity
+ * has since been purged (its activity outlives it until a purge sweeps both).
+ */
+export interface CrmActivityFeedRow extends CrmActivityRow {
+  entityName: string | null;
+}
+
+/** Human label for an activity entity type — used by the feed + its CSV export. */
+export const CRM_ACTIVITY_ENTITY_LABELS: Record<CrmActivityEntityType, string> = {
+  DEAL: "Deal",
+  COMPANY: "Company",
+  CONTACT: "Contact",
+  TASK: "Task",
+};
+
 // ── Display ──────────────────────────────────────────────────────────────────
 
 /** Exhaustive Records — TS fails the build if a new enum value has no mapping. */
@@ -612,4 +630,45 @@ export function activityActionLabel(action: string): string {
 
 export function fieldLabel(key: string): string {
   return CRM_FIELD_LABELS[key] ?? key;
+}
+
+/** Render one diff primitive: dates short, long strings clipped, bools as yes/no. */
+export function renderActivityValue(v: string | number | boolean | null | undefined): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  if (typeof v === "string") {
+    const d = new Date(v);
+    if (/^\d{4}-\d{2}-\d{2}T/.test(v) && !Number.isNaN(d.getTime())) return d.toLocaleDateString();
+    return v.length > 60 ? `${v.slice(0, 60)}…` : v;
+  }
+  return String(v);
+}
+
+/**
+ * One-line plain-text summary of an activity row's `changes` — the field diffs plus
+ * the action-specific extras (stage moved to, lost reason, created/archived name).
+ * Shared by the org-wide feed page AND its CSV export so the two never drift.
+ *
+ * Operates on whatever `changes` it's given — so when the caller has already
+ * money-redacted the payload (MEMBER), the stripped keys simply aren't here and the
+ * summary can't leak a value or a prose channel.
+ */
+export function formatActivityChangeSummary(row: Pick<CrmActivityRow, "action" | "changes">): string {
+  const c = row.changes;
+  if (!c) return "";
+  const parts: string[] = [];
+  if (row.action === "STAGE_MOVE" && typeof c.toStage === "string") parts.push(`→ ${c.toStage}`);
+  if (row.action === "LOST" && typeof c.lostReason === "string") parts.push(c.lostReason);
+  if (
+    (row.action === "ARCHIVE" || row.action === "RESTORE" || row.action === "CREATE") &&
+    typeof c.name === "string"
+  ) {
+    parts.push(c.name);
+  }
+  if (c.changes) {
+    for (const [field, ch] of Object.entries(c.changes)) {
+      parts.push(`${fieldLabel(field)}: ${renderActivityValue(ch.from)} → ${renderActivityValue(ch.to)}`);
+    }
+  }
+  return parts.join(" · ");
 }
