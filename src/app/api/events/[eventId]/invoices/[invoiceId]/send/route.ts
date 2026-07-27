@@ -25,7 +25,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    return runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     const invoice = await db.invoice.findFirst({
       where: {
         id: invoiceId,

@@ -29,7 +29,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
-    return runWithTenant(orgGuard.orgId, async () => {
+    return await runWithTenant(orgGuard.orgId, async () => {
     // Assignment-gated, not just org-gated: ONSITE (and MEMBER) are
     // finance-capable, so an ONSITE temp assigned to Event A must 404 on
     // Event B's invoices — same rule as the desk routes (review H10).
@@ -100,7 +100,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    return runWithTenant(orgGuard.orgId, async () => {
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, ...buildEventAccessWhere(session.user) },
       select: { id: true },

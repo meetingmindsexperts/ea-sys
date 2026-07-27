@@ -26,7 +26,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
-    return runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     const invoice = await db.invoice.findFirst({
       where: {
         id: invoiceId,
@@ -84,7 +84,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
-    return runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     const invoice = await db.invoice.findFirst({
       where: {
         id: invoiceId,

@@ -56,7 +56,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "No organization" }, { status: 403 });
     }
 
-    return runWithTenant(organizationId, async () => {
+    return await runWithTenant(organizationId, async () => {
     const url = new URL(req.url);
     const format = (url.searchParams.get("format") || "csv").toLowerCase();
     const year = url.searchParams.get("year") ? Number(url.searchParams.get("year")) : undefined;
