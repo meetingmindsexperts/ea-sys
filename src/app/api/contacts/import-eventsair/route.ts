@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
 import { downloadExternalPhoto } from "@/lib/storage";
@@ -185,6 +186,19 @@ export async function POST(req: Request) {
       updated,
       skipped,
       errorCount: errors.length,
+    });
+
+    recordImport(req, {
+      entityType: "Contact",
+      organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: contacts.length,
+      created,
+      updated,
+      skipped,
+      errors: errors.length,
+      format: "eventsair",
     });
 
     return NextResponse.json({

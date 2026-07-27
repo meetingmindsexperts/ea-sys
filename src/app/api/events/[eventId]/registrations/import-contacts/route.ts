@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 
@@ -164,6 +165,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         }
       });
     }
+
+    recordImport(req, {
+      entityType: "Registration",
+      eventId,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: contacts.length,
+      created: toCreate.length,
+      skipped,
+      format: "contacts",
+    });
 
     return NextResponse.json({ created: toCreate.length, skipped });
   } catch (error) {

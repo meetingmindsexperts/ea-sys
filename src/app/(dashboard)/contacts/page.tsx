@@ -259,8 +259,11 @@ export default function ContactsPage() {
 
   const handleDownloadTemplate = () => {
     const csv = [
-      "firstName,lastName,email,organization,jobTitle,specialty,phone,tags,notes",
-      'John,Smith,john@example.com,Acme Corp,CEO,Cardiology,+1-555-0123,"VIP, Speaker",Met at conference 2025',
+      // Identity fields grouped first — matches the registrations/speakers
+      // templates. Column ORDER is presentation only; the importer resolves
+      // every column by name.
+      "title,firstName,lastName,email,phone,organization,jobTitle,specialty,role,tags,notes",
+      'Dr,John,Smith,john@example.com,+1-555-0123,Acme Corp,CEO,Cardiology,PHYSICIAN,"VIP, Speaker",Met at conference 2025',
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);

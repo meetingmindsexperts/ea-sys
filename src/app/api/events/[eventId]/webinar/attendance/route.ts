@@ -4,6 +4,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { apiLogger } from "@/lib/logger";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { readWebinarSettings } from "@/lib/webinar";
@@ -192,6 +193,17 @@ export async function GET(req: Request, { params }: RouteParams) {
         );
       }
       const csv = lines.join("\n");
+      // Attendee identities + watch times. Previously the export path had no
+      // trail at all — the route's only info log sits in the POST sync handler.
+      recordExport(req, {
+        entityType: "ZoomAttendance",
+        eventId,
+        organizationId: orgGuard.orgId,
+        userId: session.user.id,
+        role: session.user.role,
+        rowCount: rows.length,
+        format: "csv",
+      });
       return new NextResponse(csv, {
         status: 200,
         headers: {

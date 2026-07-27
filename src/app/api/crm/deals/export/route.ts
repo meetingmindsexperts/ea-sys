@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { toCsv } from "@/lib/csv-escape";
 import { requireCrmRead } from "@/crm/lib/crm-route";
@@ -126,6 +127,18 @@ export async function GET(req: Request) {
     });
 
     const stamp = new Date().toISOString().slice(0, 10);
+    recordExport(req, {
+      entityType: "CrmDeal",
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      role: ctx.role,
+      source: ctx.fromApiKey ? "api" : "rest",
+      rowCount: deals.length,
+      format: "csv",
+      // Deal money is role-gated — record whether this pull included it.
+      filters: { includedDealValues: canSeeValues },
+    });
+
     return new NextResponse(csv, {
       status: 200,
       headers: {

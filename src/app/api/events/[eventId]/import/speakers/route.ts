@@ -8,10 +8,10 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
+import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
 import { syncManyToContacts } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 
-const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF"]);
 const SPEAKER_STATUS_VALUES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -70,6 +70,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       zipCode: headers.indexOf("zipcode"),
       country: headers.indexOf("country"),
       specialty: headers.indexOf("specialty"),
+      role: headers.indexOf("role"),
       registrationType: headers.indexOf("registrationtype"),
       tags: headers.indexOf("tags"),
       website: headers.indexOf("website"),
@@ -127,9 +128,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (existingEmails.has(email)) {
         continue; // Skip duplicate silently — counted as skipped
       }
-
-      const titleRaw = getField(fields, idx.title)?.toUpperCase();
-      const title = titleRaw && TITLE_VALUES.has(titleRaw) ? titleRaw : null;
+      const title = parseTitle(getField(fields, idx.title));
       const statusRaw = getField(fields, idx.status)?.toUpperCase();
       const status = statusRaw && SPEAKER_STATUS_VALUES.has(statusRaw) ? statusRaw : "INVITED";
 
@@ -140,7 +139,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         email,
         firstName,
         lastName,
-        title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | null,
+        title,
         organization: getField(fields, idx.organization) || null,
         jobTitle: getField(fields, idx.jobTitle) || null,
         phone: getField(fields, idx.phone) || null,
@@ -150,6 +149,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         zipCode: getField(fields, idx.zipCode) || null,
         country: getField(fields, idx.country) || null,
         specialty: getField(fields, idx.specialty) || null,
+        // Profession category (Physician, Allied Health, …) — same shared
+        // parser + acceptance rules as the registrations/contacts imports.
+        role: parseAttendeeRole(getField(fields, idx.role)),
         registrationType: getField(fields, idx.registrationType) || null,
         tags: parseTags(getField(fields, idx.tags)),
         website: getField(fields, idx.website) || null,
@@ -210,6 +212,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         country: s.country,
         bio: s.bio,
         specialty: s.specialty,
+        role: s.role,
         registrationType: s.registrationType,
       }))
     );

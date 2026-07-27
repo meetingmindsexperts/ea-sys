@@ -22,33 +22,112 @@ interface CSVImportDialogProps {
   onSuccess?: () => void;
 }
 
+/**
+ * CSV template definition — ONE ordered list per entity.
+ *
+ * Column name, sample value and required-ness live together on each entry, so
+ * the downloadable header row and its sample row cannot drift out of alignment
+ * (previously two parallel arrays: inserting a column in one and not the other
+ * shifted every subsequent cell in the file operators downloaded).
+ *
+ * ORDER IS PRESENTATION ONLY — every importer resolves columns by NAME via
+ * `headers.indexOf(...)`, so reordering here never changes how a file parses.
+ * The person-identity fields are grouped first because that is the order
+ * organizers actually fill them in.
+ */
+type CsvColumn = { name: string; sample: string; required?: boolean };
+
+const ENTITY_COLUMNS: Record<"registrations" | "speakers" | "sessions" | "abstracts", CsvColumn[]> = {
+  registrations: [
+    { name: "title", sample: "Dr" },
+    { name: "firstName", sample: "John", required: true },
+    { name: "lastName", sample: "Doe", required: true },
+    { name: "email", sample: "john@example.com", required: true },
+    { name: "phone", sample: "+971501234567" },
+    { name: "organization", sample: "Acme Corp" },
+    { name: "jobTitle", sample: "Engineer" },
+    { name: "specialty", sample: "Cardiology" },
+    { name: "role", sample: "PHYSICIAN" },
+    { name: "registrationType", sample: "General" },
+    { name: "city", sample: "Dubai" },
+    { name: "state", sample: "Dubai" },
+    { name: "zipCode", sample: "00000" },
+    { name: "country", sample: "UAE" },
+    { name: "bio", sample: "" },
+    { name: "tags", sample: "vip,sponsor" },
+    { name: "dietaryReqs", sample: "Vegetarian" },
+    { name: "notes", sample: "VIP guest" },
+    { name: "associationName", sample: "" },
+    { name: "memberId", sample: "" },
+    { name: "studentId", sample: "" },
+    { name: "registrationStatus", sample: "CONFIRMED" },
+    // Sample shows a sponsor-paid row: paymentStatus=INCLUSIVE + sponsor name
+    // (which must already exist on the event's Sponsors page).
+    { name: "paymentStatus", sample: "INCLUSIVE" },
+    { name: "sponsor", sample: "Abbott" },
+    { name: "attendanceMode", sample: "IN_PERSON" },
+  ],
+  speakers: [
+    { name: "title", sample: "Prof" },
+    { name: "firstName", sample: "Jane", required: true },
+    { name: "lastName", sample: "Smith", required: true },
+    { name: "email", sample: "jane@example.com", required: true },
+    { name: "phone", sample: "+971509876543" },
+    { name: "additionalEmail", sample: "jane.alt@example.com" },
+    { name: "organization", sample: "University Hospital" },
+    { name: "jobTitle", sample: "Professor" },
+    { name: "specialty", sample: "Neurology" },
+    { name: "role", sample: "PHYSICIAN" },
+    { name: "registrationType", sample: "Speaker" },
+    { name: "city", sample: "Dubai" },
+    { name: "state", sample: "Dubai" },
+    { name: "zipCode", sample: "00000" },
+    { name: "country", sample: "UAE" },
+    { name: "bio", sample: "Keynote speaker on AI in healthcare" },
+    { name: "tags", sample: "keynote,invited" },
+    { name: "website", sample: "https://example.com" },
+    { name: "status", sample: "CONFIRMED" },
+  ],
+  sessions: [
+    { name: "name", sample: "Opening Keynote", required: true },
+    { name: "startTime", sample: "2026-06-15T09:00:00", required: true },
+    { name: "endTime", sample: "2026-06-15T10:00:00", required: true },
+    { name: "description", sample: "Welcome and opening remarks" },
+    { name: "location", sample: "Main Hall" },
+    { name: "capacity", sample: "500" },
+    { name: "track", sample: "Plenary" },
+    { name: "speakerEmails", sample: "jane@example.com;john@example.com" },
+    { name: "status", sample: "SCHEDULED" },
+    { name: "type", sample: "SESSION" },
+  ],
+  abstracts: [
+    { name: "title", sample: "AI in Cardiology", required: true },
+    { name: "content", sample: "This paper explores the use of artificial intelligence...", required: true },
+    { name: "speakerEmail", sample: "jane@example.com", required: true },
+    { name: "specialty", sample: "Cardiology" },
+    { name: "track", sample: "Research" },
+    { name: "theme", sample: "AI & Technology" },
+    { name: "presentationType", sample: "ORAL" },
+    { name: "status", sample: "SUBMITTED" },
+  ],
+};
+
+/** Derive the shapes the dialog renders from the single ordered column list. */
+function buildEntityConfig(label: string, columns: CsvColumn[]) {
+  return {
+    label,
+    columns,
+    required: columns.filter((c) => c.required).map((c) => c.name),
+    optional: columns.filter((c) => !c.required).map((c) => c.name),
+    sampleRow: columns.map((c) => c.sample),
+  };
+}
+
 const ENTITY_CONFIG = {
-  registrations: {
-    label: "Registrations",
-    required: ["email", "firstName", "lastName"],
-    optional: ["organization", "jobTitle", "phone", "bio", "city", "state", "zipCode", "country", "specialty", "registrationType", "tags", "dietaryReqs", "notes", "title", "associationName", "memberId", "studentId", "registrationStatus", "paymentStatus", "sponsor", "attendanceMode"],
-    // Sample shows a sponsor-paid row: paymentStatus=INCLUSIVE + sponsor
-    // name (must already exist on the event's Sponsors page).
-    sampleRow: ["john@example.com", "John", "Doe", "Acme Corp", "Engineer", "+971501234567", "", "Dubai", "Dubai", "00000", "UAE", "Cardiology", "General", "vip,sponsor", "Vegetarian", "VIP guest", "Dr", "", "", "", "CONFIRMED", "INCLUSIVE", "Abbott", "IN_PERSON"],
-  },
-  speakers: {
-    label: "Speakers",
-    required: ["email", "firstName", "lastName"],
-    optional: ["organization", "jobTitle", "phone", "bio", "city", "state", "zipCode", "country", "specialty", "registrationType", "tags", "website", "status", "title", "additionalEmail"],
-    sampleRow: ["jane@example.com", "Jane", "Smith", "University Hospital", "Professor", "+971509876543", "Keynote speaker on AI in healthcare", "Dubai", "Dubai", "00000", "UAE", "Neurology", "Speaker", "keynote,invited", "https://example.com", "CONFIRMED", "Prof", "jane.alt@example.com"],
-  },
-  sessions: {
-    label: "Sessions",
-    required: ["name", "startTime", "endTime"],
-    optional: ["description", "location", "capacity", "track", "speakerEmails", "status", "type"],
-    sampleRow: ["Opening Keynote", "2026-06-15T09:00:00", "2026-06-15T10:00:00", "Welcome and opening remarks", "Main Hall", "500", "Plenary", "jane@example.com;john@example.com", "SCHEDULED", "SESSION"],
-  },
-  abstracts: {
-    label: "Abstracts",
-    required: ["title", "content", "speakerEmail"],
-    optional: ["specialty", "track", "theme", "presentationType", "status"],
-    sampleRow: ["AI in Cardiology", "This paper explores the use of artificial intelligence...", "jane@example.com", "Cardiology", "Research", "AI & Technology", "ORAL", "SUBMITTED"],
-  },
+  registrations: buildEntityConfig("Registrations", ENTITY_COLUMNS.registrations),
+  speakers: buildEntityConfig("Speakers", ENTITY_COLUMNS.speakers),
+  sessions: buildEntityConfig("Sessions", ENTITY_COLUMNS.sessions),
+  abstracts: buildEntityConfig("Abstracts", ENTITY_COLUMNS.abstracts),
 };
 
 export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuccess }: CSVImportDialogProps) {
@@ -111,7 +190,7 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
   };
 
   const downloadTemplate = () => {
-    const allColumns = [...config.required, ...config.optional];
+    const allColumns = config.columns.map((c) => c.name);
     const headerRow = allColumns.join(",");
     // Wrap sample values in quotes to handle commas inside values
     const sampleValues = config.sampleRow.map((v) =>

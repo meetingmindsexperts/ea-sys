@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyReviewer } from "@/lib/auth-guards";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
+import { parseAttendeeRole, parseTitle, type AttendeeRoleValue, type TitleValue } from "@/lib/schemas";
 
 export async function POST(req: Request) {
   try {
@@ -52,12 +54,14 @@ export async function POST(req: Request) {
     }
 
     const idx = {
+      title: headers.indexOf("title"),
       firstName: headers.indexOf("firstname"),
       lastName: headers.indexOf("lastname"),
       email: headers.indexOf("email"),
       organization: headers.indexOf("organization"),
       jobTitle: headers.indexOf("jobtitle"),
       specialty: headers.indexOf("specialty"),
+      role: headers.indexOf("role"),
       bio: headers.indexOf("bio"),
       phone: headers.indexOf("phone"),
       tags: headers.indexOf("tags"),
@@ -76,11 +80,13 @@ export async function POST(req: Request) {
     const contacts: {
       organizationId: string;
       email: string;
+      title?: TitleValue | null;
       firstName: string;
       lastName: string;
       organization?: string;
       jobTitle?: string;
       specialty?: string;
+      role?: AttendeeRoleValue | null;
       bio?: string;
       phone?: string;
       tags: string[];
@@ -106,11 +112,17 @@ export async function POST(req: Request) {
       contacts.push({
         organizationId: ctx.organizationId,
         email,
+        // Honorific — the Contact model has carried `title` all along; this
+        // importer silently dropped it (same class as the missing `role`).
+        title: parseTitle(getField(fields, idx.title)),
         firstName,
         lastName,
         organization: getField(fields, idx.organization),
         jobTitle: getField(fields, idx.jobTitle),
         specialty: getField(fields, idx.specialty),
+        // Profession category — shared parser, same acceptance rules as the
+        // registrations/speakers imports (was silently dropped here).
+        role: parseAttendeeRole(getField(fields, idx.role)),
         bio: getField(fields, idx.bio),
         phone: getField(fields, idx.phone),
         tags: parseTags(getField(fields, idx.tags)),
@@ -138,6 +150,19 @@ export async function POST(req: Request) {
 
     const created = countAfter - countBefore;
     const skipped = contacts.length - created;
+
+    recordImport(req, {
+      entityType: "Contact",
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      role: ctx.role,
+      source: ctx.fromApiKey ? "api" : "rest",
+      totalProcessed: contacts.length,
+      created,
+      skipped,
+      errors: errors.length,
+      format: "csv",
+    });
 
     return NextResponse.json({ created, skipped, errors });
     });

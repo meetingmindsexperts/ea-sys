@@ -20,6 +20,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
 import {
@@ -44,7 +45,7 @@ function sanitizeFilenameStem(s: string): string {
   return cleaned || "survey";
 }
 
-export async function GET(_req: Request, { params }: RouteParams) {
+export async function GET(req: Request, { params }: RouteParams) {
   try {
     const [{ eventId }, session] = await Promise.all([params, auth()]);
 
@@ -114,6 +115,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
     );
 
     const filename = `survey-${sanitizeFilenameStem(event.name)}-${eventId.slice(0, 8)}.csv`;
+
+    recordExport(req, {
+      entityType: "SurveyResponse",
+      eventId,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      rowCount: responses.length,
+      format: "csv",
+    });
 
     apiLogger.info({
       msg: "survey-export:served",

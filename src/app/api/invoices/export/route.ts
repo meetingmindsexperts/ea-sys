@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import {
@@ -112,6 +113,14 @@ export async function GET(req: Request) {
       if (ok === 0) return NextResponse.json({ error: "Failed to generate any invoice PDFs." }, { status: 500 });
       const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
       apiLogger.info({ msg: "org-invoices:export-pdf", organizationId, count, ok, failed });
+      recordExport(req, {
+        entityType: "Invoice",
+        organizationId,
+        userId: session.user.id,
+        role: session.user.role,
+        rowCount: ok,
+        format: "pdf-zip",
+      });
       const stamp = new Date().toISOString().slice(0, 10);
       return new NextResponse(new Uint8Array(zipBuffer), {
         status: 200,
@@ -144,9 +153,25 @@ export async function GET(req: Request) {
 
     if (format === "quickbooks") {
       apiLogger.info({ msg: "org-invoices:export-quickbooks", organizationId, count: invoices.length });
+      recordExport(req, {
+        entityType: "Invoice",
+        organizationId,
+        userId: session.user.id,
+        role: session.user.role,
+        rowCount: invoices.length,
+        format: "quickbooks",
+      });
       return csvResponse(buildInvoiceQuickBooksCsv(invoices), "invoices-quickbooks");
     }
     apiLogger.info({ msg: "org-invoices:export-csv", organizationId, count: invoices.length });
+    recordExport(req, {
+      entityType: "Invoice",
+      organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      rowCount: invoices.length,
+      format: "csv",
+    });
     return csvResponse(buildInvoiceCsv(invoices), "invoices");
     });
   } catch (error) {

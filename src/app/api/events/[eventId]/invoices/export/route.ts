@@ -6,6 +6,7 @@ import { denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import {
@@ -87,6 +88,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       const name = format === "quickbooks" ? "invoices-quickbooks" : "invoices";
       const stamp = new Date().toISOString().slice(0, 10);
       apiLogger.info({ msg: `invoices:export-${format}`, eventId, count: invoices.length });
+      recordExport(req, {
+        entityType: "Invoice",
+        eventId,
+        organizationId: session.user.organizationId,
+        userId: session.user.id,
+        role: session.user.role,
+        rowCount: invoices.length,
+        format,
+      });
       return new NextResponse(csv, {
         status: 200,
         headers: {
@@ -147,6 +157,15 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
     apiLogger.info({ msg: "invoices:export", eventId, count, ok, failed, type, status });
+    recordExport(req, {
+      entityType: "Invoice",
+      eventId,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      rowCount: ok,
+      format: "pdf-zip",
+    });
 
     const label = (status || type || "all").toLowerCase();
     const filename = `invoices-${event.code || eventId}-${label}.zip`;

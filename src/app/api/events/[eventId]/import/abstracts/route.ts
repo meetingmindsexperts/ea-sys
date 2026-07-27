@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
@@ -179,6 +180,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (errors.length > 0) {
       apiLogger.warn({ msg: "Import errors", importType: "abstracts", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
+
+    recordImport(req, {
+      entityType: "Abstract",
+      eventId,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: created + skipped + errors.length,
+      created,
+      skipped,
+      errors: errors.length,
+      format: "csv",
+    });
 
     return NextResponse.json({ created, skipped, errors });
   } catch (error) {

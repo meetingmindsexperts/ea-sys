@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { computeEventAnalytics, type EventAnalytics } from "@/lib/event-analytics";
@@ -81,6 +82,17 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const exportType = new URL(req.url).searchParams.get("export");
     if (exportType === "csv") {
+      // Aggregate figures (incl. revenue when the caller is finance-capable).
+      recordExport(req, {
+        entityType: "EventAnalytics",
+        eventId,
+        organizationId: session.user.organizationId,
+        userId: session.user.id,
+        role: session.user.role,
+        rowCount: 1,
+        format: "csv",
+        filters: { includeFinance },
+      });
       return new NextResponse(toCsv(analytics), {
         status: 200,
         headers: {
@@ -107,6 +119,18 @@ export async function GET(req: Request, { params }: RouteParams) {
             .join(","),
         );
       }
+      // Per-attendee log — names, emails and door timestamps. Distinct
+      // entityType from the aggregate export above so the two are separable
+      // when reviewing who pulled what.
+      recordExport(req, {
+        entityType: "CheckInLog",
+        eventId,
+        organizationId: session.user.organizationId,
+        userId: session.user.id,
+        role: session.user.role,
+        rowCount: analytics.checkIn.log.length,
+        format: "csv",
+      });
       return new NextResponse(lines.join("\n"), {
         status: 200,
         headers: {

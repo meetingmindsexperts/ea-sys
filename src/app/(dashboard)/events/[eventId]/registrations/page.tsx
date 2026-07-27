@@ -49,7 +49,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
-import { toCsvRow } from "@/lib/csv-escape";
 import { useRegistrations, useTickets, useEvent, useBulkTagRegistrations, useBulkUpdateRegistrationType, useSendCompletionEmails, useEventTags } from "@/hooks/use-api";
 import { displayRegistrationType } from "@/lib/faculty-filter";
 import { formatAttendeeRole } from "@/lib/schemas";
@@ -61,7 +60,6 @@ import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { Registration, TicketType } from "./types";
 import { isWebinar } from "@/lib/webinar";
 import {
-  NO_PAYMENT_DUE_STATUSES,
   PAYMENT_STATUS_COLORS,
   PAYMENT_STATUS_DISPLAY_ORDER,
   PAYMENT_STATUS_LABELS,
@@ -69,7 +67,6 @@ import {
   REGISTRATION_STATUS_DISPLAY_ORDER,
   REGISTRATION_STATUS_LABELS,
 } from "./registration-enums";
-import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
@@ -175,110 +172,48 @@ export default function RegistrationsPage() {
     setSheetOpen(true);
   };
 
-  const exportToCSV = () => {
-    const headers = [
-      "Registration ID",
-      "Serial ID",
-      "Title",
-      "Role",
-      "First Name",
-      "Last Name",
-      "Email",
-      "Organization",
-      "Job Title",
-      "Phone",
-      "City",
-      "Country",
-      "Bio",
-      "Specialty",
-      "Tags",
-      "Registration Type",
-      "Pricing Tier",
-      "Payer",
-      "Status",
-      "Payment Status",
-      "Amount Due",
-      "Total Paid",
-      "Discount",
-      "Promo Code",
-      "DTCM Barcode",
-      "Registered Date",
-      "Checked In Date",
-      "Source",
-      "Medium",
-      "Campaign",
-      "Referrer",
-    ];
+  // The CSV is produced SERVER-side (`?export=csv` on the list route) so the
+  // pull is audited — an in-browser Blob download never reaches the server and
+  // therefore leaves no trace of who exported the attendee book. The server
+  // reuses this page's filters (including the free-text search, via `q`) and
+  // applies the same finance/barcode redaction as the table, so the file
+  // matches what's on screen.
+  const [exporting, setExporting] = useState(false);
+  const exportToCSV = async () => {
+    setExporting(true);
+    try {
+      const p = new URLSearchParams({ export: "csv" });
+      if (statusFilter !== "all") p.set("status", statusFilter);
+      if (paymentFilter !== "all") p.set("paymentStatus", paymentFilter);
+      if (ticketFilter !== "all") p.set("ticketTypeId", ticketFilter);
+      // The tag filter is applied SERVER-side on the table's own query
+      // (useRegistrations below), so omitting it here doesn't just widen the
+      // file — it returns the whole attendee book while the screen shows the
+      // filtered subset. Every filter the table applies must be sent.
+      if (tagFilter.length > 0) p.set("tags", tagFilter.join(","));
+      if (searchQuery.trim()) p.set("q", searchQuery.trim());
 
-    // Tax rate/label come from the event (finance-visible to every role that
-    // can reach this list). Amounts computed via the same shared helper the
-    // detail sheet + quote/invoice PDFs use, so the CSV can't disagree on VAT.
-    const eventTaxRate = event?.taxRate != null ? Number(event.taxRate) : null;
-    const eventTaxLabel = (event?.taxLabel as string | null | undefined) ?? null;
-
-    const rows = filteredRegistrations.map((r) => {
-      const subtotal = readRegistrationBasePrice(r);
-      const totalPaid = (r.payments ?? [])
-        .filter((p) => p.status === "PAID" || String(p.status).toLowerCase() === "succeeded")
-        .reduce((sum, p) => sum + Number(p.amount), 0);
-      const fin = computeRegistrationFinancials({
-        subtotal,
-        discount: r.discountAmount != null ? Number(r.discountAmount) : 0,
-        taxRate: eventTaxRate,
-        taxLabel: eventTaxLabel,
-        currency: r.pricingTier?.currency ?? r.ticketType?.currency,
-        totalPaid,
-      });
-      // A CANCELLED registration owes nothing (organizer decision — matches the
-      // detail-sheet display + the server-side financials override); a settled
-      // status (PAID/COMPLIMENTARY/INCLUSIVE/REFUNDED) owes nothing either.
-      const noPaymentDue = r.status === "CANCELLED" || NO_PAYMENT_DUE_STATUSES.includes(r.paymentStatus);
-      const amountDue = noPaymentDue ? 0 : fin.balanceDue;
-      return [
-      r.id,
-      formatSerialId(r.serialId),
-      r.attendee.title || "",
-      formatAttendeeRole(r.attendee.role, ""),
-      r.attendee.firstName,
-      r.attendee.lastName,
-      r.attendee.email,
-      r.attendee.organization || "",
-      r.attendee.jobTitle || "",
-      r.attendee.phone || "",
-      r.attendee.city || "",
-      r.attendee.country || "",
-      r.attendee.bio || "",
-      r.attendee.specialty || "",
-      r.attendee.tags.join(", "),
-      displayRegistrationType({ ticketTypeName: r.ticketType?.name, isFaculty: r.ticketType?.isFaculty, attendeeRegistrationType: r.attendee.registrationType }, ""),
-      r.pricingTier?.name ?? "",
-      // Third-party payer; blank = attendee self-pays. Redacted server-side
-      // for non-finance roles (the field simply isn't in their payload).
-      r.billingAccount?.name ?? "",
-      r.status,
-      r.paymentStatus,
-      amountDue.toFixed(2),
-      totalPaid.toFixed(2),
-      fin.discount.toFixed(2),
-      r.promoCode?.code ?? "",
-      r.dtcmBarcode || "",
-      formatDate(r.createdAt),
-      r.checkedInAt ? formatDate(r.checkedInAt) : "",
-      r.utmSource || "",
-      r.utmMedium || "",
-      r.utmCampaign || "",
-      r.referrer || "",
-      ];
-    });
-
-    const csvContent = [headers.join(","), ...rows.map((row) => toCsvRow(row))].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `registrations-${eventId}.csv`;
-    link.click();
+      const res = await fetch(`/api/events/${eventId}/registrations?${p.toString()}`);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        toast.error(detail?.error ?? "Export failed. Please try again.");
+        return;
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `registrations-${eventId}.csv`;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      console.error("registrations export failed", err);
+      toast.error("Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
   };
+
 
   // Filter registrations
   const filteredRegistrations = registrations.filter((r) => {
@@ -449,9 +384,9 @@ export default function RegistrationsPage() {
               Share Link
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={exportToCSV}>
+          <Button variant="outline" size="sm" onClick={exportToCSV} disabled={exporting}>
             <Download className="mr-2 h-4 w-4" />
-            Export
+            {exporting ? "Exporting…" : "Export"}
           </Button>
           {!isReviewer && (
             <>

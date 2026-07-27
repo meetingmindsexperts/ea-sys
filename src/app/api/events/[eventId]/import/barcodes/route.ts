@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { parseCSV, getField } from "@/lib/csv-parser";
 
@@ -193,6 +194,19 @@ export async function POST(req: Request, { params }: RouteParams) {
       imported,
       skipped,
       errors: errors.length,
+    });
+
+    recordImport(req, {
+      entityType: "RegistrationBarcode",
+      eventId,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: imported + skipped + errors.length,
+      updated: imported,
+      skipped,
+      errors: errors.length,
+      format: "csv",
     });
 
     return NextResponse.json({ imported, skipped, errors });

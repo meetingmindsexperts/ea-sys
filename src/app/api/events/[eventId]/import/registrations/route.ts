@@ -3,22 +3,21 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
-import { ATTENDEE_ROLE_ORDER } from "@/lib/schemas";
+import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
 import { readSponsors } from "@/lib/webinar";
 import type { RegistrationStatus, PaymentStatus } from "@prisma/client";
 
-const TITLE_VALUES = new Set(["MR", "MS", "MRS", "DR", "PROF"]);
 // Accepted AttendeeRole ("Role"/profession) values for CSV import. Cells are
 // matched case-insensitively against the enum keys; unknown values are ignored.
-const ROLE_VALUES = new Set<string>(ATTENDEE_ROLE_ORDER);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Admin-settable subsets — Stripe-driven payment states (PENDING / REFUNDED /
@@ -188,13 +187,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         errors.push(`Row ${rowNum}: invalid email "${email}"`);
         continue;
       }
-
-      const titleRaw = getField(fields, idx.title)?.toUpperCase();
-      const title = titleRaw && TITLE_VALUES.has(titleRaw) ? titleRaw : null;
+      const title = parseTitle(getField(fields, idx.title));
       // "Role" is the AttendeeRole profession category (Physician, Academia, …).
-      // Normalize spaces/hyphens to underscores so "Allied Health" matches.
-      const roleRaw = getField(fields, idx.role)?.toUpperCase().replace(/[\s-]/g, "_");
-      const role = roleRaw && ROLE_VALUES.has(roleRaw) ? roleRaw : null;
+      // Shared parser — same acceptance rules as the speakers/contacts imports.
+      const role = parseAttendeeRole(getField(fields, idx.role));
       const registrationType = getField(fields, idx.registrationType);
       const tags = parseTags(getField(fields, idx.tags));
 
@@ -302,10 +298,8 @@ export async function POST(req: Request, { params }: RouteParams) {
               email,
               firstName,
               lastName,
-              title: title as "MR" | "MS" | "MRS" | "DR" | "PROF" | null,
-              role: role as
-                | "ACADEMIA" | "ALLIED_HEALTH" | "MEDICAL_DEVICES" | "PHARMA"
-                | "PHYSICIAN" | "RESIDENT" | "SPEAKER" | "STUDENT" | "OTHERS" | null,
+              title,
+              role,
               organization: getField(fields, idx.organization) || null,
               jobTitle: getField(fields, idx.jobTitle) || null,
               phone: getField(fields, idx.phone) || null,
@@ -431,6 +425,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (errors.length > 0) {
       apiLogger.warn({ msg: "Import errors", importType: "registrations", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
+
+    recordImport(req, {
+      entityType: "Registration",
+      eventId,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: created + skipped + errors.length,
+      created,
+      skipped,
+      errors: errors.length,
+      format: "csv",
+    });
 
     return NextResponse.json({ created, skipped, errors, registrationIds: createdIds });
   } catch (error) {

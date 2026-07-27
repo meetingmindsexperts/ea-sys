@@ -3,7 +3,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getOrgContext } from "@/lib/api-auth";
 import { denyContactAccess, denyContactExport } from "@/lib/contact-visibility";
-import { checkRateLimit, getClientIp } from "@/lib/security";
+import { checkRateLimit } from "@/lib/security";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { escapeCsvCell as escapeCSV } from "@/lib/csv-escape";
 
 /**
@@ -95,25 +96,15 @@ export async function GET(req: Request) {
     // Who pulled the whole contact book, when, and how much of it. Fire-and-
     // forget: an audit-write blip must not fail a completed export, but it is
     // logged so the gap is visible.
-    db.auditLog
-      .create({
-        data: {
-          userId: ctx.userId ?? null,
-          action: "EXPORT",
-          entityType: "Contact",
-          // No single contact is the subject — the org's whole book is.
-          entityId: `org:${ctx.organizationId}`,
-          changes: {
-            source: ctx.fromApiKey ? "api" : "rest",
-            rowCount: contacts.length,
-            role: ctx.role,
-            ip: getClientIp(req),
-          },
-        },
-      })
-      .catch((err) =>
-        apiLogger.error({ err, msg: "contacts-export:audit-failed", organizationId: ctx.organizationId }),
-      );
+    recordExport(req, {
+      entityType: "Contact",
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      role: ctx.role,
+      source: ctx.fromApiKey ? "api" : "rest",
+      rowCount: contacts.length,
+      format: "csv",
+    });
 
     apiLogger.info({
       msg: "contacts-export:completed",

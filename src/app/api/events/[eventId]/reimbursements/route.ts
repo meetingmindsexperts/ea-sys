@@ -19,6 +19,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
@@ -140,6 +141,18 @@ export async function GET(req: Request, { params }: RouteParams) {
         ];
       });
       const csv = [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\n");
+      // Passport + bank details leaving the building — this belongs in the
+      // durable audit trail, not only in the (manually clearable) pino log.
+      recordExport(req, {
+        entityType: "SpeakerReimbursement",
+        eventId,
+        organizationId: session.user.organizationId,
+        userId: session.user.id,
+        role: session.user.role,
+        rowCount: reimbursements.length,
+        format: "csv",
+        ...(speakerIdFilter ? { filters: { speakerId: speakerIdFilter } } : {}),
+      });
       return new NextResponse(csv, {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",

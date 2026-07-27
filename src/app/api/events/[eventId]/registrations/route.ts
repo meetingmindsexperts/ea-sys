@@ -18,6 +18,13 @@ import {
 } from "@/lib/registration-financials";
 import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
 import { getClientIp } from "@/lib/security";
+import { toCsvRow } from "@/lib/csv-escape";
+import {
+  REGISTRATION_EXPORT_HEADERS,
+  buildRegistrationExportRow,
+  type RegistrationExportRow,
+} from "@/lib/registration-export";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
   createRegistration,
@@ -139,6 +146,26 @@ export async function GET(req: Request, { params }: RouteParams) {
     const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
     const ticketTypeId = searchParams.get("ticketTypeId");
 
+    // Free-text search. Added for the CSV export so a server-produced file
+    // matches the rows the operator can see on screen — the list page filters
+    // the same four attendee fields client-side. The dashboard list itself
+    // does NOT send this (it still filters in the browser), so adding it is
+    // additive: absent `q` leaves the `where` untouched.
+    const qRaw = searchParams.get("q");
+    const q = qRaw && qRaw.trim().length > 0 ? qRaw.trim().slice(0, 200) : null;
+    // Attendee-level fragment only — merged with the tag filter below, since
+    // both constrain the same nested relation.
+    const searchAttendeeWhere = q
+      ? {
+          OR: [
+            { firstName: { contains: q, mode: "insensitive" as const } },
+            { lastName: { contains: q, mode: "insensitive" as const } },
+            { email: { contains: q, mode: "insensitive" as const } },
+            { organization: { contains: q, mode: "insensitive" as const } },
+          ],
+        }
+      : {};
+
     // Tag filter — comma-separated list of tag names. Empty entries
     // dropped, max 20 tags per request (any more is a sign of UI
     // misuse). Semantics are OR (hasSome): a registration matches if
@@ -178,7 +205,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         ),
         // taxRate feeds the hand-flipped-PAID fallback in the cancelled
         // "needs credit note" computation below (mirrors the detail route).
-        select: { id: true, taxRate: true },
+        // taxLabel is carried for the CSV export's financials call so the
+        // numbers are computed under the event's own tax configuration.
+        select: { id: true, taxRate: true, taxLabel: true },
       }),
       db.registration.findMany({
         where: {
@@ -186,9 +215,18 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(status && { status }),
           ...(paymentStatus && { paymentStatus }),
           ...(ticketTypeId && { ticketTypeId }),
-          ...(tagsFilter.length > 0 && {
-            attendee: { tags: { hasSome: tagsFilter } },
-          }),
+          // Tags and free-text search BOTH constrain `attendee`, so they must
+          // be merged into one nested filter — spreading them as two `attendee`
+          // keys would let the later one silently drop the earlier (the
+          // "bad filter widens the result set" class we've fixed elsewhere).
+          ...(tagsFilter.length > 0 || q
+            ? {
+                attendee: {
+                  ...(tagsFilter.length > 0 ? { tags: { hasSome: tagsFilter } } : {}),
+                  ...searchAttendeeWhere,
+                },
+              }
+            : {}),
           ...dateRange.where,
         },
         include: {
@@ -372,6 +410,61 @@ export async function GET(req: Request, { params }: RouteParams) {
     // API keys (role null) are admin-equivalent → keep.
     if (!canViewEntryBarcode(orgCtx.role, orgCtx.role === null)) {
       payload = redactBarcodeFields(payload);
+    }
+
+    // ── CSV export ────────────────────────────────────────────────────────
+    // Deliberately a mode on THIS route rather than a sibling endpoint: the
+    // query, the filters, the event-access gate and BOTH redaction layers are
+    // already resolved above, so the CSV cannot disagree with what the table
+    // shows or leak a field the caller's role can't see. (Same `?export=csv`
+    // convention the reimbursements / RSVP / webinar-attendance routes use.)
+    //
+    // This replaces an in-browser Blob download that never reached the server
+    // and therefore could not be audited at all.
+    if (searchParams.get("export") === "csv") {
+      const rows = (payload as unknown as RegistrationExportRow[]).map((r) =>
+        buildRegistrationExportRow(r, {
+          taxRate: event.taxRate != null ? Number(event.taxRate) : null,
+          taxLabel: event.taxLabel ?? null,
+        }),
+      );
+      const csv = [REGISTRATION_EXPORT_HEADERS.join(","), ...rows.map((row) => toCsvRow(row))].join("\n");
+
+      recordExport(req, {
+        entityType: "Registration",
+        eventId,
+        organizationId: orgCtx.organizationId,
+        userId: orgCtx.userId,
+        role: orgCtx.role,
+        source: orgCtx.userId ? "rest" : "api",
+        rowCount: rows.length,
+        format: "csv",
+        // What narrowed the pull — a 12-row filtered export and a full
+        // attendee-book dump must be distinguishable after the fact.
+        filters: {
+          ...(status ? { status } : {}),
+          ...(paymentStatus ? { paymentStatus } : {}),
+          ...(ticketTypeId ? { ticketTypeId } : {}),
+          ...(tagsFilter.length > 0 ? { tags: tagsFilter } : {}),
+          ...(q ? { q } : {}),
+        },
+      });
+
+      apiLogger.info({
+        msg: "registrations-export:completed",
+        eventId,
+        userId: orgCtx.userId,
+        role: orgCtx.role,
+        rowCount: rows.length,
+      });
+
+      return new NextResponse(csv, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="registrations-${eventId}.csv"`,
+          "Cache-Control": "private, no-store",
+        },
+      });
     }
 
     const response = NextResponse.json(payload);
