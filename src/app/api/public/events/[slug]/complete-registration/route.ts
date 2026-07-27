@@ -11,9 +11,76 @@ import { sendRegistrationConfirmation } from "@/lib/email";
 import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
+import { pickCurrentPricingTier } from "@/lib/current-pricing-tier";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
+}
+
+/** Thrown inside the completion transaction when the chosen registration type
+ *  sold out between rendering the form and submitting it. Rolls the whole
+ *  transaction back so the token survives and the person can pick again. */
+class SoldOutError extends Error {
+  constructor() {
+    super("SOLD_OUT");
+    this.name = "SoldOutError";
+  }
+}
+
+/** A registration type the completer may choose, priced at today's open tier. */
+interface SelectableTicketType {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  currency: string;
+  /** Tier the price came from, e.g. "Early Bird". Null = the type's base price. */
+  tierName: string | null;
+  /** False when the type is sold out — rendered disabled. */
+  available: boolean;
+}
+
+/** Prisma select for a type + the tier fields `pickCurrentPricingTier` needs. */
+const SELECTABLE_TICKET_TYPE_SELECT = {
+  id: true,
+  name: true,
+  description: true,
+  price: true,
+  currency: true,
+  quantity: true,
+  soldCount: true,
+  pricingTiers: {
+    select: {
+      id: true, name: true, price: true, currency: true, quantity: true,
+      soldCount: true, isActive: true, salesStart: true, salesEnd: true, sortOrder: true,
+    },
+  },
+} as const;
+
+/**
+ * The event's publicly choosable registration types, priced at whichever tier
+ * is on sale now. Mirrors the public event route's filter — active only, and
+ * never the internal Faculty type (it backs speaker companions).
+ */
+async function loadSelectableTicketTypes(eventId: string): Promise<SelectableTicketType[]> {
+  const types = await db.ticketType.findMany({
+    where: { eventId, isActive: true, isFaculty: false },
+    select: SELECTABLE_TICKET_TYPE_SELECT,
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+  });
+  const now = new Date();
+  return types.map((tt) => {
+    const tier = pickCurrentPricingTier(tt.pricingTiers, now);
+    return {
+      id: tt.id,
+      name: tt.name,
+      description: tt.description,
+      price: Number(tier?.price ?? tt.price),
+      currency: tier?.currency ?? tt.currency,
+      tierName: tier?.name ?? null,
+      available: tt.soldCount < tt.quantity,
+    };
+  });
 }
 
 // ── GET: Validate token and return prefilled registration data ──────────────
@@ -148,12 +215,21 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ alreadyCompleted: true, event: registration.event });
     }
 
+    // No registration type yet (imported from a file without one): offer the
+    // event's public types so the registrant states theirs here. These prices
+    // are for DISPLAY only — the POST re-resolves the type and the open tier
+    // server-side, so the client can't dictate what it pays.
+    const selectableTicketTypes = registration.ticketTypeId
+      ? []
+      : await loadSelectableTicketTypes(registration.event.id);
+
     return NextResponse.json({
       alreadyCompleted: false,
       registration: { id: registration.id, status: registration.status, ticketTypeId: registration.ticketTypeId },
       attendee: registration.attendee,
       event: registration.event,
       ticketType: registration.ticketType,
+      selectableTicketTypes,
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Unhandled error validating completion token" });
@@ -181,6 +257,10 @@ const completionSchema = z.object({
   memberId: z.string().max(100).optional(),
   studentId: z.string().max(100).optional(),
   studentIdExpiry: z.string().max(20).optional(),
+  /** Required only when the registration has no type yet. The pricing TIER is
+   *  deliberately not accepted from the client — it's re-resolved server-side
+   *  so a crafted request can't claim a closed Early-Bird rate. */
+  ticketTypeId: z.string().min(1).optional(),
   password: z.string().min(6).max(128).optional(),
   confirmPassword: z.string().optional(),
   agreeTerms: z.literal(true, { message: "You must agree to the terms and conditions" }),
@@ -215,7 +295,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
-    const { token: rawToken, title, role, jobTitle, organization, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, password } = validated.data;
+    const { token: rawToken, title, role, jobTitle, organization, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, password, ticketTypeId: chosenTicketTypeId } = validated.data;
 
     // Validate studentIdExpiry date format if provided
     if (studentIdExpiry && isNaN(new Date(studentIdExpiry).getTime())) {
@@ -289,6 +369,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             },
           },
         },
+        ticketTypeId: true,
         ticketType: { select: { id: true, name: true, price: true, currency: true } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
       },
@@ -313,8 +394,71 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This registration has already been completed. You can sign in to manage your registration." }, { status: 409 });
     }
 
+    // ── Registration type ────────────────────────────────────────────────
+    // A registration imported without a type states it HERE. The price is
+    // resolved entirely server-side (chosen type + whichever tier is on sale
+    // now), so the client can pick neither a hidden type nor a cheaper closed
+    // tier.
+    let resolvedType:
+      | { id: string; name: string; price: unknown; currency: string; quantity: number }
+      | null = null;
+    let resolvedTier: { id: string; name: string; price: unknown; currency: string } | null = null;
+
+    if (!registration.ticketTypeId) {
+      if (!chosenTicketTypeId) {
+        apiLogger.warn({ msg: "Completion POST without a registration type", registrationId });
+        return NextResponse.json(
+          { error: "Please choose a registration type.", code: "REGISTRATION_TYPE_REQUIRED" },
+          { status: 400 }
+        );
+      }
+      const chosen = await db.ticketType.findFirst({
+        // Bound to THIS event, publicly selectable, never the internal Faculty
+        // type — the same gate the public register route applies.
+        where: { id: chosenTicketTypeId, eventId: registration.event.id, isActive: true, isFaculty: false },
+        select: SELECTABLE_TICKET_TYPE_SELECT,
+      });
+      if (!chosen) {
+        apiLogger.warn({ msg: "Completion POST with an invalid registration type", registrationId, chosenTicketTypeId });
+        return NextResponse.json(
+          { error: "That registration type is not available. Please pick another.", code: "INVALID_REGISTRATION_TYPE" },
+          { status: 400 }
+        );
+      }
+      const tier = pickCurrentPricingTier(chosen.pricingTiers, new Date());
+      resolvedType = { id: chosen.id, name: chosen.name, price: chosen.price, currency: chosen.currency, quantity: chosen.quantity };
+      resolvedTier = tier ? { id: tier.id, name: tier.name, price: tier.price, currency: tier.currency } : null;
+    }
+    const resolvedPrice = resolvedType ? Number(resolvedTier?.price ?? resolvedType.price) : null;
+
     // Update attendee + delete token in transaction
+    try {
     await db.$transaction(async (tx) => {
+      if (resolvedType) {
+        // Claim the seat on the TICKET-TYPE counter: `seatCounter()` routes a
+        // non-PUBLIC_REGISTER row (this one is CSV_IMPORT) there even when a
+        // tier applies. The `soldCount < quantity` predicate ON the update is
+        // the guard, so a concurrent completion can't oversell the last seat.
+        const claimed = await tx.ticketType.updateMany({
+          where: { id: resolvedType.id, soldCount: { lt: resolvedType.quantity } },
+          data: { soldCount: { increment: 1 } },
+        });
+        if (claimed.count === 0) throw new SoldOutError();
+
+        await tx.registration.update({
+          where: { id: registrationId },
+          data: {
+            ticketTypeId: resolvedType.id,
+            pricingTierId: resolvedTier?.id ?? null,
+            // Stamp the price so every money surface reads the rate agreed at
+            // completion, not whatever the tier happens to be later.
+            originalPrice: resolvedPrice ?? 0,
+            // It was COMPLIMENTARY while typeless (nothing to owe). A priced
+            // type means money is now due, so it must be payable + chaseable.
+            paymentStatus: (resolvedPrice ?? 0) > 0 ? "UNASSIGNED" : "COMPLIMENTARY",
+          },
+        });
+      }
       await tx.attendee.update({
         where: { id: registration.attendeeId },
         data: {
@@ -334,6 +478,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           ...(memberId !== undefined && { memberId: memberId || null }),
           ...(studentId !== undefined && { studentId: studentId || null }),
           ...(studentIdExpiry !== undefined && { studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : null }),
+          // Mirror the chosen type onto the attendee's free-text category
+          // (`ticketTypeId` stays the source of truth) so the list, the CSV
+          // export and the contact store agree with the registration.
+          ...(resolvedType && { registrationType: resolvedType.name }),
         },
       });
 
@@ -347,10 +495,34 @@ export async function POST(req: Request, { params }: RouteParams) {
           action: "COMPLETE_REGISTRATION",
           entityType: "Registration",
           entityId: registrationId,
-          changes: { email: registration.attendee.email, ip: getClientIp(req) },
+          changes: {
+            email: registration.attendee.email,
+            ip: getClientIp(req),
+            ...(resolvedType && {
+              ticketTypeId: resolvedType.id,
+              ticketTypeName: resolvedType.name,
+              pricingTierName: resolvedTier?.name ?? null,
+              price: resolvedPrice,
+            }),
+          },
         },
       });
     });
+    } catch (txError) {
+      if (txError instanceof SoldOutError) {
+        // Nothing committed — the token survives, so they can choose again.
+        apiLogger.warn({
+          msg: "Completion POST hit a sold-out registration type",
+          registrationId,
+          ticketTypeId: resolvedType?.id,
+        });
+        return NextResponse.json(
+          { error: "That registration type just sold out. Please choose another.", code: "REGISTRATION_TYPE_SOLD_OUT" },
+          { status: 409 }
+        );
+      }
+      throw txError;
+    }
 
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(registration.event.id);
@@ -391,7 +563,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       country,
       specialty,
       customSpecialty: customSpecialty || null,
-      registrationType: registration.attendee.registrationType,
+      registrationType: resolvedType?.name ?? registration.attendee.registrationType,
       associationName: associationName || registration.attendee.associationName,
       memberId: memberId || registration.attendee.memberId,
       studentId: studentId || registration.attendee.studentId,
@@ -400,8 +572,15 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Send confirmation email
     try {
-      const finalPrice = registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0);
-      const finalCurrency = registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD";
+      // Prefer the type/tier just resolved on this request — the loaded
+      // `registration` predates it and would price a freshly-typed
+      // registration at 0.
+      const finalPrice = resolvedType
+        ? (resolvedPrice ?? 0)
+        : registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0);
+      const finalCurrency = resolvedType
+        ? (resolvedTier?.currency ?? resolvedType.currency)
+        : registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD";
 
       await sendRegistrationConfirmation({
         ...buildEventConfirmationFields(registration.event),
@@ -411,8 +590,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         lastName,
         title: title || null,
         organization,
-        ticketType: registration.ticketType?.name ?? "General",
-        pricingTierName: registration.pricingTier?.name || null,
+        ticketType: resolvedType?.name ?? registration.ticketType?.name ?? "General",
+        pricingTierName: resolvedTier?.name ?? registration.pricingTier?.name ?? null,
         registrationId,
         serialId: registration.serialId,
         qrCode: "",
@@ -442,8 +621,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       registration: {
         id: registrationId,
         status: registration.status,
-        ticketPrice: registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0),
-        ticketCurrency: registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD",
+        // Drives the Pay Now step on the confirmation page — must reflect the
+        // type resolved on THIS request, else a paid completion looks free.
+        ticketPrice: resolvedType
+          ? (resolvedPrice ?? 0)
+          : registration.pricingTier ? Number(registration.pricingTier.price) : Number(registration.ticketType?.price ?? 0),
+        ticketCurrency: resolvedType
+          ? (resolvedTier?.currency ?? resolvedType.currency)
+          : registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD",
       },
     });
   } catch (error) {

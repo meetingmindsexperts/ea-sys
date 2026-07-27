@@ -38,7 +38,7 @@ import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
 
 interface PrefilledData {
   alreadyCompleted: boolean;
-  registration: { id: string; status: string; ticketTypeId: string };
+  registration: { id: string; status: string; ticketTypeId: string | null };
   attendee: {
     firstName: string;
     lastName: string;
@@ -75,10 +75,30 @@ interface PrefilledData {
     supportEmail: string | null;
     organization: { name: string; logo: string | null };
   };
-  ticketType: { id: string; name: string };
+  // Null when the registration has no registration type yet (e.g. imported
+  // from a file with no registrationType column). Reading `.name` off this
+  // unguarded used to throw during render — a white screen for the registrant,
+  // with no way to complete.
+  ticketType: { id: string; name: string } | null;
+  /** Populated only when `ticketType` is null — the types this person may
+   *  choose from, priced at whichever tier is on sale today. Display only:
+   *  the server re-resolves the price on submit. */
+  selectableTicketTypes?: {
+    id: string;
+    name: string;
+    description: string | null;
+    price: number;
+    currency: string;
+    tierName: string | null;
+    available: boolean;
+  }[];
 }
 
 const completionSchema = z.object({
+  /** Only asked for when the registration has no type yet (imported without
+   *  one). Required-ness is enforced in `onSubmit`, since it depends on data
+   *  the schema can't see. */
+  ticketTypeId: z.string().optional(),
   title: z.string().min(1, "Title is required"),
   role: z.string().min(1, "Role is required"),
   jobTitle: z.string().min(1, "Position is required"),
@@ -126,6 +146,7 @@ function CompleteRegistrationContent() {
   const form = useForm<CompletionForm>({
     resolver: zodResolver(completionSchema),
     defaultValues: {
+      ticketTypeId: "",
       title: "", role: "", jobTitle: "", organization: "", phone: "",
       city: "", state: "", zipCode: "", country: "",
       specialty: "", customSpecialty: "", dietaryReqs: "",
@@ -189,8 +210,19 @@ function CompleteRegistrationContent() {
   async function onSubmit(formData: CompletionForm) {
     if (!token) return;
 
-    // Validate conditional required fields
-    const regTypeName = data?.ticketType.name?.toLowerCase() ?? "";
+    // A registration imported without a type is given one here.
+    const mustChooseType = !!data && !data.ticketType;
+    if (mustChooseType && !formData.ticketTypeId) {
+      form.setError("ticketTypeId", { message: "Please choose a registration type" });
+      return;
+    }
+
+    // Validate conditional required fields. When the type is being chosen now,
+    // the member/student rules follow the CHOSEN type, not the stored one.
+    const chosenType = formData.ticketTypeId
+      ? data?.selectableTicketTypes?.find((t) => t.id === formData.ticketTypeId)
+      : undefined;
+    const regTypeName = (chosenType?.name ?? data?.ticketType?.name ?? "").toLowerCase();
     if (regTypeName.includes("member") && !formData.memberId?.trim()) {
       form.setError("memberId", { message: "Member ID is required" });
       return;
@@ -267,7 +299,13 @@ function CompleteRegistrationContent() {
 
   const event = data.event;
   const attendee = data.attendee;
-  const regTypeName = data.ticketType.name?.toLowerCase() ?? "";
+  // When the registration arrived without a type, the person picks it here and
+  // the member/student conditional fields follow that live selection.
+  const selectableTypes = data.selectableTicketTypes ?? [];
+  const mustChooseType = !data.ticketType;
+  const chosenTypeId = form.watch("ticketTypeId");
+  const chosenType = selectableTypes.find((t) => t.id === chosenTypeId);
+  const regTypeName = (chosenType?.name ?? data.ticketType?.name ?? "").toLowerCase();
   const isMember = regTypeName.includes("member");
   const isStudent = regTypeName.includes("student");
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
@@ -315,15 +353,76 @@ function CompleteRegistrationContent() {
             <p className="text-sm text-slate-500 mt-1">
               Review your details and fill in any missing information to finalize your registration.
             </p>
-            <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/20 px-3 py-1.5">
-              <CheckCircle className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium text-primary">{data.ticketType.name}</span>
-            </div>
+            {data.ticketType && (
+              <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/20 px-3 py-1.5">
+                <CheckCircle className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium text-primary">{data.ticketType.name}</span>
+              </div>
+            )}
           </div>
 
           <div className="p-6 sm:px-10">
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+
+                {/* Section: Registration type — only when the organizer's
+                    import didn't set one. Prices shown are today's rate; the
+                    server re-resolves them on submit. */}
+                {mustChooseType && (
+                  <div className="space-y-5">
+                    <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
+                      Registration Type
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Choose the category that applies to you.
+                    </p>
+                    {selectableTypes.length === 0 ? (
+                      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        No registration types are available right now. Please contact the event
+                        organizer.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {selectableTypes.map((tt) => (
+                          <button
+                            key={tt.id}
+                            type="button"
+                            disabled={!tt.available}
+                            onClick={() => form.setValue("ticketTypeId", tt.id, { shouldValidate: true })}
+                            className={`w-full text-left rounded-lg border p-4 transition ${
+                              chosenTypeId === tt.id
+                                ? "border-primary bg-primary/5 ring-1 ring-primary"
+                                : "border-slate-200 hover:border-slate-300"
+                            } ${!tt.available ? "opacity-50 cursor-not-allowed" : ""}`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="font-medium text-slate-800">{tt.name}</div>
+                                {tt.description && (
+                                  <div className="text-xs text-slate-500 mt-0.5">{tt.description}</div>
+                                )}
+                                {tt.tierName && (
+                                  <div className="text-xs text-slate-500 mt-0.5">{tt.tierName} rate</div>
+                                )}
+                              </div>
+                              <div className="text-sm font-semibold text-slate-800 whitespace-nowrap">
+                                {tt.price > 0 ? `${tt.currency} ${tt.price.toFixed(2)}` : "Free"}
+                              </div>
+                            </div>
+                            {!tt.available && (
+                              <div className="text-xs text-slate-500 mt-1">Sold out</div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {form.formState.errors.ticketTypeId && (
+                      <p className="text-sm text-red-600">
+                        {form.formState.errors.ticketTypeId.message}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Section: Your Details (Read-Only) */}
                 <div className="space-y-5">

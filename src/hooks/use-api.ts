@@ -1303,9 +1303,13 @@ export function useRetryScheduledEmail(eventId: string) {
 export function useCSVImport(eventId: string, entityType: "registrations" | "speakers" | "sessions" | "abstracts") {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: ({ file, defaultTicketTypeId }: { file: File; defaultTicketTypeId?: string | null }) => {
       const formData = new FormData();
       formData.append("file", file);
+      // Registrations only: the organizer's fallback registration type for rows
+      // whose `registrationType` cell is blank. Omitted ⇒ those rows import
+      // uncategorised (the server never picks one for them).
+      if (defaultTicketTypeId) formData.append("defaultTicketTypeId", defaultTicketTypeId);
       return fetchApi<{ created: number; skipped?: number; tracksCreated?: number; errors: string[]; registrationIds?: string[] }>(
         `/api/events/${eventId}/import/${entityType}`,
         { method: "POST", body: formData }

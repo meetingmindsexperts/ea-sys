@@ -109,8 +109,10 @@ function makeSourceEvent(overrides?: Record<string, unknown>) {
         description: "Standard entry",
         isDefault: false,
         isActive: true,
+        isFaculty: false,
         sortOrder: 0,
         price: 100,
+        virtualPrice: 40,
         currency: "USD",
         quantity: 500,
         soldCount: 200,
@@ -125,12 +127,15 @@ function makeSourceEvent(overrides?: Record<string, unknown>) {
       },
       {
         id: "tt-2",
-        name: "VIP",
-        description: "VIP access",
+        name: "Faculty",
+        description: "Speaker companion type",
         isDefault: false,
         isActive: true,
+        // The hidden speaker-companion type — the clone MUST carry this flag.
+        isFaculty: true,
         sortOrder: 1,
         price: 300,
+        virtualPrice: null,
         currency: "USD",
         quantity: 50,
         soldCount: 10,
@@ -574,8 +579,40 @@ describe("POST /api/events/[eventId]/clone", () => {
 
       // Check second ticket type
       const tt2Data = mockTx.ticketType.create.mock.calls[1][0].data;
-      expect(tt2Data.name).toBe("VIP");
+      expect(tt2Data.name).toBe("Faculty");
       expect(tt2Data.soldCount).toBe(0);
+    });
+
+    it("carries isFaculty and virtualPrice onto the cloned ticket types", async () => {
+      // Dropping isFaculty turned the source's hidden speaker-companion type
+      // into a publicly bookable, capacity-counting delegate type named
+      // "Faculty" — which imports then defaulted people onto. virtualPrice was
+      // silently reset to null, so HYBRID virtual fell back to the in-person
+      // price on every clone.
+      setupSuccessfulClone();
+      await POST(makeRequest(), makeParams("evt-1"));
+
+      const txFn = mockDb.$transaction.mock.calls[0][0];
+      const mockTx = {
+        event: { create: vi.fn().mockResolvedValue({ id: "new-evt", name: "T (Copy)", slug: "t-copy" }) },
+        ticketType: { create: vi.fn().mockResolvedValue({ id: "new-tt" }) },
+        speaker: { create: vi.fn().mockResolvedValue({ id: "sp" }) },
+        track: { create: vi.fn().mockResolvedValue({ id: "tr" }) },
+        hotel: { create: vi.fn().mockResolvedValue({ id: "h" }) },
+        roomType: { create: vi.fn().mockResolvedValue({ id: "rt" }) },
+        eventSession: { create: vi.fn().mockResolvedValue({ id: "s" }) },
+        sessionSpeaker: { create: vi.fn().mockResolvedValue({}) },
+      };
+
+      await txFn(mockTx);
+
+      const tt1Data = mockTx.ticketType.create.mock.calls[0][0].data;
+      expect(tt1Data.isFaculty).toBe(false);
+      expect(tt1Data.virtualPrice).toBe(40);
+
+      const tt2Data = mockTx.ticketType.create.mock.calls[1][0].data;
+      expect(tt2Data.isFaculty).toBe(true);
+      expect(tt2Data.virtualPrice).toBeNull();
     });
 
     it("clones speakers without userId and resets status to INVITED", async () => {

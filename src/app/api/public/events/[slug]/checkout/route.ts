@@ -85,6 +85,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     if (!registration.ticketType) {
+      // Reachable for an uncategorised row (e.g. a CSV import whose file had no
+      // registrationType and no fallback was picked). Nothing is priced, so
+      // there is nothing to charge — same outcome as the free-ticket branch
+      // below. Logged because it was previously a silent 400.
+      apiLogger.warn({ msg: "Checkout attempted for a registration with no ticket type", registrationId });
       return NextResponse.json({ error: "Registration has no ticket type" }, { status: 400 });
     }
 

@@ -10,9 +10,20 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, Download, Send } from "lucide-react";
 import { toast } from "sonner";
-import { useCSVImport, useSendCompletionEmails } from "@/hooks/use-api";
+import { useCSVImport, useSendCompletionEmails, useTickets } from "@/hooks/use-api";
+
+/** Sentinel for "no fallback" — Radix Select disallows an empty-string value. */
+const NO_DEFAULT_TICKET_TYPE = "__none__";
 
 interface CSVImportDialogProps {
   open: boolean;
@@ -134,12 +145,35 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string[][] | null>(null);
   const [previewHeaders, setPreviewHeaders] = useState<string[] | null>(null);
-  const [result, setResult] = useState<{ created: number; skipped?: number; tracksCreated?: number; errors: string[]; registrationIds?: string[] } | null>(null);
+  const [result, setResult] = useState<{ created: number; skipped?: number; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] } | null>(null);
   const [sendResult, setSendResult] = useState<{ sent: number; skipped: number; errors: string[] } | null>(null);
+  const [defaultTicketTypeId, setDefaultTicketTypeId] = useState<string>(NO_DEFAULT_TICKET_TYPE);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importMutation = useCSVImport(eventId, entityType);
   const sendEmailsMutation = useSendCompletionEmails(eventId);
   const config = ENTITY_CONFIG[entityType];
+
+  // Fallback registration type for rows with a blank `registrationType` cell.
+  // Faculty types are excluded — that type backs speaker companions, and a
+  // delegate assigned to it disappears from every delegate-facing count (the
+  // server refuses one too). Leaving this unset imports those rows
+  // uncategorised, which is the deliberate default: the importer never guesses.
+  const isRegistrations = entityType === "registrations";
+  const { data: ticketTypes = [] } = useTickets(isRegistrations ? eventId : "");
+  type TicketTypeOption = {
+    id: string;
+    name: string;
+    isFaculty?: boolean;
+    price?: string | number | null;
+    pricingTiers?: { price?: string | number | null }[];
+  };
+  const fallbackOptions = (ticketTypes as TicketTypeOption[]).filter((tt) => !tt.isFaculty);
+  // Whether the event charges — decides which consequence we spell out below.
+  // Tiers count, because the standard setup leaves the type's base price at 0
+  // and puts the real money on the tiers.
+  const eventCharges = fallbackOptions.some(
+    (tt) => Number(tt.price ?? 0) > 0 || (tt.pricingTiers ?? []).some((t) => Number(t.price ?? 0) > 0)
+  );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -170,7 +204,13 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
     if (!file) return;
 
     try {
-      const data = await importMutation.mutateAsync(file);
+      const data = await importMutation.mutateAsync({
+        file,
+        defaultTicketTypeId:
+          isRegistrations && defaultTicketTypeId !== NO_DEFAULT_TICKET_TYPE
+            ? defaultTicketTypeId
+            : null,
+      });
       setResult(data);
       toast.success(`Imported ${data.created} ${config.label.toLowerCase()}`);
       onSuccess?.();
@@ -185,6 +225,7 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
     setPreviewHeaders(null);
     setResult(null);
     setSendResult(null);
+    setDefaultTicketTypeId(NO_DEFAULT_TICKET_TYPE);
     if (fileInputRef.current) fileInputRef.current.value = "";
     onOpenChange(false);
   };
@@ -277,6 +318,43 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
             )}
           </div>
 
+          {/* Fallback registration type (registrations only) */}
+          {isRegistrations && !result && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Registration type for rows without one</Label>
+              <Select value={defaultTicketTypeId} onValueChange={setDefaultTicketTypeId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a registration type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_DEFAULT_TICKET_TYPE}>
+                    Leave blank (they choose it themselves)
+                  </SelectItem>
+                  {fallbackOptions.map((tt) => (
+                    <SelectItem key={tt.id} value={tt.id}>
+                      {tt.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Only applies to rows whose <code>registrationType</code> cell is empty — a value in
+                the file always wins.{" "}
+                Left blank, those rows import with no type (shown as &quot;—&quot;) and each person
+                picks their own when they open the registration form you send them with{" "}
+                <strong>Send Registration Forms</strong>.{" "}
+                {eventCharges && (
+                  <span className="text-amber-600">
+                    This event charges, so until they do that they owe nothing — send those forms,
+                    or set the type here instead.
+                  </span>
+                )}{" "}
+                The Faculty type is not offered: it&#39;s reserved for speakers and is excluded from
+                delegate counts.
+              </p>
+            </div>
+          )}
+
           {/* Column info + Download template */}
           <div className="flex items-center justify-between">
             <div className="text-xs text-muted-foreground">
@@ -333,6 +411,11 @@ export function CSVImportDialog({ open, onOpenChange, eventId, entityType, onSuc
                 )}
                 {result.tracksCreated !== undefined && result.tracksCreated > 0 && (
                   <span className="text-muted-foreground">({result.tracksCreated} tracks created)</span>
+                )}
+                {result.uncategorised !== undefined && result.uncategorised > 0 && (
+                  <span className="text-amber-600">
+                    ({result.uncategorised} with no registration type)
+                  </span>
                 )}
               </div>
               {result.errors.length > 0 && (

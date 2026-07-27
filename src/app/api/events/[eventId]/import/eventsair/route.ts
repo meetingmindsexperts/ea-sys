@@ -9,6 +9,10 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { decryptSecret, fetchEventContacts } from "@/lib/eventsair-client";
+import {
+  eventChargesForRegistration,
+  resolveImportFallbackTicketType,
+} from "@/lib/import-ticket-type";
 import { syncToContact } from "@/lib/contact-sync";
 import { downloadExternalPhoto } from "@/lib/storage";
 
@@ -18,6 +22,8 @@ const importContactsSchema = z.object({
   eventsAirEventId: z.string().min(1),
   offset: z.number().int().min(0).default(0),
   limit: z.number().int().min(1).max(100).default(50),
+  /** Optional fallback registration type. Omitted ⇒ rows stay uncategorised. */
+  defaultTicketTypeId: z.string().min(1).nullish(),
 });
 
 interface RouteParams {
@@ -83,16 +89,44 @@ export async function POST(req: Request, { params }: RouteParams) {
       validated.data.limit
     );
 
-    // Ensure a default ticket type exists
-    let defaultTicketType = await db.ticketType.findFirst({
-      where: { eventId, isActive: true },
-      select: { id: true, price: true, requiresApproval: true, quantity: true, soldCount: true },
-    });
-    if (!defaultTicketType) {
-      defaultTicketType = await db.ticketType.create({
-        data: { eventId, name: "General", price: 0, quantity: 999999, isActive: true },
-        select: { id: true, price: true, requiresApproval: true, quantity: true, soldCount: true },
+    // EventsAir contacts carry no registration type, so unless the organizer
+    // explicitly picks one, imported rows stay uncategorised (`ticketTypeId`
+    // null) rather than landing on an arbitrary type. This route used to take
+    // an unordered `findFirst` — see import-ticket-type.ts for what that cost.
+    const fallback = await resolveImportFallbackTicketType(
+      eventId,
+      validated.data.defaultTicketTypeId,
+    );
+    if (!fallback.ok) {
+      apiLogger.warn({
+        msg: "events/import/eventsair:invalid-default-ticket-type",
+        eventId,
+        userId: session.user.id,
+        defaultTicketTypeId: validated.data.defaultTicketTypeId,
+        code: fallback.code,
       });
+      return NextResponse.json({ error: fallback.message, code: fallback.code }, { status: 400 });
+    }
+    const defaultTicketType = fallback.ticketType;
+
+    // A paid event must not receive typeless rows — they'd import owing
+    // nothing, with no quote, no Pay Now and no reminder. (A freshly imported
+    // EventsAir event has only zero-priced seeded types, so this doesn't fire
+    // on the normal new-event flow.)
+    if (!defaultTicketType && (await eventChargesForRegistration(eventId))) {
+      apiLogger.warn({
+        msg: "events/import/eventsair:default-ticket-type-required",
+        eventId,
+        userId: session.user.id,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "This event charges for registration, so imported contacts need a registration type. Pick one before importing.",
+          code: "DEFAULT_TICKET_TYPE_REQUIRED",
+        },
+        { status: 400 }
+      );
     }
 
     let created = 0;
@@ -150,15 +184,18 @@ export async function POST(req: Request, { params }: RouteParams) {
           await tx.registration.create({
             data: {
               eventId,
-              ticketTypeId: defaultTicketType.id,
+              ticketTypeId: defaultTicketType?.id ?? null,
               attendeeId: attendee.id,
               serialId,
               createdSource: "CSV_IMPORT",
-              status: defaultTicketType.requiresApproval ? "PENDING" : "CONFIRMED",
+              status: defaultTicketType?.requiresApproval ? "PENDING" : "CONFIRMED",
               // Free ticket → COMPLIMENTARY (no payment ever taken), not PAID.
               // Matches the public register + CSV import + service-layer
-              // free-ticket convention.
-              paymentStatus: Number(defaultTicketType.price) === 0 ? "COMPLIMENTARY" : "UNPAID",
+              // free-ticket convention. No ticket type ⇒ no price to owe.
+              paymentStatus:
+                !defaultTicketType || Number(defaultTicketType.price) === 0
+                  ? "COMPLIMENTARY"
+                  : "UNPAID",
               qrCode: generatedBarcode,
             },
           });
@@ -166,12 +203,16 @@ export async function POST(req: Request, { params }: RouteParams) {
           // Atomically claim a seat — the `soldCount < quantity` predicate ON
           // the update is the guard, so concurrent imports / public
           // registrations can't oversell the last seat. count 0 = full.
-          const claimed = await tx.ticketType.updateMany({
-            where: { id: defaultTicketType.id, soldCount: { lt: defaultTicketType.quantity } },
-            data: { soldCount: { increment: 1 } },
-          });
-          if (claimed.count === 0) {
-            throw new Error("TICKET_CAPACITY_REACHED");
+          // An uncategorised row has no ticket-type counter; the event-wide
+          // counter below still moves for it.
+          if (defaultTicketType) {
+            const claimed = await tx.ticketType.updateMany({
+              where: { id: defaultTicketType.id, soldCount: { lt: defaultTicketType.quantity } },
+              data: { soldCount: { increment: 1 } },
+            });
+            if (claimed.count === 0) {
+              throw new Error("TICKET_CAPACITY_REACHED");
+            }
           }
           // Event-wide cap: imports BYPASS the cap (owner decision July 24,
           // 2026) — unguarded increment, warn when over.

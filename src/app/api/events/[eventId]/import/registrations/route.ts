@@ -10,6 +10,11 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { parseCSV, getField, parseTags } from "@/lib/csv-parser";
+import {
+  IMPORT_TICKET_TYPE_SELECT,
+  resolveImportFallbackTicketType,
+  type ImportTicketType,
+} from "@/lib/import-ticket-type";
 import { parseAttendeeRole, parseTitle } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -72,6 +77,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
+    // Optional organizer-picked fallback for rows with no `registrationType`
+    // cell. Absent ⇒ those rows stay uncategorised (never auto-assigned).
+    const defaultTicketTypeIdRaw = formData.get("defaultTicketTypeId");
+    const defaultTicketTypeId =
+      typeof defaultTicketTypeIdRaw === "string" ? defaultTicketTypeIdRaw : null;
 
     const text = await file.text();
     const { headers, rows, error: parseError } = parseCSV(text);
@@ -159,26 +169,46 @@ export async function POST(req: Request, { params }: RouteParams) {
     let created = 0;
     let skipped = 0;
 
-    // Cache ticket types by name for registrationType matching
+    // Registration type resolution. Two independent inputs, in precedence order:
+    //   1. the row's own `registrationType` cell (explicit — always wins)
+    //   2. the organizer-picked fallback for rows that don't have one
+    // There is NO implicit default. A row with neither stays uncategorised
+    // (`ticketTypeId: null`) rather than landing on an arbitrary type — see
+    // import-ticket-type.ts for why.
     const ticketTypes = await db.ticketType.findMany({
       where: { eventId, isActive: true },
-      select: { id: true, name: true, quantity: true, soldCount: true, requiresApproval: true, price: true },
+      select: IMPORT_TICKET_TYPE_SELECT,
     });
-    const ticketTypeByName = new Map(ticketTypes.map((tt) => [tt.name.toLowerCase(), tt]));
+    // Faculty types are excluded from name matching: the hidden `isFaculty`
+    // type backs speaker companions, and a delegate that lands there disappears
+    // from every delegate-facing count. A cell that names one is a row error
+    // (below), never a silent miscategorisation.
+    const facultyNames = new Set(
+      ticketTypes.filter((tt) => tt.isFaculty).map((tt) => tt.name.toLowerCase()),
+    );
+    const ticketTypeByName = new Map(
+      ticketTypes.filter((tt) => !tt.isFaculty).map((tt) => [tt.name.toLowerCase(), tt]),
+    );
 
-    // Get or create a default ticket type for rows without registrationType
-    let defaultTicketType = ticketTypes[0];
-    if (!defaultTicketType) {
-      defaultTicketType = await db.ticketType.create({
-        data: {
-          eventId,
-          name: "General",
-          price: 0,
-          quantity: 999999,
-          isActive: true,
-        },
+    const fallback = await resolveImportFallbackTicketType(eventId, defaultTicketTypeId);
+    if (!fallback.ok) {
+      apiLogger.warn({
+        msg: "events/import-registrations:invalid-default-ticket-type",
+        eventId,
+        userId: session.user.id,
+        defaultTicketTypeId,
+        code: fallback.code,
       });
+      return NextResponse.json({ error: fallback.message, code: fallback.code }, { status: 400 });
     }
+    const fallbackTicketType = fallback.ticketType;
+
+    /** Rows imported with no registration type. Reported back so a blank
+     *  column is visible rather than assumed — on a paid event these owe
+     *  nothing until the person states their type on the completion form
+     *  ("Send Registration Forms"), so the count is the organizer's cue that
+     *  those emails still need sending. */
+    let uncategorised = 0;
 
     for (let i = 0; i < rows.length; i++) {
       const fields = rows[i];
@@ -279,21 +309,36 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
       const rowIsVirtual = rowAttendanceMode === "VIRTUAL";
 
-      // Find matching ticket type
-      let ticketType = defaultTicketType;
+      // Resolve the row's registration type: the cell wins, else the
+      // organizer's fallback, else null (uncategorised — never a guess).
+      let ticketType: ImportTicketType | null = fallbackTicketType;
       if (registrationType) {
-        const match = ticketTypeByName.get(registrationType.toLowerCase());
+        const key = registrationType.toLowerCase();
+        const match = ticketTypeByName.get(key);
         if (match) {
           ticketType = match;
+        } else if (facultyNames.has(key)) {
+          // Names the hidden speaker-companion type. Refusing loudly beats
+          // either miscategorising a delegate as faculty or minting a
+          // confusing second type with the same name.
+          errors.push(
+            `Row ${rowNum}: registration type "${registrationType}" is reserved for speaker faculty — use a different name or leave the cell blank`,
+          );
+          continue;
         } else {
           // Create a new ticket type for this registration type
           const newTT = await db.ticketType.create({
             data: { eventId, name: registrationType, price: 0, quantity: 999999, isActive: true },
+            select: IMPORT_TICKET_TYPE_SELECT,
           });
-          ticketTypeByName.set(registrationType.toLowerCase(), newTT);
+          ticketTypeByName.set(key, newTT);
           ticketType = newTT;
         }
       }
+      if (!ticketType) uncategorised++;
+      // Keep the attendee's free-text category in step with the resolved type
+      // (`ticketTypeId` is the source of truth; this mirrors it for display).
+      const attendeeRegistrationType = registrationType || ticketType?.name || null;
 
       try {
         const newRegId = await db.$transaction(async (tx) => {
@@ -323,7 +368,7 @@ export async function POST(req: Request, { params }: RouteParams) {
               country: getField(fields, idx.country) || null,
               bio: getField(fields, idx.bio) || null,
               specialty: getField(fields, idx.specialty) || null,
-              registrationType: registrationType || null,
+              registrationType: attendeeRegistrationType,
               associationName: getField(fields, idx.associationName) || null,
               memberId: getField(fields, idx.memberId) || null,
               studentId: getField(fields, idx.studentId) || null,
@@ -344,12 +389,17 @@ export async function POST(req: Request, { params }: RouteParams) {
           // real event-cap capacity via phantom seatCount claims).
           const rowIsCancelled = rowRegistrationStatus === "CANCELLED";
           if (!rowIsVirtual && !rowIsCancelled) {
-            const claimed = await tx.ticketType.updateMany({
-              where: { id: ticketType.id, soldCount: { lt: ticketType.quantity } },
-              data: { soldCount: { increment: 1 } },
-            });
-            if (claimed.count === 0) {
-              throw new Error("CAPACITY_EXCEEDED");
+            // An uncategorised row has no ticket-type counter to move
+            // (`seatCounter` agrees), but it IS a real attendee, so the
+            // event-wide counter below still moves for it.
+            if (ticketType) {
+              const claimed = await tx.ticketType.updateMany({
+                where: { id: ticketType.id, soldCount: { lt: ticketType.quantity } },
+                data: { soldCount: { increment: 1 } },
+              });
+              if (claimed.count === 0) {
+                throw new Error("CAPACITY_EXCEEDED");
+              }
             }
             // Event-wide cap: imports BYPASS the cap (owner decision July 24,
             // 2026) — unguarded increment, warn when over, mirroring the bulk
@@ -374,13 +424,15 @@ export async function POST(req: Request, { params }: RouteParams) {
           // still beats CONFIRMED-by-default but a CSV explicit
           // registrationStatus wins over it (admin's call to override is
           // intentional).
-          const defaultStatus: RegistrationStatus = ticketType.requiresApproval ? "PENDING" : "CONFIRMED";
+          // No ticket type ⇒ nothing is owed (there is no price to owe), so the
+          // row reads COMPLIMENTARY exactly as a zero-priced type would.
+          const defaultStatus: RegistrationStatus = ticketType?.requiresApproval ? "PENDING" : "CONFIRMED";
           const defaultPaymentStatus: PaymentStatus =
-            Number(ticketType.price) === 0 ? "COMPLIMENTARY" : "UNASSIGNED";
+            !ticketType || Number(ticketType.price) === 0 ? "COMPLIMENTARY" : "UNASSIGNED";
           const registration = await tx.registration.create({
             data: {
               eventId,
-              ticketTypeId: ticketType.id,
+              ticketTypeId: ticketType?.id ?? null,
               attendeeId: attendee.id,
               serialId,
               createdSource: "CSV_IMPORT",
@@ -415,7 +467,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           country: getField(fields, idx.country) || null,
           bio: getField(fields, idx.bio) || null,
           specialty: getField(fields, idx.specialty) || null,
-          registrationType: registrationType || null,
+          registrationType: attendeeRegistrationType,
           associationName: getField(fields, idx.associationName) || null,
           memberId: getField(fields, idx.memberId) || null,
           studentId: getField(fields, idx.studentId) || null,
@@ -457,7 +509,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       format: "csv",
     });
 
-    return NextResponse.json({ created, skipped, errors, registrationIds: createdIds });
+    return NextResponse.json({ created, skipped, uncategorised, errors, registrationIds: createdIds });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing registrations" });
     return NextResponse.json({ error: "Failed to import registrations" }, { status: 500 });

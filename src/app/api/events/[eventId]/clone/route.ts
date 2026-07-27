@@ -135,8 +135,18 @@ export async function POST(
               description: tt.description,
               isDefault: tt.isDefault,
               isActive: tt.isActive,
+              // MUST be copied. Dropping it turned the source event's hidden
+              // speaker-companion "Faculty" type into a normal, publicly
+              // bookable, capacity-counting delegate type on every clone — and
+              // adding a speaker to the clone then minted a SECOND "Faculty"
+              // type beside it.
+              isFaculty: tt.isFaculty,
               sortOrder: tt.sortOrder,
               price: tt.price,
+              // The HYBRID virtual-attendance price is config like every other
+              // field here; it was silently reset to null (⇒ virtual fell back
+              // to the in-person price) on every clone.
+              virtualPrice: tt.virtualPrice,
               currency: tt.currency,
               quantity: tt.quantity,
               soldCount: 0,

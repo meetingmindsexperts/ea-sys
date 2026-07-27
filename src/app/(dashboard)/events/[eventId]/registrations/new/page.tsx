@@ -299,7 +299,14 @@ export default function NewRegistrationPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">None</SelectItem>
-                    {(ticketTypes as TicketType[]).map((regType) => {
+                    {/* Faculty is never offered here: that type backs speaker
+                        companions (created automatically when a speaker is
+                        added) and is excluded from every delegate-facing count,
+                        so a delegate placed on it silently disappears from the
+                        stats. On events cloned before the isFaculty-copy fix
+                        there can be TWO types named "Faculty", indistinguishable
+                        in this list — another reason not to show it. */}
+                    {(ticketTypes as TicketType[]).filter((t) => !t.isFaculty).map((regType) => {
                       // Hide the "- $X" suffix when the type has ANY pricing
                       // tiers (active or inactive) — the Pricing Tier dropdown
                       // is the source of truth on the admin manual-add path,
