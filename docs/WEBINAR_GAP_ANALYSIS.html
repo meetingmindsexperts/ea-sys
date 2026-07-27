@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Webinar Gap Analysis — EA-SYS vs BigMarker / Zoom Events</title>
+<style>
+  :root {
+    --bg:#fff; --fg:#1a1d21; --muted:#5f6b7a; --line:#e3e8ee; --card:#f7f9fb; --accent:#00aade;
+    --blocker:#b91c1c; --high:#c2410c; --medium:#a16207; --low:#0f766e; --code-bg:#f3f5f7;
+    --ok:#15803d; --branch:#c7d2dc; --hover:#eef6fa;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 1rem 6rem;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+  .wrap{max-width:1080px;margin:0 auto}
+  header{padding:3rem 0 1.5rem;border-bottom:3px solid var(--accent);margin-bottom:1.5rem}
+  h1{font-size:2rem;margin:0 0 .4rem;letter-spacing:-.02em}
+  h2{font-size:1.35rem;margin:2.5rem 0 .6rem;letter-spacing:-.01em;padding-bottom:.35rem;border-bottom:1px solid var(--line)}
+  h3{font-size:1.05rem;margin:1.6rem 0 .4rem}
+  .sub{color:var(--muted);font-size:.95rem}
+  code{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;font-size:.85em;background:var(--code-bg);padding:.12em .35em;border-radius:3px}
+  table{width:100%;border-collapse:collapse;margin:.75rem 0;font-size:.9rem}
+  th,td{text-align:left;padding:.5rem .65rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:600;color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
+  .tbl-wrap{overflow-x:auto}
+  ul{padding-left:1.3rem;margin:.4rem 0} li{margin:.3rem 0}
+  footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+  a{color:var(--accent)}
+
+  /* ---- chips ---- */
+  .chip{display:inline-block;font-weight:700;font-size:.68rem;letter-spacing:.04em;text-transform:uppercase;padding:.16em .55em;border-radius:999px;white-space:nowrap;vertical-align:middle}
+  .chip.ok{background:var(--ok);color:#fff}
+  .chip.warn{background:var(--medium);color:#fff}
+  .chip.gap{background:var(--blocker);color:#fff}
+  .chip.info{background:var(--accent);color:#fff}
+  .chip.muted{background:var(--muted);color:#fff}
+  .chip.a{background:var(--blocker);color:#fff}
+  .chip.b{background:var(--high);color:#fff}
+  .chip.c{background:var(--medium);color:#fff}
+
+  /* verdict cells in the matrix */
+  td.y{color:var(--ok);font-weight:700}
+  td.n{color:var(--blocker);font-weight:700}
+  td.p{color:var(--medium);font-weight:700}
+  .star{color:var(--accent);font-weight:800}
+
+  /* ---- note boxes ---- */
+  .note{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:.9rem 1.1rem;margin:1.1rem 0;font-size:.94rem}
+  .note.warn{background:#fffbeb;border-color:#fde68a}
+  .note.bad{background:#fef2f2;border-color:#fecaca}
+  .note.good{background:#f0fdf4;border-color:#bbf7d0}
+  .note p:first-child{margin-top:0} .note p:last-child{margin-bottom:0}
+
+  /* ---- the fork panel ---- */
+  .fork{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1.2rem 0}
+  .fork > div{border:1px solid var(--line);border-radius:8px;padding:1rem 1.1rem;background:var(--card)}
+  .fork > div.zoom{border-left:4px solid var(--accent)}
+  .fork > div.hls{border-left:4px solid var(--medium)}
+  .fork h4{margin:0 0 .5rem;font-size:1rem}
+  .fork ul{font-size:.9rem;padding-left:1.1rem}
+  @media(max-width:720px){.fork{grid-template-columns:1fr}}
+
+  /* ---- collapsible sections ---- */
+  details.sec{border:1px solid var(--line);border-radius:8px;margin:.7rem 0;background:var(--card);overflow:hidden}
+  details.sec > summary{list-style:none;cursor:pointer;padding:.75rem 1rem;font-weight:600;font-size:1rem;user-select:none;display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap}
+  details.sec > summary::-webkit-details-marker{display:none}
+  details.sec > summary::before{content:"▸";flex:none;width:1em;color:var(--accent);transition:transform .15s ease}
+  details.sec[open] > summary::before{transform:rotate(90deg)}
+  details.sec > summary:hover{background:var(--hover)}
+  details.sec > .body{padding:.2rem 1.2rem 1rem;background:var(--bg)}
+  details.sec[open]{background:var(--bg)}
+  details.sec > summary .oneliner{display:block;flex-basis:100%;font-weight:400;font-size:.86rem;color:var(--muted);margin:.15rem 0 0 1.55em}
+
+  .legend{font-size:.86rem;color:var(--muted);margin:.5rem 0 1rem}
+  .legend span{margin-right:1.1rem}
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#14171a;--fg:#e6e9ec;--muted:#93a1b0;--line:#2b3138;--card:#1b1f24;--code-bg:#22272d;
+      --blocker:#ef4444;--high:#fb923c;--medium:#fbbf24;--low:#2dd4bf;--ok:#22c55e;--branch:#39424c;--hover:#1e2830}
+    .note{background:#0c2b3a;border-color:#1e4b63}
+    .note.warn{background:#332a10;border-color:#5c4a15}
+    .note.bad{background:#3a1518;border-color:#6b2226}
+    .note.good{background:#0f2d1c;border-color:#1d5334}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Webinar Gap Analysis</h1>
+  <div class="sub">
+    EA-SYS webinar capability vs BigMarker, Zoom Webinars / Zoom Events, ON24, RingCentral Events, Livestorm.<br>
+    <strong>Created:</strong> 2026-07-27 · <strong>Method:</strong> exhaustive read of the webinar code surface at HEAD + web research of current vendor capability.
+    <strong>Status:</strong> assessment only — nothing here is a committed build.
+  </div>
+</header>
+
+<div class="note bad">
+  <p><strong>Bottom line — we cannot do what BigMarker/Zoom Events do today, and the gap is not where you would guess.</strong></p>
+  <p>The event-management <em>wrapper</em> around our webinars is genuinely competitive and in several places <strong>ahead of BigMarker's base tier</strong> (paid ticketing, white-label on our own domain, UTM attribution, registration-gated replay, certificates). The hole is the <strong>live experience</strong>: we do not own one. We either rent it from Zoom or we do not have it.</p>
+</div>
+
+<h2>1. The fork that decides everything</h2>
+
+<p><code>Event.settings.webinar.viewingMode</code> has two values, and they share almost no capability. This is the single most important fact about our webinar architecture, and it is currently <strong>unresolved</strong>.</p>
+
+<div class="fork">
+  <div class="zoom">
+    <h4><span class="chip info">mode: zoom</span> Zoom SDK embed</h4>
+    <ul>
+      <li>Zoom Component View embedded in our page (<code>zoom-web-embed.tsx</code>)</li>
+      <li><strong>Chat, Q&amp;A (upvote + comment + anonymous), polls, reactions, raise hand, captions, breakouts, screen share, multi-presenter, host mute/remove</strong> — all native, all free to us</li>
+      <li>We explicitly force Q&amp;A on at webinar-create: <code>src/lib/zoom/meetings.ts:85-94</code></li>
+      <li>Capped by the Zoom plan (500 attendees base)</li>
+      <li>Every attendee costs Zoom seat economics</li>
+    </ul>
+  </div>
+  <div class="hls">
+    <h4><span class="chip warn">mode: hls</span> Self-hosted RTMP→HLS</h4>
+    <ul>
+      <li>MediaMTX on the box → nginx <code>/stream/</code> → CloudFront</li>
+      <li><strong>Zero interactivity.</strong> A <code>&lt;video&gt;</code> with a mute button (<code>live-player.tsx</code>)</li>
+      <li>No chat, no Q&amp;A, no polls, no reactions, no hand-raise</li>
+      <li>Scales to ~5,000+ at near-zero marginal cost</li>
+      <li>The console UI says this out loud in the viewing-mode picker</li>
+    </ul>
+  </div>
+</div>
+
+<div class="note">
+  <p><strong>Read this as the strategic question:</strong> in Zoom mode we inherit Zoom Webinars' entire live stack for free, but we are capacity-capped and paying Zoom per attendee. In HLS mode we get the scale <em>and</em> the margin — and the attendee stares at a video with no way to interact.</p>
+  <p>Everything else in this document is downstream of which of those two we decide to invest in.</p>
+</div>
+
+<h2>2. Where we already match or beat them</h2>
+
+<p>Worth stating plainly before the gaps, because the list is not short — and several of these are things BigMarker <strong>charges separately for</strong> or Zoom <strong>cannot do at all</strong>.</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Capability</th><th>Us</th><th>Why it matters competitively</th></tr></thead>
+  <tbody>
+    <tr><td>Paid ticketing + pricing tiers + promo codes + invoices</td><td class="y">✅</td><td>BigMarker requires a <strong>separate Registration Platform license</strong>. Zoom has it on Events only.</td></tr>
+    <tr><td>White-label on our own domain</td><td class="y">✅</td><td>BigMarker's <span class="star">★</span> differentiator, sold at Enterprise. <strong>Zoom cannot do it at all</strong> (no custom domain, no de-branding).</td></tr>
+    <tr><td>UTM + referrer attribution, persisted per registration</td><td class="y">✅</td><td><code>Registration.utmSource/Medium/Campaign</code>. <strong>Zoom's known, documented gap</strong> — UTM params are not carried into their registrant webhook.</td></tr>
+    <tr><td>Registration-gated replay</td><td class="y">✅</td><td>The <code>/recording</code> route is registration-gated with <code>no-store</code>. A BigMarker <span class="star">★</span>.</td></tr>
+    <tr><td>Producer-gated waiting room + holding video + countdown</td><td class="y">✅</td><td>Host-allowlisted YouTube/Vimeo lobby video, custom message, overdue alerting. Comparable or better than the vendor lobbies.</td></tr>
+    <tr><td>Real-time "who is in my lobby right now"</td><td class="y">✅</td><td><code>WebinarPresence</code> heartbeat + Live-now roster. <strong>Zoom does not give you this on your own page.</strong></td></tr>
+    <tr><td>Certificates (per-template, CME hours, serials, bulk issue)</td><td class="y">✅</td><td>Closer to <strong>ON24</strong> than to Zoom or BigMarker base. See §5 for the one thing that undercuts it.</td></tr>
+    <tr><td>Surveys (builder + shareable link + aggregate)</td><td class="y">✅</td><td>Parity.</td></tr>
+    <tr><td>Public REST API + <strong>MCP server</strong></td><td class="y">✅</td><td>The MCP surface is genuinely unusual — an AI-agent-native API <strong>none of the five vendors have</strong>.</td></tr>
+    <tr><td>Speaker/faculty management, abstracts, agreements, reimbursements</td><td class="y">✅</td><td>Nobody in this category does academic/medical programme management. Not a webinar feature — a moat.</td></tr>
+    <tr><td>Panelist management (add, import-from-speakers, privileged join links, resend)</td><td class="y">✅</td><td>Parity.</td></tr>
+    <tr><td>Automated reminder sequence</td><td class="y">✅</td><td>Immediate confirmation + T−24h + T−1h + live-now + thank-you (with replay block).</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>3. Full capability matrix</h2>
+
+<div class="legend">
+  <span><strong>✅</strong> native</span>
+  <span><strong>⚠</strong> partial / tier-gated / mode-dependent</span>
+  <span><strong>✗</strong> absent</span>
+  <span><span class="star">★</span> category differentiator</span>
+</div>
+
+<p class="sub">For EA-SYS, <code>Z</code> = only in <code>viewingMode:"zoom"</code>, <code>H</code> = only in <code>viewingMode:"hls"</code>. Unmarked = both.</p>
+
+<details class="sec" open>
+  <summary>3.1 Registration &amp; landing <span class="oneliner">Our strongest category. We beat both vendors on ticketing and attribution.</span></summary>
+  <div class="body">
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Capability</th><th>EA-SYS</th><th>BigMarker</th><th>Zoom</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Custom-branded registration/landing page</td><td class="y">✅</td><td class="y">✅</td><td class="p">⚠</td><td>Ours is fully themed per event/org.</td></tr>
+      <tr><td>Custom registration fields</td><td class="n">✗</td><td class="y">✅</td><td class="y">✅</td><td><strong>Real gap.</strong> <code>Attendee.customFields</code> JSON exists but nothing writes it — no builder, not on the public form.</td></tr>
+      <tr><td>Registration approval / gating</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td><code>requiresApproval</code> → PENDING.</td></tr>
+      <tr><td>Paid ticketing + tiers</td><td class="y">✅</td><td class="p">⚠</td><td class="p">⚠</td><td>Stripe + <code>PricingTier</code>. BigMarker = separate license; Zoom = Events only.</td></tr>
+      <tr><td>Promo codes / coupons</td><td class="y">✅</td><td class="p">⚠</td><td class="p">⚠</td><td>Full CRUD, per-email limits, usage caps.</td></tr>
+      <tr><td>UTM / source attribution</td><td class="y">✅</td><td class="y">✅</td><td class="n">✗</td><td><strong>We beat Zoom here.</strong> Captured but see §5 — not surfaced in analytics.</td></tr>
+      <tr><td>Calendar / ICS invite</td><td class="n">✗</td><td class="y">✅</td><td class="y">✅</td><td><strong>All five vendors have this. We have zero ICS code anywhere.</strong></td></tr>
+      <tr><td>Waitlist</td><td class="n">✗</td><td class="p">❓</td><td class="p">❓</td><td>Our Settings toggle is dead UI. Rarely first-class at the vendors either — low priority.</td></tr>
+      <tr><td>Embeddable registration form</td><td class="n">✗</td><td class="y">✅</td><td class="n">✗</td><td>BigMarker Enterprise only.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  </div>
+</details>
+
+<details class="sec">
+  <summary>3.2 Pre-event <span class="oneliner">Near parity — the one gap (backstage) is inherited from Zoom in zoom-mode.</span></summary>
+  <div class="body">
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Capability</th><th>EA-SYS</th><th>BigMarker</th><th>Zoom</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Automated reminder sequence</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td>4 scheduled phases + immediate confirmation.</td></tr>
+      <tr><td>Speaker / panelist management</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td>Plus import-from-speakers, which the vendors do not have (they have no speaker domain).</td></tr>
+      <tr><td>Backstage / green room</td><td class="p">⚠ Z</td><td class="y">✅</td><td class="y">✅</td><td>Zoom's own backstage is available to the host in zoom-mode; we expose no control over it. HLS mode: none.</td></tr>
+      <tr><td>Practice / rehearsal mode</td><td class="p">⚠ Z</td><td class="y">✅</td><td class="y">✅</td><td>Same — Zoom's practice session works, we never set <code>practice_session</code> and never surface it.</td></tr>
+      <tr><td>No-show / re-engagement branch</td><td class="n">✗</td><td class="y">✅</td><td class="p">⚠</td><td>Sequence has no branch on attendance.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  </div>
+</details>
+
+<details class="sec" open>
+  <summary>3.3 Live experience <span class="oneliner">The category that decides the answer. Everything hinges on the viewing mode.</span></summary>
+  <div class="body">
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Capability</th><th>EA-SYS</th><th>BigMarker</th><th>Zoom</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Browser join, no download</td><td class="y">✅</td><td class="y">✅</td><td class="p">⚠</td><td>Component View embed — attendees never leave our domain.</td></tr>
+      <tr><td>Public chat</td><td class="p">⚠ Z</td><td class="y">✅</td><td class="y">✅</td><td><strong>Zero chat code in our repo.</strong> Zoom-mode inherits Zoom's; HLS-mode has none.</td></tr>
+      <tr><td>Private / 1:1 chat</td><td class="p">⚠ Z</td><td class="y">✅</td><td class="p">⚠</td><td>Same.</td></tr>
+      <tr><td>Q&amp;A with upvoting</td><td class="p">⚠ Z</td><td class="y">✅</td><td class="y">✅</td><td>We force-enable it on Zoom (upvote + comment + anonymous). <strong>No in-page Q&amp;A of our own; HLS-mode has none.</strong></td></tr>
+      <tr><td>Polls (attendee-facing, live)</td><td class="p">⚠ Z</td><td class="y">✅</td><td class="y">✅</td><td>Polls are authored <em>inside Zoom</em>; we only read the post-event report. No authoring UI, no poll API calls.</td></tr>
+      <tr><td>Quizzes / assessments</td><td class="n">✗</td><td class="y">✅</td><td class="p">⚠</td><td>Relevant to the CME angle — see §6.</td></tr>
+      <tr><td>Reactions / emoji / raise hand</td><td class="p">⚠ Z</td><td class="p">⚠</td><td class="y">✅</td><td>Zero occurrences in our code.</td></tr>
+      <tr><td>Handouts / downloadable resources</td><td class="n">✗</td><td class="y">✅</td><td class="p">⚠</td><td>No resource surface on the public session page.</td></tr>
+      <tr><td>In-session offers / CTAs</td><td class="n">✗</td><td class="y">✅ <span class="star">★</span></td><td class="n">✗</td><td>BigMarker's conversion primitive. Zoom does not have it either.</td></tr>
+      <tr><td>Simulive (pre-recorded as live)</td><td class="n">✗</td><td class="y">✅</td><td class="p">⚠</td><td>Zero occurrences. Zoom gates it to Webinars Plus.</td></tr>
+      <tr><td>Evergreen (starts on landing-page hit)</td><td class="n">✗</td><td class="y">✅ <span class="star">★</span></td><td class="n">✗</td><td>BigMarker's category-defining feature. <strong>Zoom has no equivalent.</strong></td></tr>
+      <tr><td>Captions / live translation</td><td class="p">⚠ Z</td><td class="y">✅</td><td class="y">✅</td><td>Zoom's AI captions work in the embed; we ingest nothing.</td></tr>
+      <tr><td>Breakout rooms</td><td class="p">⚠ Z</td><td class="p">⚠</td><td class="y">✅</td><td>BigMarker gates to Professional+.</td></tr>
+      <tr><td>Expo / sponsor booths</td><td class="p">⚠</td><td class="p">⚠</td><td class="y">✅</td><td>We have sponsors as a <strong>display list</strong> (JSON, 6 tiers) — not an interactive monetizable surface.</td></tr>
+      <tr><td>Networking / 1:1 matchmaking</td><td class="n">✗</td><td class="p">⚠</td><td class="y">✅</td><td>RingCentral Events is the benchmark here.</td></tr>
+      <tr><td>Lobby / waiting room</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td><strong>Ours is arguably better</strong> — producer-gated, holding video, live headcount.</td></tr>
+      <tr><td>Multi-session / multi-track agenda</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td>We have full agenda/tracks/topics from the conference side.</td></tr>
+      <tr><td>Attendee list / directory</td><td class="n">✗</td><td class="p">⚠</td><td class="y">✅</td><td>We have the roster admin-side only.</td></tr>
+      <tr><td>Host controls (mute / remove)</td><td class="p">⚠ Z</td><td class="y">✅</td><td class="y">✅</td><td>Only via Zoom's own UI. We call no <code>/live_meetings/*</code> endpoints.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note warn">
+    <p><strong>The honest summary of this table:</strong> in zoom-mode we are at parity on nearly everything, because we are Zoom. In HLS-mode we are at zero. We own none of these primitives ourselves.</p>
+  </div>
+  </div>
+</details>
+
+<details class="sec">
+  <summary>3.4 Engagement scoring &amp; lead intelligence <span class="oneliner">The biggest single cluster we are missing. ON24 is the benchmark.</span></summary>
+  <div class="body">
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Capability</th><th>EA-SYS</th><th>BigMarker</th><th>Zoom</th><th>ON24</th></tr></thead>
+    <tbody>
+      <tr><td>Per-attendee engagement score</td><td class="n">✗</td><td class="y">✅</td><td class="n">✗</td><td class="y">✅ <span class="star">★</span></td></tr>
+      <tr><td>Configurable AI lead scoring</td><td class="n">✗</td><td class="y">✅ <span class="star">★</span></td><td class="n">✗</td><td class="y">✅</td></tr>
+      <tr><td>Every-click activity tracking</td><td class="p">⚠</td><td class="y">✅</td><td class="p">⚠</td><td class="y">✅</td></tr>
+      <tr><td>Account-level engagement profile</td><td class="n">✗</td><td class="p">⚠</td><td class="n">✗</td><td class="y">✅ <span class="star">★</span></td></tr>
+      <tr><td>Buying-signal / intent detection</td><td class="n">✗</td><td class="y">✅</td><td class="n">✗</td><td class="y">✅</td></tr>
+      <tr><td>Score pushed to CRM</td><td class="n">✗</td><td class="y">✅</td><td class="n">✗</td><td class="y">✅</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="sub">We hold the raw material — <code>ZoomAttendance</code> segments, <code>WebinarPresence</code>, <code>attentivenessScore</code> (stored, never rendered), UTM, and an in-house CRM with deals. Nothing composes them into a score.</p>
+  </div>
+</details>
+
+<details class="sec">
+  <summary>3.5 Post-event <span class="oneliner">Recording + gated replay + certificates are strong. Content hub and evergreen replay are absent.</span></summary>
+  <div class="body">
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Capability</th><th>EA-SYS</th><th>BigMarker</th><th>Zoom</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Automatic recording retrieval</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td>Poll-based state machine, 5-min cron, EXPIRED after 7d.</td></tr>
+      <tr><td>Replay gating behind registration</td><td class="y">✅</td><td class="y">✅</td><td class="p">⚠</td><td>Our <code>/recording</code> route. A BigMarker <span class="star">★</span> we already have.</td></tr>
+      <tr><td>On-demand / evergreen replay page</td><td class="n">✗</td><td class="y">✅ <span class="star">★</span></td><td class="p">⚠</td><td>Recording is per-session only. No library, no evergreen landing page.</td></tr>
+      <tr><td>Content hub / media library</td><td class="n">✗</td><td class="y">✅</td><td class="p">⚠</td><td>ON24's Engagement Hub is the benchmark.</td></tr>
+      <tr><td>Auto-send replay to early leavers</td><td class="n">✗</td><td class="y">✅ <span class="star">★</span></td><td class="n">✗</td><td>We have the drop-off data and do not use it.</td></tr>
+      <tr><td>Transcripts</td><td class="n">✗</td><td class="y">✅</td><td class="y">✅</td><td>We store only Zoom's <code>play_url</code> — no transcript, no chat file, no MP4 rehost.</td></tr>
+      <tr><td>AI highlights / clips / chapters</td><td class="n">✗</td><td class="y">✅</td><td class="y">✅</td><td>Zoom auto-generates these; we ingest none of it.</td></tr>
+      <tr><td>Certificates</td><td class="y">✅</td><td class="p">⚠</td><td class="p">⚠</td><td><strong>Better than both</strong> — but gated on the wrong signal. See §6.</td></tr>
+      <tr><td>Surveys / feedback</td><td class="y">✅</td><td class="y">✅</td><td class="y">✅</td><td>Parity.</td></tr>
+      <tr><td>Video editing / trimming</td><td class="n">✗</td><td class="p">⚠</td><td class="y">✅</td><td>Out of scope for us.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  </div>
+</details>
+
+<details class="sec">
+  <summary>3.6 Analytics <span class="oneliner">The data exists. The reporting does not.</span></summary>
+  <div class="body">
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Capability</th><th>EA-SYS</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Registered vs attended, attendance rate</td><td class="y">✅</td><td>4 KPI tiles on the Attendance card.</td></tr>
+      <tr><td>Watch time per attendee</td><td class="y">✅</td><td>Per-segment, sums correctly across rejoins.</td></tr>
+      <tr><td>Peak concurrent</td><td class="p">⚠</td><td><strong>Computed by the API via a sweep-line and never rendered.</strong> Free win.</td></tr>
+      <tr><td>Total watch time</td><td class="p">⚠</td><td>Same — computed, unrendered.</td></tr>
+      <tr><td>Attentiveness score</td><td class="p">⚠</td><td>Stored + in the CSV, absent from the console table.</td></tr>
+      <tr><td>Drop-off curve</td><td class="n">✗</td><td>We have every join/leave edge in <code>ZoomAttendance</code>. Nothing plots it.</td></tr>
+      <tr><td>Attendance CSV export</td><td class="y">✅</td><td>RFC-4180, formula-injection escaped.</td></tr>
+      <tr><td>Q&amp;A / poll export</td><td class="n">✗</td><td>Engagement data is view-only. No export button.</td></tr>
+      <tr><td>UTM attribution in reporting</td><td class="n">✗</td><td><strong>Captured but never surfaced.</strong> Half a feature.</td></tr>
+      <tr><td>Funnel registered → attended → converted</td><td class="p">⚠</td><td>First two hops yes; conversion is not modelled.</td></tr>
+      <tr><td>Real-time in-session dashboard</td><td class="p">⚠</td><td>Live-now presence roster only — no live engagement metrics.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  </div>
+</details>
+
+<details class="sec">
+  <summary>3.7 Integrations, scale, monetization, compliance</summary>
+  <div class="body">
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Capability</th><th>EA-SYS</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Public REST API</td><td class="y">✅</td><td>OpenAPI 3.1 + Scalar at <code>/api-docs</code>.</td></tr>
+      <tr><td>MCP server</td><td class="y">✅</td><td>OAuth 2.1 + DCR. <strong>No vendor has this.</strong></td></tr>
+      <tr><td>Outbound webhooks</td><td class="n">✗</td><td><strong>Only inbound Stripe.</strong> Every competitor ships outbound webhooks; it is how customers wire us into their stack.</td></tr>
+      <tr><td>Zoom webhooks (inbound)</td><td class="n">✗</td><td>Every state transition is <strong>poll-based</strong> — 5/10-min crons. This is why recordings and attendance lag.</td></tr>
+      <tr><td>Salesforce / HubSpot / Marketo</td><td class="n">✗</td><td>We have our own CRM instead. Different bet, but a procurement blocker for enterprise buyers.</td></tr>
+      <tr><td>SSO</td><td class="p">⚠</td><td>NextAuth; no SAML/enterprise IdP.</td></tr>
+      <tr><td>Max concurrent attendees</td><td class="p">⚠</td><td>500 (Zoom plan) or ~5,000 (HLS + CloudFront). BigMarker Enterprise: 500,000. Zoom: 100,000.</td></tr>
+      <tr><td>CDN / adaptive bitrate</td><td class="p">⚠</td><td>CloudFront yes; <strong>single-rendition HLS, no ABR ladder, no LL-HLS</strong>. No WebRTC playback despite MediaMTX exposing :8889.</td></tr>
+      <tr><td>Native mobile app</td><td class="n">✗</td><td>Responsive web only. Out of scope.</td></tr>
+      <tr><td>Onsite check-in &amp; badging</td><td class="y">✅</td><td><strong>We have this and Zoom does not.</strong> BigMarker sells it as a separate license.</td></tr>
+      <tr><td>Custom domain / white-label</td><td class="y">✅</td><td>Multi-tenancy work in progress makes this per-tenant.</td></tr>
+      <tr><td>GDPR / consent / recording notice</td><td class="p">⚠</td><td>Terms acceptance + timestamp yes; no consent-as-registration-field, no data-residency choice.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  </div>
+</details>
+
+<h2>4. Gaps, banded by priority</h2>
+
+<h3><span class="chip a">Band A</span> Table stakes, cheap, no architecture risk</h3>
+<ul>
+  <li><strong>No ICS / add-to-calendar</strong> on any webinar email or page. All five vendors have it. Most embarrassing item on the list; roughly a day of work.</li>
+  <li><strong>No custom registration fields.</strong> <code>Attendee.customFields</code> is a JSON column nothing writes — no builder UI, not on the public form.</li>
+  <li><strong>No Q&amp;A / poll export.</strong> Attendance exports to CSV; engagement does not. The Q&amp;A card has no export button.</li>
+  <li><strong>Peak concurrent + total watch time computed and never rendered.</strong> Pure UI work.</li>
+  <li><strong>No drop-off curve</strong> despite holding every join/leave segment.</li>
+</ul>
+
+<h3><span class="chip b">Band B</span> Parity gaps</h3>
+<ul>
+  <li><strong>No outbound webhooks.</strong> Integration table stakes.</li>
+  <li><strong>No Zoom webhooks.</strong> Everything is poll-based, so recording/attendance always lag by 5–10 minutes and we burn API calls on empty polls.</li>
+  <li><strong>No transcripts or captions ingested</strong> — Zoom generates them and we throw them away.</li>
+  <li><strong>No no-show branch</strong> in the sequence; <strong>no auto-send-replay-to-early-leavers</strong> (a BigMarker <span class="star">★</span> we have the data for).</li>
+  <li><strong>No handouts/resources</strong> surface on the public session page.</li>
+</ul>
+
+<h3><span class="chip c">Band C</span> Real differentiators we lack — deliberate build/buy decisions</h3>
+<ul>
+  <li><strong>Simulive and evergreen.</strong> Zero occurrences in the codebase. Evergreen is BigMarker's category-defining feature and Zoom has no answer to it.</li>
+  <li><strong>In-session offers / CTAs.</strong> BigMarker's conversion primitive.</li>
+  <li><strong>Engagement / lead scoring.</strong> The biggest single missing cluster; ON24 owns it.</li>
+  <li><strong>On-demand content hub.</strong> No library, no evergreen replay landing pages.</li>
+  <li><strong>Native interactivity in HLS mode</strong> — see §1. This is the largest single build in this document.</li>
+</ul>
+
+<h2>5. Defects, dead code and one security issue found during the read</h2>
+
+<div class="note bad">
+  <p><strong>MediaMTX has no publish authentication.</strong> <code>mediamtx.yml</code> sets <code>paths: all: {source: publisher}</code> — <strong>anyone who learns a stream key can hijack the live broadcast</strong>. The July 27 hardening batch gated the key from <em>readers</em> (<code>stream-status</code> no longer returns <code>streamKey</code>), but the <em>ingest</em> side remains open. Worth closing before any HLS-mode event that matters.</p>
+</div>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>Item</th><th>Kind</th><th>Detail</th></tr></thead>
+  <tbody>
+    <tr><td><code>autoProvisionZoom</code>, <code>automationEnabled</code>, <code>waitingRoom</code>, <code>defaultPasscode</code></td><td><span class="chip warn">dead UI</span></td><td>All four are persisted and rendered as controls in the Settings tab, and <strong>no code path reads any of them</strong>. Organizers are flipping switches that do nothing.</td></tr>
+    <tr><td><code>WebinarQuestion.answeredByName</code></td><td><span class="chip muted">unwired</span></td><td>Column exists; nothing ever writes it.</td></tr>
+    <tr><td><code>zoom-embed.tsx</code>, <code>zoom-join-button.tsx</code>, <code>zoom-session-badge.tsx</code>, <code>zoom-series-schedule.tsx</code></td><td><span class="chip muted">dead code</span></td><td>Four components with zero importers.</td></tr>
+    <tr><td><code>WebinarPresence</code> retention</td><td><span class="chip warn">leak</span></td><td>Rows accumulate forever — no cleanup cron.</td></tr>
+    <tr><td>Multiple polls per webinar</td><td><span class="chip warn">known limit</span></td><td>Zoom's report API returns flat tuples with no poll id, so all polls collapse into one logical <code>WebinarPoll</code>. Documented in the sync, but it means multi-poll webinars report wrong.</td></tr>
+    <tr><td>Attendance matching</td><td><span class="chip warn">limit</span></td><td>Email-only, case-insensitive, first-registration-wins. No name fallback, no manual reconciliation UI.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>6. The highest-value gap: watch-time-gated certificates</h2>
+
+<div class="note good">
+  <p>Certificate auto-issue currently gates on <code>surveyCompletedAt</code> (<code>src/lib/certificates/auto-issue.ts</code>) — <strong>not on watch time</strong>.</p>
+  <p>ON24's category-defining feature is <strong>criteria-based certification</strong>: auto-issue when "watched N minutes AND passed the knowledge check". We already store every join/leave segment in <code>ZoomAttendance</code>, we already compute per-attendee watch seconds, and we already have a full certificate engine with CME hours and serials. <strong>We simply do not connect them.</strong></p>
+  <p>For a medical-education business this is the highest-value item in this entire document, and it is the one place where we would be copying ON24 rather than BigMarker. It is already flagged in <code>docs/ROADMAP.md</code> under "Virtual attendance certificates".</p>
+</div>
+
+<h2>7. Ranked recommendations</h2>
+
+<p class="sub">Not a proposal to start building — the standing posture is stabilization-first until several real conferences have run on EA-SYS. This is the ordered list for when that changes.</p>
+
+<div class="tbl-wrap">
+<table>
+  <thead><tr><th>#</th><th>Work</th><th>Size</th><th>Why this order</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><strong>Watch-time-gated certificates</strong> (+ optional knowledge check)</td>
+      <td><span class="chip ok">S</span></td>
+      <td>Highest ROI on the list. Uses data we already hold, hits the CME business directly, and closes the one gap where we would lead rather than follow.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>Band A cleanup</strong> — ICS, custom registration fields, Q&amp;A/poll export, surface peak-concurrent + drop-off curve</td>
+      <td><span class="chip ok">S each</span></td>
+      <td>Cheap, independent, no architecture risk. ICS in particular is indefensible to be missing.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>Close the MediaMTX publish-auth hole</strong> + remove the four dead settings</td>
+      <td><span class="chip ok">S</span></td>
+      <td>Security + honesty. Both are small and both are currently misleading someone.</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><strong>Decide the HLS interactivity question</strong> — native chat + Q&amp;A + polls for HLS mode</td>
+      <td><span class="chip gap">L</span></td>
+      <td>The fork from §1. If we ever want to run a 5,000-person webinar on our own economics, this is mandatory. It is what determines whether we are a webinar platform or a Zoom front-end.</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><strong>Simulive / evergreen + on-demand content hub</strong></td>
+      <td><span class="chip gap">L</span></td>
+      <td>Only worth it if webinars become a <em>marketing product</em> rather than a delivery mechanism. Large, and it presumes #4.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>8. Method &amp; sources</h2>
+<p class="sub">Code side: exhaustive read of <code>src/lib/webinar*</code>, <code>src/lib/zoom/**</code>, all <code>/api/events/[eventId]/webinar/**</code> and public session routes, the Webinar Console, the public session page, <code>live-player.tsx</code> / <code>zoom-web-embed.tsx</code> / <code>mediamtx.yml</code>, the six Prisma models, both cron workers, and the email sequence templates — plus negative-space greps to confirm absences.</p>
+<p class="sub">Vendor side (2026): <a href="https://get.bigmarker.com/pricing-plans">BigMarker pricing</a>, <a href="https://get.bigmarker.com/solutions/white-label">BigMarker white-label</a>, <a href="https://kb.bigmarker.com/knowledge/ai-lead-scoring">BigMarker AI lead scoring</a>, <a href="https://www.zoom.com/en/products/webinars/">Zoom Webinars</a>, <a href="https://www.zoom.com/en/products/event-platform/">Zoom Events</a>, <a href="https://devforum.zoom.us/t/pass-the-utm-params-from-the-registration-link-into-the-new-registrant-webhook/73059">Zoom UTM limitation</a>, <a href="https://www.on24.com/solutions/continuing-education-and-certification/">ON24 certification</a>, <a href="https://www.on24.com/platform/">ON24 platform</a>.</p>
+<div class="note warn">
+  <p><strong>Two research caveats.</strong> BigMarker's SOC 2 status is not publicly documented — verify directly if it ever becomes a procurement gate. And several ON24 limitations (notably "CTAs cost extra") come from Livestorm's competitor comparison page, so treat those as leads rather than facts.</p>
+  <p><strong>One naming note:</strong> "Zoom Sessions" no longer exists — it was renamed <strong>Zoom Webinars Plus</strong> in late 2025. The 2026 ladder is Webinars → Webinars Plus → Events.</p>
+</div>
+
+<footer>
+  Companion documents: <code>docs/WEBINAR_EVENTS.md</code> (implementation guide) · <code>docs/LIVE_STREAMING.md</code> (HLS path) · <code>docs/DOMAIN_MAP.html</code> (context index) · <code>docs/ROADMAP.md</code> (deferred findings).<br>
+  Refresh this document's date stamp whenever the webinar surface changes materially.
+</footer>
+
+</div>
+</body>
+</html>
