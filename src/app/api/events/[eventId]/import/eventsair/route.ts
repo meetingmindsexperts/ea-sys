@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -233,6 +234,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (errors.length > 0) {
       apiLogger.warn({ msg: "Import errors", importType: "contacts", source: "eventsair", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
+
+    recordImport(req, {
+      entityType: "Contact",
+      eventId,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: contacts.length,
+      created,
+      skipped: skippedDetails.length,
+      errors: errors.length,
+      format: "eventsair",
+    });
 
     return NextResponse.json({
       processed: contacts.length,

@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { getClientIp } from "@/lib/security";
 import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
 
@@ -108,6 +109,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
       })
       .catch((err) => apiLogger.error({ err, msg: "Failed to write speaker contacts-import audit log" }));
+
+    recordImport(req, {
+      entityType: "Speaker",
+      eventId,
+      organizationId: orgGuard.orgId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: contacts.length,
+      created: toCreate.length,
+      skipped,
+      format: "contacts",
+    });
 
     return NextResponse.json({ created: toCreate.length, skipped });
   } catch (error) {

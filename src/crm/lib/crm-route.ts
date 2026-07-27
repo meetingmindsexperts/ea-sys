@@ -14,6 +14,7 @@ import { z } from "zod";
 import { getOrgContext, type OrgContext } from "@/lib/api-auth";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
 import { redactFinancialFields } from "@/lib/finance-visibility";
 import { canViewDealValues, denyCrmAccess, denyCrmWrite, denyCrmDelete, denyCrmPurge } from "@/crm/lib/crm-visibility";
@@ -331,6 +332,8 @@ export async function runCrmCsvImport<T extends { csv: string; dryRun?: boolean 
       data: T,
       base: { organizationId: string; userId: string | null; csvText: string; dryRun: boolean },
     ) => Promise<CrmImportOutcome>;
+    /** Prisma model this import writes — recorded in the import audit row. */
+    auditEntityType: string;
   },
 ): Promise<NextResponse> {
   const limit = checkRateLimit({
@@ -359,5 +362,29 @@ export async function runCrmCsvImport<T extends { csv: string; dryRun?: boolean 
     dryRun: parsed.data.dryRun ?? false,
   });
   if (!result.ok) return crmErrorResponse(result);
+
+  // Import-level audit for all three CRM importers at once (the wrapper is the
+  // only place that sees every one of them). A dry run writes nothing, so it is
+  // not a data movement and is deliberately NOT recorded.
+  //
+  // `totalProcessed` is the file's data-line count — literally "rows read from
+  // the file", which is what the field means. The per-entity created/skipped
+  // breakdown isn't available here (CrmImportOutcome is `{ok:true}`); it stays
+  // in the response the operator sees.
+  if (!parsed.data.dryRun) {
+    const dataLines = parsed.data.csv
+      .split(/\r?\n/)
+      .filter((l) => l.trim().length > 0).length;
+    recordImport(req, {
+      entityType: opts.auditEntityType,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      role: ctx.role,
+      source: ctx.fromApiKey ? "api" : "rest",
+      totalProcessed: Math.max(0, dataLines - 1), // minus the header row
+      format: "csv",
+    });
+  }
+
   return NextResponse.json(result);
 }

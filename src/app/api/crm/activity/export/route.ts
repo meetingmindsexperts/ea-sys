@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
 import { toCsv } from "@/lib/csv-escape";
 import { requireCrmRead, redactForCaller } from "@/crm/lib/crm-route";
@@ -83,6 +84,23 @@ export async function GET(req: Request) {
         action: parsed.filters.action ?? undefined,
         from: parsed.filters.from?.toISOString(),
         to: parsed.filters.to?.toISOString(),
+      },
+    });
+
+    recordExport(req, {
+      entityType: "CrmActivity",
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      role: ctx.role,
+      source: ctx.fromApiKey ? "api" : "rest",
+      rowCount: rows.length,
+      format: "csv",
+      filters: {
+        ...(parsed.filters.actorId ? { actorId: parsed.filters.actorId } : {}),
+        ...(parsed.filters.entityType ? { entityType: parsed.filters.entityType } : {}),
+        ...(parsed.filters.action ? { action: parsed.filters.action } : {}),
+        ...(parsed.filters.from ? { from: parsed.filters.from.toISOString() } : {}),
+        ...(parsed.filters.to ? { to: parsed.filters.to.toISOString() } : {}),
       },
     });
 

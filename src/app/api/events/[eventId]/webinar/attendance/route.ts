@@ -204,6 +204,13 @@ export async function GET(req: Request, { params }: RouteParams) {
         rowCount: rows.length,
         format: "csv",
       });
+      apiLogger.info({
+        msg: "webinar-attendance-export:completed",
+        eventId,
+        userId: session.user.id,
+        role: session.user.role,
+        rowCount: rows.length,
+      });
       return new NextResponse(csv, {
         status: 200,
         headers: {

@@ -141,21 +141,35 @@ describe("GET /api/activity", () => {
     expect(res.status).toBe(403);
   });
 
-  it("scopes activity to organization", async () => {
+  // `event: { organizationId }` alone means "event is non-null AND matches" on a
+  // nullable relation, so it silently excluded every ORG-scoped audit row
+  // (eventId: null) — which is where the contacts / invoices / CRM
+  // import+export audits land. Both legs must be present, and both must be
+  // org-bound so neither can leak another org's rows.
+  it("scopes activity to the organization, including org-scoped (event-less) rows", async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.auditLog.findMany.mockResolvedValue([]);
 
     await GET(makeRequest());
 
-    expect(mockDb.auditLog.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          event: {
-            organizationId: "org-1",
-          },
-        },
-      })
-    );
+    const where = mockDb.auditLog.findMany.mock.calls[0][0].where;
+    expect(where.OR).toEqual([
+      { event: { organizationId: "org-1" } },
+      { eventId: null, changes: { path: ["organizationId"], equals: "org-1" } },
+    ]);
+  });
+
+  it("drops the org-scoped leg when an explicit event filter is given", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.auditLog.findMany.mockResolvedValue([]);
+
+    await GET(makeRequest("eventId=evt-9"));
+
+    const where = mockDb.auditLog.findMany.mock.calls[0][0].where;
+    expect(where.OR).toBeUndefined();
+    expect(where.eventId).toBe("evt-9");
+    // Still org-bound — an event filter must not become a cross-org read.
+    expect(where.event).toEqual({ organizationId: "org-1" });
   });
 
   it("respects limit param", async () => {

@@ -36,13 +36,27 @@ export async function GET(req: Request) {
     const entityType = url.searchParams.get("entityType") || undefined;
     const timeRange = url.searchParams.get("timeRange") || undefined;
 
+    const orgId = session.user.organizationId!;
+
+    // `event: { organizationId }` on a NULLABLE relation means "event is
+    // non-null AND matches" — so it silently excluded every org-scoped audit
+    // row (`eventId: null`). That hid the contacts / invoices / CRM
+    // import+export audits from the only UI that reads `AuditLog`, which
+    // defeated half the point of recording them. Those rows carry their org
+    // inside `changes.organizationId` (there is no flat column yet — see
+    // ROADMAP), so match on either shape.
     const where: Prisma.AuditLogWhereInput = {
-      event: {
-        organizationId: session.user.organizationId!,
-      },
+      OR: [
+        { event: { organizationId: orgId } },
+        { eventId: null, changes: { path: ["organizationId"], equals: orgId } },
+      ],
     };
 
     if (eventId) {
+      // An explicit event filter is inherently event-scoped — drop the
+      // org-scoped leg so it can't leak rows from other events.
+      delete where.OR;
+      where.event = { organizationId: orgId };
       where.eventId = eventId;
     }
     if (userId) {

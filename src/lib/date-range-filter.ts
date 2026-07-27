@@ -72,3 +72,26 @@ export function parseDateRangeFilters(
   }
   return { ok: true, where, active };
 }
+
+/**
+ * The date-range params that were actually supplied, as a flat JSON-safe map —
+ * for recording in an audit row alongside the other filters.
+ *
+ * Why this exists: `parseDateRangeFilters` returns a Prisma `where`, which is
+ * the wrong shape to persist and drops which param produced it. An audit row
+ * that omits the date narrowing makes an incremental `?createdAfter=…` pull
+ * look like an unfiltered full dump.
+ *
+ * Values are ISO-8601 date strings the caller supplied — no PII.
+ */
+export function dateRangeAuditFilters(
+  get: URLSearchParams | ((key: string) => string | null),
+): Record<string, string> {
+  const read = typeof get === "function" ? get : (k: string) => get.get(k);
+  const out: Record<string, string> = {};
+  for (const param of DATE_RANGE_PARAMS) {
+    const v = read(param);
+    if (v && v.trim().length > 0) out[param] = v.trim();
+  }
+  return out;
+}

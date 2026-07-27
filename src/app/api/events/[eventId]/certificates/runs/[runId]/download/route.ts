@@ -28,6 +28,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
 import { collectRunItemCertRows } from "@/lib/certificates/bundle";
 import { loadCertificatePdfBytes } from "@/lib/certificates/pdf-loader";
@@ -40,7 +41,7 @@ interface RouteParams {
 const MAX_ZIP_CERTS = 500;
 const MAX_ZIP_BYTES = 300 * 1024 * 1024; // 300 MB of raw PDF bytes
 
-export async function GET(_req: Request, { params }: RouteParams) {
+export async function GET(req: Request, { params }: RouteParams) {
   let eventId: string | undefined;
   let runId: string | undefined;
   try {
@@ -189,6 +190,19 @@ export async function GET(_req: Request, { params }: RouteParams) {
       failed,
       totalBytes,
       userId: session.user.id,
+    });
+
+    // A ZIP of every issued certificate PDF is a bulk extraction like any CSV —
+    // it belongs in the same `action: "EXPORT"` query.
+    recordExport(req, {
+      entityType: "IssuedCertificate",
+      eventId,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      rowCount: ok,
+      format: "pdf-zip",
+      filters: { runId },
     });
 
     const filename = `certificates-${run.event.code || eventId}-${runId.slice(0, 8)}.zip`;

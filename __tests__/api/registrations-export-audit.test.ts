@@ -24,6 +24,8 @@ const {
   mockRedactFinancial,
   mockCanViewBarcode,
   mockRedactBarcode,
+  mockDenyExport,
+  mockCheckRateLimit,
 } = vi.hoisted(() => ({
   mockGetOrgContext: vi.fn(),
   mockDb: {
@@ -36,6 +38,8 @@ const {
   mockRedactFinancial: vi.fn((p: unknown) => p),
   mockCanViewBarcode: vi.fn(() => true),
   mockRedactBarcode: vi.fn((p: unknown) => p),
+  mockDenyExport: vi.fn<(...a: unknown[]) => { status: number; json: () => Promise<unknown> } | null>(() => null),
+  mockCheckRateLimit: vi.fn(() => ({ allowed: true, retryAfterSeconds: 0 })),
 }));
 
 vi.mock("next/server", () => ({
@@ -57,7 +61,12 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/api-auth", () => ({ getOrgContext: mockGetOrgContext }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
-vi.mock("@/lib/audit-data-transfer", () => ({ recordExport: mockRecordExport }));
+// Mock only recordExport — `fingerprintSearchTerm` is a pure sha256 helper, so
+// the test asserts the REAL digest rather than a stub's shape.
+vi.mock("@/lib/audit-data-transfer", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/audit-data-transfer")>()),
+  recordExport: mockRecordExport,
+}));
 vi.mock("@/lib/event-access", () => ({ buildEventAccessWhere: () => ({ id: "evt_1" }) }));
 vi.mock("@/lib/finance-visibility", () => ({
   canViewFinance: mockCanViewFinance,
@@ -71,6 +80,11 @@ vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), erro
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/require-org", () => ({ requireOrgId: vi.fn() }));
 vi.mock("@/lib/auth-guards", () => ({ denyReviewer: vi.fn(), REGISTRATION_DESK_ALLOW: [] }));
+vi.mock("@/lib/registration-export-visibility", () => ({ denyRegistrationExport: mockDenyExport }));
+vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4", checkRateLimit: mockCheckRateLimit }));
+vi.mock("@/lib/api-errors", () => ({
+  rateLimited: (rl: { retryAfterSeconds: number }) => ({ status: 429, json: async () => ({ code: "RATE_LIMITED", retryAfterSeconds: rl.retryAfterSeconds }) }),
+}));
 vi.mock("@/services/registration-service", () => ({ createRegistration: vi.fn() }));
 
 import { GET } from "@/app/api/events/[eventId]/registrations/route";
@@ -119,6 +133,8 @@ beforeEach(() => {
   mockCanViewBarcode.mockReturnValue(true);
   mockRedactFinancial.mockImplementation((p: unknown) => p);
   mockRedactBarcode.mockImplementation((p: unknown) => p);
+  mockDenyExport.mockReturnValue(null);
+  mockCheckRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
   mockGetOrgContext.mockResolvedValue({
     organizationId: "org_1",
     userId: "usr_1",
@@ -163,7 +179,8 @@ describe("registrations CSV export", () => {
       paymentStatus: "UNPAID",
       ticketTypeId: "tt_1",
       tags: ["vip"],
-      q: "jane",
+      // `q` itself is deliberately absent — see "audit payload hygiene" below.
+      qLength: 4,
     });
   });
 
@@ -265,5 +282,74 @@ describe("registrations page export URL", () => {
       expect(body, `export URL omits ${param}`).toContain(`p.set("${param}"`);
       expect(body, `export URL doesn't read ${state}`).toContain(state);
     }
+  });
+});
+
+describe("export gate + rate limit", () => {
+  it("403s before touching the database when the role may not export", async () => {
+    mockDenyExport.mockReturnValue({ status: 403, json: async () => ({ code: "EXPORT_FORBIDDEN" }) });
+    const res = (await call("export=csv")) as unknown as { status: number };
+    expect(res.status).toBe(403);
+    // The point of gating pre-flight: no unbounded query, no audit row.
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+    expect(mockRecordExport).not.toHaveBeenCalled();
+  });
+
+  it("429s before touching the database when the budget is spent", async () => {
+    mockCheckRateLimit.mockReturnValue({ allowed: false, retryAfterSeconds: 900 });
+    const res = (await call("export=csv")) as unknown as { status: number };
+    expect(res.status).toBe(429);
+    expect(mockDb.registration.findMany).not.toHaveBeenCalled();
+    expect(mockRecordExport).not.toHaveBeenCalled();
+  });
+
+  it("leaves the ordinary JSON list ungated and unthrottled", async () => {
+    await call("");
+    expect(mockDenyExport).not.toHaveBeenCalled();
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe("audit payload hygiene", () => {
+  it("stores a fingerprint of the search term, never the term itself", async () => {
+    await call("export=csv&q=jane.doe%40pharmaco.com");
+    const filters = mockRecordExport.mock.calls[0][1].filters;
+    // Operators search full email addresses; AuditLog has no prune job and
+    // survives a subject-erasure request, so the raw term must not persist.
+    expect(JSON.stringify(filters)).not.toContain("pharmaco");
+    expect(filters.qLength).toBe("jane.doe@pharmaco.com".length);
+    expect(filters.qFingerprint).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  it("records date-range narrowing so an incremental pull isn't mistaken for a full dump", async () => {
+    await call("export=csv&createdAfter=2026-01-01&updatedBefore=2026-06-30");
+    expect(mockRecordExport.mock.calls[0][1].filters).toMatchObject({
+      createdAfter: "2026-01-01",
+      updatedBefore: "2026-06-30",
+    });
+  });
+});
+
+describe("filter validation", () => {
+  it("rejects a malformed status instead of silently widening the export", async () => {
+    const res = (await call("export=csv&status=CONFIRMD")) as unknown as {
+      status: number; json: () => Promise<{ code: string }>;
+    };
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("INVALID_FILTER");
+    expect(mockRecordExport).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed paymentStatus", async () => {
+    const res = (await call("export=csv&paymentStatus=PIAD")) as unknown as { status: number };
+    expect(res.status).toBe(400);
+  });
+
+  it("escapes LIKE wildcards so the file can't match more rows than the screen", async () => {
+    await call("export=csv&q=50%25");
+    const or = mockDb.registration.findMany.mock.calls[0][0].where.attendee.OR;
+    // `%` must reach Postgres escaped, or ILIKE treats it as match-anything
+    // while the page's String.includes treats it literally.
+    expect(or[0].firstName.contains).toBe("50\\%");
   });
 });

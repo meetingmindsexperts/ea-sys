@@ -26,6 +26,7 @@ vi.mock("@/lib/logger", () => ({
 // crm-route's auth import chain reaches next-auth, which doesn't load under
 // vitest — the gate itself is not under test here, only the redaction.
 vi.mock("@/lib/api-auth", () => ({ getOrgContext: vi.fn() }));
+vi.mock("@/lib/audit-data-transfer", () => ({ recordImport: vi.fn(), recordExport: vi.fn() }));
 import { redactForCaller } from "@/crm/lib/crm-route";
 
 /** A money-blind MEMBER context; redactForCaller only reads role + fromApiKey. */

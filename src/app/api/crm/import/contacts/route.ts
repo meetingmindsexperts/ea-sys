@@ -14,6 +14,7 @@ export async function POST(req: Request) {
   if (error) return error;
 
   return runCrmCsvImport(req, ctx, {
+    auditEntityType: "CrmContact",
     route: "crm/import/contacts:POST",
     schema: crmCsvImportBaseSchema,
     importer: (_data, base) => importFreshsalesContacts(base),

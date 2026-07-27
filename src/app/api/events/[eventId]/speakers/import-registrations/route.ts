@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { refreshEventStats } from "@/lib/event-stats";
 import { getClientIp } from "@/lib/security";
 
@@ -165,6 +166,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventId,
       created: dedupedToCreate.length,
       skipped,
+    });
+
+    recordImport(req, {
+      entityType: "Speaker",
+      eventId,
+      organizationId: orgGuard.orgId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: registrations.length,
+      created: dedupedToCreate.length,
+      skipped,
+      format: "registrations",
     });
 
     return NextResponse.json({ created: dedupedToCreate.length, skipped });

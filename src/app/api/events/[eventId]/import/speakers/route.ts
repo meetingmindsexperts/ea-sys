@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { ensureCompanionsForSpeakerEmails } from "@/lib/speaker-companion";
@@ -105,6 +106,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Import started", importType: "speakers", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
 
     const errors: string[] = [];
+
+    // Unrecognized enum cells are non-fatal (the fields are optional) but must
+
+    // not be SILENT — a mis-typed column would otherwise null every row while
+
+    // reporting a clean import. Counted, then warn-logged once below.
+
+    let unrecognizedRole = 0;
+
+    let unrecognizedTitle = 0;
     const speakers: Prisma.SpeakerCreateManyInput[] = [];
 
     for (let i = 0; i < rows.length; i++) {
@@ -128,7 +139,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (existingEmails.has(email)) {
         continue; // Skip duplicate silently — counted as skipped
       }
-      const title = parseTitle(getField(fields, idx.title));
+      const titleCell = getField(fields, idx.title);
+      const title = parseTitle(titleCell);
+      if (titleCell && !title) unrecognizedTitle++;
+      const roleCell = getField(fields, idx.role);
+      const role = parseAttendeeRole(roleCell);
+      if (roleCell && !role) unrecognizedRole++;
       const statusRaw = getField(fields, idx.status)?.toUpperCase();
       const status = statusRaw && SPEAKER_STATUS_VALUES.has(statusRaw) ? statusRaw : "INVITED";
 
@@ -151,7 +167,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         specialty: getField(fields, idx.specialty) || null,
         // Profession category (Physician, Allied Health, …) — same shared
         // parser + acceptance rules as the registrations/contacts imports.
-        role: parseAttendeeRole(getField(fields, idx.role)),
+        role,
         registrationType: getField(fields, idx.registrationType) || null,
         tags: parseTags(getField(fields, idx.tags)),
         website: getField(fields, idx.website) || null,
@@ -231,6 +247,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (errors.length > 0) {
       apiLogger.warn({ msg: "Import errors", importType: "speakers", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
     }
+
+    if (unrecognizedRole > 0 || unrecognizedTitle > 0) {
+      apiLogger.warn({ msg: "Import unrecognized enum cells", importType: "speakers", source: "csv", eventId, userId: session.user.id, unrecognizedRole, unrecognizedTitle });
+    }
+
+    recordImport(req, {
+      entityType: "Speaker",
+      eventId,
+      organizationId: orgGuard.orgId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: rows.length,
+      created,
+      skipped,
+      errors: errors.length,
+      format: "csv",
+    });
 
     return NextResponse.json({ created, skipped, errors });
   } catch (error) {

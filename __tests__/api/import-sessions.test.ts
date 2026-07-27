@@ -43,6 +43,7 @@ vi.mock("@/lib/security", () => ({
 vi.mock("@/lib/event-access", () => ({ buildEventAccessWhere: () => ({ id: "ev1" }) }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
 vi.mock("@/services/session-service", () => ({ createSession: mockCreateSession }));
+vi.mock("@/lib/audit-data-transfer", () => ({ recordImport: vi.fn() }));
 
 import { POST } from "@/app/api/events/[eventId]/import/sessions/route";
 

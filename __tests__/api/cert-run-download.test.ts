@@ -46,6 +46,7 @@ vi.mock("@/lib/certificates/bundle", () => ({
 vi.mock("@/lib/certificates/pdf-loader", () => ({
   loadCertificatePdfBytes: (url: string, ctx: unknown) => mockLoadPdf(url, ctx),
 }));
+vi.mock("@/lib/audit-data-transfer", () => ({ recordExport: vi.fn() }));
 
 import { GET } from "@/app/api/events/[eventId]/certificates/runs/[runId]/download/route";
 

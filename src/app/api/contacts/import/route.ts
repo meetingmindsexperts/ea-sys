@@ -77,6 +77,16 @@ export async function POST(req: Request) {
     }
 
     const errors: string[] = [];
+
+    // Unrecognized enum cells are non-fatal (the fields are optional) but must
+
+    // not be SILENT — a mis-typed column would otherwise null every row while
+
+    // reporting a clean import. Counted, then warn-logged once below.
+
+    let unrecognizedRole = 0;
+
+    let unrecognizedTitle = 0;
     const contacts: {
       organizationId: string;
       email: string;
@@ -109,12 +119,19 @@ export async function POST(req: Request) {
         continue;
       }
 
+      const titleCell = getField(fields, idx.title);
+      const title = parseTitle(titleCell);
+      if (titleCell && !title) unrecognizedTitle++;
+      const roleCell = getField(fields, idx.role);
+      const role = parseAttendeeRole(roleCell);
+      if (roleCell && !role) unrecognizedRole++;
+
       contacts.push({
         organizationId: ctx.organizationId,
         email,
         // Honorific — the Contact model has carried `title` all along; this
         // importer silently dropped it (same class as the missing `role`).
-        title: parseTitle(getField(fields, idx.title)),
+        title,
         firstName,
         lastName,
         organization: getField(fields, idx.organization),
@@ -122,7 +139,7 @@ export async function POST(req: Request) {
         specialty: getField(fields, idx.specialty),
         // Profession category — shared parser, same acceptance rules as the
         // registrations/speakers imports (was silently dropped here).
-        role: parseAttendeeRole(getField(fields, idx.role)),
+        role,
         bio: getField(fields, idx.bio),
         phone: getField(fields, idx.phone),
         tags: parseTags(getField(fields, idx.tags)),
@@ -150,6 +167,10 @@ export async function POST(req: Request) {
 
     const created = countAfter - countBefore;
     const skipped = contacts.length - created;
+
+    if (unrecognizedRole > 0 || unrecognizedTitle > 0) {
+      apiLogger.warn({ msg: "Import unrecognized enum cells", importType: "contacts", source: "csv", userId: ctx.userId, organizationId: ctx.organizationId, unrecognizedRole, unrecognizedTitle });
+    }
 
     recordImport(req, {
       entityType: "Contact",

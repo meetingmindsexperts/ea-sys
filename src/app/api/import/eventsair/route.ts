@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { decryptSecret, fetchEventDetails } from "@/lib/eventsair-client";
 
@@ -107,6 +108,17 @@ export async function POST(req: Request) {
     });
 
     apiLogger.info({ msg: "Import complete", importType: "event", source: "eventsair", userId: session.user.id, eventsAirEventId: validated.data.eventsAirEventId, alreadyImported: false, eventId: event.id });
+
+    recordImport(req, {
+      entityType: "Event",
+      eventId: event.id,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      role: session.user.role,
+      totalProcessed: 1,
+      created: 1,
+      format: "eventsair",
+    });
 
     return NextResponse.json({ eventId: event.id, alreadyImported: false }, { status: 201 });
   } catch (error) {

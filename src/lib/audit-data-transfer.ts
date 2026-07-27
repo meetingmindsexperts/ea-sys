@@ -33,6 +33,8 @@
  * `@@index([entityType, entityId])` lookup useful — "every export of event E".
  */
 
+import { createHash } from "node:crypto";
+
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
@@ -91,8 +93,14 @@ interface ImportArgs extends TransferScope {
 function scopeEntityId(scope: TransferScope): string {
   if (scope.eventId) return `event:${scope.eventId}`;
   if (scope.organizationId) return `org:${scope.organizationId}`;
-  // Should be unreachable — every caller is scoped. Recorded rather than thrown
-  // so a future caller that forgets still leaves a trail instead of nothing.
+  // Should be unreachable — every caller is scoped. We still record the row
+  // (a future caller that forgets should leave *something* rather than nothing)
+  // but this module's whole thesis is that gaps must be visible, so an
+  // unscoped row is loud rather than a quiet magic string nobody notices.
+  apiLogger.warn({
+    msg: "audit-transfer:unscoped-row",
+    hint: "recordExport/recordImport called with neither eventId nor organizationId",
+  });
   return "unscoped";
 }
 
@@ -182,4 +190,24 @@ export function recordImport(req: Request | null, args: ImportArgs): void {
         organizationId: args.organizationId ?? null,
       }),
     );
+}
+
+/**
+ * A stable, non-reversible fingerprint of a free-text search term, for audit
+ * rows.
+ *
+ * WHY NOT STORE THE TERM: operators search full names and email addresses, so
+ * `changes.filters.q` would accumulate attendee identifiers indefinitely.
+ * `AuditLog` has no prune job (unlike `EmailLog.htmlBody`, which got a 180-day
+ * pruner for exactly this reason) and its rows survive the subject's
+ * `Registration`/`Attendee`/`Contact` being deleted — so a subject-erasure
+ * request could not reach it. Storing a digest keeps the two things the audit
+ * actually needs (was this pull targeted, and were repeated pulls the same
+ * search?) without persisting the identifier.
+ *
+ * Truncated to 12 hex chars: enough to correlate, far too short to attack.
+ * Not a security boundary — it is data minimization.
+ */
+export function fingerprintSearchTerm(term: string): string {
+  return createHash("sha256").update(term.trim().toLowerCase()).digest("hex").slice(0, 12);
 }

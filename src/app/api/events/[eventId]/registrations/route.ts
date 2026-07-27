@@ -6,7 +6,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { normalizeTag } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
-import { parseDateRangeFilters } from "@/lib/date-range-filter";
+import { parseDateRangeFilters, dateRangeAuditFilters } from "@/lib/date-range-filter";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -17,14 +17,16 @@ import {
   readRegistrationBasePrice,
 } from "@/lib/registration-financials";
 import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibility";
-import { getClientIp } from "@/lib/security";
+import { denyRegistrationExport } from "@/lib/registration-export-visibility";
+import { rateLimited } from "@/lib/api-errors";
+import { getClientIp, checkRateLimit } from "@/lib/security";
 import { toCsvRow } from "@/lib/csv-escape";
 import {
   REGISTRATION_EXPORT_HEADERS,
   buildRegistrationExportRow,
   type RegistrationExportRow,
 } from "@/lib/registration-export";
-import { recordExport } from "@/lib/audit-data-transfer";
+import { recordExport, fingerprintSearchTerm } from "@/lib/audit-data-transfer";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
   createRegistration,
@@ -138,10 +140,66 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const { searchParams } = new URL(req.url);
+
+    // ── Export pre-flight ─────────────────────────────────────────────────
+    // Resolved BEFORE the query so a refused export doesn't first run an
+    // unbounded findMany + per-row financials on the box that also serves the
+    // door scanner.
+    const wantsCsv = searchParams.get("export") === "csv";
+    if (wantsCsv) {
+      // Export is a NARROWER boundary than read: a MEMBER may page through the
+      // list on screen but may not take the whole book away as a file. See
+      // registration-export-visibility.ts for why this isn't `canViewFinance`
+      // or `canViewEntryBarcode`.
+      const exportDenied = denyRegistrationExport({
+        role: orgCtx.role,
+        userId: orgCtx.userId,
+        organizationId: orgCtx.organizationId,
+        eventId,
+        fromApiKey: orgCtx.role === null,
+      });
+      if (exportDenied) return exportDenied;
+
+      // A bulk PII pull gets its own budget, matching the contacts export.
+      const rl = checkRateLimit({
+        key: `registrations-export:${eventId}:${orgCtx.userId ?? orgCtx.organizationId}`,
+        limit: 10,
+        windowMs: 60 * 60 * 1000,
+      });
+      if (!rl.allowed) {
+        return rateLimited(rl, {
+          route: "registrations-export",
+          limit: 10,
+          windowSeconds: 3600,
+          eventId,
+          userId: orgCtx.userId,
+        });
+      }
+    }
+
     const statusParam = searchParams.get("status");
     const paymentStatusParam = searchParams.get("paymentStatus");
     const parsedStatus = statusParam ? registrationStatusSchema.safeParse(statusParam) : null;
     const parsedPaymentStatus = paymentStatusParam ? paymentStatusSchema.safeParse(paymentStatusParam) : null;
+    // An unparseable filter value must NOT silently vanish — dropping the
+    // predicate WIDENS the result set, and on the export path that means a
+    // typo'd `status=CONFIRMD` returns the whole attendee book as a file
+    // instead of the intended subset. Reject it, exactly as the date-range
+    // filters below do (`INVALID_DATE_FILTER`).
+    if (statusParam && !parsedStatus?.success) {
+      apiLogger.warn({ msg: "events/registrations:invalid-status-filter", eventId, value: statusParam });
+      return NextResponse.json(
+        { error: `Invalid status filter: "${statusParam}"`, code: "INVALID_FILTER" },
+        { status: 400 },
+      );
+    }
+    if (paymentStatusParam && !parsedPaymentStatus?.success) {
+      apiLogger.warn({ msg: "events/registrations:invalid-payment-status-filter", eventId, value: paymentStatusParam });
+      return NextResponse.json(
+        { error: `Invalid paymentStatus filter: "${paymentStatusParam}"`, code: "INVALID_FILTER" },
+        { status: 400 },
+      );
+    }
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
     const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
     const ticketTypeId = searchParams.get("ticketTypeId");
@@ -153,15 +211,21 @@ export async function GET(req: Request, { params }: RouteParams) {
     // additive: absent `q` leaves the `where` untouched.
     const qRaw = searchParams.get("q");
     const q = qRaw && qRaw.trim().length > 0 ? qRaw.trim().slice(0, 200) : null;
+    // Prisma does NOT escape `%` / `_` inside `contains` — the value lands in an
+    // ILIKE pattern. The page's own client-side filter uses plain
+    // String.includes, which treats them literally, so an unescaped `%` would
+    // make the FILE match more rows than the SCREEN (the export's whole premise
+    // is that they agree). Backslash is Postgres LIKE's default escape char.
+    const qPattern = q?.replace(/[\\%_]/g, (c) => `\\${c}`) ?? null;
     // Attendee-level fragment only — merged with the tag filter below, since
     // both constrain the same nested relation.
-    const searchAttendeeWhere = q
+    const searchAttendeeWhere = qPattern
       ? {
           OR: [
-            { firstName: { contains: q, mode: "insensitive" as const } },
-            { lastName: { contains: q, mode: "insensitive" as const } },
-            { email: { contains: q, mode: "insensitive" as const } },
-            { organization: { contains: q, mode: "insensitive" as const } },
+            { firstName: { contains: qPattern, mode: "insensitive" as const } },
+            { lastName: { contains: qPattern, mode: "insensitive" as const } },
+            { email: { contains: qPattern, mode: "insensitive" as const } },
+            { organization: { contains: qPattern, mode: "insensitive" as const } },
           ],
         }
       : {};
@@ -446,7 +510,16 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(paymentStatus ? { paymentStatus } : {}),
           ...(ticketTypeId ? { ticketTypeId } : {}),
           ...(tagsFilter.length > 0 ? { tags: tagsFilter } : {}),
-          ...(q ? { q } : {}),
+          // The raw search term is NOT stored. Operators search full names and
+          // email addresses, and `AuditLog` has no prune job and survives a
+          // subject-erasure request — so persisting it forever would re-create
+          // the PII we just deleted elsewhere. The fingerprint still answers
+          // "was this targeted or a full dump?" and still correlates repeated
+          // identical searches.
+          ...(q ? { qLength: q.length, qFingerprint: fingerprintSearchTerm(q) } : {}),
+          // Incremental-sync callers narrow by date; without this an
+          // `?export=csv&createdAfter=…` pull looks like an unfiltered dump.
+          ...dateRangeAuditFilters(searchParams),
         },
       });
 

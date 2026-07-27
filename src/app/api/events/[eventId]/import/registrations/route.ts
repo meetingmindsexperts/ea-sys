@@ -145,6 +145,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Import started", importType: "registrations", source: "csv", eventId, userId: session.user.id, rowCount: rows.length });
 
     const errors: string[] = [];
+
+    // Unrecognized enum cells are non-fatal (the fields are optional) but must
+
+    // not be SILENT — a mis-typed column would otherwise null every row while
+
+    // reporting a clean import. Counted, then warn-logged once below.
+
+    let unrecognizedRole = 0;
+
+    let unrecognizedTitle = 0;
     const createdIds: string[] = [];
     let created = 0;
     let skipped = 0;
@@ -187,10 +197,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         errors.push(`Row ${rowNum}: invalid email "${email}"`);
         continue;
       }
-      const title = parseTitle(getField(fields, idx.title));
+      const titleCell = getField(fields, idx.title);
+      const title = parseTitle(titleCell);
+      if (titleCell && !title) unrecognizedTitle++;
       // "Role" is the AttendeeRole profession category (Physician, Academia, …).
       // Shared parser — same acceptance rules as the speakers/contacts imports.
-      const role = parseAttendeeRole(getField(fields, idx.role));
+      const roleCell = getField(fields, idx.role);
+      const role = parseAttendeeRole(roleCell);
+      if (roleCell && !role) unrecognizedRole++;
       const registrationType = getField(fields, idx.registrationType);
       const tags = parseTags(getField(fields, idx.tags));
 
@@ -424,6 +438,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Import complete", importType: "registrations", source: "csv", eventId, userId: session.user.id, created, skipped, errorCount: errors.length });
     if (errors.length > 0) {
       apiLogger.warn({ msg: "Import errors", importType: "registrations", source: "csv", eventId, userId: session.user.id, errors: errors.slice(0, 50) });
+    }
+
+    if (unrecognizedRole > 0 || unrecognizedTitle > 0) {
+      apiLogger.warn({ msg: "Import unrecognized enum cells", importType: "registrations", source: "csv", eventId, userId: session.user.id, unrecognizedRole, unrecognizedTitle });
     }
 
     recordImport(req, {

@@ -93,6 +93,13 @@ export async function GET(req: Request, { params }: RouteParams) {
         format: "csv",
         filters: { includeFinance },
       });
+      apiLogger.info({
+        msg: "analytics-export:completed",
+        eventId,
+        userId: session.user.id,
+        role: session.user.role,
+        includeFinance,
+      });
       return new NextResponse(toCsv(analytics), {
         status: 200,
         headers: {
@@ -130,6 +137,13 @@ export async function GET(req: Request, { params }: RouteParams) {
         role: session.user.role,
         rowCount: analytics.checkIn.log.length,
         format: "csv",
+      });
+      apiLogger.info({
+        msg: "checkin-log-export:completed",
+        eventId,
+        userId: session.user.id,
+        role: session.user.role,
+        rowCount: analytics.checkIn.log.length,
       });
       return new NextResponse(lines.join("\n"), {
         status: 200,
