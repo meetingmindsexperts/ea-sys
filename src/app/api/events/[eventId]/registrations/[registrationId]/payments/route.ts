@@ -7,6 +7,7 @@ import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 import { computeRegistrationFinancials, readRegistrationBasePrice } from "@/lib/registration-financials";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -430,18 +431,24 @@ export async function POST(req: Request, { params }: RouteParams) {
           data.bankReference ||
           (data.method === "card_onsite" && data.cardLast4 ? `Card ending ${data.cardLast4}` : undefined) ||
           (data.method === "cash" ? `Cash — received by ${data.cashReceivedBy ?? "organizer"}` : undefined);
-        const { invoice } = await issuePaidRegistrationDocuments({
-          registrationId: registrationId!,
-          eventId,
-          organizationId: event.organizationId,
-          paymentId: payment.id,
-          paymentMethod: data.method,
-          paymentReference,
-          paidAt: paidAtDate,
-          amount: Number(payment.amount),
-          currency: payment.currency,
-          receiptUrl: null,
-        });
+        // Capture the non-null narrowing in consts — the `let` eventId /
+        // registrationId lose it inside the deferred runWithTenant closure.
+        const regId = registrationId!;
+        const evtId = eventId!;
+        const { invoice } = await runWithTenant(event.organizationId, () =>
+          issuePaidRegistrationDocuments({
+            registrationId: regId,
+            eventId: evtId,
+            organizationId: event.organizationId,
+            paymentId: payment.id,
+            paymentMethod: data.method,
+            paymentReference,
+            paidAt: paidAtDate,
+            amount: Number(payment.amount),
+            currency: payment.currency,
+            receiptUrl: null,
+          }),
+        );
         invoiceId = invoice.id;
       } catch (err) {
         apiLogger.error({

@@ -5,6 +5,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
@@ -87,7 +88,13 @@ export async function issueCreditNoteForRegistration(input: IssueCreditNoteInput
 
     let cn, creditedAfter: number, paidTotal: number;
     try {
-      const res = await createCreditNote({ registrationId, eventId, organizationId, reason, amount });
+      // Invoice write (createCreditNote uses tenantTransaction internally) rides
+      // the caller's tenant lane on the platform — inert on master. This wrap is
+      // the invoice-write boundary; payment-service's full sweep comes with the
+      // Payment domain (its Payment/Registration txns stay plain $transaction).
+      const res = await runWithTenant(organizationId, () =>
+        createCreditNote({ registrationId, eventId, organizationId, reason, amount }),
+      );
       cn = res.invoice;
       creditedAfter = res.creditedAfter;
       paidTotal = res.paidTotal;
@@ -100,7 +107,7 @@ export async function issueCreditNoteForRegistration(input: IssueCreditNoteInput
     }
 
     if (send) {
-      await sendInvoiceEmail(cn.id).catch((err) =>
+      await runWithTenant(organizationId, () => sendInvoiceEmail(cn.id)).catch((err) =>
         apiLogger.error({ err, msg: "credit-note:send-failed", creditNoteId: cn.id, registrationId }),
       );
     }

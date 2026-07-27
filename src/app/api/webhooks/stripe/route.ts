@@ -7,6 +7,7 @@ import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 import { issueCreditNoteForRegistration } from "@/services/payment-service";
+import { runWithTenant } from "@/lib/tenant-context";
 import { refreshEventStats } from "@/lib/event-stats";
 import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import { captureStripeReceipt } from "@/lib/stripe-receipt";
@@ -304,18 +305,23 @@ export async function POST(req: Request) {
             select: { id: true },
           });
           if (payment) {
-            await issuePaidRegistrationDocuments({
-              registrationId,
-              eventId: registration.event.id,
-              organizationId: registration.event.organizationId,
-              paymentId: payment.id,
-              paymentMethod: paymentMethodType || "card",
-              paymentReference: paymentIntentId || undefined,
-              paidAt: paidAt ?? undefined,
-              amount,
-              currency,
-              receiptUrl,
-            });
+            // Invoice writes ride the tenant lane on the platform (inert on
+            // master). Narrow wrap: only the invoice-document fan-out — the
+            // surrounding Payment writes belong to the Payment domain's sweep.
+            await runWithTenant(registration.event.organizationId, () =>
+              issuePaidRegistrationDocuments({
+                registrationId,
+                eventId: registration.event.id,
+                organizationId: registration.event.organizationId,
+                paymentId: payment.id,
+                paymentMethod: paymentMethodType || "card",
+                paymentReference: paymentIntentId || undefined,
+                paidAt: paidAt ?? undefined,
+                amount,
+                currency,
+                receiptUrl,
+              }),
+            );
 
             // Store a durable local snapshot of Stripe's hosted receipt so it
             // survives if the Stripe URL ever breaks. Isolated try/catch — a

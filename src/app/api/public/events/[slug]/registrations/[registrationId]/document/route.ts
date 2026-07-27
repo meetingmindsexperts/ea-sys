@@ -4,6 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { buildQuotePDFFromRegistration } from "@/lib/quote-pdf";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 
 interface RouteParams {
@@ -71,6 +72,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           select: {
             name: true,
             code: true,
+            organizationId: true,
             startDate: true,
             venue: true,
             city: true,
@@ -106,25 +108,31 @@ export async function GET(req: Request, { params }: RouteParams) {
     // payer an unpaid-looking SENT document when a PAID one existed. Pick in
     // JS instead: PAID first (newest), else the newest non-CANCELLED row —
     // a CANCELLED-only invoice falls through to the quote below.
-    const invoiceRows = await db.invoice.findMany({
-      where: {
-        registrationId,
-        type: "INVOICE",
-        status: { not: "CANCELLED" },
-      },
-      orderBy: { createdAt: "desc" },
-      select: { id: true, invoiceNumber: true, status: true },
-      take: 10,
-    });
-    const invoice = invoiceRows.find((r) => r.status === "PAID") ?? invoiceRows[0] ?? null;
-
-    if (invoice) {
+    // The Invoice reads + PDF ride the tenant lane on the platform (inert on
+    // master); org resolved from the slug-scoped registration lookup above.
+    const invoiceDoc = await runWithTenant(registration.event.organizationId, async () => {
+      const invoiceRows = await db.invoice.findMany({
+        where: {
+          registrationId,
+          type: "INVOICE",
+          status: { not: "CANCELLED" },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true, invoiceNumber: true, status: true },
+        take: 10,
+      });
+      const invoice = invoiceRows.find((r) => r.status === "PAID") ?? invoiceRows[0] ?? null;
+      if (!invoice) return null;
       const pdfBuffer = await generatePDFForInvoice(invoice.id);
-      return new NextResponse(new Uint8Array(pdfBuffer), {
+      return { pdfBuffer, invoiceNumber: invoice.invoiceNumber };
+    });
+
+    if (invoiceDoc) {
+      return new NextResponse(new Uint8Array(invoiceDoc.pdfBuffer), {
         status: 200,
         headers: {
           "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename="invoice-${invoice.invoiceNumber}.pdf"`,
+          "Content-Disposition": `attachment; filename="invoice-${invoiceDoc.invoiceNumber}.pdf"`,
           "Cache-Control": "private, max-age=0",
         },
       });

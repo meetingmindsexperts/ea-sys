@@ -22,6 +22,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { issuePaidRegistrationDocuments, InvoiceVoidedError } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 
 // Bounded look-back so the scan stays cheap. A dropped invoice is reconciled
 // within one cron cadence of the payment, far inside this window; older gaps
@@ -94,18 +95,21 @@ export async function runInvoiceReconciliationTick(): Promise<InvoiceReconciliat
     if (!payment) continue; // defensive — the `where` guarantees one
 
     try {
-      const { invoice, receipt } = await issuePaidRegistrationDocuments({
-        registrationId: reg.id,
-        eventId: reg.eventId,
-        organizationId: reg.event.organizationId,
-        paymentId: payment.id,
-        paymentMethod: payment.paymentMethodType || "card",
-        paymentReference: payment.stripePaymentId || undefined,
-        paidAt: payment.paidAt ?? undefined,
-        amount: Number(payment.amount),
-        currency: payment.currency,
-        receiptUrl: payment.receiptUrl,
-      });
+      // Per-row org is known — bind the invoice fan-out to its tenant lane.
+      const { invoice, receipt } = await runWithTenant(reg.event.organizationId, () =>
+        issuePaidRegistrationDocuments({
+          registrationId: reg.id,
+          eventId: reg.eventId,
+          organizationId: reg.event.organizationId,
+          paymentId: payment.id,
+          paymentMethod: payment.paymentMethodType || "card",
+          paymentReference: payment.stripePaymentId || undefined,
+          paidAt: payment.paidAt ?? undefined,
+          amount: Number(payment.amount),
+          currency: payment.currency,
+          receiptUrl: payment.receiptUrl,
+        }),
+      );
       reconciled++;
       apiLogger.info({
         msg: "invoice-reconciliation:recovered",

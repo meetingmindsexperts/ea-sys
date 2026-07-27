@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { issuePaidRegistrationDocuments, InvoiceVoidedError } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -77,18 +78,20 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    const { invoice, receipt } = await issuePaidRegistrationDocuments({
-      registrationId,
-      eventId,
-      organizationId: event.organizationId,
-      paymentId: payment.id,
-      paymentMethod: payment.paymentMethodType || "card",
-      paymentReference: payment.stripePaymentId || undefined,
-      paidAt: payment.paidAt ?? undefined,
-      amount: Number(payment.amount),
-      currency: payment.currency,
-      receiptUrl: payment.receiptUrl,
-    });
+    const { invoice, receipt } = await runWithTenant(event.organizationId, () =>
+      issuePaidRegistrationDocuments({
+        registrationId,
+        eventId,
+        organizationId: event.organizationId,
+        paymentId: payment.id,
+        paymentMethod: payment.paymentMethodType || "card",
+        paymentReference: payment.stripePaymentId || undefined,
+        paidAt: payment.paidAt ?? undefined,
+        amount: Number(payment.amount),
+        currency: payment.currency,
+        receiptUrl: payment.receiptUrl,
+      }),
+    );
 
     apiLogger.info({
       msg: "registration-documents:resent",
