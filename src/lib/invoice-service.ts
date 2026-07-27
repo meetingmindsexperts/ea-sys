@@ -16,6 +16,16 @@ import {
 } from "@/lib/payment-confirmation-email";
 import type { Invoice } from "@prisma/client";
 
+// ── Tenancy invariant (Phase-2 Invoice sweep) ───────────────────────────────
+// The by-id writes here compound-where on `{ id, organizationId }` (defence
+// #1). They rely on the create-time invariant that `Invoice.organizationId`
+// always equals the invoice's `event.organizationId` — true by construction on
+// every create path (the column has existed, non-null, since the table's
+// creation migration; there is no later add-column+backfill that could drift
+// it). If a FUTURE data migration ever writes `Invoice.organizationId` from
+// anything other than the event org, these `update`s would P2025 on a money
+// path — keep that invariant intact.
+
 // ── Shared query for building PDF data ──────────────────────────────────────
 
 const registrationInclude = {
