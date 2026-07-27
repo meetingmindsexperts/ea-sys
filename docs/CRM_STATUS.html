@@ -107,7 +107,7 @@
 <h1>CRM — Build Status</h1>
 <p class="sub">
   What is built, what is wired to the rest of EA-SYS, and what is not.<br>
-  <span class="stamp">Last updated: <b>23 July 2026</b> (email inbox — tokenized reply capture + shared Inbox tab; quote generation; deal documents; contact enrichment/ownership; inline editing ×3; multi-tenant prep) · HEAD <code>WORKING</code> ·
+  <span class="stamp">Last updated: <b>27 July 2026</b> (UI pass — CRM Home/Overview landing; org-wide Activity view + CSV export filterable by user &amp; timeframe; URL-backed filters + sortable columns on Companies &amp; Contacts) · prev 23 Jul (email inbox; quote generation; deal documents; contact enrichment/ownership; inline editing ×3; multi-tenant prep) · HEAD <code>WORKING</code> ·
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
@@ -179,12 +179,12 @@
     <tr>
       <td>REST API</td>
       <td><span class="tag done">DONE</span></td>
-      <td>15 endpoints, all gated (drift-tested), all writes rate-limited + audited.</td>
+      <td>17 endpoints (Jul 27 added the org-wide activity <code>feed</code> + <code>export</code>), all gated (drift-tested), all writes rate-limited + audited.</td>
     </tr>
     <tr>
       <td>UI</td>
       <td><span class="tag part">PARTIAL</span></td>
-      <td>Board, companies, contacts, tasks, deal detail. <b>Several APIs have no UI</b> — see §4.</td>
+      <td><b>Home/Overview</b> (Jul 27) · board · companies · contacts · tasks · inbox · reports · <b>Activity</b> (Jul 27) · products · templates · record pages. <b>Some APIs still have no UI</b> — see §4.</td>
     </tr>
     <tr>
       <td>Reports &amp; export</td>
@@ -192,9 +192,14 @@
       <td>Reports tab: pipeline-by-stage, win/loss + win rate, per-rep leaderboard — all honouring the board filters. CSV export of the filtered deal list. <b>Finance-gated:</b> MEMBER sees counts + win rate but values render "—", and the CSV omits value columns entirely (server-enforced, not just UI).</td>
     </tr>
     <tr>
+      <td>Activity log</td>
+      <td><span class="tag done">DONE Jul 27</span></td>
+      <td>Per-record History on every deal/company/contact <b>+ an org-wide Activity tab</b> filterable by user (actor), timeframe, entity type &amp; action, with a <b>CSV export</b>. Money + prose redacted end to end (export redacts before building the summary). <b>Retention/auto-archive not built</b> (owner decision: skip for now).</td>
+    </tr>
+    <tr>
       <td>Filters</td>
       <td><span class="tag done">DONE</span></td>
-      <td>Board: sales rep · status · date range (expected-close / created / closed) · value range (staff-only) · event. Tasks: rep · due range. Contacts: lifecycle · company. Companies: industry · needs-review. Board + task filters live in the URL (shareable). <b>Value filter is finance-gated in the SERVER</b> — a MEMBER's <code>?min=</code> is ignored so a redacted value can't be binary-searched.</td>
+      <td>Board: sales rep · status · date range (expected-close / created / closed) · value range (staff-only) · event. Tasks: rep · due range. Contacts: lifecycle · company · status · owner. Companies: industry · needs-review. Activity: actor · timeframe · entity type · action. <b>All list + board filters now live in the URL</b> (shareable/back-safe — Companies + Contacts moved off local state Jul 27); Companies + Contacts tables are sortable (aria-sort). <b>Value filter is finance-gated in the SERVER</b> — a MEMBER's <code>?min=</code> is ignored so a redacted value can't be binary-searched.</td>
     </tr>
     <tr>
       <td>Reminder worker</td>
@@ -495,6 +500,18 @@ exactly which of those exist today.</p>
     <li><b>Outbound From:</b> CRM emails send From a dedicated <code>Partnerships &lt;partnerships@meetingmindsdubai.com&gt;</code> identity (env <code>CRM_EMAIL_FROM_NAME/ADDRESS</code> → <code>crmSenderFrom()</code>), not the platform default. SES-verified (email identity); Reply-To stays the tokenized inbox address. Domain-DKIM upgrade recommended for outreach deliverability.</li>
     <li><b>LIVE pipeline (Jul 24):</b> configured on prod per <a href="CRM_INBOX_SETUP.md">docs/CRM_INBOX_SETUP.md</a> — reply domain <code>reply.meetingmindsexperts.com</code>, S3 bucket <code>ea-sys-crm-inbound</code> (ap-south-1), active SES receipt rule <code>crm-reply-to-s3</code>, IAM <code>CrmInboundEmailS3</code>, 3 env vars + deploy. No SES identity needed (receiving = MX + active rule only). M365 mailboxes untouched. Known v1 limitation: replies don't set RFC threading headers (clients group by subject).</li>
   </ul>
+</details>
+
+<details open>
+  <summary>July 27 UI pass — Home/Overview, org-wide Activity view + export, filter consistency <span class="tag done">DONE — Jul 27</span></summary>
+  <ul>
+    <li><b>CRM Home / Overview (new first tab).</b> <code>/crm</code> used to redirect straight to the raw board; it now lands on an action-oriented "what needs me today" page: a KPI strip (open pipeline · deals needing attention · overdue tasks · unread replies — or win-rate when the caller has no inbox access), a <b>Deals needing attention</b> panel (OPEN deals overdue or closing ≤7 days), <b>My tasks</b> (overdue surfaced first), and a <b>Recent for you</b> feed. Built ENTIRELY on existing endpoints (report / tasks / deals / inbox / notifications) — <b>no new server surface</b>. Finance-gated (money "—" for MEMBER, never a fake 0); the inbox KPI is staff-gated. The Home tab is matched EXACTLY (<code>/crm</code>) so it doesn't light up for every sub-route.</li>
+    <li><b>Org-wide Activity view + CSV export (the Activity tab, <code>/crm/activity</code>).</b> The change log (<code>CrmActivity</code>) was only readable one record at a time (the per-record History needed an entityId). Now the whole org's history is filterable by <b>user (actor), timeframe (date range), entity type and action</b>, cursor-paged ("Load older"), with a <b>CSV export</b> honouring the active filters. Read-gated (same readers as per-record history) and <b>money + prose redacted end to end</b> — the export redacts BEFORE building the Summary column, so a MEMBER's CSV can't leak a value or a prose channel; cells formula-injection-escaped; export rate-limited 30/hr/org. Shared query layer (<code>buildOrgActivityWhere</code> / <code>parseOrgActivityFilters</code> / <code>listOrgCrmActivity</code> / <code>…ForExport</code>) + a client-safe <code>formatActivityChangeSummary</code>, both used by the feed AND the export so a filter/summary can't drift. <b>No schema change</b> — the <code>(organizationId, createdAt)</code> index already existed; this was a missing read surface, not a data problem.</li>
+    <li><b>Retention / auto-archive deliberately NOT built</b> (owner decision Jul 27: skip for now). The activity table grows unbounded, which is fine at current volume; the design (delete-after-N vs archive-to-cold table) is written up for whenever it's wanted.</li>
+    <li><b>Filter consistency + sortable columns on Companies &amp; Contacts.</b> Both lists moved from local React state to <b>URL-backed filters</b> (<code>useCrmFilters</code>) like the board/reports/tasks — so a filtered/sorted view is shareable, bookmarkable and back-safe; each page wrapped in a Suspense boundary. Added <b>sortable column headers</b> (shared <code>sortable-th.tsx</code>) with <code>aria-sort</code> (WCAG): Name/Contacts/Deals on Companies, Name/Score/Deals on Contacts. Sort is offered ONLY on unambiguous columns — never a cross-currency "deal value".</li>
+    <li><b>Gated + shipped as three separate commits</b> (each tsc + lint + vitest + build, only-my-files, CI-idle-checked): Home, filter-consistency, Activity view+export. +14 unit tests (activity param-parse / where-builder / summary formatter incl. the redact-then-summarize safety).</li>
+  </ul>
+  <p class="why">This was a UI-improvement pass, not new domain surface — the honest starting point is that the CRM was already at (or above) the professional bar; these three were the real gaps (no home, filters that couldn't be shared/survive a refresh, unsortable tables, and a change log you couldn't view org-wide or export).</p>
 </details>
 
 <h2>6. What is PENDING</h2>

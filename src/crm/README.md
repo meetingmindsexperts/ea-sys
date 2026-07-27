@@ -96,13 +96,17 @@ src/crm/
     use-crm-api.ts      all React Query hooks (queries + mutations)
   components/           deal-board, *-detail-body (the record pages' content), create/edit/email dialogs,
                         record-layout.tsx (RecordHeader/RecordGrid/RecordCard/Facts — the shared record-page shell),
+                        crm-overview.tsx (the Home/landing page's content), sortable-th.tsx (shared sortable header),
                         crm-activity-timeline, crm-load-error, event/company comboboxes, filters/
   agent-tools.ts        the CRM's MCP tool registrations (imported ONLY by the exempted register-mcp-tools.ts)
   reminders-worker.ts   the CRM task-reminder tick (runTick)
 
 src/app/api/crm/*                REST surface — deals/companies/contacts/tasks/notes/pipeline-stages
-                                 + activity, reps, events-lite, reports, sponsor-email/{recipients,send}
-src/app/(dashboard)/crm/*        tabbed shell + list pages + RECORD PAGES /{deals,companies,contacts}/[id]
+                                 + activity (per-record) + activity/{feed,export} (org-wide + CSV),
+                                 reps, events-lite, reports, sponsor-email/{recipients,send}
+src/app/(dashboard)/crm/*        tabbed shell (Home · Deals · Companies · Contacts · Inbox · Tasks · Reports
+                                 · Activity · Products · Templates) + Home (page.tsx → crm-overview) + list pages
+                                 + RECORD PAGES /{deals,companies,contacts}/[id]
 scripts/reconcile-crm-pipeline.ts  one-off: bring an org's pipeline to the current stage list
 worker/jobs/crm-reminders.ts     the cron shim that calls reminders-worker
 prisma/schema.prisma             the Crm* models
@@ -373,6 +377,37 @@ tools**, the `Contact.organization → CrmCompany` backfill, the won-deal →
 `Event.settings.sponsors[]` handoff, and the **Week-4 adversarial review** — which,
 given that three separate guards (the build, a drift test, and an owner review) each
 caught things during the build, should be treated as required, not a formality.
+
+**Shipped surfaces (July 27 session — UI improvement pass).**
+
+- **CRM Home / Overview** (`/crm` → `crm-overview.tsx`; new first tab). `/crm` used to
+  redirect straight to the board; it now lands on an action-oriented "what needs me today"
+  page: a KPI strip (open pipeline · deals needing attention · overdue tasks · unread
+  replies, or win-rate when the caller has no inbox access), a "deals needing attention"
+  panel (OPEN deals overdue or closing ≤7 days), "my tasks" (overdue first), and a
+  "recent for you" feed. Built ENTIRELY on existing endpoints (report/tasks/deals/inbox/
+  notifications — no new server surface); finance-gated (money "—" for MEMBER); inbox KPI
+  staff-gated. The Home tab is matched EXACTLY (`/crm`) so it doesn't light up for every
+  sub-route.
+- **Org-wide Activity view + CSV export** (the **Activity** tab, `/crm/activity`). The change
+  log (`CrmActivity`) was only readable one record at a time; now the whole org's history is
+  filterable by **user (actor), timeframe (date range), entity type and action**, cursor-paged
+  ("Load older"), with a **CSV export** honouring the active filters. Shared query layer in
+  `crm-activity.ts` (`buildOrgActivityWhere` / `parseOrgActivityFilters` / `listOrgCrmActivity`
+  / `…ForExport`) + a client-safe `formatActivityChangeSummary` in `crm-types.ts`, both used by
+  the feed AND the export so a filter/summary can't drift. Read-gated (same readers as per-record
+  history) and money+prose-redacted end to end — the export redacts BEFORE building the Summary
+  column, so a MEMBER's CSV can't leak a value or a prose channel; cells formula-injection-escaped;
+  export rate-limited 30/hr/org. **No schema change** (the `(organizationId, createdAt)` index
+  already existed — this was a missing read surface, not a data problem). **Retention/auto-archive
+  deliberately NOT built** (owner decision: skip for now — the table grows unbounded, fine at
+  current volume).
+- **Filter consistency + sortable columns on Companies & Contacts.** Both lists moved from local
+  React state to **URL-backed filters** (`useCrmFilters`) like the board/reports/tasks, so a
+  filtered/sorted view is shareable, bookmarkable and back-safe; each page wrapped in a Suspense
+  boundary. Added **sortable column headers** (shared `sortable-th.tsx`) with `aria-sort` (WCAG):
+  Name/Contacts/Deals on Companies, Name/Score/Deals on Contacts. Sort is offered ONLY on
+  unambiguous columns — never a cross-currency "deal value".
 
 **Shipped surfaces (July 15 session).**
 
