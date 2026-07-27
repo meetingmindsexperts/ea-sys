@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { deleteMedia } from "@/lib/storage";
 import { findMediaReferences, mediaInUseMessage } from "@/lib/media-references";
+import { runWithTenant } from "@/lib/tenant-context";
 
 type RouteParams = { params: Promise<{ mediaId: string }> };
 
@@ -18,12 +20,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const mediaFile = await db.mediaFile.findFirst({
-      where: { id: mediaId, organizationId: session.user.organizationId! },
+      where: { id: mediaId, organizationId: orgGuard.orgId },
       select: { id: true, url: true, filename: true },
     });
 
@@ -34,7 +39,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Refuse while anything still references the URL — deleting removes the
     // file from disk, so a referenced image becomes a permanent 404 in every
     // email/page that carries it (the July 23 dangling-emailFooterImage bug).
-    const references = await findMediaReferences(mediaFile.url, session.user.organizationId!);
+    const references = await findMediaReferences(mediaFile.url, orgGuard.orgId);
     if (references.length > 0) {
       apiLogger.warn({
         msg: "media:delete-refused-in-use",
@@ -54,12 +59,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       deleteMedia(mediaFile.url).catch((err) => {
         apiLogger.warn({ msg: "Failed to delete media file from storage", mediaId, url: mediaFile.url, err: err instanceof Error ? err.message : String(err) });
       }),
-      db.mediaFile.delete({ where: { id: mediaId } }),
+      // Compound-where org-binds the delete (defence #1) — the previously
+      // findFirst-only gap this sweep closes.
+      db.mediaFile.delete({ where: { id: mediaId, organizationId: orgGuard.orgId } }),
     ]);
 
     apiLogger.info({ msg: "Media file deleted", mediaId, filename: mediaFile.filename, userId: session.user.id });
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting media file" });
     return NextResponse.json({ error: "Failed to delete media file" }, { status: 500 });

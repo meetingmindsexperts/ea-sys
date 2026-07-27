@@ -8,6 +8,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { uploadMedia, deleteMedia, storageProvider } from "@/lib/storage";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -53,6 +54,7 @@ export async function GET(
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, ...buildEventAccessWhere(session.user) },
       select: { id: true },
@@ -88,6 +90,7 @@ export async function GET(
     ]);
 
     return NextResponse.json({ mediaFiles, total, page, limit });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching event media files" });
     return NextResponse.json({ error: "Failed to fetch media files" }, { status: 500 });
@@ -111,6 +114,7 @@ export async function POST(
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, formData] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, ...buildEventAccessWhere(session.user) },
@@ -193,6 +197,7 @@ export async function POST(
     apiLogger.info({ msg: "Event media file uploaded", mediaId: mediaFile.id, eventId, url, storageProvider, userId: session.user.id });
 
     return NextResponse.json(mediaFile, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Event media upload failed" });
     return NextResponse.json({ error: "Failed to upload media file" }, { status: 500 });

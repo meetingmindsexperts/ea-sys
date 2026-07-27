@@ -7,6 +7,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { deleteMedia } from "@/lib/storage";
 import { findMediaReferences, mediaInUseMessage } from "@/lib/media-references";
+import { runWithTenant } from "@/lib/tenant-context";
 
 export async function DELETE(
   _req: Request,
@@ -24,6 +25,7 @@ export async function DELETE(
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, mediaFile] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, ...buildEventAccessWhere(session.user) },
@@ -66,12 +68,16 @@ export async function DELETE(
       deleteMedia(mediaFile.url).catch((err) => {
         apiLogger.warn({ msg: "Failed to delete event media from storage", mediaId, url: mediaFile.url, err: err instanceof Error ? err.message : String(err) });
       }),
-      db.mediaFile.delete({ where: { id: mediaId } }),
+      // Compound-where org-binds the delete (defence #1). The mediaFile was
+      // located by { id, eventId } and the event is org-verified above, so this
+      // always matches on master; on the platform it rides the tenant lane.
+      db.mediaFile.delete({ where: { id: mediaId, organizationId: orgGuard.orgId } }),
     ]);
 
     apiLogger.info({ msg: "Event media file deleted", mediaId, eventId, filename: mediaFile.filename, userId: session.user.id });
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting event media file" });
     return NextResponse.json({ error: "Failed to delete media file" }, { status: 500 });

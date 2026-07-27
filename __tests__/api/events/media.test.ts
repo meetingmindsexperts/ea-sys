@@ -515,7 +515,7 @@ describe("DELETE /events/[eventId]/media/[mediaId]: success", () => {
     const req = new Request("http://localhost/api/events/evt-1/media/media-1", { method: "DELETE" });
     await DELETE(req, makeMediaParams());
     expect(mockDeleteMedia).toHaveBeenCalledWith("/uploads/media/2026/04/test.jpg");
-    expect(mockDb.mediaFile.delete).toHaveBeenCalledWith({ where: { id: "media-1" } });
+    expect(mockDb.mediaFile.delete).toHaveBeenCalledWith({ where: { id: "media-1", organizationId: "org-1" } });
   });
 
   it("still deletes DB record even if storage deletion fails", async () => {

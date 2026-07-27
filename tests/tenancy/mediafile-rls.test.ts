@@ -4,15 +4,18 @@
  * bootstrap applies — enforced end-to-end through the ALS store → SET LOCAL
  * extension → pgbouncer, as the non-owner app_user.
  *
- * SCOPE: this domain gets the DB backstop (defence #2 = RLS) only. The media
- * routes' step-C1 compound-where + step-C3 runWithTenant wiring are a deferred
- * follow-on (they org-bind via findFirst today), so — unlike the Contacts
- * pilot — there is NO compound-where "defence #1 in isolation" assertion here:
- * these tests prove the POLICY, which is exactly what this file adds. The
- * transport correctness (50-lane pooler interleave) + the boot tripwire are
+ * SCOPE: proves BOTH layers now. The July-24 pass added the DB backstop
+ * (defence #2 = RLS); the July-27 route-wiring follow-on gave the media
+ * routes their step-C1 compound-where (the org-level + event-nested DELETEs
+ * now delete `{ id, organizationId }`) + step-C2 runWithTenant + the ALS gate
+ * entry — so this file now ALSO carries the "defence #1 in isolation"
+ * assertion (owner bypasses the non-FORCE policy → the compound-where alone
+ * must P2025 a cross-org delete), matching Contacts / BillingAccount / Invoice.
+ * Transport correctness (50-lane pooler interleave) + the boot tripwire are
  * model-independent and already pinned on Event / Contact.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import {
@@ -117,5 +120,29 @@ describe("MediaFile RLS (prisma/rls/mediafile.sql) via the SET LOCAL extension",
         db.mediaFile.delete({ where: { id: MEDIA_B_ONLY_ID } }),
       ),
     ).rejects.toMatchObject({ code: "P2025" });
+  });
+
+  it("defence #1 in isolation: compound-where blocks a cross-org delete even with RLS bypassed (owner)", async () => {
+    // The owner role bypasses the non-FORCE policy, so this exercises ONLY the
+    // C1 compound-where layer — the exact shape the media DELETE routes now use
+    // (delete { id, organizationId }). Guard: TENANCY_DIRECT_URL must be the
+    // OWNER connection.
+    if (!process.env.TENANCY_DIRECT_URL) {
+      throw new Error("TENANCY_DIRECT_URL must be set — this test requires the OWNER connection");
+    }
+    const owner = new PrismaClient({ datasourceUrl: process.env.TENANCY_DIRECT_URL });
+    try {
+      await expect(
+        owner.mediaFile.delete({ where: { id: MEDIA_B_ONLY_ID, organizationId: ORG_A_ID } }),
+      ).rejects.toMatchObject({ code: "P2025" });
+      // ...and the row survives.
+      const row = await owner.mediaFile.findUnique({
+        where: { id: MEDIA_B_ONLY_ID },
+        select: { id: true },
+      });
+      expect(row?.id).toBe(MEDIA_B_ONLY_ID);
+    } finally {
+      await owner.$disconnect();
+    }
   });
 });

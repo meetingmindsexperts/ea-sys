@@ -50,6 +50,7 @@ SWEPT_ROUTE_DIRS=(
   "src/app/api/contacts"          # Contacts pilot (July 23, 2026)
   "src/app/api/billing-accounts"  # BillingAccount sweep (July 24, 2026)
   "src/app/api/invoices"          # Invoice sweep — org-wide hub + export (July 27, 2026)
+  "src/app/api/media"             # MediaFile route wiring — org-level list/upload/delete (July 27, 2026)
 )
 # Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
@@ -69,6 +70,9 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/invoices/[invoiceId]/send/route.ts"              # Invoice (July 27, 2026)
   "src/app/api/events/[eventId]/invoices/export/route.ts"                         # Invoice (July 27, 2026)
   "src/app/api/events/[eventId]/registrations/[registrationId]/quote/route.ts"   # Invoice — staff quote (July 27, 2026)
+  # MediaFile route wiring — the event-nested media surface (July 27, 2026).
+  "src/app/api/events/[eventId]/media/route.ts"                                   # MediaFile (July 27, 2026)
+  "src/app/api/events/[eventId]/media/[mediaId]/route.ts"                         # MediaFile (July 27, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors

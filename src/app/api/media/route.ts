@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
+import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
 import { uploadMedia, storageProvider } from "@/lib/storage";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -44,16 +46,19 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const { searchParams } = new URL(req.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50")));
     const skip = (page - 1) * limit;
 
-    const where = { organizationId: session.user.organizationId! };
+    const where = { organizationId: orgGuard.orgId };
 
     const [mediaFiles, total] = await Promise.all([
       db.mediaFile.findMany({
@@ -75,6 +80,7 @@ export async function GET(req: Request) {
     ]);
 
     return NextResponse.json({ mediaFiles, total, page, limit });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching media files" });
     return NextResponse.json({ error: "Failed to fetch media files" }, { status: 500 });
@@ -91,10 +97,13 @@ export async function POST(req: Request) {
       apiLogger.warn({ msg: "Unauthorized media upload attempt" });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const orgGuard = requireOrgId(session);
+    if ("error" in orgGuard) return orgGuard.error;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const rateLimit = checkRateLimit({
       key: `media-upload:user:${session.user.id}`,
       limit: 20,
@@ -141,7 +150,7 @@ export async function POST(req: Request) {
 
     const mediaFile = await db.mediaFile.create({
       data: {
-        organizationId: session.user.organizationId!,
+        organizationId: orgGuard.orgId,
         uploadedById: session.user.id,
         filename: file.name,
         url,
@@ -154,6 +163,7 @@ export async function POST(req: Request) {
     apiLogger.info({ msg: "Media file uploaded", mediaId: mediaFile.id, url, storageProvider, userId: session.user.id });
 
     return NextResponse.json(mediaFile, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Media upload failed" });
     return NextResponse.json({ error: "Failed to upload media file" }, { status: 500 });
