@@ -10,8 +10,12 @@
  * The "Needs review" badge is the fuzzy-duplicate flag: the server creates a
  * near-match rather than blocking it (they might genuinely be different entities)
  * and flags it for a human. Filtering to those is the merge worklist.
+ *
+ * Filters + sort live in the URL (useCrmFilters), same as the board/reports/tasks —
+ * so a filtered, sorted account list is shareable, bookmarkable, and survives a
+ * refresh or a back-button. This used to be local React state, which lost all three.
  */
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Archive, Building2, Plus, Search, TriangleAlert, Upload } from "lucide-react";
@@ -30,22 +34,28 @@ import { CreateCompanyDialog } from "@/crm/components/create-company-dialog";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
+import { SortableTh, nextSort, type SortDir } from "@/crm/components/sortable-th";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
+import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
-import { formatDealValue } from "@/crm/lib/crm-types";
+import { formatDealValue, type CrmCompanyRow } from "@/crm/lib/crm-types";
 
-export default function CrmCompaniesPage() {
+function CompaniesInner() {
   const { data: session } = useSession();
   const canWrite = canOwnDeals(session?.user?.role);
 
-  const [q, setQ] = useState("");
-  const [industry, setIndustry] = useState<string>("");
-  const [onlyReview, setOnlyReview] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
+  const { get, set } = useCrmFilters();
+  const q = get("q");
+  const industry = get("industry");
+  const onlyReview = !!get("review");
+  const showArchived = !!get("archived");
+  const sortKey = get("sort");
+  const dir = (get("dir") || "asc") as SortDir;
+
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const router = useRouter();
@@ -59,11 +69,14 @@ export default function CrmCompaniesPage() {
     industry: industry || undefined,
     archived: showArchived ? "1" : undefined,
   });
-  const rows = onlyReview ? companies.filter((c) => c.needsReview) : companies;
+  const filtered = onlyReview ? companies.filter((c) => c.needsReview) : companies;
+  const rows = sortKey ? [...filtered].sort(makeComparator(sortKey, dir)) : filtered;
   const reviewCount = allCompanies.filter((c) => c.needsReview).length;
   const industries = Array.from(
     new Set(allCompanies.map((c) => c.industry).filter((i): i is string => !!i)),
   ).sort();
+
+  const onSort = (key: string) => set(nextSort(sortKey, dir, key));
 
   return (
     <div className="space-y-6 p-6">
@@ -92,12 +105,12 @@ export default function CrmCompaniesPage() {
             className="pl-9"
             placeholder="Search companies…"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => set({ q: e.target.value })}
           />
         </div>
 
         {industries.length > 0 && (
-          <Select value={industry || "__all__"} onValueChange={(v) => setIndustry(v === "__all__" ? "" : v)}>
+          <Select value={industry || "__all__"} onValueChange={(v) => set({ industry: v === "__all__" ? null : v })}>
             <SelectTrigger className="w-[12rem]">
               <SelectValue placeholder="Any industry" />
             </SelectTrigger>
@@ -115,7 +128,7 @@ export default function CrmCompaniesPage() {
           <Button
             variant={onlyReview ? "default" : "outline"}
             size="sm"
-            onClick={() => setOnlyReview((v) => !v)}
+            onClick={() => set({ review: onlyReview ? null : "1" })}
           >
             <TriangleAlert className="mr-2 h-4 w-4" />
             Needs review ({reviewCount})
@@ -124,7 +137,7 @@ export default function CrmCompaniesPage() {
         <Button
           variant={showArchived ? "default" : "outline"}
           size="sm"
-          onClick={() => setShowArchived((v) => !v)}
+          onClick={() => set({ archived: showArchived ? null : "1" })}
         >
           <Archive className="mr-2 h-4 w-4" />
           {showArchived ? "Showing archived" : "Show archived"}
@@ -167,13 +180,13 @@ export default function CrmCompaniesPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead>Name</TableHead>
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={dir} onSort={onSort} />
                 <TableHead>Industry</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Primary contact</TableHead>
                 <TableHead className="text-right">Deal value</TableHead>
-                <TableHead className="text-right">Contacts</TableHead>
-                <TableHead className="text-right">Deals</TableHead>
+                <SortableTh label="Contacts" sortKey="contacts" activeKey={sortKey} dir={dir} onSort={onSort} align="right" />
+                <SortableTh label="Deals" sortKey="deals" activeKey={sortKey} dir={dir} onSort={onSort} align="right" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -233,5 +246,26 @@ export default function CrmCompaniesPage() {
 
       {importOpen && <FreshsalesImportDialog type="companies" open={importOpen} onOpenChange={setImportOpen} />}
     </div>
+  );
+}
+
+/** Client-side comparator for the sortable columns (all unambiguous — no money). */
+function makeComparator(key: string, dir: SortDir) {
+  const mult = dir === "asc" ? 1 : -1;
+  return (a: CrmCompanyRow, b: CrmCompanyRow) => {
+    let cmp = 0;
+    if (key === "name") cmp = a.name.localeCompare(b.name);
+    else if (key === "contacts") cmp = (a._count?.contacts ?? 0) - (b._count?.contacts ?? 0);
+    else if (key === "deals") cmp = (a._count?.deals ?? 0) - (b._count?.deals ?? 0);
+    return cmp * mult;
+  };
+}
+
+export default function CrmCompaniesPage() {
+  // useCrmFilters reads useSearchParams — needs a Suspense boundary.
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <CompaniesInner />
+    </Suspense>
   );
 }

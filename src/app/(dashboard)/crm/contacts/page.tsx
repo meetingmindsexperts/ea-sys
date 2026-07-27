@@ -10,9 +10,12 @@
  *
  * A person who is genuinely both (a rep who also attends the conference) is LINKED
  * to their event contact record, not duplicated — one human, one record, two hats.
+ *
+ * Filters + sort live in the URL (useCrmFilters), same as the board/reports/tasks,
+ * so a filtered, sorted book is shareable, bookmarkable and survives refresh/back.
  */
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Archive, Link2, Plus, Search, Upload, Users } from "lucide-react";
@@ -33,10 +36,12 @@ import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
+import { SortableTh, nextSort, type SortDir } from "@/crm/components/sortable-th";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCrmCompanies, useCrmContacts } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
+import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
 import { cn } from "@/lib/utils";
 import {
@@ -45,22 +50,27 @@ import {
   CONTACT_STATUS_VALUES,
   LIFECYCLE_COLORS,
   LIFECYCLE_LABELS,
+  type CrmContactRow,
   type CrmLifecycleStage,
 } from "@/crm/lib/crm-types";
 import { contactScoreColor } from "@/crm/lib/contact-score";
 
-export default function CrmContactsPage() {
+function ContactsInner() {
   const { data: session } = useSession();
   const canWrite = canOwnDeals(session?.user?.role);
 
-  const [q, setQ] = useState("");
-  const [lifecycle, setLifecycle] = useState<string>("");
-  const [status, setStatus] = useState<string>("");
-  const [owner, setOwner] = useState<string>("");
-  const [companyId, setCompanyId] = useState<string>("");
+  const { get, set } = useCrmFilters();
+  const q = get("q");
+  const lifecycle = get("lifecycle");
+  const status = get("status");
+  const owner = get("owner");
+  const companyId = get("company");
+  const showArchived = !!get("archived");
+  const sortKey = get("sort");
+  const dir = (get("dir") || "asc") as SortDir;
+
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
   const router = useRouter();
 
   const { data: companies = [] } = useCrmCompanies();
@@ -72,6 +82,8 @@ export default function CrmContactsPage() {
     companyId: companyId || undefined,
     archived: showArchived ? "1" : undefined,
   });
+  const rows = sortKey ? [...contacts].sort(makeComparator(sortKey, dir)) : contacts;
+  const onSort = (key: string) => set(nextSort(sortKey, dir, key));
 
   return (
     <div className="space-y-6 p-6">
@@ -108,20 +120,20 @@ export default function CrmContactsPage() {
             className="pl-9"
             placeholder="Search by name or email…"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => set({ q: e.target.value })}
           />
         </div>
 
         {/* "All contacts" ↔ "My contacts" ↔ a specific rep's book. */}
         <OwnerFilter
           value={owner}
-          onChange={(userId) => setOwner(userId ?? "")}
+          onChange={(userId) => set({ owner: userId ?? null })}
           placeholder="All contacts"
           meId={session?.user?.id}
           meLabel="My contacts"
         />
 
-        <Select value={status || "__all__"} onValueChange={(v) => setStatus(v === "__all__" ? "" : v)}>
+        <Select value={status || "__all__"} onValueChange={(v) => set({ status: v === "__all__" ? null : v })}>
           <SelectTrigger className="w-[10rem]">
             <SelectValue placeholder="Any status" />
           </SelectTrigger>
@@ -135,7 +147,7 @@ export default function CrmContactsPage() {
           </SelectContent>
         </Select>
 
-        <Select value={lifecycle || "__all__"} onValueChange={(v) => setLifecycle(v === "__all__" ? "" : v)}>
+        <Select value={lifecycle || "__all__"} onValueChange={(v) => set({ lifecycle: v === "__all__" ? null : v })}>
           <SelectTrigger className="w-[11rem]">
             <SelectValue placeholder="Any lifecycle" />
           </SelectTrigger>
@@ -149,7 +161,7 @@ export default function CrmContactsPage() {
           </SelectContent>
         </Select>
 
-        <Select value={companyId || "__all__"} onValueChange={(v) => setCompanyId(v === "__all__" ? "" : v)}>
+        <Select value={companyId || "__all__"} onValueChange={(v) => set({ company: v === "__all__" ? null : v })}>
           <SelectTrigger className="w-[13rem]">
             <SelectValue placeholder="Any company" />
           </SelectTrigger>
@@ -166,7 +178,7 @@ export default function CrmContactsPage() {
         <Button
           variant={showArchived ? "default" : "outline"}
           size="sm"
-          onClick={() => setShowArchived((v) => !v)}
+          onClick={() => set({ archived: showArchived ? null : "1" })}
         >
           <Archive className="mr-2 h-3.5 w-3.5" />
           {showArchived ? "Showing archived" : "Show archived"}
@@ -178,7 +190,7 @@ export default function CrmContactsPage() {
         <CrmTableSkeleton rows={6} cols={8} />
       ) : isError ? (
         <CrmLoadError what="contacts" onRetry={() => refetch()} />
-      ) : contacts.length === 0 ? (
+      ) : rows.length === 0 ? (
         <CrmEmptyState
           icon={Users}
           title={
@@ -209,18 +221,18 @@ export default function CrmContactsPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead>Name</TableHead>
+                <SortableTh label="Name" sortKey="name" activeKey={sortKey} dir={dir} onSort={onSort} />
                 <TableHead>Company</TableHead>
                 <TableHead>Job title</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Lifecycle</TableHead>
                 <TableHead>Owner</TableHead>
-                <TableHead className="text-right">Score</TableHead>
-                <TableHead className="text-right">Deals</TableHead>
+                <SortableTh label="Score" sortKey="score" activeKey={sortKey} dir={dir} onSort={onSort} align="right" />
+                <SortableTh label="Deals" sortKey="deals" activeKey={sortKey} dir={dir} onSort={onSort} align="right" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {contacts.map((c) => (
+              {rows.map((c) => (
                 <TableRow
                   key={c.id}
                   className={cn("cursor-pointer transition-colors hover:bg-muted/40", c.archivedAt && "opacity-60")}
@@ -294,5 +306,30 @@ export default function CrmContactsPage() {
 
       {importOpen && <FreshsalesImportDialog type="contacts" open={importOpen} onOpenChange={setImportOpen} />}
     </div>
+  );
+}
+
+/** Client-side comparator for the sortable columns (all unambiguous — no money). */
+function makeComparator(key: string, dir: SortDir) {
+  const mult = dir === "asc" ? 1 : -1;
+  return (a: CrmContactRow, b: CrmContactRow) => {
+    let cmp = 0;
+    if (key === "name") {
+      cmp = `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
+    } else if (key === "score") {
+      cmp = (a.score ?? 0) - (b.score ?? 0);
+    } else if (key === "deals") {
+      cmp = (a._count?.deals ?? 0) - (b._count?.deals ?? 0);
+    }
+    return cmp * mult;
+  };
+}
+
+export default function CrmContactsPage() {
+  // useCrmFilters reads useSearchParams — needs a Suspense boundary.
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading…</div>}>
+      <ContactsInner />
+    </Suspense>
   );
 }
