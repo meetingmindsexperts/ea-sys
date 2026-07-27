@@ -16,12 +16,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { BarChart3, Building2, CheckSquare, FileText, Handshake, Inbox, Package, Users } from "lucide-react";
+import { BarChart3, Building2, CheckSquare, FileText, Handshake, Home, Inbox, Package, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewCrmInbox } from "@/crm/lib/crm-roles";
 import { CrmNotificationBell } from "@/crm/components/crm-notification-bell";
 
 const TABS = [
+  // Home is `/crm` itself — matched EXACTLY, or every tab lights up under startsWith.
+  { href: "/crm", label: "Home", icon: Home, exact: true },
   { href: "/crm/deals", label: "Deals", icon: Handshake },
   { href: "/crm/companies", label: "Companies", icon: Building2 },
   // Business contacts — reps, exhibitor sales, procurement. NOT the event HCP store.
@@ -55,7 +57,7 @@ export default function CrmLayout({ children }: { children: React.ReactNode }) {
 
         <nav className="-mb-px mt-4 flex gap-1" aria-label="CRM sections">
           {tabs.map((tab) => {
-            const active = pathname.startsWith(tab.href);
+            const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
             const Icon = tab.icon;
             return (
               <Link

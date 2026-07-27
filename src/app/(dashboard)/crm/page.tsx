@@ -1,10 +1,13 @@
-import { redirect } from "next/navigation";
+"use client";
 
 /**
- * /crm is the sidebar's single entry point. The board is the thing you actually
- * came to look at, so land there rather than on an index page that only exists to
- * be clicked through.
+ * /crm is the sidebar's single entry point. It used to redirect straight to the
+ * board; now it lands on an action-oriented Home — "what needs me today" — so a rep
+ * opening the CRM sees their follow-ups and slipping deals first, not a raw pipeline.
+ * The board is one tab click away.
  */
-export default function CrmIndexPage() {
-  redirect("/crm/deals");
+import { CrmOverview } from "@/crm/components/crm-overview";
+
+export default function CrmHomePage() {
+  return <CrmOverview />;
 }
