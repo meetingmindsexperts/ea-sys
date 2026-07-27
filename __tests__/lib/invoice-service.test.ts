@@ -24,6 +24,9 @@ vi.mock("@/lib/db", () => ({
     registration: { findFirstOrThrow: mockFindUniqueOrThrow, findUniqueOrThrow: mockFindUniqueOrThrow },
     invoice: {
       findUniqueOrThrow: mockInvoiceFindUniqueOrThrow,
+      // transitionInvoiceStatus now org-scopes its load via findFirstOrThrow
+      // (compound-where) — same mock fn so the existing per-test setups apply.
+      findFirstOrThrow: mockInvoiceFindUniqueOrThrow,
       findFirst: mockFindFirst,
       findMany: mockFindMany,
       create: mockCreate,
@@ -37,6 +40,10 @@ vi.mock("@/lib/db", () => ({
     invoiceCounter: { upsert: vi.fn() },
     auditLog: { create: mockAuditCreate },
   },
+  // tenantTransaction with the flag off IS db.$transaction — delegate to the
+  // same mock so every per-test $transaction setup keeps working (the Invoice
+  // sweep switched the service's 4 tx sites onto tenantTransaction).
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockTransaction(fn),
 }));
 
 vi.mock("@/lib/invoice-numbering", () => ({
@@ -411,7 +418,8 @@ describe("createPaidInvoice", () => {
     });
 
     expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: "inv-existing" },
+      // Promote is org-bound (Invoice sweep compound-where, defence #1).
+      where: { id: "inv-existing", organizationId: "org-1" },
       data: expect.objectContaining({ status: "PAID", paymentId: "pay-1" }),
     }));
     expect(mockCreate).not.toHaveBeenCalled();
@@ -962,8 +970,9 @@ describe("invoice status transitions — cancelInvoice / markInvoiceOverdue (fin
   });
 
   it("cancelInvoice flips SENT -> CANCELLED and writes the source-tagged audit row", async () => {
-    await cancelInvoice("inv-1", { actorUserId: "u1", source: "rest", ip: "1.2.3.4" });
-    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: "inv-1" }, data: { status: "CANCELLED" } });
+    await cancelInvoice("inv-1", { actorUserId: "u1", source: "rest", organizationId: "org-1", ip: "1.2.3.4" });
+    // ctx present → the transition compound-where's the update by org (defence #1).
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: "inv-1", organizationId: "org-1" }, data: { status: "CANCELLED" } });
     expect(mockAuditCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         eventId: "ev1",
@@ -977,8 +986,8 @@ describe("invoice status transitions — cancelInvoice / markInvoiceOverdue (fin
 
   it("markInvoiceOverdue flips SENT -> OVERDUE with an mcp-tagged audit (no ip)", async () => {
     mockUpdate.mockResolvedValue({ id: "inv-1", status: "OVERDUE", invoiceNumber: "MM-1" });
-    await markInvoiceOverdue("inv-1", { actorUserId: "mcp-remote", source: "mcp" });
-    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: "inv-1" }, data: { status: "OVERDUE" } });
+    await markInvoiceOverdue("inv-1", { actorUserId: "mcp-remote", source: "mcp", organizationId: "org-1" });
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: "inv-1", organizationId: "org-1" }, data: { status: "OVERDUE" } });
     const changes = mockAuditCreate.mock.calls[0][0].data.changes as Record<string, unknown>;
     expect(changes).toMatchObject({ source: "mcp", after: "OVERDUE" });
     expect(changes.ip).toBeUndefined();
@@ -988,7 +997,7 @@ describe("invoice status transitions — cancelInvoice / markInvoiceOverdue (fin
     mockInvoiceFindUniqueOrThrow.mockResolvedValue({
       id: "inv-1", status: "CANCELLED", invoiceNumber: "MM-1", eventId: "ev1",
     });
-    await cancelInvoice("inv-1", { actorUserId: "u1", source: "mcp" });
+    await cancelInvoice("inv-1", { actorUserId: "u1", source: "mcp", organizationId: "org-1" });
     expect(mockUpdate).not.toHaveBeenCalled();
     expect(mockAuditCreate).not.toHaveBeenCalled();
   });

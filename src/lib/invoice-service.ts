@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getNextInvoiceNumber } from "@/lib/invoice-numbering";
 import { generateInvoicePDF, type InvoicePDFData } from "@/lib/invoice-pdf";
@@ -207,7 +207,7 @@ export async function createInvoice(params: {
     { registrationId, flow: "INVOICE" },
   );
 
-  const invoice = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+  const invoice = await tenantTransaction(async (tx: Prisma.TransactionClient) => {
     const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
       tx, eventId, "INVOICE", eventCode
     );
@@ -318,7 +318,7 @@ export async function createPaidInvoice(params: {
 
   const paid = paidAt ?? new Date();
 
-  const invoice = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+  const invoice = await tenantTransaction(async (tx: Prisma.TransactionClient) => {
     // Serialize concurrent minters on the registration ROW (review M1): the
     // Stripe webhook's detached block, the reconciliation worker, and manual
     // capture can all reach here at once — without the lock both findFirst
@@ -361,7 +361,9 @@ export async function createPaidInvoice(params: {
         });
       }
       return tx.invoice.update({
-        where: { id: existing.id },
+        // Compound-where org-binds the promote (defence #1) — the caller's
+        // claimed org must match the existing invoice's, atomic with the write.
+        where: { id: existing.id, organizationId },
         data: {
           status: "PAID",
           paidDate: paid,
@@ -484,7 +486,7 @@ export async function createPaidReceipt(params: {
   const paid = paidAt ?? new Date();
 
   let created = true;
-  const receipt = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+  const receipt = await tenantTransaction(async (tx: Prisma.TransactionClient) => {
     // Row-lock + in-tx existence check (review M1): the check used to run
     // OUTSIDE the transaction, so concurrent minters (webhook detached block
     // vs reconciliation worker vs manual capture) could each see "no receipt"
@@ -625,7 +627,7 @@ export async function createCreditNote(params: {
   // the registration, so two concurrent Issue-Credit-Note calls (double-click, or
   // organizer + webhook) serialize — the sum-of-existing-credit-notes cap is
   // re-read after the lock, so they can never both slip past it and over-credit.
-  const { creditNote, creditedBefore, amt, collectedTotal } = await db.$transaction(async (tx: Prisma.TransactionClient) => {
+  const { creditNote, creditedBefore, amt, collectedTotal } = await tenantTransaction(async (tx: Prisma.TransactionClient) => {
     // Serialize concurrent credit-note issues for this registration. The lock is
     // held for the duration of the tx (works through the pgbouncer transaction
     // pooler — single backend per tx), same pattern as updateEventSettings.
@@ -694,7 +696,8 @@ export async function createCreditNote(params: {
     // full amount — a partial credit note leaves the invoice intact.
     if (parentId && coversFull) {
       await tx.invoice.update({
-        where: { id: parentId },
+        // Compound-where org-binds the parent flip (defence #1).
+        where: { id: parentId, organizationId },
         data: { status: "REFUNDED" },
       });
     }
@@ -1033,7 +1036,9 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
   });
 
   await db.invoice.update({
-    where: { id: invoiceId },
+    // Compound-where org-binds the sent-stamp (defence #1); org from the row
+    // this function just loaded by id.
+    where: { id: invoiceId, organizationId: invoice.organizationId },
     data: { sentAt: new Date(), sentTo: attendee.email },
   });
 
@@ -1105,7 +1110,8 @@ export async function sendPaymentDocumentsEmail(params: {
 
   const sentAt = new Date();
   await db.invoice.updateMany({
-    where: { id: { in: [invoice.id, receipt.id] } },
+    // Org-bind the sent-stamp (defence #1); both docs belong to this org.
+    where: { id: { in: [invoice.id, receipt.id] }, organizationId: invoice.organizationId },
     data: { sentAt, sentTo: registration.attendee.email },
   });
 }
@@ -1163,6 +1169,10 @@ export async function issuePaidRegistrationDocuments(params: {
 export interface InvoiceStatusTransitionCtx {
   actorUserId: string | null;
   source: "rest" | "mcp";
+  /** The caller's org — compound-where'd onto the load + update (defence #1),
+   *  so a cross-org invoiceId can't be transitioned even if the caller's own
+   *  lookup was skipped. Required whenever ctx is supplied. */
+  organizationId: string;
   ip?: string | null;
 }
 
@@ -1171,8 +1181,12 @@ async function transitionInvoiceStatus(
   target: "CANCELLED" | "OVERDUE",
   ctx?: InvoiceStatusTransitionCtx,
 ): Promise<Invoice> {
-  const existing = await db.invoice.findUniqueOrThrow({
-    where: { id: invoiceId },
+  // Org-bind the whole transition to the caller's claimed org when we have it
+  // (both real callers — the REST PUT + MCP update_invoice_status — pass ctx).
+  const scope = ctx ? { id: invoiceId, organizationId: ctx.organizationId } : { id: invoiceId };
+
+  const existing = await db.invoice.findFirstOrThrow({
+    where: scope,
     select: { id: true, status: true, invoiceNumber: true, eventId: true },
   });
 
@@ -1182,11 +1196,11 @@ async function transitionInvoiceStatus(
       invoiceId,
       invoiceNumber: existing.invoiceNumber,
     });
-    return db.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    return db.invoice.findFirstOrThrow({ where: scope });
   }
 
   const updated = await db.invoice.update({
-    where: { id: invoiceId },
+    where: scope,
     data: { status: target },
   });
 

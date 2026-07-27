@@ -133,7 +133,7 @@ const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
     // cancelInvoice entirely. Dynamic import matches the file's existing
     // pattern (keeps the invoice-service/pdf chain off agent module load).
     const { cancelInvoice, markInvoiceOverdue } = await import("@/lib/invoice-service");
-    const transitionCtx = { actorUserId: ctx.userId, source: "mcp" as const };
+    const transitionCtx = { actorUserId: ctx.userId, source: "mcp" as const, organizationId: ctx.organizationId };
     let updated;
     if (status === "CANCELLED") {
       updated = await cancelInvoice(invoiceId, transitionCtx);

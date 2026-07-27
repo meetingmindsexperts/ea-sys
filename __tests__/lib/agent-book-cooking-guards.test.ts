@@ -11,14 +11,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockDb } = vi.hoisted(() => ({
   mockDb: {
     registration: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    invoice: { findFirst: vi.fn(), findUniqueOrThrow: vi.fn(), update: vi.fn() },
+    invoice: { findFirst: vi.fn(), findUniqueOrThrow: vi.fn(), findFirstOrThrow: vi.fn(), update: vi.fn() },
     event: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
     $transaction: vi.fn(),
   },
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
@@ -90,8 +93,9 @@ describe("update_invoice_status — M6", () => {
 
   it("still allows CANCELLED (dashboard parity — now via the shared cancelInvoice helper)", async () => {
     mockDb.invoice.findFirst.mockResolvedValue({ id: "inv1" });
-    // The transition helper (invoice-service, finding 5) re-reads via findUniqueOrThrow.
-    mockDb.invoice.findUniqueOrThrow.mockResolvedValue({ id: "inv1", status: "SENT", invoiceNumber: "MM-1", eventId: "ev1" });
+    // The transition helper org-scopes its load via findFirstOrThrow (Invoice
+    // sweep compound-where); ctx.organizationId ("org1") is bound onto it.
+    mockDb.invoice.findFirstOrThrow.mockResolvedValue({ id: "inv1", status: "SENT", invoiceNumber: "MM-1", eventId: "ev1" });
     mockDb.invoice.update.mockResolvedValue({ id: "inv1", invoiceNumber: "MM-1", status: "CANCELLED", total: 100, currency: "USD", paidDate: null });
     const result = await TOOL_EXECUTOR_MAP.update_invoice_status({ invoiceId: "inv1", status: "CANCELLED" }, ctx);
     expect(result).toMatchObject({ success: true, invoice: { status: "CANCELLED" } });

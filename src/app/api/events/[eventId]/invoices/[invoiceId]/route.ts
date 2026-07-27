@@ -99,7 +99,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // Both transitions route through the invoice-service helper (shared with
     // MCP update_invoice_status) — idempotency guard + audit row included; the
     // REST path previously wrote no audit and bare-updated OVERDUE.
-    const transitionCtx = { actorUserId: session.user.id, source: "rest" as const, ip: getClientIp(req) };
+    const transitionCtx = {
+      actorUserId: session.user.id,
+      source: "rest" as const,
+      organizationId: (session.user.organizationId ?? ""),
+      ip: getClientIp(req),
+    };
     if (validated.data.action === "cancel") {
       const updated = await cancelInvoice(invoiceId, transitionCtx);
       return NextResponse.json(updated);
