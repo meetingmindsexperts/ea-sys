@@ -325,11 +325,18 @@ export default function AgendaPage() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: { zoomSync?: "synced" | "failed" }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
       setIsSessionDialogOpen(false);
       resetSessionForm();
       toast.success(editingSession ? "Session updated" : "Session created");
+      // M6: the session saved but the retime didn't reach Zoom — the meeting
+      // still shows the old time until the operator retries or fixes it there.
+      if (data?.zoomSync === "failed") {
+        toast.warning(
+          "Session saved, but updating the linked Zoom meeting's time failed — Zoom still shows the old time. Save again to retry, or update it in Zoom.",
+        );
+      }
     },
     onError: (error: Error) => toast.error(error.message || "Failed to save session"),
   });

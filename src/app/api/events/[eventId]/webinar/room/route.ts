@@ -70,6 +70,32 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Final misconfiguration gate: opening the room in HLS mode without a
+    // configured live stream would admit every attendee into a permanent
+    // "getting the stream ready" screen. One click fixes it (switch the
+    // viewing mode to Zoom, or enable the session's live stream) — better a
+    // clear refusal now than a broken go-live.
+    if (validated.data.open && webinar.viewingMode === "hls") {
+      const streamConfig = await db.zoomMeeting.findUnique({
+        where: { sessionId: webinar.sessionId },
+        select: { liveStreamEnabled: true, streamKey: true },
+      });
+      if (!streamConfig?.liveStreamEnabled || !streamConfig.streamKey) {
+        apiLogger.warn(
+          { eventId, userId: session.user.id },
+          "webinar:room-open-hls-not-configured",
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Can't open the room: viewing mode is Custom stream but the live stream isn't configured on the webinar session. Enable it (Session → Zoom → Live Streaming) or switch the viewing mode to Zoom embed.",
+            code: "HLS_STREAM_NOT_CONFIGURED",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     const nextStatus = validated.data.open ? "LIVE" : "COMPLETED";
 
     // Scope the update by eventId too so it can't touch another event's session.

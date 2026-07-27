@@ -954,25 +954,40 @@ internet + M4 rate limit; `12e01d1` **session-service extraction** closing H1 PU
 REST/MCP drift incl. the MCP audit gap + L2; `ce1f635` H2 orphaned billable Zoom meetings + H3 session
 DELETE tells Zoom and guards the webinar anchor; `1d61af6` H5 unlogged-4xx sweep). Deferred:
 
-- **M1 — `provisionWebinar` is not idempotent under concurrency.** The guard reads
-  `settings.webinar.sessionId` and, if unset, creates the anchor session + a real Zoom webinar, with no
-  lock over the read→create window. It's fired fire-and-forget from `POST /api/events` AND from a manual
-  "Re-run provisioner" control. Two concurrent invocations mint **two anchor sessions and two billable
-  Zoom webinars**; `updateEventSettings` is atomic but resolves last-write-wins on `sessionId`, so one
-  anchor + its remote webinar are orphaned. Fix: take the settings row lock around the whole
-  read→create, or claim a sentinel `webinar.provisioning` key first.
+- ~~**M1 — `provisionWebinar` is not idempotent under concurrency.**~~ ✅ **SHIPPED July 27, 2026**
+  (webinar batch) — a `webinar.provisioningAt` sentinel is claimed atomically through the
+  `updateEventSettings` row lock BEFORE anything is created: a contended claim backs off
+  (`provision-already-in-progress` → 409 on the manual re-run), a lost claim retries the idempotent
+  branch against the winner's session, a stale claim (>10 min, crashed provision) is reclaimable, a
+  dangling `sessionId` (operator deleted the anchor) still recovers, and the sentinel is released on
+  both success (function-form final write — which also stops clobbering a concurrent lobby-settings
+  save) and failure. 8 tests in `__tests__/lib/webinar-provisioner.test.ts` with a STATEFUL settings
+  mock so the claim mechanics run for real.
 - ~~**M2 — session PUT regenerates every topic id.**~~ ✅ **SHIPPED July 16, 2026** (`bf678930`) — the
   service updates payload topics carrying an existing id in place (per-topic speakers replaced), creates
   id-less rows, deletes topics absent from the payload; foreign ids ignored (no cross-session hijack).
   Dashboard form, SessionDetailSheet, and MCP `update_session` all thread the id through.
-- **M3 — public `stream-status` hands the live HLS URL + `streamKey` to anyone**, bypassing the
-  registration gate `zoom-join` enforces; and the public GET performs a DB write (`streamStatus`).
-- **M5 — DRAFT-event exposure is still systemic** on `lobby-status`, `stream-status`, `zoom-join`,
-  `presence` (`status: { in: ["DRAFT","PUBLISHED","LIVE"] }`). `detail` was gated in B2; the rest are
-  mitigated by auth/registration gates except `stream-status` (see M3).
-- **M6 — retiming a session never re-syncs its Zoom meeting.** Both PUT paths write
-  `startTime`/`endTime` and neither touches the `ZoomMeeting` row; Zoom keeps the original scheduled
-  start and a stale `duration` while the lobby + public agenda use the new times.
+- ~~**M3 — public `stream-status` hands the live HLS URL + `streamKey` to anyone**~~ ✅ **SHIPPED
+  July 27, 2026** (webinar batch) — `streamKey` (which doubles as the RTMP **publish** credential on
+  MediaMTX, i.e. stream-hijack material) is no longer returned to ANYONE (the client never used it);
+  the `hlsUrl`/`hlsOriginUrl` fields are gated on auth + (org staff of the event's org OR a
+  non-cancelled registration) with a 60s per-(user,event) positive micro-cache so a 5k recovery-poll
+  storm doesn't hammer the pool — anonymous/unregistered callers get the bare liveness flag, which is
+  all the lobby needs. The GET's DB write stays DELIBERATELY (reviewed): it fires only on a real
+  probe-state transition (probe-cached), so polling harder cannot amplify it. 6 tests in
+  `__tests__/api/stream-status-route.test.ts`.
+- ~~**M5 — DRAFT-event exposure is still systemic**~~ ✅ **RESOLVED July 27, 2026** (via M3 + the
+  eventType guard) — with `stream-status`'s payload viewer-gated, the DRAFT residual on the public
+  webinar routes is a liveness boolean + non-sensitive lobby copy, both REQUIRED for the documented
+  DRAFT-auto-open test flow (accepted; `zoom-join`/`presence` were already auth+registration-gated).
+  `lobby-status` additionally 404s non-WEBINAR events now.
+- ~~**M6 — retiming a session never re-syncs its Zoom meeting.**~~ ✅ **SHIPPED July 27, 2026**
+  (webinar batch) — `session-service.updateSession` pushes a changed start/end to the linked Zoom
+  meeting (`PATCH /meetings`) or webinar (`PATCH /webinars`) with the recomputed duration + event
+  timezone and mirrors `ZoomMeeting.duration` locally. Failure-isolated: a Zoom outage never fails
+  the session save — it surfaces as `zoomSync: "failed"` through the REST PUT + MCP `update_session`
+  responses, and the dashboard agenda shows a warning toast ("Zoom still shows the old time — save
+  again to retry"). Covers BOTH callers by construction (service-level). 6 tests.
 - ~~**M7 — the public agenda buckets days in the VIEWER's timezone while rendering times in the EVENT's.**~~
   ✅ **SHIPPED July 16, 2026** (`15bb3e88`) — day buckets on the public agenda + the registration-page
   preview use `localDateInTz(event.timezone)`; the preview's false "renders in viewer tz" comment removed.
@@ -1537,7 +1552,7 @@ its detailed entry in the sections further down. Effort: **S** ≈ <½ day, **M*
 15. **Sent-email content preview** ("see what was sent" — `bodyHtml` + View) *(M)* → Near-Term
 16. **Hybrid attendance** — ✅ admin virtual↔in-person **qrCode minting + seat-accounting** SHIPPED June 26 (see Hybrid follow-ups below). Still open: check-in UI hide for virtual, dashboard in/virtual split, portal mode display, tier-windowed virtual pricing *(M)* → Hybrid follow-ups
 17. **Charge-to-account v1.1** — public "who pays" step, payer column/CSV, quote-email-to-payer *(M)* → Charge-to-account follow-ups
-18. **Webinar waiting-room follow-ups** — never-opened-room warning, save-time HLS validation, DRAFT-auto-open hint *(S–M)* → Webinar follow-ups
+18. ~~**Webinar waiting-room follow-ups** — never-opened-room warning, save-time HLS validation, DRAFT-auto-open hint *(S–M)*~~ ✅ **SHIPPED July 27, 2026** (webinar batch — see "Webinar waiting room follow-ups")
 19. **Waitlist Management** *(M)* · 20. **Analytics Dashboard** *(M)* → Near-Term
 
 **P4 — Refactor / cleanup / resilience (trigger-driven):**
@@ -1854,11 +1869,11 @@ cache, admit signature re-mint, overrun cutoff). These remain deferred:
 
 | Item | Note |
 |---|---|
-| **Never-opened-room warning (#6)** | DECISION: keep the producer-gated manual "Open the room" model (do NOT auto-open). Add a loud **"Room still closed — N attendees waiting"** alert on the Webinar Console once `now >= startTime`, and fix the lobby copy so the countdown doesn't imply imminence forever after T-0. |
-| **Operator visibility (#10)** | Surface in the LobbyCard that **DRAFT events auto-open** the room (for testing) while **PUBLISHED requires the manual click** — so "it worked in my test" doesn't surprise an operator at go-live. |
-| **Save-time hls/stream validation (#5 follow-up)** | The runtime fallback handles `viewingMode="hls"` with no `liveStreamEnabled`/`streamKey` (shows "getting the stream ready"). Better: validate at the webinar/room PUT that HLS mode requires the anchor session's live stream to be enabled, so it can't be misconfigured. |
-| **`lobby-status` eventType short-circuit (LOW)** | The public lobby-status route serves any session in a valid event; add a cheap `eventType === "WEBINAR"` guard to keep the surface tight. |
-| **Stale `session.status` badge (LOW, cosmetic)** | The public session page fetches `session.status` once at load; the Live/Ended badge can lag the producer's open/close until refresh. Admission itself is driven by the lobby poll, so this is display-only. |
+| ~~**Never-opened-room warning (#6)**~~ ✅ **SHIPPED July 27, 2026** | The LobbyCard shows a red **"The scheduled start has passed — the room is still closed"** alert (30s tick, hides once opened/closed or 30 min past the scheduled end) with the live **"N attendees are waiting in the lobby"** count via the presence poll; the public lobby's countdown label flips from "Starting any moment" to "Running a little late — you'll be admitted as soon as the host starts" 10 min past T-0. The manual-open model itself is unchanged (owner decision). |
+| ~~**Operator visibility (#10)**~~ ✅ **SHIPPED July 27, 2026** | The webinar GET now returns `event.status`; on DRAFT events the LobbyCard shows an amber "DRAFT auto-opens the room for testing — published events wait for your click" note, and the open/close description states the room never opens automatically at the scheduled time. |
+| ~~**Save-time hls/stream validation (#5 follow-up)**~~ ✅ **SHIPPED July 27, 2026** | Enforced at BOTH doors: the webinar settings PUT rejects **switching** viewingMode to `hls` unless the anchor's ZoomMeeting has `liveStreamEnabled` + `streamKey` (400 `HLS_STREAM_NOT_CONFIGURED`; an already-hls event saving its lobby message is not retro-blocked), and the room-open POST is the final gate — it refuses to open an hls room with no configured stream (closing is always allowed). 9 tests in `__tests__/api/webinar-hls-validation.test.ts`. |
+| ~~**`lobby-status` eventType short-circuit (LOW)**~~ ✅ **SHIPPED July 27, 2026** | `computeLobbyBody` 404s any session whose event is not `eventType === "WEBINAR"`. |
+| ~~**Stale `session.status` badge (LOW, cosmetic)**~~ ✅ **SHIPPED July 27, 2026** | For webinar events with lobby data loaded, the public page's Live/Ended badge derives from the FRESH `lobby.roomOpen` poll instead of the load-time `session.status` snapshot; "Ended" no longer shows while the producer keeps the room open past the scheduled end. |
 | ~~**`LivePlayer` `onStreamStatusChange` ref (LOW)**~~ ✅ `d1999d9` | SHIPPED June 26 — the callback is read from a latest-value ref and dropped from the init-effect deps, so a non-memoized handler can no longer re-create the HLS player + 10s poll. |
 | **Shared rate limiter (LOW, pre-existing)** | The in-memory `checkRateLimit` store resets on every blue-green deploy and is per-container — at 5k that briefly drops rate protection mid-deploy. Real fix is the long-deferred Redis-backed limiter; for now: don't deploy during a live 5k webinar. |
 

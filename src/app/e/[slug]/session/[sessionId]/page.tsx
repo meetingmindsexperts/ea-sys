@@ -360,12 +360,19 @@ export default function PublicSessionPage() {
     };
   }, [isWebinarEvent, authState.kind, slug, sessionId]);
 
-  // Determine session timing status
+  // Determine session timing status. For webinar events the lobby poll is the
+  // FRESH source of truth (session.status is fetched once at load, so the
+  // Live/Ended badge would otherwise lag the producer's open/close until a
+  // refresh — review LOW): room open ⇒ live, regardless of the stale snapshot
+  // or wall clock; room closed past end ⇒ ended.
   const now = Date.now();
   const startMs = session ? new Date(session.startTime).getTime() : 0;
   const endMs = session ? new Date(session.endTime).getTime() : 0;
-  const isLive = session?.status === "LIVE" || (now >= startMs && now <= endMs);
-  const isPast = now > endMs && endMs > 0;
+  const isLive =
+    isWebinarEvent && lobby
+      ? lobby.roomOpen
+      : session?.status === "LIVE" || (now >= startMs && now <= endMs);
+  const isPast = now > endMs && endMs > 0 && !(isWebinarEvent && roomOpen);
   const isUpcoming = startMs > now;
   // Webinars routinely overrun their scheduled slot. While the producer has the
   // room OPEN, don't tear the live view down just because wall-clock passed the

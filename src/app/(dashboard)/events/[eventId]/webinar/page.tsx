@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -294,6 +294,7 @@ export default function WebinarConsolePage() {
             eventId={eventId}
             webinar={data?.webinar ?? {}}
             anchor={anchor ?? null}
+            eventStatus={data?.event?.status}
           />
           <LiveNowCard
             eventId={eventId}
@@ -1900,14 +1901,19 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
   );
 }
 
+/** Grace window after the scheduled end during which the overdue alert still shows. */
+const ROOM_OVERDUE_GRACE_MS = 30 * 60_000;
+
 function LobbyCard({
   eventId,
   webinar,
   anchor,
+  eventStatus,
 }: {
   eventId: string;
   webinar: WebinarConsoleData["webinar"];
   anchor: WebinarConsoleData["anchorSession"];
+  eventStatus?: string;
 }) {
   const updateSettings = useUpdateWebinarSettings(eventId);
   const toggleRoom = useToggleWebinarRoom(eventId);
@@ -1919,6 +1925,29 @@ function LobbyCard({
   const [lobbyMessage, setLobbyMessage] = useState(() => webinar.lobbyMessage ?? "");
 
   const roomOpen = anchor?.status === "LIVE";
+
+  // "Room still closed" alert (waiting-room review #6): once the scheduled
+  // start passes with the room never opened, warn loudly + show how many
+  // attendees are stuck in the lobby. A 30s tick keeps the check moving even
+  // when nothing else re-renders; hides once the producer opens or closes the
+  // room, and 30 min past the scheduled end (never-run webinars don't nag
+  // forever).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const anchorStartMs = anchor?.startTime ? new Date(anchor.startTime).getTime() : 0;
+  const anchorEndMs = anchor?.endTime ? new Date(anchor.endTime).getTime() : 0;
+  const roomOverdue =
+    !roomOpen &&
+    anchor != null &&
+    anchor.status !== "COMPLETED" &&
+    anchorStartMs > 0 &&
+    nowTick >= anchorStartMs &&
+    nowTick <= anchorEndMs + ROOM_OVERDUE_GRACE_MS;
+  // Same query key as LiveNowCard — React Query dedupes if both are active.
+  const { data: overduePresence } = useWebinarPresence(eventId, roomOverdue);
   const videoInvalid =
     lobbyVideoUrl.trim().length > 0 && !isValidLobbyVideoUrl(lobbyVideoUrl.trim());
 
@@ -1988,6 +2017,24 @@ function LobbyCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
+        {/* Overdue alert — scheduled start passed, room never opened */}
+        {roomOverdue && (
+          <div className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-4">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div className="min-w-0">
+              <p className="font-medium text-red-800">
+                The scheduled start has passed — the room is still closed
+              </p>
+              <p className="text-sm text-red-700">
+                {overduePresence && overduePresence.lobby > 0
+                  ? `${overduePresence.lobby} attendee${overduePresence.lobby === 1 ? " is" : "s are"} waiting in the lobby. `
+                  : ""}
+                Attendees stay in the waiting room until you click “Open the room / Go live” below.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Open / close the room */}
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
           <div className="min-w-0">
@@ -1998,7 +2045,8 @@ function LobbyCard({
             </p>
             <p className="text-sm text-muted-foreground">
               Opening the room admits everyone into the live{" "}
-              {viewingMode === "hls" ? "stream" : "webinar"}.
+              {viewingMode === "hls" ? "stream" : "webinar"}. It never opens
+              automatically at the scheduled time.
             </p>
           </div>
           <Button
@@ -2015,6 +2063,18 @@ function LobbyCard({
             {roomOpen ? "Close the room" : "Open the room / Go live"}
           </Button>
         </div>
+
+        {/* Operator visibility (waiting-room review #10): DRAFT events auto-open
+            the public room for end-to-end testing — "it worked in my test" must
+            not surprise an operator at go-live on the published event. */}
+        {eventStatus === "DRAFT" && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            This event is in <strong>DRAFT</strong>: the public session page{" "}
+            <strong>auto-opens the room</strong> so you can test the flow. After
+            publishing, attendees wait in the lobby until you click “Open the
+            room / Go live”.
+          </p>
+        )}
 
         {/* Viewing mode */}
         <div className="space-y-2">

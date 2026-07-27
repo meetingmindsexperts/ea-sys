@@ -375,7 +375,13 @@ const updateSession: ToolExecutor = async (input, ctx) => {
     });
 
     if (!result.ok) return { error: result.message, code: result.code, ...(result.meta ?? {}) };
-    return { success: true, session: result.session };
+    // zoomSync (M6): "failed" ⇒ the session saved but the linked Zoom meeting
+    // still shows the OLD time — the agent should tell the operator to retry.
+    return {
+      success: true,
+      session: result.session,
+      ...(result.zoomSync ? { zoomSync: result.zoomSync } : {}),
+    };
   } catch (err) {
     apiLogger.error({ err }, "agent:update_session failed");
     return { error: err instanceof Error ? err.message : "Failed to update session" };

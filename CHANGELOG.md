@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Webinar deferred-findings batch: security MEDs + waiting-room UX (July 27)
+
+Both deferred webinar clusters closed in one gated batch (owner: "both
+batches"). Security first:
+
+- **M3 — `stream-status` credential leak.** The public route returned
+  `hlsUrl` + `hlsOriginUrl` + the raw `streamKey` to ANY caller — and the
+  streamKey doubles as the RTMP **publish** credential on MediaMTX (stream
+  hijack, not just free viewing). `streamKey` is gone from the response for
+  everyone (the client never used it); the URL fields are now gated on auth +
+  (org staff | non-cancelled registration) with a 60s per-(user,event)
+  positive micro-cache so 5k recovery-pollers don't hammer the pool.
+  Anonymous callers get the bare liveness flag — all the lobby needs. The
+  GET's conditional `streamStatus` write stays deliberately (fires only on a
+  real probe-state transition; not attacker-amplifiable).
+- **M5 — DRAFT exposure** resolved via M3 + a new `eventType === "WEBINAR"`
+  guard on `lobby-status`; the remaining DRAFT surface is a liveness boolean +
+  non-sensitive lobby copy, required by the DRAFT-auto-open test flow.
+- **M1 — provisioner race.** `provisionWebinar` (fired concurrently from
+  event-create fire-and-forget AND the console's "Re-run provisioner") could
+  mint two anchor sessions + two billable Zoom webinars. It now claims a
+  `webinar.provisioningAt` sentinel atomically through the settings row lock:
+  contended → backs off (409 on the manual re-run), lost → idempotent retry
+  against the winner's session, stale (>10 min) → reclaimable, dangling
+  anchor pointer → recovery still works, sentinel released on success and
+  failure. The final settings write went function-form, so a lobby-settings
+  save landing mid-provision is no longer clobbered.
+- **M6 — retime → Zoom re-sync.** Changing a session's times now PATCHes the
+  linked Zoom meeting/webinar (new start, recomputed duration, event
+  timezone) and mirrors `ZoomMeeting.duration` locally, from the service so
+  REST + MCP both get it. Failure-isolated: a Zoom outage surfaces as
+  `zoomSync: "failed"` (dashboard warning toast: "Zoom still shows the old
+  time — save again to retry") and never fails the session save.
+
+Waiting-room UX (June 23 review deferrals, all shipped):
+
+- **"Room still closed" alert** on the Webinar Console once the scheduled
+  start passes with the room never opened — red banner with the live "N
+  attendees are waiting in the lobby" presence count; hides on open/close or
+  30 min past the scheduled end. The public lobby's countdown stops implying
+  imminence after T-0 ("Running a little late…" after 10 min).
+- **DRAFT-auto-open hint** in the LobbyCard (DRAFT events auto-open the
+  public room for testing; published events wait for the manual click) + the
+  open/close copy now states the room never opens automatically.
+- **Save-time HLS validation** at both doors: the settings PUT rejects
+  switching to Custom-stream mode without a configured live stream
+  (`HLS_STREAM_NOT_CONFIGURED`), and room-open refuses to admit attendees
+  into an unconfigured stream (closing always allowed).
+- **Stale Live/Ended badge** on the public session page now derives from the
+  fresh `lobby.roomOpen` poll instead of the load-time status snapshot.
+
++29 tests (8 provisioner-claim with a stateful settings mock, 6 stream-status
+gating, 9 HLS validation, 6 Zoom retime-sync). No schema change, no migration.
+ROADMAP: program/agenda M1/M3/M5/M6 struck; "Webinar waiting room follow-ups"
+table all struck except the pre-existing shared-rate-limiter LOW.
+
 ### Added — Event-wide attendee cap (Option B): "Maximum Attendees" is now enforced (July 24)
 
 The Settings → Registration "Maximum Attendees" input existed but enforced

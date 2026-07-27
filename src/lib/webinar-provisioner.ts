@@ -25,6 +25,10 @@ export type ProvisionResult =
 
 const DEFAULT_WEBINAR_DURATION_MIN = 60;
 
+// A provisioning claim older than this is considered dead (the process crashed
+// mid-provision) and may be reclaimed. A healthy provision takes seconds.
+const PROVISIONING_STALE_MS = 10 * 60_000;
+
 function defaultSessionWindow(start: Date, end: Date): { startTime: Date; endTime: Date } {
   const startTime = new Date(start);
   let endTime = new Date(end);
@@ -34,11 +38,21 @@ function defaultSessionWindow(start: Date, end: Date): { startTime: Date; endTim
   return { startTime, endTime };
 }
 
+function asWebinarObject(cur: Record<string, unknown>): Record<string, unknown> {
+  return cur.webinar && typeof cur.webinar === "object"
+    ? { ...(cur.webinar as Record<string, unknown>) }
+    : {};
+}
+
 export async function provisionWebinar(
   eventId: string,
   options?: { actorUserId?: string },
+  /** Internal recursion guard for the lost-claim → idempotent-retry path. */
+  isRetry = false,
 ): Promise<ProvisionResult> {
   const startedAt = Date.now();
+  // True once WE hold the provisioning sentinel — governs cleanup on failure.
+  let claimed = false;
   try {
     const event = await db.event.findUnique({
       where: { id: eventId },
@@ -93,6 +107,59 @@ export async function provisionWebinar(
         };
       }
     }
+
+    // M1 (program/agenda review): claim a provisioning sentinel ATOMICALLY
+    // before creating anything. provisionWebinar is fired fire-and-forget from
+    // POST /api/events AND from the console's "Re-run provisioner" button —
+    // without the claim, two concurrent invocations both pass the sessionId
+    // check above and mint TWO anchor sessions + TWO billable Zoom webinars
+    // (last settings write wins; the loser's pair is orphaned). The claim
+    // rides the same SELECT…FOR UPDATE settings row lock every settings write
+    // uses. A stale claim (crashed provision, >10 min) is reclaimable.
+    //
+    // `staleSessionId` handles the recovery flow: if settings point at a
+    // session that no longer exists (operator deleted the anchor and re-runs
+    // the provisioner), that dangling pointer must NOT read as "already
+    // provisioned" — only a sessionId DIFFERENT from the one we just verified
+    // dead means a concurrent run finished first.
+    const staleSessionId = existingWebinar.sessionId ?? null;
+    // Object property (not a bare let) so TS doesn't narrow it to the initial
+    // literal — the assignment happens inside the locked patch closure.
+    const claim: { outcome: "won" | "in-progress" | "already-provisioned" } = { outcome: "won" };
+    await updateEventSettings(event.id, (cur) => {
+      const webinar = asWebinarObject(cur);
+      if (typeof webinar.sessionId === "string" && webinar.sessionId !== staleSessionId) {
+        claim.outcome = "already-provisioned";
+        return cur;
+      }
+      const claimedAtMs =
+        typeof webinar.provisioningAt === "string" ? Date.parse(webinar.provisioningAt) : NaN;
+      if (Number.isFinite(claimedAtMs) && Date.now() - claimedAtMs < PROVISIONING_STALE_MS) {
+        claim.outcome = "in-progress";
+        return cur;
+      }
+      return { ...cur, webinar: { ...webinar, provisioningAt: new Date().toISOString() } };
+    });
+
+    if (claim.outcome === "in-progress") {
+      const durationMs = Date.now() - startedAt;
+      apiLogger.warn({ eventId, durationMs }, "webinar:provision-claim-contended");
+      return { ok: false, reason: "provision-already-in-progress", durationMs };
+    }
+    if (claim.outcome === "already-provisioned") {
+      // A concurrent run finished between our settings read and the claim.
+      // Re-enter once — the fresh settings now carry its sessionId, so the
+      // idempotent branch above returns its result. The guard prevents a loop
+      // if state churns pathologically between retries.
+      if (isRetry) {
+        const durationMs = Date.now() - startedAt;
+        apiLogger.error({ eventId, durationMs }, "webinar:provision-claim-conflict-loop");
+        return { ok: false, reason: "provision-conflict", durationMs };
+      }
+      apiLogger.info({ eventId }, "webinar:provision-lost-claim-retrying-idempotent");
+      return provisionWebinar(eventId, options, true);
+    }
+    claimed = true;
 
     // Create the anchor session for the webinar
     const { startTime, endTime } = defaultSessionWindow(event.startDate, event.endDate);
@@ -189,9 +256,16 @@ export async function provisionWebinar(
       automationEnabled: existingWebinar.automationEnabled ?? true,
     };
     // JSON round-trip strips undefined (Prisma's Json type rejects it)
-    // before the atomic merge.
-    const cleanWebinar = JSON.parse(JSON.stringify(nextWebinar));
-    await updateEventSettings(event.id, { webinar: cleanWebinar });
+    // before the atomic merge. Function-form: merge over the LOCKED current
+    // webinar object (not the pre-claim snapshot) so a lobby-settings save
+    // that landed while we provisioned isn't clobbered, and drop the
+    // provisioning sentinel in the same write.
+    const cleanWebinar = JSON.parse(JSON.stringify(nextWebinar)) as Record<string, unknown>;
+    await updateEventSettings(event.id, (cur) => {
+      const merged = { ...asWebinarObject(cur), ...cleanWebinar };
+      delete merged.provisioningAt;
+      return { ...cur, webinar: merged };
+    });
 
     // Enqueue the 4 future email phases (reminder-24h, reminder-1h, live-now,
     // thank-you). Only runs if the Zoom webinar was freshly created here —
@@ -230,6 +304,20 @@ export async function provisionWebinar(
   } catch (err) {
     const durationMs = Date.now() - startedAt;
     apiLogger.error({ err, eventId, durationMs }, "webinar:provision-failed");
+    // Best-effort: release OUR claim so the next attempt doesn't have to wait
+    // out the stale window. Only when we actually hold it — never clear a
+    // concurrent run's live claim.
+    if (claimed) {
+      try {
+        await updateEventSettings(eventId, (cur) => {
+          const webinar = asWebinarObject(cur);
+          delete webinar.provisioningAt;
+          return { ...cur, webinar };
+        });
+      } catch (cleanupErr) {
+        apiLogger.error({ err: cleanupErr, eventId }, "webinar:provision-claim-cleanup-failed");
+      }
+    }
     return {
       ok: false,
       reason: err instanceof Error ? err.message : "unknown-error",

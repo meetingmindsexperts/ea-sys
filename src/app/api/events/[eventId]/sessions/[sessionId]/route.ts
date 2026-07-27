@@ -176,7 +176,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    return NextResponse.json(result.session);
+    // zoomSync (M6): "failed" tells the client the session saved but the
+    // linked Zoom meeting still shows the OLD time — the dashboard surfaces
+    // a warning toast so the operator isn't silently out of sync with Zoom.
+    return NextResponse.json({
+      ...result.session,
+      ...(result.zoomSync ? { zoomSync: result.zoomSync } : {}),
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating session" });
     return NextResponse.json(

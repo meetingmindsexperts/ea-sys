@@ -41,6 +41,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isBreakSessionType } from "@/lib/session-enums";
 import { readWebinarSettings } from "@/lib/webinar";
+import { updateZoomMeeting, updateZoomWebinar } from "@/lib/zoom";
 import {
   isSessionWithinEventDates,
   localDateInTz,
@@ -151,7 +152,19 @@ export type CreateSessionResult =
   | { ok: true; session: NonNullable<SessionRow> }
   | { ok: false; code: SessionServiceErrorCode; message: string; meta?: Record<string, unknown> };
 
-export type UpdateSessionResult = CreateSessionResult;
+export type UpdateSessionResult =
+  | {
+      ok: true;
+      session: NonNullable<SessionRow>;
+      /**
+       * M6 (program/agenda review): outcome of pushing a retime to the linked
+       * Zoom meeting/webinar. "failed" means the session SAVED but Zoom still
+       * shows the old time — surface it so the operator fixes Zoom or retries.
+       * Absent when the times didn't change or there is no Zoom meeting.
+       */
+      zoomSync?: "synced" | "failed";
+    }
+  | { ok: false; code: SessionServiceErrorCode; message: string; meta?: Record<string, unknown> };
 
 // ── Shared select (the shape both callers return) ────────────────────────────
 
@@ -549,7 +562,7 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
       status: true,
       type: true,
       abstractId: true,
-      zoomMeeting: { select: { id: true } },
+      zoomMeeting: { select: { id: true, zoomMeetingId: true, meetingType: true } },
       _count: { select: { speakers: true, topics: true } },
     },
   });
@@ -706,7 +719,28 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
   const session = await loadSession(sessionId);
   if (!session) return fail("SESSION_NOT_FOUND", `Session ${sessionId} not found after update`);
 
-  apiLogger.info({ sessionId, eventId, userId, source }, "session:updated");
+  // M6 (program/agenda review): a retime must reach the linked Zoom meeting —
+  // before this, Zoom kept the original scheduled start + a stale duration
+  // while the lobby countdown and public agenda used the new times. Runs AFTER
+  // the local save commits and is failure-isolated: a Zoom outage never fails
+  // the session update, it surfaces as zoomSync: "failed" for the caller.
+  let zoomSync: "synced" | "failed" | undefined;
+  const timesChanged =
+    (input.startTime !== undefined &&
+      input.startTime.getTime() !== existing.startTime.getTime()) ||
+    (input.endTime !== undefined && input.endTime.getTime() !== existing.endTime.getTime());
+  if (timesChanged && existing.zoomMeeting) {
+    zoomSync = await syncZoomMeetingTimes({
+      eventId,
+      sessionId,
+      zoomMeeting: existing.zoomMeeting,
+      startTime: input.startTime ?? existing.startTime,
+      endTime: input.endTime ?? existing.endTime,
+      source,
+    });
+  }
+
+  apiLogger.info({ sessionId, eventId, userId, source, ...(zoomSync ? { zoomSync } : {}) }, "session:updated");
 
   refreshEventStats(eventId);
 
@@ -731,7 +765,71 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
     })
     .catch((err) => apiLogger.error({ err, eventId, sessionId }, "session-update:audit-log-failed"));
 
-  return { ok: true, session };
+  return { ok: true, session, ...(zoomSync ? { zoomSync } : {}) };
+}
+
+/**
+ * Push a retimed session's start + duration to its linked Zoom meeting or
+ * webinar (M6). Never throws — the local save already committed; the outcome
+ * is reported back to the caller as `zoomSync` and always logged.
+ */
+async function syncZoomMeetingTimes(args: {
+  eventId: string;
+  sessionId: string;
+  zoomMeeting: { id: string; zoomMeetingId: string; meetingType: string };
+  startTime: Date;
+  endTime: Date;
+  source: string;
+}): Promise<"synced" | "failed"> {
+  const { eventId, sessionId, zoomMeeting, startTime, endTime, source } = args;
+  try {
+    const event = await db.event.findUnique({
+      where: { id: eventId },
+      select: { timezone: true, organizationId: true },
+    });
+    if (!event) throw new Error("event-not-found-for-zoom-sync");
+
+    const duration = Math.max(1, Math.ceil((endTime.getTime() - startTime.getTime()) / 60_000));
+    const params = {
+      startTime: startTime.toISOString(),
+      duration,
+      timezone: resolveTimezone(event.timezone),
+    };
+    if (zoomMeeting.meetingType === "MEETING") {
+      await updateZoomMeeting(event.organizationId, zoomMeeting.zoomMeetingId, params);
+    } else {
+      // WEBINAR + WEBINAR_SERIES both live on the /webinars endpoint.
+      await updateZoomWebinar(event.organizationId, zoomMeeting.zoomMeetingId, params);
+    }
+    await db.zoomMeeting.update({ where: { id: zoomMeeting.id }, data: { duration } });
+
+    apiLogger.info(
+      {
+        eventId,
+        sessionId,
+        zoomMeetingId: zoomMeeting.zoomMeetingId,
+        meetingType: zoomMeeting.meetingType,
+        startTime: startTime.toISOString(),
+        duration,
+        source,
+      },
+      "session:zoom-times-synced",
+    );
+    return "synced";
+  } catch (err) {
+    apiLogger.error(
+      {
+        err,
+        eventId,
+        sessionId,
+        zoomMeetingId: zoomMeeting.zoomMeetingId,
+        meetingType: zoomMeeting.meetingType,
+        source,
+      },
+      "session:zoom-times-sync-failed",
+    );
+    return "failed";
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

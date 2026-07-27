@@ -34,10 +34,13 @@ async function computeLobbyBody(
       status: true,
       startTime: true,
       endTime: true,
-      event: { select: { status: true, settings: true } },
+      event: { select: { status: true, eventType: true, settings: true } },
     },
   });
   if (!session) return "not-found";
+  // The waiting-room flow only exists for WEBINAR events — keep the public
+  // surface tight instead of serving lobby config for any session (review LOW).
+  if (session.event.eventType !== "WEBINAR") return "not-found";
 
   const webinar = readWebinarSettings(session.event.settings);
   const now = Date.now();

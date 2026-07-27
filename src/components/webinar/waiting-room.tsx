@@ -42,10 +42,15 @@ function formatRemaining(ms: number): string {
  * video and counts down to start. The parent polls `lobby-status` and swaps
  * this out for the live view the moment the room opens.
  */
+// After this long past the scheduled start, stop implying imminence
+// ("Starting any moment") — the host is simply running late (review #6).
+const OVERDUE_AFTER_MS = 10 * 60_000;
+
 export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl }: WaitingRoomProps) {
   const now = useNow();
   const remaining = new Date(startsAt).getTime() - now;
   const started = remaining <= 0;
+  const overdue = remaining <= -OVERDUE_AFTER_MS;
   const video = parseLobbyVideo(lobbyVideoUrl);
 
   return (
@@ -87,7 +92,11 @@ export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl }
       <div className="rounded-lg border bg-white p-5 text-center">
         <div className="mb-1 flex items-center justify-center gap-2 text-sm font-medium text-slate-500">
           <Clock className="h-4 w-4" />
-          {started ? "Starting any moment" : "Starts in"}
+          {overdue
+            ? "Running a little late — you'll be admitted as soon as the host starts"
+            : started
+              ? "Starting any moment"
+              : "Starts in"}
         </div>
         {!started && (
           <p className="text-2xl font-bold tabular-nums text-slate-900">

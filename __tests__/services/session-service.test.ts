@@ -8,7 +8,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Prisma } from "@prisma/client";
 
-const { mockDb, mockTx, mockApiLogger, mockNotify, mockRefreshStats } = vi.hoisted(() => {
+const {
+  mockDb,
+  mockTx,
+  mockApiLogger,
+  mockNotify,
+  mockRefreshStats,
+  mockUpdateZoomMeeting,
+  mockUpdateZoomWebinar,
+} = vi.hoisted(() => {
   const mockTx = {
     eventSession: { updateMany: vi.fn() },
     sessionSpeaker: { deleteMany: vi.fn(), createMany: vi.fn() },
@@ -25,10 +33,13 @@ const { mockDb, mockTx, mockApiLogger, mockNotify, mockRefreshStats } = vi.hoist
       abstract: { findFirst: vi.fn() },
       speaker: { findMany: vi.fn() },
       auditLog: { create: vi.fn() },
+      zoomMeeting: { update: vi.fn() },
     },
     mockApiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockNotify: vi.fn(),
     mockRefreshStats: vi.fn(),
+    mockUpdateZoomMeeting: vi.fn(),
+    mockUpdateZoomWebinar: vi.fn(),
   };
 });
 
@@ -36,6 +47,10 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: mockRefreshStats }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
+vi.mock("@/lib/zoom", () => ({
+  updateZoomMeeting: (...a: unknown[]) => mockUpdateZoomMeeting(...a),
+  updateZoomWebinar: (...a: unknown[]) => mockUpdateZoomWebinar(...a),
+}));
 
 import { createSession, updateSession } from "@/services/session-service";
 
@@ -43,6 +58,7 @@ const EVENT = {
   startDate: new Date("2026-09-01T00:00:00Z"),
   endDate: new Date("2026-09-03T00:00:00Z"),
   timezone: "Asia/Dubai",
+  organizationId: "org1",
 };
 const START = new Date("2026-09-02T06:00:00Z");
 const END = new Date("2026-09-02T07:00:00Z");
@@ -550,5 +566,83 @@ describe("duplicate speaker in the roster payload (July 21, 2026 prod alert — 
         { topicId: "t1", speakerId: "sp2" },
       ],
     });
+  });
+});
+
+describe("updateSession — M6: retime re-syncs the linked Zoom meeting", () => {
+  const ZOOM_ROW = { id: "zmrow1", zoomMeetingId: "987654321", meetingType: "WEBINAR" };
+  const NEW_START = new Date("2026-09-02T08:00:00Z");
+  const NEW_END = new Date("2026-09-02T09:30:00Z");
+
+  function withZoom(meetingType = "WEBINAR") {
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", startTime: START, endTime: END, status: "SCHEDULED",
+      type: "SESSION", abstractId: null,
+      zoomMeeting: { ...ZOOM_ROW, meetingType },
+      _count: { speakers: 0, topics: 0 },
+    });
+  }
+
+  it("pushes the new start + recomputed duration to Zoom (webinar) and reports synced", async () => {
+    withZoom("WEBINAR");
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomSync).toBe("synced");
+    expect(mockUpdateZoomWebinar).toHaveBeenCalledWith("org1", "987654321", {
+      startTime: NEW_START.toISOString(),
+      duration: 90,
+      timezone: "Asia/Dubai",
+    });
+    expect(mockUpdateZoomMeeting).not.toHaveBeenCalled();
+    // Local duration mirror is updated too.
+    expect(mockDb.zoomMeeting.update).toHaveBeenCalledWith({
+      where: { id: "zmrow1" },
+      data: { duration: 90 },
+    });
+  });
+
+  it("routes MEETING type through the /meetings endpoint", async () => {
+    withZoom("MEETING");
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    expect(mockUpdateZoomMeeting).toHaveBeenCalledTimes(1);
+    expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
+  });
+
+  it("a Zoom outage NEVER fails the session save — surfaces zoomSync: failed + logs", async () => {
+    withZoom("WEBINAR");
+    mockUpdateZoomWebinar.mockRejectedValue(new Error("zoom 502"));
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomSync).toBe("failed");
+    expect(mockApiLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1", zoomMeetingId: "987654321" }),
+      "session:zoom-times-sync-failed",
+    );
+  });
+
+  it("no Zoom call when the times did not change (name-only edit)", async () => {
+    withZoom("WEBINAR");
+    const res = await updateSession({ ...BASE_UPDATE, name: "Renamed" });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomSync).toBeUndefined();
+    expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
+    expect(mockUpdateZoomMeeting).not.toHaveBeenCalled();
+  });
+
+  it("no Zoom call when the payload re-sends the SAME times (idempotent save)", async () => {
+    withZoom("WEBINAR");
+    const res = await updateSession({ ...BASE_UPDATE, startTime: START, endTime: END });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomSync).toBeUndefined();
+    expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
+  });
+
+  it("no Zoom call when the session has no linked meeting", async () => {
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomSync).toBeUndefined();
+    expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
+    expect(mockUpdateZoomMeeting).not.toHaveBeenCalled();
   });
 });

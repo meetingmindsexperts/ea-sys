@@ -46,7 +46,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
-      select: { id: true, name: true, eventType: true, slug: true, settings: true, organizationId: true },
+      select: { id: true, name: true, eventType: true, status: true, slug: true, settings: true, organizationId: true },
     });
 
     if (!event) {
@@ -97,6 +97,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
         name: event.name,
         slug: event.slug,
         eventType: event.eventType,
+        // Drives the LobbyCard's DRAFT-auto-open hint: DRAFT events auto-open
+        // the public room for testing; PUBLISHED requires the manual click.
+        status: event.status,
       },
       webinar,
       anchorSession,
@@ -156,6 +159,35 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const existingWebinar = readWebinarSettings(event.settings) ?? {};
     const nextWebinar: WebinarSettings = { ...existingWebinar, ...validated.data };
 
+    // Save-time HLS validation (waiting-room review #5 follow-up): switching
+    // the viewing mode to "hls" requires the anchor session's live stream to
+    // actually be configured — otherwise attendees would be admitted into a
+    // permanent "getting the stream ready" screen at go-live. Enforced when
+    // the REQUEST sets hls (an already-hls event saving its lobby message
+    // isn't retro-blocked; the room-open POST is the final gate).
+    if (validated.data.viewingMode === "hls") {
+      const streamConfig = nextWebinar.sessionId
+        ? await db.zoomMeeting.findUnique({
+            where: { sessionId: nextWebinar.sessionId },
+            select: { liveStreamEnabled: true, streamKey: true },
+          })
+        : null;
+      if (!streamConfig?.liveStreamEnabled || !streamConfig.streamKey) {
+        apiLogger.warn(
+          { eventId, userId: session.user.id },
+          "webinar:hls-mode-without-stream-rejected",
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Custom stream mode needs the live stream enabled on the webinar session first (Session → Zoom → Live Streaming), or switch back to the Zoom embed.",
+            code: "HLS_STREAM_NOT_CONFIGURED",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     // JSON round-trip strips undefined values (Prisma's Json type rejects
     // them) before the atomic merge.
     const cleanWebinar = JSON.parse(JSON.stringify(nextWebinar));
@@ -210,6 +242,14 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     const result = await provisionWebinar(eventId, { actorUserId: session.user.id });
     if (!result.ok) {
+      // Another invocation (event-create fire-and-forget, or a double-click)
+      // holds the provisioning claim — a benign race, not a server error.
+      if (result.reason === "provision-already-in-progress") {
+        return NextResponse.json(
+          { error: "Provisioning is already running for this event — try again in a moment." },
+          { status: 409 },
+        );
+      }
       return NextResponse.json({ error: result.reason }, { status: 500 });
     }
 
