@@ -49,6 +49,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWEPT_ROUTE_DIRS=(
   "src/app/api/contacts"          # Contacts pilot (July 23, 2026)
   "src/app/api/billing-accounts"  # BillingAccount sweep (July 24, 2026)
+  "src/app/api/invoices"          # Invoice sweep — org-wide hub + export (July 27, 2026)
 )
 # Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
@@ -56,9 +57,22 @@ SWEPT_ROUTE_DIRS=(
 SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/billing-accounts/route.ts"                    # BillingAccount (July 24, 2026)
   "src/app/api/events/[eventId]/billing-accounts/[billingAccountId]/route.ts" # BillingAccount (July 24, 2026)
+  # Invoice sweep — the event-nested invoice/quote STAFF surface (July 27, 2026).
+  # NOT the 3 REGISTRANT invoice/quote routes (cross-org, organizationId=null —
+  # deferred to the Phase-1 identity decision), and NOT the C2b cross-domain
+  # writers (webhook / reconciliation / payments / resend / public-document /
+  # payment-service) whose narrow invoice wraps live in non-invoice-domain
+  # handlers — those get gated when their home domain is swept.
+  "src/app/api/events/[eventId]/invoices/route.ts"                                # Invoice (July 27, 2026)
+  "src/app/api/events/[eventId]/invoices/[invoiceId]/route.ts"                    # Invoice (July 27, 2026)
+  "src/app/api/events/[eventId]/invoices/[invoiceId]/pdf/route.ts"                # Invoice (July 27, 2026)
+  "src/app/api/events/[eventId]/invoices/[invoiceId]/send/route.ts"              # Invoice (July 27, 2026)
+  "src/app/api/events/[eventId]/invoices/export/route.ts"                         # Invoice (July 27, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/quote/route.ts"   # Invoice — staff quote (July 27, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
+  "src/lib/agent/tools/invoices.ts"   # invoice agent / MCP executors (July 27, 2026)
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
