@@ -30,6 +30,24 @@ export interface AccreditationEntry {
   reference: string;
   hours?: number;
   officialStatement?: string;
+  /**
+   * Free-text accreditor name, used by `{{accreditationName}}`.
+   *
+   * WHY THIS EXISTS: `body` is a closed 6-value enum, and `OTHER` renders as
+   * the literal string "The Accrediting Body" — which is unusable on a real
+   * certificate. The OSH Monthly Meeting 2026 CME templates (the only
+   * real-world cert setup in the product as of July 2026) hit exactly this:
+   * the accreditor is the Oman Medical Specialty Board, which is not in the
+   * enum, so all four templates picked `OTHER` and then TYPED
+   * "Accredited by Oman Medical Specialty Board (OMSB)" into a text box by
+   * hand. That is untokenizable — every clone and every new event has to
+   * retype it, and nothing keeps it in step with the reference number
+   * sitting right next to it.
+   *
+   * When set, `{{accreditationName}}` renders this verbatim. When absent it
+   * falls back to the enum's friendly name, so existing events are unchanged.
+   */
+  name?: string;
 }
 
 /**

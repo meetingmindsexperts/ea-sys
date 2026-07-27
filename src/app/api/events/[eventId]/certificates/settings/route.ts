@@ -39,6 +39,10 @@ const accreditationSchema = z.object({
   // (EACCME's "designated for a maximum of N ECMECs"). Capped at 500
   // chars to keep the cert layout sane. Never raw HTML — text only.
   officialStatement: z.string().max(500).optional(),
+  // Free-text accreditor name for `{{accreditationName}}`. Needed because
+  // `body` is a closed enum and `OTHER` renders "The Accrediting Body" —
+  // see AccreditationEntry.name for the OSH case that forced hardcoding.
+  name: z.string().max(160).trim().optional(),
 });
 
 const patchSchema = z

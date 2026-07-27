@@ -78,6 +78,7 @@ import {
   Save,
   RefreshCw,
   Download,
+  Sparkles,
 } from "lucide-react";
 import type { CertificateTextBox } from "@/components/certificates/certificate-canvas-editor";
 import { CertEmailEditorDialog } from "@/components/certificates/cert-email-editor-dialog";
@@ -153,6 +154,10 @@ interface AccreditationRow {
   reference: string;
   hours?: number;
   officialStatement?: string;
+  /** Free-text accreditor name — drives {{accreditationName}}. Required in
+   *  practice whenever body is OTHER, since that enum value renders as the
+   *  unusable literal "The Accrediting Body". */
+  name?: string;
 }
 
 interface SettingsResponse {
@@ -327,6 +332,10 @@ export default function CertificatesPage() {
               reference: a.reference.trim(),
               hours: a.hours,
               officialStatement: a.officialStatement?.trim() || undefined,
+              // Must be sent explicitly — this mapper whitelists fields, so a
+              // new input that isn't listed here is a dead write: the UI saves
+              // "successfully" and the value silently reverts on refetch.
+              name: a.name?.trim() || undefined,
             })),
         }),
       });
@@ -488,6 +497,50 @@ export default function CertificatesPage() {
         );
       } else {
         toast.success(`Duplicated as "${data.template.name}"`);
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Creates a ready-made template: generated background + pre-positioned,
+  // fully tokenized text boxes. The organizer edits it, or duplicates it to
+  // spin role variants. Opens the editor on success so the first thing they
+  // see is their own certificate, not an empty canvas.
+  const starterTemplateMutation = useMutation({
+    mutationFn: async (category: CertCategory) => {
+      const res = await fetch(`/api/events/${eventId}/certificates/templates/starter`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        template?: CertificateTemplate;
+        omittedSections?: { venue: boolean; accreditation: boolean; cmeHours: boolean };
+        error?: string;
+      };
+      if (!res.ok || !json.template) {
+        throw new Error(json.error ?? `Could not create the standard template (${res.status})`);
+      }
+      // Return a fresh object so `template` is non-optional downstream —
+      // narrowing `json.template` above doesn't narrow `json` itself.
+      return { template: json.template, omittedSections: json.omittedSections };
+    },
+    onSuccess: ({ template, omittedSections }) => {
+      queryClient.invalidateQueries({ queryKey: ["cert-templates", eventId] });
+      setEditingTemplateId(template.id);
+      // The starter adapts to the event's configuration, so say what it left
+      // out rather than letting the organizer wonder where the CME lines went.
+      const omitted = [
+        omittedSections?.accreditation ? "accreditation lines" : null,
+        omittedSections?.cmeHours ? "CME hours" : null,
+        omittedSections?.venue ? "the venue line" : null,
+      ].filter(Boolean) as string[];
+      if (omitted.length > 0) {
+        toast.success(`Created "${template.name}"`, {
+          description: `Skipped ${omitted.join(", ")} — not configured on this event yet. Set them up in the CME/CPD tab and add the lines, or leave them off.`,
+        });
+      } else {
+        toast.success(`Created "${template.name}" — edit the wording or duplicate it for other roles.`);
       }
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1165,19 +1218,45 @@ export default function CertificatesPage() {
                           {templatesByCategory[cat.key].length === 1 ? "template" : "templates"}
                         </CardDescription>
                       </div>
-                      <Button
-                        size="sm"
-                        onClick={() => setCreateDialog({ open: true, category: cat.key })}
-                      >
-                        <Plus className="h-4 w-4 mr-1" /> Add
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => starterTemplateMutation.mutate(cat.key)}
+                          disabled={
+                            starterTemplateMutation.isPending &&
+                            starterTemplateMutation.variables === cat.key
+                          }
+                          title="Create a ready-made template you can edit or duplicate"
+                        >
+                          {starterTemplateMutation.isPending &&
+                          starterTemplateMutation.variables === cat.key ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-4 w-4 mr-1" />
+                          )}
+                          Use standard
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => setCreateDialog({ open: true, category: cat.key })}
+                        >
+                          <Plus className="h-4 w-4 mr-1" /> Add
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     {templatesByCategory[cat.key].length === 0 ? (
-                      <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                        No {cat.label.toLowerCase()} templates yet. Click{" "}
-                        <strong>+ Add</strong> to upload your first design.
+                      <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground space-y-2">
+                        <p>No {cat.label.toLowerCase()} templates yet.</p>
+                        <p className="text-xs">
+                          <strong>Use standard</strong> gives you a complete, editable{" "}
+                          {cat.label.toLowerCase()} certificate with the recipient, event, date
+                          {cat.key === "APPRECIATION" ? ", role" : ""} and accreditation lines
+                          already filled in from this event — clone it for other roles. Or{" "}
+                          <strong>Add</strong> to start from your designer&apos;s own PDF.
+                        </p>
                       </div>
                     ) : (
                       templatesByCategory[cat.key].map((t) => (
@@ -1425,6 +1504,34 @@ export default function CertificatesPage() {
                         value={row.reference}
                         onChange={(e) => updateAccreditation(idx, { reference: e.target.value })}
                       />
+                    </div>
+                    <div className="md:col-span-4">
+                      <Label className="text-xs">
+                        Accreditor name{" "}
+                        {row.body === "OTHER" ? (
+                          <span className="text-amber-700">
+                            — required, &quot;Other&quot; has no standard name
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            (optional — overrides the standard name)
+                          </span>
+                        )}
+                      </Label>
+                      <Input
+                        placeholder={
+                          row.body === "OTHER"
+                            ? "e.g. Oman Medical Specialty Board (OMSB)"
+                            : "Leave blank to use the standard name"
+                        }
+                        value={row.name ?? ""}
+                        onChange={(e) => updateAccreditation(idx, { name: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Rendered by{" "}
+                        <code className="bg-muted px-1 rounded">{`{{accreditationName}}`}</code> on
+                        certificates.
+                      </p>
                     </div>
                     <div>
                       <Label className="text-xs">Hours (override)</Label>

@@ -64,6 +64,7 @@ import {
   Redo2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { CERTIFICATE_TOKENS } from "@/lib/certificates/token-catalog";
 
 // ── Types — mirror src/lib/certificates/types.ts ─────────────────────────────
 
@@ -93,15 +94,19 @@ const FONTS: CertificateFontName[] = [
   "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
 ];
 
-const AVAILABLE_TOKENS: Array<{ token: string; description: string }> = [
-  { token: "{{recipientName}}", description: "Full attendee/speaker name (with title prefix)" },
-  { token: "{{eventName}}", description: "Event name" },
-  { token: "{{eventDateRange}}", description: "Event date range (e.g. 5th - 7th December 2025)" },
-  { token: "{{venueLine}}", description: "Venue + city + country, prefixed with 'at'" },
-  { token: "{{accreditationBody}}", description: "Accreditor's friendly name (e.g. DHA)" },
-  { token: "{{accreditationReference}}", description: "Accreditor's reference number" },
-  { token: "{{cmeHours}}", description: "CME hours awarded" },
-];
+/**
+ * Derived from the shared catalog rather than hand-listed. The previous local
+ * list had drifted: `{{role}}` shipped in June 2026 and never reached it, so
+ * the one token an appreciation certificate most wants was undiscoverable, and
+ * `{{eventSubtitle}}` resolved but was unlisted. The catalog is the single
+ * list and a test asserts the renderer resolves exactly these keys.
+ */
+const AVAILABLE_TOKENS: Array<{ token: string; description: string; sample: string }> =
+  CERTIFICATE_TOKENS.map((t) => ({
+    token: `{{${t.key}}}`,
+    description: t.description,
+    sample: t.sample,
+  }));
 
 // Display canvas width — wider than the page so the operator can drop
 // boxes in the margin and slide them in. The browser scales pixels via
@@ -1111,6 +1116,11 @@ export function CertificateCanvasEditor({
                   <span className="block text-xs text-muted-foreground">
                     {t.description}
                   </span>
+                  {t.sample && (
+                    <span className="block text-xs italic text-muted-foreground/80">
+                      renders as: {t.sample}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

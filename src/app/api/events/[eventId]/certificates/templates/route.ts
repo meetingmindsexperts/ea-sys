@@ -19,30 +19,12 @@ import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
+import { certificateTextBoxesSchema } from "@/lib/certificates/template-box-schema";
 import { Prisma } from "@prisma/client";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
 }
-
-const FONT_NAMES = [
-  "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
-  "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
-  "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
-] as const;
-
-const textBoxSchema = z.object({
-  id: z.string().min(1).max(64),
-  content: z.string().max(500),
-  x: z.number().min(0).max(20000),
-  y: z.number().min(0).max(20000),
-  width: z.number().min(1).max(20000),
-  height: z.number().min(1).max(20000),
-  font: z.enum(FONT_NAMES),
-  size: z.number().min(4).max(120),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a 6-digit hex color"),
-  align: z.enum(["left", "center", "right"]),
-});
 
 const createSchema = z.object({
   name: z.string().min(1).max(120).trim(),
@@ -57,7 +39,7 @@ const createSchema = z.object({
     .refine((v) => v == null || validateBackgroundPdfUrl(v).ok, {
       message: "backgroundPdfUrl must be a /uploads/certificates/ path or an https Supabase URL",
     }),
-  textBoxes: z.array(textBoxSchema).max(40).optional(),
+  textBoxes: certificateTextBoxesSchema.optional(),
   // Per-template default cover email. Both nullable — when null the
   // Issue dialog pre-fills with the system default. min(1) when set
   // so a template doesn't carry an empty string that would render

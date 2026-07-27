@@ -9,15 +9,10 @@
  *   - The token-merge function that substitutes `{{recipientName}}` etc.
  *     in the body template at render time.
  *
- * Tokens supported in `bodyTemplate`:
- *   {{recipientName}}             "Dr. Sample Attendee"
- *   {{eventName}}                 "Emirates International Gastroenterology…"
- *   {{eventSubtitle}}             "" (currently no subtitle field on Event)
- *   {{eventDateRange}}            "5th - 7th December 2025"
- *   {{venueLine}}                 "at Conrad Dubai, United Arab Emirates"
- *   {{accreditationBody}}         "Dubai Health Authority (DHA)"
- *   {{accreditationReference}}    "DHA/MTS/ACC/25-2971/A"
- *   {{cmeHours}}                  "10.5"
+ * The token list is NOT maintained here — it lives in `token-catalog.ts`
+ * (client-safe, so the canvas editor renders the same list it validates
+ * against) and `resolveTokens()` below must return exactly those keys. A
+ * drift test enforces the equality; see the catalog's header for why.
  *
  * Unknown tokens render as empty string + emit a structured warn log so
  * a typo doesn't print `{{cmeHourz}}` literally on a real cert.
@@ -94,31 +89,59 @@ export function mergeBody(template: string, data: CertificateData): string {
   });
 }
 
-function resolveTokens(data: CertificateData): Record<string, string> {
-  const { recipient, event, template } = data;
+/**
+ * Resolve every token to its rendered string for one certificate.
+ *
+ * INVARIANT: the keys returned here must equal `CERTIFICATE_TOKEN_KEYS` in
+ * token-catalog.ts exactly — `certificate-tokens.test.ts` asserts it. A token
+ * that resolves but isn't in the catalog is undiscoverable in the editor; one
+ * in the catalog that doesn't resolve prints blank on a real certificate.
+ *
+ * Exported for that test only; the render path goes through `mergeBody`.
+ */
+export function resolveTokens(data: CertificateData): Record<string, string> {
+  const { recipient, event, template, extras } = data;
   const venueLine = composeVenueLine(event);
-  const accreditationBody =
-    event.accreditations?.[0]?.body
-      ? friendlyAccreditorName(event.accreditations[0].body)
-      : "";
-  const accreditationReference = event.accreditations?.[0]?.reference ?? "";
+  const accreditation = event.accreditations?.[0];
+  const accreditationBody = accreditation ? friendlyAccreditorName(accreditation.body) : "";
+  // `accreditationName` prefers the organizer's free-text name. The enum's
+  // friendly name is only a fallback because `OTHER` maps to the unusable
+  // "The Accrediting Body" — see the AccreditationEntry.name doc comment for
+  // how that forced the OSH templates to hardcode their accreditor.
+  const accreditationName = accreditation
+    ? (accreditation.name?.trim() || friendlyAccreditorName(accreditation.body))
+    : "";
+  const accreditationReference = accreditation?.reference ?? "";
   // Per-template CME hours (organizer-entered) override the event-level value.
   const cmeHoursStr = formatHoursForToken(template?.cmeHours ?? event.cmeHours);
 
+  // APPRECIATION carries the presentation context; ATTENDANCE has none, so
+  // both resolve to "" there rather than being absent (an absent key would
+  // trip mergeBody's unknown-token warn on a perfectly valid template).
+  const abstractTitle = extras?.type === "APPRECIATION" ? (extras.abstractTitle ?? "") : "";
+  const sessionTitles =
+    extras?.type === "APPRECIATION" ? (extras.sessionTitles ?? []).join(", ") : "";
+
   return {
     recipientName: recipient.fullName,
+    organizationName: event.organizationName,
     eventName: event.name,
-    // No `Event.subtitle` column yet — leave empty unless the user wants
-    // it as a future schema addition.
+    // No `Event.subtitle` column yet — resolves empty. Kept because removing
+    // it would break any template already using it, and the catalog says so.
     eventSubtitle: "",
     eventDateRange: formatDateRange(event.startDate, event.endDate),
     venueLine,
-    accreditationBody,
-    accreditationReference,
-    cmeHours: cmeHoursStr,
     // Role/designation for this cert (e.g. "Speaker", "Moderator"). Empty when
     // the template has no role set.
     role: template?.role ?? "",
+    abstractTitle,
+    sessionTitles,
+    accreditationName,
+    accreditationBody,
+    accreditationReference,
+    cmeHours: cmeHoursStr,
+    certificateSerial: data.serial,
+    issuedDate: formatDate(data.issuedAt),
   };
 }
 

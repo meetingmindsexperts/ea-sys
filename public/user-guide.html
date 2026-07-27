@@ -1947,7 +1947,9 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s18-2">
         <div class="sub-title">Setting up a template</div>
-        <p>Open any event &rarr; <strong>Certificates</strong> in the sidebar &rarr; <strong>Templates</strong> tab. You&rsquo;ll see two cards, one per category, each with its templates listed.</p>
+        <p>Open any event &rarr; <strong>Certificates</strong> in the sidebar &rarr; <strong>Templates</strong> tab. You&rsquo;ll see two cards, one per category, each with its templates listed. Two ways to start: <strong>Use standard</strong> (fastest &mdash; a complete certificate you then tweak) or <strong>+ Add</strong> (start from your designer&rsquo;s artwork).</p>
+
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Fastest start &mdash; &ldquo;Use standard&rdquo;</div><div class="c-text">Click <strong>Use standard</strong> on either category card and you get a finished, editable certificate straight away &mdash; framed border, your organisation name, the title, recipient, event, date, venue, accreditation lines, signature lines, and a certificate number. Everything is already wired to your event, so there is nothing to type. The editor opens on it; change any wording you like, or upload your designer&rsquo;s artwork over the background later.<br><br><strong>It adapts to your event.</strong> If you haven&rsquo;t set CME hours, accreditation or a venue yet, those lines are left out rather than printed empty &mdash; the toast tells you which were skipped. Set them up in the <strong>CME / CPD</strong> tab and add the lines back whenever you&rsquo;re ready.<br><br><strong>Then clone it for each role.</strong> Use the <strong>Duplicate</strong> icon to copy it, change the <strong>Role</strong> field to &ldquo;Moderator&rdquo; or &ldquo;Organising Committee&rdquo;, and the wording updates itself &mdash; no retyping.</div></div></div>
 
         <div class="steps">
           <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>+ Add</strong> on the category card (Attendance or Appreciation)</div></div>
@@ -1969,13 +1971,23 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <p>Every text-box content field supports <code>{{token}}</code> placeholders that resolve per recipient at issue time. Available tokens:</p>
         <ul>
           <li><code>{{recipientName}}</code> &mdash; the attendee or speaker&rsquo;s name with title prefix (&ldquo;Dr.&rdquo; / &ldquo;Prof.&rdquo; etc.)</li>
+          <li><code>{{organizationName}}</code> &mdash; the organisation issuing the certificate</li>
           <li><code>{{eventName}}</code> &mdash; your event&rsquo;s name</li>
           <li><code>{{eventDateRange}}</code> &mdash; formatted nicely, e.g. &ldquo;5th &ndash; 7th December 2025&rdquo;</li>
           <li><code>{{venueLine}}</code> &mdash; venue + city + country, prefixed with &ldquo;at&rdquo;</li>
-          <li><code>{{accreditationBody}}</code> &mdash; first accreditor&rsquo;s friendly name (e.g. &ldquo;Dubai Health Authority (DHA)&rdquo;)</li>
+          <li><code>{{role}}</code> &mdash; this template&rsquo;s <strong>Role</strong> field (&ldquo;Speaker&rdquo;, &ldquo;Moderator&rdquo;&hellip;). Duplicate a template, change the Role, and every line using this token re-words itself &mdash; that&rsquo;s how you make one certificate per role without retyping.</li>
+          <li><code>{{abstractTitle}}</code> &mdash; the recipient&rsquo;s accepted abstract / presentation title (Appreciation certificates)</li>
+          <li><code>{{sessionTitles}}</code> &mdash; the sessions they presented in, comma-separated (Appreciation certificates)</li>
+          <li><code>{{accreditationName}}</code> &mdash; the accreditor&rsquo;s name. Uses the <strong>Accreditor name</strong> you type in the CME / CPD tab; falls back to the standard name for the body you picked.</li>
+          <li><code>{{accreditationBody}}</code> &mdash; first accreditor&rsquo;s standard name (e.g. &ldquo;Dubai Health Authority (DHA)&rdquo;)</li>
           <li><code>{{accreditationReference}}</code> &mdash; first accreditor&rsquo;s reference number</li>
           <li><code>{{cmeHours}}</code> &mdash; CME / CPD hours awarded</li>
+          <li><code>{{certificateSerial}}</code> &mdash; the certificate&rsquo;s unique number (previews show a PREVIEW-DRAFT placeholder)</li>
+          <li><code>{{issuedDate}}</code> &mdash; the date the certificate was issued</li>
         </ul>
+        <p>The editor&rsquo;s <strong>Available tokens</strong> panel lists all of these with an example of what each one prints, and clicking one inserts it into the selected box.</p>
+
+        <div class="callout c-tip"><div class="c-icon">&#x2705;</div><div class="c-body"><div class="c-title">Accreditor not in the list? Use <code>{{accreditationName}}</code></div><div class="c-text">The <strong>Body</strong> dropdown only covers DHA, DOH, SCFHS, EACCME and ACCME. If yours isn&rsquo;t there &mdash; the Oman Medical Specialty Board, for example &mdash; pick <strong>Other</strong> and type the full name into <strong>Accreditor name</strong> in the CME / CPD tab. Then use <code>{{accreditationName}}</code> on the certificate instead of <code>{{accreditationBody}}</code>, and it prints your name properly on every certificate and every copy of the template. (Typing the accreditor directly into a text box works too, but you have to retype it on every clone and on next year&rsquo;s event.)</div></div></div>
         <p>A typo&rsquo;d token (e.g. <code>{{recipientNme}}</code>) just resolves to an empty string on the printed cert &mdash; we log the typo to <strong>Logs</strong> so you can fix it without a botched run.</p>
       </div>
 
@@ -1985,7 +1997,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <div class="steps">
           <div class="step"><div class="step-n"></div><div class="step-b">Enter <strong>Total CME / CPD hours awarded</strong> (decimal, e.g. 18.5). Leave empty if not accredited.</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>+ Add accreditation</strong> to add a body &mdash; one row per accreditor (DHA, EACCME, etc.). You can have multiple.</div></div>
-          <div class="step"><div class="step-n"></div><div class="step-b">For each row: <strong>Body</strong>, <strong>Reference</strong> (e.g. &ldquo;DHA-CPD-2026-0142&rdquo;), optional <strong>Hours override</strong>, optional <strong>Official statement</strong> (verbatim wording some accreditors require).</div></div>
+          <div class="step"><div class="step-n"></div><div class="step-b">For each row: <strong>Body</strong>, <strong>Reference</strong> (e.g. &ldquo;DHA-CPD-2026-0142&rdquo;), optional <strong>Hours override</strong>, <strong>Accreditor name</strong> (required if you picked <em>Other</em> &mdash; feeds <code>{{accreditationName}}</code>), optional <strong>Official statement</strong> (verbatim wording some accreditors require).</div></div>
           <div class="step"><div class="step-n"></div><div class="step-b">Click <strong>Save</strong></div></div>
         </div>
       </div>

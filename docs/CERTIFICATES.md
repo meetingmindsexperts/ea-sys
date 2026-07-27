@@ -185,15 +185,38 @@ distinct token sets:
 
 Used for text boxes painted onto the cert visual.
 
+**Do not maintain a list here.** The canonical list is
+`src/lib/certificates/token-catalog.ts` — it is client-safe, the canvas editor
+renders it directly, and `__tests__/lib/certificate-tokens.test.ts` asserts
+`resolveTokens()` returns exactly those keys. The table below is a snapshot for
+orientation only; the catalog wins.
+
 | Token | Meaning |
 |---|---|
 | `{{recipientName}}` | "Dr. Sample Attendee" |
+| `{{organizationName}}` | issuing organisation |
 | `{{eventName}}` | event.name |
+| `{{eventSubtitle}}` | always empty — no subtitle column on Event yet |
 | `{{eventDateRange}}` | "5th - 7th December 2025" |
 | `{{venueLine}}` | "at Conrad Dubai, UAE" |
+| `{{role}}` | the template's role label ("Speaker", "Moderator") |
+| `{{abstractTitle}}` | recipient's abstract title (APPRECIATION only) |
+| `{{sessionTitles}}` | recipient's sessions, comma-separated (APPRECIATION only) |
+| `{{accreditationName}}` | free-text accreditor name, else the body's standard name |
 | `{{accreditationBody}}` | "Dubai Health Authority (DHA)" |
 | `{{accreditationReference}}` | "DHA-CPD-2026-0142" |
 | `{{cmeHours}}` | "18.0" |
+| `{{certificateSerial}}` | the issued serial ("PREVIEW-DRAFT-…" in previews) |
+| `{{issuedDate}}` | "17th June 2026" |
+
+**Why `{{accreditationName}}` exists separately from `{{accreditationBody}}`:**
+`AccreditationEntry.body` is a closed 6-value enum, and `OTHER` renders the
+literal "The Accrediting Body" — unusable on a certificate. The OSH Monthly
+Meeting 2026 templates hit exactly this (the Oman Medical Specialty Board is
+not in the enum) and typed their accreditor into a text box by hand, which no
+clone or later event could inherit. `AccreditationEntry.name` is the free-text
+override, set in the CME/CPD tab, and `{{accreditationName}}` prefers it.
+`{{accreditationBody}}` is unchanged, so existing templates keep working.
 
 ### Cover-email tokens (`resolveCoverEmailTokens` in email-tokens-resolver.ts)
 
@@ -628,6 +651,61 @@ as an audit copy.
   action on rows with a stored copy (sandboxed iframe dialog). Rows
   written before the migration have no copy (the endpoint 404s with
   NO_STORED_BODY).
+
+## Built-in "standard" templates (July 27, 2026)
+
+`POST /api/events/[eventId]/certificates/templates/starter` with
+`{ category }` creates a ready-made template — generated background PDF plus
+pre-positioned, fully tokenized text boxes. Surfaced as **Use standard** beside
+**+ Add** on each category card. The organizer edits it in the canvas editor, or
+hits the existing **Duplicate** to spin role variants off it.
+
+**Modelled on OSH Monthly Meeting 2026**, the only real certificate setup
+configured on any event as of July 2026, and therefore the house convention:
+A4 portrait exported at 300 DPI (page coordinate space **2480 × 3508**, not the
+595 × 842 of true A4), one centred column at `x=240 / width=2000`, Times-Roman /
+Times-Bold, navy `#1a2e5a`, body 60pt, headline 90pt.
+
+Matching that scale is deliberate: designers export raster-backed PDFs at print
+DPI, so an organizer can swap our generated background for their designer's
+artwork and every text box still lands where it should. A starter built at true
+A4 points would collapse into the top-left corner the moment a 2480-wide
+artwork replaced it.
+
+**What it fixes about the setup it copies.** Of OSH's nine boxes only
+`{{recipientName}}` is a token — the event name, date, accreditor, accreditation
+number and CME hours are typed literals. So each of its four role variants was
+made by duplicating and retyping, and none of it tracks the event record. Every
+one of those lines is a token in the starter, and the appreciation wording uses
+`{{role}}` inline against a default template role of "Speaker" — duplicate,
+change one field, and the sentence re-words itself.
+
+**Two derived-not-duplicated invariants**, both enforced by
+`__tests__/lib/starter-template.test.ts`:
+
+1. The background PDF and the text boxes are computed from the **same** layout
+   constants in `starter-template.ts`. A background shipped as a binary asset
+   would drift the first time a coordinate moved — the rule under the
+   recipient's name would stop being under the recipient's name, and nothing
+   would fail.
+2. Every token in every starter box is checked against the catalog. A box
+   referencing an unresolved token prints a blank line on every certificate and
+   logs a warn per render — silent on the page, so it has to be loud in CI.
+
+**The background carries no text**, only the frame and rules. Every word a
+reader sees is a text box, so all of it is editable without a designer — which
+is the dependency the feature exists to remove. A test asserts the background
+embeds no fonts.
+
+**It adapts to the event.** Accreditation, CME-hours and venue lines are omitted
+when the event has none configured, rather than shipping
+`Total Hour/s Awarded:` with nothing after the colon. The response returns
+`omittedSections` so the UI can say what was skipped and why. A test asserts no
+starter box ever ends in a dangling `:`.
+
+Auto-issue starts **off** — same reasoning as the clone in `/duplicate`: a
+starter that auto-issued on creation would mail certificates to a tag audience
+nobody has reviewed.
 
 ## Deferred / not implemented
 

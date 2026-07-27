@@ -26,6 +26,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { updateEventSettings } from "@/lib/event-settings";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
+import { CERTIFICATE_FONT_NAMES } from "@/lib/certificates/template-box-schema";
 import type { AgentContext, ToolExecutor } from "./_shared";
 
 const CERT_CATEGORIES = ["ATTENDANCE", "APPRECIATION"] as const;
@@ -34,11 +35,10 @@ type CertCategory = (typeof CERT_CATEGORIES)[number];
 const ACCREDITOR_BODIES = ["DHA", "DOH", "SCFHS", "EACCME", "ACCME", "OTHER"] as const;
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-const FONT_NAMES = new Set([
-  "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
-  "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
-  "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
-]);
+// This validator stays hand-rolled (it returns JSON-RPC `{error, code}` rather
+// than throwing, so it can't reuse the REST Zod schema) but the font list is
+// shared, so the twelve names can't drift between the REST and MCP doors.
+const FONT_NAMES = new Set<string>(CERTIFICATE_FONT_NAMES);
 
 interface TextBox {
   id: string;
