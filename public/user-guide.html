@@ -1591,7 +1591,24 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <li><strong>Close the room</strong> when you&rsquo;re done. (You can re-open it if you closed it by mistake or are pausing between segments.)</li>
           <li><strong>After the event:</strong> the recording &amp; replay appear automatically, attendance is pulled from Zoom, and you <strong>send the feedback survey manually</strong> from Communications when you&rsquo;re ready.</li>
         </ol>
-        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">You must click &ldquo;Open the room&rdquo;</div><div class="c-text">Attendees stay in the waiting room until you open it &mdash; the room does <strong>not</strong> open automatically at the start time (this is intentional, so you control admission). If people are waiting and the video hasn&rsquo;t appeared, check that you&rsquo;ve clicked <strong>Open the room / Go live</strong>.</div></div></div>
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">You must click &ldquo;Open the room&rdquo;</div><div class="c-text">Attendees stay in the waiting room until you open it &mdash; the room does <strong>not</strong> open automatically at the start time (this is intentional, so you control admission). If people are waiting and the video hasn&rsquo;t appeared, check that you&rsquo;ve clicked <strong>Open the room / Go live</strong>. As a safety net, once the scheduled start passes with the room still closed, the console shows a <strong>red alert with a live count of attendees waiting in the lobby</strong>, and the attendees&rsquo; countdown switches to a &ldquo;running a little late&rdquo; message after 10 minutes so nobody thinks the page is broken.</div></div></div>
+        <div class="callout c-tip"><div class="c-icon">&#x1F9EA;</div><div class="c-body"><div class="c-title">Rehearse the whole flow before publishing</div><div class="c-text">While the event is still in <strong>DRAFT</strong>, the public room <strong>auto-opens</strong> &mdash; register a test account, open the session page, and you&rsquo;ll go straight into the live view so you can rehearse the attendee experience end-to-end (lobby, join, video) without clicking Go Live. Once the event is <strong>published</strong>, attendees wait in the lobby until you open the room. The Waiting Room card reminds you of this while the event is in DRAFT.</div></div></div>
+      </div>
+
+      <div class="sub" id="s11-panelists">
+        <div class="sub-title">Speakers &amp; panelists &mdash; how presenters join</div>
+        <p>Your presenters do <strong>not</strong> go through the attendee lobby &mdash; they join the Zoom webinar directly as <strong>panelists</strong> (camera + mic + screen share). On the Webinar Console <strong>Setup</strong> tab, the <strong>Panelists</strong> card manages this:</p>
+        <ul>
+          <li><strong>Import from Speakers</strong> &mdash; one click adds every speaker on the webinar session (who has an email) as a Zoom panelist. Safe to re-run: people who are already panelists are skipped, never duplicated.</li>
+          <li><strong>Add manually</strong> &mdash; name + email, for a guest presenter who isn&rsquo;t in your Speakers list.</li>
+          <li>Each panelist receives <strong>Zoom&rsquo;s own panelist invitation email</strong> with their personal join link &mdash; that link gives them presenter access, so tell them to use it (not the attendee link). You can <strong>resend</strong> an invite from the card if someone lost it.</li>
+        </ul>
+        <p>Your producer/host uses <strong>Start as Host</strong> in the console&rsquo;s status bar. A good backstage rhythm: host + panelists in ~15 minutes early, check audio and slides &mdash; attendees can&rsquo;t see any of it while the room is closed.</p>
+      </div>
+
+      <div class="sub" id="s11-schedule">
+        <div class="sub-title">Rescheduling a webinar</div>
+        <p>If the time changes, edit the webinar session&rsquo;s start/end on the <strong>Agenda</strong> page (or Event Settings for the event dates). Since July 2026 a session retime <strong>automatically updates the linked Zoom webinar&rsquo;s schedule too</strong> &mdash; you no longer need to fix it inside Zoom. If Zoom couldn&rsquo;t be reached, you&rsquo;ll see a warning toast (&ldquo;Zoom still shows the old time&rdquo;) &mdash; just save again to retry. Remember to tell registrants: reminder emails are scheduled from the <em>new</em> time going forward, but anything already sent shows the old time.</p>
       </div>
 
       <div class="sub" id="s11-lobby">
@@ -1601,7 +1618,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <li><strong>How attendees watch</strong> &mdash; pick one per event:
             <ul>
               <li><strong>Zoom embed</strong> &mdash; interactive; attendees get Zoom&rsquo;s native <strong>Q&amp;A and chat</strong> right on the page, which you moderate. Counts against your Zoom webinar capacity. Choose this when you need Q&amp;A.</li>
-              <li><strong>Custom stream</strong> &mdash; a one-way broadcast that scales to very large audiences (thousands) cheaply, but has <strong>no in-page Q&amp;A</strong>. Requires live streaming to be enabled on the session.</li>
+              <li><strong>Custom stream</strong> &mdash; a one-way broadcast that scales to very large audiences (thousands) cheaply, but has <strong>no in-page Q&amp;A</strong>. Requires live streaming to be enabled on the session &mdash; and the system <strong>enforces</strong> this: you can&rsquo;t switch to Custom stream (or open the room in it) until the session&rsquo;s live stream is configured. If you see <em>&ldquo;Custom stream mode needs the live stream enabled&hellip;&rdquo;</em>, either enable Live Streaming on the webinar session&rsquo;s Zoom settings or switch back to Zoom embed.</li>
             </ul>
           </li>
           <li><strong>Holding video</strong> &mdash; <em>optional.</em> Paste a YouTube or Vimeo link and it loops (muted) in the lobby until you open the room. If you leave it blank, the lobby still looks intentional: it shows your <strong>event banner</strong> as a backdrop (or a plain branded panel if there&rsquo;s no banner) with a &ldquo;Waiting for the session to begin&hellip;&rdquo; message. Either way the countdown and your lobby message always appear &mdash; there&rsquo;s never a blank screen. Only YouTube / Vimeo links are accepted; any other link is ignored and the banner/panel shows instead.</li>
@@ -1642,7 +1659,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s11-5">
         <div class="sub-title">Recording &amp; replay</div>
-        <p>Cloud recordings are fetched automatically every 5 minutes after the webinar ends. Status flow: <code>NOT_REQUESTED &rarr; PENDING &rarr; AVAILABLE</code> (typically within 30 minutes). When AVAILABLE, the public session page displays a &ldquo;Watch Replay&rdquo; button and the post-event thank-you email surfaces it too.</p>
+        <p>Cloud recordings are fetched automatically every 5 minutes after the webinar ends. Status flow: <code>NOT_REQUESTED &rarr; PENDING &rarr; AVAILABLE</code> (typically within 30 minutes). When AVAILABLE, the public session page displays a &ldquo;Watch Replay&rdquo; button and the post-event thank-you email surfaces it too. The replay is <strong>not public</strong> &mdash; viewers must sign in with a registered account (or be org staff) to watch, the same gate as the live webinar.</p>
         <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Recordings expire</div><div class="c-text">Zoom retains cloud recordings for 7 days by default. After that the status flips to <code>EXPIRED</code> and the replay button disappears. Download from the Webinar Console while the recording is AVAILABLE if you need a long-term archive.</div></div></div>
       </div>
     </div>
