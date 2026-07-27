@@ -5,6 +5,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string; invoiceId: string }>;
@@ -24,6 +25,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    return runWithTenant(session.user.organizationId ?? "", async () => {
     const invoice = await db.invoice.findFirst({
       where: {
         id: invoiceId,
@@ -48,6 +50,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         "Content-Disposition": `attachment; filename="${invoice.invoiceNumber}.pdf"`,
         "Cache-Control": "private, max-age=0",
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error generating invoice PDF" });

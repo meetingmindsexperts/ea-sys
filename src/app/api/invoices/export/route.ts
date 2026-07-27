@@ -6,6 +6,7 @@ import { denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   INVOICE_EXPORT_SELECT,
   invoiceDateFilter,
@@ -55,6 +56,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "No organization" }, { status: 403 });
     }
 
+    return runWithTenant(organizationId, async () => {
     const url = new URL(req.url);
     const format = (url.searchParams.get("format") || "csv").toLowerCase();
     const year = url.searchParams.get("year") ? Number(url.searchParams.get("year")) : undefined;
@@ -146,6 +148,7 @@ export async function GET(req: Request) {
     }
     apiLogger.info({ msg: "org-invoices:export-csv", organizationId, count: invoices.length });
     return csvResponse(buildInvoiceCsv(invoices), "invoices");
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error exporting organization invoices" });
     return NextResponse.json({ error: "Failed to export invoices" }, { status: 500 });

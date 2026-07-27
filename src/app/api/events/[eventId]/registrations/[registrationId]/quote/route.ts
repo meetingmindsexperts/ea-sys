@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateQuotePDF } from "@/lib/quote-pdf";
 import { formatQuoteNumber } from "@/lib/invoice-numbering";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -26,6 +27,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    return runWithTenant(session.user.organizationId ?? "", async () => {
     const event = await db.event.findFirst({
       // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
       where: { id: eventId, ...buildEventAccessWhere(session.user) },
@@ -138,6 +140,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         "Content-Disposition": `attachment; filename="quote-${registration.id.slice(-8)}.pdf"`,
         "Cache-Control": "private, max-age=0",
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error generating quote PDF" });

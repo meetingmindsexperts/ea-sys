@@ -5,6 +5,7 @@ import { denyFinance } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { invoiceDateFilter } from "@/lib/invoice-export";
+import { runWithTenant } from "@/lib/tenant-context";
 
 /**
  * GET /api/invoices
@@ -37,6 +38,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "No organization" }, { status: 403 });
     }
 
+    return runWithTenant(organizationId, async () => {
     const url = new URL(req.url);
     const yearRaw = url.searchParams.get("year");
     const monthRaw = url.searchParams.get("month");
@@ -120,6 +122,7 @@ export async function GET(req: Request) {
         billToEmail: inv.registration.attendee.email,
       })),
       earliestYear,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error listing organization invoices" });

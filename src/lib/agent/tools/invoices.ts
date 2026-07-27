@@ -1,9 +1,11 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import type { ToolExecutor } from "./_shared";
 
-const listInvoices: ToolExecutor = async (input, ctx) => {
+const listInvoices: ToolExecutor = async (input, ctx) =>
+  runWithTenant(ctx.organizationId, async () => {
   try {
     const limit = Math.min(Number(input.limit ?? 50), 200);
     const invoices = await db.invoice.findMany({
@@ -25,11 +27,12 @@ const listInvoices: ToolExecutor = async (input, ctx) => {
     apiLogger.error({ err }, "agent:list_invoices failed");
     return { error: "Failed to fetch invoices" };
   }
-};
+  });
 
 // ─── Email Template Executor ──────────────────────────────────────────────────
 
-const createInvoiceExec: ToolExecutor = async (input, ctx) => {
+const createInvoiceExec: ToolExecutor = async (input, ctx) =>
+  runWithTenant(ctx.organizationId, async () => {
   try {
     const registrationId = String(input.registrationId ?? "").trim();
     if (!registrationId) return { error: "registrationId is required" };
@@ -66,9 +69,10 @@ const createInvoiceExec: ToolExecutor = async (input, ctx) => {
     apiLogger.error({ err }, "agent:create_invoice failed");
     return { error: err instanceof Error ? err.message : "Failed to create invoice" };
   }
-};
+  });
 
-const sendInvoiceExec: ToolExecutor = async (input, ctx) => {
+const sendInvoiceExec: ToolExecutor = async (input, ctx) =>
+  runWithTenant(ctx.organizationId, async () => {
   try {
     const invoiceId = String(input.invoiceId ?? "").trim();
     if (!invoiceId) return { error: "invoiceId is required" };
@@ -98,7 +102,7 @@ const sendInvoiceExec: ToolExecutor = async (input, ctx) => {
     apiLogger.error({ err }, "agent:send_invoice failed");
     return { error: err instanceof Error ? err.message : "Failed to send invoice" };
   }
-};
+  });
 
 // Transitions the agent may set directly — parity with the dashboard's REST
 // PUT (cancel / mark overdue). Everything else is minted by a money flow:
@@ -109,7 +113,8 @@ const sendInvoiceExec: ToolExecutor = async (input, ctx) => {
 // rows (review M6).
 const AGENT_SETTABLE_INVOICE_STATUSES = new Set(["CANCELLED", "OVERDUE"]);
 
-const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
+const updateInvoiceStatus: ToolExecutor = async (input, ctx) =>
+  runWithTenant(ctx.organizationId, async () => {
   try {
     const invoiceId = String(input.invoiceId ?? "").trim();
     const status = String(input.status ?? "").trim();
@@ -161,7 +166,7 @@ const updateInvoiceStatus: ToolExecutor = async (input, ctx) => {
     apiLogger.error({ err }, "agent:update_invoice_status failed");
     return { error: err instanceof Error ? err.message : "Failed to update invoice status" };
   }
-};
+  });
 
 // ─── A5: Email template editing ───────────────────────────────────────────────
 

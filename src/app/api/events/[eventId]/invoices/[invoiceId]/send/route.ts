@@ -5,6 +5,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendInvoiceEmail } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string; invoiceId: string }>;
@@ -24,6 +25,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return runWithTenant(session.user.organizationId ?? "", async () => {
     const invoice = await db.invoice.findFirst({
       where: {
         id: invoiceId,
@@ -42,6 +44,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     await sendInvoiceEmail(invoiceId);
 
     return NextResponse.json({ success: true, message: `Email sent for ${invoice.invoiceNumber}` });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error sending invoice email" });
     return NextResponse.json({ error: "Failed to send email" }, { status: 500 });

@@ -6,6 +6,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { createInvoice } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 
 interface RouteParams {
@@ -28,6 +29,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    return runWithTenant(orgGuard.orgId, async () => {
     // Assignment-gated, not just org-gated: ONSITE (and MEMBER) are
     // finance-capable, so an ONSITE temp assigned to Event A must 404 on
     // Event B's invoices — same rule as the desk routes (review H10).
@@ -71,6 +73,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(invoices);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error listing invoices" });
     return NextResponse.json({ error: "Failed to list invoices" }, { status: 500 });
@@ -97,6 +100,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, ...buildEventAccessWhere(session.user) },
       select: { id: true },
@@ -137,6 +141,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(invoice, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating invoice" });
     return NextResponse.json({ error: "Failed to create invoice" }, { status: 500 });

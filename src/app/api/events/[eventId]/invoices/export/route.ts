@@ -7,6 +7,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   INVOICE_EXPORT_SELECT,
   buildInvoiceCsv,
@@ -39,6 +40,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    return runWithTenant(session.user.organizationId ?? "", async () => {
     const event = await db.event.findFirst({
       // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
       where: { id: eventId, ...buildEventAccessWhere(session.user) },
@@ -156,6 +158,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "private, max-age=0",
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error exporting invoices ZIP" });

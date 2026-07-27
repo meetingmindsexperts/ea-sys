@@ -5,6 +5,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { cancelInvoice, markInvoiceOverdue } from "@/lib/invoice-service";
+import { runWithTenant } from "@/lib/tenant-context";
 import { getClientIp } from "@/lib/security";
 import { z } from "zod";
 
@@ -25,6 +26,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
+    return runWithTenant(session.user.organizationId ?? "", async () => {
     const invoice = await db.invoice.findFirst({
       where: {
         id: invoiceId,
@@ -51,6 +53,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(invoice);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching invoice" });
     return NextResponse.json({ error: "Failed to fetch invoice" }, { status: 500 });
@@ -81,6 +84,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
+    return runWithTenant(session.user.organizationId ?? "", async () => {
     const invoice = await db.invoice.findFirst({
       where: {
         id: invoiceId,
@@ -116,6 +120,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating invoice" });
     return NextResponse.json({ error: "Failed to update invoice" }, { status: 500 });
