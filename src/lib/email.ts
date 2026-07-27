@@ -14,6 +14,7 @@ import { logEmail, type EmailLogContext } from "./email-log";
 import { getTitleLabel } from "./utils";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
 import { formatDateInTz } from "./event-time";
+import { getBreaker } from "./circuit-breaker";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
 
@@ -552,6 +553,65 @@ function getProvider(): EmailProvider {
   return sesProvider;
 }
 
+// ── Circuit breaker (provider-outage protection) ────────────────────────────
+//
+// Keyed by `stream` so a bulk-send storm that trips the "bulk" breaker can
+// NEVER short-circuit a transactional payment receipt — the two breakers are
+// independent. Only INFRASTRUCTURE faults count toward tripping (5xx / throttle
+// / timeout / credential); a per-recipient MessageRejected means SES is up and
+// answered, so it's recorded as a SUCCESS (the provider is healthy — the
+// address is the problem), which also stops a bad-address run from false-
+// tripping the breaker. Dormant by default: closed until a genuine outage
+// produces an unbroken run of infra faults.
+const EMAIL_BREAKER_FAILURE_THRESHOLD = 5;
+const EMAIL_BREAKER_COOLDOWN_MS = 30_000;
+
+/**
+ * Is this send error an infrastructure fault (SES down / throttling us /
+ * timed out / bad credentials) — i.e. "the dependency is unhealthy" — vs a
+ * per-recipient / config rejection where SES answered definitively? Only the
+ * former should trip the breaker. Handles the AWS SDK v3 error shape.
+ */
+export function isInfraFault(error: unknown): boolean {
+  const e = error as {
+    name?: string;
+    $fault?: "client" | "server";
+    $metadata?: { httpStatusCode?: number };
+  };
+  // AWS marks 5xx / retryable service failures as a "server" fault.
+  if (e.$fault === "server") return true;
+  const status = e.$metadata?.httpStatusCode;
+  if (typeof status === "number" && status >= 500) return true;
+  const name = e.name ?? "";
+  // Throttling (SES rate-limiting our account — exactly what a bulk blast
+  // triggers, and precisely when we want to back off) + timeouts + credential
+  // failures (revoked/expired keys fail EVERY send → tripping is correct).
+  const INFRA_ERROR_NAMES = new Set([
+    "TimeoutError",
+    "RequestTimeout",
+    "ThrottlingException",
+    "Throttling",
+    "TooManyRequestsException",
+    "LimitExceededException",
+    "ServiceUnavailable",
+    "ServiceUnavailableException",
+    "InternalFailure",
+    "InternalServerError",
+    "UnrecognizedClientException",
+    "ExpiredTokenException",
+    "InvalidClientTokenId",
+    "AccessDeniedException",
+  ]);
+  if (INFRA_ERROR_NAMES.has(name)) return true;
+  // A plain timeout thrown as a generic Error (no AWS shape).
+  if (/timed out|timeout|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|socket hang up/i.test(String((error as { message?: string })?.message ?? ""))) {
+    return true;
+  }
+  // Everything else (MessageRejected, other client faults) = SES answered =
+  // healthy dependency; do NOT trip.
+  return false;
+}
+
 // ── Main send function ─────────────────────────────────────────────────────────
 
 export async function sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
@@ -575,8 +635,51 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
     });
   }
 
+  // Circuit breaker, keyed per stream (bulk vs transactional are independent —
+  // a bulk storm can't short-circuit a payment receipt). Dormant until SES
+  // produces a run of infra faults.
+  const stream = params.stream ?? "transactional";
+  const breaker = getBreaker(`email:${stream}`, {
+    failureThreshold: EMAIL_BREAKER_FAILURE_THRESHOLD,
+    cooldownMs: EMAIL_BREAKER_COOLDOWN_MS,
+    onTransition: (from, to, key) => {
+      // A breaker OPENING is an incident signal — error level (routes to the
+      // admin alert). Recovery / probe transitions are warn (no page).
+      if (to === "open") {
+        apiLogger.error({
+          msg: "email:circuit-breaker-open",
+          key,
+          stream,
+          from,
+          hint: "Email provider looks down — sends on this stream fail fast until a probe succeeds.",
+        });
+      } else {
+        apiLogger.warn({ msg: "email:circuit-breaker-transition", key, stream, from, to });
+      }
+    },
+  });
+
+  if (!breaker.canRequest()) {
+    // Open: skip the provider entirely + record the skip as a FAILED row so it
+    // stays visible in /logs and the bulk loop counts it as not-sent (so a
+    // later retry resumes it via emailedKeys).
+    apiLogger.warn({ msg: "email:circuit-open-short-circuit", stream, to: toEmails, subject: params.subject });
+    void logEmail({
+      to: primaryTo,
+      cc: toEmails.length > 1 ? toEmails.slice(1).join(", ") : null,
+      subject: params.subject,
+      provider: providerName,
+      status: "FAILED",
+      errorMessage: "circuit_open: email provider breaker is open (SES appears down); send skipped",
+      htmlBody: params.htmlContent,
+      context: params.logContext,
+    });
+    return { success: false, error: "circuit_open" };
+  }
+
   try {
     const result = await getProvider().send(params);
+    breaker.recordSuccess();
 
     apiLogger.info({
       msg: "Email sent successfully",
@@ -599,6 +702,12 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
 
     return result;
   } catch (error) {
+    // Feed the breaker: only infra faults (5xx / throttle / timeout / bad
+    // creds) count toward tripping. A per-recipient MessageRejected means SES
+    // answered → record a success so a bad-address run never false-trips.
+    if (isInfraFault(error)) breaker.recordFailure();
+    else breaker.recordSuccess();
+
     const message = error instanceof Error ? error.message : "Failed to send email";
     // Postmark errors carry .code (Postmark numeric, e.g. 412 = pending-approval
     // sandbox), .statusCode (HTTP), and .body. SendGrid errors carry .response.
