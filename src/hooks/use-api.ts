@@ -1310,7 +1310,9 @@ export function useCSVImport(eventId: string, entityType: "registrations" | "spe
       // whose `registrationType` cell is blank. Omitted ⇒ those rows import
       // uncategorised (the server never picks one for them).
       if (defaultTicketTypeId) formData.append("defaultTicketTypeId", defaultTicketTypeId);
-      return fetchApi<{ created: number; skipped?: number; tracksCreated?: number; errors: string[]; registrationIds?: string[] }>(
+      // `uncategorised` = rows imported with no registration type (registrations
+      // entity only) — the dialog surfaces it as the cue to send completion forms.
+      return fetchApi<{ created: number; skipped?: number; tracksCreated?: number; uncategorised?: number; errors: string[]; registrationIds?: string[] }>(
         `/api/events/${eventId}/import/${entityType}`,
         { method: "POST", body: formData }
       );

@@ -27,6 +27,19 @@ class SoldOutError extends Error {
   }
 }
 
+/** Thrown when the registration gained a type between this POST's pre-check
+ *  and the write — an organizer assigned one concurrently (bulk Change Type /
+ *  detail sheet). Without the conditional claim this POST would silently
+ *  overwrite the organizer's choice AND leak the seat the organizer's path
+ *  claimed. Rolls back (token survives); on reload the GET shows the type is
+ *  already set, so the picker disappears and completion proceeds normally. */
+class TypeAlreadySetError extends Error {
+  constructor() {
+    super("TYPE_ALREADY_SET");
+    this.name = "TypeAlreadySetError";
+  }
+}
+
 /** A registration type the completer may choose, priced at today's open tier. */
 interface SelectableTicketType {
   id: string;
@@ -49,6 +62,7 @@ const SELECTABLE_TICKET_TYPE_SELECT = {
   currency: true,
   quantity: true,
   soldCount: true,
+  requiresApproval: true,
   pricingTiers: {
     select: {
       id: true, name: true, price: true, currency: true, quantity: true,
@@ -370,6 +384,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           },
         },
         ticketTypeId: true,
+        // Needed by the type-set below: a status someone EXPLICITLY set
+        // (CSV paymentStatus column / admin detail sheet — PAID, INCLUSIVE, …)
+        // must survive completion; only the typeless default is recomputed.
+        paymentStatus: true,
         ticketType: { select: { id: true, name: true, price: true, currency: true } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
       },
@@ -400,7 +418,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // now), so the client can pick neither a hidden type nor a cheaper closed
     // tier.
     let resolvedType:
-      | { id: string; name: string; price: unknown; currency: string; quantity: number }
+      | { id: string; name: string; price: unknown; currency: string; quantity: number; requiresApproval: boolean }
       | null = null;
     let resolvedTier: { id: string; name: string; price: unknown; currency: string } | null = null;
 
@@ -426,10 +444,19 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
       const tier = pickCurrentPricingTier(chosen.pricingTiers, new Date());
-      resolvedType = { id: chosen.id, name: chosen.name, price: chosen.price, currency: chosen.currency, quantity: chosen.quantity };
+      resolvedType = { id: chosen.id, name: chosen.name, price: chosen.price, currency: chosen.currency, quantity: chosen.quantity, requiresApproval: chosen.requiresApproval };
       resolvedTier = tier ? { id: tier.id, name: tier.name, price: tier.price, currency: tier.currency } : null;
     }
     const resolvedPrice = resolvedType ? Number(resolvedTier?.price ?? resolvedType.price) : null;
+    // Self-selecting a type that requires approval puts the row into the
+    // organizer's approval queue — public-register semantics, because at
+    // completion the PERSON picks the type (the organizer vetted the person at
+    // import, not this choice; e.g. a "Student" type needing ID verification).
+    // Only the import default CONFIRMED flips; an explicitly imported
+    // registrationStatus (CHECKED_IN, PENDING, …) is left alone, like M1's
+    // paymentStatus rule.
+    const flipToPending =
+      !!resolvedType && resolvedType.requiresApproval && registration.status === "CONFIRMED";
 
     // Update attendee + delete token in transaction
     try {
@@ -445,19 +472,37 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
         if (claimed.count === 0) throw new SoldOutError();
 
-        await tx.registration.update({
-          where: { id: registrationId },
+        // Conditional claim on the registration ROW (`ticketTypeId: null` in
+        // the where): the pre-tx "has no type" check is a stale read, so an
+        // organizer assigning a type concurrently would otherwise be silently
+        // overwritten — and the seat THEIR path claimed would leak. Losing the
+        // race throws; the whole tx (incl. the seat increment above) rolls back.
+        const rowClaim = await tx.registration.updateMany({
+          where: { id: registrationId, ticketTypeId: null },
           data: {
             ticketTypeId: resolvedType.id,
             pricingTierId: resolvedTier?.id ?? null,
             // Stamp the price so every money surface reads the rate agreed at
             // completion, not whatever the tier happens to be later.
             originalPrice: resolvedPrice ?? 0,
-            // It was COMPLIMENTARY while typeless (nothing to owe). A priced
-            // type means money is now due, so it must be payable + chaseable.
-            paymentStatus: (resolvedPrice ?? 0) > 0 ? "UNASSIGNED" : "COMPLIMENTARY",
+            // While typeless the row defaulted to COMPLIMENTARY (nothing to
+            // owe) — a priced type makes money due, so that default flips to
+            // payable + chaseable. But a status someone EXPLICITLY set (CSV
+            // paymentStatus column, admin detail sheet — PAID for an offline
+            // bank transfer, INCLUSIVE for sponsor-paid) must survive, or
+            // completion would re-open dunning on a settled registration.
+            // Limitation: an explicitly-set COMPLIMENTARY is indistinguishable
+            // from the typeless default and flips too — an organizer comping
+            // someone would normally set the type alongside.
+            ...(registration.paymentStatus === "COMPLIMENTARY" && {
+              paymentStatus: (resolvedPrice ?? 0) > 0 ? "UNASSIGNED" : "COMPLIMENTARY",
+            }),
+            // requiresApproval type self-selected here → approval queue (see
+            // flipToPending above for the rule + why only CONFIRMED flips).
+            ...(flipToPending && { status: "PENDING" as const }),
           },
         });
+        if (rowClaim.count === 0) throw new TypeAlreadySetError();
       }
       await tx.attendee.update({
         where: { id: registration.attendeeId },
@@ -503,6 +548,15 @@ export async function POST(req: Request, { params }: RouteParams) {
               ticketTypeName: resolvedType.name,
               pricingTierName: resolvedTier?.name ?? null,
               price: resolvedPrice,
+              // Explicit (non-default) statuses survive the type-set — record
+              // which one did, so "why is this paid registration UNASSIGNED /
+              // still PAID?" is answerable from the audit trail.
+              ...(registration.paymentStatus !== "COMPLIMENTARY" && {
+                paymentStatusPreserved: registration.paymentStatus,
+              }),
+              // The self-selected type needs organizer approval → the row
+              // entered the approval queue on completion.
+              ...(flipToPending && { statusFlippedToPending: true }),
             }),
           },
         },
@@ -518,6 +572,23 @@ export async function POST(req: Request, { params }: RouteParams) {
         });
         return NextResponse.json(
           { error: "That registration type just sold out. Please choose another.", code: "REGISTRATION_TYPE_SOLD_OUT" },
+          { status: 409 }
+        );
+      }
+      if (txError instanceof TypeAlreadySetError) {
+        // The organizer assigned a type while this form was open. Nothing
+        // committed (the seat increment rolled back too); on reload the GET
+        // shows the assigned type and the picker disappears.
+        apiLogger.warn({
+          msg: "Completion POST lost the type-set race to a concurrent assignment",
+          registrationId,
+          chosenTicketTypeId: resolvedType?.id,
+        });
+        return NextResponse.json(
+          {
+            error: "Your registration type was just set by the event organizer. Please reload the page and complete your details.",
+            code: "REGISTRATION_TYPE_ALREADY_SET",
+          },
           { status: 409 }
         );
       }
@@ -620,7 +691,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       success: true,
       registration: {
         id: registrationId,
-        status: registration.status,
+        // Reflect the approval flip made on THIS request (the loaded row
+        // predates it) so the caller doesn't render a stale CONFIRMED.
+        status: flipToPending ? "PENDING" : registration.status,
         // Drives the Pay Now step on the confirmation page — must reflect the
         // type resolved on THIS request, else a paid completion looks free.
         ticketPrice: resolvedType

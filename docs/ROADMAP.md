@@ -212,6 +212,44 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Typeless-import + completion self-select review (July 27, 2026) — M1/M3/L2/L3 shipped, M2 + L1 deferred
+
+Review of the "registration type can be null on import; the person states it on the
+completion form" feature (import-ticket-type.ts / current-pricing-tier.ts / the
+completion-route type-set). M1 (explicit `paymentStatus` — PAID/INCLUSIVE — survives
+completion), M3 (conditional row claim → 409 `REGISTRATION_TYPE_ALREADY_SET` on a
+concurrent organizer assignment), L2 (self-selected `requiresApproval` type flips
+CONFIRMED → PENDING, matching public-register semantics), L3 (hook response types
+`uncategorised`) all shipped with the feature. Deferred:
+
+- **M2 — EventsAir re-sync into a since-priced event is a UI dead end.** The
+  EventsAir import route 400s `DEFAULT_TICKET_TYPE_REQUIRED` when the event
+  charges and no `defaultTicketTypeId` was sent — but
+  [eventsair-import-dialog.tsx](../src/components/import/eventsair-import-dialog.tsx)
+  never sends one and has no picker, so re-syncing contacts into an event that
+  gained priced types/tiers after the initial import fails with an error telling
+  the operator to "pick one" where nothing can be picked. (The normal new-event
+  flow is unaffected — freshly imported EventsAir events have only zero-priced
+  seeded types, so the guard never fires there.) Also an intentional asymmetry
+  to record: CSV import allows typeless rows on a paid event (warns + reports an
+  `uncategorised` count, relying on the completion-form flow); EventsAir hard-blocks.
+  Fix options when picked up: (a) allow-null-with-warning like CSV for
+  consistency (EventsAir rows can be sent completion forms too — the
+  send-completion-emails route takes any non-cancelled, account-less
+  registration), (b) add the fallback-type picker to the EventsAir dialog
+  (mirror the CSV dialog's), or (c) keep the block + reword the error to say the
+  type must be added via the API/no-op. Trigger: the first re-sync attempt into
+  a priced event.
+- **L1 — VIRTUAL rows at completion claim an in-person seat + in-person price.**
+  The completion type-set ignores `attendanceMode`: a typeless VIRTUAL import
+  that completes claims a ticket-type `soldCount` seat (virtual rows never hold
+  one elsewhere — `holdsSeat()` is false, so a later cancel won't release it →
+  permanent +1 counter leak) and stamps the in-person rate instead of
+  `virtualPrice`. Rare path (typeless VIRTUAL CSV row on a priced event → person
+  completes); fix = skip the seat claim + price via `virtualPrice ?? price` when
+  the row's `attendanceMode` is VIRTUAL. Trigger: hybrid event importing virtual
+  attendees without types.
+
 ### CRM adversarial review (July 24, 2026) — 0 BLOCKER / 0 HIGH; actionable fixes shipped, edges deferred
 
 A 4-angle adversarial review of the whole CRM module (lifecycle · RBAC/PII/finance ·
