@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getStripe, toStripeAmount } from "@/lib/stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -218,6 +218,9 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
         id: true,
         serialId: true,
         eventId: true,
+        // Tenant stamp source for the RefundAttempt rows (backfilled column;
+        // nullable, so a pre-backfill NULL just passes through).
+        organizationId: true,
         paymentStatus: true,
         refundedAmount: true,
         // originalPrice/discountAmount + tier/ticket price feed the computed paid
@@ -377,7 +380,7 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
         : []),
     ];
 
-    const attempts = await db.$transaction(async (tx) => {
+    const attempts = await tenantTransaction(async (tx) => {
       const locked = await tx.registration.updateMany({
         where: { id: registrationId, paymentStatus: "PAID", refundedAmount: registration.refundedAmount },
         data: {
@@ -394,6 +397,7 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
         rows.push(
           await tx.refundAttempt.create({
             data: {
+              organizationId: registration.organizationId,
               registrationId,
               paymentId: p.paymentId,
               stripePaymentIntentId: p.intentId,
@@ -771,7 +775,7 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
     // 500 that hides the fact real money already moved.
     let claimed = false;
     try {
-      claimed = await db.$transaction(async (tx) => {
+      claimed = await tenantTransaction(async (tx) => {
         // Claim first so a concurrent cancel can't double-release the seat/promo.
         // RE-READ the seat-relevant fields INSIDE the transaction (review M2):
         // the pre-refund snapshot is seconds old by now — a concurrent type/tier

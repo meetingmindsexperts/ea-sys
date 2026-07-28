@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
@@ -536,7 +536,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       }
     }
 
-    const result = await db.$transaction(async (tx) => {
+    const result = await tenantTransaction(async (tx) => {
       const updatedSpeaker = await tx.speaker.update({
         where: { id: speakerId },
         data: { email: newEmail },

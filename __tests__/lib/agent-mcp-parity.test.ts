@@ -53,7 +53,12 @@ const { mockDb, mockEmail, mockNotifications, mockContactSync, mockEventStats, m
   };
 });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated sites.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
+}));
 vi.mock("@/lib/email", () => ({ sendRegistrationConfirmation: mockEmail.sendRegistrationConfirmation }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotifications.notifyEventAdmins }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: mockContactSync.syncToContact }));

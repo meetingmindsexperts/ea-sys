@@ -47,7 +47,12 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/api-auth", () => ({ getOrgContext: () => mockGetOrgContext() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated sites.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
+}));
 
 vi.mock("@/lib/security", () => ({
   getClientIp: vi.fn(() => "127.0.0.1"),

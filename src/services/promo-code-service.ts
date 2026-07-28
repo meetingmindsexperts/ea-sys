@@ -1,5 +1,5 @@
 import { PaymentStatus, Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 
@@ -95,7 +95,7 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
   if (!code) return { ok: false, code: "INVALID_CODE", message: "Invalid promo code" };
 
   try {
-    const out = await db.$transaction(async (tx) => {
+    const out = await tenantTransaction(async (tx) => {
       const reg = await tx.registration.findFirst({
         where: { id: input.registrationId, eventId: input.eventId },
         include: {
@@ -292,7 +292,7 @@ export async function removePromoCodeFromRegistration(input: {
   source: PromoServiceSource;
 }): Promise<RemovePromoResult> {
   try {
-    const removed = await db.$transaction(async (tx) => {
+    const removed = await tenantTransaction(async (tx) => {
       const reg = await tx.registration.findFirst({
         where: { id: input.registrationId, eventId: input.eventId },
         select: { id: true, status: true, paymentStatus: true, promoCodeId: true },

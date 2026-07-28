@@ -40,6 +40,9 @@ vi.mock("@/lib/db", () => ({
     ticketType: { findFirst: mockTtFindFirst },
     $transaction: mockTransaction,
   },
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated site.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockTransaction(fn),
 }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

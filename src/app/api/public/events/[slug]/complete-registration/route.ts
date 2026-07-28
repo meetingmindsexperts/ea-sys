@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { rateLimited } from "@/lib/api-errors";
@@ -460,7 +460,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Update attendee + delete token in transaction
     try {
-    await db.$transaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       if (resolvedType) {
         // Claim the seat on the TICKET-TYPE counter: `seatCounter()` routes a
         // non-PUBLIC_REGISTER row (this one is CSV_IMPORT) there even when a

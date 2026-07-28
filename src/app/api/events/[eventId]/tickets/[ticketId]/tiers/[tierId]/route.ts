@@ -91,7 +91,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const updated = await db.pricingTier.update({
-      where: { id: tierId },
+      // PricingTier has no eventId — ticketTypeId binds it to the pre-read,
+      // already event-bound ticket type.
+      where: { id: tierId, ticketTypeId: ticketId },
       data: {
         ...(data.name && { name: data.name }),
         ...(data.price !== undefined && { price: data.price }),
@@ -161,7 +163,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    await db.pricingTier.delete({ where: { id: tierId } });
+    await db.pricingTier.delete({ where: { id: tierId, ticketTypeId: ticketId } });
 
     apiLogger.info({ msg: "Pricing tier deleted", eventId, ticketTypeId: ticketId, tierId, tierName: tier.name, userId: session.user.id });
 

@@ -33,7 +33,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import crypto from "crypto";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
 import {
@@ -185,7 +185,7 @@ async function finalizeSubmission(
   );
 
   try {
-    await db.$transaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       await tx.surveyResponse.create({
         data: {
           eventId,

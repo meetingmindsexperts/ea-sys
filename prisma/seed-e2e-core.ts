@@ -150,6 +150,7 @@ export async function seedCore(db: PrismaClient): Promise<SeedCoreResult> {
   const registrant = USERS.find((u) => u.role === "REGISTRANT")!;
   const registrantAttendee = await db.attendee.create({
     data: {
+      organizationId: ORG_ID,
       email: registrant.email,
       firstName: registrant.firstName,
       lastName: registrant.lastName,
@@ -157,6 +158,7 @@ export async function seedCore(db: PrismaClient): Promise<SeedCoreResult> {
   });
   await db.registration.create({
     data: {
+      organizationId: ORG_ID,
       eventId: EVENT_ID,
       ticketTypeId: FREE_TICKET_TYPE_ID,
       attendeeId: registrantAttendee.id,

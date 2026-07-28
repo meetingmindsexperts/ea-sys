@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -359,15 +359,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (speaker.sourceRegistrationId) {
       try {
         const companion = await db.registration.findFirst({
-          where: { id: speaker.sourceRegistrationId, createdSource: "SPEAKER_COMPANION" },
+          where: { id: speaker.sourceRegistrationId, eventId, createdSource: "SPEAKER_COMPANION" },
           select: { id: true, attendeeId: true },
         });
         if (companion) {
-          await db.$transaction(async (tx) => {
+          await tenantTransaction(async (tx) => {
             // Same cascade hazard as above — the companion registration can hold
             // its own booking (faculty are given rooms too).
             await releaseRoomForDeletedPerson(tx, { registrationId: companion.id });
-            await tx.registration.delete({ where: { id: companion.id } });
+            await tx.registration.delete({ where: { id: companion.id, eventId } });
             const remaining = await tx.registration.count({ where: { attendeeId: companion.attendeeId } });
             if (remaining === 0) {
               await tx.attendee.delete({ where: { id: companion.attendeeId } });

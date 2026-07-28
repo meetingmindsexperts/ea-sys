@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getStripe, fromStripeAmount } from "@/lib/stripe";
 import type Stripe from "stripe";
@@ -185,21 +185,24 @@ export async function POST(req: Request) {
       // to admins below instead.
       let duplicateCharge = false;
       try {
-        await db.$transaction(async (tx) => {
+        await tenantTransaction(async (tx) => {
           const current = await tx.registration.findUnique({
             where: { id: registrationId },
-            select: { paymentStatus: true },
+            select: { paymentStatus: true, event: { select: { organizationId: true } } },
           });
           duplicateCharge = current?.paymentStatus === "PAID";
+          const organizationId = current?.event.organizationId ?? null;
 
           if (!duplicateCharge) {
             await tx.registration.update({
               where: { id: registrationId },
-              data: { paymentStatus: "PAID", stripeCheckoutSessionId: null },
+              // organizationId re-stamped as a self-heal for pre-backfill rows.
+              data: { paymentStatus: "PAID", stripeCheckoutSessionId: null, organizationId },
             });
           }
           await tx.payment.create({
             data: {
+              organizationId,
               registrationId,
               amount,
               currency,

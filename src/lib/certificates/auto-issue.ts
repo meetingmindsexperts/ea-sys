@@ -37,7 +37,7 @@
  */
 
 import type { CertificateType } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
 // Process up to this many candidate registrations per sweep tick. The
@@ -308,7 +308,7 @@ async function processRegistration(
   const templateMap = new Map(templates.map((t) => [t.id, t]));
 
   let created = 0;
-  await db.$transaction(async (tx) => {
+  await tenantTransaction(async (tx) => {
     // Idempotency guards run per target FIRST — a target is dropped when a
     // cert already exists OR an auto-run item already covers this
     // (event, template, recipient). The bundle-aware item check matches

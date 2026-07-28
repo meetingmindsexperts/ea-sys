@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -311,7 +311,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     //     verified above that no Payment row exists): skip the update
     //     entirely, just insert the recovery Payment row.
     const wasAlreadyPaid = registration.paymentStatus === "PAID";
-    const payment = await db.$transaction(async (tx) => {
+    const payment = await tenantTransaction(async (tx) => {
       if (!wasAlreadyPaid && coversTotal) {
         const claim = await tx.registration.updateMany({
           where: { id: registrationId, paymentStatus: { not: "PAID" } },
@@ -340,6 +340,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       return tx.payment.create({
         data: {
+          organizationId: event.organizationId,
           registrationId: registrationId!,
           amount,
           currency,

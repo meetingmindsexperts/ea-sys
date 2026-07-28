@@ -19,21 +19,23 @@ describe("getNextSerialId", () => {
     const upsert = vi.fn().mockResolvedValue({ eventId: "ev1", lastSerial: 43 });
     const tx = { registrationSerialCounter: { upsert } } as never;
 
-    const result = await getNextSerialId(tx, "ev1");
+    const result = await getNextSerialId(tx, "ev1", "org1");
 
     expect(result).toBe(43);
     expect(upsert).toHaveBeenCalledTimes(1);
     expect(upsert).toHaveBeenCalledWith({
       where: { eventId: "ev1" },
-      create: { eventId: "ev1", lastSerial: 1 },
-      update: { lastSerial: { increment: 1 } },
+      // organizationId stamped on create + re-stamped on update (self-heal
+      // for pre-backfill counter rows) — the tenancy C1 shape.
+      create: { eventId: "ev1", lastSerial: 1, organizationId: "org1" },
+      update: { lastSerial: { increment: 1 }, organizationId: "org1" },
     });
   });
 
   it("returns 1 for an event's first registration (counter create path)", async () => {
     const upsert = vi.fn().mockResolvedValue({ eventId: "new", lastSerial: 1 });
     const tx = { registrationSerialCounter: { upsert } } as never;
-    expect(await getNextSerialId(tx, "new")).toBe(1);
+    expect(await getNextSerialId(tx, "new", "org1")).toBe(1);
   });
 
   it("does NOT use a MAX() aggregate (the racy old path is gone)", async () => {
@@ -44,7 +46,7 @@ describe("getNextSerialId", () => {
       registrationSerialCounter: { upsert },
     } as never;
 
-    await getNextSerialId(tx, "ev");
+    await getNextSerialId(tx, "ev", "org1");
 
     expect(aggregate).not.toHaveBeenCalled();
   });

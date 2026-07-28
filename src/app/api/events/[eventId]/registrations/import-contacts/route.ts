@@ -154,6 +154,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         for (const contact of toCreate) {
           const attendee = await tx.attendee.create({
             data: {
+              organizationId: orgGuard.orgId,
               email: contact.email,
               firstName: contact.firstName,
               lastName: contact.lastName,
@@ -183,9 +184,10 @@ export async function POST(req: Request, { params }: RouteParams) {
             },
           });
 
-          const serialId = await getNextSerialId(tx, eventId);
+          const serialId = await getNextSerialId(tx, eventId, orgGuard.orgId);
           await tx.registration.create({
             data: {
+              organizationId: orgGuard.orgId,
               eventId,
               ticketTypeId: ticketType?.id ?? null,
               pricingTierId: tier?.id ?? null,

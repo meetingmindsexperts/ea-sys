@@ -37,6 +37,9 @@ vi.mock("@/lib/db", () => ({
     speaker: { findFirst: (...a: unknown[]) => speakerFindFirst(...a) },
     $transaction: (cb: (t: typeof tx) => unknown) => cb(tx),
   },
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated sweep site.
+  tenantTransaction: (cb: (t: typeof tx) => unknown) => cb(tx),
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 

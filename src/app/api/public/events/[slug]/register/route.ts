@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
@@ -313,7 +313,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // Atomic transaction: attendee create + duplicate check + soldCount increment + registration create
-    const result = await db.$transaction(async (tx) => {
+    const result = await tenantTransaction(async (tx) => {
       // Check if already registered (same email + same event)
       const existingRegistration = await tx.registration.findFirst({
         where: {
@@ -329,6 +329,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // Reuse orphaned attendee (left behind after registration deletion) or create new
       const attendeeData = {
+        organizationId: event.organizationId,
         title,
         role,
         email,
@@ -352,10 +353,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         studentIdExpiry: studentIdExpiry ? new Date(studentIdExpiry) : null,
       };
 
-      // Look for an existing attendee with no active registration (orphaned)
+      // Look for an existing attendee with no active registration (orphaned).
+      // Org-bound: cross-tenant orphan adoption previously let one tenant
+      // overwrite another tenant's attendee PII via a shared email; NULL-org
+      // orphans simply no longer match and a fresh row is minted.
       const existingAttendee = await tx.attendee.findFirst({
         where: {
           email,
+          organizationId: event.organizationId,
           registrations: { none: {} },
         },
         select: { id: true },
@@ -472,9 +477,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       // Create registration. Virtual ⇒ no entry barcode (nothing to scan).
       const generatedBarcode = isVirtual ? null : generateBarcode();
-      const serialId = await getNextSerialId(tx, event.id);
+      const serialId = await getNextSerialId(tx, event.id, event.organizationId);
       const registration = await tx.registration.create({
         data: {
+          organizationId: event.organizationId,
           eventId: event.id,
           ticketTypeId,
           pricingTierId: isVirtual ? null : pricingTier?.id || null,

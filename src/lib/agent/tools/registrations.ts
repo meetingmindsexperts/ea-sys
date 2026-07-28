@@ -1,6 +1,6 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -724,7 +724,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
           }
         }
       }
-      updatedCount = await db.$transaction(async (tx) => {
+      updatedCount = await tenantTransaction(async (tx) => {
         // Guarded release — never drives usedCount negative (was an unguarded
         // `promoCode.update({ decrement })` before the seat/promo consolidation).
         for (const [promoId, n] of promoRelease) {
@@ -958,9 +958,10 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
           registrationType: ticketType.name,
         };
 
-        const result = await db.$transaction(async (tx) => {
+        const result = await tenantTransaction(async (tx) => {
           const attendee = await tx.attendee.create({
             data: {
+              organizationId: ctx.organizationId,
               email,
               firstName,
               lastName,
@@ -997,9 +998,10 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
           }
 
           const qrCode = generateBarcode();
-          const serialId = await getNextSerialId(tx, ctx.eventId);
+          const serialId = await getNextSerialId(tx, ctx.eventId, ctx.organizationId);
           const registration = await tx.registration.create({
             data: {
+              organizationId: ctx.organizationId,
               eventId: ctx.eventId,
               ticketTypeId: ticketType.id,
               attendeeId: attendee.id,

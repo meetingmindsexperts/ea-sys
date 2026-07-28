@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -341,7 +341,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const attendeeRegistrationType = registrationType || ticketType?.name || null;
 
       try {
-        const newRegId = await db.$transaction(async (tx) => {
+        const newRegId = await tenantTransaction(async (tx) => {
           // Check for duplicate registration (same email + same event)
           const existing = await tx.registration.findFirst({
             where: { eventId, attendee: { email }, status: { notIn: ["CANCELLED"] } },
@@ -354,6 +354,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           // Create a new attendee record for this registration
           const attendee = await tx.attendee.create({
             data: {
+              organizationId: orgGuard.orgId,
               email,
               firstName,
               lastName,
@@ -418,7 +419,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
           // Virtual ⇒ no entry barcode.
           const generatedBarcode = rowIsVirtual ? null : generateBarcode();
-          const serialId = await getNextSerialId(tx, eventId);
+          const serialId = await getNextSerialId(tx, eventId, orgGuard.orgId);
           // Per-row registrationStatus / paymentStatus overrides fall back to
           // the prior defaults when the CSV columns are absent. requiresApproval
           // still beats CONFIRMED-by-default but a CSV explicit
@@ -431,6 +432,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             !ticketType || Number(ticketType.price) === 0 ? "COMPLIMENTARY" : "UNASSIGNED";
           const registration = await tx.registration.create({
             data: {
+              organizationId: orgGuard.orgId,
               eventId,
               ticketTypeId: ticketType?.id ?? null,
               attendeeId: attendee.id,

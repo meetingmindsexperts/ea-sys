@@ -13,7 +13,7 @@
 import "./local-db-guard"; // MUST be first — forces + guards the local test DB
 import { PrismaClient } from "@prisma/client";
 import { seedCore } from "./seed-e2e-core";
-import { EVENT_ID, PAID_TICKET_TYPE_ID } from "../e2e/fixtures/seed-constants";
+import { EVENT_ID, ORG_ID, PAID_TICKET_TYPE_ID } from "../e2e/fixtures/seed-constants";
 
 const db = new PrismaClient();
 
@@ -62,6 +62,7 @@ async function main() {
   await db.attendee.create({
     data: {
       id: ATT_PENDING_ID,
+      organizationId: ORG_ID,
       firstName: "Priya",
       lastName: "Pending",
       email: "priya.pending@test.local",
@@ -71,6 +72,7 @@ async function main() {
   await db.registration.create({
     data: {
       id: REG_PENDING_ID,
+      organizationId: ORG_ID,
       eventId: EVENT_ID,
       attendeeId: ATT_PENDING_ID,
       ticketTypeId: PAID_TICKET_TYPE_ID,
@@ -89,6 +91,7 @@ async function main() {
   await db.attendee.create({
     data: {
       id: ATT_PAID_ID,
+      organizationId: ORG_ID,
       firstName: "Paul",
       lastName: "Paid",
       email: "paul.paid@test.local",
@@ -98,6 +101,7 @@ async function main() {
   await db.registration.create({
     data: {
       id: REG_PAID_ID,
+      organizationId: ORG_ID,
       eventId: EVENT_ID,
       attendeeId: ATT_PAID_ID,
       ticketTypeId: PAID_TICKET_TYPE_ID,
@@ -113,6 +117,7 @@ async function main() {
   await db.payment.create({
     data: {
       id: PAYMENT_ID,
+      organizationId: ORG_ID,
       registrationId: REG_PAID_ID,
       amount: 157.5,
       currency: "USD",

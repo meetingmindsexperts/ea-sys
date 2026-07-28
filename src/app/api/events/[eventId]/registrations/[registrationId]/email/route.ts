@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
@@ -587,7 +587,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       }
     }
 
-    const result = await db.$transaction(async (tx) => {
+    const result = await tenantTransaction(async (tx) => {
       // If the Attendee row is shared across multiple Registrations
       // (schema allows it — public register's orphan-attendee reuse path
       // can produce this), mutating email in place would silently change
@@ -614,6 +614,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         const clone = await tx.attendee.create({
           data: {
             ...rest,
+            // Tenant stamp from the route's verified event org (also
+            // self-heals a pre-backfill NULL carried by the snapshot).
+            organizationId: event.organizationId,
             email: newEmail,
             customFields: (customFields ?? {}) as Prisma.InputJsonValue,
           },

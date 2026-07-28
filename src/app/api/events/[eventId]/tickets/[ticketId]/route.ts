@@ -149,7 +149,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const ticketType = await db.ticketType.update({
-      where: { id: ticketId },
+      where: { id: ticketId, eventId },
       data: {
         ...(data.name && { name: data.name }),
         ...(data.description !== undefined && { description: data.description || null }),
@@ -230,7 +230,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     // Cascade deletes pricing tiers via schema
-    await db.ticketType.delete({ where: { id: ticketId } });
+    await db.ticketType.delete({ where: { id: ticketId, eventId } });
 
     apiLogger.info({ msg: "Registration type deleted", eventId, ticketTypeId: ticketId, name: ticketType.name, userId: session.user.id });
 

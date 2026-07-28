@@ -10,7 +10,7 @@
  * The link reuses `Speaker.sourceRegistrationId` (the same column the import
  * path and the activity timeline already use).
  */
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -128,12 +128,20 @@ export async function ensureSpeakerCompanionRegistration(
   }
 
   const facultyTypeId = await ensureFacultyTicketType(speaker.eventId);
+  // Tenant stamp for the companion attendee/registration rows — the input
+  // carries only the eventId, so resolve the event's org here (create path
+  // only; runs once per speaker add).
+  const { organizationId } = await db.event.findUniqueOrThrow({
+    where: { id: speaker.eventId },
+    select: { organizationId: true },
+  });
   const qrCode = generateBarcode();
 
-  const registrationId = await db.$transaction(async (tx) => {
-    const serialId = await getNextSerialId(tx, speaker.eventId);
+  const registrationId = await tenantTransaction(async (tx) => {
+    const serialId = await getNextSerialId(tx, speaker.eventId, organizationId);
     const attendee = await tx.attendee.create({
       data: {
+        organizationId,
         email: speaker.email,
         firstName: speaker.firstName,
         lastName: speaker.lastName,
@@ -159,6 +167,7 @@ export async function ensureSpeakerCompanionRegistration(
     });
     const reg = await tx.registration.create({
       data: {
+        organizationId,
         eventId: speaker.eventId,
         attendeeId: attendee.id,
         ticketTypeId: facultyTypeId,

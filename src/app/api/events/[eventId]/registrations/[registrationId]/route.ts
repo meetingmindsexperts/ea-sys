@@ -6,7 +6,7 @@ import { releaseEventSeats, releasePromoUsage, releaseSeat } from "@/lib/registr
 import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
@@ -555,7 +555,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     // Wrap soldCount decrement + delete in a transaction
-    await db.$transaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       // Release the seat this registration actually held, on the correct counter
       // (tier vs ticket type). Gating on holdsSeat also fixes the latent bug
       // where deleting a VIRTUAL (uncapped) reg wrongly decremented the counter.

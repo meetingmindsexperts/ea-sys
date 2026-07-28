@@ -19,7 +19,12 @@ const { mockDb, mockApplyTransition, mockNotify } = vi.hoisted(() => ({
   mockNotify: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated sites.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
@@ -167,9 +172,10 @@ describe("executeCheckIn", () => {
       auditExtras: { ip: "1.2.3.4" },
     });
     expect(res).toBe(UPDATED);
-    // H3: the commit is a conditional claim, not an unconditional update.
+    // H3: the commit is a conditional claim, not an unconditional update —
+    // event-bound (tenancy C1) so a foreign registrationId can't claim.
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "reg1", checkedInAt: null } }),
+      expect.objectContaining({ where: { id: "reg1", eventId: "ev1", checkedInAt: null } }),
     );
     expect(mockDb.$transaction).not.toHaveBeenCalled();
     expect(mockApplyTransition).not.toHaveBeenCalled();

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
@@ -113,7 +113,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       else releaseCounts.set(key, { counter, count: 1 });
     }
 
-    await db.$transaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       // Release each held counter (guarded, never below 0)
       for (const { counter, count } of releaseCounts.values()) {
         await releaseSeats(tx, counter, count);
@@ -147,13 +147,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         .map((r) => r.id);
       if (unpaidIds.length > 0) {
         await tx.registration.updateMany({
-          where: { id: { in: unpaidIds } },
+          where: { id: { in: unpaidIds }, eventId },
           data: { ticketTypeId, pricingTierId: null, originalPrice: Number(targetType.price) },
         });
       }
       if (settledIds.length > 0) {
         await tx.registration.updateMany({
-          where: { id: { in: settledIds } },
+          where: { id: { in: settledIds }, eventId },
           data: { ticketTypeId, pricingTierId: null },
         });
       }

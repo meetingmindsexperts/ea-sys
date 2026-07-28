@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -143,16 +143,20 @@ export async function POST(req: Request, { params }: RouteParams) {
     // AuditLog row gives the per-print timeline + who/when.
     const printedIds = registrations.map((r) => r.id);
     try {
-      await db.$transaction([
-        db.registration.updateMany({
-          where: { id: { in: printedIds } },
+      // Interactive form (was array-form): array form can't carry the tenant
+      // SET LOCAL, so the same three writes run sequentially in one
+      // tenantTransaction (flag-off identical). The id-list updateManys are
+      // event-bound so a crafted id list can't touch another event's rows.
+      await tenantTransaction(async (tx) => {
+        await tx.registration.updateMany({
+          where: { id: { in: printedIds }, eventId },
           data: { badgePrintCount: { increment: 1 } },
-        }),
-        db.registration.updateMany({
-          where: { id: { in: printedIds }, badgePrintedAt: null },
+        });
+        await tx.registration.updateMany({
+          where: { id: { in: printedIds }, eventId, badgePrintedAt: null },
           data: { badgePrintedAt: new Date() },
-        }),
-        db.auditLog.create({
+        });
+        await tx.auditLog.create({
           data: {
             eventId,
             userId: session.user.id,
@@ -164,8 +168,8 @@ export async function POST(req: Request, { params }: RouteParams) {
             changes: { count: printedIds.length, all: !!all, registrationIds: printedIds.slice(0, 200) },
             ipAddress: getClientIp(req),
           },
-        }),
-      ]);
+        });
+      });
     } catch (err) {
       apiLogger.error({ err, msg: "Failed to record badge-print analytics", eventId, count: printedIds.length });
     }

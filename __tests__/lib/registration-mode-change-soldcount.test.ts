@@ -39,7 +39,12 @@ const { mockDb } = vi.hoisted(() => {
   return { mockDb: db };
 });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated sites.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: vi.fn() }));

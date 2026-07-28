@@ -23,7 +23,7 @@
  * committed check-in into a user-facing 500 at the desk (review M13 for
  * these routes).
  */
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -165,9 +165,9 @@ export async function executeCheckIn(args: ExecuteCheckInArgs) {
   const include = { attendee: true, ticketType: true } as const;
 
   const won = args.reactivation
-    ? await db.$transaction(async (tx) => {
+    ? await tenantTransaction(async (tx) => {
         const claim = await tx.registration.updateMany({
-          where: { id: args.registrationId, checkedInAt: null },
+          where: { id: args.registrationId, eventId: args.eventId, checkedInAt: null },
           data: claimData,
         });
         if (claim.count === 0) return false;
@@ -177,7 +177,7 @@ export async function executeCheckIn(args: ExecuteCheckInArgs) {
       })
     : (
         await db.registration.updateMany({
-          where: { id: args.registrationId, checkedInAt: null },
+          where: { id: args.registrationId, eventId: args.eventId, checkedInAt: null },
           data: claimData,
         })
       ).count > 0;

@@ -23,7 +23,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { AttendanceMode, PaymentStatus, RegistrationStatus } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -668,7 +668,7 @@ export async function createRegistration(
   // that are caught in the outer catch and mapped to error codes.
   let registration: RegistrationWithRelations;
   try {
-    registration = await db.$transaction(async (tx) => {
+    registration = await tenantTransaction(async (tx) => {
       // Dup check excludes CANCELLED — matches REST + MCP behavior post-Phase-0
       // so a re-registration after cancellation is allowed.
       const existing = await tx.registration.findFirst({
@@ -687,6 +687,7 @@ export async function createRegistration(
 
       const attendeeRecord = await tx.attendee.create({
         data: {
+          organizationId,
           title: attendeeTitle,
           role: attendeeRole,
           email,
@@ -744,7 +745,7 @@ export async function createRegistration(
       // the @unique index). It's minted lazily if an admin later flips the
       // registration to in-person.
       const qrCode = isVirtual ? null : generateBarcode();
-      const serialId = await getNextSerialId(tx, eventId);
+      const serialId = await getNextSerialId(tx, eventId, organizationId);
       // Map the caller identity (already in service input) to the
       // RegistrationCreatedSource enum so the detail sheet can
       // surface "added via dashboard" vs "via MCP agent" at a glance.
@@ -755,6 +756,7 @@ export async function createRegistration(
         source === "mcp" ? "MCP_AGENT" : "ADMIN_DASHBOARD";
       return tx.registration.create({
         data: {
+          organizationId,
           eventId,
           ticketTypeId: ticketTypeId || null,
           pricingTierId: validPricingTierId,
@@ -1254,7 +1256,7 @@ export async function updateRegistration(
     const qrCodeMinted = needsQrCode(effectiveMode, existing.qrCode);
 
     // ── The transaction: seat/promo transition + lock-gated writes ───────────
-    const registration = await db.$transaction(async (tx) => {
+    const registration = await tenantTransaction(async (tx) => {
       const effectiveStatus = status || existing.status;
       const seatTierId = nextTierId !== undefined ? nextTierId : existing.pricingTierId;
 
@@ -1335,6 +1337,7 @@ export async function updateRegistration(
       const updateResult = await tx.registration.updateMany({
         where: {
           id: registrationId,
+          eventId,
           ...(expectedUpdatedAt && { updatedAt: new Date(expectedUpdatedAt) }),
         },
         data: changeData,

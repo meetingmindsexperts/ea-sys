@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -43,6 +43,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user?.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    // Captured as a const so the tenant stamp survives TS narrowing inside
+    // the per-row transaction closure below.
+    const organizationId = session.user.organizationId;
 
     const denied = denyReviewer(session);
     if (denied) return denied;
@@ -150,7 +153,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           ? await downloadExternalPhoto(contact.photo.url)
           : null;
 
-        await db.$transaction(async (tx) => {
+        await tenantTransaction(async (tx) => {
           const phone = contact.contactPhoneNumbers?.mobile || contact.workPhone || null;
 
           // Check for duplicate registration (same email + same event)
@@ -165,6 +168,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           // Create a new attendee record for this registration
           const attendee = await tx.attendee.create({
             data: {
+              organizationId,
               email,
               firstName: contact.firstName,
               lastName: contact.lastName,
@@ -180,9 +184,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           });
 
           const generatedBarcode = generateBarcode();
-          const serialId = await getNextSerialId(tx, eventId);
+          const serialId = await getNextSerialId(tx, eventId, organizationId);
           await tx.registration.create({
             data: {
+              organizationId,
               eventId,
               ticketTypeId: defaultTicketType?.id ?? null,
               attendeeId: attendee.id,

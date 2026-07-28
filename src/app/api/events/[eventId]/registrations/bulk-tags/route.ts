@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -82,14 +82,25 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         email: reg.attendee.email,
         delta: computeTagDelta(reg.attendee.tags, newTags),
       });
-      return db.attendee.update({
-        where: { id: reg.attendee.id },
-        data: { tags: newTags },
-        select: { id: true, tags: true },
-      });
+      return { attendeeId: reg.attendee.id, newTags };
     });
 
-    const results = await db.$transaction(updates);
+    // Interactive form (was array-form `db.$transaction(updates)`): array form
+    // can't carry the tenant SET LOCAL, so the writes run sequentially in one
+    // tenantTransaction instead (same atomicity, flag-off identical).
+    const results = await tenantTransaction(async (tx) => {
+      const rows: { id: string; tags: string[] }[] = [];
+      for (const u of updates) {
+        rows.push(
+          await tx.attendee.update({
+            where: { id: u.attendeeId },
+            data: { tags: u.newTags },
+            select: { id: true, tags: true },
+          }),
+        );
+      }
+      return rows;
+    });
 
     // Mirror the change onto each person's Speaker facet (best-effort).
     await syncRegistrationTagsToSpeakers(eventId, tagChanges);

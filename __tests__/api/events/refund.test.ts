@@ -47,7 +47,12 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated sites.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/auth-guards", () => ({
   denyReviewer: vi.fn((session: { user: { role: string } }) => {

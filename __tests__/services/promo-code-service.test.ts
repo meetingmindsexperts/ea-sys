@@ -28,7 +28,12 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated sites.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 
 import { applyPromoCodeToRegistration, createPromoCode, removePromoCodeFromRegistration } from "@/services/promo-code-service";

@@ -16,15 +16,20 @@ import { Prisma } from "@prisma/client";
  *
  * Still expects to be called inside the same `db.$transaction` as the
  * registration insert so a later failure rolls the counter back.
+ *
+ * `organizationId` is the caller's already-verified org for the event —
+ * stamped on the create branch (multi-tenancy denormalized tenant key) and
+ * re-stamped on the update branch as a self-heal for pre-backfill rows.
  */
 export async function getNextSerialId(
   tx: Prisma.TransactionClient,
-  eventId: string
+  eventId: string,
+  organizationId: string
 ): Promise<number> {
   const counter = await tx.registrationSerialCounter.upsert({
     where: { eventId },
-    create: { eventId, lastSerial: 1 },
-    update: { lastSerial: { increment: 1 } },
+    create: { eventId, lastSerial: 1, organizationId },
+    update: { lastSerial: { increment: 1 }, organizationId },
   });
   return counter.lastSerial;
 }

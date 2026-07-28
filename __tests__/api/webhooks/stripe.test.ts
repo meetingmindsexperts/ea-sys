@@ -46,7 +46,12 @@ vi.mock("next/server", () => ({
     }),
   },
 }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated sites.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/stripe", () => ({
   getStripe: vi.fn(() => mockStripeInstance),
@@ -535,7 +540,7 @@ describe("Webhook: checkout.session.completed idempotency", () => {
 
     const tx = {
       registration: {
-        findUnique: vi.fn().mockResolvedValue({ paymentStatus: "PAID" }),
+        findUnique: vi.fn().mockResolvedValue({ paymentStatus: "PAID", event: { organizationId: "org-1" } }),
         update: vi.fn(),
       },
       payment: { create: vi.fn().mockResolvedValue({ id: "pay-dup" }) },
@@ -637,7 +642,7 @@ describe("Webhook: checkout.session.completed on a CANCELLED registration", () =
   function mockTransaction() {
     const tx = {
       registration: {
-        findUnique: vi.fn().mockResolvedValue({ paymentStatus: "PENDING" }),
+        findUnique: vi.fn().mockResolvedValue({ paymentStatus: "PENDING", event: { organizationId: "org-1" } }),
         update: vi.fn().mockResolvedValue({}),
       },
       payment: { create: vi.fn().mockResolvedValue({ id: "pay-1" }) },
@@ -667,7 +672,7 @@ describe("Webhook: checkout.session.completed on a CANCELLED registration", () =
     // gated refund flow can reverse it.
     expect(tx.payment.create).toHaveBeenCalled();
     expect(tx.registration.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { paymentStatus: "PAID", stripeCheckoutSessionId: null } })
+      expect.objectContaining({ data: { paymentStatus: "PAID", stripeCheckoutSessionId: null, organizationId: "org-1" } })
     );
 
     // Loud flag: error-level log + refund-required admin notification.

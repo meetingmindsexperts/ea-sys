@@ -27,8 +27,13 @@ vi.mock("@/lib/db", () => ({
     },
     registration: { findFirst: (...a: unknown[]) => registrationFindFirst(...a) },
     speaker: { update: (...a: unknown[]) => speakerUpdate(...a) },
+    // Tenant-stamp source: the helper resolves the event's org on the create path.
+    event: { findUniqueOrThrow: vi.fn(async () => ({ organizationId: "org_1" })) },
     $transaction: (cb: (t: typeof tx) => unknown) => cb(tx),
   },
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated create site.
+  tenantTransaction: (cb: (t: typeof tx) => unknown) => cb(tx),
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/utils", () => ({ generateBarcode: () => "BC-TEST-123" }));

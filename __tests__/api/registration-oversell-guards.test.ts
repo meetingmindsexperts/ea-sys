@@ -136,14 +136,15 @@ describe("bulk-type — soldCount oversell guard", () => {
     const res = await bulkType(req({ registrationIds: ["r1", "r2", "r3"], ticketTypeId: "T" }), { params });
     expect(res.status).toBeLessThan(400);
 
-    // Unpaid group: moved + repriced to the new base.
+    // Unpaid group: moved + repriced to the new base. Event-bound (tenancy C1)
+    // so a crafted id list can't move another event's rows.
     expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["r1", "r2"] } },
+      where: { id: { in: ["r1", "r2"] }, eventId: "ev1" },
       data: { ticketTypeId: "T", pricingTierId: null, originalPrice: 400 },
     });
     // Settled group: moved, price untouched (they already paid it).
     expect(mockDb._tx.registration.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["r3"] } },
+      where: { id: { in: ["r3"] }, eventId: "ev1" },
       data: { ticketTypeId: "T", pricingTierId: null },
     });
   });

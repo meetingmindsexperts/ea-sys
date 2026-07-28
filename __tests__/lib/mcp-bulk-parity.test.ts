@@ -37,7 +37,15 @@ const { mockDb, mockSyncToContact, mockExecuteBulkEmail, MockBulkEmailError } = 
   };
 });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // test's tx interception keeps working for the migrated sites. (This mockDb
+  // has no $transaction — none of these paths open one — so the delegate goes
+  // through a cast and would fail loudly if a future path started to.)
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    (mockDb as unknown as { $transaction: (f: (tx: unknown) => unknown) => unknown }).$transaction(fn),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/contact-sync", () => ({ syncToContact: mockSyncToContact }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));

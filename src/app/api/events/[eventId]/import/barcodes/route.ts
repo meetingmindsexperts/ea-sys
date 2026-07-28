@@ -140,9 +140,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           continue;
         }
 
-        // Check for duplicate barcode
+        // Check for duplicate barcode — event-scoped (the pre-check no longer
+        // probes the GLOBAL barcode namespace; a cross-org collision now
+        // surfaces as the write's P2002, handled generically below).
         const existing = await db.registration.findFirst({
-          where: { dtcmBarcode: barcode, NOT: { id: registration.id } },
+          where: { eventId, dtcmBarcode: barcode, NOT: { id: registration.id } },
           select: { id: true },
         });
 
@@ -164,7 +166,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         }
 
         await db.registration.update({
-          where: { id: registration.id },
+          where: { id: registration.id, eventId },
           data: { dtcmBarcode: barcode },
         });
 
