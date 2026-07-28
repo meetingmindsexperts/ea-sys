@@ -26,16 +26,20 @@
  *
  * Conventions: src/services/README.md.
  */
-import { Prisma, type CrmDeal, type CrmDealStatus, type CrmDealContactRole, type CrmStageOutcome } from "@prisma/client";
+import { Prisma, type CrmDeal, type CrmDealStatus, type CrmDealContactRole, type CrmDealPipeline, type CrmStageOutcome } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
 import { canOwnDeals } from "@/crm/lib/crm-roles";
+// The ONE CRM tag normalizer (trim, dedupe, first-casing-wins) — shared with
+// contacts + imports so a deal's tags dedupe by exactly the same rule (no
+// second implementation). See crm-contact-service.
+import { normalizeContactTags } from "./crm-contact-service";
 import { resolveStage } from "./pipeline-service";
 
 /** Fields worth showing in the change log when a deal is edited. */
-const DEAL_DIFF_KEYS = ["name", "dealValue", "currency", "expectedClose", "companyId", "eventId", "ownerId"] as const;
+const DEAL_DIFF_KEYS = ["name", "dealValue", "currency", "expectedClose", "companyId", "eventId", "ownerId", "pipeline", "tags"] as const;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +64,10 @@ export interface CreateDealInput {
   dealValue?: number | null;
   currency?: string;
   expectedClose?: Date | null;
+  /** Deal category — Corporate / Conference. null clears it. */
+  pipeline?: CrmDealPipeline | null;
+  /** Free-form tags — normalized (trim/dedupe) before write. */
+  tags?: string[];
 }
 
 export interface UpdateDealInput {
@@ -76,6 +84,8 @@ export interface UpdateDealInput {
   dealValue?: number | null;
   currency?: string;
   expectedClose?: Date | null;
+  pipeline?: CrmDealPipeline | null;
+  tags?: string[];
 }
 
 export interface MoveDealStageInput {
@@ -214,6 +224,8 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
         dealValue: input.dealValue ?? null,
         currency: input.currency?.trim() || "USD",
         expectedClose: input.expectedClose ?? null,
+        pipeline: input.pipeline ?? null,
+        tags: normalizeContactTags(input.tags ?? []),
         // A deal created directly INTO a terminal stage is born closed, so the
         // stage and the status can't disagree from the very first write. The
         // outcome comes from the stage's stored terminalOutcome, never its name.
@@ -274,6 +286,8 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
   if (input.dealValue !== undefined) data.dealValue = input.dealValue;
   if (input.currency !== undefined) data.currency = input.currency.trim() || "USD";
   if (input.expectedClose !== undefined) data.expectedClose = input.expectedClose;
+  if (input.pipeline !== undefined) data.pipeline = input.pipeline;
+  if (input.tags !== undefined) data.tags = normalizeContactTags(input.tags);
   if (input.companyId !== undefined) data.companyId = input.companyId;
   if (input.eventId !== undefined) {
     // A deal must stay tied to a project — you can re-point it at another event, but
@@ -302,7 +316,7 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     // from another tenant 404s here rather than being touched.
     const before = await db.crmDeal.findFirst({
       where: { id: input.dealId, organizationId: input.organizationId },
-      select: { name: true, dealValue: true, currency: true, expectedClose: true, companyId: true, eventId: true, ownerId: true, archivedAt: true },
+      select: { name: true, dealValue: true, currency: true, expectedClose: true, companyId: true, eventId: true, ownerId: true, pipeline: true, tags: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({ msg: "crm-deal:update-not-found", dealId: input.dealId, organizationId: input.organizationId });

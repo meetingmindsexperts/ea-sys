@@ -2611,6 +2611,16 @@ enum CrmTaskStatus {
   DONE
 }
 
+/// The line of business a deal sits in — a simple CATEGORY, NOT a separate
+/// pipeline (owner decision, July 28 2026). Every deal still shares the one
+/// org-configurable stage set; this only classifies/filters. Nullable so
+/// imports + legacy deals need no backfill. Additive-only: new values later are
+/// an `ALTER TYPE … ADD VALUE`, the house pattern.
+enum CrmDealPipeline {
+  CORPORATE
+  CONFERENCE
+}
+
 /// Contact lifecycle (locked, §9). Nullable on Contact — existing contacts stay
 /// null, so this is additive and needs no backfill. NOTE: an account lapses, a
 /// person doesn't — "lapsed sponsor" is deliberately NOT a value here; it is a
@@ -3170,6 +3180,15 @@ model CrmDeal {
 
   stageId String
   stage   CrmPipelineStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
+
+  /// Deal category (Corporate / Conference) — see CrmDealPipeline. A classifier,
+  /// not a second pipeline; nullable so imports/legacy deals need no backfill.
+  pipeline CrmDealPipeline?
+
+  /// Free-form tags ("multi-year", "renewal", "warm"), same shape + normalization
+  /// as CrmContact.tags / Attendee.tags. Normalized (trim, dedupe, first-casing-
+  /// wins) by the deal service, so "Renewal" and "renewal" can't become two tags.
+  tags String[] @default([])
 
   ownerId String?
   owner   User?   @relation("CrmDealOwner", fields: [ownerId], references: [id], onDelete: SetNull)

@@ -63,6 +63,8 @@ export async function GET(req: Request) {
         dealValue: true,
         currency: true,
         status: true,
+        pipeline: true,
+        tags: true,
         expectedClose: true,
         wonAt: true,
         lostAt: true,
@@ -70,7 +72,8 @@ export async function GET(req: Request) {
         createdAt: true,
         stage: { select: { name: true } },
         company: { select: { name: true } },
-        event: { select: { name: true } },
+        // Project date + location are derived from the event (city/country only).
+        event: { select: { name: true, startDate: true, endDate: true, city: true, country: true } },
         owner: { select: { firstName: true, lastName: true } },
         _count: { select: { contacts: true, tasks: true, notes: true } },
       },
@@ -79,14 +82,27 @@ export async function GET(req: Request) {
     });
 
     const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
+    // Project date + location are DERIVED from the linked event (city/country only).
+    const projectDates = (e: { startDate: Date; endDate: Date } | null) => {
+      if (!e?.startDate) return "";
+      const start = iso(e.startDate);
+      const end = iso(e.endDate);
+      return end && end !== start ? `${start} – ${end}` : start;
+    };
+    const projectLocation = (e: { city: string | null; country: string | null } | null) =>
+      [e?.city, e?.country].filter(Boolean).join(", ");
     const headers = [
       "Deal",
       "Company",
+      "Pipeline",
       "Stage",
       "Status",
       ...(canSeeValues ? ["Value", "Currency"] : []),
       "Owner",
       "Event",
+      "Project dates",
+      "Project location",
+      "Tags",
       "Expected close",
       "Won",
       "Lost",
@@ -101,11 +117,15 @@ export async function GET(req: Request) {
     const rows = deals.map((d) => [
       d.name,
       d.company?.name ?? "",
+      d.pipeline ?? "",
       d.stage?.name ?? "",
       d.status,
       ...(canSeeValues ? [d.dealValue != null ? Number(d.dealValue) : "", d.currency] : []),
       d.owner ? `${d.owner.firstName} ${d.owner.lastName}` : "Unassigned",
       d.event?.name ?? "",
+      projectDates(d.event),
+      projectLocation(d.event),
+      d.tags.join(", "),
       iso(d.expectedClose),
       iso(d.wonAt),
       iso(d.lostAt),

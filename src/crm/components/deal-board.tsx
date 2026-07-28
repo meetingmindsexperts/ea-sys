@@ -34,6 +34,7 @@ import { Building2, CalendarClock, GripVertical, MessageSquare, CheckSquare } fr
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
+  CRM_DEAL_PIPELINE_LABELS,
   formatDealValue,
   personName,
   sumStageValue,
@@ -312,11 +313,18 @@ function DealCard({
             <span className="text-sm font-semibold tabular-nums">
               {value ?? <span className="font-normal text-muted-foreground">—</span>}
             </span>
-            {deal.event && (
-              <Badge variant="outline" className="max-w-[8rem] shrink-0 truncate text-[10px]">
-                {deal.event.name}
-              </Badge>
-            )}
+            <span className="flex shrink-0 items-center gap-1">
+              {deal.pipeline && (
+                <Badge variant="outline" className="shrink-0 border-sky-200 bg-sky-50 text-[10px] text-sky-700">
+                  {CRM_DEAL_PIPELINE_LABELS[deal.pipeline]}
+                </Badge>
+              )}
+              {deal.event && (
+                <Badge variant="outline" className="max-w-[8rem] shrink-0 truncate text-[10px]">
+                  {deal.event.name}
+                </Badge>
+              )}
+            </span>
           </div>
 
           <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">

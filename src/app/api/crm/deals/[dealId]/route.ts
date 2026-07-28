@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { CrmDealPipeline } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
@@ -16,6 +17,8 @@ const updateDealSchema = z.object({
   dealValue: z.number().nonnegative().max(1_000_000_000).nullable().optional(),
   currency: z.string().length(3).optional(),
   expectedClose: z.coerce.date().nullable().optional(),
+  pipeline: z.nativeEnum(CrmDealPipeline).nullable().optional(),
+  tags: z.array(z.string().min(1).max(50)).max(25).optional(),
   /** Restore a soft-deleted deal (archive → active). Delete-gated separately below. */
   archived: z.boolean().optional(),
 });
@@ -40,7 +43,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ dealId: 
           },
         },
         // taxRate/taxLabel pre-fill the quote dialog (FINANCIAL_KEYS strips them for MEMBER).
-        event: { select: { id: true, name: true, slug: true, taxRate: true, taxLabel: true } },
+        // startDate/endDate/city/country back the derived "project date" + "project
+        // location" facts (city/country only — not the venue string, per owner).
+        event: { select: { id: true, name: true, slug: true, taxRate: true, taxLabel: true, startDate: true, endDate: true, city: true, country: true } },
         owner: { select: { id: true, firstName: true, lastName: true, email: true } },
         stage: { select: { id: true, name: true, isTerminal: true } },
         tasks: { where: { archivedAt: null }, orderBy: { dueAt: "asc" }, take: 100 },

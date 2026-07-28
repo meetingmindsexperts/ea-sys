@@ -428,3 +428,62 @@ describe("createDeal — relations are bound to the caller's org", () => {
     expect(res.code).toBe("NAME_REQUIRED");
   });
 });
+
+describe("createDeal/updateDeal — pipeline category + tags", () => {
+  it("createDeal carries the pipeline and NORMALIZES tags (trim, dedupe, first-casing-wins)", async () => {
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(stage() as never);
+    vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-1" } as never);
+    vi.mocked(db.crmDeal.create).mockResolvedValue({ id: "d-1", eventId: "e-1" } as never);
+
+    const res = await createDeal({
+      ...base,
+      name: "Abbott — Gold",
+      stageId: "s-neg",
+      eventId: "e-1",
+      pipeline: "CONFERENCE",
+      tags: ["Renewal", "renewal", " Warm "],
+    });
+
+    expect(res.ok).toBe(true);
+    expect(db.crmDeal.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ pipeline: "CONFERENCE", tags: ["Renewal", "Warm"] }),
+      }),
+    );
+  });
+
+  it("updateDeal writes the pipeline + normalized tags", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
+      name: "Abbott", dealValue: null, currency: "USD", expectedClose: null,
+      companyId: null, eventId: "e-1", ownerId: null, pipeline: null, tags: [], archivedAt: null,
+    } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", name: "Abbott", ownerId: null } as never);
+
+    const res = await updateDeal({
+      ...base,
+      dealId: "d-1",
+      pipeline: "CORPORATE",
+      tags: ["A", "a", "B"],
+    });
+
+    expect(res.ok).toBe(true);
+    const call = vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(call.data).toMatchObject({ pipeline: "CORPORATE", tags: ["A", "B"] });
+  });
+
+  it("updateDeal can CLEAR the pipeline (null) — a classifier is optional", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
+      name: "Abbott", dealValue: null, currency: "USD", expectedClose: null,
+      companyId: null, eventId: "e-1", ownerId: null, pipeline: "CORPORATE", tags: [], archivedAt: null,
+    } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", name: "Abbott", ownerId: null } as never);
+
+    const res = await updateDeal({ ...base, dealId: "d-1", pipeline: null });
+
+    expect(res.ok).toBe(true);
+    const call = vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(call.data).toMatchObject({ pipeline: null });
+  });
+});

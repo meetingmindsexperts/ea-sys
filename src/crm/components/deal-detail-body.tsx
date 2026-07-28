@@ -40,6 +40,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CRM_CTA,
+  CRM_DEAL_PIPELINE_LABELS,
   DEAL_CONTACT_ROLE_LABELS,
   DEAL_STATUS_COLORS,
   formatDealValue,
@@ -76,6 +77,22 @@ import { CrmDealDocumentsCard } from "@/crm/components/crm-deal-documents-card";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
 import { DealProducts } from "@/crm/components/crm-deal-products";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
+
+/**
+ * Project date + location are DERIVED from the linked event — never stored on the
+ * deal (no drift). city/country only, per owner: the venue string is not surfaced.
+ */
+function projectDates(event: CrmBoardDeal["event"]): string | null {
+  if (!event?.startDate) return null;
+  const start = new Date(event.startDate).toLocaleDateString();
+  const end = event.endDate ? new Date(event.endDate).toLocaleDateString() : null;
+  return end && end !== start ? `${start} – ${end}` : start;
+}
+
+function projectLocation(event: CrmBoardDeal["event"]): string | null {
+  const parts = [event?.city, event?.country].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
+}
 
 export function DealDetailBody({
   deal,
@@ -188,6 +205,11 @@ export function DealDetailBody({
             <Badge variant="outline" className={DEAL_STATUS_COLORS[deal.status]}>
               {deal.status}
             </Badge>
+            {deal.pipeline && (
+              <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
+                {CRM_DEAL_PIPELINE_LABELS[deal.pipeline]}
+              </Badge>
+            )}
             {deal.event && <Badge variant="outline">{deal.event.name}</Badge>}
             {deal.archivedAt && (
               <Badge variant="outline" className="border-rose-200 bg-rose-100 text-rose-700">
@@ -311,11 +333,26 @@ export function DealDetailBody({
                   )}
                 </Fact>
                 <Fact label="Event">{deal.event?.name ?? <Dash />}</Fact>
+                <Fact label="Pipeline">
+                  {deal.pipeline ? CRM_DEAL_PIPELINE_LABELS[deal.pipeline] : <Dash />}
+                </Fact>
+                {/* Derived from the linked event — read-only. */}
+                <Fact label="Project dates">{projectDates(deal.event) ?? <Dash />}</Fact>
+                <Fact label="Project location">{projectLocation(deal.event) ?? <Dash />}</Fact>
                 <Fact label="Created">{new Date(deal.createdAt).toLocaleDateString()}</Fact>
                 {deal.status === "LOST" && deal.lostReason && (
                   <Fact label="Lost because">{deal.lostReason}</Fact>
                 )}
               </Facts>
+              {(deal.tags?.length ?? 0) > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5 border-t pt-3">
+                  {deal.tags?.map((t) => (
+                    <Badge key={t} variant="secondary" className="text-[11px]">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </RecordCard>
 
             {/* ── Close (state change — lives with the facts, not the work area) ── */}

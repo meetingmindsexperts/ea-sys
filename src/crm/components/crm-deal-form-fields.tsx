@@ -13,9 +13,19 @@ import type { ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TagInput } from "@/components/ui/tag-input";
 import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
 import { EventCombobox } from "@/crm/components/event-combobox";
-import { DEAL_CURRENCIES, type CrmBoardDeal } from "@/crm/lib/crm-types";
+import {
+  CRM_DEAL_PIPELINES,
+  CRM_DEAL_PIPELINE_LABELS,
+  DEAL_CURRENCIES,
+  type CrmBoardDeal,
+  type CrmDealPipeline,
+} from "@/crm/lib/crm-types";
+
+/** Sentinel for the "no category" Select option (Radix forbids an empty value). */
+const NO_PIPELINE = "__none__";
 
 export interface CrmDealFormState {
   name: string;
@@ -26,6 +36,9 @@ export interface CrmDealFormState {
   eventId: string | null;
   /** yyyy-mm-dd (date input) or "". */
   expectedClose: string;
+  /** "" = unclassified. */
+  pipeline: CrmDealPipeline | "";
+  tags: string[];
 }
 
 export function emptyCrmDealForm(defaults?: {
@@ -39,6 +52,8 @@ export function emptyCrmDealForm(defaults?: {
     currency: "USD",
     eventId: defaults?.eventId ?? null,
     expectedClose: "",
+    pipeline: "",
+    tags: [],
   };
 }
 
@@ -56,6 +71,8 @@ export function crmDealToForm(deal: CrmBoardDeal): CrmDealFormState {
     currency: deal.currency || "USD",
     eventId: deal.event?.id ?? null,
     expectedClose: toDateInput(deal.expectedClose),
+    pipeline: deal.pipeline ?? "",
+    tags: deal.tags ?? [],
   };
 }
 
@@ -81,6 +98,8 @@ export function crmDealFormPayload(f: CrmDealFormState, companyId: string | null
     dealValue: f.dealValue.trim() ? Number(f.dealValue) : null,
     currency: f.currency,
     expectedClose: f.expectedClose || null,
+    pipeline: f.pipeline || null,
+    tags: f.tags,
   };
 }
 
@@ -152,6 +171,26 @@ export function CrmDealFormFields({
         {companyHint}
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-pipeline`}>Pipeline</Label>
+        <Select
+          value={f.pipeline || NO_PIPELINE}
+          onValueChange={(v) => onChange({ pipeline: v === NO_PIPELINE ? "" : (v as CrmDealPipeline) })}
+        >
+          <SelectTrigger id={`${idPrefix}-pipeline`} className="w-full">
+            <SelectValue placeholder="Uncategorised" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_PIPELINE}>Uncategorised</SelectItem>
+            {CRM_DEAL_PIPELINES.map((p) => (
+              <SelectItem key={p} value={p}>
+                {CRM_DEAL_PIPELINE_LABELS[p]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label htmlFor={`${idPrefix}-value`}>Value</Label>
@@ -191,6 +230,11 @@ export function CrmDealFormFields({
             onChange={(e) => onChange({ expectedClose: e.target.value })}
           />
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Tags</Label>
+        <TagInput value={f.tags} onChange={(tags) => onChange({ tags })} placeholder="Add tag…" />
       </div>
     </div>
   );

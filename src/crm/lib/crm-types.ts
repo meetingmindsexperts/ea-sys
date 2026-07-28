@@ -12,6 +12,17 @@
 
 export type CrmDealStatus = "OPEN" | "WON" | "LOST";
 export type CrmTaskStatus = "OPEN" | "DONE";
+
+/**
+ * Deal category (owner decision, July 28 2026) — a classifier, NOT a separate
+ * pipeline; every deal shares the one stage set. Order here IS the picker order.
+ */
+export const CRM_DEAL_PIPELINES = ["CORPORATE", "CONFERENCE"] as const;
+export type CrmDealPipeline = (typeof CRM_DEAL_PIPELINES)[number];
+export const CRM_DEAL_PIPELINE_LABELS: Record<CrmDealPipeline, string> = {
+  CORPORATE: "Corporate",
+  CONFERENCE: "Conference",
+};
 export type CrmActivityType = "NOTE" | "CALL" | "MEETING";
 export type CrmLifecycleStage = "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION";
 
@@ -293,6 +304,10 @@ export interface CrmBoardDeal {
   /** Present on the deal DETAIL fetch (not the board list) — the resolved stage. */
   stage?: { id: string; name: string; isTerminal: boolean };
   status: CrmDealStatus;
+  /** Deal category — Corporate / Conference. Null = unclassified. */
+  pipeline?: CrmDealPipeline | null;
+  /** Free-form tags. */
+  tags?: string[];
   expectedClose?: string | null;
   wonAt?: string | null;
   lostAt?: string | null;
@@ -309,6 +324,11 @@ export interface CrmBoardDeal {
     /** Pre-fill for the quote dialog — absent for MEMBER (finance-gated). */
     taxRate?: string | number | null;
     taxLabel?: string | null;
+    /** Derived project date + location — read from the event, never stored on the deal. */
+    startDate?: string | null;
+    endDate?: string | null;
+    city?: string | null;
+    country?: string | null;
   } | null;
   owner?: CrmPersonRef | null;
   _count?: { tasks: number; notes: number };

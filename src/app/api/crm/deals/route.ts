@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { CrmDealPipeline } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -19,6 +20,8 @@ const createDealSchema = z.object({
   dealValue: z.number().nonnegative().max(1_000_000_000).optional().nullable(),
   currency: z.string().length(3).optional(),
   expectedClose: z.coerce.date().optional().nullable(),
+  pipeline: z.nativeEnum(CrmDealPipeline).optional().nullable(),
+  tags: z.array(z.string().min(1).max(50)).max(25).optional(),
 });
 
 /**
@@ -61,6 +64,8 @@ export async function GET(req: Request) {
         currency: true,
         stageId: true,
         status: true,
+        pipeline: true,
+        tags: true,
         expectedClose: true,
         wonAt: true,
         lostAt: true,
@@ -75,7 +80,10 @@ export async function GET(req: Request) {
             crmContact: { select: { id: true, firstName: true, lastName: true, email: true, jobTitle: true } },
           },
         },
-        event: { select: { id: true, name: true, slug: true } },
+        // Project date + location are DERIVED from the linked event (never stored
+        // on the deal — no drift). city/country only, per owner: the venue string
+        // is deliberately not surfaced here.
+        event: { select: { id: true, name: true, slug: true, startDate: true, endDate: true, city: true, country: true } },
         owner: { select: { id: true, firstName: true, lastName: true, email: true } },
         _count: { select: { tasks: true, notes: true } },
       },
