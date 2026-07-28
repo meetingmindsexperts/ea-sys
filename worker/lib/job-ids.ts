@@ -27,6 +27,7 @@ export const JOB_IDS = {
   CRM_REMINDERS: 1010,
   EMAIL_LOG_PRUNE: 1011,
   CRM_INBOUND_EMAIL: 1012,
+  LOGIN_EVENT_PRUNE: 1013,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];

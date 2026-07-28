@@ -56,11 +56,19 @@ function LoginForm() {
       const result = await signIn("credentials", {
         email: data.email,
         password: data.password,
+        surface: "DASHBOARD",
         redirect: false,
       });
 
       if (result?.error) {
-        toast.error("Invalid email or password");
+        // The server distinguishes "throttled" from "wrong password" so a
+        // locked-out person isn't told their correct password is wrong. Falls
+        // back to the generic message if the code isn't present.
+        toast.error(
+          result.code === "RateLimited"
+            ? "Too many failed sign-in attempts. Please wait a few minutes and try again."
+            : "Invalid email or password"
+        );
         setIsLoading(false);
         return;
       }

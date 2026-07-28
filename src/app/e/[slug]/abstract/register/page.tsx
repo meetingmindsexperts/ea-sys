@@ -308,9 +308,18 @@ export default function AbstractRegisterPage() {
         toast.error(data.error || "Sign in failed. Please check your password.");
         return;
       }
-      const signInRes = await signIn("credentials", { email, password, redirect: false });
+      const signInRes = await signIn("credentials", {
+        email,
+        password,
+        surface: "EVENT_PAGE",
+        redirect: false,
+      });
       if (signInRes?.error) {
-        toast.error("Couldn't sign you in automatically — please sign in and try again.");
+        toast.error(
+          signInRes.code === "RateLimited"
+            ? "Too many failed sign-in attempts. Please wait a few minutes and try again."
+            : "Couldn't sign you in automatically — please sign in and try again."
+        );
         return;
       }
       // Already-registered person signing in → land on their details page

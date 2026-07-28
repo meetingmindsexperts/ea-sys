@@ -56,6 +56,7 @@ model Organization {
   crmProducts       CrmProduct[]
   crmEmailThreads   CrmEmailThread[]
   crmEmailSendClaims CrmEmailSendClaim[]
+  loginEvents       LoginEvent[]
 }
 
 // Host → organization mapping for multi-tenant routing (Phase 0 spine —
@@ -128,6 +129,7 @@ model User {
   createdCrmProducts CrmProduct[] @relation("CrmProductCreator")
   sentCrmEmailMessages CrmEmailMessage[] @relation("CrmEmailMessageSender")
   uploadedSpeakerDocuments SpeakerDocument[] @relation("SpeakerDocumentUploader")
+  loginEvents              LoginEvent[]
 
   @@index([organizationId])
   @@index([email])
@@ -1617,6 +1619,91 @@ model MediaFile {
 }
 
 // ==================== AUDIT & LOGGING ====================
+
+/// Outcome of a single sign-in attempt.
+///
+/// FAILED_UNKNOWN_EMAIL is kept DISTINCT from FAILED_PASSWORD deliberately:
+/// together they separate "someone is guessing this person's password" (the
+/// account is real and under attack) from "someone is spraying addresses at
+/// us" (reconnaissance). Collapsing them into one FAILED value would lose
+/// exactly the distinction an admin needs to decide whether to act.
+enum LoginOutcome {
+  SUCCESS
+  FAILED_PASSWORD
+  FAILED_UNKNOWN_EMAIL
+  BLOCKED_RATE_LIMIT
+}
+
+/// Which door the sign-in came through. A hint for the admin view, not a
+/// security boundary — the web values are supplied by the login page.
+enum LoginSurface {
+  DASHBOARD
+  EVENT_PAGE
+  MOBILE
+}
+
+/// One row per sign-in ATTEMPT — successful or not.
+///
+/// WHY ITS OWN TABLE RATHER THAN AuditLog ROWS
+/// -------------------------------------------
+/// AuditLog has the right columns (userId / ipAddress / userAgent / createdAt)
+/// and using it would have been free. Three things ruled it out:
+///
+///  1. Failed attempts are an UNAUTHENTICATED, attacker-controllable write
+///     path. AuditLog is the business audit trail that `GET /api/activity`
+///     reads; letting an anonymous brute-forcer append thousands of rows to it
+///     would drown the record of what staff actually did.
+///  2. AuditLog has no prune job and its rows survive a subject-erasure
+///     request. Sign-in IP + geo is personal data that needs a bounded
+///     retention window — hence the `login-event-prune` worker job.
+///  3. `entityType`/`entityId` are required on AuditLog and mean nothing for a
+///     failed attempt on an address that resolves to no user at all.
+///
+/// `userId`/`organizationId` are BOTH nullable, and null carries meaning: a
+/// FAILED_UNKNOWN_EMAIL attempt has no user and therefore no org, so it is
+/// invisible in the org-scoped admin view by construction. That is intended —
+/// address spray is noise; an attack on a real account in your org resolves to
+/// a user and so IS visible.
+///
+/// Geo columns are populated LAZILY (see src/lib/login-geo.ts): the login path
+/// never makes an outbound call, because a slow or unreachable geo provider
+/// would sit between the password check and session creation and make signing
+/// in feel broken. They stay null until an admin opens the view, and null in
+/// `geoResolvedAt` means "not looked up yet", not "no location".
+model LoginEvent {
+  id             String       @id @default(cuid())
+  userId         String?
+  organizationId String?
+  /// The address that was ATTEMPTED, normalized to lowercase. Present even
+  /// when no user matched — that is the whole point of recording it.
+  email          String
+  outcome        LoginOutcome
+  surface        LoginSurface @default(DASHBOARD)
+  ipAddress      String?
+  userAgent      String?      @db.Text
+
+  // ── Lazily-resolved location (null until first viewed) ──
+  geoCity       String?
+  geoCountry    String?
+  geoResolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  // The admin view's default query: newest-first within one org.
+  @@index([organizationId, createdAt])
+  // "Show me this person's sign-in history."
+  @@index([userId, createdAt])
+  // "Who has been trying this address?" — works for unknown emails too, which
+  // have no userId to index on.
+  @@index([email, createdAt])
+  // "What else has this address been doing?" — the brute-force pivot.
+  @@index([ipAddress, createdAt])
+  // Retention sweep (prune by age, across all orgs).
+  @@index([createdAt])
+}
 
 model AuditLog {
   id         String   @id @default(cuid())

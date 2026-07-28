@@ -3,7 +3,13 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { checkRateLimit } from "@/lib/security";
+import { getClientIp } from "@/lib/security";
+import { recordLoginEvent, readUserAgent } from "@/lib/login-audit";
+import {
+  isLoginBlocked,
+  recordLoginFailure,
+  clearLoginFailures,
+} from "@/lib/login-throttle";
 import {
   createMobileAccessToken,
   createMobileRefreshToken,
@@ -16,21 +22,14 @@ const loginSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    // Rate limit: 10 attempts per 15 minutes per IP
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-    const rl = checkRateLimit({
-      key: `mobile-login:${ip}`,
-      limit: 10,
-      windowMs: 15 * 60 * 1000,
-    });
-    if (!rl.allowed) {
-      apiLogger.warn({ msg: "auth/mobile-login:rate-limited", retryAfterSeconds: rl.retryAfterSeconds, ip });
-      return NextResponse.json(
-        { error: "Too many login attempts. Try again later." },
-        { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
-      );
-    }
+    // The IP used to come from `x-forwarded-for.split(",")[0]` — the FIRST
+    // entry, which is client-supplied on a directly-exposed origin. Anyone
+    // could forge a different value per request and get a fresh rate-limit
+    // bucket every time, so the limit here was effectively decorative.
+    // `getClientIp` reads nginx's `X-Real-IP` (the real socket peer) instead;
+    // see the reasoning in src/lib/security.ts.
+    const ip = getClientIp(req);
+    const userAgent = readUserAgent(req);
 
     const body = await req.json();
     const validated = loginSchema.safeParse(body);
@@ -42,8 +41,12 @@ export async function POST(req: Request) {
       );
     }
 
+    const email = validated.data.email.toLowerCase();
+
+    // Same lookup-first ordering as the web path: every recorded outcome,
+    // including a throttled one, is attributed to the right user and org.
     const user = await db.user.findUnique({
-      where: { email: validated.data.email.toLowerCase() },
+      where: { email },
       select: {
         id: true,
         email: true,
@@ -58,7 +61,47 @@ export async function POST(req: Request) {
       },
     });
 
+    // ONE throttle policy shared with the web login (src/lib/login-throttle.ts)
+    // rather than this route's own numbers: only failures are charged, a
+    // success resets, and the per-email bucket does the real work so a venue
+    // sharing one NAT address can't lock itself out.
+    const throttle = isLoginBlocked(email, ip);
+    if (throttle.blocked) {
+      apiLogger.warn({
+        msg: "auth/mobile-login:rate-limited",
+        retryAfterSeconds: throttle.retryAfterSeconds,
+        reason: throttle.reason,
+        ip,
+        userId: user?.id ?? null,
+      });
+      void recordLoginEvent({
+        email,
+        outcome: "BLOCKED_RATE_LIMIT",
+        surface: "MOBILE",
+        userId: user?.id ?? null,
+        organizationId: user?.organizationId ?? null,
+        ipAddress: ip,
+        userAgent,
+      });
+      return NextResponse.json(
+        { error: "Too many login attempts. Try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(throttle.retryAfterSeconds) },
+        }
+      );
+    }
+
     if (!user || !user.passwordHash) {
+      apiLogger.warn({ msg: "auth/mobile-login:unknown-email", email, ip });
+      recordLoginFailure(email, ip);
+      void recordLoginEvent({
+        email,
+        outcome: "FAILED_UNKNOWN_EMAIL",
+        surface: "MOBILE",
+        ipAddress: ip,
+        userAgent,
+      });
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
@@ -70,11 +113,38 @@ export async function POST(req: Request) {
       user.passwordHash
     );
     if (!isValid) {
+      apiLogger.warn({
+        msg: "auth/mobile-login:bad-password",
+        email,
+        ip,
+        userId: user.id,
+      });
+      recordLoginFailure(email, ip);
+      void recordLoginEvent({
+        email,
+        outcome: "FAILED_PASSWORD",
+        surface: "MOBILE",
+        userId: user.id,
+        organizationId: user.organizationId,
+        ipAddress: ip,
+        userAgent,
+      });
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
       );
     }
+
+    clearLoginFailures(email);
+    void recordLoginEvent({
+      email,
+      outcome: "SUCCESS",
+      surface: "MOBILE",
+      userId: user.id,
+      organizationId: user.organizationId,
+      ipAddress: ip,
+      userAgent,
+    });
 
     const tokenPayload = {
       userId: user.id,

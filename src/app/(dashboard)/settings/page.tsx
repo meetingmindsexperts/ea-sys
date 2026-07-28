@@ -54,6 +54,7 @@ import {
   Palette,
   Receipt,
   CalendarClock,
+  ShieldCheck,
   X as XIcon,
 } from "lucide-react";
 import {
@@ -71,6 +72,7 @@ import {
 import { BillingSettingsCard } from "@/components/settings/billing-settings-card";
 import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
+import { LoginActivityCard } from "@/components/settings/login-activity-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -492,6 +494,16 @@ export default function SettingsPage() {
             <TabsTrigger value="api-keys" className="flex items-center gap-2">
               <Key className="h-4 w-4" />
               API Keys
+            </TabsTrigger>
+          )}
+          {/* Sign-in history is security data about colleagues (IP, approximate
+              location, working hours), so it stops at ADMIN — deliberately
+              narrower than the ORGANIZER-inclusive tabs above. Server-side
+              gate: denyLoginActivity in src/lib/login-visibility.ts. */}
+          {isAdmin && (
+            <TabsTrigger value="login-activity" className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4" />
+              Sign-in Activity
             </TabsTrigger>
           )}
           {isSuperAdmin && (
@@ -1058,6 +1070,13 @@ export default function SettingsPage() {
           <TabsContent value="api-keys" className="space-y-6">
             <ApiKeysCard />
             <OAuthClientsCard />
+          </TabsContent>
+        )}
+
+        {/* Sign-in Activity */}
+        {isAdmin && (
+          <TabsContent value="login-activity">
+            <LoginActivityCard />
           </TabsContent>
         )}
 

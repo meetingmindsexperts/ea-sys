@@ -1759,7 +1759,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s14-1">
         <div class="sub-title">Organisation Settings &mdash; the org-wide layer</div>
-        <p>Open the gear icon in the top-right of the dashboard. Six tabs:</p>
+        <p>Open the gear icon in the top-right of the dashboard. Seven tabs (the last two are admin-only):</p>
         <figure class="ss-img">
           <div class="ss-img-head"><span class="ss-img-label">Organisation Settings &mdash; General</span><span class="ss-img-ref">IMG-039</span></div>
           <img src="user-guide/screenshots/07-settings-org/01-general.png" alt="Org settings general tab with primary colour and logo">
@@ -1790,6 +1790,26 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
           <img src="user-guide/screenshots/07-settings-org/06-system-logs.png" alt="System logs viewer with level filter and search">
           <div class="ss-img-cap">SUPER_ADMIN-only. Filter by level (info / warn / error), search, time range. Export to file. Used for production debugging without needing SSH access.</div>
         </figure>
+      </div>
+
+      <div class="sub" id="s14-2">
+        <div class="sub-title">Sign-in Activity &mdash; who signed in, when, and from where</div>
+        <p>The <strong>Sign-in Activity</strong> tab records <strong>every sign-in attempt</strong> against your organisation &mdash; successful ones and failed ones. Each row shows the person, the outcome, the timestamp, the IP address with an approximate location, and which door they came through (dashboard, event page, or the mobile app).</p>
+        <p>Four outcomes, and the difference between the middle two matters:</p>
+        <ul>
+          <li><strong>Signed in</strong> &mdash; correct password, session created.</li>
+          <li><strong>Wrong password</strong> &mdash; the address belongs to a real account here. A run of these against one person is someone <em>guessing that person&rsquo;s password</em>.</li>
+          <li><strong>Unknown address</strong> &mdash; no account matches. A run of these is someone <em>spraying addresses</em> to see what exists &mdash; noisier, less targeted, and usually background internet traffic.</li>
+          <li><strong>Blocked</strong> &mdash; the attempt was refused before the password was even checked, because too many failures had already piled up.</li>
+        </ul>
+
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Failed sign-ins are now throttled</div><div class="c-text">After <strong>10 failed attempts against one email address within 15 minutes</strong>, further attempts on that address are refused for the rest of the window &mdash; and the person is told to wait rather than being told their password is wrong. A <strong>successful</strong> sign-in clears the count, so two typos followed by getting it right costs nothing. Only <em>failures</em> count, which is deliberate: at a conference hundreds of people sign in from the same venue Wi-Fi address, and counting their successes would lock the whole room out.</div></div></div>
+
+        <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Locations are approximate &mdash; treat them as a smell, not evidence</div><div class="c-text">Location comes from the IP address, which identifies the <em>network</em>, not the person. Country is usually right; the city is often the internet provider&rsquo;s exchange rather than where anyone is sitting, and a VPN or a mobile connection can put someone in a different country entirely. Use it to notice &ldquo;that looks wrong&rdquo; and then investigate &mdash; never as proof of where someone was.</div></div></div>
+
+        <p><strong>Who can see it:</strong> admins and super-admins only. This is deliberately tighter than the rest of Settings &mdash; organizers cannot open it, because it shows colleagues&rsquo; addresses, approximate whereabouts, and the hours they were at their desk.</p>
+        <p><strong>How long it&rsquo;s kept:</strong> 180 days, then deleted automatically. Attempts against addresses that match no account in your organisation don&rsquo;t appear here &mdash; they have no person to attribute them to, and showing every stranger who ever typed something at the login page would bury the attempts that actually concern you.</p>
+        <p><strong>What to do if something looks wrong:</strong> a burst of <em>Wrong password</em> against one colleague means someone is targeting that account &mdash; have them change their password. A successful sign-in from an unexpected country is worth a phone call before acting, since the location may simply be a VPN.</p>
       </div>
 
       <div class="sub" id="s14-3">

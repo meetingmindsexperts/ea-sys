@@ -212,6 +212,66 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Sign-in activity (July 28, 2026) — shipped scope + what was deliberately left out
+
+Full record in [docs/LOGIN_ACTIVITY.md](LOGIN_ACTIVITY.md) §7. Shipped: `LoginEvent`
+(every attempt), the one writer across all four login doors, the failed-attempt
+throttle the web login never had, lazy IP→location, an ADMIN-only Settings tab, and
+a 180-day prune job. Not built, in rough order of how likely someone is to ask:
+
+- **Per-user "your recent sign-ins".** Offered at planning; owner chose admin-only
+  for v1. This is the half that catches a compromised password *early* — the person
+  themselves spots the session they don't recognise. A block on `/profile` backed by
+  the same route filtered to `userId = session.user.id`; the read boundary would need
+  its own predicate (every authenticated user may see their **own** history), NOT a
+  loosening of `canViewLoginActivity`.
+- **Alerting.** Nothing pushes. A burst of failures, a sign-in from a new country,
+  or a lockout is only seen if an admin opens the tab. Everything is warn-logged so
+  it reaches `/logs`/CloudWatch/Sentry, but there is no notification. Cheapest real
+  version: fold a threshold check into the existing prune tick (or its own job) and
+  fire `notifyEventAdmins`-style in-app + SES on "N failures against one account in
+  M minutes".
+- **Unknown-email attempts are recorded but invisible in the UI.** They carry a null
+  `organizationId` (no user to attribute them to), so the org-scoped view cannot show
+  them — "someone is hammering our login page with made-up addresses" is answerable
+  only from the table or the logs. Deliberate (address spray is noise; an attack on a
+  real account resolves to a user and IS shown). If it becomes a question people ask,
+  the shape is a separate aggregate — "N unknown-address attempts from K addresses in
+  the last 24h" — rather than exposing the attempted strings, which are
+  attacker-supplied and would be a fresh PII surface.
+- **Throttle store is in-memory and per container.** Counters reset on every deploy,
+  and a blue-green swap mid-attack hands a clean slate; two containers roughly double
+  the effective limit. Same known limitation `checkRateLimit` already carries —
+  **migrating both to a shared store (Vercel KV / Upstash) is ONE piece of work, not
+  two**, and `login-throttle.ts` was written with the same peek/charge/clear shape so
+  it ports alongside.
+- **No session list and no remote sign-out.** This records *attempts*, not live
+  sessions. Sessions are stateless JWTs (24h rolling; `AuthSession` exists from the
+  Prisma adapter but is unused under `strategy: "jwt"`), so there is nothing
+  server-side to enumerate or revoke. "Sign out everywhere" needs a token-version
+  column on `User` checked in the JWT callback — its own piece of work, and the
+  natural companion to the per-user view above.
+- **Adjacent auth events not recorded:** logout, password reset, invitation
+  acceptance, mobile token refresh, MCP/API-key/OAuth access. Notably **an account
+  takeover performed via password reset leaves no trace in this view** — the reset
+  routes are untouched. Adding `PASSWORD_RESET` / `INVITE_ACCEPTED` outcomes is
+  additive (new enum values + call sites); the enum was left deliberately small.
+- **No CSV export.** Export is a separate, narrower boundary in this codebase
+  (`denyContactExport` / `denyRegistrationExport`) and would need an audited path via
+  `recordExport`. Not asked for; cheap to add if finance/compliance ever wants it.
+- **Timing oracle on account existence (pre-existing, not introduced).** bcrypt runs
+  only for addresses that resolve to a user, so response time differs. Closing it
+  needs a dummy compare on the miss path.
+- **Geo is a cross-border transfer of personal data** (ipapi.co, outside the region),
+  defaulted ON with a `LOGIN_GEO_ENABLED=false` kill switch. Revisit if the PDPL
+  stance tightens — a self-hosted MaxMind GeoLite2 DB is the no-egress alternative
+  (~70MB, monthly refresh, needs a licence key).
+- **`.env.example` is gitignored** (`.gitignore` line 44's `.env*` pattern), so the
+  two new vars could not be documented there — they live in
+  [docs/LOGIN_ACTIVITY.md](LOGIN_ACTIVITY.md) §4.1 instead. Worth deciding whether
+  `.env.example` should be force-added, since CLAUDE.md §10 asserts it is in the repo
+  and it is not.
+
 ### Typeless-import + completion self-select review (July 27, 2026) — M1/M3/L2/L3 shipped, M2 + L1 deferred
 
 Review of the "registration type can be null on import; the person states it on the

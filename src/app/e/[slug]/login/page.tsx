@@ -96,11 +96,18 @@ function EventLoginForm() {
       const result = await signIn("credentials", {
         email: data.email,
         password: data.password,
+        surface: "EVENT_PAGE",
         redirect: false,
       });
 
       if (result?.error) {
-        toast.error("Invalid email or password");
+        // See the dashboard login: distinguishes throttled from wrong-password
+        // so a locked-out person gets an actionable message.
+        toast.error(
+          result.code === "RateLimited"
+            ? "Too many failed sign-in attempts. Please wait a few minutes and try again."
+            : "Invalid email or password"
+        );
         setIsSubmitting(false);
         return;
       }

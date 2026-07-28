@@ -153,7 +153,7 @@
 <details class="sec">
 <summary><span class="ico">⏱️</span>Worker job schedule</summary>
 <div class="kids">
-<div class="leaf"><code>cert-issue</code> every 3 min (auto-issue sweep + run state machine) · <code>scheduled-emails</code> every 1 min · <code>invoice-reconciliation</code> rides the 10-min tick (also hosts the refund-attempt sweep) · <code>webinar-recordings</code> every 5 min · <code>webinar-attendance</code> + engagement every 10 min · <code>oauth-cleanup</code> hourly · <code>log-archive</code> · <code>contacts-central-sync</code> / <code>-reconcile</code></div>
+<div class="leaf"><code>cert-issue</code> every 3 min (auto-issue sweep + run state machine) · <code>scheduled-emails</code> every 1 min · <code>invoice-reconciliation</code> rides the 10-min tick (also hosts the refund-attempt sweep) · <code>webinar-recordings</code> every 5 min · <code>webinar-attendance</code> + engagement every 10 min · <code>oauth-cleanup</code> hourly · <code>log-archive</code> · <code>contacts-central-sync</code> / <code>-reconcile</code> · <code>email-log-prune</code> daily 03:45 · <code>login-event-prune</code> daily 04:15</div>
 <div class="leaf">Scheduler: <code>worker/index.ts</code> · singleton via Postgres advisory locks · health at <code>/worker/health</code></div>
 </div>
 </details>
@@ -574,6 +574,8 @@
 <span class="oneliner">8 roles across two tiers: org-bound team (ADMIN/ORGANIZER/MEMBER/ONSITE) and org-independent (REVIEWER/SUBMITTER/REGISTRANT). One person, many hats — facets stack; the single User.role is the only seam that collides.</span></summary>
 <div class="kids">
 <div class="leaf"><b class="k">Core</b> <code>lib/auth.ts</code> · <code>auth-guards.ts</code> · <code>event-access.ts</code> · <code>internal-domains.ts</code> (two trust tiers) · <code>email-verification.ts</code> · <code>src/proxy.ts</code> (middleware redirects)</div>
+<div class="leaf"><b class="k">Sign-in activity</b> <code>LoginEvent</code> (every attempt, success or not) · ONE writer <code>lib/login-audit.ts</code> for all 4 doors · <code>lib/login-throttle.ts</code> (failures-only, per-email 10/15min + per-IP 100/15min; success clears email bucket, not IP) · <code>lib/login-geo.ts</code> (lazy, never in the login path) · <code>lib/login-visibility.ts</code> (ADMIN+ only — narrower than <code>denyReviewer</code>/finance/export) · Settings → Sign-in Activity · 180-day prune job</div>
+<div class="leaf"><b class="k">Gotcha</b> unknown-email attempts have no org, so they are invisible in the org-scoped view <em>by construction</em> — an attack on a real account resolves to a user and IS shown</div>
 <div class="leaf"><b class="k">Docs</b> full matrix in CLAUDE.md §RBAC · <code>docs/IDENTITY_AND_ROLES.md</code></div>
 </div>
 </details>
