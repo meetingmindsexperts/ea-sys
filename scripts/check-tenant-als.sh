@@ -73,10 +73,41 @@ SWEPT_ROUTE_FILES=(
   # MediaFile route wiring — the event-nested media surface (July 27, 2026).
   "src/app/api/events/[eventId]/media/route.ts"                                   # MediaFile (July 27, 2026)
   "src/app/api/events/[eventId]/media/[mediaId]/route.ts"                         # MediaFile (July 27, 2026)
+  # Webinar/Zoom sweep (July 28, 2026) — the 12 event-nested staff route files.
+  # (webinar/panelists/route.ts also exports the non-HTTP resolveAnchorZoomMeeting
+  # helper — HANDLER_RE only counts GET/POST/… so it doesn't inflate the demand.)
+  "src/app/api/events/[eventId]/webinar/route.ts"                                 # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/webinar/attendance/route.ts"                      # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/webinar/engagement/route.ts"                      # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/webinar/presence/route.ts"                        # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/webinar/recording/fetch/route.ts"                 # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/webinar/room/route.ts"                            # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/webinar/panelists/route.ts"                       # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/webinar/panelists/[panelistId]/resend/route.ts"   # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/webinar/panelists/sync-speakers/route.ts"         # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/webinar/sequence/route.ts"                        # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/sessions/[sessionId]/zoom/route.ts"               # Webinar (July 28, 2026)
+  "src/app/api/events/[eventId]/sessions/[sessionId]/zoom/panelists/route.ts"     # Webinar (July 28, 2026)
+  # Webinar sweep — the PUBLIC session routes (org resolved via publicEventWhere,
+  # wrap lands after the event null-check with event.organizationId). zoom-join/
+  # recording/detail read ZoomMeeting via nested selects that would fail-closed
+  # under platform RLS without a tenant store.
+  "src/app/api/public/events/[slug]/sessions/[sessionId]/presence/route.ts"       # Webinar (July 28, 2026)
+  "src/app/api/public/events/[slug]/sessions/[sessionId]/stream-status/route.ts"  # Webinar (July 28, 2026)
+  "src/app/api/public/events/[slug]/sessions/[sessionId]/zoom-join/route.ts"      # Webinar (July 28, 2026)
+  "src/app/api/public/events/[slug]/sessions/[sessionId]/recording/route.ts"      # Webinar (July 28, 2026)
+  "src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts"         # Webinar (July 28, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
   "src/lib/agent/tools/invoices.ts"   # invoice agent / MCP executors (July 27, 2026)
+  "src/lib/agent/tools/webinar.ts"    # webinar agent / MCP executors (July 28, 2026)
+  # Webinar per-row sync fns + provisioner — org read off the row, remainder
+  # wrapped (the module-level ≥1 check pins each file's wrap).
+  "src/lib/webinar-attendance.ts"       # Webinar (July 28, 2026)
+  "src/lib/webinar-engagement.ts"       # Webinar (July 28, 2026)
+  "src/lib/webinar-recording-sync.ts"   # Webinar (July 28, 2026)
+  "src/lib/webinar-provisioner.ts"      # Webinar (July 28, 2026)
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
