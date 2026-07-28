@@ -2021,6 +2021,10 @@ model ZoomMeeting {
   id                   String            @id @default(cuid())
   sessionId            String            @unique
   eventId              String
+  // Denormalized tenant key (multi-tenancy Phase-2 webinar sweep) — scalar
+  // only, no FK: RLS + compound-where need the value, not a relation. Stamped
+  // by every writer; backfilled from Event by migration 20260728140000.
+  organizationId       String?
   zoomMeetingId        String
   meetingType          ZoomMeetingType
   joinUrl              String
@@ -2057,6 +2061,7 @@ model ZoomMeeting {
   questions   WebinarQuestion[]
 
   @@index([eventId])
+  @@index([organizationId])
   @@index([zoomMeetingId])
   @@index([recordingStatus])
   @@index([lastAttendanceSyncAt])
@@ -2064,9 +2069,11 @@ model ZoomMeeting {
 
 // ── Webinar polls (fetched from Zoom's /report/webinars/{id}/polls) ──
 model WebinarPoll {
-  id            String   @id @default(cuid())
-  zoomMeetingId String
-  zoomPollId    String? // Zoom's poll id (nullable for imported/legacy rows)
+  id             String   @id @default(cuid())
+  zoomMeetingId  String
+  // Denormalized tenant key (2 hops from Event via ZoomMeeting) — see ZoomMeeting.
+  organizationId String?
+  zoomPollId     String? // Zoom's poll id (nullable for imported/legacy rows)
   title         String
   questions     Json     @default("[]") // [{ name, question_type, answer_details?: [] }]
   createdAt     DateTime @default(now())
@@ -2077,12 +2084,15 @@ model WebinarPoll {
 
   @@unique([zoomMeetingId, zoomPollId])
   @@index([zoomMeetingId])
+  @@index([organizationId])
 }
 
 // One row per participant per poll submission
 model WebinarPollResponse {
   id               String   @id @default(cuid())
   pollId           String
+  // Denormalized tenant key (3 hops from Event via WebinarPoll → ZoomMeeting).
+  organizationId   String?
   participantName  String
   participantEmail String?
   answers          Json     @default("{}") // { questionName: answer[] }
@@ -2091,12 +2101,15 @@ model WebinarPollResponse {
   poll WebinarPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
 
   @@index([pollId])
+  @@index([organizationId])
 }
 
 // ── Webinar Q&A (fetched from Zoom's /report/webinars/{id}/qa) ──
 model WebinarQuestion {
   id             String   @id @default(cuid())
   zoomMeetingId  String
+  // Denormalized tenant key (2 hops from Event via ZoomMeeting) — see ZoomMeeting.
+  organizationId String?
   askerName      String
   askerEmail     String?
   question       String   @db.Text
@@ -2108,6 +2121,7 @@ model WebinarQuestion {
 
   @@unique([zoomMeetingId, askerName, askedAt])
   @@index([zoomMeetingId])
+  @@index([organizationId])
 }
 
 // ── Per-attendee join/leave records pulled from Zoom's participant report ──
@@ -2115,6 +2129,8 @@ model ZoomAttendance {
   id                 String    @id @default(cuid())
   zoomMeetingId      String
   eventId            String
+  // Denormalized tenant key (multi-tenancy Phase-2 webinar sweep) — see ZoomMeeting.
+  organizationId     String?
   sessionId          String
   registrationId     String? // best-effort match by email
   zoomParticipantId  String? // Zoom's per-session participant id
@@ -2137,6 +2153,7 @@ model ZoomAttendance {
   @@unique([zoomMeetingId, zoomParticipantId, joinTime])
   @@index([zoomMeetingId])
   @@index([eventId, sessionId])
+  @@index([organizationId])
   @@index([email])
   @@index([registrationId])
 }
@@ -2150,6 +2167,8 @@ model ZoomAttendance {
 model WebinarPresence {
   id             String   @id @default(cuid())
   eventId        String
+  // Denormalized tenant key (multi-tenancy Phase-2 webinar sweep) — see ZoomMeeting.
+  organizationId String?
   sessionId      String
   registrationId String
   firstJoinedAt  DateTime @default(now())
@@ -2166,6 +2185,7 @@ model WebinarPresence {
   @@unique([sessionId, registrationId])
   @@index([sessionId, lastSeenAt])
   @@index([eventId])
+  @@index([organizationId])
   @@index([registrationId])
 }
 
