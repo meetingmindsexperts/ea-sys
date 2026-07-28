@@ -46,6 +46,7 @@ export interface CrmDealFilters {
   eventId?: string;
   ownerId?: string;
   status?: string;
+  pipeline?: string;
   dateField?: string;
   from?: string;
   to?: string;

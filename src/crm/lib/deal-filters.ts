@@ -46,6 +46,8 @@ export interface DealFilterParams {
   ownerId?: string | null;
   status?: string | null;
   eventId?: string | null;
+  /** Deal category — Corporate / Conference. NOT finance-gated (not sensitive). */
+  pipeline?: string | null;
   dateField?: string | null;
   from?: string | null;
   to?: string | null;
@@ -85,6 +87,11 @@ export function buildDealWhere(
 
   const status = params.status?.trim();
   if (status === "OPEN" || status === "WON" || status === "LOST") where.status = status;
+
+  // An unrecognised pipeline value is IGNORED (not applied) — same "a bad filter
+  // must not silently change the result set" rule as status/date above.
+  const pipeline = params.pipeline?.trim();
+  if (pipeline === "CORPORATE" || pipeline === "CONFERENCE") where.pipeline = pipeline;
 
   // ── Date range ──────────────────────────────────────────────────────────────
   const field: DealDateField = DATE_FIELDS.has(params.dateField as DealDateField)

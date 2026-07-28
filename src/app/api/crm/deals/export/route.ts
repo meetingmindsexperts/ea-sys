@@ -47,6 +47,7 @@ export async function GET(req: Request) {
         eventId: searchParams.get("eventId"),
         ownerId: searchParams.get("ownerId"),
         status: searchParams.get("status"),
+        pipeline: searchParams.get("pipeline"),
         dateField: searchParams.get("dateField"),
         from: searchParams.get("from"),
         to: searchParams.get("to"),

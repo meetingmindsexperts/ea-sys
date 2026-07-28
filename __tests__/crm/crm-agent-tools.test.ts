@@ -90,6 +90,35 @@ describe("org binding — the injected org, never tool input", () => {
     );
   });
 
+  it("list_crm_deals threads a valid pipeline filter into the where", async () => {
+    const tools = collectTools();
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([] as never);
+
+    await tools.get("list_crm_deals")!({ pipeline: "CONFERENCE" });
+
+    expect(db.crmDeal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ organizationId: ORG, pipeline: "CONFERENCE" }),
+      }),
+    );
+  });
+
+  it("update_crm_deal passes the pipeline + NORMALIZED tags through to the write", async () => {
+    const tools = collectTools();
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
+      name: "Abbott", dealValue: null, currency: "USD", expectedClose: null,
+      companyId: null, eventId: "e-1", ownerId: null, pipeline: null, tags: [], archivedAt: null,
+    } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", name: "Abbott", ownerId: null } as never);
+
+    const res = await tools.get("update_crm_deal")!({ dealId: "d-1", pipeline: "CORPORATE", tags: ["A", "a", "B"] });
+
+    expect(res.isError).toBeUndefined();
+    const call = vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(call.data).toMatchObject({ pipeline: "CORPORATE", tags: ["A", "B"] });
+  });
+
   it("list_crm_tasks scopes to the org and excludes archived", async () => {
     const tools = collectTools();
     vi.mocked(db.crmTask.findMany).mockResolvedValue([] as never);

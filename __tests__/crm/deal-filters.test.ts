@@ -8,7 +8,9 @@
  * `canSeeValues`. The UI hides the control too, but this is the authority.
  */
 import { describe, it, expect } from "vitest";
+import { CrmDealPipeline } from "@prisma/client";
 import { buildDealWhere, buildTaskDueRange } from "@/crm/lib/deal-filters";
+import { CRM_DEAL_PIPELINES, CRM_DEAL_PIPELINE_LABELS } from "@/crm/lib/crm-types";
 
 const ORG = "org-1";
 
@@ -112,6 +114,40 @@ describe("buildDealWhere — scalar filters + tenancy", () => {
 
     const bad = buildDealWhere({ status: "MADE_UP" }, { organizationId: ORG, canSeeValues: true });
     expect(bad.status).toBeUndefined();
+  });
+
+  it("applies a valid pipeline; ignores an unknown one rather than widening", () => {
+    expect(
+      buildDealWhere({ pipeline: "CORPORATE" }, { organizationId: ORG, canSeeValues: true }).pipeline,
+    ).toBe("CORPORATE");
+    expect(
+      buildDealWhere({ pipeline: "CONFERENCE" }, { organizationId: ORG, canSeeValues: true }).pipeline,
+    ).toBe("CONFERENCE");
+    // A bad value must not apply a predicate (and must not throw).
+    expect(
+      buildDealWhere({ pipeline: "MADE_UP" }, { organizationId: ORG, canSeeValues: true }).pipeline,
+    ).toBeUndefined();
+    // The pipeline filter is NOT finance-gated — it applies for a money-blind caller.
+    expect(
+      buildDealWhere({ pipeline: "CORPORATE" }, { organizationId: ORG, canSeeValues: false }).pipeline,
+    ).toBe("CORPORATE");
+  });
+});
+
+describe("CrmDealPipeline ↔ CRM_DEAL_PIPELINES drift guard", () => {
+  // The client-safe UI constant (crm-types) and the Prisma enum (service/Zod) are
+  // two separate declarations. If the Prisma enum gains a value that the UI
+  // constant + labels don't, a saved deal renders a BLANK pipeline badge and is
+  // missing from the filter dropdown — silently. Pin them equal BOTH ways so a
+  // future `ALTER TYPE … ADD VALUE` fails CI instead of the page (review LOW-1).
+  it("the UI pipeline list matches the Prisma enum exactly", () => {
+    expect([...CRM_DEAL_PIPELINES].sort()).toEqual([...Object.values(CrmDealPipeline)].sort());
+  });
+
+  it("every pipeline value has a display label", () => {
+    for (const p of Object.values(CrmDealPipeline)) {
+      expect(CRM_DEAL_PIPELINE_LABELS[p]).toBeTruthy();
+    }
   });
 });
 

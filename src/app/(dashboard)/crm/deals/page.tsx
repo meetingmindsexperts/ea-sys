@@ -37,10 +37,11 @@ import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialo
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { canOwnDeals, canViewDealValues } from "@/crm/lib/crm-roles";
-import { CRM_CTA, sumStageValue } from "@/crm/lib/crm-types";
+import { CRM_CTA, CRM_DEAL_PIPELINES, CRM_DEAL_PIPELINE_LABELS, sumStageValue } from "@/crm/lib/crm-types";
 import { cn } from "@/lib/utils";
 
 const ALL_STATUS = "__all__";
+const ALL_PIPELINE = "__all__";
 
 const DATE_FIELDS = [
   { value: "expectedClose", label: "Expected close" },
@@ -49,7 +50,7 @@ const DATE_FIELDS = [
 ];
 
 // The query keys this page owns — for the "Clear" affordance and the server query.
-const FILTER_KEYS = ["event", "owner", "status", "dateField", "from", "to", "min", "max", "archived"];
+const FILTER_KEYS = ["event", "owner", "status", "pipeline", "dateField", "from", "to", "min", "max", "archived"];
 
 function DealsPageInner() {
   const { data: session } = useSession();
@@ -71,6 +72,7 @@ function DealsPageInner() {
     eventId: eventId || undefined,
     ownerId: get("owner") || undefined,
     status: get("status") || undefined,
+    pipeline: get("pipeline") || undefined,
     dateField: get("dateField") || undefined,
     from: get("from") || undefined,
     to: get("to") || undefined,
@@ -142,6 +144,20 @@ function DealsPageInner() {
             <SelectItem value="OPEN">Open</SelectItem>
             <SelectItem value="WON">Won</SelectItem>
             <SelectItem value="LOST">Lost</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={get("pipeline") || ALL_PIPELINE} onValueChange={(v) => set({ pipeline: v === ALL_PIPELINE ? null : v })}>
+          <SelectTrigger className="w-[10rem]">
+            <SelectValue placeholder="Any pipeline" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_PIPELINE}>Any pipeline</SelectItem>
+            {CRM_DEAL_PIPELINES.map((p) => (
+              <SelectItem key={p} value={p}>
+                {CRM_DEAL_PIPELINE_LABELS[p]}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 

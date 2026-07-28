@@ -16,6 +16,7 @@
  * routes get). Writes carry source: "mcp" into the CrmActivity trail.
  */
 import { z } from "zod";
+import { CrmDealPipeline } from "@prisma/client";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -42,6 +43,17 @@ function money(value: unknown, currency: string): string {
 
 function fail(message: string): never {
   throw new Error(message);
+}
+
+/** Derived project date/location from the linked event (city/country only). */
+function projectDatesLine(event: { startDate: Date; endDate: Date } | null): string {
+  if (!event?.startDate) return "";
+  const start = event.startDate.toISOString().split("T")[0];
+  const end = event.endDate ? event.endDate.toISOString().split("T")[0] : "";
+  return end && end !== start ? `${start} – ${end}` : start;
+}
+function projectLocationLine(event: { city: string | null; country: string | null } | null): string {
+  return [event?.city, event?.country].filter(Boolean).join(", ");
 }
 
 /**
@@ -108,21 +120,23 @@ export function registerCrmMcpTools(
 
   server.tool(
     "list_crm_deals",
-    "List CRM sponsorship deals. Filters: eventId, status (OPEN/WON/LOST), stage (name or id), search (deal name contains), includeArchived, limit (default 50, max 200).",
+    "List CRM sponsorship deals. Filters: eventId, status (OPEN/WON/LOST), pipeline (CORPORATE/CONFERENCE — the deal CATEGORY, distinct from the pipeline STAGES in list_crm_pipeline), stage (name or id), search (deal name contains), includeArchived, limit (default 50, max 200).",
     {
       eventId: z.string().optional(),
       status: z.enum(["OPEN", "WON", "LOST"]).optional(),
+      pipeline: z.nativeEnum(CrmDealPipeline).optional().describe("Deal category: CORPORATE or CONFERENCE"),
       stage: z.string().optional().describe("Stage name or id"),
       search: z.string().optional(),
       includeArchived: z.boolean().optional(),
       limit: z.number().optional(),
     },
-    async ({ eventId, status, stage, search, includeArchived, limit }) =>
+    async ({ eventId, status, pipeline, stage, search, includeArchived, limit }) =>
       safeTool("list_crm_deals", async () => {
         const where = buildDealWhere(
           {
             eventId: eventId ?? null,
             status: status ?? null,
+            pipeline: pipeline ?? null,
             archived: includeArchived ? "1" : null,
           },
           { organizationId, canSeeValues: true }, // API key = admin-equivalent
@@ -137,11 +151,12 @@ export function registerCrmMcpTools(
         const deals = await db.crmDeal.findMany({
           where,
           select: {
-            id: true, name: true, status: true, dealValue: true, currency: true,
+            id: true, name: true, status: true, pipeline: true, tags: true, dealValue: true, currency: true,
             expectedClose: true, lostReason: true,
             stage: { select: { name: true } },
             company: { select: { name: true } },
-            event: { select: { name: true } },
+            // Project date + location are derived from the event (city/country only).
+            event: { select: { name: true, startDate: true, endDate: true, city: true, country: true } },
             owner: { select: { firstName: true, lastName: true } },
           },
           orderBy: { updatedAt: "desc" },
@@ -153,8 +168,12 @@ export function registerCrmMcpTools(
             (d) =>
               `${d.name} — ${money(d.dealValue, d.currency)} — ${d.stage.name} (${d.status})` +
               `\n  ID: ${d.id}` +
+              (d.pipeline ? `\n  Pipeline: ${d.pipeline}` : "") +
+              (d.tags.length ? `\n  Tags: ${d.tags.join(", ")}` : "") +
               (d.company ? `\n  Account: ${d.company.name}` : "") +
               (d.event ? `\n  Event: ${d.event.name}` : "") +
+              (projectDatesLine(d.event) ? `\n  Project dates: ${projectDatesLine(d.event)}` : "") +
+              (projectLocationLine(d.event) ? `\n  Project location: ${projectLocationLine(d.event)}` : "") +
               (d.owner ? `\n  Owner: ${d.owner.firstName} ${d.owner.lastName}` : "") +
               (d.expectedClose ? `\n  Expected close: ${d.expectedClose.toISOString().split("T")[0]}` : "") +
               (d.status === "LOST" && d.lostReason ? `\n  Lost reason: ${d.lostReason}` : ""),
@@ -165,12 +184,14 @@ export function registerCrmMcpTools(
 
   server.tool(
     "create_crm_deal",
-    "Create a sponsorship deal. Required: name, eventId (the project the deal is sold against — a deal without an event is refused). Optional: companyName (the account — found or created, deduped on the normalized name), stage (name or id; defaults to the first open stage), dealValue, currency (default USD), expectedClose (ISO date).",
+    "Create a sponsorship deal. Required: name, eventId (the project the deal is sold against — a deal without an event is refused). Optional: companyName (the account — found or created, deduped on the normalized name), stage (name or id; defaults to the first open stage), pipeline (deal CATEGORY — CORPORATE or CONFERENCE; NOT a pipeline stage), tags (free-form labels, normalized), dealValue, currency (default USD), expectedClose (ISO date). Project date + location are derived from the event, not set here.",
     {
       name: z.string().min(1).max(255),
       eventId: z.string().min(1),
       companyName: z.string().optional(),
       stage: z.string().optional(),
+      pipeline: z.nativeEnum(CrmDealPipeline).optional().describe("Deal category: CORPORATE or CONFERENCE"),
+      tags: z.array(z.string().min(1).max(50)).max(25).optional(),
       dealValue: z.number().optional(),
       currency: z.string().length(3).optional(),
       expectedClose: z.string().optional().describe("ISO 8601 date"),
@@ -205,18 +226,23 @@ export function registerCrmMcpTools(
           stageId: stageRow.id,
           companyId,
           eventId: input.eventId,
+          pipeline: input.pipeline ?? null,
+          tags: input.tags,
           dealValue: input.dealValue ?? null,
           currency: input.currency,
           expectedClose: input.expectedClose ? new Date(input.expectedClose) : null,
         });
         if (!res.ok) fail(res.message);
-        return `Deal created: ${res.deal.name}\n  ID: ${res.deal.id}\n  Stage: ${stageRow.name}\n  Value: ${money(res.deal.dealValue, res.deal.currency)}`;
+        return `Deal created: ${res.deal.name}\n  ID: ${res.deal.id}\n  Stage: ${stageRow.name}` +
+          (res.deal.pipeline ? `\n  Pipeline: ${res.deal.pipeline}` : "") +
+          (res.deal.tags.length ? `\n  Tags: ${res.deal.tags.join(", ")}` : "") +
+          `\n  Value: ${money(res.deal.dealValue, res.deal.currency)}`;
       }),
   );
 
   server.tool(
     "update_crm_deal",
-    "Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId (re-point to another event; clearing is refused — a deal must stay on a project). Stage moves go through move_crm_deal_stage; closing through close_crm_deal.",
+    "Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId (re-point to another event; clearing is refused — a deal must stay on a project), pipeline (deal CATEGORY CORPORATE/CONFERENCE; pass null to clear), tags (REPLACES the whole tag list, normalized). Stage moves go through move_crm_deal_stage; closing through close_crm_deal.",
     {
       dealId: z.string().min(1),
       name: z.string().optional(),
@@ -224,6 +250,8 @@ export function registerCrmMcpTools(
       currency: z.string().length(3).optional(),
       expectedClose: z.string().nullable().optional(),
       eventId: z.string().optional(),
+      pipeline: z.nativeEnum(CrmDealPipeline).nullable().optional().describe("Deal category CORPORATE/CONFERENCE; null clears it"),
+      tags: z.array(z.string().min(1).max(50)).max(25).optional().describe("Replaces the entire tag list"),
     },
     async (input) =>
       safeTool("update_crm_deal", async () => {
@@ -242,6 +270,8 @@ export function registerCrmMcpTools(
                 ? null
                 : new Date(input.expectedClose),
           eventId: input.eventId,
+          pipeline: input.pipeline,
+          tags: input.tags,
         });
         if (!res.ok) fail(res.message);
         return `Deal updated: ${res.deal.name} (${res.deal.id})`;
