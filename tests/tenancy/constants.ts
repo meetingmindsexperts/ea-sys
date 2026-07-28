@@ -139,3 +139,29 @@ export const CRM_TASK_A_ID = "tenancy-crmtask-a";
 export const CRM_TASK_B_ID = "tenancy-crmtask-b";
 export const CRM_NOTE_A_ID = "tenancy-crmnote-a";
 export const CRM_NOTE_B_ID = "tenancy-crmnote-b";
+
+/**
+ * CRM full-domain sweep — POLICY LAYER, Group 2 (the deal graph). Each org gets
+ * a CrmDeal (on its Group-1 pipeline stage) hanging DealContact / DealProduct /
+ * DealDocument / EmailThread → EmailMessage off it. WITH CHECK is proven per
+ * model via the re-home UPDATE path (parents unchanged/visible), which avoids
+ * the FK-vs-RLS ambiguity a cross-org create-smuggle would hit on RLS-gated
+ * required parents; INSERT-side WITH CHECK is already proven by Group 1's flat
+ * (byte-identical) policy. CrmEmailThread.replyToken is GLOBALLY @unique, so the
+ * two orgs use distinct tokens. Teardown deletes the deals before the org
+ * cascade — CrmDeal→CrmPipelineStage/CrmCompany are onDelete: Restrict.
+ */
+export const CRM_DEAL_A_ID = "tenancy-crmdeal-a";
+export const CRM_DEAL_B_ID = "tenancy-crmdeal-b";
+export const CRM_DC_A_ID = "tenancy-crmdc-a";
+export const CRM_DC_B_ID = "tenancy-crmdc-b";
+export const CRM_DP_A_ID = "tenancy-crmdp-a";
+export const CRM_DP_B_ID = "tenancy-crmdp-b";
+export const CRM_DOC_A_ID = "tenancy-crmdoc-a";
+export const CRM_DOC_B_ID = "tenancy-crmdoc-b";
+export const CRM_THREAD_A_ID = "tenancy-crmthread-a";
+export const CRM_THREAD_B_ID = "tenancy-crmthread-b";
+export const CRM_THREAD_A_TOKEN = "tenancy-thread-token-a";
+export const CRM_THREAD_B_TOKEN = "tenancy-thread-token-b";
+export const CRM_MSG_A_ID = "tenancy-crmmsg-a";
+export const CRM_MSG_B_ID = "tenancy-crmmsg-b";

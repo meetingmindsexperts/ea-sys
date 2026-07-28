@@ -68,6 +68,20 @@ import {
   CRM_TASK_B_ID,
   CRM_NOTE_A_ID,
   CRM_NOTE_B_ID,
+  CRM_DEAL_A_ID,
+  CRM_DEAL_B_ID,
+  CRM_DC_A_ID,
+  CRM_DC_B_ID,
+  CRM_DP_A_ID,
+  CRM_DP_B_ID,
+  CRM_DOC_A_ID,
+  CRM_DOC_B_ID,
+  CRM_THREAD_A_ID,
+  CRM_THREAD_B_ID,
+  CRM_THREAD_A_TOKEN,
+  CRM_THREAD_B_TOKEN,
+  CRM_MSG_A_ID,
+  CRM_MSG_B_ID,
 } from "../tests/tenancy/constants";
 
 const url = process.env.TENANCY_DIRECT_URL;
@@ -267,6 +281,77 @@ async function seedCrmGroup1(
   await db.crmNote.create({ data: { id: ids.noteId, organizationId: orgId, body: "Shared note" } });
 }
 
+/**
+ * CRM full-domain sweep — Group 2 (deal graph) fixtures. A CrmDeal on the org's
+ * Group-1 pipeline stage, with a DealContact (its Group-1 CrmContact),
+ * DealProduct (its Group-1 Product), DealDocument, and an EmailThread → Message.
+ * Must run AFTER seedCrmGroup1 (needs the stage/contact/product). companyId is
+ * left null so the deal→company Restrict is a non-issue; teardown deletes the
+ * deal before the org cascade for the deal→stage Restrict.
+ */
+async function seedCrmGroup2(
+  orgId: string,
+  deps: {
+    dealId: string;
+    stageId: string;
+    crmContactId: string;
+    productId: string;
+    dealContactId: string;
+    dealProductId: string;
+    dealDocId: string;
+    threadId: string;
+    threadToken: string;
+    messageId: string;
+  },
+) {
+  await db.crmDeal.create({
+    data: { id: deps.dealId, organizationId: orgId, name: "Shared Deal", stageId: deps.stageId },
+  });
+  await db.crmDealContact.create({
+    data: { id: deps.dealContactId, organizationId: orgId, dealId: deps.dealId, crmContactId: deps.crmContactId },
+  });
+  await db.crmDealProduct.create({
+    data: {
+      id: deps.dealProductId,
+      organizationId: orgId,
+      dealId: deps.dealId,
+      crmProductId: deps.productId,
+      productName: "Line item",
+      category: "Sponsorship",
+    },
+  });
+  await db.crmDealDocument.create({
+    data: {
+      id: deps.dealDocId,
+      organizationId: orgId,
+      dealId: deps.dealId,
+      url: `/uploads/crm-docs/${deps.dealDocId}.pdf`,
+      filename: "prospectus.pdf",
+      mimeType: "application/pdf",
+      size: 2048,
+    },
+  });
+  await db.crmEmailThread.create({
+    data: {
+      id: deps.threadId,
+      organizationId: orgId,
+      dealId: deps.dealId,
+      subject: "Re: sponsorship",
+      replyToken: deps.threadToken, // GLOBALLY @unique — distinct per org
+      counterpartyEmail: "rep@sponsor.test",
+    },
+  });
+  await db.crmEmailMessage.create({
+    data: {
+      id: deps.messageId,
+      organizationId: orgId,
+      threadId: deps.threadId,
+      direction: "INBOUND",
+      fromEmail: "rep@sponsor.test",
+    },
+  });
+}
+
 async function main() {
   // MediaFile → User is a cross-child FK (not org-cascade-ordered), so wipe the
   // media + uploader users explicitly before the org cascade handles the rest.
@@ -274,6 +359,16 @@ async function main() {
     where: { id: { in: [MEDIA_A_SHARED_ID, MEDIA_B_SHARED_ID, MEDIA_B_ONLY_ID] } },
   });
   await db.user.deleteMany({ where: { id: { in: [UPLOADER_A_ID, UPLOADER_B_ID] } } });
+  // CRM Group-2 deals reference a CrmPipelineStage (and could a CrmCompany) via
+  // onDelete: Restrict, so the org cascade can't drop the stage while the deal
+  // still points at it — delete the deals first (that cascades DealContact/
+  // Product/Document and SetNulls the EmailThread; the thread + message are then
+  // org-cascaded below). A no-op on the first run.
+  await db.crmDeal.deleteMany({ where: { id: { in: [CRM_DEAL_A_ID, CRM_DEAL_B_ID] } } });
+  // CrmQuoteCounter's PK IS organizationId and it has NO Organization relation
+  // (no FK), so the org cascade never reaches it — delete it explicitly or the
+  // re-seed collides on the PK. A no-op on the first run.
+  await db.crmQuoteCounter.deleteMany({ where: { organizationId: { in: [ORG_A_ID, ORG_B_ID] } } });
   // Cascade wipes events + contacts + tenant domains + (via Event→Registration
   // →Invoice) the invoice fixtures of prior runs.
   await db.organization.deleteMany({ where: { id: { in: [ORG_A_ID, ORG_B_ID] } } });
@@ -306,6 +401,18 @@ async function main() {
     activityId: CRM_ACT_A_ID,
     taskId: CRM_TASK_A_ID,
     noteId: CRM_NOTE_A_ID,
+  });
+  await seedCrmGroup2(ORG_A_ID, {
+    dealId: CRM_DEAL_A_ID,
+    stageId: CRM_STAGE_A_ID,
+    crmContactId: CRM_CT_A_SHARED_ID,
+    productId: CRM_PROD_A_ID,
+    dealContactId: CRM_DC_A_ID,
+    dealProductId: CRM_DP_A_ID,
+    dealDocId: CRM_DOC_A_ID,
+    threadId: CRM_THREAD_A_ID,
+    threadToken: CRM_THREAD_A_TOKEN,
+    messageId: CRM_MSG_A_ID,
   });
   await seedOrg(
     ORG_B_ID,
@@ -353,6 +460,18 @@ async function main() {
     activityId: CRM_ACT_B_ID,
     taskId: CRM_TASK_B_ID,
     noteId: CRM_NOTE_B_ID,
+  });
+  await seedCrmGroup2(ORG_B_ID, {
+    dealId: CRM_DEAL_B_ID,
+    stageId: CRM_STAGE_B_ID,
+    crmContactId: CRM_CT_B_SHARED_ID,
+    productId: CRM_PROD_B_ID,
+    dealContactId: CRM_DC_B_ID,
+    dealProductId: CRM_DP_B_ID,
+    dealDocId: CRM_DOC_B_ID,
+    threadId: CRM_THREAD_B_ID,
+    threadToken: CRM_THREAD_B_TOKEN,
+    messageId: CRM_MSG_B_ID,
   });
 
   console.log(
