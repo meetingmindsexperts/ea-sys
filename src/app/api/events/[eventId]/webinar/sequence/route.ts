@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { WEBINAR_EMAIL_TYPES } from "@/lib/bulk-email";
 import {
   enqueueWebinarSequenceForEvent,
@@ -24,6 +25,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
@@ -53,6 +55,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ rows });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar-sequence:list-failed");
     return NextResponse.json(
@@ -92,6 +95,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
@@ -113,6 +117,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       deleted,
       created: result.created,
       skipped: result.skipped,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar-sequence:reenqueue-failed");

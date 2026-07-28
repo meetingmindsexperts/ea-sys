@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -63,6 +64,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     // Org staff (host/QA testing) have no registration → don't pollute the
     // live roster or set webinarFirstJoinedAt.
     const isOrgStaff =
@@ -142,6 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ ok: true, tracked: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "presence:heartbeat-failed");
     return NextResponse.json({ error: "Failed to record presence" }, { status: 500 });

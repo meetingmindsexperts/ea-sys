@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -26,6 +27,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, settings: true },
@@ -78,6 +80,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const lobby = mapped.length - joined;
 
     return NextResponse.json({ lobby, joined, total: mapped.length, rows: mapped });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar:presence-fetch-failed");
     return NextResponse.json({ error: "Failed to load presence" }, { status: 500 });

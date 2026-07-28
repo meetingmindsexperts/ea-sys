@@ -4,6 +4,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { listWebinarPanelists } from "@/lib/zoom";
 import { resolveAnchorZoomMeeting } from "../../route";
 import { sendPanelistInvite } from "@/lib/webinar-panelist-email";
@@ -44,6 +45,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
       orgGuard.orgId,
@@ -93,6 +95,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ ok: true });
+    });
   } catch (err) {
     apiLogger.error({ err }, "webinar-panelists:resend-failed");
     const message = err instanceof Error ? err.message : "Failed to resend invite";

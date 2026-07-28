@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { getZoomRecordings, pickBestRecordingFile } from "@/lib/zoom";
 
 // Recordings are typically available within a few minutes of a webinar ending
@@ -59,6 +60,8 @@ export async function syncRecordingForZoomMeeting(
     return { ok: false, status: "failed", reason: "zoom-meeting-not-found", durationMs: Date.now() - startedAt };
   }
 
+  // Per-row tenant context (multi-tenancy sweep): org resolved from the row itself — the candidate sweep stays org-blind (worker precondition, see MULTI_TENANCY.md §13).
+  return runWithTenant(meeting.event.organizationId, async () => {
   // Short-circuit terminal states
   if (meeting.recordingStatus === "AVAILABLE" && meeting.recordingUrl) {
     const durationMs = Date.now() - startedAt;
@@ -262,4 +265,5 @@ export async function syncRecordingForZoomMeeting(
     }
     return { ok: false, status: "failed", reason, durationMs };
   }
+  });
 }

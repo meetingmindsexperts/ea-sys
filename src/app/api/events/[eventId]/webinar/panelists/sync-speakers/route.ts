@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { addWebinarPanelists, listWebinarPanelists } from "@/lib/zoom";
 import { resolveAnchorZoomMeeting } from "../route";
 import { sendPanelistInvite } from "@/lib/webinar-panelist-email";
@@ -43,6 +44,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
       orgGuard.orgId,
@@ -196,6 +198,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       skippedNoEmail,
       skippedAlreadyPanelist,
       invitesQueued,
+    });
     });
   } catch (err) {
     apiLogger.error({ err }, "webinar-panelists:sync-speakers-failed");

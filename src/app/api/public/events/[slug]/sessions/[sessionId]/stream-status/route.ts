@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -99,6 +100,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     const zoomMeeting = await db.zoomMeeting.findFirst({
       where: {
         sessionId,
@@ -166,6 +168,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       hlsUrl: isLive ? `${cdnBase}${path}` : null,
       // Direct-origin URL for player fallback when the CDN edge fails.
       hlsOriginUrl: isLive ? `${appUrl}${path}` : null,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:stream-status-failed");

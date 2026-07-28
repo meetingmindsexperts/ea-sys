@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -53,6 +54,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, settings: true },
@@ -116,6 +118,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       open: validated.data.open,
       sessionId: webinar.sessionId,
       status: nextStatus,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar:room-toggle-failed");

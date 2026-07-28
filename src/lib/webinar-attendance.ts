@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { getZoomParticipants, type ZoomParticipant } from "@/lib/zoom";
 
 // Zoom needs ~30 min after a webinar ends before the participant report is
@@ -158,6 +159,8 @@ export async function syncWebinarAttendance(
     };
   }
 
+  // Per-row tenant context (multi-tenancy sweep): org resolved from the row itself — the candidate sweep stays org-blind (worker precondition, see MULTI_TENANCY.md §13).
+  return runWithTenant(meeting.event.organizationId, async () => {
   const endedAt = meeting.session?.endTime;
   if (!endedAt) {
     apiLogger.warn(
@@ -392,4 +395,5 @@ export async function syncWebinarAttendance(
     );
     return { ok: false, status: "failed", reason, durationMs };
   }
+  });
 }

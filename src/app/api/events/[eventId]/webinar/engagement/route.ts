@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { syncWebinarEngagement } from "@/lib/webinar-engagement";
 
@@ -21,6 +22,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, settings: true },
@@ -87,6 +89,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       questions,
       lastSyncedAt: zoomMeeting.lastEngagementSyncAt?.toISOString() ?? null,
     });
+    });
   } catch (err) {
     apiLogger.error({ err }, "webinar-engagement:list-failed");
     return NextResponse.json({ error: "Failed to load engagement" }, { status: 500 });
@@ -123,6 +126,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, settings: true },
@@ -172,6 +176,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     );
 
     return NextResponse.json(result);
+    });
   } catch (err) {
     apiLogger.error({ err }, "webinar-engagement:manual-sync-failed");
     return NextResponse.json(

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { syncRecordingForZoomMeeting } from "@/lib/webinar-recording-sync";
 
@@ -40,6 +41,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, settings: true },
@@ -97,6 +99,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     );
 
     return NextResponse.json(result);
+    });
   } catch (err) {
     apiLogger.error({ err }, "webinar-recording:manual-refetch-failed");
     return NextResponse.json(

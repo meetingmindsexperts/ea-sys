@@ -1,5 +1,6 @@
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   getWebinarPollReport,
   getWebinarQaReport,
@@ -136,6 +137,8 @@ export async function syncWebinarEngagement(
     };
   }
 
+  // Per-row tenant context (multi-tenancy sweep): org resolved from the row itself — the candidate sweep stays org-blind (worker precondition, see MULTI_TENANCY.md §13).
+  return runWithTenant(meeting.event.organizationId, async () => {
   // Engagement reports only exist for webinar types
   if (meeting.meetingType === "MEETING") {
     return {
@@ -390,4 +393,5 @@ export async function syncWebinarEngagement(
     );
     return { ok: false, status: "failed", reason, durationMs };
   }
+  });
 }

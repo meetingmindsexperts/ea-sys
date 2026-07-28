@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { addWebinarPanelists, listWebinarPanelists, removeWebinarPanelist } from "@/lib/zoom";
 
 type RouteParams = { params: Promise<{ eventId: string; sessionId: string }> };
@@ -36,6 +37,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting, sessionSpeakers] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -81,6 +83,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     );
 
     return NextResponse.json({ success: true, count: panelists.length });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:panelists-sync-failed");
     const message = error instanceof Error ? error.message : "Failed to sync panelists";
@@ -99,6 +102,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -119,6 +123,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const panelists = await listWebinarPanelists(event.organizationId, zoomMeeting.zoomMeetingId);
     return NextResponse.json({ panelists });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:panelists-list-failed");
     return NextResponse.json({ error: "Failed to list panelists" }, { status: 500 });
@@ -145,6 +150,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "panelistId query param required" }, { status: 400 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -164,6 +170,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ sessionId, panelistId }, "zoom:panelist-removed");
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:panelist-remove-failed");
     return NextResponse.json({ error: "Failed to remove panelist" }, { status: 500 });

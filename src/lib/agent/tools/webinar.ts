@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { safeFetchHtml, safeFetchImage } from "@/lib/safe-fetch";
 import { uploadMedia } from "@/lib/storage";
 import { updateEventSettings } from "@/lib/event-settings";
@@ -11,6 +12,7 @@ import type { ToolExecutor } from "./_shared";
 
 const listZoomMeetings: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const meetings = await db.zoomMeeting.findMany({
       // event relation binds eventId to the caller's org — ctx.eventId alone
       // would trust the injected id (every other executor here pairs them).
@@ -50,6 +52,7 @@ const listZoomMeetings: ToolExecutor = async (_input, ctx) => {
         sessionEnd: m.session.endTime?.toISOString(),
       })),
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_zoom_meetings failed");
     return { error: "Failed to list Zoom meetings" };
@@ -58,6 +61,7 @@ const listZoomMeetings: ToolExecutor = async (_input, ctx) => {
 
 const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const sessionId = input.sessionId as string;
     const meetingType = (input.meetingType as string) || "MEETING";
     const passcode = input.passcode as string | undefined;
@@ -144,6 +148,7 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
       joinUrl: zoomMeeting.joinUrl,
       meetingType: zoomMeeting.meetingType,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_zoom_meeting failed");
     const message = err instanceof Error ? err.message : "Failed to create Zoom meeting";
@@ -163,6 +168,7 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
 
 const getWebinarInfo: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const event = await db.event.findFirst({
       where: { id: ctx.eventId, organizationId: ctx.organizationId },
       select: { id: true, name: true, eventType: true, settings: true, startDate: true, endDate: true },
@@ -209,6 +215,7 @@ const getWebinarInfo: ToolExecutor = async (_input, ctx) => {
       anchorSession,
       zoomMeeting,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:get_webinar_info failed");
     return { error: "Failed to fetch webinar info" };
@@ -217,6 +224,7 @@ const getWebinarInfo: ToolExecutor = async (_input, ctx) => {
 
 const listWebinarAttendance: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const limit = Math.min(Number(input.limit ?? 50), 500);
 
     const event = await db.event.findFirst({
@@ -274,6 +282,7 @@ const listWebinarAttendance: ToolExecutor = async (input, ctx) => {
       avgWatchTimeSeconds: attended === 0 ? 0 : Math.round(totalWatchSeconds / attended),
       rows: attendance,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_webinar_attendance failed");
     return { error: "Failed to fetch webinar attendance" };
@@ -282,6 +291,7 @@ const listWebinarAttendance: ToolExecutor = async (input, ctx) => {
 
 const listWebinarEngagement: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const event = await db.event.findFirst({
       where: { id: ctx.eventId, organizationId: ctx.organizationId },
       select: { id: true, settings: true },
@@ -336,6 +346,7 @@ const listWebinarEngagement: ToolExecutor = async (_input, ctx) => {
       totalPolls: polls.length,
       totalQuestions: questions.length,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_webinar_engagement failed");
     return { error: "Failed to fetch webinar engagement" };

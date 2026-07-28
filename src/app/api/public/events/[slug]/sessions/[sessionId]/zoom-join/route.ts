@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { generateZoomSignatureForOrg } from "@/lib/zoom";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
@@ -53,6 +54,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     // Authorization: either the user is org staff (for QA / host testing)
     // or they have a non-cancelled Registration for this event.
     const isOrgStaff =
@@ -206,6 +208,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       userName: attendeeName,
       userEmail: attendeeEmail,
       ...streamingFields,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:join-failed");

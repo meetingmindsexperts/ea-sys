@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { isZoomConfigured, createZoomWebinar } from "@/lib/zoom";
 import type { WebinarSettings } from "@/lib/webinar";
 import { readWebinarSettings } from "@/lib/webinar";
@@ -73,6 +74,8 @@ export async function provisionWebinar(
       return { ok: false, reason: "event-not-found", durationMs: Date.now() - startedAt };
     }
 
+    // Per-row tenant context (multi-tenancy sweep): org resolved from the row itself — the candidate sweep stays org-blind (worker precondition, see MULTI_TENANCY.md §13).
+    return await runWithTenant(event.organizationId, async () => {
     const existingWebinar = readWebinarSettings(event.settings) ?? {};
 
     // Idempotency: if sessionId already set and points to a live session, no-op.
@@ -302,6 +305,7 @@ export async function provisionWebinar(
       zoomStatus,
       durationMs,
     };
+    });
   } catch (err) {
     const durationMs = Date.now() - startedAt;
     apiLogger.error({ err, eventId, durationMs }, "webinar:provision-failed");

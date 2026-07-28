@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
 import { readSponsors } from "@/lib/webinar";
 
@@ -70,6 +71,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     // An unpublished event's program is not public. Org staff may preview it
     // (this is the organizer end-to-end testing path); everyone else gets the
     // same 404 as a nonexistent event — no existence leak.
@@ -210,6 +212,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         })),
       },
       sponsors,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:session-detail-failed");

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   isZoomConfigured,
   createZoomMeeting,
@@ -60,6 +61,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -82,6 +84,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(zoomMeeting);
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:meeting-fetch-failed");
     return NextResponse.json({ error: "Failed to fetch Zoom meeting" }, { status: 500 });
@@ -121,6 +124,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // Verify event access and get session details
     const [event, eventSession, existingZoom] = await Promise.all([
       db.event.findFirst({
@@ -275,6 +279,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
 
     return NextResponse.json(zoomMeeting, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:meeting-create-failed");
     const message = error instanceof Error ? error.message : "Failed to create Zoom meeting";
@@ -302,6 +307,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: validated.error.flatten() }, { status: 400 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -347,6 +353,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ zoomMeetingId: zoomMeeting.zoomMeetingId, sessionId }, "zoom:meeting-updated");
     return NextResponse.json(updated);
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:meeting-update-failed");
     const message = error instanceof Error ? error.message : "Failed to update Zoom meeting";
@@ -368,6 +375,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -399,6 +407,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
 
     apiLogger.info({ zoomMeetingId: zoomMeeting.zoomMeetingId, sessionId }, "zoom:meeting-deleted");
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:meeting-delete-failed");
     return NextResponse.json({ error: "Failed to delete Zoom meeting" }, { status: 500 });

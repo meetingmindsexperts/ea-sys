@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import {
   addWebinarPanelists,
@@ -97,6 +98,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
       orgGuard.orgId,
@@ -110,6 +112,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       resolved.zoomMeetingId,
     );
     return NextResponse.json({ panelists });
+    });
   } catch (err) {
     apiLogger.error({ err }, "webinar-panelists:list-failed");
     const message = err instanceof Error ? err.message : "Failed to list panelists";
@@ -163,6 +166,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
       orgGuard.orgId,
@@ -230,6 +234,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ ok: true, invitesQueued });
+    });
   } catch (err) {
     apiLogger.error({ err }, "webinar-panelists:add-failed");
     const message = err instanceof Error ? err.message : "Failed to add panelist";
@@ -260,6 +265,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const resolved = await resolveAnchorZoomMeeting(
       eventId,
       orgGuard.orgId,
@@ -285,6 +291,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     );
 
     return NextResponse.json({ ok: true });
+    });
   } catch (err) {
     apiLogger.error({ err }, "webinar-panelists:remove-failed");
     const message = err instanceof Error ? err.message : "Failed to remove panelist";

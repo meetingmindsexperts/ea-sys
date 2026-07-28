@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { readWebinarSettings } from "@/lib/webinar";
 import { syncWebinarAttendance } from "@/lib/webinar-attendance";
 import { escapeCsvCell } from "@/lib/csv-escape";
@@ -82,6 +83,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const url = new URL(req.url);
     const exportCsv = url.searchParams.get("export") === "csv";
 
@@ -221,6 +223,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ kpis, rows });
+    });
   } catch (err) {
     apiLogger.error({ err }, "webinar-attendance:list-failed");
     return NextResponse.json(
@@ -260,6 +263,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, settings: true },
@@ -309,6 +313,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     );
 
     return NextResponse.json(result);
+    });
   } catch (err) {
     apiLogger.error({ err }, "webinar-attendance:manual-sync-failed");
     return NextResponse.json(

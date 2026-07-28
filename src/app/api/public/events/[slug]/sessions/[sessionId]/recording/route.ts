@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -59,6 +60,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     // Same authorization as the live join: org staff (QA / host testing) OR a
     // non-cancelled registration for this event.
     const isOrgStaff =
@@ -124,6 +126,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Credential-bearing + per-user authorized: never cache anywhere.
     response.headers.set("Cache-Control", "private, no-store");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "session-recording:failed");
     return NextResponse.json({ error: "Failed to load recording" }, { status: 500 });

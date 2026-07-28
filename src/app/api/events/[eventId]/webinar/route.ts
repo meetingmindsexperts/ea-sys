@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { updateEventSettings } from "@/lib/event-settings";
 import { readWebinarSettings, type WebinarSettings } from "@/lib/webinar";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
@@ -44,6 +45,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, name: true, eventType: true, status: true, slug: true, settings: true, organizationId: true },
@@ -105,6 +107,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       anchorSession,
       zoomMeeting,
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar:settings-fetch-failed");
     return NextResponse.json({ error: "Failed to fetch webinar settings" }, { status: 500 });
@@ -147,6 +150,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, settings: true },
@@ -199,6 +203,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     );
 
     return NextResponse.json({ webinar: nextWebinar });
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar:settings-update-failed");
     return NextResponse.json({ error: "Failed to update webinar settings" }, { status: 500 });
@@ -232,6 +237,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, organizationId: true },
@@ -272,6 +278,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result);
+    });
   } catch (error) {
     apiLogger.error({ err: error }, "webinar:manual-provision-failed");
     return NextResponse.json({ error: "Failed to provision webinar" }, { status: 500 });
