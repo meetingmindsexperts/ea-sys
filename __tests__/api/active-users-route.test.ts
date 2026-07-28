@@ -141,6 +141,14 @@ describe("scoping and shape", () => {
     const body = (await res.json()) as { onlineWindowMinutes: number };
     expect(body.onlineWindowMinutes).toBe(10);
   });
+
+  it("reports when tracking began, so a null can be explained not guessed", async () => {
+    // Without this the UI renders "Never" against every colleague on day one,
+    // which is indistinguishable from "this account has never been used".
+    const res = await GET();
+    const body = (await res.json()) as { trackingSince: string };
+    expect(Number.isNaN(Date.parse(body.trackingSince))).toBe(false);
+  });
 });
 
 describe("failure handling", () => {

@@ -23,12 +23,19 @@ interface ActiveUsersResponse {
   users: ActiveUserRow[];
   onlineCount: number;
   onlineWindowMinutes: number;
+  trackingSince: string;
   now: string;
 }
 
-/** "3 min ago" / "2 hours ago" / "Never". */
+/**
+ * "3 min ago" / "2 hours ago" / "—".
+ *
+ * A null renders as an em-dash, NOT "Never". Every account started null when
+ * tracking shipped, so "Never" was indistinguishable from "this account has
+ * never been used" — the card's footnote explains what the dash means instead.
+ */
 function formatLastSeen(iso: string | null, now: Date): string {
-  if (!iso) return "Never";
+  if (!iso) return "—";
   const seconds = Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 1000));
   if (seconds < 60) return "just now";
   const minutes = Math.round(seconds / 60);
@@ -135,12 +142,23 @@ export function ActiveUsersCard() {
           </ul>
         )}
 
-        <p className="mt-4 text-xs text-muted-foreground">
-          Presence is recorded roughly every 5 minutes while someone is using the product,
-          so &ldquo;last active&rdquo; is accurate to about that. Closing the browser doesn&rsquo;t
-          sign anyone out &mdash; sessions last 24 hours of inactivity &mdash; so this shows who is
-          <em> using</em> the system, not who has a session open.
-        </p>
+        <div className="mt-4 space-y-1.5 text-xs text-muted-foreground">
+          <p>
+            This shows who is <em>using</em> the system, not who has a session open. Someone
+            can be signed in with their laptop shut and correctly show as offline &mdash; presence
+            is only recorded when their browser actually makes a request, roughly every
+            5 minutes while they&rsquo;re working.
+          </p>
+          {data?.trackingSince && (
+            <p>
+              <span className="font-medium">&ldquo;&mdash;&rdquo; means not seen since{" "}
+              {new Date(data.trackingSince).toLocaleDateString(undefined, {
+                day: "numeric", month: "short", year: "numeric",
+              })}</span>, when presence tracking was switched on &mdash; not that the account has
+              never been used. It fills in the first time each person uses the system.
+            </p>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

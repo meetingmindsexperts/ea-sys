@@ -62,6 +62,27 @@ export function onlineSince(now: Date = new Date()): Date {
 }
 
 /**
+ * When presence tracking started — the deploy that added `User.lastSeenAt`.
+ *
+ * WHY THIS CONSTANT EXISTS
+ * ------------------------
+ * Every account started at null and there is no backfill, because the data
+ * simply did not exist before. So on day one the card showed "Never" against
+ * every colleague, which is indistinguishable from "this account has never been
+ * used" — and reads as broken.
+ *
+ * A null therefore means "not seen SINCE tracking began", not "never". Surfacing
+ * the date is what makes that difference visible to whoever is reading the card.
+ *
+ * Deliberately NOT backfilled from `AuditLog` (the only other per-user
+ * timestamp): an audit row means "last time they CHANGED something", which is a
+ * different thing from being active — someone who browses daily but last edited
+ * a record in April would be shown as four months idle. Wrong numbers that
+ * persist are worse than an honest blank that fills in within a day of use.
+ */
+export const PRESENCE_TRACKING_SINCE = "2026-07-28T07:13:00Z";
+
+/**
  * Record that this account was just active.
  *
  * CONTRACT: never throws, never blocks. Callers fire it without awaiting — it

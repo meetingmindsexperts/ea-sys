@@ -26,6 +26,7 @@ import {
   isOnlineNow,
   onlineSince,
   LAST_SEEN_ONLINE_WINDOW_MS,
+  PRESENCE_TRACKING_SINCE,
 } from "@/lib/active-users";
 
 const ROUTE = "GET /api/organization/active-users";
@@ -92,6 +93,9 @@ export async function GET() {
       onlineCount: rows.filter((r) => r.isOnline).length,
       onlineSince: onlineSince(now).toISOString(),
       onlineWindowMinutes: Math.round(LAST_SEEN_ONLINE_WINDOW_MS / 60000),
+      // Lets the UI say "not seen since tracking began" instead of "Never",
+      // which on a null column is indistinguishable from "account never used".
+      trackingSince: PRESENCE_TRACKING_SINCE,
       now: now.toISOString(),
     });
   } catch (err) {
