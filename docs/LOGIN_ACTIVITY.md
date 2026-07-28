@@ -238,7 +238,14 @@ Recorded honestly so nobody assumes coverage that isn't there.
   (`AuthSession` exists from the Prisma adapter but is unused under
   `strategy: "jwt"`), so there is no server-side session to enumerate or revoke.
   "Sign out everywhere" would need a token-version column on `User` checked in
-  the JWT callback — a separate piece of work.
+  the JWT callback — a separate piece of work. Full reasoning, and the
+  stateless/database/Redis trade-off, in
+  [SESSION_ARCHITECTURE.md](SESSION_ARCHITECTURE.md).
+
+  **Partially addressed July 28, 2026:** "who is logged in right now" is now
+  answered by `User.lastSeenAt` presence tracking (Settings → Sign-in Activity →
+  *Active Now*). That shows who is **active**, which is usually what the question
+  means — but it is not a session list, and revocation remains impossible.
 - **No logout / session-expiry records.** Only sign-in attempts. `logAuthEvent`'s
   `"logout"` case remains uncalled.
 - **No password-reset or invitation-acceptance records.** Those routes exist

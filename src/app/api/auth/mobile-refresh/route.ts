@@ -8,6 +8,7 @@ import {
   createMobileAccessToken,
   createMobileRefreshToken,
 } from "@/lib/mobile-jwt";
+import { touchLastSeen } from "@/lib/active-users";
 
 const refreshSchema = z.object({
   refreshToken: z.string().min(1),
@@ -87,6 +88,10 @@ export async function POST(req: Request) {
       msg: "Mobile token refreshed",
       userId: user.id,
     });
+
+    // The mobile equivalent of the web JWT callback's periodic block — this is
+    // what keeps a mobile session showing as online between sign-ins.
+    void touchLastSeen(user.id);
 
     return NextResponse.json({
       accessToken,

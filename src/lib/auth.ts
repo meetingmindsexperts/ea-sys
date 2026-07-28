@@ -12,6 +12,7 @@ import {
   recordLoginFailure,
   clearLoginFailures,
 } from "@/lib/login-throttle";
+import { touchLastSeen, LAST_SEEN_STAMP_INTERVAL_MS } from "@/lib/active-users";
 import authConfig, { mapTokenToSessionUser } from "./auth.config";
 
 const loginSchema = z.object({
@@ -219,6 +220,11 @@ export const {
           ipAddress,
           userAgent,
         });
+        // Mark them online straight away. The JWT callback's periodic block
+        // won't fire for another 5 minutes (signing in resets its clock), so
+        // without this a person who just logged in would read as offline for
+        // the first five minutes of their session.
+        void touchLastSeen(user.id);
 
         // Return user object with required id
         return {
@@ -275,9 +281,16 @@ export const {
       // ── Periodic role re-validation (every 5 minutes) ──
       // Prevents stale JWT tokens retaining old roles after admin changes.
       // Lightweight query: selects only `role` by primary key.
-      const ROLE_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+      const ROLE_CHECK_INTERVAL = LAST_SEEN_STAMP_INTERVAL_MS; // 5 minutes
       const lastChecked = (token.roleCheckedAt as number) || 0;
       if (token.id && Date.now() - lastChecked > ROLE_CHECK_INTERVAL) {
+        // This block is also what drives "who is online now": it already
+        // self-throttles to once per 5 minutes per user, so stamping presence
+        // here costs one write per user per 5 min instead of one per request.
+        // Fire-and-forget — presence must never delay authentication, and
+        // `touchLastSeen` never throws.
+        void touchLastSeen(token.id as string);
+
         try {
           const dbUser = await db.user.findUnique({
             where: { id: token.id as string },

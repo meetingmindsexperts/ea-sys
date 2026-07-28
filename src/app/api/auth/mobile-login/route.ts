@@ -10,6 +10,7 @@ import {
   recordLoginFailure,
   clearLoginFailures,
 } from "@/lib/login-throttle";
+import { touchLastSeen } from "@/lib/active-users";
 import {
   createMobileAccessToken,
   createMobileRefreshToken,
@@ -145,6 +146,7 @@ export async function POST(req: Request) {
       ipAddress: ip,
       userAgent,
     });
+    void touchLastSeen(user.id);
 
     const tokenPayload = {
       userId: user.id,

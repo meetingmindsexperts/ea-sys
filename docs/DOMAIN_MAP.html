@@ -575,7 +575,9 @@
 <div class="kids">
 <div class="leaf"><b class="k">Core</b> <code>lib/auth.ts</code> · <code>auth-guards.ts</code> · <code>event-access.ts</code> · <code>internal-domains.ts</code> (two trust tiers) · <code>email-verification.ts</code> · <code>src/proxy.ts</code> (middleware redirects)</div>
 <div class="leaf"><b class="k">Sign-in activity</b> <code>LoginEvent</code> (every attempt, success or not) · ONE writer <code>lib/login-audit.ts</code> for all 4 doors · <code>lib/login-throttle.ts</code> (failures-only, per-email 10/15min + per-IP 100/15min; success clears email bucket, not IP) · <code>lib/login-geo.ts</code> (lazy, never in the login path) · <code>lib/login-visibility.ts</code> (ADMIN+ only — narrower than <code>denyReviewer</code>/finance/export) · Settings → Sign-in Activity · 180-day prune job</div>
+<div class="leaf"><b class="k">Who's online</b> <code>User.lastSeenAt</code> + <code>lib/active-users.ts</code> — stamped from the JWT callback's existing 5-min role-check block (one write per user per 5 min, not per request); "online" = seen within 10 min. Settings → Sign-in Activity → <em>Active Now</em></div>
 <div class="leaf"><b class="k">Gotcha</b> unknown-email attempts have no org, so they are invisible in the org-scoped view <em>by construction</em> — an attack on a real account resolves to a user and IS shown</div>
+<div class="leaf"><b class="k">Gotcha</b> sessions are stateless JWTs — <code>AuthSession</code> exists (Prisma adapter) but is <em>completely unused</em>. There is no session list and <b>no way to sign anyone out</b>; presence ≠ sessions. See <code>docs/SESSION_ARCHITECTURE.md</code></div>
 <div class="leaf"><b class="k">Docs</b> full matrix in CLAUDE.md §RBAC · <code>docs/IDENTITY_AND_ROLES.md</code></div>
 </div>
 </details>

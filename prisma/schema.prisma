@@ -93,6 +93,20 @@ model User {
   termsAcceptedIp String?
   image           String?
   emailSignature  String?   @db.Text
+  /// Last time this account was seen making an authenticated request.
+  ///
+  /// Stamped from the NextAuth JWT callback, piggybacking on the role
+  /// re-validation block that already runs at most every 5 minutes — so an
+  /// active user costs one extra write per 5 minutes, not one per request.
+  /// "Online now" = this within LAST_SEEN_ONLINE_WINDOW_MS (src/lib/active-users.ts).
+  ///
+  /// This is a scalar ON User rather than a side table, unlike WebinarPresence
+  /// (which was deliberately kept off the hot Registration row). The scale is
+  /// three orders of magnitude apart: WebinarPresence carries thousands of
+  /// attendees heartbeating every 30s, whereas this is a handful of staff
+  /// accounts at 5-minute granularity — nowhere near enough row churn to be
+  /// worth a join on every read.
+  lastSeenAt      DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -133,6 +147,8 @@ model User {
 
   @@index([organizationId])
   @@index([email])
+  // "Who in my org was active recently?" — the Active Now card's only query.
+  @@index([organizationId, lastSeenAt])
 }
 
 model Account {

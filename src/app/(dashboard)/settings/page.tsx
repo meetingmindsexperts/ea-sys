@@ -73,6 +73,7 @@ import { BillingSettingsCard } from "@/components/settings/billing-settings-card
 import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
 import { LoginActivityCard } from "@/components/settings/login-activity-card";
+import { ActiveUsersCard } from "@/components/settings/active-users-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -1075,7 +1076,12 @@ export default function SettingsPage() {
 
         {/* Sign-in Activity */}
         {isAdmin && (
-          <TabsContent value="login-activity">
+          <TabsContent value="login-activity" className="space-y-6">
+            {/* Two different questions, deliberately stacked: who is using the
+                system RIGHT NOW (live presence), then the history of sign-in
+                attempts (including failures). Someone can be online here with
+                no row below — sessions last 24h, so they signed in yesterday. */}
+            <ActiveUsersCard />
             <LoginActivityCard />
           </TabsContent>
         )}
