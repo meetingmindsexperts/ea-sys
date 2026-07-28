@@ -305,7 +305,7 @@ Recorded honestly so nobody assumes coverage that isn't there.
   [SESSION_ARCHITECTURE.md](SESSION_ARCHITECTURE.md).
 
   **Partially addressed July 28, 2026:** "who is logged in right now" is now
-  answered by `User.lastSeenAt` presence tracking (Settings → Sign-in Activity →
+  answered by `User.lastSeenAt` presence tracking (Activity → Sign-ins →
   *Active Now*). That shows who is **active**, which is usually what the question
   means — but it is not a session list, and revocation remains impossible.
 - **No logout / session-expiry records.** Only sign-in attempts. `logAuthEvent`'s
@@ -383,7 +383,7 @@ than silently truncating a backlog.
 | `src/lib/login-visibility.ts` | ADMIN+ read boundary |
 | `src/lib/login-event-prune-worker.ts` | 180-day retention sweep |
 | `src/app/api/organization/login-activity/route.ts` | Admin read + lazy geo fill |
-| `src/components/settings/login-activity-card.tsx` | Settings → Sign-in Activity |
+| `src/components/activity/login-activity-card.tsx` | Activity → Sign-ins |
 | `worker/jobs/login-event-prune.ts` | Cron shim |
 
 Tests: `__tests__/lib/login-{throttle,geo,audit,event-prune}.test.ts` +

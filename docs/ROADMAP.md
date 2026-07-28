@@ -214,7 +214,7 @@ The platform handles the entire event lifecycle — from public registration and
 
 ### Presence / "who is logged in right now" (July 28, 2026) — shipped, with two open items
 
-`User.lastSeenAt` + the **Active Now** card (Settings → Sign-in Activity). Full
+`User.lastSeenAt` + the **Active Now** card (Activity → Sign-ins). Full
 record in [LOGIN_ACTIVITY.md §4b](LOGIN_ACTIVITY.md) and the session-model
 trade-off in [SESSION_ARCHITECTURE.md](SESSION_ARCHITECTURE.md).
 

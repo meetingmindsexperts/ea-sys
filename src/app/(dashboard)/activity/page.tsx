@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Activity } from "lucide-react";
-import { GlobalActivityFeed } from "./global-activity-feed";
+import { canViewLoginActivity } from "@/lib/login-visibility";
+import { ActivityTabs } from "./activity-tabs";
 
 export default async function ActivityPage() {
   const session = await auth();
@@ -24,12 +25,12 @@ export default async function ActivityPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Activity</h1>
           <p className="text-muted-foreground">
-            Every change made across your events — who did it, what it was, and what it changed.
+            Every change made across your events, and who has been signing in.
           </p>
         </div>
       </div>
 
-      <GlobalActivityFeed />
+      <ActivityTabs canViewSignIns={canViewLoginActivity(session.user.role)} />
     </div>
   );
 }

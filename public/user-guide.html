@@ -1794,7 +1794,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s14-2a">
         <div class="sub-title">Active Now &mdash; who is using the system right now</div>
-        <p>At the top of the <strong>Sign-in Activity</strong> tab is a live list of your team: a green dot next to anyone active in the last 10 minutes, and for everyone else how long ago they were last active (&ldquo;12 min ago&rdquo;, &ldquo;3 hours ago&rdquo;). It refreshes on its own every 30 seconds.</p>
+        <p>Open <strong>Activity</strong> in the left sidebar, then the <strong>Sign-ins</strong> tab. At the top is a live list of your team: a green dot next to anyone active in the last 10 minutes, and for everyone else how long ago they were last active (&ldquo;12 min ago&rdquo;, &ldquo;3 hours ago&rdquo;). It refreshes on its own every 30 seconds.</p>
 
         <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">&ldquo;Active&rdquo; is not the same as &ldquo;signed in&rdquo;</div><div class="c-text">This shows who is <strong>using</strong> the system, not who has a login session open. Signing in lasts 24 hours, so a colleague who signed in this morning and shut their laptop is still technically signed in &mdash; but they&rsquo;ll correctly show as offline, because they aren&rsquo;t doing anything. Activity is recorded when someone&rsquo;s browser actually talks to the system, roughly every 5 minutes while they work. That 5-minute rhythm is also why someone who <em>just</em> started working may take a few minutes to light up green.</div></div></div>
 
@@ -1806,7 +1806,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
       <div class="sub" id="s14-2">
         <div class="sub-title">Sign-in Activity &mdash; who signed in, when, and from where</div>
-        <p>The <strong>Sign-in Activity</strong> tab records <strong>every sign-in attempt</strong> against your organisation &mdash; successful ones and failed ones. Each row shows the person, the outcome, the timestamp, the IP address with an approximate location, and which door they came through (dashboard, event page, or the mobile app).</p>
+        <p>Below Active Now, on the same <strong>Activity &rarr; Sign-ins</strong> tab, is a record of <strong>every sign-in attempt</strong> against your organisation &mdash; successful ones and failed ones. Each row shows the person, the outcome, the timestamp, the IP address with an approximate location, and which door they came through (dashboard, event page, or the mobile app).</p>
         <p>Four outcomes, and the difference between the middle two matters:</p>
         <ul>
           <li><strong>Signed in</strong> &mdash; correct password, session created.</li>
@@ -1819,7 +1819,7 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
         <div class="callout c-warn"><div class="c-icon">&#x26A0;&#xFE0F;</div><div class="c-body"><div class="c-title">Locations are approximate &mdash; treat them as a smell, not evidence</div><div class="c-text">Location comes from the IP address, which identifies the <em>network</em>, not the person. Country is usually right; the city is often the internet provider&rsquo;s exchange rather than where anyone is sitting, and a VPN or a mobile connection can put someone in a different country entirely. Use it to notice &ldquo;that looks wrong&rdquo; and then investigate &mdash; never as proof of where someone was.</div></div></div>
 
-        <p><strong>Who can see it:</strong> admins and super-admins only. This is deliberately tighter than the rest of Settings &mdash; organizers cannot open it, because it shows colleagues&rsquo; addresses, approximate whereabouts, and the hours they were at their desk.</p>
+        <p><strong>Who can see it:</strong> admins and super-admins only. This is deliberately tighter than most of the app &mdash; organizers cannot open it, because it shows colleagues&rsquo; addresses, approximate whereabouts, and the hours they were at their desk.</p>
         <p><strong>How long it&rsquo;s kept:</strong> 180 days, then deleted automatically. Attempts against addresses that match no account in your organisation don&rsquo;t appear here &mdash; they have no person to attribute them to, and showing every stranger who ever typed something at the login page would bury the attempts that actually concern you.</p>
         <p><strong>What to do if something looks wrong:</strong> a burst of <em>Wrong password</em> against one colleague means someone is targeting that account &mdash; have them change their password. A successful sign-in from an unexpected country is worth a phone call before acting, since the location may simply be a VPN.</p>
       </div>

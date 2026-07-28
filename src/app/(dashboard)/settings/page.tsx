@@ -54,7 +54,6 @@ import {
   Palette,
   Receipt,
   CalendarClock,
-  ShieldCheck,
   X as XIcon,
 } from "lucide-react";
 import {
@@ -72,8 +71,6 @@ import {
 import { BillingSettingsCard } from "@/components/settings/billing-settings-card";
 import { BillingAccountsCard } from "@/components/settings/billing-accounts-card";
 import { OnsiteStaffCard } from "@/components/settings/onsite-staff-card";
-import { LoginActivityCard } from "@/components/settings/login-activity-card";
-import { ActiveUsersCard } from "@/components/settings/active-users-card";
 import { OrgZoomCredentials as ZoomCredentialsCard } from "@/components/zoom/org-zoom-credentials";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -497,16 +494,9 @@ export default function SettingsPage() {
               API Keys
             </TabsTrigger>
           )}
-          {/* Sign-in history is security data about colleagues (IP, approximate
-              location, working hours), so it stops at ADMIN — deliberately
-              narrower than the ORGANIZER-inclusive tabs above. Server-side
-              gate: denyLoginActivity in src/lib/login-visibility.ts. */}
-          {isAdmin && (
-            <TabsTrigger value="login-activity" className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4" />
-              Sign-in Activity
-            </TabsTrigger>
-          )}
+          {/* Sign-in history + live presence moved to /activity (July 28, 2026):
+              they answer "who has been in the system", which belongs beside the
+              audit trail, not among the configuration tabs here. */}
           {isSuperAdmin && (
             <TabsTrigger value="system" className="flex items-center gap-2">
               <Terminal className="h-4 w-4" />
@@ -1071,18 +1061,6 @@ export default function SettingsPage() {
           <TabsContent value="api-keys" className="space-y-6">
             <ApiKeysCard />
             <OAuthClientsCard />
-          </TabsContent>
-        )}
-
-        {/* Sign-in Activity */}
-        {isAdmin && (
-          <TabsContent value="login-activity" className="space-y-6">
-            {/* Two different questions, deliberately stacked: who is using the
-                system RIGHT NOW (live presence), then the history of sign-in
-                attempts (including failures). Someone can be online here with
-                no row below — sessions last 24h, so they signed in yesterday. */}
-            <ActiveUsersCard />
-            <LoginActivityCard />
           </TabsContent>
         )}
 
