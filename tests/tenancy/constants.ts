@@ -109,3 +109,33 @@ export const CRM_CT_B_SHARED_ID = "tenancy-crmct-b-shared";
 
 export const ORG_B_ONLY_CRM_EMAIL_KEY = "only.in.b.rep@tenancy.test";
 export const CRM_CT_B_ONLY_ID = "tenancy-crmct-b-only";
+
+/**
+ * CRM full-domain sweep — POLICY LAYER, Group 1 (July 2026). The 10 simple
+ * direct-org Crm* models (no CRM-internal FK parent needed). Each org gets ONE
+ * row per model; the B row doubles as the cross-tenant-miss / delete target for
+ * A's store. All carry a direct organizationId → the flat policy; scoping is
+ * proven by (a) each lane's findMany returning only ITS rows and (b) an unscoped
+ * by-id lookup/delete of B's row missing under A's store (defence #2). All rows
+ * cascade from Organization; CrmNotification.userId (required, onDelete Cascade)
+ * points at the org's already-seeded uploader User. CrmQuoteCounter's PK IS
+ * organizationId, so it has no separate id (keyed on ORG_A_ID / ORG_B_ID).
+ */
+export const CRM_CO_A_ID = "tenancy-crmco-a";
+export const CRM_CO_B_ID = "tenancy-crmco-b";
+export const CRM_PROD_A_ID = "tenancy-crmprod-a";
+export const CRM_PROD_B_ID = "tenancy-crmprod-b";
+export const CRM_STAGE_A_ID = "tenancy-crmstage-a";
+export const CRM_STAGE_B_ID = "tenancy-crmstage-b";
+export const CRM_TPL_A_ID = "tenancy-crmtpl-a";
+export const CRM_TPL_B_ID = "tenancy-crmtpl-b";
+export const CRM_CLAIM_A_ID = "tenancy-crmclaim-a";
+export const CRM_CLAIM_B_ID = "tenancy-crmclaim-b";
+export const CRM_NOTIF_A_ID = "tenancy-crmnotif-a";
+export const CRM_NOTIF_B_ID = "tenancy-crmnotif-b";
+export const CRM_ACT_A_ID = "tenancy-crmact-a";
+export const CRM_ACT_B_ID = "tenancy-crmact-b";
+export const CRM_TASK_A_ID = "tenancy-crmtask-a";
+export const CRM_TASK_B_ID = "tenancy-crmtask-b";
+export const CRM_NOTE_A_ID = "tenancy-crmnote-a";
+export const CRM_NOTE_B_ID = "tenancy-crmnote-b";

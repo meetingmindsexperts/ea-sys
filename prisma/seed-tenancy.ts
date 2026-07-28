@@ -50,6 +50,24 @@ import {
   CRM_CT_B_SHARED_ID,
   ORG_B_ONLY_CRM_EMAIL_KEY,
   CRM_CT_B_ONLY_ID,
+  CRM_CO_A_ID,
+  CRM_CO_B_ID,
+  CRM_PROD_A_ID,
+  CRM_PROD_B_ID,
+  CRM_STAGE_A_ID,
+  CRM_STAGE_B_ID,
+  CRM_TPL_A_ID,
+  CRM_TPL_B_ID,
+  CRM_CLAIM_A_ID,
+  CRM_CLAIM_B_ID,
+  CRM_NOTIF_A_ID,
+  CRM_NOTIF_B_ID,
+  CRM_ACT_A_ID,
+  CRM_ACT_B_ID,
+  CRM_TASK_A_ID,
+  CRM_TASK_B_ID,
+  CRM_NOTE_A_ID,
+  CRM_NOTE_B_ID,
 } from "../tests/tenancy/constants";
 
 const url = process.env.TENANCY_DIRECT_URL;
@@ -199,6 +217,56 @@ async function seedOrg(
   }
 }
 
+/**
+ * CRM full-domain sweep — Group 1 policy-layer fixtures. One flat row per simple
+ * direct-org Crm* model. Shared literal values where a per-org unique exists
+ * (proves per-org coexistence); the ids differ per org so B's row is A's
+ * cross-tenant target. All rows cascade from Organization; the notification's
+ * required userId points at the org's uploader User (onDelete Cascade). Called
+ * AFTER seedOrg so that uploader already exists.
+ */
+async function seedCrmGroup1(
+  orgId: string,
+  userId: string,
+  ids: {
+    companyId: string;
+    productId: string;
+    stageId: string;
+    templateId: string;
+    sendClaimId: string;
+    notificationId: string;
+    activityId: string;
+    taskId: string;
+    noteId: string;
+  },
+) {
+  await db.crmCompany.create({
+    data: { id: ids.companyId, organizationId: orgId, name: "Shared CRM Co", nameKey: "shared crm co" },
+  });
+  await db.crmProduct.create({
+    data: { id: ids.productId, organizationId: orgId, name: "Shared Product", category: "Sponsorship", sku: "SHARED-SKU" },
+  });
+  await db.crmPipelineStage.create({
+    data: { id: ids.stageId, organizationId: orgId, name: "Shared Stage", sortOrder: 0 },
+  });
+  await db.crmEmailTemplate.create({
+    data: { id: ids.templateId, organizationId: orgId, name: "Shared Template", subject: "Hi", body: "Body" },
+  });
+  // PK is organizationId — one counter row per org, no separate id.
+  await db.crmQuoteCounter.create({ data: { organizationId: orgId } });
+  await db.crmEmailSendClaim.create({
+    data: { id: ids.sendClaimId, organizationId: orgId, dedupHash: "shared-dedup" },
+  });
+  await db.crmNotification.create({
+    data: { id: ids.notificationId, organizationId: orgId, userId, type: "DEAL_ASSIGNED", title: "T", message: "M" },
+  });
+  await db.crmActivity.create({
+    data: { id: ids.activityId, organizationId: orgId, entityType: "COMPANY", entityId: ids.companyId, action: "CREATE" },
+  });
+  await db.crmTask.create({ data: { id: ids.taskId, organizationId: orgId, title: "Shared Task" } });
+  await db.crmNote.create({ data: { id: ids.noteId, organizationId: orgId, body: "Shared note" } });
+}
+
 async function main() {
   // MediaFile → User is a cross-child FK (not org-cascade-ordered), so wipe the
   // media + uploader users explicitly before the org cascade handles the rest.
@@ -228,6 +296,17 @@ async function main() {
     },
     [{ id: CRM_CT_A_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY }],
   );
+  await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
+    companyId: CRM_CO_A_ID,
+    productId: CRM_PROD_A_ID,
+    stageId: CRM_STAGE_A_ID,
+    templateId: CRM_TPL_A_ID,
+    sendClaimId: CRM_CLAIM_A_ID,
+    notificationId: CRM_NOTIF_A_ID,
+    activityId: CRM_ACT_A_ID,
+    taskId: CRM_TASK_A_ID,
+    noteId: CRM_NOTE_A_ID,
+  });
   await seedOrg(
     ORG_B_ID,
     HOST_B,
@@ -264,6 +343,17 @@ async function main() {
       { id: CRM_CT_B_ONLY_ID, emailKey: ORG_B_ONLY_CRM_EMAIL_KEY },
     ],
   );
+  await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {
+    companyId: CRM_CO_B_ID,
+    productId: CRM_PROD_B_ID,
+    stageId: CRM_STAGE_B_ID,
+    templateId: CRM_TPL_B_ID,
+    sendClaimId: CRM_CLAIM_B_ID,
+    notificationId: CRM_NOTIF_B_ID,
+    activityId: CRM_ACT_B_ID,
+    taskId: CRM_TASK_B_ID,
+    noteId: CRM_NOTE_B_ID,
+  });
 
   console.log(
     "[tenancy:seed] two tenants seeded (shared slug + contact email + media url + payer name + crm emailKey on both; A=1 invoice, B=2)",
