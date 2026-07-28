@@ -8,12 +8,17 @@ import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
+import { resolveImportFallbackTicketType } from "@/lib/import-ticket-type";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
 const importSchema = z.object({
   contactIds: z.array(z.string()).min(1),
-  ticketTypeId: z.string().min(1),
+  // Optional since July 28, 2026 — mirrors the CSV importer's "never guess"
+  // rule: absent ⇒ rows import uncategorised (ticketTypeId null) and get a
+  // type later via bulk Change Type / Send Registration Forms. Faculty types
+  // are refused by resolveImportFallbackTicketType.
+  ticketTypeId: z.string().min(1).optional(),
   // Optional pricing tier (only meaningful when the chosen ticket type has
   // tiers). Validated below to belong to the ticket type; drives the stamped
   // originalPrice + pricingTierId so finance surfaces price these correctly.
@@ -43,19 +48,50 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { contactIds, ticketTypeId, pricingTierId } = validated.data;
 
-    // Verify event, ticket type, and fetch contacts
-    const [event, ticketType, contacts] = await Promise.all([
+    // A tier belongs to a type — a tier with no type is a client bug, not
+    // "price the typeless rows anyway".
+    if (pricingTierId && !ticketTypeId) {
+      apiLogger.warn({ msg: "import-contacts:tier-without-type", eventId, pricingTierId });
+      return NextResponse.json(
+        { error: "A pricing tier requires a registration type.", code: "TIER_WITHOUT_TYPE" },
+        { status: 400 }
+      );
+    }
+
+    // Verify event and fetch contacts — the FULL person shape, so nothing the
+    // org already knows about the contact is silently dropped on import.
+    const [event, contacts] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true },
       }),
-      db.ticketType.findFirst({
-        where: { id: ticketTypeId, eventId },
-        select: { id: true, soldCount: true, quantity: true, price: true },
-      }),
       db.contact.findMany({
         where: { id: { in: contactIds }, organizationId: orgGuard.orgId },
-        select: { email: true, firstName: true, lastName: true, organization: true, jobTitle: true, phone: true, role: true },
+        select: {
+          email: true,
+          firstName: true,
+          lastName: true,
+          title: true,
+          role: true,
+          organization: true,
+          jobTitle: true,
+          phone: true,
+          additionalEmail: true,
+          bio: true,
+          specialty: true,
+          customSpecialty: true,
+          registrationType: true,
+          photo: true,
+          city: true,
+          state: true,
+          zipCode: true,
+          country: true,
+          associationName: true,
+          memberId: true,
+          studentId: true,
+          studentIdExpiry: true,
+          tags: true,
+        },
       }),
     ]);
 
@@ -63,9 +99,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    if (!ticketType) {
-      return NextResponse.json({ error: "Ticket type not found" }, { status: 404 });
+    // Resolve the (optional) registration type through the shared import
+    // helper — enforces event membership and refuses faculty types (the
+    // hidden speaker-companion type must never receive imported delegates).
+    // Absent ⇒ null ⇒ rows import uncategorised, never a guessed type.
+    const typeResult = await resolveImportFallbackTicketType(eventId, ticketTypeId);
+    if (!typeResult.ok) {
+      apiLogger.warn({ msg: "import-contacts:ticket-type-rejected", eventId, ticketTypeId, code: typeResult.code });
+      return NextResponse.json({ error: typeResult.message, code: typeResult.code }, { status: 400 });
     }
+    const ticketType = typeResult.ticketType;
 
     // Resolve the optional pricing tier — must belong to the chosen ticket
     // type. Like the manual Add-Registration form, an inactive tier is
@@ -73,9 +116,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // price becomes the stamped originalPrice; without a tier we fall back
     // to the ticket type's base price.
     let tier: { id: string; price: unknown } | null = null;
-    if (pricingTierId) {
+    if (pricingTierId && ticketType) {
       tier = await db.pricingTier.findFirst({
-        where: { id: pricingTierId, ticketTypeId },
+        where: { id: pricingTierId, ticketTypeId: ticketType.id },
         select: { id: true, price: true },
       });
       if (!tier) {
@@ -86,7 +129,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
     }
-    const originalPrice = Number(tier ? tier.price : ticketType.price);
+    // Uncategorised rows have no price to stamp — originalPrice stays null
+    // until a type is assigned (bulk Change Type / completion form).
+    const originalPrice = ticketType ? Number(tier ? tier.price : ticketType.price) : null;
 
     // Find existing registrations for this event by attendee email
     const existingAttendees = await db.attendee.findMany({
@@ -112,10 +157,29 @@ export async function POST(req: Request, { params }: RouteParams) {
               email: contact.email,
               firstName: contact.firstName,
               lastName: contact.lastName,
+              title: contact.title ?? undefined,
+              role: contact.role ?? undefined,
               organization: contact.organization ?? undefined,
               jobTitle: contact.jobTitle ?? undefined,
               phone: contact.phone ?? undefined,
-              role: contact.role ?? undefined,
+              additionalEmail: contact.additionalEmail ?? undefined,
+              bio: contact.bio ?? undefined,
+              specialty: contact.specialty ?? undefined,
+              customSpecialty: contact.customSpecialty ?? undefined,
+              photo: contact.photo ?? undefined,
+              city: contact.city ?? undefined,
+              state: contact.state ?? undefined,
+              zipCode: contact.zipCode ?? undefined,
+              country: contact.country ?? undefined,
+              associationName: contact.associationName ?? undefined,
+              memberId: contact.memberId ?? undefined,
+              studentId: contact.studentId ?? undefined,
+              studentIdExpiry: contact.studentIdExpiry ?? undefined,
+              tags: contact.tags ?? [],
+              // ticketTypeId is the source of truth; this free-text mirror
+              // shows the picked type's name, falling back to the contact's
+              // own recorded category for uncategorised rows.
+              registrationType: ticketType?.name ?? contact.registrationType ?? undefined,
             },
           });
 
@@ -123,13 +187,19 @@ export async function POST(req: Request, { params }: RouteParams) {
           await tx.registration.create({
             data: {
               eventId,
-              ticketTypeId,
+              ticketTypeId: ticketType?.id ?? null,
               pricingTierId: tier?.id ?? null,
               attendeeId: attendee.id,
               serialId,
               // Stamp the price at create so finance surfaces resolve it
               // tier-aware (closes the deferred "unstamped import path").
+              // Uncategorised rows have no price → stays null.
               originalPrice,
+              // No ticket type ⇒ nothing is owed (there is no price to owe):
+              // explicit COMPLIMENTARY, exactly like the CSV importer's
+              // typeless rows. Typed rows keep the pre-existing defaults
+              // (owner declined the defaults-parity change, July 28, 2026).
+              ...(ticketType ? {} : { paymentStatus: "COMPLIMENTARY" as const }),
               // "Import from Contacts" is admin-driven — operator
               // picks a checked subset and imports as registrations.
               // Not a CSV upload, so ADMIN_DASHBOARD is the right
@@ -144,12 +214,16 @@ export async function POST(req: Request, { params }: RouteParams) {
         // cap even under a concurrent import / public registration. All-or-
         // nothing: if the batch won't fit, the whole tx rolls back (no rows
         // created) and the operator imports fewer or raises the quantity.
-        const claimed = await tx.ticketType.updateMany({
-          where: { id: ticketTypeId, soldCount: { lte: ticketType.quantity - toCreate.length } },
-          data: { soldCount: { increment: toCreate.length } },
-        });
-        if (claimed.count === 0) {
-          throw new Error("CAPACITY_EXCEEDED");
+        // Uncategorised rows have no ticket-type counter to move (seatCounter
+        // agrees) — the event-wide counter below still counts them.
+        if (ticketType) {
+          const claimed = await tx.ticketType.updateMany({
+            where: { id: ticketType.id, soldCount: { lte: ticketType.quantity - toCreate.length } },
+            data: { soldCount: { increment: toCreate.length } },
+          });
+          if (claimed.count === 0) {
+            throw new Error("CAPACITY_EXCEEDED");
+          }
         }
         // Event-wide cap: imports BYPASS the cap (owner decision July 24, 2026)
         // — unguarded increment, warn when over.
@@ -178,7 +252,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       format: "contacts",
     });
 
-    return NextResponse.json({ created: toCreate.length, skipped });
+    return NextResponse.json({
+      created: toCreate.length,
+      skipped,
+      // Mirrors the CSV importer's report shape: rows imported without a
+      // registration type (all-or-none here — one picker covers the batch).
+      uncategorised: ticketType ? 0 : toCreate.length,
+    });
   } catch (error) {
     if (error instanceof Error && error.message === "CAPACITY_EXCEEDED") {
       apiLogger.warn({ msg: "import-contacts:capacity-exceeded", eventId });

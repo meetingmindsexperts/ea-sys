@@ -68,15 +68,32 @@ export function ImportContactsDialog({
 
   interface Contact { id: string; firstName: string; lastName: string; email: string; organization?: string; tags?: string[]; }
   interface TicketTier { id: string; name: string; price: number; currency: string; isActive: boolean; }
-  interface Ticket { id: string; name: string; pricingTiers?: TicketTier[]; }
+  interface Ticket { id: string; name: string; isFaculty?: boolean; price?: string | number | null; pricingTiers?: TicketTier[]; }
   const contacts: Contact[] = (data?.contacts ?? []) as Contact[];
   const tickets: Ticket[] = (ticketsData ?? []) as Ticket[];
   const total: number = data?.total ?? 0;
 
+  // Sentinel for the explicit "import without a type" choice — a Radix Select
+  // can't carry an empty-string value, and an untouched picker must NOT
+  // silently mean typeless (the operator opts in).
+  const UNCATEGORISED = "__uncategorised__";
+  const isUncategorised = ticketTypeId === UNCATEGORISED;
+
+  // Faculty types are never offered — the hidden speaker-companion type is
+  // excluded from every delegate count, so a delegate imported onto it
+  // disappears from stats (the server refuses it too).
+  const selectableTickets = tickets.filter((t) => !t.isFaculty);
+  // Whether the event charges — decides the warning under the typeless choice.
+  // Tiers count: the standard setup leaves the type's base price at 0 and
+  // puts the real money on the tiers.
+  const eventCharges = selectableTickets.some(
+    (t) => Number(t.price ?? 0) > 0 || (t.pricingTiers ?? []).some((tier) => Number(tier.price ?? 0) > 0)
+  );
+
   // Active tiers on the chosen registration type. When present the operator
   // must pick one so the imported registrations are priced (and originalPrice
   // stamped) correctly — matches the Add Registration form.
-  const selectedTicket = tickets.find((t) => t.id === ticketTypeId);
+  const selectedTicket = isUncategorised ? undefined : tickets.find((t) => t.id === ticketTypeId);
   const availableTiers = (selectedTicket?.pricingTiers ?? []).filter((t) => t.isActive);
 
   const handleSearchChange = (value: string) => {
@@ -108,7 +125,7 @@ export function ImportContactsDialog({
     }
 
     if (mode === "registration" && !ticketTypeId) {
-      toast.error("Select a registration type");
+      toast.error("Select a registration type (or the “No type — assign later” option)");
       return;
     }
 
@@ -118,20 +135,20 @@ export function ImportContactsDialog({
     }
 
     try {
-      let result: { created: number; skipped: number };
+      let result: { created: number; skipped: number; uncategorised?: number };
 
       if (mode === "speaker") {
         result = await importToSpeakers.mutateAsync(Array.from(selectedIds)) as { created: number; skipped: number };
       } else {
         result = await importToRegistrations.mutateAsync({
           contactIds: Array.from(selectedIds),
-          ticketTypeId,
+          ticketTypeId: isUncategorised ? undefined : ticketTypeId,
           pricingTierId: pricingTierId || undefined,
-        }) as { created: number; skipped: number };
+        }) as { created: number; skipped: number; uncategorised?: number };
       }
 
       toast.success(
-        `Imported ${result.created} ${mode === "speaker" ? "speaker" : "registration"}${result.created !== 1 ? "s" : ""}${result.skipped > 0 ? `, ${result.skipped} skipped (already exist)` : ""}`
+        `Imported ${result.created} ${mode === "speaker" ? "speaker" : "registration"}${result.created !== 1 ? "s" : ""}${result.skipped > 0 ? `, ${result.skipped} skipped (already exist)` : ""}${(result.uncategorised ?? 0) > 0 ? ` — no registration type yet` : ""}`
       );
       onSuccess?.(result);
       onOpenChange(false);
@@ -158,44 +175,59 @@ export function ImportContactsDialog({
         <div className="space-y-3 flex-1 overflow-hidden flex flex-col min-h-0">
           {/* Ticket type + pricing tier selectors for registrations */}
           {mode === "registration" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Registration Type *</Label>
-                <Select
-                  value={ticketTypeId}
-                  onValueChange={(v) => {
-                    setTicketTypeId(v);
-                    setPricingTierId(""); // tiers belong to a type; reset on switch
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a registration type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tickets.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {availableTiers.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Pricing Tier *</Label>
-                  <Select value={pricingTierId} onValueChange={setPricingTierId}>
+                  <Label>Registration Type *</Label>
+                  <Select
+                    value={ticketTypeId}
+                    onValueChange={(v) => {
+                      setTicketTypeId(v);
+                      setPricingTierId(""); // tiers belong to a type; reset on switch
+                    }}
+                  >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a pricing tier" />
+                      <SelectValue placeholder="Select a registration type" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableTiers.map((tier) => (
-                        <SelectItem key={tier.id} value={tier.id}>
-                          {tier.name} — {tier.currency} {tier.price}
+                      <SelectItem value={UNCATEGORISED}>No type — assign later</SelectItem>
+                      {selectableTickets.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+                {availableTiers.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label>Pricing Tier *</Label>
+                    <Select value={pricingTierId} onValueChange={setPricingTierId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a pricing tier" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableTiers.map((tier) => (
+                          <SelectItem key={tier.id} value={tier.id}>
+                            {tier.name} — {tier.currency} {tier.price}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              {isUncategorised && (
+                <p className="text-xs text-muted-foreground">
+                  These people import with no registration type (shown as &quot;—&quot;) and owe
+                  nothing until one is assigned — use bulk <strong>Change Type</strong> or{" "}
+                  <strong>Send Registration Forms</strong> afterwards.{" "}
+                  {eventCharges && (
+                    <span className="text-amber-600">
+                      This event charges, so don&#39;t leave them uncategorised for long.
+                    </span>
+                  )}
+                </p>
               )}
             </div>
           )}
