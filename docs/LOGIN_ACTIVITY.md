@@ -151,6 +151,68 @@ signal, never evidence.
 
 ---
 
+## 4b. Presence — "who is logged in right now"
+
+Added the same day, after the first cut answered *"who signed in, when"* but not
+*"who is using this now"*. Full session-model reasoning in
+[SESSION_ARCHITECTURE.md](SESSION_ARCHITECTURE.md).
+
+`User.lastSeenAt` (nullable, additive migration `20260728120000`), stamped from
+the JWT callback's **existing** 5-minute role-revalidation block — so an active
+person costs one extra write per 5 minutes, not one per request. Also stamped at
+sign-in (signing in resets that block's clock, so a fresh login would otherwise
+read offline for its first 5 minutes) and on mobile-refresh.
+
+[src/lib/active-users.ts](../src/lib/active-users.ts) owns the window maths.
+`touchLastSeen()` never throws and uses **`updateMany`, not `update`** — `update`
+throws P2025 once the row is gone, and a JWT outlives the row it names, so a
+deleted account would throw on every request until its token expired.
+
+**The online window (10 min) is deliberately double the stamp interval (5 min).**
+At equal values someone actively working flickers offline, because a 4-minute-old
+activity can have a 5-minute-old stamp. Pinned by a test so the two can't
+converge.
+
+Surfaced as the **Active Now** card above the sign-in history in the same tab —
+same ADMIN+ boundary, same org scoping.
+
+### Presence is not a session list
+
+It records **activity**, not sessions. Someone signed in with their laptop shut
+generates no requests and correctly shows offline. There is still no way to
+enumerate or revoke a session — see §7 and SESSION_ARCHITECTURE.md §7.
+
+### The cold start, and why there's no backfill
+
+Every account started null, so on day one the card showed a blank against every
+colleague. Fixed by rendering `—` and stating that it means *not seen since
+tracking began* (`PRESENCE_TRACKING_SINCE`), not *never used*.
+
+**Deriving a fallback from `AuditLog` was considered and declined** (July 28,
+2026). Two distinct proposals, only one of them bad:
+
+- **Backfilling `lastSeenAt` from audit rows — rejected.** It writes a different
+  measurement into the presence column, where nothing downstream can tell it
+  apart from a real stamp. `isOnline`, the sort order and the "last active" text
+  would all start treating "last time they edited something" as "last time they
+  were here". Someone who browses daily but last edited a record in April would
+  be permanently reported as four months idle.
+- **Showing it as a separate, labelled fallback — sound, but not built.** "Made a
+  change on 3 April" is a true *lower bound*. Cheap too: one `groupBy` on
+  `AuditLog._max(createdAt)` restricted to users with no presence yet, skipped
+  entirely once that set empties.
+
+Declined because the blank is **transitional** — every person fills their own row
+in within 5 minutes of using the system, so within a week the fallback would be
+dead code still costing a query. And its coverage is worst exactly where a blank
+misleads most: **audit rows only record writes**, so a MEMBER (read-only by
+design) would never generate one no matter how much they use the product.
+
+Revisit only if the blank turns out to persist for accounts that are genuinely
+in use.
+
+---
+
 ## 5. The throttle
 
 [src/lib/login-throttle.ts](../src/lib/login-throttle.ts).

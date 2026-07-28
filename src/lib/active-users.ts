@@ -74,11 +74,28 @@ export function onlineSince(now: Date = new Date()): Date {
  * A null therefore means "not seen SINCE tracking began", not "never". Surfacing
  * the date is what makes that difference visible to whoever is reading the card.
  *
- * Deliberately NOT backfilled from `AuditLog` (the only other per-user
- * timestamp): an audit row means "last time they CHANGED something", which is a
- * different thing from being active — someone who browses daily but last edited
- * a record in April would be shown as four months idle. Wrong numbers that
- * persist are worse than an honest blank that fills in within a day of use.
+ * DERIVING A FALLBACK FROM AuditLog — considered, declined (July 28, 2026)
+ * -----------------------------------------------------------------------
+ * Two distinct proposals, and only one of them is a bad idea:
+ *
+ *   - Backfilling `lastSeenAt` from audit rows is wrong. It writes a DIFFERENT
+ *     measurement into this column, where nothing downstream can tell it apart
+ *     from a real stamp — `isOnlineNow`, the sort order and the "last active"
+ *     text would all start treating "last time they edited something" as "last
+ *     time they were here". Someone who browses daily but last changed a record
+ *     in April would be permanently reported as four months idle.
+ *   - Showing it as a SEPARATE, LABELLED signal is sound: "made a change on 3
+ *     April" is a true lower bound on when they were last present. Cheap, too —
+ *     one groupBy over just the null set, skipped entirely once that empties.
+ *
+ * The second was declined anyway because this blank is TRANSITIONAL: every
+ * person fills their own row in within 5 minutes of using the system, so within
+ * a week the fallback is dead code still costing a query. And its coverage is
+ * worst exactly where a blank misleads most — audit rows only record WRITES, so
+ * a read-only MEMBER would never generate one however much they use the product.
+ *
+ * Revisit only if blanks persist for accounts that are genuinely in use.
+ * (docs/LOGIN_ACTIVITY.md §4b.)
  */
 export const PRESENCE_TRACKING_SINCE = "2026-07-28T07:13:00Z";
 

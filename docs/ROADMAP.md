@@ -212,6 +212,34 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Presence / "who is logged in right now" (July 28, 2026) — shipped, with two open items
+
+`User.lastSeenAt` + the **Active Now** card (Settings → Sign-in Activity). Full
+record in [LOGIN_ACTIVITY.md §4b](LOGIN_ACTIVITY.md) and the session-model
+trade-off in [SESSION_ARCHITECTURE.md](SESSION_ARCHITECTURE.md).
+
+- **No session revocation — the significant one.** Nothing can sign anyone out. A
+  compromised account cannot be cut off: changing the password does **not**
+  invalidate the existing token, and deleting the account leaves its cookie
+  working until it expires (up to 24h). Does **not** need database sessions to
+  fix — the cheap path is `User.tokenVersion Int @default(0)`, stamped into the
+  JWT at sign-in and compared in the re-validation block that already runs, so
+  "sign out everywhere" becomes `tokenVersion++` and revocation takes effect
+  within ≤5 min. See SESSION_ARCHITECTURE.md §7.
+- **Derived "last activity" fallback — considered and declined July 28, 2026.**
+  Deriving a fallback from `AuditLog._max(createdAt)` for accounts with no
+  presence yet. Sound as a *separate labelled signal* (never as a backfill into
+  `lastSeenAt` — that laundders "last edit" into "last seen"), and cheap: one
+  groupBy over just the null set, self-eliminating as people get stamped.
+  Declined because the blank is transitional (each person fills their own row in
+  within 5 min of use, so within a week it's dead code still costing a query) and
+  its coverage is worst where a blank misleads most — **audit rows only record
+  writes**, so a read-only MEMBER never generates one. Revisit only if blanks
+  persist for accounts genuinely in use.
+- **`PRESENCE_TRACKING_SINCE` is a hardcoded constant.** Fine while it's recent
+  and load-bearing for the "—" copy; delete the constant and the explanatory line
+  once every active account has a real stamp.
+
 ### Sign-in activity (July 28, 2026) — shipped scope + what was deliberately left out
 
 Full record in [docs/LOGIN_ACTIVITY.md](LOGIN_ACTIVITY.md) §7. Shipped: `LoginEvent`
