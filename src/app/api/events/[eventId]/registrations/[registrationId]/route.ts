@@ -12,6 +12,7 @@ import { normalizeTag } from "@/lib/utils";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { deletePhoto } from "@/lib/storage";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -146,6 +147,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // Parallelize event check, registration fetch, and the credited-so-far sum.
     const [event, registration, creditedAgg] = await Promise.all([
       db.event.findFirst({
@@ -273,6 +275,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching registration" });
     return NextResponse.json(
@@ -298,6 +301,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // Parallelize event access check + registration lookup. NOTE: the update
     // service re-reads both — this pre-check exists to preserve the response
     // ORDERING (404 / EMAIL_IMMUTABLE / Zod before any domain error) and the
@@ -435,6 +439,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       : redactFinancialFields(withFinancials);
 
     return NextResponse.json(payload);
+    });
   } catch (error) {
     // Domain failures (STALE_WRITE / CAPACITY_EXCEEDED / P2002 / repricing)
     // come back as result values from the service — this catch only sees
@@ -461,6 +466,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
@@ -635,6 +641,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting registration" });
     return NextResponse.json(

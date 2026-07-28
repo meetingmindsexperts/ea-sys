@@ -6,6 +6,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
+import { runWithTenant } from "@/lib/tenant-context";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { incrementEventSeatsOverselling } from "@/lib/registration-seat-db";
 import { resolveImportFallbackTicketType } from "@/lib/import-ticket-type";
@@ -40,6 +41,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const validated = importSchema.safeParse(body);
     if (!validated.success) {
       apiLogger.warn({ msg: "events/registrations/import-contacts:zod-validation-failed", errors: validated.error.flatten() });
@@ -260,6 +262,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Mirrors the CSV importer's report shape: rows imported without a
       // registration type (all-or-none here — one picker covers the batch).
       uncategorised: ticketType ? 0 : toCreate.length,
+    });
     });
   } catch (error) {
     if (error instanceof Error && error.message === "CAPACITY_EXCEEDED") {

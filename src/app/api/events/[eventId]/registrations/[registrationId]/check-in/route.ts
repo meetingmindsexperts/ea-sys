@@ -6,6 +6,7 @@ import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { checkInGate, executeCheckIn, undoCheckIn } from "@/lib/check-in";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -30,6 +31,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
@@ -122,6 +124,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(updatedRegistration);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error checking in registration" });
     return NextResponse.json(
@@ -145,6 +148,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
@@ -223,6 +227,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(updatedRegistration);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error checking in by QR" });
     return NextResponse.json(
@@ -249,6 +254,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE — an ONSITE user may only act on events
       // they're assigned to. Org-scoped (unchanged) for admin/organizer.
@@ -283,6 +289,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result.registration);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error undoing check-in" });
     return NextResponse.json({ error: "Failed to undo check-in" }, { status: 500 });

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ slug: string; registrationId: string }>;
@@ -25,6 +26,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         originalPrice: true,
         event: {
           select: {
+            organizationId: true,
             taxRate: true,
             taxLabel: true,
           },
@@ -53,6 +55,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
+    return await runWithTenant(registration.event.organizationId, async () => {
     const basePrice = readRegistrationBasePrice(registration);
     const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
 
@@ -73,6 +76,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Short cache to allow polling but reduce DB load
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=5");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching payment status" });
     return NextResponse.json(

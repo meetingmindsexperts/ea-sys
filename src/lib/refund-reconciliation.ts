@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { getStripe } from "@/lib/stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
 
@@ -70,6 +71,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
       registration: {
         select: {
           eventId: true,
+          organizationId: true,
           attendee: { select: { firstName: true, lastName: true } },
         },
       },
@@ -80,6 +82,13 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
 
   for (const attempt of stale) {
     try {
+      // Per-row tenant context (multi-tenancy sweep): org resolved from the row itself — the candidate sweep stays org-blind (worker precondition, see MULTI_TENANCY.md §13).
+      // Prefer the attempt's own denormalized organizationId, falling back to its
+      // registration's; a NULL org (pre-backfill row) processes WITHOUT a wrap so
+      // flag-off master behavior is unchanged. `continue` became `return` inside
+      // the closure (same per-attempt control flow).
+      const attemptOrg = attempt.organizationId ?? attempt.registration.organizationId ?? null;
+      const processAttempt = async () => {
       // Manual/offline refunds move no Stripe money — the booking IS the
       // record; a stale PENDING just means the process died before the
       // status update. Confirm it.
@@ -87,7 +96,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         await db.refundAttempt.update({ where: { id: attempt.id }, data: { status: "SUCCEEDED" } });
         apiLogger.info({ msg: "refund-sweep:manual-confirmed", attemptId: attempt.id, registrationId: attempt.registrationId });
         result.confirmed++;
-        continue;
+        return;
       }
 
       if (!attempt.stripePaymentIntentId) {
@@ -99,14 +108,14 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         });
         apiLogger.error({ msg: "refund-sweep:stripe-attempt-missing-intent", attemptId: attempt.id, registrationId: attempt.registrationId });
         result.needsReview++;
-        continue;
+        return;
       }
 
       const outcome = await findStripeRefundForAttempt(attempt.stripePaymentIntentId, attempt.id);
       if (!outcome.verified) {
         // Stripe unreachable — try again next tick.
         result.unverifiable++;
-        continue;
+        return;
       }
 
       if (outcome.found) {
@@ -117,7 +126,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         });
         apiLogger.info({ msg: "refund-sweep:confirmed-at-stripe", attemptId: attempt.id, registrationId: attempt.registrationId, stripeRefundId: outcome.refundId });
         result.confirmed++;
-        continue;
+        return;
       }
 
       // Provably no refund at Stripe → the booking overstates by this
@@ -147,7 +156,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
           message: `A crashed refund attempt for ${attendeeName(attempt)} could not be auto-reconciled — verify the refund state in Stripe and the registration's Billing tab.`,
         });
         result.needsReview++;
-        continue;
+        return;
       }
 
       await db.refundAttempt.update({
@@ -165,6 +174,12 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         message: `A refund attempt for ${attendeeName(attempt)} died before reaching Stripe — the books were corrected automatically. Retry the refund from the registration's Billing tab.`,
       });
       result.rolledBack++;
+      };
+      if (attemptOrg) {
+        await runWithTenant(attemptOrg, processAttempt);
+      } else {
+        await processAttempt();
+      }
     } catch (err) {
       apiLogger.error({ err, msg: "refund-sweep:attempt-failed", attemptId: attempt.id });
     }

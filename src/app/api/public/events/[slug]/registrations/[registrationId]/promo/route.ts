@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   applyPromoCodeToRegistration,
   removePromoCodeFromRegistration,
@@ -54,7 +55,7 @@ function statusFor(code: ApplyPromoErrorCode): number {
 async function slugBoundRegistration(req: Request, slug: string, registrationId: string) {
   return db.registration.findFirst({
     where: { id: registrationId, event: await publicEventWhere(req, slug) },
-    select: { id: true, eventId: true },
+    select: { id: true, eventId: true, event: { select: { organizationId: true } } },
   });
 }
 
@@ -81,6 +82,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
+    return await runWithTenant(reg.event.organizationId, async () => {
     const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) {
       apiLogger.warn({ msg: "public/promo:invalid-input", registrationId, errors: parsed.error.flatten() });
@@ -101,6 +103,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "public/promo:applied", registrationId, slug, ip: getClientIp(req) });
     return NextResponse.json({ success: true, ...result.financials, replaced: result.replaced });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "public/promo:apply-failed" });
     return NextResponse.json({ error: "Failed to apply promo code" }, { status: 500 });
@@ -130,6 +133,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
+    return await runWithTenant(reg.event.organizationId, async () => {
     const result = await removePromoCodeFromRegistration({ registrationId, eventId: reg.eventId, source: "public" });
     if (!result.ok) {
       apiLogger.warn({ msg: "public/promo:remove-rejected", registrationId, code: result.code });
@@ -139,6 +143,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "public/promo:removed", registrationId, slug, removed: result.removed, ip: getClientIp(req) });
     return NextResponse.json({ success: true, removed: result.removed });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "public/promo:remove-failed" });
     return NextResponse.json({ error: "Failed to remove promo code" }, { status: 500 });

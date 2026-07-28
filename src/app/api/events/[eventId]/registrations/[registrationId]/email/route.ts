@@ -10,6 +10,7 @@ import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode
 import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
 import { buildPaymentReminderVars } from "@/lib/payment-reminder";
 
@@ -58,6 +59,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -436,6 +438,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       message: `Email sent to ${registration.attendee.email}`,
       messageId: result.messageId,
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error sending registration email" });
     return NextResponse.json(
@@ -498,6 +501,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid email address", code: "INVALID_EMAIL" }, { status: 400 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -699,6 +703,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       userCascaded: Boolean(registration.userId),
       contactAction: result.contactAction,
       speakerSynced: result.speakerSynced,
+    });
     });
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "P2002") {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 const validatePromoSchema = z.object({
@@ -47,12 +48,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: await publicEventWhere(req, slug, { statuses: ["PUBLISHED"] }),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     const promoCode = await db.promoCode.findUnique({
       where: { eventId_code: { eventId: event.id, code: code.toUpperCase().trim() } },
       include: { ticketTypes: { select: { ticketTypeId: true } } },
@@ -131,6 +133,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       discountAmount,
       originalPrice,
       finalPrice,
+    });
     });
   } catch (error) {
     apiLogger.error({ error, msg: "Failed to validate promo code" });

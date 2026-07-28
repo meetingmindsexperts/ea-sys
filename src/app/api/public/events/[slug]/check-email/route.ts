@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 /**
  * Pre-flight check called from Step-1 of the public signup forms.
@@ -56,12 +57,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: await publicEventWhere(req, slug, { statuses: ["PUBLISHED", "LIVE"] }),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     const [existingReg, account] = await Promise.all([
       db.registration.findFirst({
         where: {
@@ -95,6 +97,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ exists: false, canSelfUpgrade, hasAccount });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "check-email failed" });
     return NextResponse.json({ error: "Check failed" }, { status: 500 });

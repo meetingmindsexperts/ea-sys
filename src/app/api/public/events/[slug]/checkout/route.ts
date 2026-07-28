@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { runWithTenant } from "@/lib/tenant-context";
 import { getStripe, isZeroDecimalCurrency } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
@@ -74,7 +75,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketType: { select: { id: true, name: true, price: true, currency: true } },
         pricingTier: { select: { id: true, price: true, currency: true } },
         attendee: { select: { firstName: true, lastName: true, email: true } },
-        event: { select: { id: true, name: true, slug: true, taxRate: true, taxLabel: true } },
+        event: { select: { id: true, name: true, slug: true, organizationId: true, taxRate: true, taxLabel: true } },
         promoCode: { select: { code: true } },
       },
     });
@@ -84,6 +85,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
+    return await runWithTenant(registration.event.organizationId, async () => {
     if (!registration.ticketType) {
       // Reachable for an uncategorised row (e.g. a CSV import whose file had no
       // registrationType and no fallback was picked). Nothing is priced, so
@@ -228,6 +230,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ checkoutUrl: session.url });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating checkout session" });
     return NextResponse.json(

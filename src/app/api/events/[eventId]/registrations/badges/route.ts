@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { formatSerialId } from "@/lib/registration-serial";
 import { renderBarcodePng } from "@/lib/barcode";
 import { isPaymentAdmissible } from "@/lib/check-in";
@@ -44,6 +45,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only print badges for events they're assigned to (badge PDFs carry entry
@@ -179,6 +181,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="badges-${eventId}.pdf"`,
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error generating badges" });

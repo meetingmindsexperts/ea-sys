@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { sendRegistrationConfirmation } from "@/lib/email";
@@ -223,6 +224,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
+    return await runWithTenant(registration.event.organizationId, async () => {
     // Check if already completed (user account linked)
     if (registration.userId) {
       apiLogger.info({ msg: "Already-completed registration accessed via token", registrationId, email: registration.attendee.email });
@@ -244,6 +246,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       event: registration.event,
       ticketType: registration.ticketType,
       selectableTicketTypes,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Unhandled error validating completion token" });
@@ -407,6 +410,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
+    return await runWithTenant(registration.event.organizationId, async () => {
     if (registration.userId) {
       apiLogger.info({ msg: "Completion POST on already-completed registration", registrationId, email: registration.attendee.email });
       return NextResponse.json({ error: "This registration has already been completed. You can sign in to manage your registration." }, { status: 409 });
@@ -703,6 +707,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           ? (resolvedTier?.currency ?? resolvedType.currency)
           : registration.pricingTier ? registration.pricingTier.currency : registration.ticketType?.currency ?? "USD",
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Unhandled error in registration completion POST" });

@@ -6,6 +6,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { refreshEventStats } from "@/lib/event-stats";
 import { holdsSeat, seatCounter, type SeatCounter } from "@/lib/registration-seat";
 import { claimSeats, releaseSeats } from "@/lib/registration-seat-db";
@@ -37,6 +38,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
@@ -203,6 +205,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ updated: registrations.length });
+    });
   } catch (error) {
     if (error instanceof Error && error.message === "CAPACITY_EXCEEDED") {
       apiLogger.warn({ msg: "bulk-type:capacity-exceeded", eventId });

@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { issueCreditNoteForRegistration, type IssueCreditNoteErrorCode } from "@/services/payment-service";
 
 /**
@@ -67,6 +68,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  return await runWithTenant(session.user.organizationId ?? "", async () => {
   const event = await db.event.findFirst({
     where: { id: eventId, ...buildEventAccessWhere(session.user) },
     select: { id: true },
@@ -96,4 +98,5 @@ export async function POST(req: Request, { params }: RouteParams) {
   }
 
   return NextResponse.json(result.creditNote);
+  });
 }

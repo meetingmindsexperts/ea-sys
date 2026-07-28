@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { getStripe } from "@/lib/stripe";
 
 /**
@@ -26,10 +27,10 @@ export async function expireOpenCheckoutSessionOnCancel(
   try {
     const row = await db.registration.findUnique({
       where: { id: registrationId },
-      select: { stripeCheckoutSessionId: true },
+      select: { stripeCheckoutSessionId: true, event: { select: { organizationId: true } } },
     });
     const sessionId = row?.stripeCheckoutSessionId;
-    if (!sessionId) return;
+    if (!row || !sessionId) return;
 
     try {
       const stripe = getStripe();
@@ -41,9 +42,12 @@ export async function expireOpenCheckoutSessionOnCancel(
       apiLogger.warn({ err, msg: "checkout-session:expire-failed", registrationId, sessionId, ctx });
     }
 
-    await db.registration
-      .update({ where: { id: registrationId }, data: { stripeCheckoutSessionId: null } })
-      .catch((err) => apiLogger.warn({ err, msg: "checkout-session:clear-failed", registrationId }));
+    // Per-row tenant context (multi-tenancy sweep): org resolved from the row itself — the candidate sweep stays org-blind (worker precondition, see MULTI_TENANCY.md §13).
+    await runWithTenant(row.event.organizationId, async () =>
+      db.registration
+        .update({ where: { id: registrationId }, data: { stripeCheckoutSessionId: null } })
+        .catch((err) => apiLogger.warn({ err, msg: "checkout-session:clear-failed", registrationId })),
+    );
   } catch (err) {
     apiLogger.warn({ err, msg: "checkout-session:cleanup-failed", registrationId, ctx });
   }

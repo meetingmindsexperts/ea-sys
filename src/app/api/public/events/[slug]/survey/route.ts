@@ -36,6 +36,7 @@ import crypto from "crypto";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   checkRateLimit,
   getClientIp,
@@ -473,6 +474,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(registration.event.organizationId, async () => {
     const config = readSurveyConfig(
       registration.event.surveyConfig,
       registration.event.id,
@@ -517,6 +519,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       },
       introHtml: registration.event.surveyIntroHtml,
       config,
+    });
     });
   } catch (err) {
     apiLogger.error({ err, msg: "survey:get-unhandled" });
@@ -567,7 +570,7 @@ async function handleShareSubmit(
 
   const event = await db.event.findFirst({
     where: await publicEventWhere(req, slug),
-    select: { id: true, surveyShareLink: true },
+    select: { id: true, organizationId: true, surveyShareLink: true },
   });
   if (!event) {
     return NextResponse.json({ error: "Survey not found" }, { status: 404 });
@@ -587,6 +590,7 @@ async function handleShareSubmit(
     );
   }
 
+  return await runWithTenant(event.organizationId, async () => {
   // Same email can map to multiple registrations in an event (multi-ticket
   // / re-registration): prefer an incomplete one, else treat as already
   // completed. Scoped by the tenant-resolved event id (the event lookup above
@@ -644,6 +648,7 @@ async function handleShareSubmit(
   // the impersonation vector — by the identity check on the share path. `ipHash`
   // is still recorded on the response for the audit trail.
   return finalizeSubmission(req, target, rawAnswers, null);
+  });
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
@@ -780,7 +785,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Shared finalizer — single-use token path deletes the token.
     stage = "finalize";
+    return await runWithTenant(registration.event.organizationId, async () => {
     return await finalizeSubmission(req, registration, rawAnswers, hashedToken);
+    });
   } catch (err) {
     apiLogger.error({
       err,

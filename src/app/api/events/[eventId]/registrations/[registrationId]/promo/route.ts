@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import {
   applyPromoCodeToRegistration,
   removePromoCodeFromRegistration,
@@ -68,6 +69,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const authd = await authorize(eventId);
     if (authd.error) return authd.error;
 
+    return await runWithTenant(authd.session.user.organizationId ?? "", async () => {
     const rl = checkRateLimit({ key: `promo-apply:${authd.session.user.id}`, limit: 60, windowMs: 60 * 60 * 1000 });
     if (!rl.allowed) {
       apiLogger.warn({ msg: "events/registrations/promo:rate-limited", retryAfterSeconds: rl.retryAfterSeconds });
@@ -96,6 +98,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "events/registrations/promo:applied", eventId, registrationId, ip: getClientIp(req) });
     return NextResponse.json({ success: true, ...result.financials, replaced: result.replaced });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "events/registrations/promo:apply-failed" });
     return NextResponse.json({ error: "Failed to apply promo code" }, { status: 500 });
@@ -108,6 +111,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const authd = await authorize(eventId);
     if (authd.error) return authd.error;
 
+    return await runWithTenant(authd.session.user.organizationId ?? "", async () => {
     const result = await removePromoCodeFromRegistration({ registrationId, eventId, source: "rest" });
     if (!result.ok) {
       const status = result.code === "REGISTRATION_NOT_FOUND" ? 404 : result.code === "ALREADY_SETTLED" ? 400 : 500;
@@ -116,6 +120,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "events/registrations/promo:removed", eventId, registrationId, removed: result.removed, ip: getClientIp(req) });
     return NextResponse.json({ success: true, removed: result.removed });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "events/registrations/promo:remove-failed" });
     return NextResponse.json({ error: "Failed to remove promo code" }, { status: 500 });

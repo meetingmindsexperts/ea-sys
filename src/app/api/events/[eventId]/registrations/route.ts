@@ -20,6 +20,7 @@ import { canViewEntryBarcode, redactBarcodeFields } from "@/lib/barcode-visibili
 import { denyRegistrationExport } from "@/lib/registration-export-visibility";
 import { rateLimited } from "@/lib/api-errors";
 import { getClientIp, checkRateLimit } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { toCsvRow } from "@/lib/csv-escape";
 import {
   REGISTRATION_EXPORT_HEADERS,
@@ -139,6 +140,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    return await runWithTenant(orgCtx.organizationId, async () => {
     const { searchParams } = new URL(req.url);
 
     // ── Export pre-flight ─────────────────────────────────────────────────
@@ -543,6 +545,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching registrations" });
     return NextResponse.json(
@@ -571,6 +574,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // Event-assignment gate: an ONSITE user may only create registrations on the
     // events they're assigned to (settings.onsiteUserIds), not every event in the
     // org. buildEventAccessWhere is org-scoped (no-op) for admin/organizer.
@@ -634,6 +638,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result.registration, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating registration" });
     return NextResponse.json(

@@ -12,6 +12,7 @@ import { buildRegistrationActivity } from "@/lib/activity-feed";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -41,6 +42,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return denied;
     }
 
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
@@ -70,6 +72,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       canViewFinance(session.user.role),
     );
     return NextResponse.json({ items, linked });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error loading registration activity timeline" });
     return NextResponse.json({ error: "Failed to load activity" }, { status: 500 });

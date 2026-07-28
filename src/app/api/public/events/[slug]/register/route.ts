@@ -5,6 +5,7 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { runWithTenant } from "@/lib/tenant-context";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -200,6 +201,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     // Master registration switch (Settings → Registration). Enforced server-side
     // so a closed event can't be registered via a direct POST, regardless of UI
     // or which individual tiers are active. Default OPEN when the field is absent.
@@ -724,6 +726,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
       { status: 201 }
     );
+    });
   } catch (error) {
     if (error instanceof Error) {
       // M12: the sentinel-mapped business 400s (duplicate / sold-out / promo

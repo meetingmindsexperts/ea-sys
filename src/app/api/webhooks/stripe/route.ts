@@ -68,6 +68,10 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
+      // Money block rides the tenant lane (multi-tenancy sweep): org resolved
+      // from the pre-tx registration lookup above. Early responses inside the
+      // closure are relayed via `outcome` so control flow is unchanged.
+      const outcome = await runWithTenant(registration.event.organizationId, async () => {
       const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
       const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id || null;
 
@@ -344,6 +348,8 @@ export async function POST(req: Request) {
           apiLogger.error({ err, msg: "Failed to issue post-payment documents", registrationId });
         }
       })();
+      });
+      if (outcome) return outcome;
     } catch (err) {
       apiLogger.error({ err, msg: "Error processing Stripe checkout.session.completed", registrationId });
       // Return 500 so Stripe retries
@@ -358,10 +364,20 @@ export async function POST(req: Request) {
     if (!registrationId) return NextResponse.json({ received: true });
 
     try {
-      const updated = await db.registration.updateMany({
-        where: { id: registrationId, paymentStatus: "PENDING" },
-        data: { paymentStatus: "UNPAID", stripeCheckoutSessionId: null },
+      // Minimal pre-write org read (multi-tenancy sweep): the tenant must be
+      // known before the release write can ride the tenant lane. Inert on
+      // master (flag off = passthrough); an unknown row leaves the updateMany
+      // a no-op either way.
+      const expiredReg = await db.registration.findUnique({
+        where: { id: registrationId },
+        select: { event: { select: { organizationId: true } } },
       });
+      const updated = await runWithTenant(expiredReg?.event.organizationId ?? "", async () =>
+        db.registration.updateMany({
+          where: { id: registrationId, paymentStatus: "PENDING" },
+          data: { paymentStatus: "UNPAID", stripeCheckoutSessionId: null },
+        }),
+      );
       if (updated.count > 0) {
         apiLogger.info({ msg: "Checkout session expired — registration reset to UNPAID", registrationId, sessionId: session.id });
       }
@@ -418,6 +434,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
+      // Write portion rides the tenant lane (multi-tenancy sweep): org resolved
+      // from the payment lookup above. Early responses inside the closure are
+      // relayed via `refundOutcome` so control flow (incl. the 500-for-retry
+      // paths) is unchanged.
+      const refundOutcome = await runWithTenant(payment.registration.event.organizationId, async () => {
       // Stripe's `amount_refunded` is the CUMULATIVE refunded total FOR THIS
       // CHARGE (minor units). Reconcile it against the PER-PAYMENT counter
       // (`Payment.refundedAmount`), NOT the registration's mixed total —
@@ -565,6 +586,8 @@ export async function POST(req: Request) {
           apiLogger.error({ err, msg: "Failed to auto-create credit note", registrationId: payment.registrationId });
         }
       })();
+      });
+      if (refundOutcome) return refundOutcome;
     } catch (err) {
       apiLogger.error({ err, msg: "Error handling charge.refunded", paymentIntentId });
       return NextResponse.json({ error: "Processing failed" }, { status: 500 });

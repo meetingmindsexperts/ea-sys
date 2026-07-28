@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit } from "@/lib/security";
@@ -59,6 +60,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const rateLimit = checkRateLimit({
       key: `import-registrations:org:${session.user.organizationId}`,
       limit: 10,
@@ -512,6 +514,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ created, skipped, uncategorised, errors, registrationIds: createdIds });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing registrations" });
     return NextResponse.json({ error: "Failed to import registrations" }, { status: 500 });

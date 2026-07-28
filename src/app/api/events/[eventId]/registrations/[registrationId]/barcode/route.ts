@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { renderBarcodePng } from "@/lib/barcode";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -33,6 +34,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
@@ -65,6 +67,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         // sheet doesn't re-render it on every open.
         "Cache-Control": "private, max-age=3600",
       },
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error rendering registration barcode" });

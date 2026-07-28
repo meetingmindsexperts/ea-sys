@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, hashVerificationToken } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 import { sendEmail, emailTemplates } from "@/lib/email";
 
 const bodySchema = z.object({
@@ -31,6 +32,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const rateLimit = checkRateLimit({
       key: `send-completion-emails:org:${session.user.organizationId}`,
       limit: 5,
@@ -180,6 +182,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Completion emails sent", eventId, userId: session.user.id, sent, skipped, errorCount: errors.length });
 
     return NextResponse.json({ sent, skipped, errors });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Unhandled error in send-completion-emails endpoint" });
     return NextResponse.json({ error: "An unexpected error occurred while sending completion emails. Please try again." }, { status: 500 });

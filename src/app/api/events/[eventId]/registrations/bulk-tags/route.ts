@@ -6,6 +6,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
+import { runWithTenant } from "@/lib/tenant-context";
 import { computeTagDelta, syncRegistrationTagsToSpeakers, type RegistrationTagChange } from "@/lib/person-tag-sync";
 
 const bulkTagsSchema = z.object({
@@ -35,6 +36,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
@@ -106,6 +108,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     await syncRegistrationTagsToSpeakers(eventId, tagChanges);
 
     return NextResponse.json({ updated: results.length, attendees: results });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error bulk-updating registration tags" });
     return NextResponse.json({ error: "Failed to update tags" }, { status: 500 });

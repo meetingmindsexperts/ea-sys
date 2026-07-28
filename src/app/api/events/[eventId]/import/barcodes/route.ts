@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { parseCSV, getField } from "@/lib/csv-parser";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -33,6 +34,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // Verify event access
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
@@ -212,6 +214,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ imported, skipped, errors });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing barcodes" });
     return NextResponse.json({ error: "Import failed" }, { status: 500 });

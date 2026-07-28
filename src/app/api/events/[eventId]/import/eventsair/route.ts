@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -50,6 +51,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(organizationId, async () => {
     const validated = importContactsSchema.safeParse(body);
     if (!validated.success) {
       apiLogger.warn({ msg: "events/import/eventsair:zod-validation-failed", errors: validated.error.flatten() });
@@ -58,7 +60,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Verify event
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId },
+      where: { id: eventId, organizationId },
       select: { id: true },
     });
     if (!event) {
@@ -69,7 +71,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Get org credentials
     const org = await db.organization.findUnique({
-      where: { id: session.user.organizationId },
+      where: { id: organizationId },
       select: { settings: true },
     });
     const settings = (org?.settings as Record<string, unknown>) || {};
@@ -302,6 +304,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       errors,
       hasMore,
       nextOffset: validated.data.offset + contacts.length,
+    });
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
