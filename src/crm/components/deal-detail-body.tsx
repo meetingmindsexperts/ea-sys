@@ -343,16 +343,18 @@ export function DealDetailBody({
                 {deal.status === "LOST" && deal.lostReason && (
                   <Fact label="Lost because">{deal.lostReason}</Fact>
                 )}
+                {(deal.tags?.length ?? 0) > 0 && (
+                  <Fact label="Tags">
+                    <span className="flex flex-wrap gap-1">
+                      {deal.tags?.map((t) => (
+                        <Badge key={t} variant="secondary" className="font-normal">
+                          {t}
+                        </Badge>
+                      ))}
+                    </span>
+                  </Fact>
+                )}
               </Facts>
-              {(deal.tags?.length ?? 0) > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1.5 border-t pt-3">
-                  {deal.tags?.map((t) => (
-                    <Badge key={t} variant="secondary" className="text-[11px]">
-                      {t}
-                    </Badge>
-                  ))}
-                </div>
-              )}
             </RecordCard>
 
             {/* ── Close (state change — lives with the facts, not the work area) ── */}
