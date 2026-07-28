@@ -834,6 +834,14 @@ model PricingTier {
 
 model Attendee {
   id               String        @id @default(cuid())
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep).
+  // Attendee has NO event link — the org is derived from its registrations'
+  // events (backfill stamps only rows whose registrations all agree on ONE
+  // org; orphans/conflicted stay NULL and fail closed under RLS). The public
+  // register orphan-reuse lookup binds this column so one tenant can never
+  // adopt + overwrite another tenant's attendee PII. Same person registering
+  // with two tenants = two Attendee rows, by design.
+  organizationId   String?
   title            Title?
   role             AttendeeRole?
   email            String
@@ -866,11 +874,16 @@ model Attendee {
   registrations Registration[]
 
   @@index([email])
+  @@index([organizationId])
 }
 
 model Registration {
   id                         String                     @id @default(cuid())
   eventId                    String
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep) —
+  // scalar only, no FK (RLS + compound-where need the value, not a relation).
+  // Stamped by every writer; backfilled from Event by migration 20260728160000.
+  organizationId             String?
   ticketTypeId               String?
   pricingTierId              String?
   attendeeId                 String
@@ -1003,6 +1016,7 @@ model Registration {
   @@index([sponsorId])
   @@index([billingAccountId])
   @@index([eventId])
+  @@index([organizationId])
   @@index([eventId, status])
   @@index([eventId, ticketTypeId])
   @@index([eventId, attendanceMode])
@@ -1080,6 +1094,9 @@ enum RegistrationCreatedSource {
 model Payment {
   id                String        @id @default(cuid())
   registrationId    String
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep,
+  // 2 hops from Event via Registration) — see Registration.organizationId.
+  organizationId    String?
   amount            Decimal       @db.Decimal(10, 2)
   currency          String        @default("USD")
   stripePaymentId   String?       @unique
@@ -1119,6 +1136,7 @@ model Payment {
   invoice      Invoice?
 
   @@index([registrationId])
+  @@index([organizationId])
   @@index([stripePaymentId])
 }
 
@@ -1929,10 +1947,18 @@ model InvoiceCounter {
 // Mutated via an atomic upsert+increment (see src/lib/registration-serial.ts)
 // so concurrent registrations can't collide on @@unique([eventId, serialId]).
 model RegistrationSerialCounter {
-  eventId    String @id
-  lastSerial Int    @default(0)
+  eventId        String  @id
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep).
+  // A FLAT policy on this column sidesteps the join-policy hazard where an
+  // INSERT … ON CONFLICT against a policy-invisible row raises a unique
+  // violation misread as "already registered" (the exact bug this counter
+  // was introduced to fix). Stamped on the upsert's create branch.
+  organizationId String?
+  lastSerial     Int     @default(0)
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 // Reusable org-scoped payer for "charge to another account" — a doctor's
@@ -2664,6 +2690,10 @@ enum JobRunStatus {
 model RefundAttempt {
   id                    String              @id @default(cuid())
   registrationId        String
+  // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep,
+  // 2 hops from Event via Registration; paymentId has no FK so Registration
+  // is this table's only real parentage) — see Registration.organizationId.
+  organizationId        String?
   registration          Registration        @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   /// Payment row targeted (plain column, no FK — audit/ops record).
   paymentId             String?
@@ -2685,6 +2715,7 @@ model RefundAttempt {
   updatedAt             DateTime            @updatedAt
 
   @@index([registrationId])
+  @@index([organizationId])
   @@index([status, createdAt])
 }
 
