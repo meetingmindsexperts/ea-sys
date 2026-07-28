@@ -1232,8 +1232,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         where: { id: anchorSessionId, eventId },
         select: { startTime: true, endTime: true },
       }),
-      db.zoomMeeting.findUnique({
-        where: { sessionId: anchorSessionId },
+      // eventId binds the anchor meeting to THIS event (multi-tenancy sweep) —
+      // a stale settings.webinar.sessionId can't pull another org's join URL
+      // into an outgoing email.
+      db.zoomMeeting.findFirst({
+        where: { sessionId: anchorSessionId, eventId },
         select: {
           joinUrl: true,
           passcode: true,

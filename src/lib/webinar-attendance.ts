@@ -211,7 +211,12 @@ export async function syncWebinarAttendance(
         try {
           await db.zoomMeeting.update({
             where: { id: meeting.id },
-            data: { lastAttendanceSyncAt: new Date() },
+            data: {
+              lastAttendanceSyncAt: new Date(),
+              // Tenant-key self-heal (multi-tenancy sweep) — re-stamps a
+              // blue-green-window NULL on the next tick.
+              organizationId: meeting.event.organizationId,
+            },
           });
         } catch (markErr) {
           apiLogger.error(
@@ -250,7 +255,10 @@ export async function syncWebinarAttendance(
       try {
         await db.zoomMeeting.update({
           where: { id: meeting.id },
-          data: { lastAttendanceSyncAt: new Date() },
+          data: {
+            lastAttendanceSyncAt: new Date(),
+            organizationId: meeting.event.organizationId,
+          },
         });
       } catch (markErr) {
         apiLogger.error(
@@ -300,6 +308,7 @@ export async function syncWebinarAttendance(
           create: {
             zoomMeetingId: meeting.id,
             eventId: meeting.eventId,
+            organizationId: meeting.event.organizationId,
             sessionId: meeting.sessionId,
             zoomParticipantId: row.zoomParticipantIdKey,
             joinTime: row.joinTime,
@@ -308,6 +317,8 @@ export async function syncWebinarAttendance(
           update: {
             // Only update the fields that can legitimately change after a
             // partial sync (e.g. leaveTime arrives in a later report tick).
+            // organizationId self-heals a blue-green-window NULL on re-sync.
+            organizationId: meeting.event.organizationId,
             leaveTime: row.data.leaveTime,
             durationSeconds: row.data.durationSeconds,
             attentivenessScore: row.data.attentivenessScore,
@@ -338,7 +349,10 @@ export async function syncWebinarAttendance(
     try {
       await db.zoomMeeting.update({
         where: { id: meeting.id },
-        data: { lastAttendanceSyncAt: new Date() },
+        data: {
+          lastAttendanceSyncAt: new Date(),
+          organizationId: meeting.event.organizationId,
+        },
       });
     } catch (markErr) {
       apiLogger.error(

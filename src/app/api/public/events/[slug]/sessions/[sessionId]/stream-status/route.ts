@@ -124,9 +124,12 @@ export async function GET(req: Request, { params }: RouteParams) {
     // amplify it.
     const newStatus = isLive ? "ACTIVE" : (zoomMeeting.streamStatus === "ACTIVE" ? "ENDED" : zoomMeeting.streamStatus);
     if (newStatus !== zoomMeeting.streamStatus) {
+      // The event binding in the where is load-bearing: this is a PUBLIC route,
+      // and without it a crafted sessionId flips streamStatus on another org's
+      // row. organizationId in the data self-heals blue-green-window NULLs.
       await db.zoomMeeting.updateMany({
-        where: { sessionId, liveStreamEnabled: true },
-        data: { streamStatus: newStatus },
+        where: { sessionId, eventId: event.id, liveStreamEnabled: true },
+        data: { streamStatus: newStatus, organizationId: event.organizationId },
       });
       apiLogger.info({ sessionId, streamStatus: newStatus }, "zoom:stream-status-changed");
     }

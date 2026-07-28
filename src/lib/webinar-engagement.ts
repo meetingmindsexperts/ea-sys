@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
   getWebinarPollReport,
@@ -212,7 +212,11 @@ export async function syncWebinarEngagement(
           ? `Poll — ${pollReport.topic}`
           : "Webinar Poll";
 
-        await db.$transaction(async (tx) => {
+        // tenantTransaction (multi-tenancy sweep): flag-off it IS db.$transaction;
+        // under RLS_SET_LOCAL it pins the tenant GUC to this txn's backend. The
+        // serialize-find-or-create semantics (nullable zoomPollId unique) and
+        // the atomic deleteMany+createMany are unchanged.
+        await tenantTransaction(async (tx) => {
           const existingPoll = await tx.webinarPoll.findFirst({
             where: { zoomMeetingId: meeting.id, zoomPollId: null },
             select: { id: true },
@@ -221,10 +225,12 @@ export async function syncWebinarEngagement(
           let pollId: string;
           if (existingPoll) {
             await tx.webinarPoll.update({
-              where: { id: existingPoll.id },
+              where: { id: existingPoll.id, zoomMeetingId: meeting.id },
               data: {
                 title: pollTitle,
                 questions: questionNames as unknown as object,
+                // Tenant-key self-heal for pre-sweep / blue-green-window rows.
+                organizationId: meeting.event.organizationId,
               },
             });
             pollId = existingPoll.id;
@@ -232,6 +238,7 @@ export async function syncWebinarEngagement(
             const created = await tx.webinarPoll.create({
               data: {
                 zoomMeetingId: meeting.id,
+                organizationId: meeting.event.organizationId,
                 zoomPollId: null,
                 title: pollTitle,
                 questions: questionNames as unknown as object,
@@ -249,6 +256,7 @@ export async function syncWebinarEngagement(
           await tx.webinarPollResponse.createMany({
             data: rows.map((r) => ({
               pollId,
+              organizationId: meeting.event.organizationId,
               participantName: r.participantName,
               participantEmail: r.participantEmail,
               answers: r.answers as unknown as object,
@@ -302,6 +310,7 @@ export async function syncWebinarEngagement(
               },
               create: {
                 zoomMeetingId: meeting.id,
+                organizationId: meeting.event.organizationId,
                 askerName,
                 askerEmail: asker.email?.trim() || null,
                 question: detail.question,
@@ -312,6 +321,8 @@ export async function syncWebinarEngagement(
                 question: detail.question,
                 answer: detail.answer ?? null,
                 askerEmail: asker.email?.trim() || null,
+                // Tenant-key self-heal on re-sync.
+                organizationId: meeting.event.organizationId,
               },
             });
             questionsPersisted += 1;
@@ -332,7 +343,10 @@ export async function syncWebinarEngagement(
     try {
       await db.zoomMeeting.update({
         where: { id: meeting.id },
-        data: { lastEngagementSyncAt: new Date() },
+        data: {
+          lastEngagementSyncAt: new Date(),
+          organizationId: meeting.event.organizationId,
+        },
       });
     } catch (markErr) {
       apiLogger.error(

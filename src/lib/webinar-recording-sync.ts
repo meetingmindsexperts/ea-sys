@@ -117,7 +117,7 @@ export async function syncRecordingForZoomMeeting(
     try {
       await db.zoomMeeting.update({
         where: { id: meeting.id },
-        data: { recordingStatus: "EXPIRED", recordingFetchedAt: new Date() },
+        data: { recordingStatus: "EXPIRED", recordingFetchedAt: new Date(), organizationId: meeting.event.organizationId },
       });
     } catch (updateErr) {
       const durationMs = Date.now() - startedAt;
@@ -153,7 +153,7 @@ export async function syncRecordingForZoomMeeting(
         try {
           await db.zoomMeeting.update({
             where: { id: meeting.id },
-            data: { recordingStatus: "EXPIRED", recordingFetchedAt: new Date() },
+            data: { recordingStatus: "EXPIRED", recordingFetchedAt: new Date(), organizationId: meeting.event.organizationId },
           });
         } catch (updateErr) {
           const durationMs = Date.now() - startedAt;
@@ -176,7 +176,7 @@ export async function syncRecordingForZoomMeeting(
       if (meeting.recordingStatus === "NOT_REQUESTED") {
         await db.zoomMeeting.update({
           where: { id: meeting.id },
-          data: { recordingStatus: "PENDING" },
+          data: { recordingStatus: "PENDING", organizationId: meeting.event.organizationId },
         });
       }
       const durationMs = Date.now() - startedAt;
@@ -197,7 +197,7 @@ export async function syncRecordingForZoomMeeting(
       if (meeting.recordingStatus === "NOT_REQUESTED") {
         await db.zoomMeeting.update({
           where: { id: meeting.id },
-          data: { recordingStatus: "PENDING" },
+          data: { recordingStatus: "PENDING", organizationId: meeting.event.organizationId },
         });
       }
       const durationMs = Date.now() - startedAt;
@@ -227,6 +227,8 @@ export async function syncRecordingForZoomMeeting(
         recordingDuration: response.duration ? response.duration * 60 : null,
         recordingFetchedAt: new Date(),
         recordingStatus: "AVAILABLE",
+        // Tenant-key self-heal (multi-tenancy sweep).
+        organizationId: meeting.event.organizationId,
       },
     });
 
@@ -253,7 +255,7 @@ export async function syncRecordingForZoomMeeting(
     // Only NOT_REQUESTED → PENDING so the row stays eligible for polling.
     if (meeting.recordingStatus === "NOT_REQUESTED") {
       await db.zoomMeeting
-        .update({ where: { id: meeting.id }, data: { recordingStatus: "PENDING" } })
+        .update({ where: { id: meeting.id }, data: { recordingStatus: "PENDING", organizationId: meeting.event.organizationId } })
         .catch((updateErr) =>
           apiLogger.error({ err: updateErr, zoomMeetingDbId: meeting.id }, "webinar-recording:status-update-failed"),
         );

@@ -76,8 +76,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // viewing mode to Zoom, or enable the session's live stream) — better a
     // clear refusal now than a broken go-live.
     if (validated.data.open && webinar.viewingMode === "hls") {
-      const streamConfig = await db.zoomMeeting.findUnique({
-        where: { sessionId: webinar.sessionId },
+      const streamConfig = await db.zoomMeeting.findFirst({
+        where: { sessionId: webinar.sessionId, eventId },
         select: { liveStreamEnabled: true, streamKey: true },
       });
       if (!streamConfig?.liveStreamEnabled || !streamConfig.streamKey) {

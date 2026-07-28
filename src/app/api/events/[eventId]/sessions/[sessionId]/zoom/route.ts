@@ -65,8 +65,11 @@ export async function GET(_req: Request, { params }: RouteParams) {
         where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true },
       }),
-      db.zoomMeeting.findUnique({
-        where: { sessionId },
+      // eventId in the where binds the session to THIS event — without it a
+      // caller who owns the URL's event could read another org's ZoomMeeting
+      // (incl. startUrl, the host credential) by passing a foreign sessionId.
+      db.zoomMeeting.findFirst({
+        where: { sessionId, eventId },
       }),
     ]);
 
@@ -204,6 +207,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         data: {
           sessionId,
           eventId,
+          organizationId: event.organizationId,
           zoomMeetingId: String(zoomResponse.id),
           meetingType,
           joinUrl: zoomResponse.join_url,
@@ -303,7 +307,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
         where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true, organizationId: true },
       }),
-      db.zoomMeeting.findUnique({ where: { sessionId } }),
+      // eventId binds the session to THIS event — without it a caller who owns
+      // the URL's event could update another org's ZoomMeeting via a foreign
+      // sessionId (cross-tenant IDOR; the POST above always did this correctly).
+      db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),
     ]);
 
     if (!event) {
@@ -325,9 +332,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
       ? await getZoomMeeting(event.organizationId, zoomMeeting.zoomMeetingId)
       : await getZoomWebinar(event.organizationId, zoomMeeting.zoomMeetingId);
 
+    // Compound-where: the event binding is atomic with the write (defence #1);
+    // organizationId also self-heals any blue-green-window NULL.
     const updated = await db.zoomMeeting.update({
-      where: { id: zoomMeeting.id },
+      where: { id: zoomMeeting.id, eventId },
       data: {
+        organizationId: event.organizationId,
         passcode: fresh.password || validated.data.passcode,
         joinUrl: fresh.join_url,
         startUrl: fresh.start_url,
@@ -363,7 +373,10 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
         where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true, organizationId: true },
       }),
-      db.zoomMeeting.findUnique({ where: { sessionId } }),
+      // eventId binds the session to THIS event — without it a caller who owns
+      // the URL's event could delete another org's ZoomMeeting (DB row AND the
+      // remote billable Zoom meeting) via a foreign sessionId.
+      db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),
     ]);
 
     if (!event) {
@@ -381,8 +394,8 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       reason: "zoom-route-delete",
     });
 
-    // Delete from DB
-    await db.zoomMeeting.delete({ where: { id: zoomMeeting.id } });
+    // Delete from DB (compound-where: event binding atomic with the delete)
+    await db.zoomMeeting.delete({ where: { id: zoomMeeting.id, eventId } });
 
     apiLogger.info({ zoomMeetingId: zoomMeeting.zoomMeetingId, sessionId }, "zoom:meeting-deleted");
     return NextResponse.json({ success: true });

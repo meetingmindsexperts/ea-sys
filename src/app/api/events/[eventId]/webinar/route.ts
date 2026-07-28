@@ -71,8 +71,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
           })
         : Promise.resolve(null),
       webinar.sessionId
-        ? db.zoomMeeting.findUnique({
-            where: { sessionId: webinar.sessionId },
+        ? db.zoomMeeting.findFirst({
+            where: { sessionId: webinar.sessionId, eventId },
             select: {
               id: true,
               zoomMeetingId: true,
@@ -167,8 +167,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // isn't retro-blocked; the room-open POST is the final gate).
     if (validated.data.viewingMode === "hls") {
       const streamConfig = nextWebinar.sessionId
-        ? await db.zoomMeeting.findUnique({
-            where: { sessionId: nextWebinar.sessionId },
+        ? await db.zoomMeeting.findFirst({
+            where: { sessionId: nextWebinar.sessionId, eventId },
             select: { liveStreamEnabled: true, streamKey: true },
           })
         : null;

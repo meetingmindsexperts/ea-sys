@@ -104,8 +104,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     const [zoomMeeting, attendances, registrationsCount] = await Promise.all([
-      db.zoomMeeting.findUnique({
-        where: { sessionId: anchorSessionId },
+      db.zoomMeeting.findFirst({
+        where: { sessionId: anchorSessionId, eventId },
         select: { id: true, lastAttendanceSyncAt: true },
       }),
       db.zoomAttendance.findMany({
@@ -281,8 +281,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    const zoomMeeting = await db.zoomMeeting.findUnique({
-      where: { sessionId: anchorSessionId },
+    const zoomMeeting = await db.zoomMeeting.findFirst({
+      where: { sessionId: anchorSessionId, eventId },
       select: { id: true },
     });
     if (!zoomMeeting) {

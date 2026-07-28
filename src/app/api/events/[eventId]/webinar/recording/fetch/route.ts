@@ -61,8 +61,10 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    const zoomMeeting = await db.zoomMeeting.findUnique({
-      where: { sessionId: anchorSessionId },
+    // eventId binds the anchor session's meeting to THIS org-verified event —
+    // a corrupted settings.webinar.sessionId can't reach another org's row.
+    const zoomMeeting = await db.zoomMeeting.findFirst({
+      where: { sessionId: anchorSessionId, eventId },
       select: { id: true },
     });
     if (!zoomMeeting) {
@@ -81,6 +83,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     await db.zoomMeeting.updateMany({
       where: {
         id: zoomMeeting.id,
+        eventId, // compound-where: event binding atomic with the write
         recordingStatus: { in: ["FAILED", "EXPIRED"] },
       },
       data: { recordingStatus: "NOT_REQUESTED" },

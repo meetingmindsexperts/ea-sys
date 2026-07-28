@@ -44,7 +44,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const cutoff = new Date(Date.now() - PRESENT_WINDOW_MS);
     const rows = await db.webinarPresence.findMany({
-      where: { sessionId: anchorSessionId, lastSeenAt: { gte: cutoff } },
+      // eventId binds the roster to THIS org-verified event (multi-tenancy sweep).
+      where: { sessionId: anchorSessionId, eventId, lastSeenAt: { gte: cutoff } },
       select: {
         id: true,
         phase: true,

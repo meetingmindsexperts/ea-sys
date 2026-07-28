@@ -59,8 +59,8 @@ export async function resolveAnchorZoomMeeting(
     };
   }
 
-  const zoomMeeting = await db.zoomMeeting.findUnique({
-    where: { sessionId: anchorSessionId },
+  const zoomMeeting = await db.zoomMeeting.findFirst({
+    where: { sessionId: anchorSessionId, eventId },
     select: { zoomMeetingId: true, meetingType: true },
   });
   if (!zoomMeeting) {

@@ -282,6 +282,7 @@ async function seedExtras(createdUsers: Record<string, string>) {
     data: {
       sessionId: anchorSession.id,
       eventId: DOCS_WEBINAR_EVENT_ID,
+      organizationId: ORG_ID,
       meetingType: "WEBINAR",
       zoomMeetingId: "85912345678",
       joinUrl: "https://zoom.us/w/85912345678",
@@ -310,6 +311,7 @@ async function seedExtras(createdUsers: Record<string, string>) {
       data: {
         zoomMeetingId: zoomMeeting.id,
         eventId: DOCS_WEBINAR_EVENT_ID,
+        organizationId: ORG_ID,
         sessionId: anchorSession.id,
         zoomParticipantId: `pid-${i}`,
         name: a.name,
@@ -326,6 +328,7 @@ async function seedExtras(createdUsers: Record<string, string>) {
   const poll = await db.webinarPoll.create({
     data: {
       zoomMeetingId: zoomMeeting.id,
+      organizationId: ORG_ID,
       title: "Live audience poll",
       questions: [
         {
@@ -343,6 +346,7 @@ async function seedExtras(createdUsers: Record<string, string>) {
       await db.webinarPollResponse.create({
         data: {
           pollId: poll.id,
+          organizationId: ORG_ID,
           participantName: `Participant ${respIdx + 1}`,
           participantEmail: `p${respIdx + 1}@example.com`,
           answers: { "How often do you encounter atrial fibrillation in clinic?": answer },
@@ -381,6 +385,7 @@ async function seedExtras(createdUsers: Record<string, string>) {
     await db.webinarQuestion.create({
       data: {
         zoomMeetingId: zoomMeeting.id,
+        organizationId: ORG_ID,
         askerName: q.asker,
         askerEmail: q.email,
         question: q.question,

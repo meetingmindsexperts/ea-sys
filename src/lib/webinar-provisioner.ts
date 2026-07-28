@@ -203,6 +203,7 @@ export async function provisionWebinar(
           data: {
             sessionId: eventSession.id,
             eventId: event.id,
+            organizationId: event.organizationId,
             zoomMeetingId: String(zoomResponse.id),
             meetingType: "WEBINAR",
             joinUrl: zoomResponse.join_url,

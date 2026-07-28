@@ -41,7 +41,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
         where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true, organizationId: true },
       }),
-      db.zoomMeeting.findUnique({ where: { sessionId } }),
+      db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),
       db.sessionSpeaker.findMany({
         where: { sessionId },
         select: {
@@ -104,7 +104,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true, organizationId: true },
       }),
-      db.zoomMeeting.findUnique({ where: { sessionId } }),
+      db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),
     ]);
 
     if (!event) {
@@ -150,7 +150,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         where: { id: eventId, organizationId: orgGuard.orgId },
         select: { id: true, organizationId: true },
       }),
-      db.zoomMeeting.findUnique({ where: { sessionId } }),
+      db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),
     ]);
 
     if (!event) {

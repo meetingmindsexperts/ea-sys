@@ -594,10 +594,11 @@ describe("updateSession — M6: retime re-syncs the linked Zoom meeting", () => 
       timezone: "Asia/Dubai",
     });
     expect(mockUpdateZoomMeeting).not.toHaveBeenCalled();
-    // Local duration mirror is updated too.
+    // Local duration mirror is updated too — compound-where binds the row to
+    // the event and the tenant key is (re-)stamped (multi-tenancy sweep).
     expect(mockDb.zoomMeeting.update).toHaveBeenCalledWith({
-      where: { id: "zmrow1" },
-      data: { duration: 90 },
+      where: { id: "zmrow1", eventId: "ev1" },
+      data: { duration: 90, organizationId: "org1" },
     });
   });
 

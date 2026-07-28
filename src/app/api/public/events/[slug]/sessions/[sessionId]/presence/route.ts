@@ -111,6 +111,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       where: { sessionId_registrationId: { sessionId, registrationId: registration.id } },
       create: {
         eventId: event.id,
+        organizationId: event.organizationId,
         sessionId,
         registrationId: registration.id,
         phase,
@@ -120,6 +121,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
       update: {
         lastSeenAt: now,
+        // Self-heals a blue-green-window NULL on rows minted by an old container.
+        organizationId: event.organizationId,
         // Only escalate on an existing lobby row beating "joined"; the create
         // branch already sets the phase for a brand-new row.
         ...(existing && phase === "joined" && existing.phase !== "joined"

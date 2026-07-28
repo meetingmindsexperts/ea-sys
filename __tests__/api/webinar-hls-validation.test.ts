@@ -16,7 +16,7 @@ const { mockAuth, mockDb, mockApiLogger, mockUpdateEventSettings } = vi.hoisted(
   mockDb: {
     event: { findFirst: vi.fn() },
     eventSession: { findFirst: vi.fn(), updateMany: vi.fn() },
-    zoomMeeting: { findUnique: vi.fn() },
+    zoomMeeting: { findFirst: vi.fn() },
   },
 }));
 
@@ -67,12 +67,12 @@ beforeEach(() => {
     settings: { webinar: { sessionId: "anchor1", viewingMode: "hls" } },
   });
   mockDb.eventSession.updateMany.mockResolvedValue({ count: 1 });
-  mockDb.zoomMeeting.findUnique.mockResolvedValue(STREAM_OK);
+  mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OK);
 });
 
 describe("PUT /webinar — hls mode requires a configured live stream", () => {
   it("rejects switching to hls when the live stream is not configured", async () => {
-    mockDb.zoomMeeting.findUnique.mockResolvedValue(STREAM_OFF);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callPut({ viewingMode: "hls" });
     expect(res.status).toBe(400);
     expect((await res.json()).code).toBe("HLS_STREAM_NOT_CONFIGURED");
@@ -84,7 +84,7 @@ describe("PUT /webinar — hls mode requires a configured live stream", () => {
   });
 
   it("rejects hls when there is no Zoom meeting on the anchor at all", async () => {
-    mockDb.zoomMeeting.findUnique.mockResolvedValue(null);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(null);
     const res = await callPut({ viewingMode: "hls" });
     expect(res.status).toBe(400);
   });
@@ -96,24 +96,24 @@ describe("PUT /webinar — hls mode requires a configured live stream", () => {
   });
 
   it("a lobby-message-only save on an already-hls event is NOT retro-blocked", async () => {
-    mockDb.zoomMeeting.findUnique.mockResolvedValue(STREAM_OFF);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callPut({ lobbyMessage: "starting soon" });
     expect(res.status).toBe(200);
     // The gate only fires when the REQUEST sets hls.
-    expect(mockDb.zoomMeeting.findUnique).not.toHaveBeenCalled();
+    expect(mockDb.zoomMeeting.findFirst).not.toHaveBeenCalled();
   });
 
   it("switching to zoom mode never checks the stream", async () => {
-    mockDb.zoomMeeting.findUnique.mockResolvedValue(STREAM_OFF);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callPut({ viewingMode: "zoom" });
     expect(res.status).toBe(200);
-    expect(mockDb.zoomMeeting.findUnique).not.toHaveBeenCalled();
+    expect(mockDb.zoomMeeting.findFirst).not.toHaveBeenCalled();
   });
 });
 
 describe("POST /webinar/room — opening in hls mode is the final gate", () => {
   it("refuses to open the room when hls mode has no configured stream", async () => {
-    mockDb.zoomMeeting.findUnique.mockResolvedValue(STREAM_OFF);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callRoom({ open: true });
     expect(res.status).toBe(400);
     expect((await res.json()).code).toBe("HLS_STREAM_NOT_CONFIGURED");
@@ -133,7 +133,7 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
   });
 
   it("CLOSING the room is always allowed, even misconfigured", async () => {
-    mockDb.zoomMeeting.findUnique.mockResolvedValue(STREAM_OFF);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callRoom({ open: false });
     expect(res.status).toBe(200);
     expect(mockDb.eventSession.updateMany).toHaveBeenCalledWith(
@@ -146,9 +146,9 @@ describe("POST /webinar/room — opening in hls mode is the final gate", () => {
       id: "ev1",
       settings: { webinar: { sessionId: "anchor1", viewingMode: "zoom" } },
     });
-    mockDb.zoomMeeting.findUnique.mockResolvedValue(STREAM_OFF);
+    mockDb.zoomMeeting.findFirst.mockResolvedValue(STREAM_OFF);
     const res = await callRoom({ open: true });
     expect(res.status).toBe(200);
-    expect(mockDb.zoomMeeting.findUnique).not.toHaveBeenCalled();
+    expect(mockDb.zoomMeeting.findFirst).not.toHaveBeenCalled();
   });
 });

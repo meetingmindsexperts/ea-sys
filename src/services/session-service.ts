@@ -801,7 +801,12 @@ async function syncZoomMeetingTimes(args: {
       // WEBINAR + WEBINAR_SERIES both live on the /webinars endpoint.
       await updateZoomWebinar(event.organizationId, zoomMeeting.zoomMeetingId, params);
     }
-    await db.zoomMeeting.update({ where: { id: zoomMeeting.id }, data: { duration } });
+    // Compound-where binds the row to the (caller-org-verified) event, and the
+    // data stamp self-heals a missing tenant key (multi-tenancy sweep).
+    await db.zoomMeeting.update({
+      where: { id: zoomMeeting.id, eventId },
+      data: { duration, organizationId: event.organizationId },
+    });
 
     apiLogger.info(
       {

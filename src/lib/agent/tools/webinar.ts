@@ -12,7 +12,9 @@ import type { ToolExecutor } from "./_shared";
 const listZoomMeetings: ToolExecutor = async (_input, ctx) => {
   try {
     const meetings = await db.zoomMeeting.findMany({
-      where: { eventId: ctx.eventId },
+      // event relation binds eventId to the caller's org — ctx.eventId alone
+      // would trust the injected id (every other executor here pairs them).
+      where: { eventId: ctx.eventId, event: { organizationId: ctx.organizationId } },
       select: {
         id: true,
         zoomMeetingId: true,
@@ -79,7 +81,7 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
         where: { id: sessionId, eventId: ctx.eventId },
         select: { id: true, name: true, startTime: true, endTime: true, description: true },
       }),
-      db.zoomMeeting.findUnique({ where: { sessionId } }),
+      db.zoomMeeting.findFirst({ where: { sessionId, eventId: ctx.eventId } }),
     ]);
 
     if (!session) return { error: "Session not found in this event" };
@@ -120,6 +122,7 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
       data: {
         sessionId,
         eventId: ctx.eventId,
+        organizationId: ctx.organizationId,
         zoomMeetingId: String(zoomResponse.id),
         meetingType: meetingType as "MEETING" | "WEBINAR" | "WEBINAR_SERIES",
         joinUrl: zoomResponse.join_url,

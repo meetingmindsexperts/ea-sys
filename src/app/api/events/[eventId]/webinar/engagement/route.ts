@@ -38,8 +38,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       );
     }
 
-    const zoomMeeting = await db.zoomMeeting.findUnique({
-      where: { sessionId: anchorSessionId },
+    const zoomMeeting = await db.zoomMeeting.findFirst({
+      where: { sessionId: anchorSessionId, eventId },
       select: { id: true, lastEngagementSyncAt: true },
     });
     if (!zoomMeeting) {
@@ -144,8 +144,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    const zoomMeeting = await db.zoomMeeting.findUnique({
-      where: { sessionId: anchorSessionId },
+    const zoomMeeting = await db.zoomMeeting.findFirst({
+      where: { sessionId: anchorSessionId, eventId },
       select: { id: true },
     });
     if (!zoomMeeting) {
