@@ -241,6 +241,18 @@ export function CompanyDetailBody({
                     <Dash />
                   )}
                 </Fact>
+                {company.phone && <Fact label="Phone">{company.phone}</Fact>}
+                {(company.tags?.length ?? 0) > 0 && (
+                  <Fact label="Tags">
+                    <span className="flex flex-wrap gap-1">
+                      {company.tags?.map((t) => (
+                        <Badge key={t} variant="secondary" className="font-normal">
+                          {t}
+                        </Badge>
+                      ))}
+                    </span>
+                  </Fact>
+                )}
                 <Fact label="Created">{new Date(company.createdAt).toLocaleDateString()}</Fact>
               </Facts>
             </RecordCard>

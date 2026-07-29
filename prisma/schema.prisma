@@ -3234,9 +3234,14 @@ model CrmCompany {
   nameKey  String // trimmed + lowercased — the dedup key, see note above
   industry String? // pharma | hospital | society | agency | …
   website  String?
+  phone    String?
   country  String?
   city     String?
   notes    String? @db.Text
+
+  /// Free-form tags ("multi-year", "key-account", "warm"), same shape as
+  /// CrmContact.tags — for the account owner's own grouping + list filtering.
+  tags String[] @default([])
 
   /// Set when created via fuzzy match (e.g. "Cleveland Clinic" vs "Cleveland
   /// Clinic Foundation") so finance can merge later. Advisory — never blocks.

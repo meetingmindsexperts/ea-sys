@@ -79,6 +79,7 @@ export const crmKeys = {
   contacts: (q?: string) => ["crm", "contacts", q ?? ""] as const,
   contact: (id: string) => ["crm", "contact", id] as const,
   contactTags: ["crm", "contact-tags"] as const,
+  companyTags: ["crm", "company-tags"] as const,
   activity: (entityType: string, entityId?: string | null) =>
     entityId === undefined ? (["crm", "activity", entityType] as const) : (["crm", "activity", entityType, entityId ?? ""] as const),
   emailTemplates: (includeArchived: boolean) => ["crm", "email-templates", includeArchived] as const,
@@ -328,7 +329,18 @@ export interface CrmCompanyFilters {
   q?: string;
   industry?: string;
   needsReview?: string;
+  /** Any-of tag filter — comma-separated exact tags (the list uses a single tag). */
+  tags?: string;
   archived?: string;
+}
+
+/** The org's distinct company (account) tags — feeds the companies list "Any tag" filter. */
+export function useCrmCompanyTags() {
+  return useQuery({
+    queryKey: crmKeys.companyTags,
+    queryFn: () => apiFetch<{ tags: string[] }>("/api/crm/companies/tags").then((r) => r.tags),
+    staleTime: 60_000,
+  });
 }
 
 export function useCrmCompanies(arg?: string | CrmCompanyFilters) {

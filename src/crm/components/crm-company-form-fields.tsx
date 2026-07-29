@@ -14,35 +14,42 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CountrySelect } from "@/components/ui/country-select";
+import { TagInput } from "@/components/ui/tag-input";
 
 export interface CrmCompanyFormState {
   name: string;
   industry: string;
   website: string;
+  phone: string;
   city: string;
   country: string;
   notes: string;
+  tags: string[];
 }
 
 export function emptyCrmCompanyForm(): CrmCompanyFormState {
-  return { name: "", industry: "", website: "", city: "", country: "", notes: "" };
+  return { name: "", industry: "", website: "", phone: "", city: "", country: "", notes: "", tags: [] };
 }
 
 export function crmCompanyToForm(c: {
   name: string;
   industry?: string | null;
   website?: string | null;
+  phone?: string | null;
   city?: string | null;
   country?: string | null;
   notes?: string | null;
+  tags?: string[];
 }): CrmCompanyFormState {
   return {
     name: c.name,
     industry: c.industry ?? "",
     website: c.website ?? "",
+    phone: c.phone ?? "",
     city: c.city ?? "",
     country: c.country ?? "",
     notes: c.notes ?? "",
+    tags: c.tags ?? [],
   };
 }
 
@@ -52,9 +59,11 @@ export function crmCompanyFormPayload(f: CrmCompanyFormState): Record<string, un
     name: f.name.trim(),
     industry: f.industry.trim() || null,
     website: f.website.trim() || null,
+    phone: f.phone.trim() || null,
     city: f.city.trim() || null,
     country: f.country.trim() || null,
     notes: f.notes.trim() || null,
+    tags: f.tags,
   };
 }
 
@@ -110,13 +119,28 @@ export function CrmCompanyFormFields({
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-phone`}>Phone</Label>
+          <Input
+            id={`${idPrefix}-phone`}
+            value={f.phone}
+            onChange={(e) => onChange({ phone: e.target.value })}
+            placeholder="+971 4 000 0000"
+          />
+        </div>
+        <div className="space-y-2">
           <Label htmlFor={`${idPrefix}-city`}>City</Label>
           <Input id={`${idPrefix}-city`} value={f.city} onChange={(e) => onChange({ city: e.target.value })} />
         </div>
-        <div className="space-y-2">
-          <Label>Country</Label>
-          <CountrySelect value={f.country} onChange={(v) => onChange({ country: v ?? "" })} />
-        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Country</Label>
+        <CountrySelect value={f.country} onChange={(v) => onChange({ country: v ?? "" })} />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Tags</Label>
+        <TagInput value={f.tags} onChange={(tags) => onChange({ tags })} placeholder="Add tag…" />
       </div>
 
       <div className="space-y-2">

@@ -27,9 +27,10 @@ import { Prisma, type CrmCompany } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity, diffFields } from "@/crm/lib/crm-activity";
+import { normalizeContactTags } from "./crm-contact-service";
 
 /** Fields worth showing in the change log when an account is edited. */
-const COMPANY_DIFF_KEYS = ["name", "industry", "website", "country", "city", "notes", "needsReview"] as const;
+const COMPANY_DIFF_KEYS = ["name", "industry", "website", "phone", "country", "city", "notes", "tags", "needsReview"] as const;
 
 // ── Input / Result types ─────────────────────────────────────────────────────
 
@@ -37,9 +38,11 @@ interface CompanyFields {
   name: string;
   industry?: string | null;
   website?: string | null;
+  phone?: string | null;
   country?: string | null;
   city?: string | null;
   notes?: string | null;
+  tags?: string[];
 }
 
 export interface FindOrCreateCompanyInput extends CompanyFields {
@@ -152,9 +155,11 @@ export async function findOrCreateCompany(
         nameKey,
         industry: input.industry?.trim() || null,
         website: input.website?.trim() || null,
+        phone: input.phone?.trim() || null,
         country: input.country?.trim() || null,
         city: input.city?.trim() || null,
         notes: input.notes?.trim() || null,
+        tags: normalizeContactTags(input.tags ?? []),
         needsReview: Boolean(nearMatch),
       },
     });
@@ -231,9 +236,11 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
   }
   if (input.industry !== undefined) data.industry = input.industry?.trim() || null;
   if (input.website !== undefined) data.website = input.website?.trim() || null;
+  if (input.phone !== undefined) data.phone = input.phone?.trim() || null;
   if (input.country !== undefined) data.country = input.country?.trim() || null;
   if (input.city !== undefined) data.city = input.city?.trim() || null;
   if (input.notes !== undefined) data.notes = input.notes?.trim() || null;
+  if (input.tags !== undefined) data.tags = normalizeContactTags(input.tags);
   if (input.needsReview !== undefined) data.needsReview = input.needsReview;
 
   if (Object.keys(data).length === 0) {
@@ -246,7 +253,7 @@ export async function updateCompany(input: UpdateCompanyInput): Promise<UpdateCo
     // unbound update is this codebase's most repeated IDOR (accommodation + contacts).
     const before = await db.crmCompany.findFirst({
       where: { id: input.companyId, organizationId: input.organizationId },
-      select: { name: true, industry: true, website: true, country: true, city: true, notes: true, needsReview: true, archivedAt: true },
+      select: { name: true, industry: true, website: true, phone: true, country: true, city: true, notes: true, tags: true, needsReview: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({

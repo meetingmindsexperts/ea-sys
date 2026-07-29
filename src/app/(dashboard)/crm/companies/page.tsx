@@ -37,7 +37,7 @@ import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { SortableTh, nextSort, type SortDir } from "@/crm/components/sortable-th";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCrmCompanies } from "@/crm/hooks/use-crm-api";
+import { useCrmCompanies, useCrmCompanyTags } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
@@ -51,6 +51,7 @@ function CompaniesInner() {
   const { get, set } = useCrmFilters();
   const q = get("q");
   const industry = get("industry");
+  const tagFilter = get("tags");
   const onlyReview = !!get("review");
   const showArchived = !!get("archived");
   const sortKey = get("sort");
@@ -64,9 +65,11 @@ function CompaniesInner() {
   // the review count — deriving the options from the filtered set would make them
   // vanish as you use them.
   const { data: allCompanies = [] } = useCrmCompanies();
+  const { data: availableTags = [] } = useCrmCompanyTags();
   const { data: companies = [], isLoading, isError, refetch } = useCrmCompanies({
     q: q || undefined,
     industry: industry || undefined,
+    tags: tagFilter || undefined,
     archived: showArchived ? "1" : undefined,
   });
   const filtered = onlyReview ? companies.filter((c) => c.needsReview) : companies;
@@ -121,6 +124,23 @@ function CompaniesInner() {
                   {i}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        )}
+        {(availableTags.length > 0 || tagFilter) && (
+          <Select value={tagFilter || "__all__"} onValueChange={(v) => set({ tags: v === "__all__" ? null : v })}>
+            <SelectTrigger className="w-[11rem]">
+              <SelectValue placeholder="Any tag" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Any tag</SelectItem>
+              {(tagFilter && !availableTags.includes(tagFilter) ? [tagFilter, ...availableTags] : availableTags).map(
+                (t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ),
+              )}
             </SelectContent>
           </Select>
         )}
@@ -213,6 +233,15 @@ function CompaniesInner() {
                         </Badge>
                       )}
                     </span>
+                    {(c.tags?.length ?? 0) > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {c.tags!.map((t) => (
+                          <Badge key={t} variant="secondary" className="font-normal text-[10px]">
+                            {t}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{c.industry ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">

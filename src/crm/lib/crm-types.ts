@@ -350,8 +350,10 @@ export interface CrmCompanyRow {
   name: string;
   industry?: string | null;
   website?: string | null;
+  phone?: string | null;
   country?: string | null;
   city?: string | null;
+  tags?: string[];
   needsReview: boolean;
   archivedAt?: string | null;
   createdAt: string;

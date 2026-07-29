@@ -14,9 +14,11 @@ const createCompanySchema = z.object({
   name: z.string().min(1).max(255),
   industry: z.string().max(100).optional().nullable(),
   website: z.string().max(500).optional().nullable(),
+  phone: z.string().max(50).optional().nullable(),
   country: z.string().max(100).optional().nullable(),
   city: z.string().max(100).optional().nullable(),
   notes: z.string().max(5000).optional().nullable(),
+  tags: z.array(z.string().min(1).max(50)).max(25).optional(),
 });
 
 /** GET /api/crm/companies — list accounts, with their open-deal counts. */
@@ -31,6 +33,11 @@ export async function GET(req: Request) {
     const q = searchParams.get("q")?.trim();
     const needsReview = searchParams.get("needsReview") === "true";
     const industry = searchParams.get("industry")?.trim();
+    // Tag filter (any-of): comma-separated exact tags → hasSome (see /companies/tags).
+    const tags = (searchParams.get("tags") || "")
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
 
     const rows = await db.crmCompany.findMany({
       where: {
@@ -39,6 +46,7 @@ export async function GET(req: Request) {
         archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
         ...(needsReview ? { needsReview: true } : {}),
         ...(industry ? { industry: { equals: industry, mode: "insensitive" as const } } : {}),
+        ...(tags.length ? { tags: { hasSome: tags } } : {}),
         ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
       },
       select: {
@@ -46,8 +54,10 @@ export async function GET(req: Request) {
         name: true,
         industry: true,
         website: true,
+        phone: true,
         country: true,
         city: true,
+        tags: true,
         needsReview: true,
         archivedAt: true,
         createdAt: true,

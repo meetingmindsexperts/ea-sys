@@ -12,9 +12,11 @@ const updateCompanySchema = z.object({
   name: z.string().min(1).max(255).optional(),
   industry: z.string().max(100).nullable().optional(),
   website: z.string().max(500).nullable().optional(),
+  phone: z.string().max(50).nullable().optional(),
   country: z.string().max(100).nullable().optional(),
   city: z.string().max(100).nullable().optional(),
   notes: z.string().max(5000).nullable().optional(),
+  tags: z.array(z.string().min(1).max(50)).max(25).optional(),
   /** Cleared once a human confirms a fuzzy-flagged company is genuinely distinct. */
   needsReview: z.boolean().optional(),
   /** Restore a soft-deleted account. Delete-gated separately below. */
