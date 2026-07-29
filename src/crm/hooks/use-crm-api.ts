@@ -124,6 +124,44 @@ export function useCrmDealTypes(includeArchived = false) {
   });
 }
 
+/** A deal-type edit changes the picker AND a deal's shown type name → refetch both. */
+function useInvalidateDealTypes() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: ["crm", "deal-types"] }); // active + archived variants
+    qc.invalidateQueries({ queryKey: crmKeys.dealsPrefix });
+  };
+}
+
+export function useCreateDealType() {
+  const invalidate = useInvalidateDealTypes();
+  return useMutation({
+    mutationFn: (body: { name: string }) => apiPostJson<{ dealType: CrmDealType }>("/api/crm/deal-types", body),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not add the deal type"),
+  });
+}
+
+export function useUpdateDealType() {
+  const invalidate = useInvalidateDealTypes();
+  return useMutation({
+    mutationFn: ({ dealTypeId, ...body }: { dealTypeId: string; name?: string; archived?: boolean }) =>
+      apiPatchJson<{ dealType: CrmDealType }>(`/api/crm/deal-types/${dealTypeId}`, body),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not update the deal type"),
+  });
+}
+
+export function useReorderDealTypes() {
+  const invalidate = useInvalidateDealTypes();
+  return useMutation({
+    mutationFn: (orderedIds: string[]) =>
+      apiPatchJson<{ dealTypes: CrmDealType[] }>("/api/crm/deal-types", { orderedIds }),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Could not reorder the deal types"),
+  });
+}
+
 /** Stage edits reshape the whole board, so every mutation refetches stages AND deals. */
 function useInvalidatePipeline() {
   const qc = useQueryClient();

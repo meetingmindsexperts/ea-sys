@@ -18,7 +18,7 @@
 import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Archive, Columns3, Handshake, Mail, Plus, Upload, X } from "lucide-react";
+import { Archive, Columns3, Handshake, Mail, Plus, Tag, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EventCombobox } from "@/crm/components/event-combobox";
@@ -32,6 +32,7 @@ import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { ValueRangeFilter } from "@/crm/components/filters/value-range-filter";
 import { useCrmDeals, useCrmDealTypes, useCrmStages, useMoveDealStage } from "@/crm/hooks/use-crm-api";
 import { ManageStagesDialog } from "@/crm/components/manage-stages-dialog";
+import { ManageDealTypesDialog } from "@/crm/components/manage-deal-types-dialog";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
@@ -65,6 +66,7 @@ function DealsPageInner() {
   const [createOpen, setCreateOpen] = useState(false);
   const [sponsorEmailOpen, setSponsorEmailOpen] = useState(false);
   const [manageStagesOpen, setManageStagesOpen] = useState(false);
+  const [manageDealTypesOpen, setManageDealTypesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
   const eventId = get("event");
@@ -108,6 +110,10 @@ function DealsPageInner() {
             <Button variant="outline" onClick={() => setManageStagesOpen(true)}>
               <Columns3 className="mr-2 h-4 w-4" />
               Manage stages
+            </Button>
+            <Button variant="outline" onClick={() => setManageDealTypesOpen(true)}>
+              <Tag className="mr-2 h-4 w-4" />
+              Deal types
             </Button>
             <Button
               variant="outline"
@@ -288,6 +294,7 @@ function DealsPageInner() {
       />
 
       <ManageStagesDialog stages={stages} open={manageStagesOpen} onOpenChange={setManageStagesOpen} />
+      <ManageDealTypesDialog open={manageDealTypesOpen} onOpenChange={setManageDealTypesOpen} />
       {importOpen && <FreshsalesImportDialog type="deals" open={importOpen} onOpenChange={setImportOpen} />}
 
       <CrmEmailDialog
