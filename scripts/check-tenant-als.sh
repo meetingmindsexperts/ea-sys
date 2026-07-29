@@ -51,6 +51,7 @@ SWEPT_ROUTE_DIRS=(
   "src/app/api/billing-accounts"  # BillingAccount sweep (July 24, 2026)
   "src/app/api/invoices"          # Invoice sweep — org-wide hub + export (July 27, 2026)
   "src/app/api/media"             # MediaFile route wiring — org-level list/upload/delete (July 27, 2026)
+  "src/app/api/crm"               # CRM full-domain sweep — all 42 CRM routes (July 29, 2026)
 )
 # Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
@@ -148,6 +149,12 @@ SWEPT_MODULES=(
   "src/lib/certificates/auto-issue.ts"     # per-row cert auto-issue worker (July 29, 2026)
   "src/lib/refund-reconciliation.ts"       # per-row refund sweep worker (July 29, 2026)
   "src/lib/checkout-session-cleanup.ts"    # per-row checkout-session cleanup (July 29, 2026)
+  # CRM full-domain sweep (July 29, 2026) — MCP executors + the 2 CRM workers.
+  # The workers run OUTSIDE the CI gate's cron path; the module-level ≥1 check
+  # pins each file's per-row runWithTenant wrap.
+  "src/crm/agent-tools.ts"                  # CRM MCP executors (safeTool choke point) (July 29, 2026)
+  "src/crm/reminders-worker.ts"             # per-row task-reminder worker (July 29, 2026)
+  "src/crm/inbound-email-worker.ts"         # per-row inbound-email worker (July 29, 2026)
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
