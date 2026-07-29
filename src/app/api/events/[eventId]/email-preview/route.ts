@@ -15,7 +15,7 @@ import {
 import { buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { buildSpeakerEmailContext } from "@/lib/speaker-agreement";
-import { getTitleLabel } from "@/lib/utils";
+import { getTitleLabel, formatPersonName } from "@/lib/utils";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -30,6 +30,9 @@ const previewSchema = z.object({
   // a representative speaker's blocks (organizer-reported: previewing one
   // speaker's invitation showed a different speaker's name).
   speakerId: z.string().min(1).max(100).optional(),
+  // Target registration — same idea for the registration detail sheet's
+  // preview: greet the actual registrant with their real Registration #.
+  registrationId: z.string().min(1).max(100).optional(),
   // slug === "certificate" only — the CertificateTemplate ids the send
   // would carry. The cert cover email isn't an EmailTemplate slug (it
   // lives on the template row / system defaults), so it renders through
@@ -55,7 +58,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId } = parsed.data;
+    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId } = parsed.data;
 
     // Verify event access (org-scoped for team members). The caller's
     // profile signature + the event's real session/abstract/speaker data are
@@ -172,6 +175,38 @@ export async function POST(req: Request, { params }: RouteParams) {
               moderatorDetailsText: ctx.moderatorDetailsText,
             }
           : {}),
+      };
+    }
+
+    // Target-registration overrides — the registration detail sheet's preview
+    // must greet the actual registrant (title-prefixed) with their real
+    // Registration #, not the signed-in operator.
+    if (registrationId) {
+      const registration = await db.registration.findFirst({
+        where: { id: registrationId, eventId },
+        select: {
+          serialId: true,
+          attendee: { select: { title: true, firstName: true, lastName: true, email: true } },
+          ticketType: { select: { name: true } },
+        },
+      });
+      if (!registration) {
+        apiLogger.warn({ msg: "email-preview:registration-not-found", eventId, registrationId });
+        return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+      }
+      const a = registration.attendee;
+      const prefixedName = formatPersonName(a.title, a.firstName, a.lastName);
+      speakerVars = {
+        ...speakerVars,
+        title: getTitleLabel(a.title),
+        firstName: a.firstName,
+        lastName: a.lastName,
+        recipientName: prefixedName,
+        attendeeName: prefixedName,
+        ...(registration.serialId != null
+          ? { registrationId: String(registration.serialId).padStart(3, "0") }
+          : {}),
+        ...(registration.ticketType?.name ? { ticketType: registration.ticketType.name } : {}),
       };
     }
 

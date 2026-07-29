@@ -451,7 +451,12 @@ export function RegistrationDetailSheet({
       : EMAIL_TYPE_TO_SLUG[selectedEmailType];
     if (!slug) return;
     try {
-      const result = await previewMutation.mutateAsync({ slug });
+      const result = await previewMutation.mutateAsync({
+        slug,
+        // Preview greets THIS registrant (title-prefixed, real Registration #),
+        // matching the send — not the signed-in operator.
+        registrationId: selectedRegistration?.id,
+      });
       setPreviewData(result);
       setPreviewOpen(true);
     } catch {

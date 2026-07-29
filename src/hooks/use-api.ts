@@ -1132,6 +1132,8 @@ export function usePreviewEmailBySlug(eventId: string) {
       certificateTemplateIds?: string[];
       /** Target speaker — preview greets THEM with THEIR presentation context. */
       speakerId?: string;
+      /** Target registration — preview greets the registrant (title-prefixed) with their Registration #. */
+      registrationId?: string;
     }) =>
       fetchApi<{ subject: string; htmlContent: string }>(
         `/api/events/${eventId}/email-preview`,

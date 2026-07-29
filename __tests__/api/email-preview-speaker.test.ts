@@ -15,6 +15,7 @@ const { mockDb, mockAuth, mockCtx, mockRender } = vi.hoisted(() => ({
     event: { findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
     speaker: { findFirst: vi.fn() },
+    registration: { findFirst: vi.fn() },
   },
   mockAuth: vi.fn(),
   mockCtx: vi.fn(),
@@ -110,6 +111,35 @@ describe("email-preview with speakerId", () => {
   it("404s a speakerId from another event", async () => {
     mockDb.speaker.findFirst.mockResolvedValue(null);
     const res = await POST(req({ slug: "speaker-invitation", speakerId: "foreign" }), params);
+    expect(res.status).toBe(404);
+  });
+
+  it("registrationId greets the registrant title-prefixed with their real Registration #", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({
+      serialId: 7,
+      attendee: { title: "DR", firstName: "Ahmed", lastName: "Osman", email: "osman@x.com" },
+      ticketType: { name: "Physician" },
+    });
+    const res = await POST(req({ slug: "registration-confirmation", registrationId: "reg1" }), params);
+    expect(res.status).toBe(200);
+    // recipientName is title-prefixed via formatPersonName; registrationId is
+    // the padded serial. The template mock only renders {{speakerName}}, so
+    // assert via the vars handed to renderTemplate.
+    const vars = mockRender.mock.calls[0][1] as Record<string, string>;
+    expect(vars.recipientName).toBe("Dr. Ahmed Osman");
+    expect(vars.title).toBe("Dr.");
+    expect(vars.firstName).toBe("Ahmed");
+    expect(vars.registrationId).toBe("007");
+    expect(vars.ticketType).toBe("Physician");
+    // Event-bound lookup — no cross-event preview.
+    expect(mockDb.registration.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "reg1", eventId: "ev1" } }),
+    );
+  });
+
+  it("404s a registrationId from another event", async () => {
+    mockDb.registration.findFirst.mockResolvedValue(null);
+    const res = await POST(req({ slug: "registration-confirmation", registrationId: "foreign" }), params);
     expect(res.status).toBe(404);
   });
 

@@ -704,10 +704,10 @@ export async function generateSpeakerAgreementDocx(opts: {
   }
 
   const outBuf = doc.toBuffer({ compression: "DEFLATE" });
-  // Full name in the filename so a folder of downloaded agreements is
+  // Title + full name in the filename so a folder of downloaded agreements is
   // identifiable at a glance (was lastName only — ambiguous across speakers
-  // sharing a surname).
-  const filename = `agreement-${slugify(event.slug)}-${slugify(`${context.firstName} ${context.lastName}`.trim() || "speaker")}.docx`;
+  // sharing a surname). e.g. agreement-iohnc-2026-dr-ahmed-osman.docx
+  const filename = `agreement-${slugify(event.slug)}-${slugify(`${context.title} ${context.firstName} ${context.lastName}`.trim() || "speaker")}.docx`;
 
   return { buffer: outBuf, filename };
 }
@@ -2133,8 +2133,8 @@ export async function generateSpeakerAgreementPdf(opts: {
     footerImage,
   });
 
-  // Full name — same rule as the .docx path above.
-  const filename = `agreement-${slugify(event.slug)}-${slugify(`${resolved.context.firstName} ${resolved.context.lastName}`.trim() || "speaker")}.pdf`;
+  // Title + full name — same rule as the .docx path above.
+  const filename = `agreement-${slugify(event.slug)}-${slugify(`${resolved.context.title} ${resolved.context.firstName} ${resolved.context.lastName}`.trim() || "speaker")}.pdf`;
   return { buffer, filename };
 }
 
