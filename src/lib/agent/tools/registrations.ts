@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { getNextSerialId } from "@/lib/registration-serial";
@@ -55,6 +56,7 @@ const ATTENDEE_ROLE_VALUES = new Set([
 
 const listRegistrations: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const limit = Math.min(Number(input.limit ?? 50), 200);
     const statusValue = input.status ? String(input.status) : undefined;
     if (statusValue && !REGISTRATION_STATUSES.has(statusValue)) {
@@ -122,6 +124,7 @@ const listRegistrations: ToolExecutor = async (input, ctx) => {
       orderBy: { createdAt: "desc" },
     });
     return { registrations, total: registrations.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_registrations failed");
     return { error: "Failed to fetch registrations" };
@@ -212,6 +215,7 @@ const createTicketType: ToolExecutor = async (input, ctx) => {
 
 const createRegistrationTool: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const email = String(input.email ?? "").trim().toLowerCase();
     const firstName = String(input.firstName ?? "").trim();
     const lastName = String(input.lastName ?? "").trim();
@@ -341,6 +345,7 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
           : null,
       },
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_registration failed");
     return { error: "Failed to create registration" };
@@ -353,6 +358,7 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
 // reactivated outside the seat/promo transition).
 const checkInRegistration: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const registrationId = String(input.registrationId ?? "").trim();
     const allowCancelled = Boolean(input.allowCancelled);
     if (!registrationId) return { error: "registrationId is required" };
@@ -428,6 +434,7 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
     });
 
     return { success: true, attendee: reg.attendee, checkedInAt: updated.checkedInAt };
+    });
   } catch (err) {
     if (err instanceof Error && err.message === "CAPACITY_EXCEEDED") {
       apiLogger.warn({ msg: "agent:check-in-reactivate-capacity-exceeded", source: "mcp" });
@@ -452,6 +459,7 @@ const checkInRegistration: ToolExecutor = async (input, ctx) => {
 
 const listUnpaidRegistrations: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const limit = Math.min(Number(input.limit ?? 100), 500);
     const daysPending = input.daysPending != null ? Number(input.daysPending) : null;
     const ageCutoff = daysPending != null && daysPending > 0
@@ -485,6 +493,7 @@ const listUnpaidRegistrations: ToolExecutor = async (input, ctx) => {
     }));
 
     return { registrations: enriched, total: registrations.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_unpaid_registrations failed");
     return { error: "Failed to list unpaid registrations" };
@@ -503,6 +512,7 @@ const listUnpaidRegistrations: ToolExecutor = async (input, ctx) => {
 // null instead of persisting "" (L4).
 const updateRegistration: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const registrationId = String(input.registrationId ?? "").trim();
     if (!registrationId) return { error: "registrationId is required" };
 
@@ -608,6 +618,7 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
         },
       },
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:update_registration failed");
     return { error: err instanceof Error ? err.message : "Failed to update registration" };
@@ -616,6 +627,7 @@ const updateRegistration: ToolExecutor = async (input, ctx) => {
 
 const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const rawIds = input.registrationIds;
     if (!Array.isArray(rawIds) || rawIds.length === 0) {
       return { error: "registrationIds must be a non-empty array" };
@@ -824,6 +836,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
       notFound: registrationIds.length - updatedCount,
       requestedCount: registrationIds.length,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:bulk_update_registration_status failed");
     return { error: err instanceof Error ? err.message : "Failed to bulk update" };
@@ -834,6 +847,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
 
 const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const items = Array.isArray(input.registrations) ? (input.registrations as unknown[]) : null;
     if (!items || !items.length) return { error: "registrations must be a non-empty array", code: "MISSING_REGISTRATIONS" };
     if (items.length > BULK_MAX) {
@@ -1112,6 +1126,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
       created,
       errors,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_registrations_bulk failed");
     return { error: err instanceof Error ? err.message : "Failed to bulk-create registrations" };

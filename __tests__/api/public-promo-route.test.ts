@@ -52,7 +52,7 @@ const delReq = () => new Request("http://localhost/api/x", { method: "DELETE" })
 beforeEach(() => {
   vi.clearAllMocks();
   mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 19, retryAfterSeconds: 3600 });
-  mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", eventId: "evt-1" });
+  mockDb.registration.findFirst.mockResolvedValue({ id: "reg-1", eventId: "evt-1", event: { organizationId: "org-1" } });
   mockApply.mockResolvedValue({
     ok: true,
     financials: { code: "SAVE50", originalPrice: 150, discountAmount: 75, finalPrice: 75, currency: "USD" },

@@ -28,7 +28,7 @@ beforeEach(() => {
 
 describe("expireOpenCheckoutSessionOnCancel", () => {
   it("expires the open session and clears the pointer", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({ stripeCheckoutSessionId: "cs_open" });
+    mockDb.registration.findUnique.mockResolvedValue({ stripeCheckoutSessionId: "cs_open", event: { organizationId: "org1" } });
     await expireOpenCheckoutSessionOnCancel("reg1", "test");
     expect(sessionsExpire).toHaveBeenCalledWith("cs_open");
     expect(mockDb.registration.update).toHaveBeenCalledWith({
@@ -41,14 +41,14 @@ describe("expireOpenCheckoutSessionOnCancel", () => {
   });
 
   it("no-ops when the registration holds no open session", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({ stripeCheckoutSessionId: null });
+    mockDb.registration.findUnique.mockResolvedValue({ stripeCheckoutSessionId: null, event: { organizationId: "org1" } });
     await expireOpenCheckoutSessionOnCancel("reg1", "test");
     expect(sessionsExpire).not.toHaveBeenCalled();
     expect(mockDb.registration.update).not.toHaveBeenCalled();
   });
 
   it("a Stripe error (already completed/expired) still clears the pointer and never throws", async () => {
-    mockDb.registration.findUnique.mockResolvedValue({ stripeCheckoutSessionId: "cs_done" });
+    mockDb.registration.findUnique.mockResolvedValue({ stripeCheckoutSessionId: "cs_done", event: { organizationId: "org1" } });
     sessionsExpire.mockRejectedValue(new Error("Session is not open"));
     await expect(expireOpenCheckoutSessionOnCancel("reg1", "test")).resolves.toBeUndefined();
     expect(mockApiLogger.warn).toHaveBeenCalledWith(

@@ -63,6 +63,8 @@ export async function ensureRegistrantAccount(args: {
         where: { id: registrationId },
         data: { userId: existingUser.id },
       });
+      // Deliberately cross-org (identity-model decision, MULTI_TENANCY_IMPACT.md §8.1)
+      // — NOT wrapped/org-bound in the Registration-core sweep.
       await db.registration.updateMany({
         where: { attendee: { email }, userId: null },
         data: { userId: existingUser.id },
@@ -94,6 +96,8 @@ export async function ensureRegistrantAccount(args: {
         },
       });
       // Link this registration + any other unlinked registrations by this email.
+      // Deliberately cross-org (identity-model decision, MULTI_TENANCY_IMPACT.md §8.1)
+      // — NOT wrapped/org-bound in the Registration-core sweep.
       await db.registration.updateMany({
         where: { attendee: { email }, userId: null },
         data: { userId: newUser.id },

@@ -25,6 +25,8 @@ export async function GET() {
     // the row both appears in THIS response and stays linked for future
     // requests.
     const userEmail = session.user.email.toLowerCase();
+    // Deliberately cross-org (identity-model decision, MULTI_TENANCY_IMPACT.md §8.1)
+    // — NOT wrapped/org-bound in the Registration-core sweep.
     await db.registration.updateMany({
       where: {
         userId: null,

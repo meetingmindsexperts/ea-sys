@@ -38,6 +38,7 @@
 
 import type { CertificateType } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 
 // Process up to this many candidate registrations per sweep tick. The
@@ -165,6 +166,7 @@ export async function runAutoIssueSweep(
     select: {
       id: true,
       eventId: true,
+      organizationId: true,
       certAutoIssueAttempts: true,
       attendee: {
         select: { title: true, firstName: true, lastName: true, email: true, tags: true },
@@ -203,6 +205,12 @@ export async function runAutoIssueSweep(
   }
 
   for (const reg of candidates) {
+    // Per-row tenant context (multi-tenancy sweep): org resolved from the row
+    // itself — the candidate sweep stays org-blind (worker precondition, see
+    // MULTI_TENANCY.md §13). NULL org (pre-backfill blue-green row) runs
+    // unwrapped, preserving master behavior. `continue` in the original loop
+    // body becomes `return` inside the closure.
+    const processRow = async () => {
     const templates = templatesByEvent.get(reg.eventId) ?? [];
     if (templates.length === 0) {
       // No auto-issue templates for this event — terminally resolve so the
@@ -214,7 +222,7 @@ export async function runAutoIssueSweep(
         );
       result.skippedNoTemplates++;
       result.resolved++;
-      continue;
+      return;
     }
 
     try {
@@ -260,6 +268,12 @@ export async function runAutoIssueSweep(
           error: message,
         });
       }
+    }
+    };
+    if (reg.organizationId) {
+      await runWithTenant(reg.organizationId, processRow);
+    } else {
+      await processRow();
     }
   }
 
