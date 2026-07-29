@@ -313,25 +313,29 @@ function DealCard({
             <span className="shrink-0 text-sm font-semibold tabular-nums">
               {value ?? <span className="font-normal text-muted-foreground">—</span>}
             </span>
-            {/* min-w-0 lets this group shrink so the event chip TRUNCATES instead
-                of overflowing the card; ml-auto keeps it right-aligned. */}
-            <span className="ml-auto flex min-w-0 items-center gap-1">
-              {deal.pipeline && (
-                <Badge variant="outline" className="shrink-0 border-sky-200 bg-sky-50 text-[10px] text-sky-700">
-                  {CRM_DEAL_PIPELINE_LABELS[deal.pipeline]}
-                </Badge>
-              )}
-              {deal.event && (
-                <Badge
-                  variant="outline"
-                  className="min-w-0 max-w-[8rem] overflow-hidden text-[10px]"
-                  title={deal.event.name}
-                >
-                  <span className="truncate">{deal.event.name}</span>
-                </Badge>
-              )}
-            </span>
+            {deal.pipeline && (
+              <Badge
+                variant="outline"
+                className="ml-auto shrink-0 border-sky-200 bg-sky-50 text-[10px] text-sky-700"
+              >
+                {CRM_DEAL_PIPELINE_LABELS[deal.pipeline]}
+              </Badge>
+            )}
           </div>
+
+          {/* Event on its OWN row so it uses the full card width instead of being
+              squeezed next to the value + pipeline; truncates only if very long. */}
+          {deal.event && (
+            <div className="mt-1.5 flex">
+              <Badge
+                variant="outline"
+                className="min-w-0 max-w-full overflow-hidden text-[10px]"
+                title={deal.event.name}
+              >
+                <span className="truncate">{deal.event.name}</span>
+              </Badge>
+            </div>
+          )}
 
           <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span className="flex min-w-0 items-center gap-1.5">
