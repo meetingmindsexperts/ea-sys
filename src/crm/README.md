@@ -14,6 +14,7 @@ separate deployable.
 | this file | code layout, conventions, the invariants specific to this module |
 | [`docs/CRM_STATUS.html`](../../docs/CRM_STATUS.html) | **live status** — what's done, pending, and *actually wired* vs not. Keep it current. |
 | [`docs/CRM_MODULE_PLAN.md`](../../docs/CRM_MODULE_PLAN.md) | the blueprint + the locked owner decisions (§9) |
+| [`docs/CRM_TENANCY_SWEEP.md`](../../docs/CRM_TENANCY_SWEEP.md) | the CRM multi-tenancy sweep as-executed (RLS policy layer + C1/C2/C4 wiring) — DONE, behavior-preserving on master |
 | [`/AGENTS.md`](../../AGENTS.md) | the app-wide invariants this module also obeys |
 | [`src/services/README.md`](../services/README.md) | service-layer conventions (CRM services follow them) |
 
