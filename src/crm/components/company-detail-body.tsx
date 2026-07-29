@@ -43,6 +43,7 @@ import {
   type CrmCompanyFormState,
 } from "@/crm/components/crm-company-form-fields";
 import { DEAL_STATUS_COLORS, LIFECYCLE_COLORS, LIFECYCLE_LABELS, formatDealValue } from "@/crm/lib/crm-types";
+import { companyDealValueBreakdown } from "@/crm/lib/company-rollup";
 import { RecordHeader, RecordGrid, RecordCard, Facts, Fact, Dash } from "@/crm/components/record-layout";
 import { CrmNotesCard } from "@/crm/components/crm-notes-card";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
@@ -114,6 +115,9 @@ export function CompanyDetailBody({
   const subtitle = [company.industry, location].filter(Boolean).join(" · ");
   const openDeals = company.deals.filter((d) => d.status === "OPEN").length;
   const wonDeals = company.deals.filter((d) => d.status === "WON").length;
+  // Per-currency Open / Won / Total deal value (LOST excluded, never summed
+  // across currencies). Empty for a money-blind MEMBER (deal values redacted).
+  const dealValueBreakdown = companyDealValueBreakdown(company.deals);
 
   return (
     <div className="space-y-5">
@@ -345,7 +349,37 @@ export function CompanyDetailBody({
           {company.deals.length === 0 ? (
             <p className="text-sm text-muted-foreground">No deals yet.</p>
           ) : (
-            <ul className="space-y-2">
+            <>
+              {/* Deal value under this account: Open (pipeline) / Won (closed) /
+                  Total, per currency. Empty for a money-blind MEMBER → one "—" row. */}
+              {dealValueBreakdown.length > 0 ? (
+                <div className="mb-3 space-y-2">
+                  {dealValueBreakdown.map((b) => (
+                    <div key={b.currency} className="rounded-md border bg-muted/30 p-2">
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Open</p>
+                          <p className="text-sm font-medium tabular-nums">{formatDealValue(b.open, b.currency)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Won</p>
+                          <p className="text-sm font-medium tabular-nums">{formatDealValue(b.won, b.currency)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total</p>
+                          <p className="text-sm font-semibold tabular-nums">{formatDealValue(b.total, b.currency)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mb-3 flex items-center justify-between rounded-md border bg-muted/30 p-2 text-sm">
+                  <span className="text-muted-foreground">Deal value</span>
+                  <Dash />
+                </div>
+              )}
+              <ul className="space-y-2">
               {company.deals.map((d) => {
                 const value = formatDealValue(d.dealValue, d.currency);
                 return (
@@ -368,7 +402,8 @@ export function CompanyDetailBody({
                   </li>
                 );
               })}
-            </ul>
+              </ul>
+            </>
           )}
         </RecordCard>
 

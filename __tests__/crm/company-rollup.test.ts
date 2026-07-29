@@ -7,7 +7,12 @@
  * contact — derived, not stored.
  */
 import { describe, it, expect } from "vitest";
-import { companyDealTotals, companyPrimaryContact, type RollupDeal } from "@/crm/lib/company-rollup";
+import {
+  companyDealTotals,
+  companyDealValueBreakdown,
+  companyPrimaryContact,
+  type RollupDeal,
+} from "@/crm/lib/company-rollup";
 
 const deal = (over: Partial<RollupDeal>): RollupDeal => ({
   status: "OPEN",
@@ -83,3 +88,36 @@ describe("companyPrimaryContact", () => {
     expect(companyPrimaryContact([], null)).toBeNull();
   });
 });
+
+describe("companyDealValueBreakdown", () => {
+  it("splits Open vs Won per currency, excludes LOST, total = open + won", () => {
+    const b = companyDealValueBreakdown([
+      deal({ status: "OPEN", dealValue: 10_000 }),
+      deal({ status: "OPEN", dealValue: 5_000 }),
+      deal({ status: "WON", dealValue: 40_000 }),
+      deal({ status: "LOST", dealValue: 99_000 }),
+    ]);
+    expect(b).toEqual([{ currency: "USD", open: 15_000, won: 40_000, total: 55_000 }]);
+  });
+
+  it("NEVER sums across currencies — one entry per currency, largest total first", () => {
+    const b = companyDealValueBreakdown([
+      deal({ status: "OPEN", dealValue: 5_000, currency: "AED" }),
+      deal({ status: "WON", dealValue: 30_000, currency: "USD" }),
+      deal({ status: "OPEN", dealValue: 15_000, currency: "AED" }),
+    ]);
+    expect(b).toEqual([
+      { currency: "USD", open: 0, won: 30_000, total: 30_000 },
+      { currency: "AED", open: 20_000, won: 0, total: 20_000 },
+    ]);
+  });
+
+  it("valueless / redacted (null-or-undefined value) deals contribute nothing — a MEMBER gets an empty breakdown", () => {
+    expect(
+      companyDealValueBreakdown([
+        deal({ status: "OPEN", dealValue: null }),
+        deal({ status: "WON", dealValue: undefined }),
+      ]),
+    ).toEqual([]);
+  });
+})

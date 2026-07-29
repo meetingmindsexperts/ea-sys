@@ -23,7 +23,7 @@ export interface RollupPerson {
 
 export interface RollupDeal {
   status: "OPEN" | "WON" | "LOST";
-  dealValue: unknown; // Prisma Decimal | string | number | null
+  dealValue?: unknown; // Prisma Decimal | string | number | null | undefined
   currency: string;
   /** The deal's PRIMARY-role people (the caller passes `take: 1`). */
   contacts?: Array<{ crmContact: RollupPerson | null }>;
@@ -32,6 +32,41 @@ export interface RollupDeal {
 export interface CompanyDealTotal {
   currency: string;
   total: number;
+}
+
+export interface CompanyDealValueBreakdown {
+  currency: string;
+  /** Σ OPEN deal values — live pipeline. */
+  open: number;
+  /** Σ WON deal values — closed-won revenue. */
+  won: number;
+  /** open + won (matches companyDealTotals). */
+  total: number;
+}
+
+/**
+ * Per-currency Open / Won / Total deal value, largest total first — the account
+ * page's value breakdown. Same rules as companyDealTotals: LOST is excluded
+ * (money that never came), values are NEVER summed across currencies, and a
+ * valueless (or, for a MEMBER, redacted-away) deal contributes nothing — so a
+ * money-blind caller gets an empty breakdown, rendered as "—".
+ */
+export function companyDealValueBreakdown(deals: RollupDeal[]): CompanyDealValueBreakdown[] {
+  const byCurrency = new Map<string, { open: number; won: number }>();
+  for (const d of deals) {
+    if (d.status === "LOST") continue;
+    if (d.dealValue === null || d.dealValue === undefined) continue;
+    const n = Number(d.dealValue);
+    if (!Number.isFinite(n)) continue;
+    const currency = d.currency || "USD";
+    const cur = byCurrency.get(currency) ?? { open: 0, won: 0 };
+    if (d.status === "OPEN") cur.open += n;
+    else if (d.status === "WON") cur.won += n;
+    byCurrency.set(currency, cur);
+  }
+  return [...byCurrency.entries()]
+    .map(([currency, { open, won }]) => ({ currency, open, won, total: open + won }))
+    .sort((a, b) => b.total - a.total || a.currency.localeCompare(b.currency));
 }
 
 /** Per-currency OPEN+WON totals, largest first. Valueless deals contribute nothing. */
