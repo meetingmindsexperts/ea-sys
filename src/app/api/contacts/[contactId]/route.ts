@@ -9,7 +9,7 @@ import { denyContactAccess } from "@/lib/contact-visibility";
 import { checkRateLimit } from "@/lib/security";
 import { normalizeTag } from "@/lib/utils";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
-import { deletePhoto } from "@/lib/storage";
+import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 
 type RouteParams = { params: Promise<{ contactId: string }> };
 
@@ -263,11 +263,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       where: { id: contactId, organizationId: ctx.organizationId },
     });
 
-    // Clean up photo file if present
+    // Clean up the photo file — ONLY when no other row still references it
+    // (photo paths are shared across Attendee/Speaker/Contact; INC-004).
     if (contact.photo) {
-      deletePhoto(contact.photo).catch((err) =>
-        apiLogger.warn({ msg: "Failed to delete contact photo", photo: contact.photo, err })
-      );
+      void deletePhotoIfUnreferenced(contact.photo);
     }
 
     return NextResponse.json({ success: true });

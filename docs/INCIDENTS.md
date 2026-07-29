@@ -182,6 +182,30 @@ That output is the authoritative reconcile. (It also surfaced **unrelated** pre-
 
 ---
 
+## INC-004 — 27 speaker/attendee photos destroyed on prod by delete-time file cleanup (2026-07-24, discovered 2026-07-29)
+
+| | |
+|---|---|
+| **Date** | Deleted 2026-07-24 ~12:45 UTC; noticed 2026-07-29 (organizer report: speaker photo 404 on the Benign Hematology Summit) |
+| **Duration** | 5 days of 404ing photos on affected speaker/attendee/contact rows; restored 2026-07-29 ~12:50 UTC |
+| **Severity** | SEV-3 — cosmetic data loss (person photos), fully recoverable from the DR mirror; no PII exposure, no downtime |
+| **Trigger** | An operator bulk-deleted entities (duplicate/test import cleanup) whose rows pointed at photo files that OTHER rows still referenced |
+| **Root cause** | Since March 2026 the speaker / registration / contact **DELETE routes unlink the row's photo file from disk** ("clean up photo file"). But photo **paths are deliberately shared across rows**: `syncToContact` copies the URL onto the org Contact, and every import flow (registrations→speakers, contacts→registrations, EventsAir, speaker companions) carries the same `/uploads/photos/...` string onto the rows it creates. Deleting ONE row therefore destroyed the file its **siblings** still pointed at — 26 files under `photos/2026/07` + 1 under `2026/04` vanished while surviving Speaker/Attendee/Contact rows kept the dead path. |
+| **Why it took months to bite** | The unlink shipped in March, but path-sharing density exploded in June–July (companion registrations, contact sync enrichment, heavy import activity), and only July's cleanup of an import batch deleted rows whose photos had living siblings. |
+| **Fix (recovery)** | `sudo aws s3 sync s3://ea-sys-dr-singapore/uploads/ /home/ubuntu/ea-sys/public/uploads/ --region ap-southeast-1 --exclude "*.gitkeep"` then `chown -R ssm-user:ssm-user` + `chmod -R u+rwX,go+rX` on the uploads tree (the tree is owned by uid 1001 — the container's write uid — so a plain `sudo -u ubuntu` sync gets `EACCES`). The DR mirror is **non-deleting**, so every destroyed file was still there. Verified: the reported photo returned `200 OK`. |
+| **Fix (durable)** | [src/lib/photo-cleanup.ts](../src/lib/photo-cleanup.ts) `deletePhotoIfUnreferenced()` — all three DELETE routes now count remaining references across **Attendee + Speaker + Contact** (the three `photo` columns in the schema) and unlink only at zero. Never throws (cleanup must not fail a committed delete); a skipped unlink logs `photo-cleanup:still-referenced`. Same shape as the media library's `findMediaReferences` guard. |
+| **Status** | Restored + guard shipped |
+
+### How it was diagnosed
+The file was **present in the DR mirror but absent on the box** (`aws s3 ls` vs SSM `ls`) — proving it once existed on the host and was later deleted. The folder's mtime pinned the deletion to 12:45:55 UTC July 24. Eliminated in order: manual shell activity (`last` empty, no `rm` in any history), deploys (no `git clean` anywhere; uploads gitignored + bind-mounted), the docker-prune cron (Fridays 03:00), root cron (the 12:45:01 entry was sysstat). The breakthrough was grepping for file-deletion code paths: `storage.ts` exports `deletePhoto()`, called by exactly the three entity DELETE routes — and photo paths are shared by design.
+
+### The rule and the prevention
+- **A file referenced by copied paths is shared state — deleting the row must not delete the file until the LAST reference is gone.** Any future column that stores a file path either gets its own reference-checked cleanup or no delete-time unlink at all.
+- **An orphaned file is cheap; a wrongly-deleted shared file is data loss.** When the reference check itself fails, the guard skips the unlink (fail-safe direction).
+- **The DR mirror being non-deleting is what made this a SEV-3 instead of permanent loss** — do not "optimize" the hourly uploads sync with `--delete`.
+
+---
+
 ## Appendix — How to diagnose a frozen box
 
 When the site times out but the instance is "running" (the INC-001 pattern):

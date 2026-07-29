@@ -9,7 +9,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
-import { deletePhoto } from "@/lib/storage";
+import { deletePhotoIfUnreferenced } from "@/lib/photo-cleanup";
 import { refreshEventStats } from "@/lib/event-stats";
 import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { optimisticLockField } from "@/lib/optimistic-lock";
@@ -383,11 +383,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Refresh denormalized event stats (fire-and-forget)
     refreshEventStats(eventId);
 
-    // Clean up photo file if present
+    // Clean up the photo file — ONLY when no other row still references it
+    // (photo paths are shared across Attendee/Speaker/Contact; INC-004).
     if (speaker.photo) {
-      deletePhoto(speaker.photo).catch((err) =>
-        apiLogger.warn({ msg: "Failed to delete speaker photo", photo: speaker.photo, err })
-      );
+      void deletePhotoIfUnreferenced(speaker.photo);
     }
 
     // Log the action. Fire-and-forget (M13): the delete is already committed —
