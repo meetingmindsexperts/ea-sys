@@ -75,6 +75,8 @@ import {
   CRM_TASK_B_ID,
   CRM_NOTE_A_ID,
   CRM_NOTE_B_ID,
+  CRM_DEALTYPE_A_ID,
+  CRM_DEALTYPE_B_ID,
   CRM_DEAL_A_ID,
   CRM_DEAL_B_ID,
   CRM_DC_A_ID,
@@ -299,6 +301,7 @@ async function seedCrmGroup1(
     activityId: string;
     taskId: string;
     noteId: string;
+    dealTypeId: string;
   },
 ) {
   await db.crmCompany.create({
@@ -326,6 +329,9 @@ async function seedCrmGroup1(
   });
   await db.crmTask.create({ data: { id: ids.taskId, organizationId: orgId, title: "Shared Task" } });
   await db.crmNote.create({ data: { id: ids.noteId, organizationId: orgId, body: "Shared note" } });
+  await db.crmDealType.create({
+    data: { id: ids.dealTypeId, organizationId: orgId, name: "Shared Deal Type", sortOrder: 0 },
+  });
 }
 
 /**
@@ -450,6 +456,7 @@ async function main() {
     activityId: CRM_ACT_A_ID,
     taskId: CRM_TASK_A_ID,
     noteId: CRM_NOTE_A_ID,
+    dealTypeId: CRM_DEALTYPE_A_ID,
   });
   await seedCrmGroup2(ORG_A_ID, {
     dealId: CRM_DEAL_A_ID,
@@ -511,6 +518,7 @@ async function main() {
     activityId: CRM_ACT_B_ID,
     taskId: CRM_TASK_B_ID,
     noteId: CRM_NOTE_B_ID,
+    dealTypeId: CRM_DEALTYPE_B_ID,
   });
   await seedCrmGroup2(ORG_B_ID, {
     dealId: CRM_DEAL_B_ID,

@@ -48,6 +48,8 @@ import {
   CRM_TASK_B_ID,
   CRM_NOTE_A_ID,
   CRM_NOTE_B_ID,
+  CRM_DEALTYPE_A_ID,
+  CRM_DEALTYPE_B_ID,
 } from "./constants";
 
 beforeAll(() => {
@@ -188,6 +190,18 @@ const CASES: CrmRlsCase[] = [
     smuggle: () =>
       db.crmNote.create({ data: { id: "tenancy-smuggle-note", organizationId: ORG_B_ID, body: "Smuggle" } }),
     reHome: () => db.crmNote.update({ where: { id: CRM_NOTE_A_ID }, data: { organizationId: ORG_B_ID } }),
+  },
+  {
+    name: "CrmDealType",
+    scopedRead: () => db.crmDealType.findMany({ select: { organizationId: true } }),
+    findB: () => db.crmDealType.findUnique({ where: { id: CRM_DEALTYPE_B_ID }, select: { id: true } }),
+    failClosed: () => db.crmDealType.findMany({ select: { id: true } }),
+    deleteB: () => db.crmDealType.delete({ where: { id: CRM_DEALTYPE_B_ID } }),
+    smuggle: () =>
+      db.crmDealType.create({
+        data: { id: "tenancy-smuggle-dealtype", organizationId: ORG_B_ID, name: "Smuggle Type", sortOrder: 9 },
+      }),
+    reHome: () => db.crmDealType.update({ where: { id: CRM_DEALTYPE_A_ID }, data: { organizationId: ORG_B_ID } }),
   },
 ];
 

@@ -158,6 +158,11 @@ export const CRM_TASK_A_ID = "tenancy-crmtask-a";
 export const CRM_TASK_B_ID = "tenancy-crmtask-b";
 export const CRM_NOTE_A_ID = "tenancy-crmnote-a";
 export const CRM_NOTE_B_ID = "tenancy-crmnote-b";
+// CrmDealType (the admin-editable deal-type list, added July 29) — a simple
+// direct-org Group-1-shape model; @@unique([organizationId, name]) so both orgs
+// share the name.
+export const CRM_DEALTYPE_A_ID = "tenancy-crmdealtype-a";
+export const CRM_DEALTYPE_B_ID = "tenancy-crmdealtype-b";
 
 /**
  * CRM full-domain sweep — POLICY LAYER, Group 2 (the deal graph). Each org gets
