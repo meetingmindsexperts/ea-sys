@@ -97,6 +97,41 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/public/events/[slug]/sessions/[sessionId]/zoom-join/route.ts"      # Webinar (July 28, 2026)
   "src/app/api/public/events/[slug]/sessions/[sessionId]/recording/route.ts"      # Webinar (July 28, 2026)
   "src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts"         # Webinar (July 28, 2026)
+  # Registration-core sweep (July 29, 2026) — staff registration + import routes.
+  # (payments / quote / documents-resend were gated by the Invoice sweep; the
+  # 7 REGISTRANT self-service routes under /api/registrant/** are deliberately
+  # NOT swept — cross-org by design, deferred to the Phase-1 identity decision.)
+  "src/app/api/events/[eventId]/registrations/route.ts"                                # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/badges/route.ts"                         # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/bulk-tags/route.ts"                      # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/bulk-type/route.ts"                      # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/import-contacts/route.ts"                # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/route.ts"               # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/activity/route.ts"      # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/barcode/route.ts"       # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/cancel/route.ts"        # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/check-in/route.ts"      # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/credit-notes/route.ts"  # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/email/route.ts"         # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/promo/route.ts"         # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/registrations/[registrationId]/refund/route.ts"        # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/import/registrations/route.ts"                          # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/import/registrations/send-completion-emails/route.ts"   # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/import/eventsair/route.ts"                              # Reg-core (July 29, 2026)
+  "src/app/api/events/[eventId]/import/barcodes/route.ts"                               # Reg-core (July 29, 2026)
+  # Registration-core sweep — the PUBLIC registration routes (org via
+  # publicEventWhere / token; wrap after the event/row resolution).
+  "src/app/api/public/events/[slug]/register/route.ts"                                 # Reg-core (July 29, 2026)
+  "src/app/api/public/events/[slug]/checkout/route.ts"                                 # Reg-core (July 29, 2026)
+  "src/app/api/public/events/[slug]/payment-status/[registrationId]/route.ts"          # Reg-core (July 29, 2026)
+  "src/app/api/public/events/[slug]/check-email/route.ts"                              # Reg-core (July 29, 2026)
+  "src/app/api/public/events/[slug]/complete-registration/route.ts"                    # Reg-core (July 29, 2026)
+  "src/app/api/public/events/[slug]/validate-promo/route.ts"                           # Reg-core (July 29, 2026)
+  "src/app/api/public/events/[slug]/registrations/[registrationId]/promo/route.ts"     # Reg-core (July 29, 2026)
+  "src/app/api/public/events/[slug]/survey/route.ts"                                   # Reg-core (July 29, 2026)
+  # Registration-core sweep — the Stripe webhook (unauthenticated-by-design;
+  # org resolved per event object; wraps the money-transaction blocks).
+  "src/app/api/webhooks/stripe/route.ts"                                               # Reg-core (July 29, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
@@ -108,6 +143,11 @@ SWEPT_MODULES=(
   "src/lib/webinar-engagement.ts"       # Webinar (July 28, 2026)
   "src/lib/webinar-recording-sync.ts"   # Webinar (July 28, 2026)
   "src/lib/webinar-provisioner.ts"      # Webinar (July 28, 2026)
+  # Registration-core sweep (July 29, 2026) — MCP executors + per-row workers.
+  "src/lib/agent/tools/registrations.ts"   # registration agent / MCP executors (July 29, 2026)
+  "src/lib/certificates/auto-issue.ts"     # per-row cert auto-issue worker (July 29, 2026)
+  "src/lib/refund-reconciliation.ts"       # per-row refund sweep worker (July 29, 2026)
+  "src/lib/checkout-session-cleanup.ts"    # per-row checkout-session cleanup (July 29, 2026)
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
