@@ -2,7 +2,12 @@
 
 EA-SYS exposes event management capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io). Any MCP-compatible client (Claude Desktop, Cursor, Claude.ai web, n8n, custom agents) can connect and drive an end-to-end event lifecycle.
 
-**Last updated:** July 21, 2026 — incremental-sync date filters on `list_speakers` / `list_registrations`. **71 tools** across 11 domains.
+**Last updated:** July 29, 2026 — `create_registration.ticketTypeId` now optional (typeless/uncategorised registrations) + server-side Faculty-type refusal. **71 tools** across 11 domains.
+
+### July 29, 2026 — Optional registration type + Faculty guard (`0.4.27`)
+
+- **`create_registration`** — `ticketTypeId` is now **optional**. Omit it to register the person *without* a registration type (uncategorised: `ticketTypeId` null, `paymentStatus` defaults to `COMPLIMENTARY`, no seat claim; assign a type later via `update_registration` or the dashboard's bulk Change Type). The hidden **Faculty** type is now refused server-side (`TICKET_TYPE_IS_FACULTY`) on both `create_registration` and per-row in `create_registrations_bulk` — it backs speaker companion registrations and a delegate placed on it disappears from every delegate-facing count. Bulk rows still require a `ticketTypeId`.
+- **Reconnect required** — the input schema changed (`required` no longer lists `ticketTypeId`); connected clients (claude.ai web, Claude Desktop, n8n) must disconnect + reconnect to pick it up (`serverInfo.version` 0.4.27).
 
 ### July 21, 2026 — Incremental-sync date filters on the two people lists
 
@@ -130,7 +135,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | Tool | Description |
 |---|---|
 | `list_registrations` | Filter by status, paymentStatus, ticketTypeId, and created/updated date ranges (`createdAfter`/`createdBefore`/`updatedAfter`/`updatedBefore`, ISO 8601, inclusive) |
-| `create_registration` | Register an attendee; returns `existingRegistrationId` on duplicate |
+| `create_registration` | Register an attendee; `ticketTypeId` optional (omit ⇒ uncategorised, COMPLIMENTARY; Faculty type refused); returns `existingRegistrationId` on duplicate |
 | `update_registration` | Status, paymentStatus, ticketTypeId, attendee details (auto-adjusts `soldCount`) |
 | `bulk_update_registration_status` | Update status + paymentStatus on up to 200 registrations in one transaction |
 | `check_in_registration` | Mark registration as CHECKED_IN |
