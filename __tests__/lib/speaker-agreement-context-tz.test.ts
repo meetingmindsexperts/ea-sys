@@ -244,6 +244,27 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     expect(ctx?.moderatorDetails).toContain("11:00 AM – 11:30 AM");
   });
 
+  it("renders the SAME labeled Session / Date & Time / Track table as presentationDetails, then the run-sheet", async () => {
+    const row = moderatorRow();
+    (row.sessions[0].session as { track: unknown }).track = { name: "Track B" };
+    mockDb.speaker.findFirst.mockResolvedValue(row);
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    const html = ctx?.moderatorDetails ?? "";
+    // Labeled info table (shared renderer with presentationDetails)…
+    expect(html).toContain(">Session<");
+    expect(html).toContain(">Date &amp; Time<");
+    expect(html).toContain(">Track<");
+    expect(html).toContain("Track B");
+    // …followed by the run-sheet table headers.
+    expect(html).toContain(">Time<");
+    expect(html).toContain(">Topic<");
+    expect(html).toContain(">Speaker(s)<");
+    // Text mirror uses the same labeled lines.
+    expect(ctx?.moderatorDetailsText).toContain("Session: Structural Heart Panel · Hall B");
+    expect(ctx?.moderatorDetailsText).toContain("Date & Time: ");
+    expect(ctx?.moderatorDetailsText).toContain("Track: Track B");
+  });
+
   it("is EMPTY for a speaker who moderates nothing", async () => {
     mockDb.speaker.findFirst.mockResolvedValue(speakerRow()); // role SPEAKER only
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");

@@ -365,6 +365,24 @@ const MOD_HEAD_STYLE =
   "padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;";
 
 /**
+ * Labeled two-column info table (Session / Topic / Date & Time / Track rows)
+ * — ONE renderer shared by {{presentationDetails}} and {{moderatorDetails}}
+ * so the two blocks read identically per session (July 29, 2026 owner
+ * request). Inline styles only (no <style> blocks) so juice / email clients
+ * render correctly. Values are pre-escaped by the callers.
+ */
+function labeledInfoTable(rows: Array<[string, string]>, margin = "16px 0"): string {
+  return `<table style="border-collapse:collapse; margin:${margin}; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
+${rows
+  .map(
+    ([label, value]) =>
+      `        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">${label}</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">${value}</td></tr>`,
+  )
+  .join("\n")}
+      </table>`;
+}
+
+/**
  * {{moderatorDetails}} — for each session the speaker MODERATES: the session
  * name + time window, then the full topic run-sheet (topic, speakers,
  * duration, and each topic's start–end computed by stacking the topic
@@ -383,18 +401,9 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
   for (const { session } of moderated) {
     // Date / time / duration as separate lines (owner request).
     const windowLines = sessionWindowLines(session.startTime, session.endTime ?? null, eventTz);
-    const headerHtml = `<strong>${escapeHtmlForAgreement(session.name)}</strong>${
-      session.location ? ` · ${escapeHtmlForAgreement(session.location)}` : ""
-    }`;
-    const trackSuffix = session.track?.name
-      ? `<br/>Track: ${escapeHtmlForAgreement(session.track.name)}`
-      : "";
-
-    textParts.push(
-      `Session: ${session.name}${session.location ? ` · ${session.location}` : ""}\n${windowLines.join("\n")}${session.track?.name ? `\nTrack: ${session.track.name}` : ""}`,
-    );
 
     let bodyRows = "";
+    const topicTextLines: string[] = [];
     let clock = new Date(session.startTime).getTime();
     for (const topic of session.topics) {
       const speakers = topic.speakers
@@ -410,7 +419,7 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
         clock = end.getTime();
       }
       bodyRows += `        <tr><td style="${MOD_CELL_STYLE} white-space:nowrap;">${timeCell}</td><td style="${MOD_CELL_STYLE}">${escapeHtmlForAgreement(topic.title)}</td><td style="${MOD_CELL_STYLE}">${speakers ? escapeHtmlForAgreement(speakers) : "—"}</td><td style="${MOD_CELL_STYLE} white-space:nowrap;">${durationCell}</td></tr>\n`;
-      textParts.push(
+      topicTextLines.push(
         `  ${timeCell} · ${topic.title}${speakers ? ` — ${speakers}` : ""}${durationCell !== "—" ? ` (${durationCell})` : ""}`,
       );
     }
@@ -420,18 +429,41 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
         <tr><th style="${MOD_HEAD_STYLE}">Time</th><th style="${MOD_HEAD_STYLE}">Topic</th><th style="${MOD_HEAD_STYLE}">Speaker(s)</th><th style="${MOD_HEAD_STYLE}">Duration</th></tr>
 ${bodyRows}      </table>`
       : `<p style="margin:0; color:#6b7280; font-size:13px; font-style:italic;">No topics have been added to this session yet.</p>`;
-    if (!session.topics.length) textParts.push("  (no topics added yet)");
+    if (!session.topics.length) topicTextLines.push("  (no topics added yet)");
+
+    // Same labeled Session / Date & Time / Track table as
+    // {{presentationDetails}} (July 29, 2026 owner request — the two blocks
+    // read identically per session), followed by this session's run-sheet.
+    const infoRows: Array<[string, string]> = [
+      [
+        "Session",
+        escapeHtmlForAgreement(session.name) +
+          (session.location ? ` · ${escapeHtmlForAgreement(session.location)}` : ""),
+      ],
+      ["Date &amp; Time", windowLines.join("<br/>")],
+    ];
+    if (session.track?.name) infoRows.push(["Track", escapeHtmlForAgreement(session.track.name)]);
 
     htmlParts.push(
       `<div style="margin:16px 0;">
-      <p style="margin:0 0 2px 0; font-size:15px; color:#111827;">${headerHtml}</p>
-      <p style="margin:0 0 8px 0; color:#6b7280; font-size:13px;">${windowLines.join("<br/>")}${trackSuffix}</p>
+      ${labeledInfoTable(infoRows, "0 0 8px 0")}
       ${topicsTable}
     </div>`,
     );
+
+    textParts.push(
+      [
+        `Session: ${session.name}${session.location ? ` · ${session.location}` : ""}`,
+        `Date & Time: ${windowLines.join(", ")}`,
+        ...(session.track?.name ? [`Track: ${session.track.name}`] : []),
+        ...topicTextLines,
+      ].join("\n"),
+    );
   }
 
-  return { html: htmlParts.join("\n"), text: textParts.join("\n") };
+  // Blank line between moderated sessions so each block reads as one
+  // engagement — mirrors the presentation block's per-session grouping.
+  return { html: htmlParts.join("\n"), text: textParts.join("\n\n") };
 }
 
 function buildPresentationBlocks(row: SpeakerEmailContextRow): {
@@ -560,20 +592,10 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   );
 
   // Pre-rendered HTML — via rawHtmlKeys so it's not escaped downstream.
-  // Inline styles only (no <style> blocks) so juice / email clients render
-  // correctly. NO Role row (owner decision, July 17 2026): organizers send
-  // separate emails to moderators vs speakers; the `role` context field
+  // Rendered through the shared labeledInfoTable (one renderer with the
+  // moderator block). NO Role row (owner decision, July 17 2026): organizers
+  // send separate emails to moderators vs speakers; the `role` context field
   // stays as a {role} docx merge token.
-  const tableFor = (rows: Array<[string, string]>) =>
-    `<table style="border-collapse:collapse; margin:16px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
-${rows
-  .map(
-    ([label, value]) =>
-      `        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">${label}</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">${value}</td></tr>`,
-  )
-  .join("\n")}
-      </table>`;
-
   const htmlBlocks: string[] = [];
   const textBlocks: string[] = [];
   for (const g of sortedGroups) {
@@ -588,7 +610,7 @@ ${rows
     // Three lines — date / time / duration (owner request).
     rows.push(["Date &amp; Time", windowLines.join("<br/>")]);
     if (g.trackName) rows.push(["Track", escapeHtmlForAgreement(g.trackName)]);
-    htmlBlocks.push(tableFor(rows));
+    htmlBlocks.push(labeledInfoTable(rows));
 
     textBlocks.push(
       [
