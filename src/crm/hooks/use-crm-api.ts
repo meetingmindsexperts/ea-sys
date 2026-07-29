@@ -78,6 +78,7 @@ export const crmKeys = {
   notes: (attach: Record<string, string>) => ["crm", "notes", attach] as const,
   contacts: (q?: string) => ["crm", "contacts", q ?? ""] as const,
   contact: (id: string) => ["crm", "contact", id] as const,
+  contactTags: ["crm", "contact-tags"] as const,
   activity: (entityType: string, entityId?: string | null) =>
     entityId === undefined ? (["crm", "activity", entityType] as const) : (["crm", "activity", entityType, entityId ?? ""] as const),
   emailTemplates: (includeArchived: boolean) => ["crm", "email-templates", includeArchived] as const,
@@ -575,7 +576,18 @@ export interface CrmContactFilters {
   status?: string;
   /** Filter to one rep's book — "My contacts" passes the caller's own userId. */
   owner?: string;
+  /** Any-of tag filter — comma-separated exact tags (the list uses a single tag). */
+  tags?: string;
   archived?: string;
+}
+
+/** The org's distinct CRM-contact tags — feeds the contacts list "Any tag" filter. */
+export function useCrmContactTags() {
+  return useQuery({
+    queryKey: crmKeys.contactTags,
+    queryFn: () => apiFetch<{ tags: string[] }>("/api/crm/contacts/tags").then((r) => r.tags),
+    staleTime: 60_000,
+  });
 }
 
 export function useCrmContacts(arg?: string | CrmContactFilters) {

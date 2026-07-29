@@ -38,7 +38,7 @@ import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { SortableTh, nextSort, type SortDir } from "@/crm/components/sortable-th";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCrmCompanies, useCrmContacts } from "@/crm/hooks/use-crm-api";
+import { useCrmCompanies, useCrmContacts, useCrmContactTags } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
@@ -65,6 +65,7 @@ function ContactsInner() {
   const status = get("status");
   const owner = get("owner");
   const companyId = get("company");
+  const tagFilter = get("tags");
   const showArchived = !!get("archived");
   const sortKey = get("sort");
   const dir = (get("dir") || "asc") as SortDir;
@@ -74,12 +75,14 @@ function ContactsInner() {
   const router = useRouter();
 
   const { data: companies = [] } = useCrmCompanies();
+  const { data: availableTags = [] } = useCrmContactTags();
   const { data: contacts = [], isLoading, isError, refetch } = useCrmContacts({
     q: q || undefined,
     lifecycle: lifecycle || undefined,
     status: status || undefined,
     owner: owner || undefined,
     companyId: companyId || undefined,
+    tags: tagFilter || undefined,
     archived: showArchived ? "1" : undefined,
   });
   const rows = sortKey ? [...contacts].sort(makeComparator(sortKey, dir)) : contacts;
@@ -174,6 +177,30 @@ function ContactsInner() {
             ))}
           </SelectContent>
         </Select>
+
+        {/* Tag filter — only shown once the org has tagged at least one contact.
+            Single tag (any-of on the backend); keeps parity with the board's
+            single-select filter row. */}
+        {(availableTags.length > 0 || tagFilter) && (
+          <Select value={tagFilter || "__all__"} onValueChange={(v) => set({ tags: v === "__all__" ? null : v })}>
+            <SelectTrigger className="w-[11rem]">
+              <SelectValue placeholder="Any tag" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Any tag</SelectItem>
+              {/* A currently-filtered tag that's since been removed from every
+                  contact still needs to render so the value isn't blank. */}
+              {(tagFilter && !availableTags.includes(tagFilter)
+                ? [tagFilter, ...availableTags]
+                : availableTags
+              ).map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Button
           variant={showArchived ? "default" : "outline"}

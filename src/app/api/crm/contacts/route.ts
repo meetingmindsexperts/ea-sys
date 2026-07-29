@@ -47,6 +47,12 @@ export async function GET(req: Request) {
     const lifecycle = searchParams.get("lifecycle")?.trim();
     const status = searchParams.get("status")?.trim();
     const owner = searchParams.get("owner")?.trim();
+    // Tag filter (any-of): comma-separated exact tags → hasSome. The UI feeds
+    // exact stored strings from GET /contacts/tags, so no casing mismatch.
+    const tags = (searchParams.get("tags") || "")
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
     const LIFECYCLE = new Set(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]);
     const STATUS = new Set<string>(CONTACT_STATUS_VALUES);
 
@@ -58,6 +64,7 @@ export async function GET(req: Request) {
         ...(owner ? { ownerId: owner } : {}),
         ...(lifecycle && LIFECYCLE.has(lifecycle) ? { lifecycleStage: lifecycle as "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION" } : {}),
         ...(status && STATUS.has(status) ? { status: status as (typeof CONTACT_STATUS_VALUES)[number] } : {}),
+        ...(tags.length ? { tags: { hasSome: tags } } : {}),
         ...(q
           ? {
               OR: [
