@@ -272,6 +272,15 @@ function ContactsInner() {
                           {c.firstName} {c.lastName}
                         </p>
                         <p className="text-xs text-muted-foreground">{c.email}</p>
+                        {(c.tags?.length ?? 0) > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {c.tags!.map((t) => (
+                              <Badge key={t} variant="secondary" className="font-normal text-[10px]">
+                                {t}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       {/* This rep is ALSO in the event contact store — i.e. they attend. */}
                       {c.contactId && (
