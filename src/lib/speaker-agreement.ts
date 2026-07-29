@@ -461,26 +461,6 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     ? `${formatDateInTz(firstSession.startTime, eventTz)}, ${formatTimeInTz(firstSession.startTime, eventTz)} ${tzLabel(firstSession.startTime, eventTz)}`
     : "";
 
-  // One "Date & Time" line PER session for the email block — start – end
-  // clock in the event TZ plus the duration, e.g.
-  // "Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4 (1h 30m)".
-  // Session-role sessions win; topic-only speakers fall back to their topics'
-  // sessions (deduped — several topics can share one session).
-  const timeSessions = sessionRows.length
-    ? sessionRows.map((s) => s.session)
-    : topicRows.map((t) => t.topic.session);
-  const seenWindows = new Set<string>();
-  const sessionDateTimeLines: string[] = [];
-  for (const s of timeSessions) {
-    const key = `${s.name}|${s.startTime.getTime()}`;
-    if (seenWindows.has(key)) continue;
-    seenWindows.add(key);
-    // Three lines per session — date / time / duration (owner request).
-    sessionDateTimeLines.push(
-      sessionWindowLines(s.startTime, s.endTime ?? null, eventTz).join("<br/>"),
-    );
-  }
-
   // Per-topic display groups — the topic title plus, when the topic has a
   // duration, its own start–end + duration lines (owner request). The topic's
   // start time is computed by stacking preceding sibling durations from the
@@ -520,38 +500,108 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   }
   const role = Array.from(roleSet).join(", ");
 
-  // Pre-rendered HTML block — rendered via rawHtmlKeys so it's not escaped.
-  // Inline styles only (no <style> blocks) so juice / email clients render correctly.
-  const rows: Array<[string, string]> = [];
-  if (sessionTitles) rows.push(["Session", sessionTitles.replace(/\n/g, "<br/>")]);
-  if (topicLineGroups.length) {
+  // ── Per-SESSION display blocks (owner request, July 29 2026) ──
+  // A speaker on several sessions — often in different tracks — used to get
+  // ONE table mixing every session's names in one row, every time window in
+  // another and the tracks joined in a third, with no way to tell which
+  // topic/time/track belonged to which session. Each session now renders its
+  // OWN table (Session / Topic / Date & Time / Track), stacked in start-time
+  // order, so multi-session speakers read one engagement at a time. The
+  // scalar docx merge tokens above stay format-stable.
+  type SessionGroup = {
+    name: string;
+    startTime: Date;
+    endTime: Date | null;
+    location: string | null;
+    trackName: string | null;
+    topicsHtml: string[];
+    topicsText: string[];
+  };
+  const groupKey = (s: { name: string; startTime: Date }) => `${s.name}|${new Date(s.startTime).getTime()}`;
+  const groups = new Map<string, SessionGroup>();
+  for (const s of sessionRows) {
+    const k = groupKey(s.session);
+    if (!groups.has(k)) {
+      groups.set(k, {
+        name: s.session.name,
+        startTime: s.session.startTime,
+        endTime: s.session.endTime ?? null,
+        location: s.session.location ?? null,
+        trackName: s.session.track?.name ?? null,
+        topicsHtml: [],
+        topicsText: [],
+      });
+    }
+  }
+  // Attach each topic to ITS session (creating the group for topic-only
+  // speakers — several topics can share one session, so the key dedups).
+  topicRows.forEach((t, i) => {
+    const s = t.topic.session;
+    const k = groupKey(s);
+    if (!groups.has(k)) {
+      groups.set(k, {
+        name: s.name,
+        startTime: s.startTime,
+        endTime: s.endTime ?? null,
+        location: null,
+        trackName: s.track?.name ?? null,
+        topicsHtml: [],
+        topicsText: [],
+      });
+    }
+    const g = groups.get(k)!;
     // Blank line between topics so each title + time + duration group reads
     // as one entry.
-    rows.push(["Topic", topicLineGroups.join("<br/><br/>")]);
-  }
-  if (sessionDateTimeLines.length) {
-    // Blank line between sessions so each 3-line group reads as one entry.
-    rows.push(["Date &amp; Time", sessionDateTimeLines.join("<br/><br/>")]);
-  }
-  if (trackNames) rows.push(["Track", trackNames]);
-  // NO Role row (owner decision, July 17 2026): organizers send separate
-  // emails to moderators vs speakers, so the block never displays the role.
-  // The `role` context field itself stays — it's a {role} docx merge token.
+    g.topicsHtml.push(topicLineGroups[i]);
+    g.topicsText.push(topicLineGroups[i].replace(/(<br\/>)+/g, ", ").replace(/&amp;/g, "&"));
+  });
+  const sortedGroups = [...groups.values()].sort(
+    (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+  );
 
-  const html = rows.length
-    ? `<table style="border-collapse:collapse; margin:16px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
+  // Pre-rendered HTML — via rawHtmlKeys so it's not escaped downstream.
+  // Inline styles only (no <style> blocks) so juice / email clients render
+  // correctly. NO Role row (owner decision, July 17 2026): organizers send
+  // separate emails to moderators vs speakers; the `role` context field
+  // stays as a {role} docx merge token.
+  const tableFor = (rows: Array<[string, string]>) =>
+    `<table style="border-collapse:collapse; margin:16px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
 ${rows
   .map(
     ([label, value]) =>
       `        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">${label}</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">${value}</td></tr>`,
   )
   .join("\n")}
-      </table>`
-    : "";
+      </table>`;
 
-  const text = rows.length
-    ? rows.map(([label, value]) => `${label}: ${value.replace(/(<br\/>)+/g, ", ").replace(/&amp;/g, "&")}`).join("\n")
-    : "";
+  const htmlBlocks: string[] = [];
+  const textBlocks: string[] = [];
+  for (const g of sortedGroups) {
+    const windowLines = sessionWindowLines(g.startTime, g.endTime, eventTz);
+    const rows: Array<[string, string]> = [
+      [
+        "Session",
+        escapeHtmlForAgreement(g.name) + (g.location ? ` · ${escapeHtmlForAgreement(g.location)}` : ""),
+      ],
+    ];
+    if (g.topicsHtml.length) rows.push(["Topic", g.topicsHtml.join("<br/><br/>")]);
+    // Three lines — date / time / duration (owner request).
+    rows.push(["Date &amp; Time", windowLines.join("<br/>")]);
+    if (g.trackName) rows.push(["Track", escapeHtmlForAgreement(g.trackName)]);
+    htmlBlocks.push(tableFor(rows));
+
+    textBlocks.push(
+      [
+        `Session: ${g.name}${g.location ? ` · ${g.location}` : ""}`,
+        ...(g.topicsText.length ? [`Topic: ${g.topicsText.join("; ")}`] : []),
+        `Date & Time: ${windowLines.join(", ")}`,
+        ...(g.trackName ? [`Track: ${g.trackName}`] : []),
+      ].join("\n"),
+    );
+  }
+
+  const html = htmlBlocks.join("\n");
+  const text = textBlocks.join("\n\n");
 
   return { sessionTitles, topicTitles, sessionDateTime, trackNames, role, html, text };
 }

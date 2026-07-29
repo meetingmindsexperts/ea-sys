@@ -110,6 +110,58 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     expect(ctx?.presentationDetails).not.toContain(">Role<");
   });
 
+  it("multi-session speakers get ONE TABLE PER SESSION, each with its own track + window, in start-time order", async () => {
+    const row = speakerRow();
+    row.sessions = [
+      {
+        role: "SPEAKER",
+        session: {
+          // Deliberately the LATER session listed first — output must sort
+          // by start time.
+          name: "Valve Workshop",
+          startTime: new Date("2026-03-05T16:00:00Z"), // 11:00 AM EST
+          endTime: new Date("2026-03-05T17:30:00Z"),
+          location: null,
+          track: { name: "Track B" } as never,
+          topics: [],
+        },
+      },
+      {
+        role: "SPEAKER",
+        session: {
+          name: "Opening Keynote",
+          startTime: SESSION_START, // 9:00 AM EST
+          endTime: new Date("2026-03-05T15:00:00Z"),
+          location: null,
+          track: { name: "Track A" } as never,
+          topics: [],
+        },
+      },
+    ];
+    mockDb.speaker.findFirst.mockResolvedValue(row);
+    mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    const html = ctx?.presentationDetails ?? "";
+
+    // Two separate tables — one per session.
+    expect(html.match(/<table/g)?.length).toBe(2);
+    // Each session's table carries ITS OWN track, never the joined list.
+    const [first, second] = html.split("</table>");
+    expect(first).toContain("Opening Keynote"); // earlier session first
+    expect(first).toContain("Track A");
+    expect(first).toContain("9:00 AM – 10:00 AM");
+    expect(first).not.toContain("Track B");
+    expect(second).toContain("Valve Workshop");
+    expect(second).toContain("Track B");
+    expect(second).toContain("11:00 AM – 12:30 PM");
+    expect(second).not.toContain("Track A");
+
+    // Text mirror: per-session blocks separated by a blank line.
+    expect(ctx?.presentationDetailsText).toContain("Session: Opening Keynote");
+    expect(ctx?.presentationDetailsText).toContain("Session: Valve Workshop");
+    expect(ctx?.presentationDetailsText).toContain("\n\n");
+  });
+
   it("keeps the {sessionDateTime} docx token format-stable (start time only)", async () => {
     // The merge token lands inside the personalized agreement DOCUMENT —
     // the email block enrichment must not change its shape.
