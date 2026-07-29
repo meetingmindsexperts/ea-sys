@@ -94,6 +94,25 @@ export const INVOICE_B_ONLY_ID = "tenancy-inv-b-only";
 export const INVOICE_B_ONLY_NUMBER = "TEN-B-INV-002";
 
 /**
+ * Registration-core sweep (Phase 2, domain pass #8). The Attendee/Registration
+ * chain above (Invoice fixtures) doubles as this domain's spine — migration
+ * 20260728160000 gave all 5 core tables a denormalized organizationId, and the
+ * seed now stamps it. BOTH attendees share ONE email (Attendee.email is not
+ * unique) so the unscoped by-email lookup — the exact shape of the public
+ * register's orphan-reuse findFirst — proves per-lane scoping. Payment's
+ * stripePaymentId is globally @unique (invoice-number pattern: per-lane counts
+ * + cross-tenant miss). RegistrationSerialCounter is keyed by eventId (PK) —
+ * one row per shared event, org-stamped.
+ */
+export const SHARED_ATTENDEE_EMAIL = "shared.attendee@tenancy.test";
+export const PAYMENT_A_ID = "tenancy-pay-a";
+export const PAYMENT_A_STRIPE_PI = "pi_tenancy_a_001";
+export const PAYMENT_B_ID = "tenancy-pay-b";
+export const PAYMENT_B_STRIPE_PI = "pi_tenancy_b_001";
+export const REFUND_ATTEMPT_A_ID = "tenancy-ra-a";
+export const REFUND_ATTEMPT_B_ID = "tenancy-ra-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

@@ -45,6 +45,13 @@ import {
   INVOICE_B_NUMBER,
   INVOICE_B_ONLY_ID,
   INVOICE_B_ONLY_NUMBER,
+  SHARED_ATTENDEE_EMAIL,
+  PAYMENT_A_ID,
+  PAYMENT_A_STRIPE_PI,
+  PAYMENT_B_ID,
+  PAYMENT_B_STRIPE_PI,
+  REFUND_ATTEMPT_A_ID,
+  REFUND_ATTEMPT_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -101,6 +108,9 @@ async function seedOrg(
     attendeeId: string;
     registrationId: string;
     invoices: { id: string; number: string; seq: number }[];
+    // Registration-core sweep (#8) riders on the same chain.
+    payment?: { id: string; stripePaymentId: string };
+    refundAttemptId?: string;
   },
   crmContacts: { id: string; emailKey: string }[] = [],
 ) {
@@ -183,11 +193,17 @@ async function seedOrg(
   // Registration cascades from the Event (org cascade reaches it); the Invoice
   // cascades from the Registration. The Attendee is the PARENT of Registration
   // and does NOT cascade — main() cleans it explicitly.
+  //
+  // Registration-core sweep (#8): the chain is org-stamped, BOTH orgs'
+  // attendees share ONE email (Attendee.email is not unique — proves the
+  // orphan-reuse-shaped unscoped by-email lookup is lane-scoped), and each
+  // org hangs a Payment + RefundAttempt + serial-counter row off it.
   if (invoicing) {
     await db.attendee.create({
       data: {
         id: invoicing.attendeeId,
-        email: `${invoicing.attendeeId}@tenancy.test`,
+        organizationId: orgId,
+        email: SHARED_ATTENDEE_EMAIL,
         firstName: "Tenancy",
         lastName: "Invoicee",
       },
@@ -196,9 +212,40 @@ async function seedOrg(
       data: {
         id: invoicing.registrationId,
         eventId: invoicing.eventId,
+        organizationId: orgId,
         attendeeId: invoicing.attendeeId,
       },
     });
+    await db.registrationSerialCounter.create({
+      data: { eventId: invoicing.eventId, organizationId: orgId, lastSerial: 1 },
+    });
+    if (invoicing.payment) {
+      await db.payment.create({
+        data: {
+          id: invoicing.payment.id,
+          registrationId: invoicing.registrationId,
+          organizationId: orgId,
+          amount: 100,
+          currency: "USD",
+          status: "PAID",
+          stripePaymentId: invoicing.payment.stripePaymentId,
+        },
+      });
+    }
+    if (invoicing.refundAttemptId) {
+      await db.refundAttempt.create({
+        data: {
+          id: invoicing.refundAttemptId,
+          registrationId: invoicing.registrationId,
+          organizationId: orgId,
+          amount: 10,
+          refundedBefore: 0,
+          refundedAfter: 10,
+          kind: "manual",
+          status: "PENDING",
+        },
+      });
+    }
     for (const inv of invoicing.invoices) {
       await db.invoice.create({
         data: {
@@ -388,6 +435,8 @@ async function main() {
       attendeeId: ATTENDEE_A_ID,
       registrationId: REG_A_ID,
       invoices: [{ id: INVOICE_A_ID, number: INVOICE_A_NUMBER, seq: 1 }],
+      payment: { id: PAYMENT_A_ID, stripePaymentId: PAYMENT_A_STRIPE_PI },
+      refundAttemptId: REFUND_ATTEMPT_A_ID,
     },
     [{ id: CRM_CT_A_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY }],
   );
@@ -444,6 +493,8 @@ async function main() {
         { id: INVOICE_B_ID, number: INVOICE_B_NUMBER, seq: 1 },
         { id: INVOICE_B_ONLY_ID, number: INVOICE_B_ONLY_NUMBER, seq: 2 },
       ],
+      payment: { id: PAYMENT_B_ID, stripePaymentId: PAYMENT_B_STRIPE_PI },
+      refundAttemptId: REFUND_ATTEMPT_B_ID,
     },
     [
       { id: CRM_CT_B_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY },
