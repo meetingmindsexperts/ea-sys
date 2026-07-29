@@ -30,7 +30,7 @@ import { CrmBoardSkeleton } from "@/crm/components/crm-skeletons";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { ValueRangeFilter } from "@/crm/components/filters/value-range-filter";
-import { useCrmDeals, useCrmStages, useMoveDealStage } from "@/crm/hooks/use-crm-api";
+import { useCrmDeals, useCrmDealTypes, useCrmStages, useMoveDealStage } from "@/crm/hooks/use-crm-api";
 import { ManageStagesDialog } from "@/crm/components/manage-stages-dialog";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
@@ -50,7 +50,8 @@ const DATE_FIELDS = [
 ];
 
 // The query keys this page owns — for the "Clear" affordance and the server query.
-const FILTER_KEYS = ["event", "owner", "status", "pipeline", "dateField", "from", "to", "min", "max", "archived"];
+const ALL_DEAL_TYPE = "__all__";
+const FILTER_KEYS = ["event", "owner", "status", "pipeline", "dealType", "dateField", "from", "to", "min", "max", "archived"];
 
 function DealsPageInner() {
   const { data: session } = useSession();
@@ -73,6 +74,7 @@ function DealsPageInner() {
     ownerId: get("owner") || undefined,
     status: get("status") || undefined,
     pipeline: get("pipeline") || undefined,
+    dealTypeId: get("dealType") || undefined,
     dateField: get("dateField") || undefined,
     from: get("from") || undefined,
     to: get("to") || undefined,
@@ -84,6 +86,7 @@ function DealsPageInner() {
   };
 
   const { data: stages = [], isLoading: stagesLoading, isError: stagesError, refetch: refetchStages } = useCrmStages();
+  const { data: dealTypes = [] } = useCrmDealTypes();
   const { data: deals = [], isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useCrmDeals(filters);
   const move = useMoveDealStage(filters);
 
@@ -160,6 +163,22 @@ function DealsPageInner() {
             ))}
           </SelectContent>
         </Select>
+
+        {dealTypes.length > 0 && (
+          <Select value={get("dealType") || ALL_DEAL_TYPE} onValueChange={(v) => set({ dealType: v === ALL_DEAL_TYPE ? null : v })}>
+            <SelectTrigger className="w-[11rem]">
+              <SelectValue placeholder="Any deal type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_DEAL_TYPE}>Any deal type</SelectItem>
+              {dealTypes.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <DateRangeFilter
           fields={DATE_FIELDS}

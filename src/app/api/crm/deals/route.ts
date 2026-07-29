@@ -21,6 +21,7 @@ const createDealSchema = z.object({
   currency: z.string().length(3).optional(),
   expectedClose: z.coerce.date().optional().nullable(),
   pipeline: z.nativeEnum(CrmDealPipeline).optional().nullable(),
+  dealTypeId: z.string().min(1).optional().nullable(),
   tags: z.array(z.string().min(1).max(50)).max(25).optional(),
 });
 
@@ -46,6 +47,7 @@ export async function GET(req: Request) {
         ownerId: searchParams.get("ownerId"),
         status: searchParams.get("status"),
         pipeline: searchParams.get("pipeline"),
+        dealTypeId: searchParams.get("dealTypeId"),
         dateField: searchParams.get("dateField"),
         from: searchParams.get("from"),
         to: searchParams.get("to"),
@@ -66,6 +68,8 @@ export async function GET(req: Request) {
         stageId: true,
         status: true,
         pipeline: true,
+        dealTypeId: true,
+        dealType: { select: { id: true, name: true } },
         tags: true,
         expectedClose: true,
         wonAt: true,

@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TagInput } from "@/components/ui/tag-input";
 import { CompanyCombobox, type CompanySelection } from "@/crm/components/company-combobox";
 import { EventCombobox } from "@/crm/components/event-combobox";
+import { useCrmDealTypes } from "@/crm/hooks/use-crm-api";
 import {
   CRM_DEAL_PIPELINES,
   CRM_DEAL_PIPELINE_LABELS,
@@ -26,6 +27,8 @@ import {
 
 /** Sentinel for the "no category" Select option (Radix forbids an empty value). */
 const NO_PIPELINE = "__none__";
+/** Sentinel for the "no deal type" Select option. */
+const NO_DEAL_TYPE = "__none__";
 
 export interface CrmDealFormState {
   name: string;
@@ -38,6 +41,8 @@ export interface CrmDealFormState {
   expectedClose: string;
   /** "" = unclassified. */
   pipeline: CrmDealPipeline | "";
+  /** Org-configurable deal type id, or null. */
+  dealTypeId: string | null;
   tags: string[];
 }
 
@@ -53,6 +58,7 @@ export function emptyCrmDealForm(defaults?: {
     eventId: defaults?.eventId ?? null,
     expectedClose: "",
     pipeline: "",
+    dealTypeId: null,
     tags: [],
   };
 }
@@ -72,6 +78,7 @@ export function crmDealToForm(deal: CrmBoardDeal): CrmDealFormState {
     eventId: deal.event?.id ?? null,
     expectedClose: toDateInput(deal.expectedClose),
     pipeline: deal.pipeline ?? "",
+    dealTypeId: deal.dealTypeId ?? deal.dealType?.id ?? null,
     tags: deal.tags ?? [],
   };
 }
@@ -99,6 +106,7 @@ export function crmDealFormPayload(f: CrmDealFormState, companyId: string | null
     currency: f.currency,
     expectedClose: f.expectedClose || null,
     pipeline: f.pipeline || null,
+    dealTypeId: f.dealTypeId,
     tags: f.tags,
   };
 }
@@ -136,6 +144,8 @@ export function CrmDealFormFields({
   extraField?: ReactNode;
 }) {
   const f = value;
+  // The org's deal types (admin-editable list, seeded on first load).
+  const { data: dealTypes = [] } = useCrmDealTypes();
 
   return (
     <div className="space-y-4">
@@ -185,6 +195,26 @@ export function CrmDealFormFields({
             {CRM_DEAL_PIPELINES.map((p) => (
               <SelectItem key={p} value={p}>
                 {CRM_DEAL_PIPELINE_LABELS[p]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-dealtype`}>Deal type</Label>
+        <Select
+          value={f.dealTypeId ?? NO_DEAL_TYPE}
+          onValueChange={(v) => onChange({ dealTypeId: v === NO_DEAL_TYPE ? null : v })}
+        >
+          <SelectTrigger id={`${idPrefix}-dealtype`} className="w-full">
+            <SelectValue placeholder="No deal type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_DEAL_TYPE}>No deal type</SelectItem>
+            {dealTypes.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.name}
               </SelectItem>
             ))}
           </SelectContent>

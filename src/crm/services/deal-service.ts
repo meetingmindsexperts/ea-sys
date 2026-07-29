@@ -39,7 +39,7 @@ import { normalizeContactTags } from "./crm-contact-service";
 import { resolveStage } from "./pipeline-service";
 
 /** Fields worth showing in the change log when a deal is edited. */
-const DEAL_DIFF_KEYS = ["name", "dealValue", "currency", "expectedClose", "companyId", "eventId", "ownerId", "pipeline", "tags"] as const;
+const DEAL_DIFF_KEYS = ["name", "dealValue", "currency", "expectedClose", "companyId", "eventId", "ownerId", "pipeline", "dealTypeId", "tags"] as const;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,6 +66,8 @@ export interface CreateDealInput {
   expectedClose?: Date | null;
   /** Deal category — Corporate / Conference. null clears it. */
   pipeline?: CrmDealPipeline | null;
+  /** Org-configurable deal type id (validated against the org's list). null clears. */
+  dealTypeId?: string | null;
   /** Free-form tags — normalized (trim/dedupe) before write. */
   tags?: string[];
 }
@@ -85,6 +87,7 @@ export interface UpdateDealInput {
   currency?: string;
   expectedClose?: Date | null;
   pipeline?: CrmDealPipeline | null;
+  dealTypeId?: string | null;
   tags?: string[];
 }
 
@@ -118,6 +121,7 @@ export type DealErrorCode =
   | "CONTACT_NOT_FOUND"
   | "CONTACT_ALREADY_ON_DEAL"
   | "EVENT_NOT_FOUND"
+  | "DEAL_TYPE_NOT_FOUND"
   | "OWNER_NOT_FOUND"
   | "OWNER_ROLE_NOT_ALLOWED"
   | "STAGE_CHANGED"
@@ -141,7 +145,7 @@ export type CloseDealResult = { ok: true; deal: CrmDeal } | Fail;
  */
 async function validateRelations(
   organizationId: string,
-  rel: { companyId?: string | null; eventId?: string | null; ownerId?: string | null },
+  rel: { companyId?: string | null; eventId?: string | null; ownerId?: string | null; dealTypeId?: string | null },
 ): Promise<Fail | null> {
   const checks: Array<Promise<Fail | null>> = [];
 
@@ -150,6 +154,13 @@ async function validateRelations(
       db.crmCompany
         .findFirst({ where: { id: rel.companyId, organizationId }, select: { id: true } })
         .then((r) => (r ? null : ({ ok: false, code: "COMPANY_NOT_FOUND", message: "Company not found" } as Fail))),
+    );
+  }
+  if (rel.dealTypeId) {
+    checks.push(
+      db.crmDealType
+        .findFirst({ where: { id: rel.dealTypeId, organizationId }, select: { id: true } })
+        .then((r) => (r ? null : ({ ok: false, code: "DEAL_TYPE_NOT_FOUND", message: "Deal type not found" } as Fail))),
     );
   }
   if (rel.eventId) {
@@ -225,6 +236,7 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
         currency: input.currency?.trim() || "USD",
         expectedClose: input.expectedClose ?? null,
         pipeline: input.pipeline ?? null,
+        dealTypeId: input.dealTypeId ?? null,
         tags: normalizeContactTags(input.tags ?? []),
         // A deal created directly INTO a terminal stage is born closed, so the
         // stage and the status can't disagree from the very first write. The
@@ -276,7 +288,7 @@ export async function createDeal(input: CreateDealInput): Promise<CreateDealResu
 // ── Update (fields only — stage moves go through moveDealStage) ───────────────
 
 export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResult> {
-  const data: Prisma.CrmDealUpdateManyMutationInput & { companyId?: string | null; eventId?: string | null; ownerId?: string | null } = {};
+  const data: Prisma.CrmDealUpdateManyMutationInput & { companyId?: string | null; eventId?: string | null; ownerId?: string | null; dealTypeId?: string | null } = {};
 
   if (input.name !== undefined) {
     const name = input.name.trim();
@@ -287,6 +299,7 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
   if (input.currency !== undefined) data.currency = input.currency.trim() || "USD";
   if (input.expectedClose !== undefined) data.expectedClose = input.expectedClose;
   if (input.pipeline !== undefined) data.pipeline = input.pipeline;
+  if (input.dealTypeId !== undefined) data.dealTypeId = input.dealTypeId;
   if (input.tags !== undefined) data.tags = normalizeContactTags(input.tags);
   if (input.companyId !== undefined) data.companyId = input.companyId;
   if (input.eventId !== undefined) {
@@ -316,7 +329,7 @@ export async function updateDeal(input: UpdateDealInput): Promise<UpdateDealResu
     // from another tenant 404s here rather than being touched.
     const before = await db.crmDeal.findFirst({
       where: { id: input.dealId, organizationId: input.organizationId },
-      select: { name: true, dealValue: true, currency: true, expectedClose: true, companyId: true, eventId: true, ownerId: true, pipeline: true, tags: true, archivedAt: true },
+      select: { name: true, dealValue: true, currency: true, expectedClose: true, companyId: true, eventId: true, ownerId: true, pipeline: true, dealTypeId: true, tags: true, archivedAt: true },
     });
     if (!before) {
       apiLogger.warn({ msg: "crm-deal:update-not-found", dealId: input.dealId, organizationId: input.organizationId });

@@ -32,6 +32,7 @@ import type {
   CrmNoteRow,
   CrmNotificationRow,
   CrmStage,
+  CrmDealType,
   CrmTaskRow,
   CrmEmailTemplateRow,
   CrmProductRow,
@@ -47,6 +48,7 @@ export interface CrmDealFilters {
   ownerId?: string;
   status?: string;
   pipeline?: string;
+  dealTypeId?: string;
   dateField?: string;
   from?: string;
   to?: string;
@@ -66,6 +68,7 @@ export interface CrmDealFilters {
  */
 export const crmKeys = {
   stages: ["crm", "stages"] as const,
+  dealTypes: (includeArchived: boolean) => ["crm", "deal-types", includeArchived] as const,
   deals: (filters?: CrmDealFilters) =>
     ["crm", "deals", filters ?? {}] as const,
   deal: (id: string) => ["crm", "deal", id] as const,
@@ -103,6 +106,21 @@ export function useCrmStages() {
   return useQuery({
     queryKey: crmKeys.stages,
     queryFn: () => apiFetch<{ stages: CrmStage[] }>("/api/crm/pipeline-stages").then((r) => r.stages),
+  });
+}
+
+/**
+ * The org's deal types (the admin-editable business-line list). Seeds the
+ * defaults on first call. `includeArchived` for the Settings management screen;
+ * the deal-form picker uses the default (active-only) list.
+ */
+export function useCrmDealTypes(includeArchived = false) {
+  return useQuery({
+    queryKey: crmKeys.dealTypes(includeArchived),
+    queryFn: () =>
+      apiFetch<{ dealTypes: CrmDealType[] }>(
+        `/api/crm/deal-types${includeArchived ? "?includeArchived=1" : ""}`,
+      ).then((r) => r.dealTypes),
   });
 }
 

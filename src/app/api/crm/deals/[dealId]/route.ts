@@ -18,6 +18,7 @@ const updateDealSchema = z.object({
   currency: z.string().length(3).optional(),
   expectedClose: z.coerce.date().nullable().optional(),
   pipeline: z.nativeEnum(CrmDealPipeline).nullable().optional(),
+  dealTypeId: z.string().min(1).nullable().optional(),
   tags: z.array(z.string().min(1).max(50)).max(25).optional(),
   /** Restore a soft-deleted deal (archive → active). Delete-gated separately below. */
   archived: z.boolean().optional(),
@@ -46,6 +47,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ dealId: 
         // startDate/endDate/city/country back the derived "project date" + "project
         // location" facts (city/country only — not the venue string, per owner).
         event: { select: { id: true, name: true, slug: true, taxRate: true, taxLabel: true, startDate: true, endDate: true, city: true, country: true } },
+        dealType: { select: { id: true, name: true } },
         owner: { select: { id: true, firstName: true, lastName: true, email: true } },
         stage: { select: { id: true, name: true, isTerminal: true } },
         tasks: { where: { archivedAt: null }, orderBy: { dueAt: "asc" }, take: 100 },

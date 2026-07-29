@@ -21,6 +21,7 @@ vi.mock("@/lib/db", () => ({
     },
     crmPipelineStage: { findFirst: vi.fn() },
     crmCompany: { findFirst: vi.fn() },
+    crmDealType: { findFirst: vi.fn() },
     contact: { findFirst: vi.fn() },
     event: { findFirst: vi.fn() },
     user: { findFirst: vi.fn() },
@@ -426,6 +427,54 @@ describe("createDeal — relations are bound to the caller's org", () => {
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
     expect(res.code).toBe("NAME_REQUIRED");
+  });
+});
+
+describe("createDeal/updateDeal — deal type (org-bound)", () => {
+  it("createDeal binds dealTypeId to the org and rejects a foreign one", async () => {
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(stage() as never);
+    vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-1" } as never);
+    vi.mocked(db.crmDealType.findFirst).mockResolvedValue(null as never); // not this org's
+
+    const res = await createDeal({ ...base, name: "Abbott", stageId: "s-neg", eventId: "e-1", dealTypeId: "other-orgs-type" });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.code).toBe("DEAL_TYPE_NOT_FOUND");
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+
+  it("createDeal persists a valid dealTypeId", async () => {
+    vi.mocked(db.crmPipelineStage.findFirst).mockResolvedValue(stage() as never);
+    vi.mocked(db.event.findFirst).mockResolvedValue({ id: "e-1" } as never);
+    vi.mocked(db.crmDealType.findFirst).mockResolvedValue({ id: "dt-1" } as never);
+    vi.mocked(db.crmDeal.create).mockResolvedValue({ id: "d-1", eventId: "e-1" } as never);
+
+    const res = await createDeal({ ...base, name: "Abbott", stageId: "s-neg", eventId: "e-1", dealTypeId: "dt-1" });
+
+    expect(res.ok).toBe(true);
+    expect(db.crmDeal.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ dealTypeId: "dt-1" }) }),
+    );
+  });
+
+  it("updateDeal can set and clear the deal type", async () => {
+    vi.mocked(db.crmDeal.findFirst).mockResolvedValue({
+      name: "Abbott", dealValue: null, currency: "USD", expectedClose: null,
+      companyId: null, eventId: "e-1", ownerId: null, pipeline: null, dealTypeId: "dt-old", tags: [], archivedAt: null,
+    } as never);
+    vi.mocked(db.crmDealType.findFirst).mockResolvedValue({ id: "dt-1" } as never);
+    vi.mocked(db.crmDeal.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(db.crmDeal.findUniqueOrThrow).mockResolvedValue({ id: "d-1", name: "Abbott", ownerId: null } as never);
+
+    const set = await updateDeal({ ...base, dealId: "d-1", dealTypeId: "dt-1" });
+    expect(set.ok).toBe(true);
+    expect((vi.mocked(db.crmDeal.updateMany).mock.calls[0]![0] as { data: Record<string, unknown> }).data).toMatchObject({ dealTypeId: "dt-1" });
+
+    // Clearing: dealTypeId null skips the relation check (only non-null is validated).
+    const clear = await updateDeal({ ...base, dealId: "d-1", dealTypeId: null });
+    expect(clear.ok).toBe(true);
+    expect((vi.mocked(db.crmDeal.updateMany).mock.calls[1]![0] as { data: Record<string, unknown> }).data).toMatchObject({ dealTypeId: null });
   });
 });
 

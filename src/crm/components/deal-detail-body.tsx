@@ -336,6 +336,7 @@ export function DealDetailBody({
                 <Fact label="Pipeline">
                   {deal.pipeline ? CRM_DEAL_PIPELINE_LABELS[deal.pipeline] : <Dash />}
                 </Fact>
+                <Fact label="Deal type">{deal.dealType?.name ?? <Dash />}</Fact>
                 {/* Derived from the linked event — read-only. */}
                 <Fact label="Project dates">{projectDates(deal.event) ?? <Dash />}</Fact>
                 <Fact label="Project location">{projectLocation(deal.event) ?? <Dash />}</Fact>

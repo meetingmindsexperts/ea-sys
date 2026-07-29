@@ -132,6 +132,14 @@ describe("buildDealWhere — scalar filters + tenancy", () => {
       buildDealWhere({ pipeline: "CORPORATE" }, { organizationId: ORG, canSeeValues: false }).pipeline,
     ).toBe("CORPORATE");
   });
+
+  it("applies a dealTypeId filter (an unknown id simply narrows to nothing)", () => {
+    expect(
+      buildDealWhere({ dealTypeId: "dt-1" }, { organizationId: ORG, canSeeValues: true }).dealTypeId,
+    ).toBe("dt-1");
+    // Absent → no predicate.
+    expect(buildDealWhere({}, { organizationId: ORG, canSeeValues: true }).dealTypeId).toBeUndefined();
+  });
 });
 
 describe("CrmDealPipeline ↔ CRM_DEAL_PIPELINES drift guard", () => {

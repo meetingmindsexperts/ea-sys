@@ -23,6 +23,14 @@ export const CRM_DEAL_PIPELINE_LABELS: Record<CrmDealPipeline, string> = {
   CORPORATE: "Corporate",
   CONFERENCE: "Conference",
 };
+
+/** An org-configurable deal TYPE (business line) — the admin-editable list. */
+export interface CrmDealType {
+  id: string;
+  name: string;
+  sortOrder: number;
+  archivedAt?: string | null;
+}
 export type CrmActivityType = "NOTE" | "CALL" | "MEETING";
 export type CrmLifecycleStage = "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION";
 
@@ -306,6 +314,9 @@ export interface CrmBoardDeal {
   status: CrmDealStatus;
   /** Deal category — Corporate / Conference. Null = unclassified. */
   pipeline?: CrmDealPipeline | null;
+  /** The org-configurable deal type (resolved from the linked CrmDealType). */
+  dealTypeId?: string | null;
+  dealType?: { id: string; name: string } | null;
   /** Free-form tags. */
   tags?: string[];
   expectedClose?: string | null;

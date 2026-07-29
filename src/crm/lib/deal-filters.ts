@@ -48,6 +48,8 @@ export interface DealFilterParams {
   eventId?: string | null;
   /** Deal category — Corporate / Conference. NOT finance-gated (not sensitive). */
   pipeline?: string | null;
+  /** Org-configurable deal type id (an unknown id narrows to nothing — safe). */
+  dealTypeId?: string | null;
   dateField?: string | null;
   from?: string | null;
   to?: string | null;
@@ -92,6 +94,9 @@ export function buildDealWhere(
   // must not silently change the result set" rule as status/date above.
   const pipeline = params.pipeline?.trim();
   if (pipeline === "CORPORATE" || pipeline === "CONFERENCE") where.pipeline = pipeline;
+
+  const dealTypeId = params.dealTypeId?.trim();
+  if (dealTypeId) where.dealTypeId = dealTypeId;
 
   // ── Date range ──────────────────────────────────────────────────────────────
   const field: DealDateField = DATE_FIELDS.has(params.dateField as DealDateField)
