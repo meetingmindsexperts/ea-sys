@@ -27,7 +27,7 @@
  *     it was attached to (the confirm copy says so).
  */
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
 export type CrmPurgeErrorCode =
@@ -89,13 +89,13 @@ export async function purgeDeal(input: PurgeCtx & { dealId: string }): Promise<{
   }
 
   try {
-    await db.$transaction([
+    await tenantTransaction(async (tx) => {
       // The record's History is unreachable once the record is gone; the audit
       // snapshot below is the durable trace.
-      db.crmActivity.deleteMany({ where: { organizationId: input.organizationId, entityType: "DEAL", entityId: deal.id } }),
+      await tx.crmActivity.deleteMany({ where: { organizationId: input.organizationId, entityType: "DEAL", entityId: deal.id } });
       // Cascades: CrmDealContact, CrmDealProduct, CrmNote.dealId, CrmTask.dealId.
-      db.crmDeal.delete({ where: { id: deal.id } }),
-    ]);
+      await tx.crmDeal.delete({ where: { id: deal.id } });
+    });
   } catch (err) {
     apiLogger.error({ msg: "crm-purge:deal-failed", dealId: deal.id, err: err instanceof Error ? err.message : String(err) });
     return { ok: false, code: "UNKNOWN", message: "Could not delete the deal" };
@@ -144,11 +144,11 @@ export async function purgeCompany(input: PurgeCtx & { companyId: string }): Pro
   }
 
   try {
-    await db.$transaction([
-      db.crmActivity.deleteMany({ where: { organizationId: input.organizationId, entityType: "COMPANY", entityId: company.id } }),
+    await tenantTransaction(async (tx) => {
+      await tx.crmActivity.deleteMany({ where: { organizationId: input.organizationId, entityType: "COMPANY", entityId: company.id } });
       // Cascades notes + tasks; CrmContact.companyId is SetNull (contacts survive).
-      db.crmCompany.delete({ where: { id: company.id } }),
-    ]);
+      await tx.crmCompany.delete({ where: { id: company.id } });
+    });
   } catch (err) {
     // A deal re-pointed here between the count and the delete → Restrict P2003.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
@@ -187,11 +187,11 @@ export async function purgeCrmContact(input: PurgeCtx & { crmContactId: string }
   }
 
   try {
-    await db.$transaction([
-      db.crmActivity.deleteMany({ where: { organizationId: input.organizationId, entityType: "CONTACT", entityId: contact.id } }),
+    await tenantTransaction(async (tx) => {
+      await tx.crmActivity.deleteMany({ where: { organizationId: input.organizationId, entityType: "CONTACT", entityId: contact.id } });
       // Cascades deal links (they vanish from any deal's people list), notes, tasks.
-      db.crmContact.delete({ where: { id: contact.id } }),
-    ]);
+      await tx.crmContact.delete({ where: { id: contact.id } });
+    });
   } catch (err) {
     apiLogger.error({ msg: "crm-purge:contact-failed", crmContactId: contact.id, err: err instanceof Error ? err.message : String(err) });
     return { ok: false, code: "UNKNOWN", message: "Could not delete the contact" };

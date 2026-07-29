@@ -11,7 +11,7 @@
  * by bare id.
  */
 import { Prisma, type CrmPipelineStage, type CrmStageOutcome } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
 /**
@@ -211,7 +211,7 @@ export async function createStage(input: {
     // aggregate takes no lock). A duplicate sortOrder is tolerable: the list reads
     // order by [sortOrder, createdAt], so ties render deterministically. What IS
     // hard-guarded is the name: @@unique([organizationId, name]) → P2002 below.
-    const stage = await db.$transaction(async (tx) => {
+    const stage = await tenantTransaction(async (tx) => {
       const agg = await tx.crmPipelineStage.aggregate({
         where: { organizationId: input.organizationId },
         _max: { sortOrder: true },
@@ -306,7 +306,7 @@ export async function updateStage(input: {
 
   try {
     if (removesOutcome) {
-      await db.$transaction(async (tx) => {
+      await tenantTransaction(async (tx) => {
         await lockSameOutcomeStages(tx, input.organizationId, stage.terminalOutcome!);
         const siblings = await tx.crmPipelineStage.count({
           where: { organizationId: input.organizationId, terminalOutcome: stage.terminalOutcome, id: { not: stage.id } },
@@ -385,11 +385,20 @@ export async function reorderStages(input: {
       return { ok: false, code: "STAGE_NOT_FOUND", message: "One or more stages were not found" };
     }
 
-    await db.$transaction(
-      input.orderedStageIds.map((id, i) =>
-        db.crmPipelineStage.update({ where: { id }, data: { sortOrder: i } }),
-      ),
-    );
+    // Array-form $transaction can't carry the RLS SET LOCAL, so this runs as an
+    // interactive tenantTransaction (sequential — same single-tx semantics the
+    // array form had). Each write is compound-where'd { id, organizationId } for
+    // per-row atomic org binding (defence #1), matching deal-type reorder — the
+    // set-membership guard above already proves ownership, this makes it
+    // RLS-independent and symmetric.
+    await tenantTransaction(async (tx) => {
+      for (let i = 0; i < input.orderedStageIds.length; i++) {
+        await tx.crmPipelineStage.updateMany({
+          where: { id: input.orderedStageIds[i], organizationId: input.organizationId },
+          data: { sortOrder: i },
+        });
+      }
+    });
 
     void writeAudit({
       userId: input.userId,
@@ -451,7 +460,7 @@ export async function deleteStage(input: {
     // (R2-M3): as a plain pre-check, two admins concurrently deleting the org's
     // two Won-mapped columns each counted one sibling, both passed, both deleted.
     if (stage.terminalOutcome) {
-      await db.$transaction(async (tx) => {
+      await tenantTransaction(async (tx) => {
         await lockSameOutcomeStages(tx, input.organizationId, stage.terminalOutcome!);
         const siblings = await tx.crmPipelineStage.count({
           where: { organizationId: input.organizationId, terminalOutcome: stage.terminalOutcome, id: { not: stage.id } },

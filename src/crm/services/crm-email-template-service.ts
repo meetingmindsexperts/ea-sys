@@ -12,7 +12,7 @@
  * entity-typed `CrmActivity` change-log (whose enum has no template kind).
  */
 import { Prisma, type CrmEmailTemplate } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { CRM_EMAIL_TEMPLATES } from "@/crm/lib/crm-email-templates";
 
@@ -117,7 +117,7 @@ export async function createCrmEmailTemplate(input: {
     // COMMITTED both racers can read the same _max and insert the same slot (an
     // aggregate takes no lock; CRM review L1). A duplicate sortOrder is tolerable
     // here: the list read tie-breaks on createdAt.
-    const template = await db.$transaction(async (tx) => {
+    const template = await tenantTransaction(async (tx) => {
       const agg = await tx.crmEmailTemplate.aggregate({
         where: { organizationId: input.organizationId },
         _max: { sortOrder: true },

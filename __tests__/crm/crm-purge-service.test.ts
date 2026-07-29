@@ -17,6 +17,7 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
+const { txMock } = vi.hoisted(() => ({ txMock: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: {
     crmDeal: { findFirst: vi.fn(), findMany: vi.fn(), delete: vi.fn() },
@@ -24,8 +25,11 @@ vi.mock("@/lib/db", () => ({
     crmContact: { findFirst: vi.fn(), findMany: vi.fn(), delete: vi.fn() },
     crmActivity: { deleteMany: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
-    $transaction: vi.fn(),
+    $transaction: txMock,
   },
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // per-test $transaction mock drives it (purge asserts on db.$transaction calls).
+  tenantTransaction: (fn: unknown) => (txMock as (f: unknown) => unknown)(fn),
 }));
 
 import { db } from "@/lib/db";

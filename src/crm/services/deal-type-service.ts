@@ -18,7 +18,7 @@
  * Errors-as-values; conventions: src/services/README.md.
  */
 import { Prisma, type CrmDealType } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
 /** Seeded on an org's first CRM load — the MMG business lines (editable after). */
@@ -187,14 +187,18 @@ export async function reorderDealTypes(input: {
   orderedIds: string[];
 }): Promise<{ ok: true } | Fail> {
   try {
-    await db.$transaction(
-      input.orderedIds.map((id, i) =>
-        db.crmDealType.updateMany({
-          where: { id, organizationId: input.organizationId },
+    // Array-form $transaction can't carry the RLS SET LOCAL — run as an
+    // interactive tenantTransaction (sequential; same single-tx semantics). Each
+    // write stays compound-where'd { id, organizationId } so a foreign id is a
+    // no-op (defence #1).
+    await tenantTransaction(async (tx) => {
+      for (let i = 0; i < input.orderedIds.length; i++) {
+        await tx.crmDealType.updateMany({
+          where: { id: input.orderedIds[i], organizationId: input.organizationId },
           data: { sortOrder: i },
-        }),
-      ),
-    );
+        });
+      }
+    });
     apiLogger.info({ msg: "crm-deal-type:reordered", organizationId: input.organizationId, count: input.orderedIds.length });
     return { ok: true };
   } catch (err) {

@@ -20,7 +20,7 @@ import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 import PDFDocument from "pdfkit";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { DEAL_DOCUMENT_SELECT } from "@/crm/services/deal-document-service";
@@ -122,7 +122,7 @@ export async function generateDealQuote(
     const currency = currencies[0]!;
 
     // ── Mint the org-sequential number (atomic — two reps can't collide) ────
-    const counter = await db.$transaction(async (tx) => {
+    const counter = await tenantTransaction(async (tx) => {
       await tx.crmQuoteCounter.upsert({
         where: { organizationId: input.organizationId },
         create: { organizationId: input.organizationId, lastNumber: 1 },

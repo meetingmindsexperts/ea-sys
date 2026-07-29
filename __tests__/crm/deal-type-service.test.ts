@@ -9,6 +9,7 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
+const { txMock } = vi.hoisted(() => ({ txMock: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: {
     crmDealType: {
@@ -19,8 +20,11 @@ vi.mock("@/lib/db", () => ({
       updateMany: vi.fn(),
       findUniqueOrThrow: vi.fn(),
     },
-    $transaction: vi.fn(),
+    $transaction: txMock,
   },
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // reorder path (interactive tenantTransaction) drives the mocked tx.
+  tenantTransaction: (fn: unknown) => (txMock as (f: unknown) => unknown)(fn),
 }));
 
 import { Prisma } from "@prisma/client";

@@ -10,7 +10,7 @@
  * SpeakerDocument signed-agreement pattern).
  */
 import type { CrmDealDocumentKind } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 
@@ -67,7 +67,7 @@ export async function addDealDocument(
       return { ok: false, code: "DEAL_ARCHIVED", message: "This deal was archived — restore it before adding documents" };
     }
 
-    const { document, replacedUrl } = await db.$transaction(async (tx) => {
+    const { document, replacedUrl } = await tenantTransaction(async (tx) => {
       let replaced: string | null = null;
       if (input.kind === "PROSPECTUS") {
         const previous = await tx.crmDealDocument.findFirst({

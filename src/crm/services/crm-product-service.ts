@@ -16,7 +16,7 @@
  * route boundary strips them for MEMBER exactly like `dealValue`.
  */
 import { Prisma, type CrmProduct, type CrmDealProduct, type CrmProductSource } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordCrmActivity } from "@/crm/lib/crm-activity";
 import { CRM_PRODUCT_SEED } from "@/crm/lib/crm-products-seed";
@@ -128,7 +128,7 @@ export async function createCrmProduct(input: {
   if (!category) return reject("CATEGORY_REQUIRED", "A category is required", rejCtx);
 
   try {
-    const product = await db.$transaction(async (tx) => {
+    const product = await tenantTransaction(async (tx) => {
       const agg = await tx.crmProduct.aggregate({ where: { organizationId: input.organizationId }, _max: { sortOrder: true } });
       return tx.crmProduct.create({
         data: {

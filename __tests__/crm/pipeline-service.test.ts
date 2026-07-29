@@ -13,6 +13,7 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
+const { txMock } = vi.hoisted(() => ({ txMock: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: {
     crmPipelineStage: {
@@ -29,8 +30,11 @@ vi.mock("@/lib/db", () => ({
     },
     crmDeal: { count: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
-    $transaction: vi.fn(),
+    $transaction: txMock,
   },
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // per-test $transaction mockImplementation drives it.
+  tenantTransaction: (fn: unknown) => (txMock as (f: unknown) => unknown)(fn),
 }));
 
 import { Prisma } from "@prisma/client";

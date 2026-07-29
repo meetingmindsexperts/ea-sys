@@ -38,6 +38,8 @@ vi.mock("@/lib/db", () => ({
     crmActivity: { create: vi.fn().mockResolvedValue({}) },
     $transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
   },
+  // tenantTransaction with the flag off IS db.$transaction — delegate to the tx.
+  tenantTransaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
 }));
 
 import fs from "fs/promises";
