@@ -360,6 +360,11 @@ export function BulkEmailDialog({
   const [customSubject, setCustomSubject] = useState("");
   const [customMessage, setCustomMessage] = useState("");
   const [attachments, setAttachments] = useState<Array<{ name: string; content: string; contentType?: string; size: number }>>([]);
+  // BCC observers + "send a copy to me" (organizer request July 29, 2026 —
+  // parity with the CRM email dialog). Copy-to-me defaults ON; on a bulk
+  // send the sender receives one BCC copy PER recipient email.
+  const [bccInput, setBccInput] = useState("");
+  const [bccSelf, setBccSelf] = useState(true);
   const [sendMode, setSendMode] = useState<"now" | "later">("now");
   const [scheduledFor, setScheduledFor] = useState<string>("");
   // survey-invitation only — TTL (days) for the minted survey link.
@@ -614,6 +619,13 @@ export function BulkEmailDialog({
     // filters at send time — picking up registrations added later.
     const useFixedList = selectionMode === "selected" && !resolvesToMatching;
 
+    const parsedBcc = bccInput.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean);
+    const invalidBcc = parsedBcc.filter((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (invalidBcc.length) {
+      toast.error(`Invalid BCC address: ${invalidBcc.join(", ")}`);
+      return;
+    }
+
     const payload = {
       recipientType,
       recipientIds: useFixedList ? recipientIds : undefined,
@@ -680,6 +692,11 @@ export function BulkEmailDialog({
         ...(isCertificate && certTemplateIds.length > 0
           ? { certificateTemplateIds: certTemplateIds }
           : {}),
+        // BCC observers ride in filters so scheduled sends reconstruct them
+        // from the persisted ScheduledEmail.filters JSON; bccSelf resolves to
+        // the triggering organizer at SEND time.
+        ...(parsedBcc.length > 0 ? { bcc: parsedBcc } : {}),
+        ...(bccSelf ? { bccSelf: true } : {}),
       },
     };
 
@@ -718,6 +735,8 @@ export function BulkEmailDialog({
     setScheduledFor("");
     setScheduledAudience("matching");
     setCertTemplateIds([]);
+    setBccInput("");
+    setBccSelf(true);
   };
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -1040,6 +1059,25 @@ export function BulkEmailDialog({
               Max {MAX_FILES} files, 10MB total
               {totalAttachmentSize > 0 && ` · ${(totalAttachmentSize / (1024 * 1024)).toFixed(1)}MB used`}
             </p>
+          </div>
+
+          {/* BCC + copy-to-me (organizer request July 29, 2026) */}
+          <div className="space-y-1.5">
+            <Label>BCC (optional)</Label>
+            <Input
+              value={bccInput}
+              onChange={(e) => setBccInput(e.target.value)}
+              placeholder="colleague@example.com, second@example.com"
+            />
+            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={bccSelf}
+                onChange={(e) => setBccSelf(e.target.checked)}
+                className="cursor-pointer"
+              />
+              Send me a copy (BCC) — you&#39;ll receive one copy per recipient
+            </label>
           </div>
 
           {/* Audience filters (registrations only) — collapsed by default so the

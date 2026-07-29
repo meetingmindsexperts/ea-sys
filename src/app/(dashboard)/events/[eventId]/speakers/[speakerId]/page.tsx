@@ -205,6 +205,10 @@ export default function SpeakerDetailPage() {
   const [customEmailSubject, setCustomEmailSubject] = useState("");
   const [customEmailMessage, setCustomEmailMessage] = useState("");
   const [invitationFiles, setInvitationFiles] = useState<File[]>([]);
+  // BCC observers + "send a copy to me" (organizer request July 29, 2026 —
+  // parity with the CRM email dialog). Copy-to-me defaults ON.
+  const [bccInput, setBccInput] = useState("");
+  const [bccSelf, setBccSelf] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [updatingAgreement, setUpdatingAgreement] = useState(false);
   const [showAgreementHelp, setShowAgreementHelp] = useState(false);
@@ -463,6 +467,12 @@ export default function SpeakerDetailPage() {
       toast.error("Please provide subject and message");
       return;
     }
+    const parsedBcc = bccInput.split(/[,;\s]+/).map((t) => t.trim()).filter(Boolean);
+    const invalidBcc = parsedBcc.filter((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (invalidBcc.length) {
+      toast.error(`Invalid BCC address: ${invalidBcc.join(", ")}`);
+      return;
+    }
     setSendingEmail(true);
     try {
       const attachments =
@@ -487,6 +497,8 @@ export default function SpeakerDetailPage() {
           customMessage: customEmailMessage || undefined,
           includeAgreementLink: emailType === "agreement",
           attachments: attachments?.length ? attachments : undefined,
+          bcc: parsedBcc.length ? parsedBcc : undefined,
+          bccSelf,
         }),
       });
       const data = await res.json();
@@ -496,6 +508,7 @@ export default function SpeakerDetailPage() {
         setCustomEmailSubject("");
         setCustomEmailMessage("");
         setInvitationFiles([]);
+        setBccInput("");
       } else {
         toast.error(data.error || "Failed to send email");
       }
@@ -1321,6 +1334,25 @@ export default function SpeakerDetailPage() {
                 </div>
               </>
             )}
+            <div className="space-y-1.5">
+              <Label>BCC (optional)</Label>
+              <Input
+                value={bccInput}
+                onChange={(e) => setBccInput(e.target.value)}
+                placeholder="colleague@example.com, second@example.com"
+                disabled={sendingEmail}
+              />
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={bccSelf}
+                  onChange={(e) => setBccSelf(e.target.checked)}
+                  disabled={sendingEmail}
+                  className="cursor-pointer"
+                />
+                Send me a copy (BCC)
+              </label>
+            </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)} disabled={sendingEmail}>Cancel</Button>
               <Button variant="outline" onClick={handlePreviewEmail} disabled={previewMutation.isPending || sendingEmail}>

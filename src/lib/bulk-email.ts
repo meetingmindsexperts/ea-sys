@@ -217,6 +217,18 @@ export interface BulkEmailFilters {
    * receives the certs whose template TAG they hold.
    */
   certificateTemplateIds?: string[];
+  /**
+   * Manual BCC observers added to EVERY email of this send (organizer
+   * request July 29, 2026 — parity with the CRM email dialog). Rides inside
+   * `filters` for the same schedule-compat reason as `templateSlug`.
+   */
+  bcc?: string[];
+  /**
+   * "Send a copy to me" — BCCs the triggering organizer on every email.
+   * Resolved to `organizerEmail` at SEND time (not enqueue), so scheduled
+   * sends reconstruct it from the persisted filters JSON alone.
+   */
+  bccSelf?: boolean;
 }
 
 export interface BulkEmailInput {
@@ -454,6 +466,8 @@ export const bulkEmailSchema = z.object({
       surveyExpiryDays: surveyExpiryDaysSchema.optional(),
       templateSlug: z.string().min(1).max(100).optional(),
       certificateTemplateIds: z.array(z.string().min(1).max(100)).min(1).max(5).optional(),
+      bcc: z.array(z.string().email()).max(10).optional(),
+      bccSelf: z.boolean().optional(),
     })
     .optional(),
 }).superRefine((data, ctx) => {
@@ -1549,6 +1563,16 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // filter). Certificate sends returned early above with the same keys passed
   // through — executeCertificateBulkSend applies the identical skip (A4).
   const alreadyEmailed = new Set(alreadyEmailedKeys ?? []);
+  // BCC observers: manual filters.bcc + "send a copy to me" (filters.bccSelf
+  // resolves to the triggering organizer HERE, at send time, so scheduled
+  // sends reconstruct it from the persisted filters JSON alone). Computed
+  // once; each recipient's own address is excluded below so nobody is
+  // BCC'd on their own email.
+  const bccSet = new Set(
+    (input.filters?.bcc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean),
+  );
+  if (input.filters?.bccSelf && organizerEmail) bccSet.add(organizerEmail.trim().toLowerCase());
+
   const toSend = alreadyEmailed.size
     ? recipients.filter((r) => !alreadyEmailed.has(r.id))
     : recipients;
@@ -1665,9 +1689,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
                 : recipientType === "reviewers"
                   ? ("USER" as const)
                   : ("OTHER" as const);
+          const bccRecipients = [...bccSet]
+            .filter((e) => e !== recipient.email.trim().toLowerCase())
+            .map((email) => ({ email }));
           const result = await sendEmail({
             to: [{ email: recipient.email, name: `${recipient.firstName} ${recipient.lastName}` }],
             cc: brandingCc(branding, [{ email: recipient.email }], [recipient.additionalEmail]),
+            bcc: bccRecipients.length ? bccRecipients : undefined,
             subject: emailContent.subject,
             htmlContent: emailContent.htmlContent,
             textContent: emailContent.textContent,

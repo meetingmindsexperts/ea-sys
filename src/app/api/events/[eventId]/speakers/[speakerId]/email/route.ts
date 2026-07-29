@@ -29,6 +29,11 @@ const sendEmailSchema = z.object({
   customSubject: z.string().optional(),
   customMessage: z.string().optional(),
   includeAgreementLink: z.boolean().optional(),
+  // Manual BCC observers + "send a copy to me" (organizer request July 29,
+  // 2026 — parity with the CRM email dialog). Merged + deduped below; the
+  // speaker's own address is never BCC'd.
+  bcc: z.array(z.string().email()).max(10).optional(),
+  bccSelf: z.boolean().optional(),
   // Operator-picked file attachments (PDF/DOC/DOCX) — surfaced in the UI on the
   // invitation dialog. Base64 in the body (same shape as the bulk-email path);
   // re-validated by MIME + magic bytes in validateManualAttachments below.
@@ -110,7 +115,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { type, customSubject, customMessage, includeAgreementLink } = validated.data;
+    const { type, customSubject, customMessage, includeAgreementLink, bcc, bccSelf } = validated.data;
 
     // Validate operator-picked attachments (PDF/DOC/DOCX, ≤3 files, ≤10 MB
     // total, magic-byte checked). These merge into whatever the chosen email
@@ -347,6 +352,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
+    // BCC: manual observers + optional copy-to-sender, deduped; never the
+    // speaker's own address (they're the To:).
+    const bccSet = new Set((bcc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean));
+    if (bccSelf && session.user.email) bccSet.add(session.user.email.trim().toLowerCase());
+    bccSet.delete(speaker.email.trim().toLowerCase());
+
     const result = await sendEmail({
       to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
       cc: brandingCc(
@@ -354,6 +365,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         [{ email: speaker.email }],
         [speaker.additionalEmail],
       ),
+      bcc: bccSet.size ? [...bccSet].map((email) => ({ email })) : undefined,
       ...rendered,
       from: brandingFrom(branding),
       replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,
