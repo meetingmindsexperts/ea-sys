@@ -86,7 +86,9 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ticketTypeId: data.ticketTypeId,
+          // Empty = no registration type (uncategorised; assign later) —
+          // omit the key entirely so the service takes its typeless path.
+          ticketTypeId: data.ticketTypeId || undefined,
           paymentStatus: data.paymentStatus,
           attendee: {
             email: data.personData.email,
@@ -158,7 +160,7 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="ticketType">Registration Type *</Label>
+              <Label htmlFor="ticketType">Registration Type</Label>
               {ticketTypes.length === 0 ? (
                 <p className="text-sm text-muted-foreground p-3 bg-muted rounded">
                   No registration types available. Please create a registration type first.
@@ -171,13 +173,16 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
                     // charge), reverting that auto-default when switching to a
                     // paid type. Explicit admin choices (PAID/UNPAID/INCLUSIVE)
                     // are preserved. This dialog has no tier picker, so "free"
-                    // = base price 0 with no active tiers.
-                    const tt = ticketTypes.find((t) => t.id === value);
+                    // = base price 0 with no active tiers. "None" (typeless)
+                    // owes nothing ⇒ COMPLIMENTARY, matching the service +
+                    // full-page form.
+                    const ticketTypeId = value === "__none__" ? "" : value;
+                    const tt = ticketTypes.find((t) => t.id === ticketTypeId);
                     const hasActiveTiers = (tt?.pricingTiers ?? []).some((t) => t.isActive);
-                    const isFree = !!tt && !hasActiveTiers && Number(tt.price) === 0;
+                    const isFree = !ticketTypeId || (!!tt && !hasActiveTiers && Number(tt.price) === 0);
                     setFormData((prev) => ({
                       ...prev,
-                      ticketTypeId: value,
+                      ticketTypeId,
                       paymentStatus: isFree
                         ? "COMPLIMENTARY"
                         : prev.paymentStatus === "COMPLIMENTARY"
@@ -185,13 +190,16 @@ export function AddRegistrationDialog({ eventId, ticketTypes }: AddRegistrationD
                           : prev.paymentStatus,
                     }));
                   }}
-                  required
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a registration type" />
+                    <SelectValue placeholder="No registration type (optional)" />
                   </SelectTrigger>
                   <SelectContent className="z-[100]">
-                    {ticketTypes.map((regType) => {
+                    <SelectItem value="__none__">None</SelectItem>
+                    {/* Faculty is never offered: that type backs speaker
+                        companions and is excluded from every delegate-facing
+                        count — mirrors the full-page form + server guard. */}
+                    {ticketTypes.filter((t) => !t.isFaculty).map((regType) => {
                       // Hide the "- $X" suffix when the type has active
                       // pricing tiers (the Pricing Tier dropdown is the
                       // source of truth) or when the base price is 0

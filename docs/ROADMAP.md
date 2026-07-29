@@ -212,6 +212,29 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Registration-create unification — shared importer row-create helper (July 29, 2026, owner-approved, DEFERRED until the Registration-core tenancy sweep lands)
+
+All admin-driven creation paths now allow a blank/typeless registration type
+(manual add full-page + quick dialog, MCP `create_registration`, CSV import,
+import-from-contacts) with the same rules: typeless ⇒ `ticketTypeId` null +
+COMPLIMENTARY + no seat claim; the hidden Faculty type refused server-side
+everywhere (registration-service guard + `resolveImportFallbackTicketType`).
+**Public routes deliberately keep `ticketTypeId` mandatory** (owner rule):
+public register requires it; complete-registration's optional field is only
+the July-27 self-select mechanism for typeless rows.
+
+**Remaining (approved, not built): extract ONE shared importer row-create
+helper** for the CSV + import-contacts routes (attendee create + serial +
+registration create + seat claims via `registration-seat-db`) — the July-2
+dedup queue item #1. **Owner decision July 29: when extracted, import-contacts
+adopts the CSV row defaults** (typed rows get CONFIRMED status — PENDING when
+`requiresApproval` — UNASSIGNED/COMPLIMENTARY payment, and a minted entry
+barcode; today they land on schema defaults PENDING/UNPAID with **no qrCode**,
+so contact-imported people can't be scanned at the door). Deferred ONLY because
+the concurrent Registration-core tenancy sweep (Domain #8, C2 PARTIAL as of
+July 28) is actively editing these exact files — do this as its own gated pass
+once that sweep lands.
+
 ### Presence / "who is logged in right now" (July 28, 2026) — shipped, with two open items
 
 `User.lastSeenAt` + the **Active Now** card (Activity → Sign-ins). Full

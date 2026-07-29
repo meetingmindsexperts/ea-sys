@@ -334,6 +334,7 @@ export interface CreateRegistrationInput {
 export type CreateRegistrationErrorCode =
   | "EVENT_NOT_FOUND"
   | "TICKET_TYPE_NOT_FOUND"
+  | "TICKET_TYPE_IS_FACULTY"
   | "SALES_NOT_STARTED"
   | "SALES_ENDED"
   | "SOLD_OUT"
@@ -492,6 +493,7 @@ export async function createRegistration(
             salesStart: true,
             salesEnd: true,
             requiresApproval: true,
+            isFaculty: true,
           },
         })
       : null,
@@ -505,6 +507,18 @@ export async function createRegistration(
       ok: false,
       code: "TICKET_TYPE_NOT_FOUND",
       message: "Registration type not found or inactive",
+    };
+  }
+  // The hidden isFaculty type backs speaker companions and is excluded from
+  // every delegate-facing count — a delegate placed on it disappears from the
+  // stats. The UIs filter it client-side; this is the server-side guard that
+  // also covers MCP/n8n callers (same rule as the importers' shared resolver).
+  if (ticketType?.isFaculty) {
+    return {
+      ok: false,
+      code: "TICKET_TYPE_IS_FACULTY",
+      message:
+        "The Faculty registration type is reserved for speakers (companion registrations are created automatically when a speaker is added). Pick a delegate type or omit ticketTypeId.",
     };
   }
 

@@ -219,10 +219,12 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
     const email = String(input.email ?? "").trim().toLowerCase();
     const firstName = String(input.firstName ?? "").trim();
     const lastName = String(input.lastName ?? "").trim();
+    // Optional since July 29, 2026 — omit to register without a type
+    // (uncategorised; service defaults paymentStatus to COMPLIMENTARY).
     const ticketTypeId = String(input.ticketTypeId ?? "").trim();
 
-    if (!email || !firstName || !lastName || !ticketTypeId) {
-      return { error: "email, firstName, lastName, and ticketTypeId are all required" };
+    if (!email || !firstName || !lastName) {
+      return { error: "email, firstName, and lastName are required" };
     }
     if (!EMAIL_RE.test(email)) return { error: "Invalid email format" };
 
@@ -256,7 +258,7 @@ const createRegistrationTool: ToolExecutor = async (input, ctx) => {
       eventId: ctx.eventId,
       organizationId: ctx.organizationId,
       userId: ctx.userId,
-      ticketTypeId,
+      ticketTypeId: ticketTypeId || null,
       pricingTierId: input.pricingTierId ? String(input.pricingTierId) : undefined,
       attendanceMode: rawMode as "IN_PERSON" | "VIRTUAL" | undefined,
       attendee: {
@@ -863,7 +865,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
         where: { eventId: ctx.eventId },
         select: {
           id: true, name: true, quantity: true, price: true, currency: true,
-          requiresApproval: true, salesStart: true, salesEnd: true,
+          requiresApproval: true, salesStart: true, salesEnd: true, isFaculty: true,
         },
       }),
       db.event.findFirst({ where: { id: ctx.eventId }, select: CONFIRMATION_EVENT_SELECT }),
@@ -898,6 +900,12 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
         const ticketType = ticketTypeById.get(ticketTypeId);
         if (!ticketType) {
           errors.push({ index: i, email, error: `Ticket type ${ticketTypeId} not found for this event`, code: "INVALID_TICKET_TYPE" });
+          continue;
+        }
+        // Same rule as the single-create service + the importers' resolver:
+        // the hidden faculty type never receives delegates via generic create.
+        if (ticketType.isFaculty) {
+          errors.push({ index: i, email, error: "The Faculty registration type is reserved for speakers and cannot be used here", code: "INVALID_TICKET_TYPE" });
           continue;
         }
 
@@ -1201,14 +1209,14 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
   {
     name: "create_registration",
     description:
-      "Manually add a registration for an attendee. Requires email, firstName, lastName, and ticketTypeId (use list_ticket_types to get IDs). Sends a confirmation email + quote PDF automatically when the ticket is paid and payment is outstanding (default paymentStatus: UNASSIGNED for paid, COMPLIMENTARY for free).",
+      "Manually add a registration for an attendee. Requires email, firstName, lastName. ticketTypeId is optional (use list_ticket_types to get IDs) — omit it to register without a type (uncategorised: paymentStatus defaults to COMPLIMENTARY, assign a type later). The hidden Faculty type is refused (reserved for speaker companions). Sends a confirmation email + quote PDF automatically when the ticket is paid and payment is outstanding (default paymentStatus: UNASSIGNED for paid, COMPLIMENTARY for free).",
     input_schema: {
       type: "object" as const,
       properties: {
         email: { type: "string", description: "Attendee email address" },
         firstName: { type: "string" },
         lastName: { type: "string" },
-        ticketTypeId: { type: "string", description: "ID of the ticket type (use list_ticket_types to get IDs)" },
+        ticketTypeId: { type: "string", description: "Optional ID of the ticket type (use list_ticket_types to get IDs). Omit to register without a type." },
         pricingTierId: { type: "string", description: "Optional pricing tier ID" },
         attendanceMode: { type: "string", enum: ["IN_PERSON", "VIRTUAL"], description: "IN_PERSON (default) or VIRTUAL. Only meaningful on HYBRID events. VIRTUAL ⇒ no entry barcode/badge, uncapped (skips seat count), priced via the ticket's virtualPrice." },
         status: {
@@ -1276,7 +1284,7 @@ export const REGISTRATION_TOOL_DEFINITIONS: Tool[] = [
           description: "ISO 8601 date (YYYY-MM-DD) for student ID expiry. Invalid dates are stored as null.",
         },
       },
-      required: ["email", "firstName", "lastName", "ticketTypeId"],
+      required: ["email", "firstName", "lastName"],
     },
   },
   {

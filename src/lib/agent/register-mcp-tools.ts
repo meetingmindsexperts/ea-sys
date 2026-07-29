@@ -345,8 +345,9 @@ export function registerAllMcpTools(
       sessionId: z.string(), title: z.string(), duration: z.number().optional(), speakerIds: z.array(z.string()).optional(),
     }},
     { name: "create_ticket_type", description: "Create a registration type.", params: { name: z.string(), description: z.string().optional() }},
-    { name: "create_registration", description: "Register an attendee. For sponsor-paid attendees set paymentStatus='INCLUSIVE' and pass sponsorId (use list_sponsors to discover ids).", params: {
-      email: z.string(), firstName: z.string(), lastName: z.string(), ticketTypeId: z.string(),
+    { name: "create_registration", description: "Register an attendee. ticketTypeId is optional — omit it to register without a type (uncategorised: paymentStatus defaults to COMPLIMENTARY, assign a type later; the hidden Faculty type is refused). For sponsor-paid attendees set paymentStatus='INCLUSIVE' and pass sponsorId (use list_sponsors to discover ids).", params: {
+      email: z.string(), firstName: z.string(), lastName: z.string(),
+      ticketTypeId: z.string().optional().describe("Optional — omit to register without a registration type."),
       additionalEmail: z.string().optional().describe("Secondary CC inbox auto-CC'd on registration emails."),
       title: z.enum(["DR", "MR", "MRS", "MS", "PROF"]).optional(),
       organization: z.string().optional(), status: z.enum(["PENDING", "CONFIRMED", "WAITLISTED"]).optional(),

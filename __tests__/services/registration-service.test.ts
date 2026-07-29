@@ -534,6 +534,14 @@ describe("createRegistration — domain errors", () => {
     if (!result.ok) expect(result.code).toBe("TICKET_TYPE_NOT_FOUND");
   });
 
+  it("TICKET_TYPE_IS_FACULTY when the hidden faculty type is targeted (server-side guard — UIs only filter client-side)", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...PAID_TICKET, isFaculty: true });
+    const result = await createRegistration(BASE_INPUT);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe("TICKET_TYPE_IS_FACULTY");
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
   it("SALES_NOT_STARTED when salesStart is in the future", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({
       ...PAID_TICKET,

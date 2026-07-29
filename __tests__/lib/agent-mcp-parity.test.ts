@@ -300,6 +300,29 @@ describe("MCP create_registration — REST parity", () => {
     expect(mockEventStats.refreshEventStats).toHaveBeenCalledWith("evt-1");
   });
 
+  it("registers WITHOUT a ticketTypeId (uncategorised — typeless service path, COMPLIMENTARY, no seat claim)", async () => {
+    const result = await REGISTRATION_EXECUTORS.create_registration(
+      { email: "john@example.com", firstName: "John", lastName: "Doe" },
+      CTX,
+    ) as { success?: boolean; error?: string };
+    expect(result.error).toBeUndefined();
+    expect(result.success).toBe(true);
+    // Typeless: no ticket-type lookup, no seat claim, nothing to owe → no email.
+    expect(mockDb.ticketType.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.ticketType.updateMany).not.toHaveBeenCalled();
+    expect(mockEmail.sendRegistrationConfirmation).not.toHaveBeenCalled();
+    const data = mockDb.registration.create.mock.calls[0][0].data as Record<string, unknown>;
+    expect(data.ticketTypeId).toBeNull();
+    expect(data.paymentStatus).toBe("COMPLIMENTARY");
+  });
+
+  it("refuses the hidden Faculty type server-side (TICKET_TYPE_IS_FACULTY)", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...paidTicket, isFaculty: true });
+    const result = await REGISTRATION_EXECUTORS.create_registration(baseInput, CTX) as { error?: string };
+    expect(result.error).toMatch(/reserved for speakers/i);
+    expect(mockDb.registration.create).not.toHaveBeenCalled();
+  });
+
   it("rejects registration when sales window has not started", async () => {
     mockDb.ticketType.findFirst.mockResolvedValue({
       ...paidTicket,
