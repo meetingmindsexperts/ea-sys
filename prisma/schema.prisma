@@ -1776,6 +1776,38 @@ model SystemLog {
   @@index([module])
 }
 
+// ==================== HELP-ASSISTANT QUERY CAPTURE ====================
+
+/// One row per completed help-assistant answer — the user's question plus the
+/// assistant's reply, with a snapshot of who asked. Who/org are stored as plain
+/// SCALARS (no FK), matching the tenancy convention: a deleted user's history
+/// survives and we don't have to carry a User/Organization back-relation.
+///
+/// Written FIRE-AND-FORGET from POST /api/help-chat after the SSE stream
+/// completes, so a persistence failure can never break the chat. Read only via
+/// SUPER_ADMIN /admin/help-queries.
+///
+/// This deliberately reverses the route's original "never persist question
+/// bodies" stance (owner decision, 2026-07-29): the questions ARE the product
+/// signal. Because questions can reference real attendee data, the ONLY read
+/// surface is SUPER_ADMIN — never exposed to any other role or org-scoped view.
+model HelpChatQuery {
+  id               String   @id @default(cuid())
+  userId           String?
+  userEmail        String?
+  userName         String?
+  role             String?
+  organizationId   String?
+  organizationName String?
+  question         String   @db.Text
+  answer           String   @db.Text
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
 // ==================== IMPORT LOGS ====================
 
 model ImportLog {

@@ -24,6 +24,7 @@ import {
   Receipt,
   Calendar,
   ScrollText,
+  MessageCircleQuestion,
   ScanBarcode,
   Activity,
   Mail,
@@ -80,6 +81,7 @@ const navigation: { name: string; href: string; icon: React.ComponentType<{ clas
   { name: "Media",     href: "/media",     icon: ImageIcon },
   { name: "Settings",  href: "/settings",  icon: Settings },
   { name: "Logs",      href: "/logs",      icon: ScrollText, superAdminOnly: true },
+  { name: "Help Queries", href: "/admin/help-queries", icon: MessageCircleQuestion, superAdminOnly: true },
   // adminOnly, NOT superAdminOnly: the /activity page itself has always allowed
   // ADMIN, so a SUPER_ADMIN-only link left org admins reaching it by URL alone.
   // It also now hosts the Sign-in Activity tab, whose own gate

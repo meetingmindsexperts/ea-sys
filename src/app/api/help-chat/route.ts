@@ -16,15 +16,20 @@
  *            the failure happens mid-stream
  *
  * Stateless: the client owns conversation history; each request sends
- * the full `messages` array. No DB writes from this route (the audit
- * log is intentionally NOT used — we don't want to persist user
- * questions, even metadata-only entries that hint at them, beyond what
- * Pino's `info` log records).
+ * the full `messages` array.
+ *
+ * Capture: on stream completion the user's question + the assistant's
+ * answer are persisted to `HelpChatQuery` (fire-and-forget, so a write
+ * failure can never break the chat). This is the ONE place question
+ * bodies are stored; they are readable ONLY by SUPER_ADMIN via
+ * /admin/help-queries (owner decision, 2026-07-29 — the questions are
+ * the product signal we want). Because questions can reference real
+ * attendee data, they are never surfaced anywhere else.
  *
  * Logging: metadata only — userId, role, message count, input char
  * count, completion timing, token usage. Message bodies are NEVER
- * logged (privacy — users may ask questions referencing real attendee
- * data).
+ * written to the Pino/SystemLog stream (that feed is broadly readable);
+ * the persisted copy lives only in the SUPER_ADMIN-gated table above.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -166,6 +171,11 @@ export async function POST(req: NextRequest) {
   });
   const provider = getDefaultAiProvider();
 
+  // The question we capture is the turn the bot is answering (guaranteed
+  // to be a user turn by the check above). Snapshot the asker now so the
+  // row survives a later user deletion.
+  const question = messages[messages.length - 1].content;
+
   // ── 5. SSE stream ────────────────────────────────────────────────
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -175,6 +185,7 @@ export async function POST(req: NextRequest) {
           encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
         );
       };
+      let answerText = "";
       try {
         for await (const event of provider.streamChat({
           model: config.model,
@@ -184,6 +195,9 @@ export async function POST(req: NextRequest) {
           temperature: config.temperature,
         })) {
           send(event);
+          if (event.type === "text") {
+            answerText += event.delta;
+          }
           if (event.type === "done") {
             apiLogger.info({
               msg: "help-chat:complete",
@@ -194,6 +208,30 @@ export async function POST(req: NextRequest) {
               cacheWriteTokens: event.usage?.cacheWriteTokens,
               latencyMs: Date.now() - startedAt,
             });
+            // Persist the Q&A for the SUPER_ADMIN help-queries view.
+            // Fire-and-forget: a write failure must never surface to the
+            // user or interrupt the stream we already delivered.
+            db.helpChatQuery
+              .create({
+                data: {
+                  userId,
+                  userEmail: session.user.email ?? null,
+                  userName:
+                    [session.user.firstName, session.user.lastName]
+                      .filter(Boolean)
+                      .join(" ") ||
+                    session.user.name ||
+                    null,
+                  role,
+                  organizationId: session.user.organizationId ?? null,
+                  organizationName,
+                  question,
+                  answer: answerText,
+                },
+              })
+              .catch((err) => {
+                apiLogger.error({ msg: "help-chat:persist-failed", userId, err });
+              });
           }
         }
       } catch (err) {
