@@ -234,6 +234,8 @@ export default function SpeakerDetailPage() {
         slug: slugMap[emailType],
         customSubject: emailType === "custom" ? customEmailSubject.trim() || undefined : undefined,
         customMessage: emailType === "custom" ? customEmailMessage.trim() || undefined : undefined,
+        // Preview greets THIS speaker with THEIR sessions, matching the send.
+        speakerId,
       });
       setPreviewData(result);
       setPreviewOpen(true);

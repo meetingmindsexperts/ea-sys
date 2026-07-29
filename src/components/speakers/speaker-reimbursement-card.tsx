@@ -161,6 +161,8 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
     try {
       const result = await previewMutation.mutateAsync({
         slug: "speaker-reimbursement-invitation",
+        // Preview greets THIS speaker, matching the send.
+        speakerId,
         customSubject: sendSubject.trim() || undefined,
         customMessage: sendMessage.trim() || undefined,
       });
@@ -170,7 +172,7 @@ export function SpeakerReimbursementCard({ eventId, speakerId }: Props) {
       console.error("speaker-reimbursement-card:preview-error", err);
       toast.error(err instanceof Error ? err.message : "Failed to generate preview");
     }
-  }, [previewMutation, sendSubject, sendMessage]);
+  }, [previewMutation, sendSubject, sendMessage, speakerId]);
 
   const handleCopy = useCallback(async () => {
     if (!row) return;

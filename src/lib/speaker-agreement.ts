@@ -704,7 +704,10 @@ export async function generateSpeakerAgreementDocx(opts: {
   }
 
   const outBuf = doc.toBuffer({ compression: "DEFLATE" });
-  const filename = `agreement-${slugify(event.slug)}-${slugify(context.lastName || "speaker")}.docx`;
+  // Full name in the filename so a folder of downloaded agreements is
+  // identifiable at a glance (was lastName only — ambiguous across speakers
+  // sharing a surname).
+  const filename = `agreement-${slugify(event.slug)}-${slugify(`${context.firstName} ${context.lastName}`.trim() || "speaker")}.docx`;
 
   return { buffer: outBuf, filename };
 }
@@ -2130,7 +2133,8 @@ export async function generateSpeakerAgreementPdf(opts: {
     footerImage,
   });
 
-  const filename = `agreement-${slugify(event.slug)}-${slugify(resolved.context.lastName || "speaker")}.pdf`;
+  // Full name — same rule as the .docx path above.
+  const filename = `agreement-${slugify(event.slug)}-${slugify(`${resolved.context.firstName} ${resolved.context.lastName}`.trim() || "speaker")}.pdf`;
   return { buffer, filename };
 }
 

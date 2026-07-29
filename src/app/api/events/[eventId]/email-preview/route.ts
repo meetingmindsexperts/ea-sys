@@ -14,6 +14,8 @@ import {
 } from "@/lib/email";
 import { buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
+import { buildSpeakerEmailContext } from "@/lib/speaker-agreement";
+import { getTitleLabel } from "@/lib/utils";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
 
@@ -21,6 +23,13 @@ const previewSchema = z.object({
   slug: z.string().min(1).max(100),
   customSubject: z.string().max(500).optional(),
   customMessage: z.string().max(10000).optional(),
+  // Target speaker — set when previewing from a specific speaker's email
+  // dialog (speaker page / detail sheet / reimbursement card). The preview
+  // then greets THAT speaker with THEIR presentation context, exactly like
+  // the send; without it the preview greets the signed-in operator and shows
+  // a representative speaker's blocks (organizer-reported: previewing one
+  // speaker's invitation showed a different speaker's name).
+  speakerId: z.string().min(1).max(100).optional(),
   // slug === "certificate" only — the CertificateTemplate ids the send
   // would carry. The cert cover email isn't an EmailTemplate slug (it
   // lives on the template row / system defaults), so it renders through
@@ -46,7 +55,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const { slug, customSubject, customMessage, certificateTemplateIds } = parsed.data;
+    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId } = parsed.data;
 
     // Verify event access (org-scoped for team members). The caller's
     // profile signature + the event's real session/abstract/speaker data are
@@ -122,6 +131,50 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json(preview);
     }
 
+    // Target-speaker overrides — applied LAST over the sample/representative
+    // vars so the preview shows the actual recipient. Mirrors the single-send
+    // route's ctx usage (buildSpeakerEmailContext is the shared source), so
+    // preview == send by construction.
+    let speakerVars: Record<string, string> = {};
+    if (speakerId) {
+      const speaker = await db.speaker.findFirst({
+        where: { id: speakerId, eventId },
+        select: { id: true, title: true, firstName: true, lastName: true, email: true },
+      });
+      if (!speaker) {
+        apiLogger.warn({ msg: "email-preview:speaker-not-found", eventId, speakerId });
+        return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
+      }
+      const ctx = await buildSpeakerEmailContext(eventId, speakerId);
+      speakerVars = {
+        firstName: speaker.firstName,
+        lastName: speaker.lastName,
+        // Same fallbacks as the send route: pre-formatted context values,
+        // else format the raw row.
+        title: ctx?.title ?? getTitleLabel(speaker.title),
+        speakerName: ctx?.speakerName ?? `${speaker.firstName} ${speaker.lastName}`,
+        recipientName: ctx?.speakerName ?? `${speaker.firstName} ${speaker.lastName}`,
+        presenterName: ctx?.speakerName ?? `${speaker.firstName} ${speaker.lastName}`,
+        speakerEmail: speaker.email,
+        ...(ctx
+          ? {
+              jobTitle: ctx.jobTitle,
+              speakerOrganization: ctx.speakerOrganization,
+              speakerCountry: ctx.speakerCountry,
+              sessionTitles: ctx.sessionTitles,
+              topicTitles: ctx.topicTitles,
+              sessionDateTime: ctx.sessionDateTime,
+              trackNames: ctx.trackNames,
+              role: ctx.role,
+              presentationDetails: ctx.presentationDetails,
+              presentationDetailsText: ctx.presentationDetailsText,
+              moderatorDetails: ctx.moderatorDetails,
+              moderatorDetailsText: ctx.moderatorDetailsText,
+            }
+          : {}),
+      };
+    }
+
     // getEventTemplate loads DB template with fallback to default, plus event branding
     const eventTemplate = await getEventTemplate(eventId, slug);
 
@@ -147,13 +200,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
     );
 
-    const renderedBody = renderTemplate(eventTemplate.htmlContent, sampleVars);
+    // Target speaker (when previewing from a speaker's dialog) wins over the
+    // sample/signed-in-user greeting and the representative speaker's blocks.
+    const mergedVars = { ...sampleVars, ...speakerVars };
+
+    const renderedBody = renderTemplate(eventTemplate.htmlContent, mergedVars);
     // A typed subject previews as the subject — before this it was ignored
     // unless the template's own subject happened to contain {{subject}}
     // (review R2 M7). Tokens typed into it resolve, matching the send.
     const renderedSubject = renderTemplatePlain(
       customSubject || eventTemplate.subject,
-      sampleVars,
+      mergedVars,
     );
     const wrappedHtml = inlineCss(wrapWithBranding(renderedBody, eventTemplate.branding));
 

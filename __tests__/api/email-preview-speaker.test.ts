@@ -1,0 +1,123 @@
+/**
+ * Email preview — target-speaker overrides (July 29, 2026, organizer-reported).
+ *
+ * Previewing from a SPECIFIC speaker's email dialog used to greet the
+ * signed-in operator (buildEventPreviewVariables' user greeting) and show a
+ * representative speaker's presentation blocks — so previewing Speaker A's
+ * invitation could render Speaker B's name. With `speakerId` in the request,
+ * the preview must render THAT speaker's identity + context ON TOP of the
+ * sample vars, and must 404 a speaker from another event.
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const { mockDb, mockAuth, mockCtx, mockRender } = vi.hoisted(() => ({
+  mockDb: {
+    event: { findFirst: vi.fn() },
+    user: { findUnique: vi.fn() },
+    speaker: { findFirst: vi.fn() },
+  },
+  mockAuth: vi.fn(),
+  mockCtx: vi.fn(),
+  mockRender: vi.fn(),
+}));
+
+vi.mock("next/server", () => ({
+  NextResponse: { json: (b: unknown, i?: { status?: number }) => ({ status: i?.status ?? 200, json: async () => b }) },
+}));
+vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
+vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null }));
+vi.mock("@/lib/email-preview-data", () => ({
+  // The representative-speaker layer — deliberately returns ANOTHER speaker's
+  // blocks so the test proves the target speaker wins.
+  buildRealPreviewOverrides: vi.fn(async () => ({ presentationDetails: "<p>REPRESENTATIVE</p>" })),
+}));
+vi.mock("@/lib/certificates/bundle", () => ({ buildCertCoverEmailPreview: vi.fn() }));
+vi.mock("@/lib/speaker-agreement", () => ({ buildSpeakerEmailContext: (...a: unknown[]) => mockCtx(...a) }));
+vi.mock("@/lib/email", () => ({
+  getEventTemplate: vi.fn(async () => ({
+    subject: "Invitation — {{eventName}}",
+    htmlContent: "<p>Dear {{speakerName}},</p>{{presentationDetails}}",
+    textContent: "",
+    branding: { eventName: "Ev" },
+  })),
+  // Signed-in-operator greeting the target speaker must BEAT.
+  buildEventPreviewVariables: vi.fn(() => ({
+    speakerName: "Ops Casison",
+    firstName: "Ops",
+    lastName: "Casison",
+    presentationDetails: "<p>REPRESENTATIVE</p>",
+    eventName: "Ev",
+  })),
+  renderTemplate: (html: string, vars: Record<string, string>) => {
+    mockRender(html, vars);
+    return html.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
+  },
+  renderTemplatePlain: (s: string, vars: Record<string, string>) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? ""),
+  wrapWithBranding: (html: string) => html,
+  inlineCss: (html: string) => html,
+}));
+
+import { POST } from "@/app/api/events/[eventId]/email-preview/route";
+
+const params = { params: Promise.resolve({ eventId: "ev1" }) };
+const req = (body: unknown) =>
+  new Request("http://localhost/x", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockAuth.mockResolvedValue({ user: { id: "u1", role: "ORGANIZER", organizationId: "org1", firstName: "Ops", lastName: "Casison" } });
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", name: "Ev", ticketTypes: [], registrations: [] });
+  mockDb.user.findUnique.mockResolvedValue({ emailSignature: null });
+});
+
+describe("email-preview with speakerId", () => {
+  it("greets the TARGET speaker with THEIR presentation context (beats operator + representative)", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "sp1", title: "DR", firstName: "Ahmed", lastName: "Osman", email: "osman@x.com" });
+    mockCtx.mockResolvedValue({
+      title: "Dr.",
+      speakerName: "Dr. Ahmed Osman",
+      jobTitle: "Consultant", speakerOrganization: "Org", speakerCountry: "AE",
+      sessionTitles: "S1", topicTitles: "T1", sessionDateTime: "dt", trackNames: "", role: "Speaker",
+      presentationDetails: "<p>OSMAN-SESSIONS</p>", presentationDetailsText: "OSMAN-SESSIONS",
+      moderatorDetails: "", moderatorDetailsText: "",
+    });
+
+    const res = await POST(req({ slug: "speaker-invitation", speakerId: "sp1" }), params);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { htmlContent: string };
+    expect(body.htmlContent).toContain("Dear Dr. Ahmed Osman");
+    expect(body.htmlContent).toContain("OSMAN-SESSIONS");
+    expect(body.htmlContent).not.toContain("Casison");
+    expect(body.htmlContent).not.toContain("REPRESENTATIVE");
+    // Speaker resolved event-bound (no cross-event preview).
+    expect(mockDb.speaker.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "sp1", eventId: "ev1" } }),
+    );
+  });
+
+  it("falls back to the speaker ROW when the context returns null (session-less speaker)", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "sp1", title: "DR", firstName: "Ahmed", lastName: "Osman", email: "osman@x.com" });
+    mockCtx.mockResolvedValue(null);
+    const res = await POST(req({ slug: "speaker-invitation", speakerId: "sp1" }), params);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { htmlContent: string };
+    expect(body.htmlContent).toContain("Dear Ahmed Osman");
+    expect(body.htmlContent).not.toContain("Casison");
+  });
+
+  it("404s a speakerId from another event", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue(null);
+    const res = await POST(req({ slug: "speaker-invitation", speakerId: "foreign" }), params);
+    expect(res.status).toBe(404);
+  });
+
+  it("without speakerId the existing behavior is unchanged (operator greeting)", async () => {
+    const res = await POST(req({ slug: "speaker-invitation" }), params);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { htmlContent: string };
+    expect(body.htmlContent).toContain("Dear Ops Casison");
+    expect(mockDb.speaker.findFirst).not.toHaveBeenCalled();
+  });
+});

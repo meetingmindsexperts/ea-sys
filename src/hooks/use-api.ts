@@ -1130,6 +1130,8 @@ export function usePreviewEmailBySlug(eventId: string) {
       customMessage?: string;
       /** slug === "certificate" only — the selected CertificateTemplate ids. */
       certificateTemplateIds?: string[];
+      /** Target speaker — preview greets THEM with THEIR presentation context. */
+      speakerId?: string;
     }) =>
       fetchApi<{ subject: string; htmlContent: string }>(
         `/api/events/${eventId}/email-preview`,

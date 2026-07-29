@@ -214,6 +214,8 @@ export function SpeakerDetailSheet({
     try {
       const result = await previewMutation.mutateAsync({
         slug: slugMap[emailType],
+        // Preview greets THIS speaker with THEIR sessions, matching the send.
+        speakerId: speakerId ?? undefined,
         customSubject: emailType === "custom" ? customEmailSubject.trim() || undefined : undefined,
         customMessage: emailType === "custom" ? customEmailMessage.trim() || undefined : undefined,
       });
