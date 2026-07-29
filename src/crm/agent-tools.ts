@@ -23,6 +23,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
 import { defaultOpenStage } from "@/crm/lib/crm-types";
 import { ensurePipelineStages } from "@/crm/services/pipeline-service";
+import { ensureDealTypes } from "@/crm/services/deal-type-service";
 import { buildCrmReport } from "@/crm/services/report-service";
 import {
   createDeal,
@@ -65,6 +66,16 @@ async function resolveStageFlexible(organizationId: string, idOrName: string) {
   return (
     stages.find((s) => s.id === idOrName) ??
     stages.find((s) => s.name.trim().toLowerCase() === idOrName.trim().toLowerCase()) ??
+    null
+  );
+}
+
+/** Resolve a deal type by id OR (case-insensitive) name — active types only. */
+async function resolveDealTypeFlexible(organizationId: string, idOrName: string) {
+  const types = (await ensureDealTypes(organizationId)).filter((t) => !t.archivedAt);
+  return (
+    types.find((t) => t.id === idOrName) ??
+    types.find((t) => t.name.trim().toLowerCase() === idOrName.trim().toLowerCase()) ??
     null
   );
 }
@@ -120,17 +131,18 @@ export function registerCrmMcpTools(
 
   server.tool(
     "list_crm_deals",
-    "List CRM sponsorship deals. Filters: eventId, status (OPEN/WON/LOST), pipeline (CORPORATE/CONFERENCE — the deal CATEGORY, distinct from the pipeline STAGES in list_crm_pipeline), stage (name or id), search (deal name contains), includeArchived, limit (default 50, max 200).",
+    "List CRM sponsorship deals. Filters: eventId, status (OPEN/WON/LOST), pipeline (CORPORATE/CONFERENCE — the deal CATEGORY, distinct from the pipeline STAGES in list_crm_pipeline), dealType (the org-configurable business line — name or id, call list_crm_deal_types), stage (name or id), search (deal name contains), includeArchived, limit (default 50, max 200).",
     {
       eventId: z.string().optional(),
       status: z.enum(["OPEN", "WON", "LOST"]).optional(),
       pipeline: z.nativeEnum(CrmDealPipeline).optional().describe("Deal category: CORPORATE or CONFERENCE"),
+      dealType: z.string().optional().describe("Deal type name or id (list_crm_deal_types)"),
       stage: z.string().optional().describe("Stage name or id"),
       search: z.string().optional(),
       includeArchived: z.boolean().optional(),
       limit: z.number().optional(),
     },
-    async ({ eventId, status, pipeline, stage, search, includeArchived, limit }) =>
+    async ({ eventId, status, pipeline, dealType, stage, search, includeArchived, limit }) =>
       safeTool("list_crm_deals", async () => {
         const where = buildDealWhere(
           {
@@ -146,6 +158,11 @@ export function registerCrmMcpTools(
           if (!resolved) fail(`Unknown stage "${stage}" — call list_crm_pipeline for the stage list`);
           where.stageId = resolved.id;
         }
+        if (dealType) {
+          const dt = await resolveDealTypeFlexible(organizationId, dealType);
+          if (!dt) fail(`Unknown deal type "${dealType}" — call list_crm_deal_types for the list`);
+          where.dealTypeId = dt.id;
+        }
         if (search) where.name = { contains: search, mode: "insensitive" };
 
         const deals = await db.crmDeal.findMany({
@@ -153,6 +170,7 @@ export function registerCrmMcpTools(
           select: {
             id: true, name: true, status: true, pipeline: true, tags: true, dealValue: true, currency: true,
             expectedClose: true, lostReason: true,
+            dealType: { select: { name: true } },
             stage: { select: { name: true } },
             company: { select: { name: true } },
             // Project date + location are derived from the event (city/country only).
@@ -169,6 +187,7 @@ export function registerCrmMcpTools(
               `${d.name} — ${money(d.dealValue, d.currency)} — ${d.stage.name} (${d.status})` +
               `\n  ID: ${d.id}` +
               (d.pipeline ? `\n  Pipeline: ${d.pipeline}` : "") +
+              (d.dealType ? `\n  Deal type: ${d.dealType.name}` : "") +
               (d.tags.length ? `\n  Tags: ${d.tags.join(", ")}` : "") +
               (d.company ? `\n  Account: ${d.company.name}` : "") +
               (d.event ? `\n  Event: ${d.event.name}` : "") +
@@ -183,14 +202,27 @@ export function registerCrmMcpTools(
   );
 
   server.tool(
+    "list_crm_deal_types",
+    "List the org's configurable deal TYPES (business lines like 'Sponsorship Inquiry', 'Industry Symposium') — the admin-editable dropdown shown on deals. Distinct from list_crm_pipeline (the board STAGES). Use a returned name or id as the `dealType` on create_crm_deal / update_crm_deal, or as the `dealType` filter on list_crm_deals.",
+    {},
+    async () =>
+      safeTool("list_crm_deal_types", async () => {
+        const types = (await ensureDealTypes(organizationId)).filter((t) => !t.archivedAt);
+        if (types.length === 0) return "No deal types configured.";
+        return types.map((t) => `${t.name}\n  ID: ${t.id}`).join("\n\n");
+      }),
+  );
+
+  server.tool(
     "create_crm_deal",
-    "Create a sponsorship deal. Required: name, eventId (the project the deal is sold against — a deal without an event is refused). Optional: companyName (the account — found or created, deduped on the normalized name), stage (name or id; defaults to the first open stage), pipeline (deal CATEGORY — CORPORATE or CONFERENCE; NOT a pipeline stage), tags (free-form labels, normalized), dealValue, currency (default USD), expectedClose (ISO date). Project date + location are derived from the event, not set here.",
+    "Create a sponsorship deal. Required: name, eventId (the project the deal is sold against — a deal without an event is refused). Optional: companyName (the account — found or created, deduped on the normalized name), stage (name or id; defaults to the first open stage), pipeline (deal CATEGORY — CORPORATE or CONFERENCE; NOT a pipeline stage), dealType (the org-configurable business line — name or id, call list_crm_deal_types), tags (free-form labels, normalized), dealValue, currency (default USD), expectedClose (ISO date). Project date + location are derived from the event, not set here.",
     {
       name: z.string().min(1).max(255),
       eventId: z.string().min(1),
       companyName: z.string().optional(),
       stage: z.string().optional(),
       pipeline: z.nativeEnum(CrmDealPipeline).optional().describe("Deal category: CORPORATE or CONFERENCE"),
+      dealType: z.string().optional().describe("Deal type name or id (list_crm_deal_types)"),
       tags: z.array(z.string().min(1).max(50)).max(25).optional(),
       dealValue: z.number().optional(),
       currency: z.string().length(3).optional(),
@@ -218,6 +250,13 @@ export function registerCrmMcpTools(
           companyId = company.company.id;
         }
 
+        let dealTypeId: string | null = null;
+        if (input.dealType?.trim()) {
+          const dt = await resolveDealTypeFlexible(organizationId, input.dealType);
+          if (!dt) fail(`Unknown deal type "${input.dealType}" — call list_crm_deal_types for the list`);
+          dealTypeId = dt.id;
+        }
+
         const res = await createDeal({
           organizationId,
           userId: systemUserId,
@@ -227,6 +266,7 @@ export function registerCrmMcpTools(
           companyId,
           eventId: input.eventId,
           pipeline: input.pipeline ?? null,
+          dealTypeId,
           tags: input.tags,
           dealValue: input.dealValue ?? null,
           currency: input.currency,
@@ -242,7 +282,7 @@ export function registerCrmMcpTools(
 
   server.tool(
     "update_crm_deal",
-    "Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId (re-point to another event; clearing is refused — a deal must stay on a project), pipeline (deal CATEGORY CORPORATE/CONFERENCE; pass null to clear), tags (REPLACES the whole tag list, normalized). Stage moves go through move_crm_deal_stage; closing through close_crm_deal.",
+    "Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId (re-point to another event; clearing is refused — a deal must stay on a project), pipeline (deal CATEGORY CORPORATE/CONFERENCE; pass null to clear), dealType (business line — name or id; pass null to clear), tags (REPLACES the whole tag list, normalized). Stage moves go through move_crm_deal_stage; closing through close_crm_deal.",
     {
       dealId: z.string().min(1),
       name: z.string().optional(),
@@ -251,15 +291,26 @@ export function registerCrmMcpTools(
       expectedClose: z.string().nullable().optional(),
       eventId: z.string().optional(),
       pipeline: z.nativeEnum(CrmDealPipeline).nullable().optional().describe("Deal category CORPORATE/CONFERENCE; null clears it"),
+      dealType: z.string().nullable().optional().describe("Deal type name or id (list_crm_deal_types); null clears it"),
       tags: z.array(z.string().min(1).max(50)).max(25).optional().describe("Replaces the entire tag list"),
     },
     async (input) =>
       safeTool("update_crm_deal", async () => {
+        // undefined = leave; null = clear; a name/id = resolve to the type's id.
+        let dealTypeId: string | null | undefined = undefined;
+        if (input.dealType === null) dealTypeId = null;
+        else if (input.dealType?.trim()) {
+          const dt = await resolveDealTypeFlexible(organizationId, input.dealType);
+          if (!dt) fail(`Unknown deal type "${input.dealType}" — call list_crm_deal_types for the list`);
+          dealTypeId = dt.id;
+        }
+
         const res = await updateDeal({
           organizationId,
           userId: systemUserId,
           source: "mcp",
           dealId: input.dealId,
+          dealTypeId,
           name: input.name,
           dealValue: input.dealValue,
           currency: input.currency,

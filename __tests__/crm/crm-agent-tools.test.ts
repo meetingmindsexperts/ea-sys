@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     crmPipelineStage: { findMany: vi.fn(), findFirst: vi.fn(), createMany: vi.fn() },
     crmDeal: { findMany: vi.fn(), findFirst: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
+    crmDealType: { findMany: vi.fn(), createMany: vi.fn() },
     crmCompany: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
     crmTask: { findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), findUniqueOrThrow: vi.fn() },
     crmNote: { create: vi.fn() },
@@ -65,6 +66,7 @@ describe("registerCrmMcpTools — the discoverable surface", () => {
         "create_crm_task",
         "get_crm_report",
         "list_crm_companies",
+        "list_crm_deal_types",
         "list_crm_deals",
         "list_crm_pipeline",
         "list_crm_tasks",
@@ -87,6 +89,18 @@ describe("org binding — the injected org, never tool input", () => {
       expect.objectContaining({
         where: expect.objectContaining({ organizationId: ORG, archivedAt: null }),
       }),
+    );
+  });
+
+  it("list_crm_deal_types scopes ensureDealTypes to the registered org", async () => {
+    const tools = collectTools();
+    vi.mocked(db.crmDealType.findMany).mockResolvedValue([{ id: "dt-1", name: "Sponsorship Inquiry", archivedAt: null }] as never);
+
+    const res = await tools.get("list_crm_deal_types")!({});
+
+    expect(res.isError).toBeUndefined();
+    expect(db.crmDealType.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ organizationId: ORG }) }),
     );
   });
 
