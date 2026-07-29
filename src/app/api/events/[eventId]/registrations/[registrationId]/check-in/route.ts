@@ -6,6 +6,7 @@ import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { checkInGate, executeCheckIn, undoCheckIn } from "@/lib/check-in";
+import { scannedEntryCodeCandidates } from "@/lib/barcode";
 import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
@@ -170,12 +171,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "QR code or barcode required" }, { status: 400 });
     }
 
-    // Search by qrCode OR dtcmBarcode
+    // Search by qrCode OR dtcmBarcode. Rendered entry barcodes encode
+    // `{qrCode}-{serialId}` (so a raw scanner dump identifies the person);
+    // the stored value is the bare code, so the suffixed scan also tries its
+    // bare prefix. DTCM values (external, arbitrary) always match as-is.
+    const qrCandidates = scannedEntryCodeCandidates(String(qrCode));
     const registration = await db.registration.findFirst({
       where: {
         eventId,
         OR: [
-          { qrCode },
+          { qrCode: { in: qrCandidates } },
           { dtcmBarcode: qrCode },
         ],
       },

@@ -3264,6 +3264,7 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
     try {
       const bc = await buildEntryBarcode({
         qrCode: params.qrCode,
+        serialId: params.serialId,
         attendanceMode: params.attendanceMode,
       });
       if (bc) {

@@ -7,7 +7,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/barcode", () => ({
+vi.mock("@/lib/barcode", async (importOriginal) => ({
+  // Real entryBarcodeValue (pure) — only the bwip-js render is mocked.
+  ...(await importOriginal<typeof import("@/lib/barcode")>()),
   renderBarcodePng: vi.fn(async () => Buffer.from("PNGDATA")),
 }));
 
@@ -43,6 +45,13 @@ describe("templateUsesEntryBarcode", () => {
 
 describe("buildEntryBarcode", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("encodes {qrCode}-{serialId} when a serial is supplied (scanner-dump identification)", async () => {
+    const result = await buildEntryBarcode({ qrCode: "17537912345", serialId: 7, attendanceMode: "IN_PERSON" });
+    expect(result).not.toBeNull();
+    expect(renderBarcodePng).toHaveBeenCalledWith("17537912345-007", { includetext: true });
+    expect(result!.text).toContain("17537912345-007");
+  });
 
   it("renders html + text + inline attachment for in-person + qrCode", async () => {
     const result = await buildEntryBarcode({ qrCode: "ABC123", attendanceMode: "IN_PERSON" });

@@ -1481,6 +1481,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       try {
         const bc = await buildEntryBarcode({
           qrCode: recipient.qrCode,
+          serialId: recipient.serialId,
           attendanceMode: recipient.attendanceMode,
         });
         if (bc) {

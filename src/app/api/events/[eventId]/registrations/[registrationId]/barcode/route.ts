@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { renderBarcodePng } from "@/lib/barcode";
+import { renderBarcodePng, entryBarcodeValue } from "@/lib/barcode";
 import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
@@ -42,7 +42,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       }),
       db.registration.findFirst({
         where: { id: registrationId, eventId },
-        select: { qrCode: true },
+        select: { qrCode: true, serialId: true },
       }),
     ]);
 
@@ -58,7 +58,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "No barcode for this registration" }, { status: 404 });
     }
 
-    const png = await renderBarcodePng(registration.qrCode, { includetext: true });
+    // Encodes `{qrCode}-{serialId}` so a raw scanner dump identifies the person.
+    const png = await renderBarcodePng(entryBarcodeValue(registration.qrCode, registration.serialId), { includetext: true });
     return new NextResponse(new Uint8Array(png), {
       status: 200,
       headers: {

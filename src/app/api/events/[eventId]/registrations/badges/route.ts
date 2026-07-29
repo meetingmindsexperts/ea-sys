@@ -7,7 +7,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { formatSerialId } from "@/lib/registration-serial";
-import { renderBarcodePng } from "@/lib/barcode";
+import { renderBarcodePng, entryBarcodeValue } from "@/lib/barcode";
 import { isPaymentAdmissible } from "@/lib/check-in";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import PDFDocument from "pdfkit";
@@ -211,8 +211,16 @@ async function generateBadgePDF(
   // bwip-js.toBuffer, and firing thousands at once pins the event loop on the
   // box that also serves the live scanner. Dedup first so shared codes render
   // once. Entry barcode = qrCode only (the DTCM code is never on the badge).
+  // Encoded value is `{qrCode}-{serialId}` (entryBarcodeValue) so a raw
+  // scanner dump identifies the person; check-in accepts both forms.
   const barcodeBuffers = new Map<string, Buffer>();
-  const uniqueBarcodes = [...new Set(registrations.map((r) => r.qrCode).filter((c): c is string => !!c))];
+  const uniqueBarcodes = [
+    ...new Set(
+      registrations
+        .map((r) => (r.qrCode ? entryBarcodeValue(r.qrCode, r.serialId) : null))
+        .filter((c): c is string => !!c)
+    ),
+  ];
   await mapWithConcurrency(uniqueBarcodes, BARCODE_RENDER_CONCURRENCY, async (barcodeText) => {
     try {
       // Badge draws the registration number itself, so the bars carry no
@@ -280,8 +288,9 @@ function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, _regI
   }
 
   // ── Barcode (centered, using pre-rendered buffer) ──
-  // qrCode only — see the pre-render loop above.
-  const barcodeText = reg.qrCode;
+  // qrCode only — see the pre-render loop above. Same serial-suffixed value
+  // as the pre-render dedup key, or the buffer lookup would miss.
+  const barcodeText = reg.qrCode ? entryBarcodeValue(reg.qrCode, reg.serialId) : null;
   if (barcodeText) {
     const png = barcodeBuffers.get(barcodeText);
     if (png) {

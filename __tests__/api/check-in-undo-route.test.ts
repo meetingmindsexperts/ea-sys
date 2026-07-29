@@ -29,7 +29,7 @@ vi.mock("@/lib/check-in", () => ({
   undoCheckIn: (a: unknown) => mockUndo(a),
 }));
 
-import { DELETE } from "@/app/api/events/[eventId]/registrations/[registrationId]/check-in/route";
+import { DELETE, PUT } from "@/app/api/events/[eventId]/registrations/[registrationId]/check-in/route";
 
 const params = { params: Promise.resolve({ eventId: "ev1", registrationId: "reg1" }) };
 const req = () => new Request("http://localhost/x", { method: "DELETE" });
@@ -71,5 +71,43 @@ describe("DELETE (undo check-in)", () => {
     const res = await DELETE(req(), params);
     expect(res.status).toBe(404);
     expect(mockUndo).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT (scan check-in) — serial-suffixed barcode lookup (July 29, 2026)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const putReq = (qrCode: string) =>
+  new Request("http://localhost/x", { method: "PUT", body: JSON.stringify({ qrCode }), headers: { "content-type": "application/json" } });
+
+describe("PUT (scan check-in) — accepts bare AND serial-suffixed codes", () => {
+  beforeEach(() => {
+    // A matched registration that passes the gate straight through.
+    mockDb.registration.findFirst.mockResolvedValue({
+      id: "reg1",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      checkedInAt: null,
+      ticketType: { name: "Standard", price: 100 },
+      pricingTier: null,
+      attendee: { firstName: "A", lastName: "B" },
+    });
+  });
+
+  it("a serial-suffixed scan ({qrCode}-{serial}) also tries the bare stored code", async () => {
+    const res = await PUT(putReq("1753791234567123456-007"), params);
+    expect(res.status).toBe(200);
+    const where = mockDb.registration.findFirst.mock.calls[0][0].where as { OR: Array<Record<string, unknown>> };
+    expect(where.OR[0]).toEqual({ qrCode: { in: ["1753791234567123456-007", "1753791234567123456"] } });
+    // DTCM barcodes (external, arbitrary) always match the scan as-is.
+    expect(where.OR[1]).toEqual({ dtcmBarcode: "1753791234567123456-007" });
+  });
+
+  it("a legacy bare scan matches exactly (single candidate)", async () => {
+    const res = await PUT(putReq("1753791234567123456"), params);
+    expect(res.status).toBe(200);
+    const where = mockDb.registration.findFirst.mock.calls[0][0].where as { OR: Array<Record<string, unknown>> };
+    expect(where.OR[0]).toEqual({ qrCode: { in: ["1753791234567123456"] } });
   });
 });

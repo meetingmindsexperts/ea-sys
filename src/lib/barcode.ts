@@ -10,6 +10,41 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bwipjs = require("bwip-js");
 
+import { formatSerialId } from "@/lib/registration-serial";
+
+/**
+ * Value ENCODED in every rendered entry barcode (badge PDF, portal/admin PNG,
+ * confirmation-email PNG): `{qrCode}-{serialId padded to 3}`, e.g.
+ * `1753791234567123456-007`.
+ *
+ * Why: a hardware scanner dumping scans to a file captures only the encoded
+ * value, and the bare qrCode is opaque — the suffix lets an organizer map a
+ * scan line back to a person via the "Registration #" shown across the
+ * dashboard/CSV/emails (same 3-digit padding). The STORED `Registration.qrCode`
+ * stays the bare code — changing stored values would invalidate barcodes
+ * already delivered in confirmation emails. Check-in accepts BOTH forms via
+ * `scannedEntryCodeCandidates()` below, so pre-existing printed/emailed
+ * barcodes keep scanning.
+ */
+export function entryBarcodeValue(qrCode: string, serialId?: number | null): string {
+  if (serialId == null) return qrCode;
+  return `${qrCode}-${formatSerialId(serialId)}`;
+}
+
+/**
+ * The values a scanned entry code may correspond to in `Registration.qrCode`.
+ *
+ * Always includes the scanned string as-is (legacy badges/emails encode the
+ * bare code; DTCM barcodes are arbitrary external values and must match
+ * exactly). When the scan looks like our suffixed form (bare digits + `-` +
+ * digit serial — stored qrCodes are digits-only, so the shape is unambiguous
+ * for OUR values), the bare prefix is offered as a second candidate.
+ */
+export function scannedEntryCodeCandidates(scanned: string): string[] {
+  const m = /^(\d+)-(\d{1,6})$/.exec(scanned);
+  return m ? [scanned, m[1]] : [scanned];
+}
+
 export interface RenderBarcodeOptions {
   /**
    * When true, bwip-js draws the human-readable value beneath the bars

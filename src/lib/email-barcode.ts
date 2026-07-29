@@ -17,7 +17,7 @@
  *   - `{{entryBarcodeText}}` → plain-text "Your entry barcode: <code>" (text body)
  * `entryBarcode` is registered in `DEFAULT_RAW_HTML_KEYS` so it renders unescaped.
  */
-import { renderBarcodePng } from "./barcode";
+import { renderBarcodePng, entryBarcodeValue } from "./barcode";
 
 /** Var key for the raw-HTML barcode block (must be in DEFAULT_RAW_HTML_KEYS). */
 export const ENTRY_BARCODE_VAR = "entryBarcode";
@@ -67,13 +67,20 @@ export interface EntryBarcode {
  */
 export async function buildEntryBarcode(params: {
   qrCode?: string | null;
+  /**
+   * Registration serial — when present the barcode encodes
+   * `{qrCode}-{serialId}` (entryBarcodeValue) so a raw scanner dump
+   * identifies the person. Check-in accepts both forms.
+   */
+  serialId?: number | null;
   attendanceMode?: "IN_PERSON" | "VIRTUAL" | null;
 }): Promise<EntryBarcode | null> {
   // Virtual attendees have no entry barcode; neither does a registration
   // missing its qrCode (e.g. virtual rows never mint one).
   if (params.attendanceMode === "VIRTUAL" || !params.qrCode) return null;
 
-  const png = await renderBarcodePng(params.qrCode, { includetext: true });
+  const encoded = entryBarcodeValue(params.qrCode, params.serialId);
+  const png = await renderBarcodePng(encoded, { includetext: true });
 
   return {
     html: `<div style="text-align:center; margin:24px 0; padding:16px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px;">
@@ -81,7 +88,7 @@ export async function buildEntryBarcode(params: {
         <img src="cid:${BARCODE_CONTENT_ID}" alt="Entry barcode" style="display:block; margin:0 auto; max-width:280px; height:auto;" />
         <p style="margin:10px 0 0; font-size:12px; color:#6b7280;">Show this at the registration desk for check-in.</p>
       </div>`,
-    text: `\n\nYour entry barcode: ${params.qrCode}\nShow this at the registration desk for check-in.`,
+    text: `\n\nYour entry barcode: ${encoded}\nShow this at the registration desk for check-in.`,
     attachment: {
       name: "entry-barcode.png",
       content: png.toString("base64"),

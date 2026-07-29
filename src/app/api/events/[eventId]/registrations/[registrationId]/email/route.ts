@@ -345,6 +345,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       try {
         const bc = await buildEntryBarcode({
           qrCode: registration.qrCode,
+          serialId: registration.serialId,
           attendanceMode: registration.attendanceMode,
         });
         if (bc) {

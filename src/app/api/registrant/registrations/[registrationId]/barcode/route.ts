@@ -3,7 +3,7 @@ import type { Session } from "next-auth";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { renderBarcodePng } from "@/lib/barcode";
+import { renderBarcodePng, entryBarcodeValue } from "@/lib/barcode";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 
@@ -70,7 +70,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ? { userId: session.user.id }
           : { event: buildEventAccessWhere(session.user) }),
       },
-      select: { qrCode: true },
+      select: { qrCode: true, serialId: true },
     });
 
     if (!registration) {
@@ -83,7 +83,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "No barcode for this registration" }, { status: 404 });
     }
 
-    const png = await renderBarcodePng(registration.qrCode, { includetext: true });
+    // Encodes `{qrCode}-{serialId}` so a raw scanner dump identifies the person.
+    const png = await renderBarcodePng(entryBarcodeValue(registration.qrCode, registration.serialId), { includetext: true });
     return new NextResponse(new Uint8Array(png), {
       status: 200,
       headers: {
