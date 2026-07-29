@@ -46,6 +46,7 @@ model Organization {
   crmCompanies      CrmCompany[]
   crmContacts       CrmContact[]
   crmPipelineStages CrmPipelineStage[]
+  crmDealTypes      CrmDealType[]
   crmDeals          CrmDeal[]
   crmTasks          CrmTask[]
   crmNotes          CrmNote[]
@@ -3296,6 +3297,37 @@ enum CrmStageOutcome {
 ///   contact  → SetNull
 ///   owner    → SetNull   (see the ownerId note below)
 ///
+/// Org-configurable deal TYPE — the admin-editable business-line list ("Conference
+/// Management", "Sponsorship Inquiry", "Industry Symposium", …) shown as a dropdown
+/// on the deal and managed in Settings → CRM → Deal Types. Same managed-list shape
+/// as CrmPipelineStage (per-org, named, ordered, soft-deletable) minus the terminal/
+/// outcome semantics — a deal type is a pure classifier, it does not drive the board.
+/// Soft delete via archivedAt (hidden from the picker; existing deals keep resolving
+/// the name); a hard delete SetNulls the deal's dealTypeId (never blocks a delete).
+model CrmDealType {
+  id             String       @id @default(cuid())
+  organizationId String
+  org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name      String
+  sortOrder Int
+
+  /// Soft delete — hidden from the picker + the board filter, but the row stays so
+  /// deals that reference it still render its name (same rule as archived CRM
+  /// records elsewhere).
+  archivedAt DateTime?
+
+  deals CrmDeal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Name is the dedup key — backs the seed's createMany skipDuplicates under a
+  // concurrent first-load (same reasoning as CrmPipelineStage).
+  @@unique([organizationId, name])
+  @@index([organizationId, sortOrder])
+}
+
 /// `ownerId` is NULLABLE and SetNull, deviating from the original blueprint
 /// sketch (which had it required). Reason: users DO get deleted here (temp
 /// accounts are a routine flow). A required owner with Restrict would make
@@ -3338,6 +3370,13 @@ model CrmDeal {
   /// Deal category (Corporate / Conference) — see CrmDealPipeline. A classifier,
   /// not a second pipeline; nullable so imports/legacy deals need no backfill.
   pipeline CrmDealPipeline?
+
+  /// The org-configurable deal TYPE (business line — "Sponsorship Inquiry",
+  /// "Industry Symposium", …). References the admin-editable CrmDealType list;
+  /// SetNull so removing a type never blocks or destroys a deal (it just loses its
+  /// type). Nullable — legacy/imported deals need no backfill.
+  dealTypeId String?
+  dealType   CrmDealType? @relation(fields: [dealTypeId], references: [id], onDelete: SetNull)
 
   /// Free-form tags ("multi-year", "renewal", "warm"), same shape + normalization
   /// as CrmContact.tags / Attendee.tags. Normalized (trim, dedupe, first-casing-
