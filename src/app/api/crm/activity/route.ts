@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requireCrmRead, redactForCaller } from "@/crm/lib/crm-route";
 import { listCrmActivity, type CrmActivityEntity } from "@/crm/lib/crm-activity";
@@ -17,6 +18,8 @@ const ENTITY_TYPES = new Set<CrmActivityEntity>(["DEAL", "COMPANY", "CONTACT", "
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const { searchParams } = new URL(req.url);
   const entityType = searchParams.get("entityType");
@@ -54,4 +57,5 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load the activity log" }, { status: 500 });
   }
+  });
 }

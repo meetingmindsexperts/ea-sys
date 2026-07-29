@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -25,6 +26,8 @@ const createNoteSchema = z.object({
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const proseDenied = denyCrmProseRead(ctx);
   if (proseDenied) return proseDenied;
@@ -72,12 +75,15 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load notes" }, { status: 500 });
   }
+  });
 }
 
 /** POST /api/crm/notes */
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const limit = checkRateLimit({
     key: `crm-note-create:org:${ctx.organizationId}`,
@@ -108,4 +114,5 @@ export async function POST(req: Request) {
 
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ note: result.note }, { status: 201 });
+  });
 }

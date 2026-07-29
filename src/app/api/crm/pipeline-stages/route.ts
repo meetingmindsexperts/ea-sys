@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
@@ -27,6 +28,8 @@ const reorderSchema = z.object({
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     const stages = await ensurePipelineStages(ctx.organizationId);
@@ -39,12 +42,15 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load the pipeline" }, { status: 500 });
   }
+  });
 }
 
 /** POST /api/crm/pipeline-stages — add a stage to the end of the pipeline. */
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = createStageSchema.safeParse(body);
@@ -55,6 +61,7 @@ export async function POST(req: Request) {
   const result = await createStage({ organizationId: ctx.organizationId, userId: ctx.userId, ...parsed.data });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ stage: result.stage }, { status: 201 });
+  });
 }
 
 /**
@@ -67,6 +74,8 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = reorderSchema.safeParse(body);
@@ -81,4 +90,5 @@ export async function PATCH(req: Request) {
   });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ stages: result.stages });
+  });
 }

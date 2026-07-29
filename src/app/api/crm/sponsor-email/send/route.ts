@@ -8,6 +8,7 @@
  * validation and error→HTTP mapping stay here.
  */
 import { createHash } from "node:crypto";
+import { runWithTenant } from "@/lib/tenant-context";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
@@ -128,6 +129,8 @@ async function loadStoredAttachments(
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const limit = checkRateLimit({
     key: `crm-sponsor-email:org:${ctx.organizationId}`,
@@ -224,5 +227,6 @@ export async function POST(req: Request) {
     successCount: result.successCount,
     failureCount: result.failureCount,
     errors: result.errors,
+  });
   });
 }

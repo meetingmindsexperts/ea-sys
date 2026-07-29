@@ -31,7 +31,8 @@ import { simpleParser, type ParsedMail, type AddressObject } from "mailparser";
 // Value import (not `import type`): Prisma.PrismaClientKnownRequestError is used
 // at runtime in the P2002 race check, and Prisma.InputJsonValue as a type.
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail } from "@/lib/email";
 import { escapeHtml } from "@/lib/html";
@@ -403,6 +404,10 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
     return "unmatched";
   }
 
+  // Tenancy: from here on the org is known (thread resolved via its globally
+  // unique reply token → exactly one thread → one org). Wrap the message-storage
+  // tail in the row's tenant store; no-op passthrough while RLS_SET_LOCAL is off.
+  return await runWithTenant(thread.organizationId, async () => {
   const fromEmail = parsed.from?.value?.[0]?.address ?? "unknown";
   const fromName = parsed.from?.value?.[0]?.name || null;
   const textBody = parsed.text ?? null;
@@ -422,8 +427,11 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
   // unique (review H2) makes a racing tick's create throw P2002 — the loser
   // treats it as the already-filed duplicate BEFORE any forward.
   try {
-    await db.$transaction([
-      db.crmEmailMessage.create({
+    // Array-form $transaction can't carry the RLS SET LOCAL — interactive
+    // tenantTransaction (sequential; same single-tx semantics). The thread
+    // update is org-bound (defence #1) on top of the PK.
+    await tenantTransaction(async (tx) => {
+      await tx.crmEmailMessage.create({
         data: {
           organizationId: thread.organizationId,
           threadId: thread.id,
@@ -442,12 +450,12 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
           spamVerdict: "PASS",
           unverifiedSender: !sender.verified,
         },
-      }),
-      db.crmEmailThread.update({
-        where: { id: thread.id },
+      });
+      await tx.crmEmailThread.update({
+        where: { id: thread.id, organizationId: thread.organizationId },
         data: { hasUnread: true, lastMessageAt: now, lastInboundAt: now, expiresAt: rolledExpiry },
-      }),
-    ]);
+      });
+    });
   } catch (err) {
     // The row never landed — don't leave the just-written attachment files orphaned.
     await cleanupAttachmentFiles(attachments.map((a) => a.path));
@@ -492,6 +500,7 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
     unverified: !sender.verified,
   });
   return "stored";
+  });
 }
 
 export async function runTick(): Promise<InboundTickResult> {

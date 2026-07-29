@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { CrmDealPipeline } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -28,6 +29,8 @@ const updateDealSchema = z.object({
 export async function GET(req: Request, { params }: { params: Promise<{ dealId: string }> }) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmRead(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     // Bound to the org — a deal id from another tenant must 404, not resolve.
@@ -73,6 +76,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ dealId: 
     });
     return NextResponse.json({ error: "Could not load the deal" }, { status: 500 });
   }
+  });
 }
 
 /**
@@ -85,6 +89,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ dealId: 
 export async function PATCH(req: Request, { params }: { params: Promise<{ dealId: string }> }) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = updateDealSchema.safeParse(body);
@@ -121,12 +127,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ dealId
 
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ deal: redactForCaller(result.deal, ctx) });
+  });
 }
 
 /** DELETE /api/crm/deals/[dealId] — archive (soft delete). Admin + CRM_USER only. */
 export async function DELETE(req: Request, { params }: { params: Promise<{ dealId: string }> }) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmDelete(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const result = await setDealArchived({
     dealId,
@@ -138,4 +147,5 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ dealI
 
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ deal: redactForCaller(result.deal, ctx), archived: true });
+  });
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmWrite, requireCrmDelete, crmErrorResponse } from "@/crm/lib/crm-route";
@@ -22,6 +23,8 @@ const updateStageSchema = z
 export async function PATCH(req: Request, { params }: { params: Promise<{ stageId: string }> }) {
   const [{ error, ctx }, { stageId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = updateStageSchema.safeParse(body);
@@ -37,6 +40,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ stageI
   });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ stage: result.stage });
+  });
 }
 
 /**
@@ -56,6 +60,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ stageI
 export async function DELETE(req: Request, { params }: { params: Promise<{ stageId: string }> }) {
   const [{ error, ctx }, { stageId }] = await Promise.all([requireCrmDelete(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const result = await deleteStage({
     stageId,
@@ -65,4 +71,5 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ stage
 
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ success: true });
+  });
 }

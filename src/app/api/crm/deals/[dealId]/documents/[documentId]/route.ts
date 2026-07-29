@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import fs from "fs/promises";
 import path from "path";
 import { apiLogger } from "@/lib/logger";
@@ -24,6 +25,8 @@ export async function GET(
 ) {
   const [{ error, ctx }, { dealId, documentId }] = await Promise.all([requireCrmRead(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     const doc = await db.crmDealDocument.findFirst({
@@ -87,6 +90,7 @@ export async function GET(
     });
     return NextResponse.json({ error: "Failed to load document" }, { status: 500 });
   }
+  });
 }
 
 /**
@@ -100,6 +104,8 @@ export async function DELETE(
 ) {
   const [{ error, ctx }, { dealId, documentId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const result = await removeDealDocument({
     organizationId: ctx.organizationId,
@@ -118,4 +124,5 @@ export async function DELETE(
   }
 
   return NextResponse.json({ removed: true });
+  });
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -32,6 +33,8 @@ interface RouteParams {
 export async function GET(req: Request, { params }: RouteParams) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmRead(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     const deal = await db.crmDeal.findFirst({
@@ -63,11 +66,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
     return NextResponse.json({ error: "Could not load the documents" }, { status: 500 });
   }
+  });
 }
 
 export async function POST(req: Request, { params }: RouteParams) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const rl = checkRateLimit({
     key: `crm-deal-doc-upload:org:${ctx.organizationId}`,
@@ -156,4 +162,5 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
     return NextResponse.json({ error: "Could not upload the document" }, { status: 500 });
   }
+  });
 }

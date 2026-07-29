@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
@@ -18,6 +19,8 @@ const reorderSchema = z.object({ orderedIds: z.array(z.string().min(1)).min(1).m
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     const { searchParams } = new URL(req.url);
@@ -36,12 +39,15 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load deal types" }, { status: 500 });
   }
+  });
 }
 
 /** POST /api/crm/deal-types — add a deal type to the end of the list. */
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
@@ -52,6 +58,7 @@ export async function POST(req: Request) {
   const result = await createDealType({ organizationId: ctx.organizationId, name: parsed.data.name });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ dealType: result.dealType }, { status: 201 });
+  });
 }
 
 /**
@@ -64,6 +71,8 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = reorderSchema.safeParse(body);
@@ -74,4 +83,5 @@ export async function PATCH(req: Request) {
   const result = await reorderDealTypes({ organizationId: ctx.organizationId, orderedIds: parsed.data.orderedIds });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ dealTypes: await listDealTypes(ctx.organizationId, true) });
+  });
 }

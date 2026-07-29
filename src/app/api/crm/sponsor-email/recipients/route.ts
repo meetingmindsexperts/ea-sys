@@ -8,6 +8,7 @@
  * compose step of a write action.
  */
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
 import { resolveSponsorRecipients, resolveDealRecipients } from "@/crm/services/sponsor-email-service";
@@ -15,6 +16,8 @@ import { resolveSponsorRecipients, resolveDealRecipients } from "@/crm/services/
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const params = new URL(req.url).searchParams;
   const eventId = params.get("eventId");
@@ -56,4 +59,5 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load recipients" }, { status: 500 });
   }
+  });
 }

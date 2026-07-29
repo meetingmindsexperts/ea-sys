@@ -6,6 +6,7 @@
  * not archive). Prices stripped for MEMBER by redactForCaller.
  */
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmWrite, requireCrmDelete, denyCrmDelete, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
@@ -25,6 +26,8 @@ const patchSchema = z.object({
 export async function PATCH(req: Request, { params }: { params: Promise<{ productId: string }> }) {
   const [{ error, ctx }, { productId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);
@@ -45,13 +48,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ produc
   const result = await updateCrmProduct({ ...fields, productId, organizationId: ctx.organizationId, userId: ctx.userId });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ product: redactForCaller(result.product, ctx) });
+  });
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ productId: string }> }) {
   const [{ error, ctx }, { productId }] = await Promise.all([requireCrmDelete(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const result = await setCrmProductArchived({ productId, organizationId: ctx.organizationId, userId: ctx.userId, archived: true });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ product: redactForCaller(result.product, ctx) });
+  });
 }

@@ -6,6 +6,7 @@
  * POST (write): create a catalog product.
  */
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
@@ -15,6 +16,8 @@ import { ensureCrmProducts, listCrmProducts, createCrmProduct } from "@/crm/serv
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
   try {
     await ensureCrmProducts(ctx.organizationId);
     const params = new URL(req.url).searchParams;
@@ -28,6 +31,7 @@ export async function GET(req: Request) {
     apiLogger.error({ msg: "crm/products:list-failed", organizationId: ctx.organizationId, err: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Could not load products" }, { status: 500 });
   }
+  });
 }
 
 const createSchema = z.object({
@@ -43,6 +47,8 @@ const createSchema = z.object({
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
@@ -53,4 +59,5 @@ export async function POST(req: Request) {
   const result = await createCrmProduct({ ...parsed.data, organizationId: ctx.organizationId, userId: ctx.userId });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ product: redactForCaller(result.product, ctx) }, { status: 201 });
+  });
 }

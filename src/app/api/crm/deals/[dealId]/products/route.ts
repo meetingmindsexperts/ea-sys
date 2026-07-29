@@ -6,6 +6,7 @@
  * for MEMBER by redactForCaller. Mirrors the deal-contacts route shape.
  */
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
@@ -15,6 +16,8 @@ import { listDealProducts, addDealProduct, updateDealProduct, removeDealProduct 
 export async function GET(req: Request, { params }: { params: Promise<{ dealId: string }> }) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmRead(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
   try {
     const lines = await listDealProducts(dealId, ctx.organizationId);
     if (lines === null) {
@@ -29,6 +32,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ dealId: 
     apiLogger.error({ msg: "crm/deal-products:list-failed", dealId, err: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Could not load line items" }, { status: 500 });
   }
+  });
 }
 
 const addSchema = z.object({
@@ -40,6 +44,8 @@ const addSchema = z.object({
 export async function POST(req: Request, { params }: { params: Promise<{ dealId: string }> }) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
   const body = await req.json().catch(() => null);
   const parsed = addSchema.safeParse(body);
   if (!parsed.success) return zodErrorResponse(parsed, { route: "crm/deal-products:POST", organizationId: ctx.organizationId });
@@ -47,6 +53,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ dealId:
   const result = await addDealProduct({ ...parsed.data, dealId, organizationId: ctx.organizationId, userId: ctx.userId });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ line: redactForCaller(result.line, ctx) }, { status: 201 });
+  });
 }
 
 const patchSchema = z.object({
@@ -58,6 +65,8 @@ const patchSchema = z.object({
 export async function PATCH(req: Request, { params }: { params: Promise<{ dealId: string }> }) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
   const body = await req.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return zodErrorResponse(parsed, { route: "crm/deal-products:PATCH", organizationId: ctx.organizationId });
@@ -66,6 +75,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ dealId
   const result = await updateDealProduct({ ...fields, lineId, dealId, organizationId: ctx.organizationId });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ line: redactForCaller(result.line, ctx) });
+  });
 }
 
 const deleteSchema = z.object({ lineId: z.string().min(1) });
@@ -73,6 +83,8 @@ const deleteSchema = z.object({ lineId: z.string().min(1) });
 export async function DELETE(req: Request, { params }: { params: Promise<{ dealId: string }> }) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
   const body = await req.json().catch(() => null);
   const parsed = deleteSchema.safeParse(body);
   if (!parsed.success) return zodErrorResponse(parsed, { route: "crm/deal-products:DELETE", organizationId: ctx.organizationId });
@@ -80,4 +92,5 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ dealI
   const result = await removeDealProduct({ lineId: parsed.data.lineId, dealId, organizationId: ctx.organizationId, userId: ctx.userId });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ ok: true });
+  });
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -36,6 +37,8 @@ const updateSchema = z.object({
 export async function GET(req: Request, { params }: { params: Promise<{ crmContactId: string }> }) {
   const [{ error, ctx }, { crmContactId }] = await Promise.all([requireCrmRead(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     const contact = await db.crmContact.findFirst({
@@ -84,11 +87,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ crmConta
     });
     return NextResponse.json({ error: "Could not load the contact" }, { status: 500 });
   }
+  });
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ crmContactId: string }> }) {
   const [{ error, ctx }, { crmContactId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
@@ -127,12 +133,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ crmCon
   const result = await updateCrmContact({ ...common, ...fields });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ contact: result.crmContact });
+  });
 }
 
 /** DELETE /api/crm/contacts/[crmContactId] — archive (soft delete). Admin + CRM_USER only. */
 export async function DELETE(req: Request, { params }: { params: Promise<{ crmContactId: string }> }) {
   const [{ error, ctx }, { crmContactId }] = await Promise.all([requireCrmDelete(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const result = await setCrmContactArchived({
     crmContactId,
@@ -144,4 +153,5 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ crmCo
 
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ contact: result.crmContact, archived: true });
+  });
 }

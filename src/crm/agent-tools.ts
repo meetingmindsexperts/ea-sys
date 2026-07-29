@@ -19,6 +19,7 @@ import { z } from "zod";
 import { CrmDealPipeline } from "@prisma/client";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
 import { defaultOpenStage } from "@/crm/lib/crm-types";
@@ -92,7 +93,10 @@ export function registerCrmMcpTools(
     run: () => Promise<string>,
   ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: true }> {
     try {
-      const text = await run();
+      // Tenancy: every CRM MCP tool executes in the API key's org tenant store.
+      // safeTool is the single choke point for all tools, so one wrap covers the
+      // whole surface. No-op passthrough while RLS_SET_LOCAL is off (master).
+      const text = await runWithTenant(organizationId, run);
       return { content: [{ type: "text" as const, text }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

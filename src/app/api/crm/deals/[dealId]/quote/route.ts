@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -23,6 +24,8 @@ const bodySchema = z.object({
 export async function POST(req: Request, { params }: { params: Promise<{ dealId: string }> }) {
   const [{ error, ctx }, { dealId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const limit = checkRateLimit({
     key: `crm-quote:org:${ctx.organizationId}`,
@@ -56,4 +59,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ dealId:
   if (!result.ok) return crmErrorResponse(result);
 
   return NextResponse.json({ document: result.document, quoteNumber: result.quoteNumber }, { status: 201 });
+  });
 }

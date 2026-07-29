@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import fs from "fs/promises";
 import path from "path";
 import { db } from "@/lib/db";
@@ -30,6 +31,8 @@ export async function GET(
 ) {
   const [{ error, ctx }, { messageId, index }] = await Promise.all([requireCrmRead(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
   if (!canViewCrmInbox(ctx.role, ctx.fromApiKey)) {
     apiLogger.warn({ msg: "crm/inbox:attachment-forbidden", role: ctx.role, userId: ctx.userId });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -98,4 +101,5 @@ export async function GET(
     });
     return NextResponse.json({ error: "Failed to load attachment" }, { status: 500 });
   }
+  });
 }

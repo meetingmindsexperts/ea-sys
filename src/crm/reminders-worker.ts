@@ -22,6 +22,7 @@
  * must not clear `remindedAt`.
  */
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail } from "@/lib/email";
 import { notifyCrmUser } from "@/crm/lib/crm-notifications";
@@ -71,19 +72,23 @@ export async function runTick(): Promise<CrmReminderTickResult> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
 
   for (const task of due) {
+    // Tenancy: per-row wrap keyed on the row's own org (the candidate sweep above
+    // stays org-blind — the known worker precondition, invoice-reconciliation
+    // pattern). No-op passthrough while RLS_SET_LOCAL is off (master).
+    await runWithTenant(task.organizationId, async () => {
     // CLAIM FIRST. If another tick beat us to this row, count===0 and we skip —
     // no email, no double-nag. archivedAt is re-checked at claim time: archiving a
     // task between the candidate read and this claim cancels its reminder too
-    // (CRM review L2).
+    // (CRM review L2). The claim is org-bound (defence #1) on top of the PK.
     const claim = await db.crmTask.updateMany({
-      where: { id: task.id, remindedAt: null, status: "OPEN", archivedAt: null },
+      where: { id: task.id, organizationId: task.organizationId, remindedAt: null, status: "OPEN", archivedAt: null },
       data: { remindedAt: new Date() },
     });
 
     if (claim.count === 0) {
       result.skipped++;
       apiLogger.debug({ msg: "crm-reminder:already-claimed", taskId: task.id });
-      continue;
+      return;
     }
 
     const context = task.deal?.name ?? task.company?.name ?? null;
@@ -108,7 +113,7 @@ export async function runTick(): Promise<CrmReminderTickResult> {
       // every single tick, forever.
       result.skipped++;
       apiLogger.warn({ msg: "crm-reminder:owner-has-no-email", taskId: task.id });
-      continue;
+      return;
     }
     const dueLine = task.dueAt
       ? `Due ${task.dueAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
@@ -161,6 +166,7 @@ export async function runTick(): Promise<CrmReminderTickResult> {
         err: err instanceof Error ? err.message : String(err),
       });
     }
+    });
   }
 
   apiLogger.info({ msg: "crm-reminder:tick", ...result });

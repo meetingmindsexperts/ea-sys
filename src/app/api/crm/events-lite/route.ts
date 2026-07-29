@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireCrmRead } from "@/crm/lib/crm-route";
@@ -18,6 +19,8 @@ import { requireCrmRead } from "@/crm/lib/crm-route";
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     const events = await db.event.findMany({
@@ -38,4 +41,5 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load events" }, { status: 500 });
   }
+  });
 }

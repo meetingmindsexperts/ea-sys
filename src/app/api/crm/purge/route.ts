@@ -13,6 +13,7 @@
  *   { scope: "all",    entity: "deals" | "companies" | "contacts" | "all" }
  */
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
@@ -35,6 +36,8 @@ const purgeSchema = z.discriminatedUnion("scope", [
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmPurge(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = purgeSchema.safeParse(body);
@@ -72,4 +75,5 @@ export async function POST(req: Request) {
     capped: result.capped,
   });
   return NextResponse.json(result);
+  });
 }

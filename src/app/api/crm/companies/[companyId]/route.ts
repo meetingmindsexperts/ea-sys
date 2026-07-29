@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -23,6 +24,8 @@ const updateCompanySchema = z.object({
 export async function GET(req: Request, { params }: { params: Promise<{ companyId: string }> }) {
   const [{ error, ctx }, { companyId }] = await Promise.all([requireCrmRead(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     const company = await db.crmCompany.findFirst({
@@ -60,11 +63,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ companyI
     });
     return NextResponse.json({ error: "Could not load the company" }, { status: 500 });
   }
+  });
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ companyId: string }> }) {
   const [{ error, ctx }, { companyId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = updateCompanySchema.safeParse(body);
@@ -99,12 +105,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ compan
 
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ company: redactForCaller(result.company, ctx) });
+  });
 }
 
 /** DELETE /api/crm/companies/[companyId] — archive (soft delete). Admin + CRM_USER only. */
 export async function DELETE(req: Request, { params }: { params: Promise<{ companyId: string }> }) {
   const [{ error, ctx }, { companyId }] = await Promise.all([requireCrmDelete(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const result = await setCompanyArchived({
     companyId,
@@ -116,4 +125,5 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ compa
 
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ company: redactForCaller(result.company, ctx), archived: true });
+  });
 }

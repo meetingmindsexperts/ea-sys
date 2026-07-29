@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
@@ -31,6 +32,8 @@ function noUserResponse(route: string, organizationId: string): NextResponse {
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
   if (!ctx.userId) return noUserResponse("GET", ctx.organizationId);
 
   try {
@@ -48,6 +51,7 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load notifications" }, { status: 500 });
   }
+  });
 }
 
 const markReadSchema = z
@@ -69,6 +73,8 @@ const markReadSchema = z
 export async function PATCH(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
   if (!ctx.userId) return noUserResponse("PATCH", ctx.organizationId);
 
   const body = await req.json().catch(() => null);
@@ -93,4 +99,5 @@ export async function PATCH(req: Request) {
     });
     return NextResponse.json({ error: "Could not update notifications" }, { status: 500 });
   }
+  });
 }

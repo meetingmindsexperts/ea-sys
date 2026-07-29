@@ -33,15 +33,23 @@ vi.mock("@aws-sdk/client-s3", () => ({
   }),
 }));
 
-vi.mock("@/lib/db", () => ({
-  db: {
-    crmEmailMessage: { findFirst: vi.fn(), create: vi.fn() },
-    crmEmailThread: { findUnique: vi.fn(), update: vi.fn() },
-    user: { findUnique: vi.fn() },
-    // The store is a $transaction([create, update]) — execute the passed ops.
-    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
-  },
-}));
+vi.mock("@/lib/db", () => {
+  const crmEmailMessage = { findFirst: vi.fn(), create: vi.fn() };
+  const crmEmailThread = { findUnique: vi.fn(), update: vi.fn() };
+  return {
+    db: {
+      crmEmailMessage,
+      crmEmailThread,
+      user: { findUnique: vi.fn() },
+      // Legacy array-form kept harmless; the store now uses tenantTransaction.
+      $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    },
+    // Interactive tenantTransaction (flag off): run the callback with a tx that
+    // forwards to the SAME mocked delegates, so db.crmEmailMessage.create /
+    // crmEmailThread.update assertions + mockRejectedValueOnce still drive it.
+    tenantTransaction: (fn: (tx: unknown) => unknown) => fn({ crmEmailMessage, crmEmailThread }),
+  };
+});
 
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
 vi.mock("@/crm/lib/crm-activity", () => ({ recordCrmActivity: vi.fn(() => Promise.resolve({})) }));
@@ -301,7 +309,9 @@ describe("runTick", () => {
 
   // ── H2: s3Key race dedupe ──────────────────────────────────────────────────
   it("a P2002 on the store (concurrent tick won the s3Key race) is a duplicate, not a double-forward", async () => {
-    vi.mocked(db.$transaction).mockRejectedValueOnce(
+    // The store is now an interactive tenantTransaction; the create is the first
+    // write, so a P2002 on it is the s3Key-race collision the code treats as a dup.
+    vi.mocked(db.crmEmailMessage.create).mockRejectedValueOnce(
       new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "x" }) as never,
     );
     mockS3({ "inbound/race": rawEmail() });

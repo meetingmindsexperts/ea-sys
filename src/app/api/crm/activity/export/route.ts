@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
@@ -25,6 +26,8 @@ import {
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const limit = checkRateLimit({
     key: `crm-activity-export:org:${ctx.organizationId}`,
@@ -120,4 +123,5 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not export the activity log" }, { status: 500 });
   }
+  });
 }

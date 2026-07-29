@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireCrmRead } from "@/crm/lib/crm-route";
@@ -15,6 +16,8 @@ import { canViewCrmInbox } from "@/crm/lib/crm-visibility";
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
   if (!canViewCrmInbox(ctx.role, ctx.fromApiKey)) {
     apiLogger.warn({ msg: "crm/inbox:forbidden", role: ctx.role, userId: ctx.userId });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -57,4 +60,5 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load the inbox" }, { status: 500 });
   }
+  });
 }

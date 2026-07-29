@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
@@ -24,6 +25,8 @@ import { buildDealWhere } from "@/crm/lib/deal-filters";
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const canSeeValues = canViewDealValues(ctx.role, ctx.fromApiKey);
 
@@ -180,4 +183,5 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not export deals" }, { status: 500 });
   }
+  });
 }

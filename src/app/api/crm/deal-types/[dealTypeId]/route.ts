@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
@@ -16,6 +17,8 @@ const updateSchema = z
 export async function PATCH(req: Request, { params }: { params: Promise<{ dealTypeId: string }> }) {
   const [{ error, ctx }, { dealTypeId }] = await Promise.all([requireCrmWrite(req), params]);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
@@ -31,4 +34,5 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ dealTy
   });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ dealType: result.dealType });
+  });
 }

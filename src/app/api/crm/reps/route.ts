@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import type { UserRole } from "@prisma/client";
@@ -20,6 +21,8 @@ const REP_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "CRM_USER"];
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     const reps = await db.user.findMany({
@@ -40,4 +43,5 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load reps" }, { status: 500 });
   }
+  });
 }

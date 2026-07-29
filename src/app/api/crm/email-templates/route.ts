@@ -6,6 +6,7 @@
  * compose dialog's "Start from a template" picker.
  */
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { apiLogger } from "@/lib/logger";
 import { zodErrorResponse } from "@/lib/api-errors";
@@ -19,6 +20,8 @@ import {
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     await ensureCrmEmailTemplates(ctx.organizationId);
@@ -33,6 +36,7 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load templates" }, { status: 500 });
   }
+  });
 }
 
 const createSchema = z.object({
@@ -44,6 +48,8 @@ const createSchema = z.object({
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
@@ -58,4 +64,5 @@ export async function POST(req: Request) {
   });
   if (!result.ok) return crmErrorResponse(result);
   return NextResponse.json({ template: result.template }, { status: 201 });
+  });
 }

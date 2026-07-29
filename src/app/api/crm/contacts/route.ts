@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -36,6 +37,8 @@ const createSchema = z.object({
 export async function GET(req: Request) {
   const { error, ctx } = await requireCrmRead(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   try {
     const { searchParams } = new URL(req.url);
@@ -113,12 +116,15 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ error: "Could not load contacts" }, { status: 500 });
   }
+  });
 }
 
 /** POST /api/crm/contacts — find-or-create (never mints a second row for one person). */
 export async function POST(req: Request) {
   const { error, ctx } = await requireCrmWrite(req);
   if (error) return error;
+  // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+  return await runWithTenant(ctx.organizationId, async () => {
 
   const body = await req.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
@@ -139,4 +145,5 @@ export async function POST(req: Request) {
     { contact: result.crmContact, created: result.created },
     { status: result.created ? 201 : 200 },
   );
+  });
 }
