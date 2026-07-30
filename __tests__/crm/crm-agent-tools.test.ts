@@ -19,9 +19,13 @@ vi.mock("@/lib/db", () => ({
     crmPipelineStage: { findMany: vi.fn(), findFirst: vi.fn(), createMany: vi.fn() },
     crmDeal: { findMany: vi.fn(), findFirst: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     crmDealType: { findMany: vi.fn(), createMany: vi.fn() },
-    crmCompany: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
+    crmCompany: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
+    crmContact: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
+    crmProduct: { count: vi.fn(), createMany: vi.fn(), findMany: vi.fn() },
+    crmDealProduct: { findMany: vi.fn() },
+    crmDealContact: { findMany: vi.fn() },
     crmTask: { findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), findUniqueOrThrow: vi.fn() },
-    crmNote: { create: vi.fn() },
+    crmNote: { findMany: vi.fn(), create: vi.fn() },
     user: { findFirst: vi.fn() },
     event: { findFirst: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -58,20 +62,37 @@ describe("registerCrmMcpTools — the discoverable surface", () => {
     const tools = collectTools();
     expect([...tools.keys()].sort()).toEqual(
       [
-        "add_crm_note",
-        "close_crm_deal",
-        "complete_crm_task",
-        "create_crm_company",
-        "create_crm_deal",
-        "create_crm_task",
-        "get_crm_report",
-        "list_crm_companies",
-        "list_crm_deal_types",
-        "list_crm_deals",
+        // Pipeline / deals
         "list_crm_pipeline",
-        "list_crm_tasks",
-        "move_crm_deal_stage",
+        "list_crm_deals",
+        "list_crm_deal_types",
+        "create_crm_deal",
         "update_crm_deal",
+        "move_crm_deal_stage",
+        "close_crm_deal",
+        "get_crm_deal",
+        // Companies (accounts)
+        "list_crm_companies",
+        "create_crm_company",
+        "get_crm_company",
+        "update_crm_company",
+        // Contacts
+        "list_crm_contacts",
+        "create_crm_contact",
+        "update_crm_contact",
+        // Products (catalog + deal line items)
+        "list_crm_products",
+        "create_crm_product",
+        "update_crm_product",
+        "list_crm_deal_products",
+        "add_deal_product",
+        "update_deal_product",
+        // Tasks / notes / report
+        "list_crm_tasks",
+        "create_crm_task",
+        "complete_crm_task",
+        "add_crm_note",
+        "get_crm_report",
       ].sort(),
     );
   });
@@ -197,5 +218,49 @@ describe("org binding — the injected org, never tool input", () => {
         where: expect.objectContaining({ organizationId: ORG, stageId: "s-neg" }),
       }),
     );
+  });
+
+  it("list_crm_contacts scopes to the org and excludes archived", async () => {
+    const tools = collectTools();
+    vi.mocked(db.crmContact.findMany).mockResolvedValue([] as never);
+
+    const res = await tools.get("list_crm_contacts")!({});
+
+    expect(res.isError).toBeUndefined();
+    expect(db.crmContact.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ organizationId: ORG, archivedAt: null }),
+      }),
+    );
+  });
+
+  it("get_crm_company binds the account read to the injected org (unknown id → error, not another org's row)", async () => {
+    const tools = collectTools();
+    vi.mocked(db.crmCompany.findFirst).mockResolvedValue(null as never);
+
+    const res = await tools.get("get_crm_company")!({ companyId: "c-someone-elses" });
+
+    expect(res.isError).toBe(true);
+    expect(db.crmCompany.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: "c-someone-elses", organizationId: ORG }) }),
+    );
+  });
+
+  it("create_crm_contact refuses an owner email outside the org (owner lookup is org-bound, no contact created)", async () => {
+    const tools = collectTools();
+    vi.mocked(db.user.findFirst).mockResolvedValue(null as never); // not in THIS org
+
+    const res = await tools.get("create_crm_contact")!({
+      firstName: "Sara",
+      lastName: "Khan",
+      email: "sara@abbott.com",
+      ownerEmail: "outsider@evil.com",
+    });
+
+    expect(res.isError).toBe(true);
+    expect(db.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ organizationId: ORG }) }),
+    );
+    expect(db.crmContact.create).not.toHaveBeenCalled();
   });
 });

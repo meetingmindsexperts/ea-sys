@@ -16,13 +16,14 @@
  * routes get). Writes carry source: "mcp" into the CrmActivity trail.
  */
 import { z } from "zod";
-import { CrmDealPipeline } from "@prisma/client";
+import { CrmDealPipeline, CrmProductSource, CrmContactStatus, CrmLifecycleStage } from "@prisma/client";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
 import { defaultOpenStage } from "@/crm/lib/crm-types";
+import { companyDealValueBreakdown, type RollupDeal } from "@/crm/lib/company-rollup";
 import { ensurePipelineStages } from "@/crm/services/pipeline-service";
 import { ensureDealTypes } from "@/crm/services/deal-type-service";
 import { buildCrmReport } from "@/crm/services/report-service";
@@ -32,7 +33,17 @@ import {
   moveDealStage,
   closeDeal,
 } from "@/crm/services/deal-service";
-import { findOrCreateCompany } from "@/crm/services/company-service";
+import { findOrCreateCompany, updateCompany } from "@/crm/services/company-service";
+import { findOrCreateCrmContact, updateCrmContact } from "@/crm/services/crm-contact-service";
+import {
+  ensureCrmProducts,
+  listCrmProducts,
+  createCrmProduct,
+  updateCrmProduct,
+  listDealProducts,
+  addDealProduct,
+  updateDealProduct,
+} from "@/crm/services/crm-product-service";
 import { createTask, completeTask } from "@/crm/services/task-service";
 import { createNote } from "@/crm/services/note-service";
 
@@ -43,8 +54,56 @@ function money(value: unknown, currency: string): string {
   return Number.isFinite(n) ? `${currency} ${n.toLocaleString("en-US")}` : "—";
 }
 
+/** A bare number with thousands separators (currency printed once by the caller). */
+function fmtNum(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * Per-currency Open / Won / Lost / Total value line for an account's deals.
+ * LOST is shown separately, never in Total (money that never came); values are
+ * never summed across currencies. "no deal value" when nothing is valued.
+ */
+function valueBreakdownLine(deals: RollupDeal[]): string {
+  const breakdown = companyDealValueBreakdown(deals);
+  if (breakdown.length === 0) return "no deal value";
+  return breakdown
+    .map(
+      (b) =>
+        `${b.currency} — open ${fmtNum(b.open)} · won ${fmtNum(b.won)}` +
+        (b.lost > 0 ? ` · lost ${fmtNum(b.lost)}` : "") +
+        ` · total ${fmtNum(b.total)}`,
+    )
+    .join("; ");
+}
+
+/**
+ * One honest "products total" for a deal's line items — currency-mix aware
+ * (mirrors sumDealProducts): "mixed currencies" rather than a fabricated sum.
+ */
+function productsTotalLine(
+  lines: Array<{ unitPrice: unknown; currency: string; quantity: number }>,
+): string {
+  if (lines.length === 0) return "—";
+  const currencies = new Set(lines.map((l) => l.currency));
+  if (currencies.size > 1) return "mixed currencies";
+  const currency = [...currencies][0] ?? "AED";
+  const total = lines.reduce((acc, l) => acc + Number(l.unitPrice) * l.quantity, 0);
+  return money(total, currency);
+}
+
 function fail(message: string): never {
   throw new Error(message);
+}
+
+/** Resolve an ownerEmail to an org team member's user id, or fail. */
+async function resolveOwnerId(organizationId: string, ownerEmail: string): Promise<string> {
+  const owner = await db.user.findFirst({
+    where: { email: ownerEmail.toLowerCase(), organizationId },
+    select: { id: true },
+  });
+  if (!owner) fail(`No org team member with email ${ownerEmail}`);
+  return owner.id;
 }
 
 /** Derived project date/location from the linked event (city/country only). */
@@ -395,7 +454,7 @@ export function registerCrmMcpTools(
 
   server.tool(
     "list_crm_companies",
-    "List CRM accounts (companies). Filters: search (name contains), includeArchived, limit (default 50, max 200).",
+    "List CRM accounts (companies) with per-account deal counts AND per-currency deal value: Open (pipeline) / Won / Lost / Total. LOST is shown separately and NEVER folded into Total (money that never came); value is never summed across currencies. Filters: search (name contains), includeArchived, limit (default 50, max 200).",
     {
       search: z.string().optional(),
       includeArchived: z.boolean().optional(),
@@ -412,6 +471,11 @@ export function registerCrmMcpTools(
           select: {
             id: true, name: true, industry: true, country: true, needsReview: true,
             _count: { select: { deals: true, contacts: true } },
+            // Non-archived deals only for the value rollup (matches the account page).
+            deals: {
+              where: { archivedAt: null },
+              select: { status: true, dealValue: true, currency: true },
+            },
           },
           orderBy: { name: "asc" },
           take: Math.min(limit || 50, 200),
@@ -421,9 +485,10 @@ export function registerCrmMcpTools(
           .map(
             (c) =>
               `${c.name}${c.industry ? ` (${c.industry})` : ""}${c.needsReview ? " ⚠ needs duplicate review" : ""}` +
-              `\n  ID: ${c.id} | Deals: ${c._count.deals} | Contacts: ${c._count.contacts}`,
+              `\n  ID: ${c.id} | Deals: ${c._count.deals} | Contacts: ${c._count.contacts}` +
+              `\n  Value: ${valueBreakdownLine(c.deals)}`,
           )
-          .join("\n");
+          .join("\n\n");
       }),
   );
 
@@ -616,6 +681,504 @@ export function registerCrmMcpTools(
           `Closed:\n${wl}` +
           (repLines.length > 0 ? `\n\nTop reps:\n${repLines.join("\n")}` : "")
         );
+      }),
+  );
+
+  // ── Contacts ──────────────────────────────────────────────────────────────────
+
+  server.tool(
+    "list_crm_contacts",
+    "List CRM business contacts (the people at accounts). Filters: search (name or email contains), companyId (contacts at one account), includeArchived, limit (default 50, max 200).",
+    {
+      search: z.string().optional(),
+      companyId: z.string().optional(),
+      includeArchived: z.boolean().optional(),
+      limit: z.number().optional(),
+    },
+    async ({ search, companyId, includeArchived, limit }) =>
+      safeTool("list_crm_contacts", async () => {
+        const contacts = await db.crmContact.findMany({
+          where: {
+            organizationId,
+            ...(includeArchived ? {} : { archivedAt: null }),
+            ...(companyId ? { companyId } : {}),
+            ...(search
+              ? {
+                  OR: [
+                    { firstName: { contains: search, mode: "insensitive" } },
+                    { lastName: { contains: search, mode: "insensitive" } },
+                    { email: { contains: search, mode: "insensitive" } },
+                  ],
+                }
+              : {}),
+          },
+          select: {
+            id: true, firstName: true, lastName: true, email: true, jobTitle: true,
+            phone: true, mobile: true, country: true, status: true, lifecycleStage: true,
+            company: { select: { name: true } },
+            _count: { select: { deals: true } },
+          },
+          orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+          take: Math.min(limit || 50, 200),
+        });
+        if (contacts.length === 0) return "No contacts match.";
+        return contacts
+          .map(
+            (c) =>
+              `${c.firstName} ${c.lastName}${c.jobTitle ? ` — ${c.jobTitle}` : ""}` +
+              `\n  ID: ${c.id} | ${c.email}` +
+              (c.company ? `\n  Account: ${c.company.name}` : "") +
+              (c.phone || c.mobile ? `\n  Phone: ${[c.phone, c.mobile].filter(Boolean).join(" / ")}` : "") +
+              (c.country ? `\n  Country: ${c.country}` : "") +
+              (c.status ? `\n  Status: ${c.status}` : "") +
+              (c.lifecycleStage ? `\n  Lifecycle: ${c.lifecycleStage}` : "") +
+              `\n  Deals: ${c._count.deals}`,
+          )
+          .join("\n\n");
+      }),
+  );
+
+  server.tool(
+    "create_crm_contact",
+    "Create a CRM business contact — or link to the existing one if the email already exists (deduped on the normalized email). Required: firstName, lastName, email. Optional: companyId (the account), jobTitle, phone, mobile, country, notes, ownerEmail (an org team member), status (NEW/CONTACTED/INTERESTED/QUALIFIED/NEGOTIATION/WON/LOST/UNQUALIFIED), lifecycleStage (LEAD/ENGAGED/CUSTOMER/CHAMPION), tags.",
+    {
+      firstName: z.string().min(1),
+      lastName: z.string().min(1),
+      email: z.string().email(),
+      companyId: z.string().optional(),
+      jobTitle: z.string().optional(),
+      phone: z.string().optional(),
+      mobile: z.string().optional(),
+      country: z.string().optional(),
+      notes: z.string().optional(),
+      ownerEmail: z.string().email().optional(),
+      status: z.nativeEnum(CrmContactStatus).optional(),
+      lifecycleStage: z.nativeEnum(CrmLifecycleStage).optional(),
+      tags: z.array(z.string().min(1).max(50)).max(25).optional(),
+    },
+    async (input) =>
+      safeTool("create_crm_contact", async () => {
+        const ownerId = input.ownerEmail ? await resolveOwnerId(organizationId, input.ownerEmail) : null;
+        const res = await findOrCreateCrmContact({
+          organizationId,
+          userId: systemUserId,
+          source: "mcp",
+          firstName: input.firstName,
+          lastName: input.lastName,
+          email: input.email,
+          companyId: input.companyId ?? null,
+          jobTitle: input.jobTitle ?? null,
+          phone: input.phone ?? null,
+          mobile: input.mobile ?? null,
+          country: input.country ?? null,
+          notes: input.notes ?? null,
+          status: input.status ?? null,
+          lifecycleStage: input.lifecycleStage ?? null,
+          tags: input.tags,
+          ownerId,
+        });
+        if (!res.ok) fail(res.message);
+        return res.created
+          ? `Contact created: ${res.crmContact.firstName} ${res.crmContact.lastName} (${res.crmContact.id})`
+          : `Linked to the existing contact: ${res.crmContact.firstName} ${res.crmContact.lastName} (${res.crmContact.id})`;
+      }),
+  );
+
+  server.tool(
+    "update_crm_contact",
+    "Update a CRM contact's fields: firstName, lastName, email (kept deduped), companyId (re-point to another account; null unlinks), jobTitle, phone, mobile, country, notes, ownerEmail (reassign; null unowns), status, lifecycleStage, tags (REPLACES the whole list). Only the fields you pass change.",
+    {
+      crmContactId: z.string().min(1),
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      email: z.string().email().optional(),
+      companyId: z.string().nullable().optional(),
+      jobTitle: z.string().nullable().optional(),
+      phone: z.string().nullable().optional(),
+      mobile: z.string().nullable().optional(),
+      country: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      ownerEmail: z.string().email().nullable().optional(),
+      status: z.nativeEnum(CrmContactStatus).nullable().optional(),
+      lifecycleStage: z.nativeEnum(CrmLifecycleStage).nullable().optional(),
+      tags: z.array(z.string().min(1).max(50)).max(25).optional(),
+    },
+    async (input) =>
+      safeTool("update_crm_contact", async () => {
+        let ownerId: string | null | undefined = undefined;
+        if (input.ownerEmail === null) ownerId = null;
+        else if (input.ownerEmail) ownerId = await resolveOwnerId(organizationId, input.ownerEmail);
+
+        const res = await updateCrmContact({
+          organizationId,
+          userId: systemUserId,
+          source: "mcp",
+          crmContactId: input.crmContactId,
+          firstName: input.firstName,
+          lastName: input.lastName,
+          email: input.email,
+          companyId: input.companyId,
+          jobTitle: input.jobTitle,
+          phone: input.phone,
+          mobile: input.mobile,
+          country: input.country,
+          notes: input.notes,
+          status: input.status,
+          lifecycleStage: input.lifecycleStage,
+          tags: input.tags,
+          ownerId,
+        });
+        if (!res.ok) fail(res.message);
+        return `Contact updated: ${res.crmContact.firstName} ${res.crmContact.lastName} (${res.crmContact.id})`;
+      }),
+  );
+
+  // ── Company detail + edit ─────────────────────────────────────────────────────
+
+  server.tool(
+    "get_crm_company",
+    "Full detail for ONE CRM account: profile, per-currency Open/Won/Lost/Total deal value (LOST separate, never in Total), its deals, and its people. Pass the company id (from list_crm_companies).",
+    { companyId: z.string().min(1) },
+    async ({ companyId }) =>
+      safeTool("get_crm_company", async () => {
+        const company = await db.crmCompany.findFirst({
+          where: { id: companyId, organizationId },
+          select: {
+            id: true, name: true, industry: true, website: true, phone: true,
+            country: true, city: true, notes: true, needsReview: true, archivedAt: true,
+            deals: {
+              where: { archivedAt: null },
+              select: {
+                id: true, name: true, status: true, dealValue: true, currency: true,
+                stage: { select: { name: true } },
+              },
+              orderBy: { updatedAt: "desc" },
+            },
+            contacts: {
+              where: { archivedAt: null },
+              select: { id: true, firstName: true, lastName: true, email: true, jobTitle: true },
+              orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+            },
+          },
+        });
+        if (!company) fail("Account not found");
+        const loc = [company.city, company.country].filter(Boolean).join(", ");
+        const dealLines = company.deals.length
+          ? company.deals
+              .map((d) => `  - ${d.name} — ${money(d.dealValue, d.currency)} — ${d.stage.name} (${d.status})\n      ID: ${d.id}`)
+              .join("\n")
+          : "  (none)";
+        const peopleLines = company.contacts.length
+          ? company.contacts
+              .map((p) => `  - ${p.firstName} ${p.lastName}${p.jobTitle ? ` (${p.jobTitle})` : ""} — ${p.email}\n      ID: ${p.id}`)
+              .join("\n")
+          : "  (none)";
+        return (
+          `${company.name}${company.archivedAt ? " [archived]" : ""}${company.needsReview ? " ⚠ needs duplicate review" : ""}` +
+          `\n  ID: ${company.id}` +
+          (company.industry ? `\n  Industry: ${company.industry}` : "") +
+          (loc ? `\n  Location: ${loc}` : "") +
+          (company.website ? `\n  Website: ${company.website}` : "") +
+          (company.phone ? `\n  Phone: ${company.phone}` : "") +
+          (company.notes ? `\n  Notes: ${company.notes}` : "") +
+          `\n  Value: ${valueBreakdownLine(company.deals)}` +
+          `\n\nDeals (${company.deals.length}):\n${dealLines}` +
+          `\n\nPeople (${company.contacts.length}):\n${peopleLines}`
+        );
+      }),
+  );
+
+  server.tool(
+    "update_crm_company",
+    "Update a CRM account's fields: name, industry, website, phone, country, city, notes, tags (REPLACES the whole list), needsReview (set false once you've confirmed a flagged near-duplicate is distinct). Only the fields you pass change.",
+    {
+      companyId: z.string().min(1),
+      name: z.string().optional(),
+      industry: z.string().nullable().optional(),
+      website: z.string().nullable().optional(),
+      phone: z.string().nullable().optional(),
+      country: z.string().nullable().optional(),
+      city: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      tags: z.array(z.string().min(1).max(50)).max(25).optional(),
+      needsReview: z.boolean().optional(),
+    },
+    async (input) =>
+      safeTool("update_crm_company", async () => {
+        const res = await updateCompany({
+          organizationId,
+          userId: systemUserId,
+          source: "mcp",
+          companyId: input.companyId,
+          name: input.name,
+          industry: input.industry,
+          website: input.website,
+          phone: input.phone,
+          country: input.country,
+          city: input.city,
+          notes: input.notes,
+          tags: input.tags,
+          needsReview: input.needsReview,
+        });
+        if (!res.ok) fail(res.message);
+        return `Account updated: ${res.company.name} (${res.company.id})`;
+      }),
+  );
+
+  // ── Deal detail ────────────────────────────────────────────────────────────────
+
+  server.tool(
+    "get_crm_deal",
+    "Full detail for ONE deal: fields, its line-item products (with a currency-aware products total), the contacts on the deal (with roles), recent notes/activity, and open tasks. Pass the deal id (from list_crm_deals).",
+    { dealId: z.string().min(1) },
+    async ({ dealId }) =>
+      safeTool("get_crm_deal", async () => {
+        const deal = await db.crmDeal.findFirst({
+          where: { id: dealId, organizationId },
+          select: {
+            id: true, name: true, status: true, pipeline: true, tags: true,
+            dealValue: true, currency: true, expectedClose: true, lostReason: true, archivedAt: true,
+            dealType: { select: { name: true } },
+            stage: { select: { name: true } },
+            company: { select: { id: true, name: true } },
+            event: { select: { name: true, startDate: true, endDate: true, city: true, country: true } },
+            owner: { select: { firstName: true, lastName: true } },
+          },
+        });
+        if (!deal) fail("Deal not found");
+
+        const [lines, contacts, notes, tasks] = await Promise.all([
+          db.crmDealProduct.findMany({
+            where: { dealId },
+            select: { id: true, productName: true, category: true, sku: true, unitPrice: true, currency: true, quantity: true },
+            orderBy: { createdAt: "asc" },
+          }),
+          db.crmDealContact.findMany({
+            where: { dealId },
+            select: { role: true, crmContact: { select: { id: true, firstName: true, lastName: true, email: true, jobTitle: true } } },
+            orderBy: { createdAt: "asc" },
+          }),
+          db.crmNote.findMany({
+            where: { dealId, organizationId },
+            select: { activityType: true, body: true, createdAt: true, author: { select: { firstName: true, lastName: true } } },
+            orderBy: { createdAt: "desc" },
+            take: 5,
+          }),
+          db.crmTask.findMany({
+            where: { dealId, organizationId, archivedAt: null, status: "OPEN" },
+            select: { id: true, title: true, dueAt: true },
+            orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],
+          }),
+        ]);
+
+        const productLines = lines.length
+          ? lines
+              .map(
+                (l) =>
+                  `  - ${l.productName} — ${l.quantity} × ${money(l.unitPrice, l.currency)} = ${money(Number(l.unitPrice) * l.quantity, l.currency)}` +
+                  `${l.category ? ` [${l.category}]` : ""}\n      Line ID: ${l.id}`,
+              )
+              .join("\n")
+          : "  (none)";
+        const contactLines = contacts.length
+          ? contacts
+              .map(
+                (dc) =>
+                  `  - ${dc.crmContact.firstName} ${dc.crmContact.lastName} (${dc.role})` +
+                  `${dc.crmContact.jobTitle ? ` — ${dc.crmContact.jobTitle}` : ""} — ${dc.crmContact.email}\n      ID: ${dc.crmContact.id}`,
+              )
+              .join("\n")
+          : "  (none)";
+        const noteLines = notes.length
+          ? notes
+              .map(
+                (n) =>
+                  `  - [${n.activityType}] ${n.createdAt.toISOString().split("T")[0]}` +
+                  `${n.author ? ` ${n.author.firstName} ${n.author.lastName}` : ""}: ` +
+                  `${n.body.length > 200 ? n.body.slice(0, 200) + "…" : n.body}`,
+              )
+              .join("\n")
+          : "  (none)";
+        const taskLines = tasks.length
+          ? tasks.map((t) => `  - ${t.title}${t.dueAt ? ` (due ${t.dueAt.toISOString().split("T")[0]})` : ""}\n      ID: ${t.id}`).join("\n")
+          : "  (none)";
+
+        return (
+          `${deal.name}${deal.archivedAt ? " [archived]" : ""} — ${money(deal.dealValue, deal.currency)} — ${deal.stage.name} (${deal.status})` +
+          `\n  ID: ${deal.id}` +
+          (deal.pipeline ? `\n  Pipeline: ${deal.pipeline}` : "") +
+          (deal.dealType ? `\n  Deal type: ${deal.dealType.name}` : "") +
+          (deal.tags.length ? `\n  Tags: ${deal.tags.join(", ")}` : "") +
+          (deal.company ? `\n  Account: ${deal.company.name} (${deal.company.id})` : "") +
+          (deal.event ? `\n  Event: ${deal.event.name}` : "") +
+          (projectDatesLine(deal.event) ? `\n  Project dates: ${projectDatesLine(deal.event)}` : "") +
+          (projectLocationLine(deal.event) ? `\n  Project location: ${projectLocationLine(deal.event)}` : "") +
+          (deal.owner ? `\n  Owner: ${deal.owner.firstName} ${deal.owner.lastName}` : "") +
+          (deal.expectedClose ? `\n  Expected close: ${deal.expectedClose.toISOString().split("T")[0]}` : "") +
+          (deal.status === "LOST" && deal.lostReason ? `\n  Lost reason: ${deal.lostReason}` : "") +
+          `\n\nProducts (${lines.length}) — total ${productsTotalLine(lines)}:\n${productLines}` +
+          `\n\nContacts (${contacts.length}):\n${contactLines}` +
+          `\n\nRecent notes (${notes.length}):\n${noteLines}` +
+          `\n\nOpen tasks (${tasks.length}):\n${taskLines}`
+        );
+      }),
+  );
+
+  // ── Products (catalog + deal line items) ────────────────────────────────────────
+
+  server.tool(
+    "list_crm_products",
+    "List the org's product/service catalog (the sellable items put on deals as line items). Filters: search (name or SKU contains), category, includeArchived, limit (default 100, max 500).",
+    {
+      search: z.string().optional(),
+      category: z.string().optional(),
+      includeArchived: z.boolean().optional(),
+      limit: z.number().optional(),
+    },
+    async ({ search, category, includeArchived, limit }) =>
+      safeTool("list_crm_products", async () => {
+        await ensureCrmProducts(organizationId); // seed the built-in catalog once, like the REST products page
+        const products = await listCrmProducts(organizationId, { includeArchived, category, q: search });
+        if (products.length === 0) return "No products match.";
+        return products
+          .slice(0, Math.min(limit || 100, 500))
+          .map(
+            (p) =>
+              `${p.name} — ${money(p.price, p.currency)}${p.priceIncludesTax ? " (incl. tax)" : ""}` +
+              `\n  ID: ${p.id} | Category: ${p.category}${p.sku ? ` | SKU: ${p.sku}` : ""} | ${p.source}` +
+              (p.archivedAt ? " | ARCHIVED" : ""),
+          )
+          .join("\n\n");
+      }),
+  );
+
+  server.tool(
+    "create_crm_product",
+    "Add a product/service to the org catalog. Required: name, category. Optional: sku, source (IN_HOUSE/OUTSOURCED, default IN_HOUSE), price (default 0), currency (default AED), priceIncludesTax.",
+    {
+      name: z.string().min(1).max(255),
+      category: z.string().min(1).max(120),
+      sku: z.string().max(120).optional(),
+      source: z.nativeEnum(CrmProductSource).optional(),
+      price: z.number().min(0).optional(),
+      currency: z.string().length(3).optional(),
+      priceIncludesTax: z.boolean().optional(),
+    },
+    async (input) =>
+      safeTool("create_crm_product", async () => {
+        const res = await createCrmProduct({
+          organizationId,
+          userId: systemUserId,
+          name: input.name,
+          category: input.category,
+          sku: input.sku ?? null,
+          source: input.source,
+          price: input.price,
+          currency: input.currency,
+          priceIncludesTax: input.priceIncludesTax,
+        });
+        if (!res.ok) fail(res.message);
+        return `Product created: ${res.product.name} — ${money(res.product.price, res.product.currency)} (${res.product.id})`;
+      }),
+  );
+
+  server.tool(
+    "update_crm_product",
+    "Update a catalog product: name, category, sku, source (IN_HOUSE/OUTSOURCED), price, currency, priceIncludesTax. Only the fields you pass change. Editing a product does NOT rewrite line items already on deals — those are snapshots.",
+    {
+      productId: z.string().min(1),
+      name: z.string().max(255).optional(),
+      category: z.string().max(120).optional(),
+      sku: z.string().max(120).nullable().optional(),
+      source: z.nativeEnum(CrmProductSource).optional(),
+      price: z.number().min(0).optional(),
+      currency: z.string().length(3).optional(),
+      priceIncludesTax: z.boolean().optional(),
+    },
+    async (input) =>
+      safeTool("update_crm_product", async () => {
+        const res = await updateCrmProduct({
+          organizationId,
+          userId: systemUserId,
+          productId: input.productId,
+          name: input.name,
+          category: input.category,
+          sku: input.sku,
+          source: input.source,
+          price: input.price,
+          currency: input.currency,
+          priceIncludesTax: input.priceIncludesTax,
+        });
+        if (!res.ok) fail(res.message);
+        return `Product updated: ${res.product.name} (${res.product.id})`;
+      }),
+  );
+
+  server.tool(
+    "list_crm_deal_products",
+    "List the line-item products on ONE deal, with a currency-aware products total. Pass the deal id.",
+    { dealId: z.string().min(1) },
+    async ({ dealId }) =>
+      safeTool("list_crm_deal_products", async () => {
+        const lines = await listDealProducts(dealId, organizationId);
+        if (lines === null) fail("Deal not found");
+        if (lines.length === 0) return "No products on this deal.";
+        return (
+          lines
+            .map(
+              (l) =>
+                `${l.productName} — ${l.quantity} × ${money(l.unitPrice, l.currency)} = ${money(Number(l.unitPrice) * l.quantity, l.currency)}` +
+                `${l.category ? ` [${l.category}]` : ""}\n  Line ID: ${l.id}${l.sku ? ` | SKU: ${l.sku}` : ""}`,
+            )
+            .join("\n\n") + `\n\nTotal: ${productsTotalLine(lines)}`
+        );
+      }),
+  );
+
+  server.tool(
+    "add_deal_product",
+    "Add a catalog product as a line item on a deal. Required: dealId, crmProductId (from list_crm_products). Optional: unitPrice (defaults to the catalog list price), quantity (default 1). Refused if the product is already on the deal (edit its quantity instead) or if the product/deal is archived.",
+    {
+      dealId: z.string().min(1),
+      crmProductId: z.string().min(1),
+      unitPrice: z.number().min(0).optional(),
+      quantity: z.number().int().min(1).optional(),
+    },
+    async (input) =>
+      safeTool("add_deal_product", async () => {
+        const res = await addDealProduct({
+          organizationId,
+          userId: systemUserId,
+          dealId: input.dealId,
+          crmProductId: input.crmProductId,
+          unitPrice: input.unitPrice,
+          quantity: input.quantity,
+        });
+        if (!res.ok) fail(res.message);
+        return `Added ${res.line.productName} — ${res.line.quantity} × ${money(res.line.unitPrice, res.line.currency)} (line ${res.line.id})`;
+      }),
+  );
+
+  server.tool(
+    "update_deal_product",
+    "Update a deal line item's unitPrice and/or quantity. Required: dealId, lineId (from list_crm_deal_products / get_crm_deal).",
+    {
+      dealId: z.string().min(1),
+      lineId: z.string().min(1),
+      unitPrice: z.number().min(0).optional(),
+      quantity: z.number().int().min(1).optional(),
+    },
+    async (input) =>
+      safeTool("update_deal_product", async () => {
+        const res = await updateDealProduct({
+          organizationId,
+          dealId: input.dealId,
+          lineId: input.lineId,
+          unitPrice: input.unitPrice,
+          quantity: input.quantity,
+        });
+        if (!res.ok) fail(res.message);
+        return `Line updated: ${res.line.productName} — ${res.line.quantity} × ${money(res.line.unitPrice, res.line.currency)}`;
       }),
   );
 }
