@@ -1,12 +1,67 @@
 # EA-SYS — Incident Log & Outage Post-Mortems
 
 Production incidents, what caused them, how we diagnosed and fixed them, and the
-action items to prevent recurrence. Newest first. **This is the first one.**
+action items to prevent recurrence. Newest first.
 
 When prod is down, the fast triage order is in
 [docs/AWS_OPERATIONS.md](AWS_OPERATIONS.md) §1.2 (health) and §3 (CPU/mem/disk).
 The general method that worked for INC-001 is captured in
 ["How to diagnose a frozen box"](#appendix--how-to-diagnose-a-frozen-box) below.
+For **data-loss** incidents, the recovery path is the DR restore in
+[infra/dr/README.md](../infra/dr/README.md) and [docs/ROLLBACK.md](ROLLBACK.md).
+
+---
+
+## INC-002 — Production database wiped: a local `prisma db push --force-reset` hit the prod DB (2026-07-30)
+
+| | |
+|---|---|
+| **Date** | 2026-07-30, wipe between **08:00–08:55 UTC** (~12:00–12:55 GST); detected ~08:59 UTC |
+| **Duration** | App effectively unusable ~08:5x–09:13 UTC (~15–20 min from detection to recovery) |
+| **Severity** | SEV-1 — total data outage. Every org-scoped query returned empty ("no events"); CRM seed writes threw FK violations. The app was *up* (health 200) but had **no data**. |
+| **Trigger** | A **destructive Prisma command run from a developer machine whose `.env` pointed `DIRECT_URL`/`DATABASE_URL` at the PROD Supabase project** (`postgres.nifaqvgnfwddgsusxapy`). |
+| **Root cause** | **Local development shares the production database** (documented, accepted risk — there is no separate dev DB yet). A `prisma db push --force-reset` (or a manual `DROP SCHEMA public CASCADE`) executed against that prod URL **dropped every table and all data**, then rebuilt empty tables from `schema.prisma`. |
+| **How we know it was `db push --force-reset`, not `migrate reset`** | `_prisma_migrations` **did not exist** after the wipe (`42P01`). `prisma migrate reset` *recreates* that table and re-applies every migration; `db push` never writes it and does not run the seed. Empty tables **+** absent `_prisma_migrations` **+** no seed data = `db push --force-reset`. |
+| **Who** | A local `db push` against prod leaves **no actor record in our app, AWS, or CloudTrail**. The **only** place the source is recorded is **Supabase → Logs → Postgres** (the `DROP`/`CREATE SCHEMA` DDL around 08:5x UTC carries the client IP). That lookup is the one way to name the person and is an **open action item** (needs the Supabase dashboard). Circumstantial: schema/plan files (`schema.prisma`, `SESSION_PROPOSALS_PLAN.md`) were being edited that morning, consistent with someone doing local Prisma work. |
+| **Fix** | **Restored the latest DR pg_dump** (`s3://ea-sys-dr-singapore/db/2026/07/30-08-mumbai.dump`, 08:00 UTC) into the prod DB via `DIRECT_URL`, then restarted the app + worker. |
+| **Data loss** | **RPO ≈ 55 min.** Restored to the 08:00 UTC snapshot; any writes between 08:00 and the wipe (~08:55 UTC, i.e. ~12:00–12:55 GST, midday) are **permanently lost** — this is the best snapshot available (Supabase PITR is not enabled; DR dumps run every ~2 h daytime and one landed ~1 h before the wipe). |
+| **Status** | **Resolved.** DB restored (2 orgs, 35 events, 3,592 registrations, 99 users, 143 migrations — matching the validated dump), app + worker health 200, zero errors, worker rebooted clean (13 jobs). Prevention items below are **open**. |
+
+### Timeline (UTC)
+- **08:00** — Last healthy DR `pg_dump` uploaded (2.56 MB — normal size). Recovery point.
+- **08:00–08:55** — Destructive `prisma db push --force-reset` runs against prod `DIRECT_URL`. All data + `_prisma_migrations` dropped; empty tables rebuilt.
+- **08:55:20** — `mcp-remote@system.local` (the MCP system user) is created — the **first write into the freshly-emptied DB** (n8n/MCP traffic), and the timestamp that bounds the wipe.
+- **08:59:48** — First FK-violation errors surface: `CrmProduct_organizationId_fkey` / `CrmEmailTemplate_organizationId_fkey` on `createMany` (the CRM catalog/template seed-on-first-load, stamping an `organizationId` that no longer exists). All org-scoped reads return empty → "no events".
+- **~09:00** — Reported ("entire prod is down").
+- **09:09** — DR restore drill validated the 08:00 dump in a scratch Postgres → 35 events, 3,592 registrations (full, healthy).
+- **09:12** — Safety-dumped the current (empty) prod, then `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` + `pg_restore` the 08:00 dump via `DIRECT_URL`. Counts verified.
+- **09:13** — Restarted `ea-sys-blue` + `ea-sys-worker` (to drop stale Prisma prepared statements against the dropped tables). App + worker health 200. Recovered.
+
+### How we diagnosed it
+A read-only query inside the worker container (`docker exec -w /app ea-sys-worker node …` via SSM) showed the smoking gun in one shot: `0 organizations, 0 events, 0 registrations, 1 user (org null)` on the **confirmed real prod project** (`DATABASE_URL`/`DIRECT_URL` both `postgres.nifaqvgnfwddgsusxapy` — so the URL was **not** swapped to an empty DB). `_prisma_migrations` missing (`42P01`) pinned it to `db push --force-reset`. The stray `mcp-remote@system.local` user's `createdAt` (08:55:20) bounded the wipe. **The two frontend commits deployed just before (deal-form layout, product-card colours) were ruled out immediately — pure CSS/JSX cannot cause an FK violation.**
+
+### Resolution (the exact recovery, for next time)
+```bash
+# On the box, as ubuntu. DIRECT_URL parsed from /home/ubuntu/ea-sys/.env (never printed).
+# 1. Safety dump of the current state first (insurance).
+pg_dump -Fc --schema=public "$DIRECT_URL" > /tmp/pre-restore-$(date -u +%Y%m%dT%H%M%SZ).dump
+# 2. Pull the latest healthy DR dump (Singapore bucket).
+aws s3 cp s3://ea-sys-dr-singapore/db/<latest>.dump /tmp/recovery.dump --region ap-southeast-1
+# 3. Reset the schema and restore. --no-owner --no-privileges avoids Supabase role noise.
+psql "$DIRECT_URL" -c 'DROP SCHEMA IF EXISTS public CASCADE;' -c 'CREATE SCHEMA public;'
+pg_restore --no-owner --no-privileges -d "$DIRECT_URL" /tmp/recovery.dump   # 1 benign "schema public already exists" error is expected
+# 4. Verify counts, then: docker restart ea-sys-blue ea-sys-worker
+```
+**Validate the dump in a scratch Postgres first** (`sudo -u ubuntu bash scripts/dr-restore-drill.sh`) — it restores the latest dump into a throwaway container and prints row counts, with **zero** risk to prod. We did this before touching prod.
+
+### Prevention / action items (OPEN)
+1. **Rotate the prod DB password NOW.** Every developer `.env` still holding the prod `DIRECT_URL` is a loaded gun. Rotating it (Supabase → Database → Reset password) instantly disarms every local copy. Then re-set it on the box `.env` + CI secrets only. **Highest priority.**
+2. **Give local dev its own database — un-defer the dev-DB-separation plan.** This incident is exactly the failure mode that plan exists to prevent. No developer `.env` should ever contain the prod URL. (Was deferred "until the new hire"; this is the forcing function.)
+3. **Guard the destructive Prisma scripts.** Add an npm preflight that refuses `prisma db push` / `migrate reset` when the target host/URL resolves to the prod project ref (`nifaqvgnfwddgsusxapy`) — a one-file check that would have hard-stopped this command.
+4. **Enable Supabase PITR.** Would cut RPO from ~55 min to seconds and give a rollback independent of the 2 h DR dump cadence. (Previously deferred on cost; re-evaluate — this incident had real, unrecoverable data loss.)
+5. **Restrict distribution of the prod `DIRECT_URL`** to the box + CI/deploy only.
+6. **Pull Supabase Postgres logs** around 08:5x UTC to identify the source IP/person (the only record of "who").
+7. Consider an automatic `pg_dump` immediately *before* any migration/schema op, and/or a tighter DR cadence.
 
 ---
 
