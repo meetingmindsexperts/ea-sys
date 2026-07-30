@@ -11,8 +11,11 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  queryKeys,
+  useEvent,
   useSessionProposals,
   useSessionProposalThemes,
   useUpdateSessionProposal,
@@ -41,7 +44,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Lightbulb, Download, Tags, Plus, Pencil, Trash2, Check, X, Loader2,
+  Lightbulb, Download, Tags, Plus, Pencil, Trash2, Check, X, Loader2, Copy,
 } from "lucide-react";
 
 type ProposalStatus = "DRAFT" | "SUBMITTED" | "WITHDRAWN";
@@ -83,6 +86,15 @@ interface ProposalRow {
     email: string;
     organization: string | null;
     country: string | null;
+    // Attendee facet — null until the organizer grants (or the person
+    // registered on their own). Drives the sheet's grant button.
+    sourceRegistrationId: string | null;
+    sourceRegistration: {
+      id: string;
+      serialId: number | null;
+      status: string;
+      paymentStatus: string;
+    } | null;
   };
 }
 
@@ -99,6 +111,8 @@ export default function SessionProposalsPage() {
   const canManage = canWrite(session?.user?.role);
 
   const { data: proposals = [], isLoading, isError } = useSessionProposals(eventId);
+  const { data: eventData } = useEvent(eventId);
+  const eventSlug: string | undefined = (eventData as { slug?: string } | undefined)?.slug;
   const { data: themes = [] } = useSessionProposalThemes(eventId);
   const updateProposal = useUpdateSessionProposal(eventId);
   const deleteProposal = useDeleteSessionProposal(eventId);
@@ -109,6 +123,101 @@ export default function SessionProposalsPage() {
   const [selected, setSelected] = useState<ProposalRow | null>(null);
   const [themesOpen, setThemesOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [granting, setGranting] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Re-grant a revoked proposer (or recover a signup whose auto-provisioning
+  // hiccuped) — proposers normally get their comp registration at signup.
+  const handleGrantCompanion = async (proposal: ProposalRow) => {
+    setGranting(true);
+    try {
+      const res = await fetch(
+        `/api/events/${eventId}/speakers/${proposal.speaker.id}/grant-companion`,
+        { method: "POST" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error("[session-proposals] grant-companion failed:", res.status, data.error);
+        toast.error(data.error || "Failed to grant registration");
+        return;
+      }
+      toast.success(
+        data.outcome === "linked-by-email"
+          ? "Linked this person's existing registration"
+          : "Complimentary registration granted",
+      );
+      setSelected((prev) =>
+        prev
+          ? {
+              ...prev,
+              speaker: {
+                ...prev.speaker,
+                sourceRegistrationId: data.registrationId,
+                sourceRegistration: {
+                  id: data.registrationId,
+                  // Serial unknown until the list refetch — a re-grant mints a
+                  // FRESH registration, so the old serial would be wrong here.
+                  serialId: null,
+                  status: "CONFIRMED",
+                  paymentStatus: "COMPLIMENTARY",
+                },
+              },
+            }
+          : prev,
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposals(eventId) });
+    } catch (err) {
+      console.error("[session-proposals] grant-companion failed:", err);
+      toast.error("Failed to grant registration");
+    } finally {
+      setGranting(false);
+    }
+  };
+
+  // Organizer removes the free entry a proposer got at signup: cancels the
+  // comp companion registration (badge + entry barcode stop working). Only
+  // offered for COMPLIMENTARY registrations — a PAID delegate registration is
+  // managed from the Registrations page, never from here.
+  const handleRevokeCompanion = async (proposal: ProposalRow) => {
+    const reg = proposal.speaker.sourceRegistration;
+    if (!reg) return;
+    setRevoking(true);
+    try {
+      const res = await fetch(
+        `/api/events/${eventId}/registrations/${reg.id}/cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refund: false }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error("[session-proposals] revoke failed:", res.status, data.error);
+        toast.error(data.error || "Failed to revoke registration");
+        return;
+      }
+      toast.success("Complimentary registration revoked");
+      setSelected((prev) =>
+        prev?.speaker.sourceRegistration
+          ? {
+              ...prev,
+              speaker: {
+                ...prev.speaker,
+                sourceRegistration: { ...prev.speaker.sourceRegistration, status: "CANCELLED" },
+              },
+            }
+          : prev,
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposals(eventId) });
+    } catch (err) {
+      console.error("[session-proposals] revoke failed:", err);
+      toast.error("Failed to revoke registration");
+    } finally {
+      setRevoking(false);
+    }
+  };
 
   const rows = proposals as ProposalRow[];
 
@@ -177,6 +286,23 @@ export default function SessionProposalsPage() {
         <div className="flex items-center gap-2">
           {canManage && (
             <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!eventSlug}
+                onClick={() => {
+                  if (!eventSlug) return;
+                  navigator.clipboard
+                    .writeText(`${window.location.origin}/e/${eventSlug}/proposal/register`)
+                    .then(() => toast.success("Proposer registration link copied"))
+                    .catch((err) => {
+                      console.error("[session-proposals] copy link failed", err);
+                      toast.error("Couldn't copy the link");
+                    });
+                }}
+              >
+                <Copy className="h-4 w-4 mr-1" /> Copy proposer link
+              </Button>
               <Button variant="outline" size="sm" onClick={() => setThemesOpen(true)}>
                 <Tags className="h-4 w-4 mr-1" /> Themes
               </Button>
@@ -339,6 +465,71 @@ export default function SessionProposalsPage() {
                         {[selected.speaker.organization, selected.speaker.country].filter(Boolean).join(" · ")}
                       </div>
                     )}
+                    {/* Attendance: proposers get a comp registration at signup;
+                        the organizer can REVOKE it here (and re-grant later). */}
+                    <div className="pt-2 mt-1 border-t space-y-1.5">
+                      {selected.speaker.sourceRegistration &&
+                      selected.speaker.sourceRegistration.status !== "CANCELLED" ? (
+                        <>
+                          <div className="flex items-center gap-2 text-xs">
+                            <Check className="h-3.5 w-3.5 text-emerald-600" />
+                            <span className="text-emerald-700 font-medium">Registered</span>
+                            <span className="text-muted-foreground">
+                              {selected.speaker.sourceRegistration.serialId != null
+                                ? `#${String(selected.speaker.sourceRegistration.serialId).padStart(3, "0")} · `
+                                : ""}
+                              {selected.speaker.sourceRegistration.status} ·{" "}
+                              {selected.speaker.sourceRegistration.paymentStatus}
+                            </span>
+                          </div>
+                          {canManage &&
+                            selected.speaker.sourceRegistration.paymentStatus === "COMPLIMENTARY" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-red-600"
+                                disabled={revoking}
+                                onClick={() => handleRevokeCompanion(selected)}
+                              >
+                                {revoking ? (
+                                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                ) : (
+                                  <X className="h-4 w-4 mr-1" />
+                                )}
+                                Revoke registration
+                              </Button>
+                            )}
+                        </>
+                      ) : canManage ? (
+                        <>
+                          {selected.speaker.sourceRegistration?.status === "CANCELLED" && (
+                            <div className="text-xs text-muted-foreground">
+                              Registration revoked
+                            </div>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={granting}
+                            onClick={() => handleGrantCompanion(selected)}
+                          >
+                            {granting ? (
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4 mr-1" />
+                            )}
+                            {selected.speaker.sourceRegistration?.status === "CANCELLED"
+                              ? "Re-grant complimentary registration"
+                              : "Grant complimentary registration"}
+                          </Button>
+                          <p className="text-xs text-muted-foreground">
+                            Comp Faculty registration (badge + entry barcode + check-in).
+                          </p>
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not registered</span>
+                      )}
+                    </div>
                   </div>
                 )}
 

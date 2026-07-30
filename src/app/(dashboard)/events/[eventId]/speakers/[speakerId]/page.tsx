@@ -211,6 +211,7 @@ export default function SpeakerDetailPage() {
   const [bccSelf, setBccSelf] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [updatingAgreement, setUpdatingAgreement] = useState(false);
+  const [grantingCompanion, setGrantingCompanion] = useState(false);
   const [showAgreementHelp, setShowAgreementHelp] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
@@ -245,6 +246,34 @@ export default function SpeakerDetailPage() {
       setPreviewOpen(true);
     } catch {
       toast.error("Failed to generate preview");
+    }
+  };
+
+  // Organizer decision: give this speaker/proposer their complimentary Faculty
+  // companion registration (self-signup no longer auto-mints it — July 30 2026).
+  const handleGrantCompanion = async () => {
+    setGrantingCompanion(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}/grant-companion`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error("[speaker] grant-companion failed:", res.status, data.error);
+        toast.error(data.error || "Failed to grant registration");
+        return;
+      }
+      toast.success(
+        data.outcome === "linked-by-email"
+          ? "Linked this person's existing registration"
+          : "Complimentary registration granted",
+      );
+      fetchSpeaker();
+    } catch (err) {
+      console.error("[speaker] grant-companion failed:", err);
+      toast.error("Failed to grant registration");
+    } finally {
+      setGrantingCompanion(false);
     }
   };
 
@@ -1215,6 +1244,25 @@ export default function SpeakerDetailPage() {
                       : "Linked to an existing registration for this person."}
                   </p>
 
+                  {/* Revoked (cancelled) companion → offer a one-click re-grant
+                      (mints a fresh comp registration; the cancelled one stays
+                      for audit). */}
+                  {speaker.sourceRegistration.status === "CANCELLED" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleGrantCompanion}
+                      disabled={grantingCompanion}
+                    >
+                      {grantingCompanion ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                      )}
+                      Re-grant complimentary registration
+                    </Button>
+                  )}
+
                   <a
                     href={`/events/${eventId}/registrations`}
                     className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
@@ -1224,10 +1272,28 @@ export default function SpeakerDetailPage() {
                   </a>
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  No linked registration yet. New speakers get one automatically; for older
-                  speakers an admin can run the companion backfill.
-                </p>
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    No linked registration — the automatic provisioning may have hiccuped
+                    for this speaker.
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={handleGrantCompanion}
+                    disabled={grantingCompanion}
+                  >
+                    {grantingCompanion ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                    )}
+                    Grant complimentary registration
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Creates a comp Faculty registration (badge + entry barcode + check-in),
+                    or links an existing registration if this person already registered.
+                  </p>
+                </div>
               )}
             </CardContent>
           </Card>

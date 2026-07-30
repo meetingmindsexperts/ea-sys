@@ -40,6 +40,7 @@ const BRANDING_FIELDS = [
 const CONTENT_FIELDS = [
   ["registrationWelcomeHtml", "registration welcome content"],
   ["abstractWelcomeHtml", "abstract welcome content"],
+  ["sessionProposalWelcomeHtml", "session proposal welcome content"],
   ["registrationTermsHtml", "registration terms"],
   ["abstractGuidelinesHtml", "abstract guidelines"],
   ["surveyIntroHtml", "survey intro"],
@@ -73,6 +74,7 @@ export async function findMediaReferences(
         name: true,
         registrationWelcomeHtml: true,
         abstractWelcomeHtml: true,
+        sessionProposalWelcomeHtml: true,
         registrationTermsHtml: true,
         abstractGuidelinesHtml: true,
         surveyIntroHtml: true,

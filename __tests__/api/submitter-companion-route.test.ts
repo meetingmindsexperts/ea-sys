@@ -107,3 +107,38 @@ describe("submitter route — companion registration", () => {
     expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("submitter route — abstract gate vs proposal source (July 30, 2026)", () => {
+  it("403s an ABSTRACT signup when abstract submissions are closed", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "Ev", slug: "ev-slug",
+      settings: { allowAbstractSubmissions: false }, organizationId: "org1",
+    });
+    const res = await POST(makeReq(validBody), { params });
+    expect(res.status).toBe(403);
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets a PROPOSAL signup through when abstract submissions are closed (source: proposal skips the abstract gate)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "Ev", slug: "ev-slug",
+      settings: { allowAbstractSubmissions: false }, organizationId: "org1",
+    });
+    const res = await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    expect(res.status).toBeLessThan(400);
+    // Auto-comp applies to proposers exactly like abstract submitters.
+    expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("403s an ABSTRACT signup past the deadline, but not a PROPOSAL signup", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "Ev", slug: "ev-slug",
+      settings: { allowAbstractSubmissions: true, abstractDeadline: "2000-01-01T00:00:00Z" },
+      organizationId: "org1",
+    });
+    const abstractRes = await POST(makeReq(validBody), { params });
+    expect(abstractRes.status).toBe(403);
+    const proposalRes = await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    expect(proposalRes.status).toBeLessThan(400);
+  });
+});

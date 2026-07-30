@@ -1319,6 +1319,14 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "loginLink", description: "Login page link" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
+  "session-proposal-welcome": [
+    { key: "title", description: "Proposer title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
+    { key: "firstName", description: "Proposer first name" },
+    { key: "lastName", description: "Proposer last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "loginLink", description: "Login page link" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile \u2192 Email Signature) \u2014 empty on automated sends" },
+  ],
   "reviewer-assignment": [
     { key: "firstName", description: "Reviewer first name" },
     { key: "lastName", description: "Reviewer last name" },
@@ -1826,6 +1834,33 @@ View Your Abstract: {{managementLink}}
 Dear {{title}} {{lastName}},
 
 Your account has been created successfully for {{eventName}}. You can now log in to submit your abstracts.
+
+Log In: {{loginLink}}
+
+{{organizerSignature}}`,
+  },
+
+  {
+    slug: "session-proposal-welcome",
+    name: "Session Proposal Welcome",
+    subject: "Welcome to {{eventName}} - Account Created",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Welcome!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
+    <p>Your account has been created successfully for <strong>{{eventName}}</strong>. You can now log in to propose a session.</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="{{loginLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Log In &amp; Propose a Session</a>
+    </div>
+    <p style="color: #6b7280; font-size: 14px;">If you did not create this account, you can safely ignore this email.</p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Welcome to {{eventName}} - Account Created
+
+Dear {{title}} {{lastName}},
+
+Your account has been created successfully for {{eventName}}. You can now log in to propose a session.
 
 Log In: {{loginLink}}
 

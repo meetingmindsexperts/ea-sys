@@ -56,6 +56,12 @@ const PROPOSAL_INCLUDE = {
       email: true,
       organization: true,
       country: true,
+      // The proposer's attendee facet — lets the organizer sheet show whether
+      // this person already holds a registration or still needs the grant.
+      sourceRegistrationId: true,
+      sourceRegistration: {
+        select: { id: true, serialId: true, status: true, paymentStatus: true },
+      },
     },
   },
   theme: { select: { id: true, name: true } },

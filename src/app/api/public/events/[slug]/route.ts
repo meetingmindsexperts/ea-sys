@@ -56,6 +56,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         registrationTermsHtml: true,
         registrationWelcomeHtml: true,
         abstractWelcomeHtml: true,
+        sessionProposalWelcomeHtml: true,
         registrationConfirmationHtml: true,
         settings: true,
         maxAttendees: true,

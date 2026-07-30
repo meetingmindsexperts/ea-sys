@@ -59,7 +59,7 @@ function EventLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const slug = params.slug as string;
-  const redirectParam = searchParams.get("redirect"); // "registration" | "abstracts" | a safe internal path | null
+  const redirectParam = searchParams.get("redirect"); // "registration" | "abstracts" | "session-proposals" | a safe internal path | null
 
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
@@ -145,6 +145,19 @@ function EventLoginForm() {
           router.push("/events");
         } else {
           router.push(`/e/${slug}/abstract/register`);
+        }
+      } else if (redirectParam === "session-proposals") {
+        // Same fail-safe shape as "abstracts": SUBMITTER → their proposals
+        // page; staff → /events; REGISTRANT / not-yet-propagated session →
+        // back to the public proposal-register upgrade flow (never dead-ends
+        // at /my-registration).
+        const role = await getSession().then((s) => s?.user?.role).catch(() => undefined);
+        if (role === "SUBMITTER") {
+          router.push(event?.id ? `/events/${event.id}/session-proposals` : "/events");
+        } else if (role && role !== "REGISTRANT") {
+          router.push("/events");
+        } else {
+          router.push(`/e/${slug}/proposal/register`);
         }
       } else {
         // Default: middleware will auto-redirect based on role

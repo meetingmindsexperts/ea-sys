@@ -35,6 +35,7 @@ export default function ContentPage() {
     registrationTermsHtml: "",
     registrationConfirmationHtml: "",
     abstractWelcomeHtml: "",
+    sessionProposalWelcomeHtml: "",
     abstractGuidelinesHtml: "",
     abstractTermsHtml: "",
     abstractConfirmationHtml: "",
@@ -66,6 +67,7 @@ export default function ContentPage() {
             registrationTermsHtml: data.registrationTermsHtml || "",
             registrationConfirmationHtml: data.registrationConfirmationHtml || "",
             abstractWelcomeHtml: data.abstractWelcomeHtml || "",
+            sessionProposalWelcomeHtml: data.sessionProposalWelcomeHtml || "",
             // Prefill the editor with the shared default when the event hasn't
             // set its own, so organizers edit from the standard guidelines
             // (the submission surfaces fall back to the same default anyway).
@@ -108,6 +110,7 @@ export default function ContentPage() {
           registrationTermsHtml: content.registrationTermsHtml || null,
           registrationConfirmationHtml: content.registrationConfirmationHtml || null,
           abstractWelcomeHtml: content.abstractWelcomeHtml || null,
+          sessionProposalWelcomeHtml: content.sessionProposalWelcomeHtml || null,
           abstractGuidelinesHtml: content.abstractGuidelinesHtml || null,
           abstractTermsHtml: content.abstractTermsHtml || null,
           abstractConfirmationHtml: content.abstractConfirmationHtml || null,
@@ -150,6 +153,7 @@ export default function ContentPage() {
         <TabsList>
           <TabsTrigger value="registration">Registration</TabsTrigger>
           <TabsTrigger value="abstracts">Abstracts</TabsTrigger>
+          <TabsTrigger value="session-proposals">Session Proposals</TabsTrigger>
           <TabsTrigger value="speakers">Speakers</TabsTrigger>
         </TabsList>
 
@@ -347,6 +351,29 @@ export default function ContentPage() {
                 {saving ? "Saving..." : "Save Abstract Content"}
               </Button>
             </div>
+          </div>
+        </TabsContent>
+
+        {/* Session Proposal Content */}
+        <TabsContent value="session-proposals">
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Welcome Text</CardTitle>
+                <CardDescription>
+                  Shown on the session-proposal registration form at /e/[slug]/proposal/register
+                  — the public page where proposers create their account. Share that link with
+                  the people you want session ideas from.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TiptapEditor
+                  content={content.sessionProposalWelcomeHtml}
+                  onChange={(html) => setContent({ ...content, sessionProposalWelcomeHtml: html })}
+                  placeholder="Propose a session for this event! Create an account to submit your session idea..."
+                />
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 

@@ -286,6 +286,7 @@ model Event {
   registrationTermsHtml            String?     @db.Text
   registrationWelcomeHtml          String?     @db.Text
   abstractWelcomeHtml              String?     @db.Text
+  sessionProposalWelcomeHtml       String?     @db.Text
   abstractGuidelinesHtml           String?     @db.Text
   abstractTermsHtml                String?     @db.Text
   abstractConfirmationHtml         String?     @db.Text

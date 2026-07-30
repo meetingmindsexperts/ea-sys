@@ -132,8 +132,8 @@ inherit, and the two lists diverge in every surface. Themes are likewise separat
 - **Proposed-speakers block** (co-author-style JSON) — owner chose core fields only.
 - **MCP tools** (`list_session_proposals`, theme CRUD) — fast-follow when an integration
   needs it; requires the usual pkg bump + client reconnect.
-- **Dedicated public register page** — proposers use the existing abstract-submitter
-  registration; a proposals-worded variant page is cosmetic, later.
+- ~~**Dedicated public register page**~~ — **✅ SHIPPED July 30, 2026 (same day, owner
+  request — see §8)**: `/e/[slug]/proposal/register`.
 - **Theme filter on the organizer list** — abstracts doesn't have one either; add to both
   together if asked.
 
@@ -145,3 +145,41 @@ convention of LoginEvent/HelpChatQuery), app-level org scoping on every organize
 wrap; the program-domain sweep picks these tables up with flat RLS policies when it runs.
 Theme names are per-event (`@@unique([eventId, name])`), so tenant vocabulary never
 collides by construction.
+
+## 8. Proposer onboarding + attendance (same-day follow-up, July 30, 2026)
+
+Owner framing: *"session proposal should work like abstract submission — create an
+account, fill in all details; the proposer will attend the conference, mostly
+complimentary, like faculty."* Decisions locked (after an explicit mid-build reversal):
+
+1. **Dedicated public register page** — `/e/[slug]/proposal/register`, a thin variant
+   wrapper over the new shared [`SubmitterRegisterPage`](../src/components/public/submitter-register.tsx)
+   (the abstract register page is the other wrapper — ONE implementation, the
+   no-cross-caller-duplication rule). Same 2-step account+details form, same
+   `POST /submitter` + `abstract-start` backends (one SUBMITTER login covers abstracts
+   AND proposals); only copy, the welcome HTML source
+   (**`Event.sessionProposalWelcomeHtml`**, editable under Content → Session Proposals,
+   additive migration `20260730180000`), the abstract-only gate/deadline, and the
+   post-login destination differ (`?redirect=session-proposals` named branch in the
+   event login; existing-account sign-in lands on `/events/[id]/session-proposals`).
+   A **Copy proposer link** button sits on the organizer's Session Proposals page.
+2. **Attendance model: auto-comp + organizer REVOKE** (owner initially picked
+   organizer-GRANTS-per-person, then reversed mid-build — "we allow them; organizer can
+   remove"). Signup keeps auto-minting the comp Faculty companion registration (badge /
+   entry barcode / check-in) exactly like abstract submitters; the organizer removes free
+   entry per person via **Revoke registration** on the proposal detail sheet (cancels the
+   companion through the normal `POST .../cancel` — only offered for COMPLIMENTARY, never
+   a PAID delegate registration). **Known accepted trade-off:** on a paid event the signup
+   link is a free-entry backdoor until revoked; mitigations = targeted link sharing, the
+   visible Faculty badge, and a registrations-list Badge=Faculty audit.
+3. **Grant/re-grant counterpart** — new `POST /api/events/[eventId]/speakers/[speakerId]/grant-companion`
+   (ADMIN/ORGANIZER via default `denyReviewer`; event via `buildEventAccessWhere`; 60/hr;
+   audited `COMPANION_GRANTED` on real grants only). Idempotent via
+   `ensureSpeakerCompanionRegistration`, **with a cancelled-link override**: a revoked
+   companion leaves `Speaker.sourceRegistrationId` pointing at the CANCELLED row, which
+   would short-circuit "already-linked" — the route passes `sourceRegistrationId: null`
+   in that case so a fresh companion is minted + the pointer re-homed. Surfaced as
+   Grant/Re-grant buttons on the proposal sheet + the speaker page's Registration card
+   (the card's empty state doubles as the provisioning-hiccup recovery, replacing the
+   "run the backfill" instruction). Route tests:
+   [`grant-companion-route.test.ts`](../__tests__/api/grant-companion-route.test.ts).

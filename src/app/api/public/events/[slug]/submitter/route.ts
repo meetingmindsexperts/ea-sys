@@ -30,6 +30,10 @@ const registerSchema = z.object({
   specialty: z.string().min(1, "Specialty is required").max(255),
   customSpecialty: z.string().max(255).optional(),
   registrationType: z.string().max(255).optional(),
+  // Which public flow is registering: "abstract" (default — the historical
+  // behavior) or "proposal" (the session-proposal register page). Gates below
+  // branch on it; the created account/Speaker is identical either way.
+  source: z.enum(["abstract", "proposal"]).default("abstract"),
 }).refine(
   (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
   {
@@ -96,26 +100,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Check abstract submissions are enabled
-    const settings = (event.settings || {}) as Record<string, unknown>;
-    if (settings.allowAbstractSubmissions !== true) {
-      return NextResponse.json(
-        { error: "Abstract submissions are not open for this event" },
-        { status: 403 }
-      );
-    }
-
-    // Check deadline
-    if (settings.abstractDeadline) {
-      const deadline = new Date(settings.abstractDeadline as string);
-      if (new Date() > deadline) {
-        return NextResponse.json(
-          { error: "The abstract submission deadline has passed" },
-          { status: 403 }
-        );
-      }
-    }
-
     const body = await req.json();
     const validated = registerSchema.safeParse(body);
 
@@ -130,6 +114,32 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const data = validated.data;
     const emailLower = data.email.toLowerCase();
+
+    // The abstract-submissions gate + deadline apply only to ABSTRACT signups.
+    // Session-proposal signups (source: "proposal" — the /e/[slug]/proposal/
+    // register page) share this route but have no open/close toggle in v1:
+    // the organizer controls exposure by sharing the proposer link.
+    const settings = (event.settings || {}) as Record<string, unknown>;
+    if (data.source !== "proposal") {
+      if (settings.allowAbstractSubmissions !== true) {
+        apiLogger.warn({ msg: "public/submitter:abstracts-closed", slug, ip: clientIp });
+        return NextResponse.json(
+          { error: "Abstract submissions are not open for this event" },
+          { status: 403 }
+        );
+      }
+
+      if (settings.abstractDeadline) {
+        const deadline = new Date(settings.abstractDeadline as string);
+        if (new Date() > deadline) {
+          apiLogger.warn({ msg: "public/submitter:deadline-passed", slug, ip: clientIp });
+          return NextResponse.json(
+            { error: "The abstract submission deadline has passed" },
+            { status: 403 }
+          );
+        }
+      }
+    }
 
     const emailRateLimit = checkRateLimit({
       key: `submitter-register:email:${emailLower}`,
@@ -333,9 +343,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventName: event.name,
       loginLink: `${appUrl}/login`,
     };
-    getEventTemplate(event.id, "submitter-welcome").then((tpl) => {
-      const t = tpl || getDefaultTemplate("submitter-welcome");
-      if (!t) { apiLogger.warn({ msg: "No template found for submitter-welcome" }); return; }
+    // Proposal signups get the proposal-worded welcome ("propose a session"),
+    // abstract signups keep the historical submitter-welcome.
+    const welcomeSlug =
+      data.source === "proposal" ? "session-proposal-welcome" : "submitter-welcome";
+    getEventTemplate(event.id, welcomeSlug).then((tpl) => {
+      const t = tpl || getDefaultTemplate(welcomeSlug);
+      if (!t) { apiLogger.warn({ msg: `No template found for ${welcomeSlug}` }); return; }
       const branding = tpl?.branding || { eventName: event.name };
       const rendered = renderAndWrap(t, vars, branding);
       return sendEmail({
