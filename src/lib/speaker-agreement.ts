@@ -123,15 +123,17 @@ export function buildAgreementBlock(opts: {
     };
   }
   if (!opts.agreementLink) return { html: "", text: "" };
+  // No intro sentence here (organizer feedback, July 30 2026) — the block is
+  // CTA-only; whatever wording introduces the agreement lives in the email
+  // template around the {{agreementBlock}} token, where the organizer edits it.
   return {
     html: `<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
-      <p style="margin: 0 0 14px 0; color: #374151; font-size: 14px;">Your participation is covered by our <strong>speaker agreement</strong> — please take a moment to review and accept it.</p>
       <div style="text-align: center;">
         <a href="${opts.agreementLink}" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Agree</a>
       </div>
       <p style="margin: 14px 0 0 0; color: #6b7280; font-size: 12px; text-align: center;">This link is unique to you and expires in 30 days.</p>
     </div>`,
-    text: `Your participation is covered by our speaker agreement — please review and accept it here (link unique to you, expires in 30 days):\n${opts.agreementLink}`,
+    text: `Review and accept the speaker agreement here (link unique to you, expires in 30 days):\n${opts.agreementLink}`,
   };
 }
 
@@ -331,15 +333,15 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
  * (owner request: never one combined line). Without an end time the clock
  * line is just the start. NO duration line — the organizer removed durations
  * from both email blocks (July 30, 2026).
- *   ["Monday, March 15, 2026", "9:00 AM – 10:30 AM GMT+4"]
+ *   ["Monday, March 15, 2026", "9:00 AM – 10:30 AM (GMT+4)"]  (tz in parens — organizer request)
  */
 function sessionWindowLines(start: Date, end: Date | null, tz: string): string[] {
   const lines = [formatDateInTz(start, tz)];
   if (!end || end.getTime() <= start.getTime()) {
-    lines.push(`${formatTimeInTz(start, tz)} ${tzLabel(start, tz)}`);
+    lines.push(`${formatTimeInTz(start, tz)} (${tzLabel(start, tz)})`);
     return lines;
   }
-  lines.push(`${formatTimeInTz(start, tz)} – ${formatTimeInTz(end, tz)} ${tzLabel(start, tz)}`);
+  lines.push(`${formatTimeInTz(start, tz)} – ${formatTimeInTz(end, tz)} (${tzLabel(start, tz)})`);
   return lines;
 }
 
@@ -369,13 +371,13 @@ ${rows
 /**
  * {{moderatorDetails}} — for each session the speaker MODERATES or CHAIRS
  * (July 30, 2026 owner request: chairpersons run sessions too and need the
- * same run-sheet): the labeled Session / Date & Time info table, then the
- * topic run-sheet (Time | Topic | Presented by) with each topic's start–end
- * computed by stacking the topic durations from the session start —
- * SessionTopic has no stored start time. A topic with no duration shows "—"
- * and does not advance the clock. NO role / track / duration display —
- * organizer removed all three (July 30 PM; the earlier same-day "Your Role"
- * badge row was overridden). Dynamic strings are HTML-escaped.
+ * same run-sheet): a "Your Moderation details:" heading, the labeled
+ * Session / Date & Time info table, then the topic run-sheet
+ * (Topic | Presented by) — topic-level TIMES were removed too (July 30 PM,
+ * organizer), so the session window above is the only clock shown. NO
+ * role / track / duration display — organizer removed all three (the earlier
+ * same-day "Your Role" badge row was overridden). Dynamic strings are
+ * HTML-escaped.
  */
 function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text: string } {
   // One role per (session, speaker) — SessionSpeaker's PK — so a session
@@ -395,29 +397,20 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
 
     let bodyRows = "";
     const topicTextLines: string[] = [];
-    let clock = new Date(session.startTime).getTime();
+    // Topic-level times removed from this run-sheet (organizer request,
+    // July 30 2026 PM) — the session's Date & Time window above is the only
+    // clock shown. Rows are Topic | Presented by.
     for (const topic of session.topics) {
       const speakers = topic.speakers
         .map((ts) => formatPersonName(ts.speaker.title, ts.speaker.firstName, ts.speaker.lastName))
         .join(", ");
-      // topic.duration still drives the COMPUTED start–end clock — it is
-      // only no longer DISPLAYED as its own column.
-      let timeCell = "—";
-      if (topic.duration && topic.duration > 0) {
-        const start = new Date(clock);
-        const end = new Date(clock + topic.duration * 60_000);
-        timeCell = `${formatTimeInTz(start, eventTz)} – ${formatTimeInTz(end, eventTz)}`;
-        clock = end.getTime();
-      }
-      bodyRows += `        <tr><td style="${MOD_CELL_STYLE} white-space:nowrap;">${timeCell}</td><td style="${MOD_CELL_STYLE}">${escapeHtmlForAgreement(topic.title)}</td><td style="${MOD_CELL_STYLE}">${speakers ? escapeHtmlForAgreement(speakers) : "—"}</td></tr>\n`;
-      topicTextLines.push(
-        `  ${timeCell} · ${topic.title}${speakers ? ` — ${speakers}` : ""}`,
-      );
+      bodyRows += `        <tr><td style="${MOD_CELL_STYLE}">${escapeHtmlForAgreement(topic.title)}</td><td style="${MOD_CELL_STYLE}">${speakers ? escapeHtmlForAgreement(speakers) : "—"}</td></tr>\n`;
+      topicTextLines.push(`  ${topic.title}${speakers ? ` — ${speakers}` : ""}`);
     }
 
     const topicsTable = session.topics.length
       ? `<table style="border-collapse:collapse; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
-        <tr><th style="${MOD_HEAD_STYLE}">Time</th><th style="${MOD_HEAD_STYLE}">Topic</th><th style="${MOD_HEAD_STYLE}">Presented by</th></tr>
+        <tr><th style="${MOD_HEAD_STYLE}">Topic</th><th style="${MOD_HEAD_STYLE}">Presented by</th></tr>
 ${bodyRows}      </table>`
       : `<p style="margin:0; color:#6b7280; font-size:13px; font-style:italic;">No topics have been added to this session yet.</p>`;
     if (!session.topics.length) topicTextLines.push("  (no topics added yet)");
@@ -451,8 +444,15 @@ ${bodyRows}      </table>`
   }
 
   // Blank line between moderated sessions so each block reads as one
-  // engagement — mirrors the presentation block's per-session grouping.
-  return { html: htmlParts.join("\n"), text: textParts.join("\n\n") };
+  // engagement — mirrors the presentation block's per-session grouping. The
+  // whole block opens with a "Your Moderation details:" heading (organizer
+  // request, July 30 2026 PM).
+  const heading =
+    '<p style="margin:16px 0 4px 0; font-weight:600; color:#111827; font-size:14px;">Your Moderation details:</p>';
+  return {
+    html: `${heading}\n${htmlParts.join("\n")}`,
+    text: `Your Moderation details:\n${textParts.join("\n\n")}`,
+  };
 }
 
 function buildPresentationBlocks(row: SpeakerEmailContextRow): {
@@ -499,7 +499,7 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
           const start = new Date(clock);
           const end = new Date(clock + mins * 60_000);
           lines.push(
-            `${formatTimeInTz(start, eventTz)} – ${formatTimeInTz(end, eventTz)} ${tzLabel(start, eventTz)}`,
+            `${formatTimeInTz(start, eventTz)} – ${formatTimeInTz(end, eventTz)} (${tzLabel(start, eventTz)})`,
           );
           break;
         }

@@ -58,7 +58,9 @@ describe("buildAgreementBlock", () => {
     const block = buildAgreementBlock({ agreementLink: "https://x.com/e/osh/speaker-agreement?token=abc" });
     expect(block.html).toContain("Review &amp; Agree");
     expect(block.html).toContain("https://x.com/e/osh/speaker-agreement?token=abc");
-    expect(block.html).toContain("speaker agreement");
+    // CTA-only since July 30 2026 — the intro sentence moved into the editable
+    // template around the token (organizer controls the wording).
+    expect(block.html).not.toContain("Your participation is covered");
     expect(block.text).toContain("https://x.com/e/osh/speaker-agreement?token=abc");
   });
 

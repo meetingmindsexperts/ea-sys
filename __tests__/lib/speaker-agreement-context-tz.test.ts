@@ -104,7 +104,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
     // 14:00–15:00 UTC = 9:00–10:00 AM in New York —
     // date <br/> time (owner request: never one combined line, no duration).
-    expect(ctx?.presentationDetails).toContain("Mar 5, 2026<br/>9:00 AM – 10:00 AM EST");
+    expect(ctx?.presentationDetails).toContain("Mar 5, 2026<br/>9:00 AM – 10:00 AM (EST)");
     expect(ctx?.presentationDetails).not.toContain("EST<br/>1h");
     expect(ctx?.presentationDetailsText).toContain("9:00 AM – 10:00 AM");
     // Separate moderator/speaker sends — the block never displays the role.
@@ -149,9 +149,9 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     // Each session's table carries ITS OWN track, never the joined list.
     const [first, second] = html.split("</table>");
     expect(first).toContain("Opening Keynote"); // earlier session first
-    expect(first).toContain("9:00 AM – 10:00 AM");
+    expect(first).toContain("9:00 AM – 10:00 AM (EST)");
     expect(second).toContain("Valve Workshop");
-    expect(second).toContain("11:00 AM – 12:30 PM");
+    expect(second).toContain("11:00 AM – 12:30 PM (EST)");
     // Track was removed from the block (organizer, July 30 2026) — the
     // {trackNames} merge token still carries it separately.
     expect(html).not.toContain(">Track<");
@@ -215,42 +215,29 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
   });
 
-  it("renders the moderated session with computed per-topic start–end times (durations drive the clock, never displayed)", async () => {
+  it("opens with the 'Your Moderation details:' heading and renders NO topic-level times (organizer, July 30 PM)", async () => {
     mockDb.speaker.findFirst.mockResolvedValue(moderatorRow());
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
-    // Session header + window (11:00 AM – 12:30 PM EST).
+    expect(ctx?.moderatorDetails).toContain("Your Moderation details:");
+    // Session header + window — the ONLY clock shown, tz in parens.
     expect(ctx?.moderatorDetails).toContain("Structural Heart Panel");
     expect(ctx?.moderatorDetails).toContain("Hall B");
-    expect(ctx?.moderatorDetails).toContain("11:00 AM – 12:30 PM");
-    // Topic clock stacks from the session start: 20m then 45m — but the
-    // durations themselves are not shown (organizer removed them, July 30).
-    expect(ctx?.moderatorDetails).toContain("11:00 AM – 11:20 AM");
-    expect(ctx?.moderatorDetails).toContain("11:20 AM – 12:05 PM");
-    expect(ctx?.moderatorDetails).not.toContain(">20m<");
-    expect(ctx?.moderatorDetails).not.toContain(">45m<");
+    expect(ctx?.moderatorDetails).toContain("11:00 AM – 12:30 PM (EST)");
+    // Topic-level computed times were removed with the Time column.
+    expect(ctx?.moderatorDetails).not.toContain("11:00 AM – 11:20 AM");
+    expect(ctx?.moderatorDetails).not.toContain("11:20 AM – 12:05 PM");
     expect(ctx?.moderatorDetails).not.toContain(">Duration<");
     // Topics + formatted speaker names.
     expect(ctx?.moderatorDetails).toContain("TAVR Outcomes");
     expect(ctx?.moderatorDetails).toContain("Dr. Jane Doe");
     expect(ctx?.moderatorDetails).toContain("Prof. John Smith, Mary Johnson");
-    // Text variant mirrors it.
-    expect(ctx?.moderatorDetailsText).toContain("11:00 AM – 11:20 AM");
+    // Text variant mirrors it (heading + no topic times).
+    expect(ctx?.moderatorDetailsText).toContain("Your Moderation details:");
+    expect(ctx?.moderatorDetailsText).not.toContain("11:00 AM – 11:20 AM");
     expect(ctx?.moderatorDetailsText).toContain("TAVR Outcomes");
   });
 
-  it("a topic without a duration shows — and does NOT advance the clock", async () => {
-    mockDb.speaker.findFirst.mockResolvedValue(
-      moderatorRow([
-        { title: "Welcome", duration: null, speakers: [] },
-        { title: "Timed Talk", duration: 30, speakers: [] },
-      ]),
-    );
-    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
-    // The timed topic starts at the SESSION start — the untimed one held the clock.
-    expect(ctx?.moderatorDetails).toContain("11:00 AM – 11:30 AM");
-  });
-
-  it("renders the labeled Session / Date & Time table then the Time | Topic | Presented by run-sheet — no role, no track", async () => {
+  it("renders the labeled Session / Date & Time table then the Topic | Presented by run-sheet — no role, no track, no Time column", async () => {
     const row = moderatorRow();
     (row.sessions[0].session as { track: unknown }).track = { name: "Track B" };
     mockDb.speaker.findFirst.mockResolvedValue(row);
@@ -265,8 +252,8 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     expect(html).not.toContain(">Track<");
     expect(html).not.toContain("Track B");
     // …followed by the run-sheet table headers ("Presented by", not
-    // "Speaker(s)"; no Duration column).
-    expect(html).toContain(">Time<");
+    // "Speaker(s)"; no Time and no Duration columns — July 30 PM).
+    expect(html).not.toContain(">Time<");
     expect(html).toContain(">Topic<");
     expect(html).toContain(">Presented by<");
     expect(html).not.toContain(">Speaker(s)<");
@@ -327,7 +314,7 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     ] as unknown as ReturnType<typeof speakerRow>["topicSpeakers"];
     mockDb.speaker.findFirst.mockResolvedValue(row);
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
-    expect(ctx?.presentationDetails).toContain("Valve Repair Update<br/>9:20 AM – 9:50 AM EST");
+    expect(ctx?.presentationDetails).toContain("Valve Repair Update<br/>9:20 AM – 9:50 AM (EST)");
     expect(ctx?.presentationDetails).not.toContain("EST<br/>30m");
     // The docx {topicTitles} token stays titles-only.
     expect(ctx?.topicTitles).toBe("Valve Repair Update");

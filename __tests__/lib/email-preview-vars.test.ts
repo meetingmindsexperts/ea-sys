@@ -112,7 +112,7 @@ describe("buildEventPreviewVariables", () => {
     // Date / time as separate lines, matching what buildPresentationBlocks
     // renders on real sends (no Role row, no duration — organizer removed
     // durations/track/role from the blocks, July 30 2026).
-    expect(String(v.presentationDetails)).toContain("9:00 AM – 10:30 AM GMT+4");
+    expect(String(v.presentationDetails)).toContain("9:00 AM – 10:30 AM (GMT+4)");
     expect(String(v.presentationDetails)).not.toContain("1h 30m");
     expect(String(v.presentationDetails)).not.toContain(">Role<");
     expect(String(v.presentationDetails)).not.toContain(">Track<");
