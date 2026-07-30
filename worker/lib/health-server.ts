@@ -16,6 +16,10 @@
 
 import { createServer, type Server } from "http";
 import { apiLogger } from "@/lib/logger";
+// Importing here (module load = worker boot) also STARTS the histogram, so
+// the stats cover the worker's whole life. A pinned worker loop delays every
+// cron tick on this process — this is the number that shows it.
+import { readEventLoopStats } from "@/lib/event-loop-monitor";
 
 export interface HealthState {
   startedAt: number;
@@ -112,6 +116,10 @@ export function startHealthServer(port: number, state: HealthState): Server {
       gitSha: process.env.GIT_SHA ?? "unknown",
       jobs,
       staleJobs: jobs.filter((j) => j.stale).map((j) => j.name),
+      // Rolling ~60s window + since-boot worsts (src/lib/event-loop-monitor).
+      // Idle floor ≈ resolutionMs; a stale job + high maxMs here = a tick is
+      // pinning the loop (CPU-bound render), not a scheduling failure.
+      eventLoop: readEventLoopStats(),
       // Kept for backward compatibility — deploy.sh and the Docker healthcheck
       // only look at the status code, but anything else already parsing this
       // shape keeps working.

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getBuildInfo } from "@/lib/build-info";
+import { readEventLoopStats } from "@/lib/event-loop-monitor";
 
 export async function GET() {
   const start = Date.now();
@@ -28,6 +29,9 @@ export async function GET() {
         builtAt: build.builtAt,
         slot: build.slot,
         hostname: build.hostname,
+        // Rolling ~60s window + since-boot worsts. Idle floor ≈ resolutionMs
+        // (~10ms) — worry at p99 in the hundreds of ms / max in seconds.
+        eventLoop: readEventLoopStats(),
       },
       {
         status: 200,
@@ -49,6 +53,10 @@ export async function GET() {
         gitShaShort: build.gitShaShort,
         slot: build.slot,
         hostname: build.hostname,
+        // On the FAILURE path too — "DB unreachable" and "loop pinned" often
+        // co-occur (a pinned loop starves the pool's acquire timers), and this
+        // is exactly when you need to tell the two apart.
+        eventLoop: readEventLoopStats(),
       },
       {
         status: 503,

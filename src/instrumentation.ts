@@ -6,6 +6,12 @@ export async function register() {
 
     await import("../sentry.server.config");
 
+    // Start the event-loop delay histogram at boot (side-effect import) so
+    // /api/health's `eventLoop` stats cover the whole process life, not just
+    // from the first health hit. Node runtime only — perf_hooks isn't
+    // available on the edge runtime.
+    await import("./lib/event-loop-monitor");
+
     // RLS tripwire (owner decision July 23, 2026: refuse to boot). When a
     // deployment claims tenant isolation (RLS_SET_LOCAL=1) but the DB
     // connection bypasses RLS (owner role — e.g. Supabase's default string —
