@@ -90,33 +90,51 @@ describe("companyPrimaryContact", () => {
 });
 
 describe("companyDealValueBreakdown", () => {
-  it("splits Open vs Won per currency, excludes LOST, total = open + won", () => {
+  it("splits Open vs Won per currency, total = open + won ONLY (LOST never in total)", () => {
     const b = companyDealValueBreakdown([
       deal({ status: "OPEN", dealValue: 10_000 }),
       deal({ status: "OPEN", dealValue: 5_000 }),
       deal({ status: "WON", dealValue: 40_000 }),
       deal({ status: "LOST", dealValue: 99_000 }),
     ]);
-    expect(b).toEqual([{ currency: "USD", open: 15_000, won: 40_000, total: 55_000 }]);
+    // lost is surfaced separately; total stays 55_000 (open+won), not 154_000.
+    expect(b).toEqual([{ currency: "USD", open: 15_000, won: 40_000, lost: 99_000, total: 55_000 }]);
   });
 
-  it("NEVER sums across currencies — one entry per currency, largest total first", () => {
+  it("surfaces LOST separately per currency, never folded into total", () => {
+    // The Abbot-test case: one OPEN + one LOST, same currency.
+    const b = companyDealValueBreakdown([
+      deal({ status: "OPEN", dealValue: 90_000 }),
+      deal({ status: "LOST", dealValue: 4_000 }),
+    ]);
+    expect(b).toEqual([{ currency: "USD", open: 90_000, won: 0, lost: 4_000, total: 90_000 }]);
+  });
+
+  it("a currency whose ONLY value is LOST still appears (total 0, lost > 0)", () => {
+    const b = companyDealValueBreakdown([deal({ status: "LOST", dealValue: 4_000, currency: "AED" })]);
+    expect(b).toEqual([{ currency: "AED", open: 0, won: 0, lost: 4_000, total: 0 }]);
+  });
+
+  it("NEVER sums LOST across currencies either — one entry per currency, largest total first", () => {
     const b = companyDealValueBreakdown([
       deal({ status: "OPEN", dealValue: 5_000, currency: "AED" }),
       deal({ status: "WON", dealValue: 30_000, currency: "USD" }),
       deal({ status: "OPEN", dealValue: 15_000, currency: "AED" }),
+      deal({ status: "LOST", dealValue: 8_000, currency: "AED" }),
+      deal({ status: "LOST", dealValue: 2_000, currency: "USD" }),
     ]);
     expect(b).toEqual([
-      { currency: "USD", open: 0, won: 30_000, total: 30_000 },
-      { currency: "AED", open: 20_000, won: 0, total: 20_000 },
+      { currency: "USD", open: 0, won: 30_000, lost: 2_000, total: 30_000 },
+      { currency: "AED", open: 20_000, won: 0, lost: 8_000, total: 20_000 },
     ]);
   });
 
-  it("valueless / redacted (null-or-undefined value) deals contribute nothing — a MEMBER gets an empty breakdown", () => {
+  it("valueless / redacted (null-or-undefined value) deals contribute nothing — a MEMBER gets an empty breakdown, LOST included", () => {
     expect(
       companyDealValueBreakdown([
         deal({ status: "OPEN", dealValue: null }),
         deal({ status: "WON", dealValue: undefined }),
+        deal({ status: "LOST", dealValue: null }),
       ]),
     ).toEqual([]);
   });

@@ -40,32 +40,41 @@ export interface CompanyDealValueBreakdown {
   open: number;
   /** Σ WON deal values — closed-won revenue. */
   won: number;
-  /** open + won (matches companyDealTotals). */
+  /**
+   * Σ LOST deal values — surfaced SEPARATELY (owner, July 30, 2026) so an
+   * account's losses are visible, but DELIBERATELY NOT in `total`: LOST is
+   * money that never came, and folding it into pipeline+booked would fabricate
+   * a meaningless number.
+   */
+  lost: number;
+  /** open + won ONLY — LOST never counts here (matches companyDealTotals). */
   total: number;
 }
 
 /**
- * Per-currency Open / Won / Total deal value, largest total first — the account
- * page's value breakdown. Same rules as companyDealTotals: LOST is excluded
- * (money that never came), values are NEVER summed across currencies, and a
- * valueless (or, for a MEMBER, redacted-away) deal contributes nothing — so a
- * money-blind caller gets an empty breakdown, rendered as "—".
+ * Per-currency Open / Won / Lost / Total deal value, largest total first — the
+ * account page's value breakdown. Rules: LOST is tracked separately and NEVER
+ * enters `total` (money that never came — owner, July 30, 2026); values are
+ * NEVER summed across currencies; a valueless (or, for a MEMBER, redacted-away)
+ * deal contributes nothing — so a money-blind caller gets an empty breakdown,
+ * rendered as "—". A currency whose only value is LOST still appears (total 0,
+ * lost > 0) so the loss is shown.
  */
 export function companyDealValueBreakdown(deals: RollupDeal[]): CompanyDealValueBreakdown[] {
-  const byCurrency = new Map<string, { open: number; won: number }>();
+  const byCurrency = new Map<string, { open: number; won: number; lost: number }>();
   for (const d of deals) {
-    if (d.status === "LOST") continue;
     if (d.dealValue === null || d.dealValue === undefined) continue;
     const n = Number(d.dealValue);
     if (!Number.isFinite(n)) continue;
     const currency = d.currency || "USD";
-    const cur = byCurrency.get(currency) ?? { open: 0, won: 0 };
+    const cur = byCurrency.get(currency) ?? { open: 0, won: 0, lost: 0 };
     if (d.status === "OPEN") cur.open += n;
     else if (d.status === "WON") cur.won += n;
+    else if (d.status === "LOST") cur.lost += n;
     byCurrency.set(currency, cur);
   }
   return [...byCurrency.entries()]
-    .map(([currency, { open, won }]) => ({ currency, open, won, total: open + won }))
+    .map(([currency, { open, won, lost }]) => ({ currency, open, won, lost, total: open + won }))
     .sort((a, b) => b.total - a.total || a.currency.localeCompare(b.currency));
 }
 

@@ -115,8 +115,10 @@ export function CompanyDetailBody({
   const subtitle = [company.industry, location].filter(Boolean).join(" · ");
   const openDeals = company.deals.filter((d) => d.status === "OPEN").length;
   const wonDeals = company.deals.filter((d) => d.status === "WON").length;
-  // Per-currency Open / Won / Total deal value (LOST excluded, never summed
-  // across currencies). Empty for a money-blind MEMBER (deal values redacted).
+  const lostDeals = company.deals.filter((d) => d.status === "LOST").length;
+  // Per-currency Open / Won / Lost / Total deal value. LOST is surfaced
+  // separately but never enters Total; never summed across currencies. Empty
+  // for a money-blind MEMBER (deal values redacted).
   const dealValueBreakdown = companyDealValueBreakdown(company.deals);
 
   return (
@@ -135,6 +137,7 @@ export function CompanyDetailBody({
         stats={[
           { label: "Open deals", value: openDeals },
           { label: "Won", value: wonDeals },
+          { label: "Lost", value: lostDeals },
           { label: "People", value: company.contacts.length },
         ]}
         actions={
@@ -370,6 +373,15 @@ export function CompanyDetailBody({
                           <p className="text-sm font-semibold tabular-nums">{formatDealValue(b.total, b.currency)}</p>
                         </div>
                       </div>
+                      {/* Lost value — shown separately, NEVER part of Total (money that never came). */}
+                      {b.lost > 0 && (
+                        <div className="mt-2 flex items-center justify-between border-t pt-2">
+                          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Lost</span>
+                          <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                            {formatDealValue(b.lost, b.currency)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
