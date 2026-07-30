@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { createPromoCode as createPromoCodeService } from "@/services/promo-code-service";
 import type { ToolExecutor } from "./_shared";
@@ -9,6 +10,7 @@ const DISCOUNT_TYPES = new Set(["PERCENTAGE", "FIXED_AMOUNT"]);
 
 const listPromoCodes: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const event = await db.event.findFirst({
       where: { id: ctx.eventId, organizationId: ctx.organizationId },
       select: { id: true },
@@ -43,6 +45,7 @@ const listPromoCodes: ToolExecutor = async (_input, ctx) => {
       })),
       total: codes.length,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_promo_codes failed");
     return { error: "Failed to list promo codes" };
@@ -51,6 +54,7 @@ const listPromoCodes: ToolExecutor = async (_input, ctx) => {
 
 const createPromoCode: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     // Loose-input coercion stays at this boundary; the domain logic (dup check,
     // discount rules, ticket-type binding, audit) lives in
     // promo-code-service.createPromoCode, shared with the REST POST — the MCP
@@ -90,6 +94,7 @@ const createPromoCode: ToolExecutor = async (input, ctx) => {
     }
     const { id, code, discountType: dt, discountValue: dv, isActive } = result.promoCode;
     return { success: true, promoCode: { id, code, discountType: dt, discountValue: dv, isActive } };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_promo_code failed");
     return { error: err instanceof Error ? err.message : "Failed to create promo code" };
@@ -98,6 +103,7 @@ const createPromoCode: ToolExecutor = async (input, ctx) => {
 
 const updatePromoCode: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const promoCodeId = String(input.promoCodeId ?? "").trim();
     if (!promoCodeId) return { error: "promoCodeId is required" };
 
@@ -162,6 +168,7 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
     });
 
     return { success: true, promoCode: updated };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:update_promo_code failed");
     return { error: err instanceof Error ? err.message : "Failed to update promo code" };
@@ -170,6 +177,7 @@ const updatePromoCode: ToolExecutor = async (input, ctx) => {
 
 const deletePromoCode: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const promoCodeId = String(input.promoCodeId ?? "").trim();
     if (!promoCodeId) return { error: "promoCodeId is required" };
 
@@ -191,6 +199,7 @@ const deletePromoCode: ToolExecutor = async (input, ctx) => {
       promoCode: updated,
       note: "Promo code soft-deleted (isActive: false). Usage history preserved. To hard-delete, use the dashboard.",
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:delete_promo_code failed");
     return { error: err instanceof Error ? err.message : "Failed to delete promo code" };

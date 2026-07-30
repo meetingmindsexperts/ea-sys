@@ -13,6 +13,7 @@ import { DEFAULT_REG_TYPES, DEFAULT_TIER_NAMES } from "@/app/api/events/[eventId
 import { DEFAULT_REGISTRATION_TERMS_HTML, DEFAULT_SPEAKER_AGREEMENT_HTML } from "@/lib/default-terms";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
 import { eventOrderBy, parseEventSort } from "@/lib/event-sort";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const createEventSchema = z.object({
   name: z.string().min(2).max(255),
@@ -175,17 +176,20 @@ export async function POST(req: Request) {
 
     // Seed default registration types with pricing tiers (non-blocking)
     // 5 types × 4 tiers = 20 combinations, all tiers inactive by default
-    Promise.all(
+    const seedRegistrationTypes = () =>
+      Promise.all(
       DEFAULT_REG_TYPES.map((rt) =>
         db.ticketType.create({
           data: {
             eventId: event.id,
+            organizationId: event.organizationId,
             name: rt.name,
             isDefault: true,
             isActive: true,
             sortOrder: rt.sortOrder,
             pricingTiers: {
               create: DEFAULT_TIER_NAMES.map((tierName, i) => ({
+                organizationId: event.organizationId,
                 name: tierName,
                 price: 0,
                 currency: "USD",
@@ -196,6 +200,14 @@ export async function POST(req: Request) {
           },
         })
       )
+    );
+    // Ticketing sweep: seed inside the tenant context so the RLS WITH CHECK on
+    // TicketType / PricingTier passes on the platform. A NULL-org event
+    // (shouldn't happen for a created event) runs unwrapped, preserving master
+    // behavior.
+    (event.organizationId
+      ? runWithTenant(event.organizationId, seedRegistrationTypes)
+      : seedRegistrationTypes()
     ).catch((err) => apiLogger.error({ err, msg: "Failed to seed default registration types" }));
 
     // Auto-provision webinar setup (anchor session + Zoom webinar + email

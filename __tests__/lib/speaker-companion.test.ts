@@ -28,7 +28,12 @@ vi.mock("@/lib/db", () => ({
     registration: { findFirst: (...a: unknown[]) => registrationFindFirst(...a) },
     speaker: { update: (...a: unknown[]) => speakerUpdate(...a) },
     // Tenant-stamp source: the helper resolves the event's org on the create path.
-    event: { findUniqueOrThrow: vi.fn(async () => ({ organizationId: "org_1" })) },
+    event: {
+      findUniqueOrThrow: vi.fn(async () => ({ organizationId: "org_1" })),
+      // ensureFacultyTicketType now derives the org from the event to stamp the
+      // Faculty TicketType's organizationId (ticketing sweep).
+      findUnique: vi.fn(async () => ({ organizationId: "org_1" })),
+    },
     $transaction: (cb: (t: typeof tx) => unknown) => cb(tx),
   },
   // tenantTransaction with the flag off IS db.$transaction — delegate so the

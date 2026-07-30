@@ -29,9 +29,18 @@ export async function ensureFacultyTicketType(eventId: string): Promise<string> 
   });
   if (existing) return existing.id;
 
+  // Denormalized tenant key for the Faculty type (ticketing sweep). Derived
+  // from the event; this create fires once per event, so the extra PK lookup
+  // is negligible.
+  const ev = await db.event.findUnique({
+    where: { id: eventId },
+    select: { organizationId: true },
+  });
+
   const created = await db.ticketType.create({
     data: {
       eventId,
+      organizationId: ev?.organizationId ?? null,
       name: "Faculty",
       category: "Faculty",
       isFaculty: true,

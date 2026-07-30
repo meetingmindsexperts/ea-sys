@@ -32,7 +32,14 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // The clone route now runs its work through tenantTransaction (was
+  // db.$transaction); delegate to the SAME mock so every existing
+  // mockDb.$transaction assertion (call count, calls[0][0]) still holds.
+  tenantTransaction: (fn: unknown, opts: unknown) =>
+    (mockDb.$transaction as (f: unknown, o: unknown) => unknown)(fn, opts),
+}));
 
 vi.mock("@/lib/event-access", () => ({
   buildEventAccessWhere: vi.fn(

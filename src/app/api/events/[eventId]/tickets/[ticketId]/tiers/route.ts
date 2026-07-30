@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const createTierSchema = z.object({
   name: z.string().min(1).max(100),
@@ -58,6 +59,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const validated = createTierSchema.safeParse(body);
     if (!validated.success) {
         apiLogger.warn({ msg: "events/tickets/tiers:zod-validation-failed", errors: validated.error.flatten() });
@@ -87,6 +89,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const tier = await db.pricingTier.create({
       data: {
         ticketTypeId: ticketId,
+        organizationId: orgGuard.orgId,
         name: data.name,
         price: data.price,
         currency: data.currency,
@@ -104,6 +107,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Pricing tier created", eventId, ticketTypeId: ticketId, tierId: tier.id, tierName: data.name, userId: session.user.id });
 
     return NextResponse.json(tier, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating pricing tier" });
     return NextResponse.json(

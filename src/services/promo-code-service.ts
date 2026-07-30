@@ -222,6 +222,7 @@ export async function applyPromoCodeToRegistration(input: ApplyPromoInput): Prom
         await tx.promoCodeRedemption.create({
           data: {
             promoCodeId: promo.id,
+            organizationId: promo.organizationId,
             registrationId: reg.id,
             email,
             originalPrice: basePrice,
@@ -445,6 +446,7 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
     const promoCode = await db.promoCode.create({
       data: {
         eventId: input.eventId,
+        organizationId: input.organizationId,
         code,
         description: input.description ?? null,
         discountType: input.discountType,
@@ -456,7 +458,7 @@ export async function createPromoCode(input: CreatePromoCodeInput): Promise<Crea
         validUntil: input.validUntil ?? null,
         isActive: input.isActive ?? true,
         ...(ticketTypeIds.length > 0
-          ? { ticketTypes: { create: ticketTypeIds.map((ticketTypeId) => ({ ticketTypeId })) } }
+          ? { ticketTypes: { create: ticketTypeIds.map((ticketTypeId) => ({ ticketTypeId, organizationId: input.organizationId })) } }
           : {}),
       },
       include: PROMO_CREATE_INCLUDE,

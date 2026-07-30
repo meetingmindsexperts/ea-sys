@@ -527,6 +527,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         await tx.promoCodeRedemption.create({
           data: {
             promoCodeId: promoCodeRecord.id,
+            organizationId: event.organizationId,
             registrationId: registration.id,
             email,
             originalPrice,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -64,7 +65,12 @@ export async function POST(
 
     // Use 30s timeout — default 5s is too short on Vercel/pgbouncer when cloning
     // events with many related records (each is a sequential create).
-    const newEvent = await db.$transaction(
+    // Ticketing sweep: run the clone inside the source org's tenant context so
+    // the RLS WITH CHECK on the cloned TicketType / PricingTier rows passes on
+    // the platform. tenantTransaction issues SET LOCAL app.current_org inside
+    // the tx; both are passthrough on master.
+    const newEvent = await runWithTenant(source.organizationId ?? "", () =>
+    tenantTransaction(
       async (tx) => {
         // 1. Create the event
         const event = await tx.event.create({
@@ -131,6 +137,7 @@ export async function POST(
           const created = await tx.ticketType.create({
             data: {
               eventId: event.id,
+              organizationId: event.organizationId,
               name: tt.name,
               description: tt.description,
               isDefault: tt.isDefault,
@@ -156,6 +163,7 @@ export async function POST(
               requiresApproval: tt.requiresApproval,
               pricingTiers: {
                 create: tt.pricingTiers.map((tier) => ({
+                  organizationId: event.organizationId,
                   name: tier.name,
                   price: tier.price,
                   currency: tier.currency,
@@ -324,6 +332,7 @@ export async function POST(
         return event;
       },
       { timeout: 30000 }
+    ),
     );
 
     apiLogger.info({

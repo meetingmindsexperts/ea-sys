@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const updatePromoCodeSchema = z
   .object({
@@ -58,6 +59,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const promoCode = await db.promoCode.findFirst({
       where: { id: promoCodeId, eventId },
       include: {
@@ -94,6 +96,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(promoCode);
+    });
   } catch (error) {
     apiLogger.error({ error, msg: "Failed to get promo code" });
     return NextResponse.json(
@@ -150,6 +153,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const { ticketTypeIds, ...data } = parsed.data;
 
     // Check for duplicate code if code is being changed
@@ -166,7 +170,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
-    const promoCode = await db.$transaction(async (tx) => {
+    const promoCode = await tenantTransaction(async (tx) => {
       // Update ticket type associations if provided
       if (ticketTypeIds !== undefined) {
         await tx.promoCodeTicketType.deleteMany({
@@ -177,6 +181,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
             data: ticketTypeIds.map((ticketTypeId) => ({
               promoCodeId,
               ticketTypeId,
+              organizationId: orgGuard.orgId,
             })),
           });
         }
@@ -219,6 +224,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       .catch((err) => apiLogger.error({ err, msg: "Audit log failed" }));
 
     return NextResponse.json(promoCode);
+    });
   } catch (error) {
     apiLogger.error({ error, msg: "Failed to update promo code" });
     return NextResponse.json(
@@ -265,6 +271,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // If code has been used, soft-delete (deactivate). Otherwise hard-delete.
     if (promoCode._count.redemptions > 0) {
       await db.promoCode.update({
@@ -289,6 +296,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       .catch((err) => apiLogger.error({ err, msg: "Audit log failed" }));
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ error, msg: "Failed to delete promo code" });
     return NextResponse.json(

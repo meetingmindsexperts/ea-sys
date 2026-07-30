@@ -5,6 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const updateTierSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -57,6 +58,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Pricing tier not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const validated = updateTierSchema.safeParse(body);
     if (!validated.success) {
         apiLogger.warn({ msg: "events/tickets/tiers:zod-validation-failed", errors: validated.error.flatten() });
@@ -116,6 +118,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Pricing tier updated", eventId, ticketTypeId: ticketId, tierId, userId: session.user.id });
 
     return NextResponse.json(updated);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating pricing tier" });
     return NextResponse.json(
@@ -156,6 +159,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Pricing tier not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     if (tier._count.registrations > 0) {
       return NextResponse.json(
         { error: "Cannot delete pricing tier with existing registrations" },
@@ -168,6 +172,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Pricing tier deleted", eventId, ticketTypeId: ticketId, tierId, tierName: tier.name, userId: session.user.id });
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting pricing tier" });
     return NextResponse.json(

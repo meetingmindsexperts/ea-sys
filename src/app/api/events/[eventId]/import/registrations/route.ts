@@ -330,7 +330,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         } else {
           // Create a new ticket type for this registration type
           const newTT = await db.ticketType.create({
-            data: { eventId, name: registrationType, price: 0, quantity: 999999, isActive: true },
+            data: { eventId, organizationId: orgGuard.orgId, name: registrationType, price: 0, quantity: 999999, isActive: true },
             select: IMPORT_TICKET_TYPE_SELECT,
           });
           ticketTypeByName.set(key, newTT);

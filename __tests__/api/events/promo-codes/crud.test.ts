@@ -37,7 +37,12 @@ vi.mock("next/server", () => ({
 
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenantTransaction with the flag off IS db.$transaction — delegate so the
+  // PUT's promoCodeTicketType + promoCode writes run against the mock tx.
+  tenantTransaction: (cb: (t: typeof mockDb) => unknown) => cb(mockDb),
+}));
 vi.mock("@/lib/auth-guards", () => ({
   denyReviewer: (session: { user: { role: string } }) =>
     ["REVIEWER", "SUBMITTER", "REGISTRANT"].includes(session.user.role)

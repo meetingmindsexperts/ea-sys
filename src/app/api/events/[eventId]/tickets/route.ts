@@ -8,6 +8,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 export const DEFAULT_REG_TYPES = [
   { name: "Physician", sortOrder: 0 },
@@ -90,6 +91,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // MEMBER sees ticket-type names + capacity but not prices (price,
     // pricingTiers[].price are all financial). redactFinancialFields
     // strips them; the UI renders "—" for the missing price.
@@ -100,6 +102,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching ticket types" });
     return NextResponse.json(
@@ -138,6 +141,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const validated = createTicketTypeSchema.safeParse(body);
 
     if (!validated.success) {
@@ -165,6 +169,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const ticketType = await db.ticketType.create({
       data: {
         eventId,
+        organizationId: orgGuard.orgId,
         name,
         description: description || null,
         isActive,
@@ -175,6 +180,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           ? {
               pricingTiers: {
                 create: pricingTiers.map((tier, i) => ({
+                  organizationId: orgGuard.orgId,
                   name: tier.name,
                   price: tier.price,
                   currency: tier.currency,
@@ -213,6 +219,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(ticketType, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating registration type" });
     return NextResponse.json(

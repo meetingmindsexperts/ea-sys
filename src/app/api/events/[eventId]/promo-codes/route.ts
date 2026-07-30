@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { runWithTenant } from "@/lib/tenant-context";
 import { createPromoCode, type CreatePromoCodeErrorCode } from "@/services/promo-code-service";
 
 const HTTP_STATUS_FOR_PROMO_CREATE: Record<CreatePromoCodeErrorCode, number> = {
@@ -79,7 +80,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     return NextResponse.json(promoCodes);
+    });
   } catch (error) {
     apiLogger.error({ error, msg: "Failed to list promo codes" });
     return NextResponse.json(
@@ -106,6 +109,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const parsed = createPromoCodeSchema.safeParse(body);
     if (!parsed.success) {
       apiLogger.warn({ msg: "events/promo-codes:invalid-input", errors: parsed.error.flatten() });
@@ -144,6 +148,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result.promoCode, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ error, msg: "Failed to create promo code" });
     return NextResponse.json(

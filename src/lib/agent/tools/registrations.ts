@@ -180,6 +180,7 @@ const createTicketType: ToolExecutor = async (input, ctx) => {
     const ticketType = await db.ticketType.create({
       data: {
         eventId: ctx.eventId,
+        organizationId: ctx.organizationId,
         name,
         description: input.description ? String(input.description) : null,
         isDefault: input.isDefault === true,
@@ -187,9 +188,9 @@ const createTicketType: ToolExecutor = async (input, ctx) => {
         sortOrder,
         pricingTiers: {
           create: [
-            { name: "Early Bird", price: 0, currency: "USD", isActive: false, sortOrder: 0 },
-            { name: "Standard",   price: 0, currency: "USD", isActive: false, sortOrder: 1 },
-            { name: "Onsite",     price: 0, currency: "USD", isActive: false, sortOrder: 2 },
+            { organizationId: ctx.organizationId, name: "Early Bird", price: 0, currency: "USD", isActive: false, sortOrder: 0 },
+            { organizationId: ctx.organizationId, name: "Standard",   price: 0, currency: "USD", isActive: false, sortOrder: 1 },
+            { organizationId: ctx.organizationId, name: "Onsite",     price: 0, currency: "USD", isActive: false, sortOrder: 2 },
           ],
         },
       },

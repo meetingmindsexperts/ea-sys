@@ -7,6 +7,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const updateTicketTypeSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -61,7 +62,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     return NextResponse.json(ticketType);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching registration type" });
     return NextResponse.json(
@@ -106,6 +109,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const validated = updateTicketTypeSchema.safeParse(body);
     if (!validated.success) {
         apiLogger.warn({ msg: "events/tickets:zod-validation-failed", errors: validated.error.flatten() });
@@ -181,6 +185,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(ticketType);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating registration type" });
     return NextResponse.json(
@@ -222,6 +227,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     if (ticketType._count.registrations > 0) {
       return NextResponse.json(
         { error: "Cannot delete registration type with existing registrations" },
@@ -246,6 +252,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting registration type" });
     return NextResponse.json(
