@@ -1215,7 +1215,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventVenue", description: "Event venue" },
     { key: "personalMessage", description: "Personal message from organizer" },
     { key: "presentationDetails", description: "Pre-rendered presentation details block (HTML)" },
-    { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — role badge + topic run-sheet with speakers, durations and computed start–end times (HTML; empty when they run no session)" },
+    { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — Time | Topic | Presented by run-sheet with computed start–end times (HTML; empty when they run no session)" },
     { key: "agreementBlock", description: "Pre-rendered agreement one-liner + Review & Agree button (HTML); shows an already-signed note for speakers who accepted" },
     { key: "agreementBlockText", description: "Plain-text variant of the agreement block (for the text part)" },
     { key: "agreementLink", description: "Bare one-time agreement URL (minted when the template uses an agreement token)" },
@@ -1234,7 +1234,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventVenue", description: "Event venue" },
     { key: "sessionDetails", description: "Session details" },
     { key: "presentationDetails", description: "Pre-rendered presentation details block (HTML)" },
-    { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — role badge + topic run-sheet with speakers, durations and computed start–end times (HTML; empty when they run no session)" },
+    { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — Time | Topic | Presented by run-sheet with computed start–end times (HTML; empty when they run no session)" },
     { key: "agreementLink", description: "Agreement link URL" },
     { key: "agreementAttachment", description: "Invisible marker — attaches the personalized agreement PDF/.docx to the email WITHOUT rendering the Review & Agree block or minting a link (renders as nothing; skipped for speakers who already signed)" },
     { key: "organizerName", description: "Organizer name" },
@@ -2726,29 +2726,29 @@ export function getSamplePreviewVariables(
     // leaves unknown keys as-is. Raw-HTML key (DEFAULT_RAW_HTML_KEYS).
     presentationDetails: `<table style="border-collapse:collapse; margin:16px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
         <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Session</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Opening Keynote</td></tr>
-        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Topic</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Advances in Interventional Cardiology<br/>9:00 AM – 9:30 AM GMT+4<br/>30m</td></tr>
-        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Date &amp; Time</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Monday, March 15, 2026<br/>9:00 AM – 10:30 AM GMT+4<br/>1h 30m</td></tr>
+        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Topic</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Advances in Interventional Cardiology<br/>9:00 AM – 9:30 AM GMT+4</td></tr>
+        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Date &amp; Time</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Monday, March 15, 2026<br/>9:00 AM – 10:30 AM GMT+4</td></tr>
       </table>`,
     presentationDetailsText:
-      "Session: Opening Keynote\nTopic: Advances in Interventional Cardiology, 9:00 AM – 9:30 AM GMT+4, 30m\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4, 1h 30m",
+      "Session: Opening Keynote\nTopic: Advances in Interventional Cardiology, 9:00 AM – 9:30 AM GMT+4\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4",
     // {{moderatorDetails}} preview — representative run-sheet in the exact
-    // markup buildModeratorBlocks() emits (labeled info table incl. the
-    // "Your Role" badge row, then the run-sheet); real sends render the
+    // markup buildModeratorBlocks() emits (labeled Session / Date & Time
+    // table, then the Time | Topic | Presented by run-sheet — no role/track/
+    // duration, organizer decision July 30 2026); real sends render the
     // sessions the RECIPIENT moderates OR chairs (empty otherwise). Raw-HTML key.
     moderatorDetails: `<div style="margin:16px 0;">
       <table style="border-collapse:collapse; margin:0 0 8px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
         <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Session</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Opening Keynote · Main Hall</td></tr>
-        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Your Role</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Moderator</td></tr>
-        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Date &amp; Time</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Monday, March 15, 2026<br/>9:00 AM – 10:30 AM GMT+4<br/>1h 30m</td></tr>
+        <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Date &amp; Time</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Monday, March 15, 2026<br/>9:00 AM – 10:30 AM GMT+4</td></tr>
       </table>
       <table style="border-collapse:collapse; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
-        <tr><th style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;">Time</th><th style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;">Topic</th><th style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;">Speaker(s)</th><th style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;">Duration</th></tr>
-        <tr><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top; white-space:nowrap;">9:00 AM – 9:30 AM</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top;">Advances in Interventional Cardiology</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top;">Dr. Jane Doe</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top; white-space:nowrap;">30m</td></tr>
-        <tr><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top; white-space:nowrap;">9:30 AM – 10:15 AM</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top;">Structural Heart Panel</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top;">Prof. John Smith, Dr. Mary Johnson</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top; white-space:nowrap;">45m</td></tr>
+        <tr><th style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;">Time</th><th style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;">Topic</th><th style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;">Presented by</th></tr>
+        <tr><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top; white-space:nowrap;">9:00 AM – 9:30 AM</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top;">Advances in Interventional Cardiology</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top;">Dr. Jane Doe</td></tr>
+        <tr><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top; white-space:nowrap;">9:30 AM – 10:15 AM</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top;">Structural Heart Panel</td><td style="padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:13px; vertical-align:top;">Prof. John Smith, Dr. Mary Johnson</td></tr>
       </table>
     </div>`,
     moderatorDetailsText:
-      "Session: Opening Keynote · Main Hall\nYour Role: Moderator\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4, 1h 30m\n  9:00 AM – 9:30 AM · Advances in Interventional Cardiology — Dr. Jane Doe (30m)\n  9:30 AM – 10:15 AM · Structural Heart Panel — Prof. John Smith, Dr. Mary Johnson (45m)",
+      "Session: Opening Keynote · Main Hall\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM GMT+4\n  9:00 AM – 9:30 AM · Advances in Interventional Cardiology — Dr. Jane Doe\n  9:30 AM – 10:15 AM · Structural Heart Panel — Prof. John Smith, Dr. Mary Johnson",
     // Webinar-template previews — real sends enrich these per event/recipient
     // in bulk-email.ts (attendee {{joinUrl}} = OUR gated session page, never
     // the raw Zoom link) and webinar-panelist-email.ts. Without samples the

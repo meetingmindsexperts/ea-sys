@@ -326,26 +326,12 @@ async function loadSpeakerEmailRow(eventId: string, speakerId: string): Promise<
   return { speaker, event } as SpeakerEmailContextRow;
 }
 
-/** "1h 30m" / "2h" / "45m"; "" when non-positive. */
-function formatMinutes(mins: number): string {
-  if (mins <= 0) return "";
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h && m) return `${h}h ${m}m`;
-  return h ? `${h}h` : `${m}m`;
-}
-
-/** "1h 30m" / "2h" / "45m"; "" when the window is missing or non-positive. */
-function formatSessionDuration(start: Date, end: Date): string {
-  return formatMinutes(Math.round((end.getTime() - start.getTime()) / 60_000));
-}
-
 /**
- * One session's time window as SEPARATE lines — date, start–end clock,
- * duration (owner request: never one combined line). The duration line is
- * omitted when the window is missing/non-positive; without an end time the
- * clock line is just the start.
- *   ["Monday, March 15, 2026", "9:00 AM – 10:30 AM GMT+4", "1h 30m"]
+ * One session's time window as SEPARATE lines — date, then start–end clock
+ * (owner request: never one combined line). Without an end time the clock
+ * line is just the start. NO duration line — the organizer removed durations
+ * from both email blocks (July 30, 2026).
+ *   ["Monday, March 15, 2026", "9:00 AM – 10:30 AM GMT+4"]
  */
 function sessionWindowLines(start: Date, end: Date | null, tz: string): string[] {
   const lines = [formatDateInTz(start, tz)];
@@ -354,8 +340,6 @@ function sessionWindowLines(start: Date, end: Date | null, tz: string): string[]
     return lines;
   }
   lines.push(`${formatTimeInTz(start, tz)} – ${formatTimeInTz(end, tz)} ${tzLabel(start, tz)}`);
-  const duration = formatSessionDuration(start, end);
-  if (duration) lines.push(duration);
   return lines;
 }
 
@@ -365,7 +349,7 @@ const MOD_HEAD_STYLE =
   "padding:8px 12px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:12px; text-align:left; text-transform:uppercase; letter-spacing:0.03em;";
 
 /**
- * Labeled two-column info table (Session / Topic / Date & Time / Track rows)
+ * Labeled two-column info table (Session / Topic / Date & Time rows)
  * — ONE renderer shared by {{presentationDetails}} and {{moderatorDetails}}
  * so the two blocks read identically per session (July 29, 2026 owner
  * request). Inline styles only (no <style> blocks) so juice / email clients
@@ -385,16 +369,17 @@ ${rows
 /**
  * {{moderatorDetails}} — for each session the speaker MODERATES or CHAIRS
  * (July 30, 2026 owner request: chairpersons run sessions too and need the
- * same run-sheet): a "Your Role" badge row (Moderator / Chairperson) in the
- * labeled info table, then the full topic run-sheet (topic, speakers,
- * duration, and each topic's start–end computed by stacking the topic
- * durations from the session start — SessionTopic has no stored start time).
- * A topic with no duration shows "—" and does not advance the clock.
- * Dynamic strings (topic titles, speaker names) are HTML-escaped.
+ * same run-sheet): the labeled Session / Date & Time info table, then the
+ * topic run-sheet (Time | Topic | Presented by) with each topic's start–end
+ * computed by stacking the topic durations from the session start —
+ * SessionTopic has no stored start time. A topic with no duration shows "—"
+ * and does not advance the clock. NO role / track / duration display —
+ * organizer removed all three (July 30 PM; the earlier same-day "Your Role"
+ * badge row was overridden). Dynamic strings are HTML-escaped.
  */
 function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text: string } {
   // One role per (session, speaker) — SessionSpeaker's PK — so a session
-  // appears at most once here, with exactly one role badge.
+  // appears at most once here.
   const moderated = row.speaker.sessions.filter(
     (s) => s.role === "MODERATOR" || s.role === "CHAIRPERSON",
   );
@@ -404,8 +389,8 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
   const htmlParts: string[] = [];
   const textParts: string[] = [];
 
-  for (const { session, role } of moderated) {
-    // Date / time / duration as separate lines (owner request).
+  for (const { session } of moderated) {
+    // Date / time as separate lines (owner request).
     const windowLines = sessionWindowLines(session.startTime, session.endTime ?? null, eventTz);
 
     let bodyRows = "";
@@ -415,44 +400,39 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
       const speakers = topic.speakers
         .map((ts) => formatPersonName(ts.speaker.title, ts.speaker.firstName, ts.speaker.lastName))
         .join(", ");
+      // topic.duration still drives the COMPUTED start–end clock — it is
+      // only no longer DISPLAYED as its own column.
       let timeCell = "—";
-      let durationCell = "—";
       if (topic.duration && topic.duration > 0) {
         const start = new Date(clock);
         const end = new Date(clock + topic.duration * 60_000);
         timeCell = `${formatTimeInTz(start, eventTz)} – ${formatTimeInTz(end, eventTz)}`;
-        durationCell = formatMinutes(topic.duration);
         clock = end.getTime();
       }
-      bodyRows += `        <tr><td style="${MOD_CELL_STYLE} white-space:nowrap;">${timeCell}</td><td style="${MOD_CELL_STYLE}">${escapeHtmlForAgreement(topic.title)}</td><td style="${MOD_CELL_STYLE}">${speakers ? escapeHtmlForAgreement(speakers) : "—"}</td><td style="${MOD_CELL_STYLE} white-space:nowrap;">${durationCell}</td></tr>\n`;
+      bodyRows += `        <tr><td style="${MOD_CELL_STYLE} white-space:nowrap;">${timeCell}</td><td style="${MOD_CELL_STYLE}">${escapeHtmlForAgreement(topic.title)}</td><td style="${MOD_CELL_STYLE}">${speakers ? escapeHtmlForAgreement(speakers) : "—"}</td></tr>\n`;
       topicTextLines.push(
-        `  ${timeCell} · ${topic.title}${speakers ? ` — ${speakers}` : ""}${durationCell !== "—" ? ` (${durationCell})` : ""}`,
+        `  ${timeCell} · ${topic.title}${speakers ? ` — ${speakers}` : ""}`,
       );
     }
 
     const topicsTable = session.topics.length
       ? `<table style="border-collapse:collapse; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
-        <tr><th style="${MOD_HEAD_STYLE}">Time</th><th style="${MOD_HEAD_STYLE}">Topic</th><th style="${MOD_HEAD_STYLE}">Speaker(s)</th><th style="${MOD_HEAD_STYLE}">Duration</th></tr>
+        <tr><th style="${MOD_HEAD_STYLE}">Time</th><th style="${MOD_HEAD_STYLE}">Topic</th><th style="${MOD_HEAD_STYLE}">Presented by</th></tr>
 ${bodyRows}      </table>`
       : `<p style="margin:0; color:#6b7280; font-size:13px; font-style:italic;">No topics have been added to this session yet.</p>`;
     if (!session.topics.length) topicTextLines.push("  (no topics added yet)");
 
-    // Same labeled Session / Date & Time / Track table as
-    // {{presentationDetails}} (July 29, 2026 owner request — the two blocks
-    // read identically per session), followed by this session's run-sheet.
-    const roleLabel = formatSessionRole(role);
+    // Same labeled Session / Date & Time table as {{presentationDetails}}
+    // (July 29, 2026 owner request — the two blocks read identically per
+    // session), followed by this session's run-sheet.
     const infoRows: Array<[string, string]> = [
       [
         "Session",
         escapeHtmlForAgreement(session.name) +
           (session.location ? ` · ${escapeHtmlForAgreement(session.location)}` : ""),
       ],
-      // The badge: which hat the recipient wears on THIS session — the block
-      // now covers chairs as well as moderators, so it must say which.
-      ["Your Role", escapeHtmlForAgreement(roleLabel)],
       ["Date &amp; Time", windowLines.join("<br/>")],
     ];
-    if (session.track?.name) infoRows.push(["Track", escapeHtmlForAgreement(session.track.name)]);
 
     htmlParts.push(
       `<div style="margin:16px 0;">
@@ -464,9 +444,7 @@ ${bodyRows}      </table>`
     textParts.push(
       [
         `Session: ${session.name}${session.location ? ` · ${session.location}` : ""}`,
-        `Your Role: ${roleLabel}`,
         `Date & Time: ${windowLines.join(", ")}`,
-        ...(session.track?.name ? [`Track: ${session.track.name}`] : []),
         ...topicTextLines,
       ].join("\n"),
     );
@@ -505,11 +483,12 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     : "";
 
   // Per-topic display groups — the topic title plus, when the topic has a
-  // duration, its own start–end + duration lines (owner request). The topic's
-  // start time is computed by stacking preceding sibling durations from the
-  // session start, exactly like the moderator run-sheet; an untimed sibling
-  // holds the clock. The `topicTitles` scalar (docx {topicTitles} token)
-  // stays titles-only and format-stable.
+  // duration, its own computed start–end line. The topic's start time is
+  // computed by stacking preceding sibling durations from the session start,
+  // exactly like the moderator run-sheet; an untimed sibling holds the clock.
+  // Duration itself is NOT displayed (organizer removed it, July 30 2026) —
+  // it only drives the clock. The `topicTitles` scalar (docx {topicTitles}
+  // token) stays titles-only and format-stable.
   const topicLineGroups = topicRows.map((t) => {
     const lines = [t.topic.title];
     if (t.topic.duration && t.topic.duration > 0) {
@@ -521,7 +500,6 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
           const end = new Date(clock + mins * 60_000);
           lines.push(
             `${formatTimeInTz(start, eventTz)} – ${formatTimeInTz(end, eventTz)} ${tzLabel(start, eventTz)}`,
-            formatMinutes(mins),
           );
           break;
         }
@@ -548,7 +526,7 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // ONE table mixing every session's names in one row, every time window in
   // another and the tracks joined in a third, with no way to tell which
   // topic/time/track belonged to which session. Each session now renders its
-  // OWN table (Session / Topic / Date & Time / Track), stacked in start-time
+  // OWN table (Session / Topic / Date & Time), stacked in start-time
   // order, so multi-session speakers read one engagement at a time. The
   // scalar docx merge tokens above stay format-stable.
   type SessionGroup = {
@@ -556,7 +534,6 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     startTime: Date;
     endTime: Date | null;
     location: string | null;
-    trackName: string | null;
     topicsHtml: string[];
     topicsText: string[];
   };
@@ -570,7 +547,6 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
         startTime: s.session.startTime,
         endTime: s.session.endTime ?? null,
         location: s.session.location ?? null,
-        trackName: s.session.track?.name ?? null,
         topicsHtml: [],
         topicsText: [],
       });
@@ -587,7 +563,6 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
         startTime: s.startTime,
         endTime: s.endTime ?? null,
         location: null,
-        trackName: s.track?.name ?? null,
         topicsHtml: [],
         topicsText: [],
       });
@@ -618,9 +593,10 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
       ],
     ];
     if (g.topicsHtml.length) rows.push(["Topic", g.topicsHtml.join("<br/><br/>")]);
-    // Three lines — date / time / duration (owner request).
+    // Two lines — date / time. NO Track row and NO duration (organizer
+    // removed both from the email blocks, July 30 2026 — {trackNames} stays
+    // available as its own merge token).
     rows.push(["Date &amp; Time", windowLines.join("<br/>")]);
-    if (g.trackName) rows.push(["Track", escapeHtmlForAgreement(g.trackName)]);
     htmlBlocks.push(labeledInfoTable(rows));
 
     textBlocks.push(
@@ -628,7 +604,6 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
         `Session: ${g.name}${g.location ? ` · ${g.location}` : ""}`,
         ...(g.topicsText.length ? [`Topic: ${g.topicsText.join("; ")}`] : []),
         `Date & Time: ${windowLines.join(", ")}`,
-        ...(g.trackName ? [`Track: ${g.trackName}`] : []),
       ].join("\n"),
     );
   }

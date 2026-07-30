@@ -300,14 +300,35 @@ ANTHROPIC_API_KEY="..."               # Required for AI Agent feature
 ## Common Commands
 
 ```bash
-npm run dev          # Start dev server
+npm run dev          # Start dev server (localhost:3113, on the LOCAL test DB)
 npm run build        # Build for production
 npm run lint         # Run ESLint
 npx prisma generate  # Generate Prisma client
-npx prisma db push   # Push schema to database
+npm run db:refresh   # Reset the local test DB from the latest live DR dump
+npm run db:push      # Sync schema.prisma → LOCAL test DB (guarded; local only)
 npx prisma studio    # Open Prisma Studio
 npx tsc --noEmit     # Type check
 ```
+
+## Local database & the `prisma migrate` rule
+
+**We develop and test against a LOCAL Postgres DB, never prod.** The
+`ea_sys_prod_local` container (`postgres:17`, `localhost:54322`, docker-compose)
+holds a full copy of prod data seeded from the latest Singapore DR dump via
+`npm run db:refresh`. `.env` / `.env.local` point at it, so every `npm run dev`,
+test, and `tsx` script hits local. Full setup + guards:
+[docs/LOCAL_DEV_DATABASE.md](docs/LOCAL_DEV_DATABASE.md). Reach prod only,
+read-only, via `npm run prod:psql`.
+
+**RULE — never run `prisma migrate dev` or `prisma migrate reset` anywhere.**
+Those are the [INC-002](docs/INCIDENTS.md) footgun — an interactive `migrate dev`
+"reset the database?" prompt wiped all of prod on 2026-07-30. For local schema
+work use `npm run db:push` (guarded → local) or `npm run db:refresh`. The **only**
+sanctioned `prisma migrate` invocation is `prisma migrate deploy` (non-destructive;
+applies the committed `prisma/migrations/*` to prod), which the box/CI deploy path
+runs and `npm run db:migrate` wraps. Do not confuse the two command families.
+Migrations themselves stay additive + idempotent, and are never squashed/deleted
+(owner, July 20).
 
 ## Rate Limits
 
@@ -519,6 +540,8 @@ queryClient.invalidateQueries({ queryKey: queryKeys.tickets(eventId) });
 - `useSendCompletionEmails` (bulk send completion tokens to CSV-imported registrants)
 
 ## Recent Features
+
+- **Email blocks simplified — durations/track/role removed from `{{presentationDetails}}` + `{{moderatorDetails}}`; run-sheet column renamed "Presented by" (July 30, 2026 PM, organizer feedback)** — Both per-recipient schedule blocks in [speaker-agreement.ts](src/lib/speaker-agreement.ts) lost their **Duration** displays (session-window third line, topic duration lines, the run-sheet Duration column), the **Track** row, and any role display — **including the "Your Role" badge row shipped that same morning** (organizer override; CHAIRPERSON sessions still get the moderator block, just unbadged). The moderator run-sheet header is now **Time | Topic | Presented by** (was Speaker(s)). Key nuance preserved: **topic durations still DRIVE the computed start–end clock** — they're just never displayed; `{trackNames}`/`{role}` remain available as separate docx merge tokens. `sessionWindowLines` dropped its duration line (one change covers both blocks); `formatMinutes`/`formatSessionDuration` deleted (unused). Preview samples in [email.ts](src/lib/email.ts) + both token descriptions + the user-guide callout re-synced to the real markup. Tests updated to assert the ABSENCE of duration/track/role + the new header (suite 4269 stable). tsc/eslint/build green.
 
 - **Session Proposals v1 — abstracts-shaped submissions for proposing SESSIONS, organizer inbox only (July 30, 2026)** — Owner request: "like abstract submission but for session proposals — its own themes, no reviewer, no accepted/rejected (maybe later)." Plan + all 4 owner decisions locked in [docs/SESSION_PROPOSALS_PLAN.md](docs/SESSION_PROPOSALS_PLAN.md): **account-based access** (the existing SUBMITTER registration — one login covers abstracts + proposals), organizer side is **list/view/export only** (no review, no convert-to-session — both recorded as v2 room), **core fields only** (title, description Text, theme, `proposedFormat SessionType?` restricted to PROGRAM kinds via `SESSION_TYPE_KIND` so a future convert-to-session pre-fill is free, durationMinutes). **Deliberately a SEPARATE model family** (no kind-discriminator on Abstract — proposals must not inherit the review machinery): `SessionProposal` + `SessionProposalTheme` (mirrors AbstractTheme, `@@unique([eventId, name])`) + `SessionProposalStatus` enum (DRAFT/SUBMITTED/WITHDRAWN; UNDER_REVIEW/ACCEPTED/REJECTED are additive v2 room), both **born multi-tenant-ready** with a denormalized nullable `organizationId` stamped from the EVENT at create (LoginEvent convention; app-level org scoping = defence #1, no `runWithTenant` until the program-domain sweep). Migration `20260730150000` additive+idempotent, verified exact via `prisma migrate diff`. **RBAC mirrors abstracts with one improvement:** routes use the modern `denyReviewer(session, { allow: ["SUBMITTER"] })` form; submitter own-rows-only (404 on foreign, no existence leak), **edits only while DRAFT** (`SUBMITTED_LOCKED` 403), birth status DRAFT|SUBMITTED only (the abstracts-H2 lesson), DRAFTs invisible to organizers; the **themes GET authorizes via `buildEventAccessWhere`** (org staff OR linked submitter) instead of abstract-themes' `requireOrgId` — org-null submitters can actually read the form's theme picker (the abstracts equivalent is a noted latent gap, not fixed here). A bad `?status=` filter 400s `INVALID_FILTER` (never silently widens); `?export=csv` is org-staff-only (narrower than read) + `recordExport`-audited. **Surfaces:** dual-mode [/events/[eventId]/session-proposals](src/app/(dashboard)/events/[eventId]/session-proposals/page.tsx) (organizer: status tiles, theme/status filters, search, CSV, detail sheet with Withdraw/Reinstate/Delete, Themes manager dialog; submitter: "My Session Proposals" + submit CTA) + full-page [new](src/app/(dashboard)/events/[eventId]/session-proposals/new/page.tsx) form that doubles as the DRAFT edit surface via `?edit=` (staff get a proposer picker; submitters auto-bind to their own Speaker); sidebar entry in the Abstracts group (in the restricted-role allow-list + `WEBINAR_HIDDEN_MODULES`); middleware allow-list extended `abstracts*` → `+ session-proposals*`. **Emails:** shared [session-proposal-notify.ts](src/lib/session-proposal-notify.ts) (ONE fan-out for POST-create + PUT-resubmit — never-throws, fire-and-forget: proposer confirmation via the new editable **`session-proposal-confirmation`** system template + `notifyEventAdmins`; DRAFT saves are silent). **Deliberately NOT built** (plan §6): review workflow, convert-to-session, proposed-speakers block, MCP tools (fast-follow), dedicated public register page, theme filter parity. +20 route tests ([session-proposals-routes.test.ts](__tests__/api/session-proposals-routes.test.ts) — real `denyReviewer` + real `buildEventAccessWhere`; own-speaker binding, org-key stamping, SUBMITTED_LOCKED, draft invisibility, program-format refusal, export RBAC + audit, themes submitter-read/staff-write) — suite 4249 → 4269. tsc/eslint/vitest/build green; user-guide §7 callout added.
 
