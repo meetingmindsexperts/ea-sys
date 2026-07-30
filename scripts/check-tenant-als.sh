@@ -133,6 +133,17 @@ SWEPT_ROUTE_FILES=(
   # Registration-core sweep — the Stripe webhook (unauthenticated-by-design;
   # org resolved per event object; wraps the money-transaction blocks).
   "src/app/api/webhooks/stripe/route.ts"                                               # Reg-core (July 29, 2026)
+  # Ticketing follow-on sweep (July 30, 2026) — the management CRUD routes for
+  # ticket types, pricing tiers, and promo codes. (The narrow cross-domain
+  # ticketType-create wraps in events/route.ts + clone/route.ts live in
+  # event-domain handlers and get gated when the Event domain is swept — same
+  # policy as the Invoice C2b cross-domain wraps.)
+  "src/app/api/events/[eventId]/tickets/route.ts"                                      # Ticketing (July 30, 2026)
+  "src/app/api/events/[eventId]/tickets/[ticketId]/route.ts"                           # Ticketing (July 30, 2026)
+  "src/app/api/events/[eventId]/tickets/[ticketId]/tiers/route.ts"                     # Ticketing (July 30, 2026)
+  "src/app/api/events/[eventId]/tickets/[ticketId]/tiers/[tierId]/route.ts"            # Ticketing (July 30, 2026)
+  "src/app/api/events/[eventId]/promo-codes/route.ts"                                  # Ticketing (July 30, 2026)
+  "src/app/api/events/[eventId]/promo-codes/[promoCodeId]/route.ts"                    # Ticketing (July 30, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
@@ -155,6 +166,9 @@ SWEPT_MODULES=(
   "src/crm/agent-tools.ts"                  # CRM MCP executors (safeTool choke point) (July 29, 2026)
   "src/crm/reminders-worker.ts"             # per-row task-reminder worker (July 29, 2026)
   "src/crm/inbound-email-worker.ts"         # per-row inbound-email worker (July 29, 2026)
+  # Ticketing follow-on sweep (July 30, 2026) — the promo-code MCP executors.
+  # (create_ticket_type lives in the already-swept agent/tools/registrations.ts.)
+  "src/lib/agent/tools/promo-codes.ts"      # promo-code agent / MCP executors (July 30, 2026)
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
