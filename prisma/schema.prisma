@@ -799,6 +799,10 @@ model TicketType {
   salesEnd         DateTime?
   requiresApproval Boolean   @default(false)
 
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 1-hop from Event; RLS-gated on the platform.
+  organizationId String?
+
   event          Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
   pricingTiers   PricingTier[]
   registrations  Registration[]
@@ -806,6 +810,7 @@ model TicketType {
 
   @@index([eventId])
   @@index([isActive])
+  @@index([organizationId])
 }
 
 model PricingTier {
@@ -825,12 +830,17 @@ model PricingTier {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 2-hop via TicketType → Event.
+  organizationId String?
+
   ticketType    TicketType     @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
   registrations Registration[]
 
   @@unique([ticketTypeId, name])
   @@index([ticketTypeId])
   @@index([isActive])
+  @@index([organizationId])
 }
 
 model Attendee {
@@ -2295,6 +2305,10 @@ model PromoCode {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 1-hop from Event.
+  organizationId String?
+
   event         Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
   ticketTypes   PromoCodeTicketType[]
   redemptions   PromoCodeRedemption[]
@@ -2303,6 +2317,7 @@ model PromoCode {
   @@unique([eventId, code])
   @@index([eventId])
   @@index([code])
+  @@index([organizationId])
 }
 
 enum DiscountType {
@@ -2315,12 +2330,17 @@ model PromoCodeTicketType {
   promoCodeId  String
   ticketTypeId String
 
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 2-hop via PromoCode → Event.
+  organizationId String?
+
   promoCode  PromoCode  @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
   ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
 
   @@unique([promoCodeId, ticketTypeId])
   @@index([promoCodeId])
   @@index([ticketTypeId])
+  @@index([organizationId])
 }
 
 model PromoCodeRedemption {
@@ -2333,11 +2353,16 @@ model PromoCodeRedemption {
   finalPrice     Decimal  @db.Decimal(10, 2)
   createdAt      DateTime @default(now())
 
+  /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
+  /// Scalar, no FK — backfilled 2-hop via PromoCode → Event.
+  organizationId String?
+
   promoCode    PromoCode    @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
   registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
 
   @@index([promoCodeId])
   @@index([email])
+  @@index([organizationId])
 }
 
 // ==================== SCHEDULED COMMUNICATIONS ====================
