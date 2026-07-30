@@ -32,18 +32,20 @@ import {
 } from "@/crm/lib/crm-types";
 
 /**
- * Each line item is tinted a different shade of the ORG brand colour (the
- * `primary` token, set per-org by OrgTheme → the `--primary` CSS var) by cycling
- * the background opacity — so the products read as a branded, colourful set
- * rather than a stack of grey rows, and it re-themes automatically with the org
- * colour. Left accent bar is solid brand; these are just the background tints.
+ * Line items are tinted in shades of the ORG brand colour (the `primary` token,
+ * set per-org by OrgTheme → the `--primary` CSS var), on a DESCENDING ramp —
+ * strongest at the top, fading down — so the list reads as a deliberate visual
+ * hierarchy rather than a flat or randomly-cycled set. Rows past the ramp clamp
+ * to the lightest step. The Products total sits above these as the apex (see
+ * below). Re-themes automatically with the org colour. Left accent bar is solid
+ * brand; these are just the background tints.
  */
 const PRODUCT_BG_SHADES = [
-  "bg-primary/[0.05]",
-  "bg-primary/[0.11]",
-  "bg-primary/[0.07]",
-  "bg-primary/[0.13]",
+  "bg-primary/[0.16]",
+  "bg-primary/[0.12]",
   "bg-primary/[0.09]",
+  "bg-primary/[0.06]",
+  "bg-primary/[0.04]",
 ] as const;
 
 export function DealProducts({ dealId, canWrite }: { dealId: string; canWrite: boolean }) {
@@ -73,9 +75,9 @@ export function DealProducts({ dealId, canWrite }: { dealId: string; canWrite: b
       )}
 
       {lines.length > 0 && (
-        <div className="flex items-center justify-between rounded-md border border-primary/25 bg-primary/[0.08] px-3 py-2 text-sm">
-          <span className="font-medium">Products total</span>
-          <span className="font-semibold tabular-nums text-primary">
+        <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/[0.20] px-3 py-2.5 text-sm">
+          <span className="font-semibold">Products total</span>
+          <span className="text-base font-bold tabular-nums text-primary">
             {total !== null ? (
               formatDealValue(total, currency)
             ) : mixedCurrency ? (
@@ -148,7 +150,8 @@ function LineItem({
     <li
       className={cn(
         "flex flex-wrap items-center gap-2 rounded-md border border-primary/20 border-l-2 border-l-primary p-2",
-        PRODUCT_BG_SHADES[index % PRODUCT_BG_SHADES.length],
+        // Clamp (not modulo) so the ramp keeps descending, never restarts dark.
+        PRODUCT_BG_SHADES[Math.min(index, PRODUCT_BG_SHADES.length - 1)],
       )}
     >
       <div className="min-w-0 flex-1">
