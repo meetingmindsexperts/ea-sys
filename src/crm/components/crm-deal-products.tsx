@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import {
   useDealProducts,
   useCrmProducts,
@@ -29,6 +30,21 @@ import {
   dealProductsMixedCurrency,
   type CrmDealProductRow,
 } from "@/crm/lib/crm-types";
+
+/**
+ * Each line item is tinted a different shade of the ORG brand colour (the
+ * `primary` token, set per-org by OrgTheme → the `--primary` CSS var) by cycling
+ * the background opacity — so the products read as a branded, colourful set
+ * rather than a stack of grey rows, and it re-themes automatically with the org
+ * colour. Left accent bar is solid brand; these are just the background tints.
+ */
+const PRODUCT_BG_SHADES = [
+  "bg-primary/[0.05]",
+  "bg-primary/[0.11]",
+  "bg-primary/[0.07]",
+  "bg-primary/[0.13]",
+  "bg-primary/[0.09]",
+] as const;
 
 export function DealProducts({ dealId, canWrite }: { dealId: string; canWrite: boolean }) {
   const { data: lines = [], isLoading } = useDealProducts(dealId);
@@ -50,16 +66,16 @@ export function DealProducts({ dealId, canWrite }: { dealId: string; canWrite: b
         </p>
       ) : (
         <ul className="space-y-2">
-          {lines.map((line) => (
-            <LineItem key={line.id} dealId={dealId} line={line} canWrite={canWrite} />
+          {lines.map((line, i) => (
+            <LineItem key={line.id} dealId={dealId} line={line} canWrite={canWrite} index={i} />
           ))}
         </ul>
       )}
 
       {lines.length > 0 && (
-        <div className="flex items-center justify-between border-t pt-3 text-sm">
+        <div className="flex items-center justify-between rounded-md border border-primary/25 bg-primary/[0.08] px-3 py-2 text-sm">
           <span className="font-medium">Products total</span>
-          <span className="font-semibold tabular-nums">
+          <span className="font-semibold tabular-nums text-primary">
             {total !== null ? (
               formatDealValue(total, currency)
             ) : mixedCurrency ? (
@@ -82,7 +98,17 @@ export function DealProducts({ dealId, canWrite }: { dealId: string; canWrite: b
   );
 }
 
-function LineItem({ dealId, line, canWrite }: { dealId: string; line: CrmDealProductRow; canWrite: boolean }) {
+function LineItem({
+  dealId,
+  line,
+  canWrite,
+  index,
+}: {
+  dealId: string;
+  line: CrmDealProductRow;
+  canWrite: boolean;
+  index: number;
+}) {
   const update = useUpdateDealProduct(dealId);
   const remove = useRemoveDealProduct(dealId);
 
@@ -119,11 +145,18 @@ function LineItem({ dealId, line, canWrite }: { dealId: string; line: CrmDealPro
   }
 
   return (
-    <li className="flex flex-wrap items-center gap-2 rounded-md border p-2">
+    <li
+      className={cn(
+        "flex flex-wrap items-center gap-2 rounded-md border border-primary/20 border-l-2 border-l-primary p-2",
+        PRODUCT_BG_SHADES[index % PRODUCT_BG_SHADES.length],
+      )}
+    >
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{line.productName}</p>
         <span className="mt-0.5 inline-flex items-center gap-2">
-          <Badge variant="outline" className="text-[10px]">{line.category}</Badge>
+          <Badge variant="outline" className="border-primary/30 bg-primary/10 text-[10px] text-primary">
+            {line.category}
+          </Badge>
           {line.sku && <span className="font-mono text-[11px] text-muted-foreground">{line.sku}</span>}
         </span>
       </div>
