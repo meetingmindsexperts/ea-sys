@@ -212,6 +212,53 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Custom session roles — organizer-managed role list (July 30, 2026, owner decision: PARKED, design recorded)
+
+Owner asked whether the static `SessionRole` enum (SPEAKER / MODERATOR / CHAIRPERSON / PANELIST)
+could become organizer-managed so agenda setup can add roles like "Workshop Faculty".
+Decision: **park it** until an organizer actually needs a role the four can't cover.
+
+**Why the roles are static today (the constraint any build must respect):** the enum values
+carry BEHAVIOR, not just labels — MODERATOR + CHAIRPERSON gate the `{{moderatorDetails}}`
+run-sheet email block and the Brief Moderators/Chairpersons Communications tiles + the
+`sessionRole` bulk-email filter; PANELIST feeds the webinar panelist import; SPEAKER drives
+`{{presentationDetails}}`. The enum is also the repo's exhaustiveness safety net — label/colour
+maps in [src/lib/session-enums.ts](../src/lib/session-enums.ts) are exhaustively keyed Records,
+so a new value fails the BUILD until every surface handles it.
+
+**Chosen design when un-parked — "custom role = label + base behavior" (Option 1 of 3):**
+- Role definitions live in `Event.settings.sessionRoles` JSON (`{ label, base }[]`, base ∈
+  SPEAKER | SESSION_LEAD (moderator/chair-like) | PANELIST) — no new table.
+- One additive nullable column: `SessionSpeaker.customRoleLabel String?`. The `role` enum
+  keeps storing the BASE, so every behavior gate (emails, tiles, panelist sync, filters,
+  MCP whitelists) is untouched by construction; a custom "Workshop Faculty" based on
+  Session-lead gets the run-sheet automatically.
+- Display sweep: everywhere a role renders (session editor, dashboard agenda tooltip, public
+  agenda + session page badges, `{{role}}` token, speaker page) shows
+  `customRoleLabel ?? SESSION_ROLE_LABELS[role]` — one helper, ~8 surfaces.
+- "Manage roles" UI on the agenda page; role picker in the session form merges the 4
+  built-ins + the event's custom list. MCP `add_speaker_to_session` gains an optional
+  `customRoleLabel` (pkg bump + client reconnect).
+- The load-bearing UX decision: a custom role MUST declare its base behavior at creation
+  (the system cannot guess whether "Workshop Faculty" should receive a moderator run-sheet).
+
+**Rejected:** full custom-role table replacing the enum (deletes the build-time
+exhaustiveness guard, forces arbitrary-string handling into every MCP schema/filter/email
+gate, risky migration on live prod). **Cheap interim** if one specific role is needed
+before the build: an additive enum value + label/colour mappings is a couple of hours —
+ask the owner for the exact names.
+
+**Multi-tenancy (owner asked July 30, 2026):** the design is tenant-safe by construction —
+role definitions live in `Event.settings` and an Event belongs to exactly one org, so one
+tenant's "Workshop Faculty" can never appear in another tenant's picker; no extra RLS work
+(the `customRoleLabel` scalar rides the program domain's normal tenancy sweep, and the enum
+itself is CODE shared by all tenants — base behaviors, not tenant data). The one rule:
+**never a global role table** — that would make role vocabulary cross-tenant state. The
+multi-org convenience layer, when wanted, is an ORG-level default list in
+`Organization.settings.sessionRoles` merged under per-event overrides (so a tenant defines
+"Workshop Faculty" once for all their events), plus event-clone already carrying the
+event-level list. Works identically on master and the platform silo — flags-not-forks.
+
 ### Registration-create unification — shared importer row-create helper (July 29, 2026, owner-approved, DEFERRED until the Registration-core tenancy sweep lands)
 
 All admin-driven creation paths now allow a blank/typeless registration type
