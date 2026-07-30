@@ -383,22 +383,28 @@ ${rows
 }
 
 /**
- * {{moderatorDetails}} — for each session the speaker MODERATES: the session
- * name + time window, then the full topic run-sheet (topic, speakers,
+ * {{moderatorDetails}} — for each session the speaker MODERATES or CHAIRS
+ * (July 30, 2026 owner request: chairpersons run sessions too and need the
+ * same run-sheet): a "Your Role" badge row (Moderator / Chairperson) in the
+ * labeled info table, then the full topic run-sheet (topic, speakers,
  * duration, and each topic's start–end computed by stacking the topic
  * durations from the session start — SessionTopic has no stored start time).
  * A topic with no duration shows "—" and does not advance the clock.
  * Dynamic strings (topic titles, speaker names) are HTML-escaped.
  */
 function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text: string } {
-  const moderated = row.speaker.sessions.filter((s) => s.role === "MODERATOR");
+  // One role per (session, speaker) — SessionSpeaker's PK — so a session
+  // appears at most once here, with exactly one role badge.
+  const moderated = row.speaker.sessions.filter(
+    (s) => s.role === "MODERATOR" || s.role === "CHAIRPERSON",
+  );
   if (!moderated.length) return { html: "", text: "" };
 
   const eventTz = resolveTimezone(row.event.timezone);
   const htmlParts: string[] = [];
   const textParts: string[] = [];
 
-  for (const { session } of moderated) {
+  for (const { session, role } of moderated) {
     // Date / time / duration as separate lines (owner request).
     const windowLines = sessionWindowLines(session.startTime, session.endTime ?? null, eventTz);
 
@@ -434,12 +440,16 @@ ${bodyRows}      </table>`
     // Same labeled Session / Date & Time / Track table as
     // {{presentationDetails}} (July 29, 2026 owner request — the two blocks
     // read identically per session), followed by this session's run-sheet.
+    const roleLabel = formatSessionRole(role);
     const infoRows: Array<[string, string]> = [
       [
         "Session",
         escapeHtmlForAgreement(session.name) +
           (session.location ? ` · ${escapeHtmlForAgreement(session.location)}` : ""),
       ],
+      // The badge: which hat the recipient wears on THIS session — the block
+      // now covers chairs as well as moderators, so it must say which.
+      ["Your Role", escapeHtmlForAgreement(roleLabel)],
       ["Date &amp; Time", windowLines.join("<br/>")],
     ];
     if (session.track?.name) infoRows.push(["Track", escapeHtmlForAgreement(session.track.name)]);
@@ -454,6 +464,7 @@ ${bodyRows}      </table>`
     textParts.push(
       [
         `Session: ${session.name}${session.location ? ` · ${session.location}` : ""}`,
+        `Your Role: ${roleLabel}`,
         `Date & Time: ${windowLines.join(", ")}`,
         ...(session.track?.name ? [`Track: ${session.track.name}`] : []),
         ...topicTextLines,

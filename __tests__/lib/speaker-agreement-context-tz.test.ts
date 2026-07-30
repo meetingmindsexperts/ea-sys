@@ -49,9 +49,9 @@ function speakerRow() {
   };
 }
 
-function moderatedSession(topics: unknown[] = []) {
+function moderatedSession(topics: unknown[] = [], role = "MODERATOR") {
   return {
-    role: "MODERATOR",
+    role,
     session: {
       name: "Structural Heart Panel",
       // 16:00–17:30 UTC = 11:00 AM – 12:30 PM in New York.
@@ -201,9 +201,9 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     },
   ];
 
-  function moderatorRow(topics: unknown[] = TOPICS) {
+  function moderatorRow(topics: unknown[] = TOPICS, role = "MODERATOR") {
     const row = speakerRow();
-    row.sessions = [moderatedSession(topics)];
+    row.sessions = [moderatedSession(topics, role)];
     return row;
   }
 
@@ -250,8 +250,12 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     mockDb.speaker.findFirst.mockResolvedValue(row);
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
     const html = ctx?.moderatorDetails ?? "";
-    // Labeled info table (shared renderer with presentationDetails)…
+    // Labeled info table (shared renderer with presentationDetails), plus the
+    // "Your Role" badge row (July 30, 2026 — the block covers chairs too, so
+    // it must say which hat the recipient wears on each session)…
     expect(html).toContain(">Session<");
+    expect(html).toContain(">Your Role<");
+    expect(html).toContain(">Moderator<");
     expect(html).toContain(">Date &amp; Time<");
     expect(html).toContain(">Track<");
     expect(html).toContain("Track B");
@@ -261,12 +265,31 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     expect(html).toContain(">Speaker(s)<");
     // Text mirror uses the same labeled lines.
     expect(ctx?.moderatorDetailsText).toContain("Session: Structural Heart Panel · Hall B");
+    expect(ctx?.moderatorDetailsText).toContain("Your Role: Moderator");
     expect(ctx?.moderatorDetailsText).toContain("Date & Time: ");
     expect(ctx?.moderatorDetailsText).toContain("Track: Track B");
   });
 
+  it("a CHAIRPERSON gets the block too, badged Chairperson (July 30, 2026)", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue(moderatorRow(TOPICS, "CHAIRPERSON"));
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.moderatorDetails).toContain(">Your Role<");
+    expect(ctx?.moderatorDetails).toContain(">Chairperson<");
+    // The full run-sheet renders for chairs exactly like moderators.
+    expect(ctx?.moderatorDetails).toContain("TAVR Outcomes");
+    expect(ctx?.moderatorDetails).toContain("Dr. Jane Doe");
+    expect(ctx?.moderatorDetailsText).toContain("Your Role: Chairperson");
+  });
+
   it("is EMPTY for a speaker who moderates nothing", async () => {
     mockDb.speaker.findFirst.mockResolvedValue(speakerRow()); // role SPEAKER only
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.moderatorDetails).toBe("");
+    expect(ctx?.moderatorDetailsText).toBe("");
+  });
+
+  it("PANELIST does NOT get the block — only roles that RUN the session do", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue(moderatorRow(TOPICS, "PANELIST"));
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
     expect(ctx?.moderatorDetails).toBe("");
     expect(ctx?.moderatorDetailsText).toBe("");

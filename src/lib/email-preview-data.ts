@@ -65,7 +65,9 @@ export async function buildRealPreviewOverrides(
         select: { id: true },
       }),
       db.speaker.findFirst({
-        where: { eventId, sessions: { some: { role: "MODERATOR" } } },
+        // {{moderatorDetails}} covers chairs too (July 30, 2026), so a
+        // chairs-only event still gets a real representative run-sheet.
+        where: { eventId, sessions: { some: { role: { in: ["MODERATOR", "CHAIRPERSON"] } } } },
         select: { id: true },
       }),
     ]);
