@@ -303,11 +303,12 @@ export function DealDetailBody({
       />
 
       {editing ? (
-        <RecordCard icon={Pencil} title="Edit deal" className="max-w-2xl">
+        <RecordCard icon={Pencil} title="Edit deal" className="max-w-3xl">
           <CrmDealFormFields
             value={form}
             onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
             idPrefix="edit-deal"
+            columns={2}
           />
           <p className="mt-3 text-xs text-muted-foreground">
             Stage moves on the board; won/lost is the Close action. Changes are recorded in the deal&apos;s history.

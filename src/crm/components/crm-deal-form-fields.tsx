@@ -132,6 +132,7 @@ export function CrmDealFormFields({
   eventHint,
   companyHint,
   extraField,
+  columns = 1,
 }: {
   value: CrmDealFormState;
   onChange: (patch: Partial<CrmDealFormState>) => void;
@@ -142,130 +143,189 @@ export function CrmDealFormFields({
   companyHint?: ReactNode;
   /** Create-only extras (the Stage select) — rendered beside Expected close. */
   extraField?: ReactNode;
+  /**
+   * 1 = the stacked layout (the narrow create dialog); 2 = a responsive
+   * two-column grid for the wide inline edit form, so the right half of the
+   * card isn't wasted. Not viewport-`sm:`-driven by default because the create
+   * dialog is narrow on a wide screen — the caller opts in.
+   */
+  columns?: 1 | 2;
 }) {
   const f = value;
   // The org's deal types (admin-editable list, seeded on first load).
   const { data: dealTypes = [] } = useCrmDealTypes();
+  const two = columns === 2;
+
+  // Each field is built once, then arranged by the layout below — so the field
+  // set can't drift between the one-column and two-column renders.
+  const nameField = (
+    <div className="space-y-2">
+      <Label htmlFor={`${idPrefix}-name`}>
+        Name <span className="text-destructive">*</span>
+      </Label>
+      <Input
+        id={`${idPrefix}-name`}
+        value={f.name}
+        onChange={(e) => onChange({ name: e.target.value })}
+        placeholder="Abbott — BRIDGES 2026 Gold"
+      />
+    </div>
+  );
+
+  const eventField = (
+    <div className="space-y-2">
+      <Label>
+        Event (project) <span className="text-destructive">*</span>
+      </Label>
+      <EventCombobox
+        value={f.eventId}
+        onChange={(eventId) => onChange({ eventId })}
+        allowClear={false}
+        placeholder="Select an event…"
+        className="w-full"
+      />
+      {eventHint}
+    </div>
+  );
+
+  const companyField = (
+    <div className="space-y-2">
+      <Label>Company</Label>
+      <CompanyCombobox value={f.company} onChange={(company) => onChange({ company })} />
+      {companyHint}
+    </div>
+  );
+
+  const pipelineField = (
+    <div className="space-y-2">
+      <Label htmlFor={`${idPrefix}-pipeline`}>Pipeline</Label>
+      <Select
+        value={f.pipeline || NO_PIPELINE}
+        onValueChange={(v) => onChange({ pipeline: v === NO_PIPELINE ? "" : (v as CrmDealPipeline) })}
+      >
+        <SelectTrigger id={`${idPrefix}-pipeline`} className="w-full">
+          <SelectValue placeholder="Uncategorised" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_PIPELINE}>Uncategorised</SelectItem>
+          {CRM_DEAL_PIPELINES.map((p) => (
+            <SelectItem key={p} value={p}>
+              {CRM_DEAL_PIPELINE_LABELS[p]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const dealTypeField = (
+    <div className="space-y-2">
+      <Label htmlFor={`${idPrefix}-dealtype`}>Deal type</Label>
+      <Select
+        value={f.dealTypeId ?? NO_DEAL_TYPE}
+        onValueChange={(v) => onChange({ dealTypeId: v === NO_DEAL_TYPE ? null : v })}
+      >
+        <SelectTrigger id={`${idPrefix}-dealtype`} className="w-full">
+          <SelectValue placeholder="No deal type" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_DEAL_TYPE}>No deal type</SelectItem>
+          {dealTypes.map((t) => (
+            <SelectItem key={t.id} value={t.id}>
+              {t.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const valueField = (
+    <div className="space-y-2">
+      <Label htmlFor={`${idPrefix}-value`}>Value</Label>
+      <Input
+        id={`${idPrefix}-value`}
+        inputMode="decimal"
+        value={f.dealValue}
+        onChange={(e) => onChange({ dealValue: e.target.value })}
+        placeholder="40000"
+      />
+    </div>
+  );
+
+  const currencyField = (
+    <div className="space-y-2">
+      <Label htmlFor={`${idPrefix}-currency`}>Currency</Label>
+      <Select value={f.currency} onValueChange={(currency) => onChange({ currency })}>
+        <SelectTrigger id={`${idPrefix}-currency`} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {DEAL_CURRENCIES.map((c) => (
+            <SelectItem key={c} value={c}>
+              {c}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  const closeField = (
+    <div className="space-y-2">
+      <Label htmlFor={`${idPrefix}-close`}>Expected close</Label>
+      <Input
+        id={`${idPrefix}-close`}
+        type="date"
+        value={f.expectedClose}
+        onChange={(e) => onChange({ expectedClose: e.target.value })}
+      />
+    </div>
+  );
+
+  const tagsField = (
+    <div className="space-y-2">
+      <Label>Tags</Label>
+      <TagInput value={f.tags} onChange={(tags) => onChange({ tags })} placeholder="Add tag…" />
+    </div>
+  );
+
+  if (two) {
+    // Wide inline edit: two columns that collapse to one on a narrow viewport.
+    // Name + Tags span the full width; the compact fields pair up. `extraField`
+    // (Stage) is create-only, so in edit it's absent and the grid auto-flows.
+    return (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="sm:col-span-2">{nameField}</div>
+        {eventField}
+        {companyField}
+        {pipelineField}
+        {dealTypeField}
+        {valueField}
+        {currencyField}
+        {extraField}
+        {closeField}
+        <div className="sm:col-span-2">{tagsField}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-name`}>
-          Name <span className="text-destructive">*</span>
-        </Label>
-        <Input
-          id={`${idPrefix}-name`}
-          value={f.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="Abbott — BRIDGES 2026 Gold"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <Label>
-          Event (project) <span className="text-destructive">*</span>
-        </Label>
-        <EventCombobox
-          value={f.eventId}
-          onChange={(eventId) => onChange({ eventId })}
-          allowClear={false}
-          placeholder="Select an event…"
-          className="w-full"
-        />
-        {eventHint}
-      </div>
-
-      <div className="space-y-2">
-        <Label>Company</Label>
-        <CompanyCombobox value={f.company} onChange={(company) => onChange({ company })} />
-        {companyHint}
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-pipeline`}>Pipeline</Label>
-        <Select
-          value={f.pipeline || NO_PIPELINE}
-          onValueChange={(v) => onChange({ pipeline: v === NO_PIPELINE ? "" : (v as CrmDealPipeline) })}
-        >
-          <SelectTrigger id={`${idPrefix}-pipeline`} className="w-full">
-            <SelectValue placeholder="Uncategorised" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NO_PIPELINE}>Uncategorised</SelectItem>
-            {CRM_DEAL_PIPELINES.map((p) => (
-              <SelectItem key={p} value={p}>
-                {CRM_DEAL_PIPELINE_LABELS[p]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-dealtype`}>Deal type</Label>
-        <Select
-          value={f.dealTypeId ?? NO_DEAL_TYPE}
-          onValueChange={(v) => onChange({ dealTypeId: v === NO_DEAL_TYPE ? null : v })}
-        >
-          <SelectTrigger id={`${idPrefix}-dealtype`} className="w-full">
-            <SelectValue placeholder="No deal type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NO_DEAL_TYPE}>No deal type</SelectItem>
-            {dealTypes.map((t) => (
-              <SelectItem key={t.id} value={t.id}>
-                {t.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
+      {nameField}
+      {eventField}
+      {companyField}
+      {pipelineField}
+      {dealTypeField}
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-value`}>Value</Label>
-          <Input
-            id={`${idPrefix}-value`}
-            inputMode="decimal"
-            value={f.dealValue}
-            onChange={(e) => onChange({ dealValue: e.target.value })}
-            placeholder="40000"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-currency`}>Currency</Label>
-          <Select value={f.currency} onValueChange={(currency) => onChange({ currency })}>
-            <SelectTrigger id={`${idPrefix}-currency`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DEAL_CURRENCIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {valueField}
+        {currencyField}
       </div>
-
       <div className="grid grid-cols-2 gap-3">
         {extraField}
-        <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-close`}>Expected close</Label>
-          <Input
-            id={`${idPrefix}-close`}
-            type="date"
-            value={f.expectedClose}
-            onChange={(e) => onChange({ expectedClose: e.target.value })}
-          />
-        </div>
+        {closeField}
       </div>
-
-      <div className="space-y-2">
-        <Label>Tags</Label>
-        <TagInput value={f.tags} onChange={(tags) => onChange({ tags })} placeholder="Add tag…" />
-      </div>
+      {tagsField}
     </div>
   );
 }
