@@ -18,6 +18,8 @@
 | Payer details | **Coordinator enters them** in the public flow → `findOrCreateBillingAccount()` (exact-name reuse; near-duplicates created with `needsReview` for finance to merge — the machinery already exists and its comment anticipated exactly this). |
 | Post-submission | **Full group portal** — coordinator account + "My Group" page: see members + payment status, ADD members later up to the cap, edit member details. |
 | Pricing | **Per-person registration type** at the tier active at submission; cumulative total = Σ individual prices; invoice lines grouped by type ("2 × Physician, 2 × Nurse"). |
+| Link distribution | **One shared event link** — the organizer enables group registration, sets the member bounds, and copies ONE link (the proposer-link pattern) to send to company reps. No per-company invite tokens in v1. |
+| Member bounds | **Organizer-controlled min AND max** (e.g. min 2, max 10): Krishna can register any group size within the range. Hard server ceiling 50 regardless of settings. |
 
 ## 2. What already exists (build on, don't duplicate)
 
@@ -75,12 +77,21 @@ Schema deltas (all additive / blue-green safe — `DROP NOT NULL` is instant in 
   part — budget review time for the Stripe webhook + invoice-service + reconciliation
   worker paths.
 
-**Enablement**: `Event.settings.groupRegistration = { enabled: boolean, maxMembers: number }`
-(settings JSON, no migration; default disabled, `maxMembers` default 50, hard server cap 50).
+**Enablement + organizer controls**: `Event.settings.groupRegistration =
+{ enabled: boolean, minMembers: number, maxMembers: number }` (settings JSON, no
+migration; default disabled, defaults min 2 / max 10, hard server ceiling 50 — a
+maxMembers above 50 is clamped). Managed from a **Group Registration card** on Event
+Settings → Registration: enable toggle, min/max inputs, and a **"Copy group
+registration link"** button (the proposer-link pattern). The link is **deliberately NOT
+advertised on the public register page in v1** — "organizer controls sending" means
+targeted distribution; a "show on the register page" discoverability toggle is a cheap
+later add. Disabled event → the group page renders a branded "Group registration is not
+open" state and the POST 403s (defense in depth, same shape as REGISTRATION_CLOSED).
 
 ## 4. Public flow — `/e/[slug]/group/register`
 
-Entry: a "Registering a group?" link on the public register page when enabled.
+Entry: **link-only** — the organizer copies the URL from the Group Registration card and
+sends it to company reps (not surfaced on the public register page in v1; see §3).
 
 1. **Account** — email + password (reuses `check-email` + existing-account sign-in, like
    the submitter register). Coordinator = REGISTRANT (org-null), same
@@ -94,7 +105,11 @@ Entry: a "Registering a group?" link on the public register page when enabled.
    `EventBillingAccount`.
 4. **Members** — repeatable person form (full public field-set + role + per-person
    registration type at the live tier price). Live cumulative subtotal / tax / total.
-   Cap enforced client + server.
+   **Bounds enforced client + server**: submit blocked below `minMembers` (with copy
+   naming the minimum) and above `maxMembers`; the server re-validates both (400
+   `GROUP_SIZE_OUT_OF_BOUNDS` naming the allowed range) — a crafted request can't
+   bypass the organizer's limits. (If the coordinator is attending, they count as a
+   member toward both bounds.)
 5. **Review + pay** — **Card**: one Stripe checkout session for the total (line items
    grouped by type; metadata carries `groupId`); **Pay later**: group created UNPAID,
    consolidated invoice emailed to the company + coordinator.
@@ -132,7 +147,13 @@ Coordinator signs in → `/my-group` (or a group section on `/my-registration`):
 
 ## 6. Organizer surfaces (v1: minimal)
 
-- Registrations list: **Group** column/badge + filter (members link to their group).
+- Registrations list: **Group** column/badge + a **Group filter** (all / a specific
+  group / non-group), so "show me all group registrations" is one click; members link
+  to their group.
+- A **Groups roll-up view** (a view toggle or tab on the registrations page): one row
+  per group — company (payer), coordinator, member count vs allowed range, cumulative
+  total, invoice/payment status, created date — with a detail expansion listing the
+  members. This is the organizer's "see all the group registrations" surface.
 - Registration detail sheet already shows "Billed to: <payer>" — add the group name line.
 - Settings → Billing already surfaces `needsReview` payers for merge
   (`mergeBillingAccounts` exists).
@@ -158,6 +179,10 @@ Coordinator signs in → `/my-group` (or a group section on `/my-registration`):
 - CSV upload of members into a group (the 50-cap form is manageable; revisit if reps ask).
 - MCP tools (`list_groups`, `create_group`) — fast-follow when an integration needs it.
 - Multi-event groups (a group belongs to one event).
+- **Per-company tokenized invite links** (Dinner-RSVP style: per-invite caps, pre-filled
+  payer, sent/started/completed tracking) — owner chose the one-shared-link model for
+  v1; invites are the natural v2 if companies need individually negotiated allowances.
+- Public discoverability of the group link on the register page (toggle, later).
 
 ## 9. Risks / review focus
 
