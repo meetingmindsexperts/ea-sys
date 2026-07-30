@@ -40,7 +40,7 @@ the Singapore bucket becomes a one-stop recovery target.
 
 ### RPO/RTO targets
 
-- **RPO**: ≤2h during Dubai daytime (08:00–22:00 GST), ≤4h overnight — dumps run on `0 2,4,6,8,10,12,14,16,18,22 * * *` UTC (10 dumps/day). Tunable by editing the cron hours; the script is unchanged. (Was 24h once-daily, then 12h, until 2026-06-30.)
+- **RPO**: ≤1h during Dubai daytime (08:00–22:00 GST), ≤1h overnight — dumps run on `0 * * * *` UTC (24 dumps/day). Tunable by editing the cron hours; the script is unchanged. (Was 24h once-daily, then 12h, until 2026-06-30.)
 - **RTO** (full restore): ~30 minutes (download dump + `pg_restore` to a fresh Supabase project or scratch Postgres)
 - **RTO** (single-table or row-level recovery): faster — `pg_restore -t TABLE` is fast
 
@@ -175,15 +175,15 @@ log "dr-pg-dump:ok duration_s=$((END_EPOCH - START_EPOCH)) size_bytes=${DUMP_BYT
 ### 3.2 Cron entry — Mumbai box
 
 ```cron
-# Daily Postgres dump to Singapore DR bucket (RPO 24h)
+# Hourly Postgres dump to Singapore DR bucket (RPO 1h)
 0 23 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
 ```
 
 **23:00 UTC = 03:00 GST** — middle of the night, no event activity,
 sits in the same nightly maintenance cluster as the `.env` snapshot
 at 21:00 UTC. **Live schedule (as of 2026-06-30):
-`0 2,4,6,8,10,12,14,16,18,22 * * *`** — ≤2h RPO during Dubai daytime,
-≤4h overnight. To retune, change the cron hours; the script and IAM
+`0 * * * *`** — ≤1h RPO (was hourly,
+≤1h overnight. To retune, change the cron hours; the script and IAM
 are unchanged.
 
 ### 3.3 S3 lifecycle rule

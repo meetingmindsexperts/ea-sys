@@ -127,7 +127,7 @@ inline policy on `ea-sys-mumbai-ec2-role` is missing `s3:GetObject` and/
 or `kms:Decrypt`. Add them — the [surgical recovery section](#surgical-recovery--mumbai-is-up-you-lost-specific-files)
 below depends on this path working.
 
-### 6. Set up the Postgres backup cron (≤2h day / ≤4h night RPO)
+### 6. Set up the Postgres backup cron (≤1h RPO)
 
 Closes the database-side DR gap. Without this, the only recovery option
 for Supabase data loss is the Supabase platform's own backups (daily,
@@ -214,13 +214,13 @@ bash /home/ubuntu/ea-sys/scripts/dr-restore-drill.sh
 ```bash
 sudo -u ubuntu crontab -e
 # Append:
-# Postgres dump to Singapore DR bucket — ≤2h RPO Dubai daytime, ≤4h overnight
-0 2,4,6,8,10,12,14,16,18,22 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
+# Postgres dump to Singapore DR bucket — ≤1h RPO (hourly)
+0 * * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
 ```
 
-**Timing** (as of 2026-06-30): `0 2,4,6,8,10,12,14,16,18,22 * * *` UTC — every 2h
-during Dubai daytime (08:00–22:00 GST → 04:00–18:00 UTC) and every 4h overnight,
-so **≤2h RPO in the day, ≤4h at night** (10 dumps/day, ~1.2 MB each — negligible
+**Timing** (as of 2026-06-30): `0 * * * *` UTC — every hour
+during Dubai daytime (08:00–22:00 GST → 04:00–18:00 UTC) and (overnight),
+so **≤1h RPO in the day** (24 dumps/day, ~1.2 MB each — negligible
 load, all inside the S3 30-day retention). To change RPO, edit the cron hours;
 the script is unchanged. (History: 24h once-daily → 12h `0 11,23` → this.)
 
@@ -434,7 +434,7 @@ sudo -u ubuntu vim /home/ubuntu/ea-sys/.env
 sudo -u ubuntu bash /home/ubuntu/ea-sys/scripts/deploy.sh
 ```
 
-**RPO**: ≤2h during Dubai daytime (08:00–22:00 GST), ≤4h overnight (the time
+**RPO**: ≤1h during Dubai daytime (08:00–22:00 GST), ≤1h overnight (the time
 between the disaster and the last scheduled dump).
 
 #### Surgical: restore just one table
@@ -486,7 +486,7 @@ For honesty:
   --region ap-southeast-1` immediately after rotating a secret to
   tighten that RPO ad-hoc.
 - **Postgres changes between the last scheduled dump and the disaster** —
-  ≤2h during Dubai daytime, ≤4h overnight (`0 2,4,6,8,10,12,14,16,18,22 * * *`).
+  ≤1h (hourly) (`0 * * * *`).
   For tighter precision, add more cron entries (same script, no other changes) —
   or enable Supabase PITR (~$25-50/mo, seconds-precision rollback within 7d
   retention).
@@ -658,8 +658,8 @@ the triage above.
   runbook above sends them back. If you skip that step or `terraform destroy`
   before syncing, those outage-window uploads are lost. Future fix: a reverse
   cron on the DR box that periodically pushes `public/uploads/` back to S3.
-- **Postgres data — ≤2h RPO (Dubai day) / ≤4h (overnight)** via the
-  `0 2,4,6,8,10,12,14,16,18,22 * * *` `pg_dump` to Singapore (§6 /
+- **Postgres data — ≤1h RPO (Dubai day) / ≤1h (overnight)** via the
+  `0 * * * *` `pg_dump` to Singapore (§6 /
   [POSTGRES_BACKUP_PLAN.md](POSTGRES_BACKUP_PLAN.md)). Truly-zero RPO would need
   Supabase PITR (~$25-50/mo). Not enabled today by explicit trade-off — the
   frequent cron + daily Supabase platform backup is sufficient for the stated

@@ -179,8 +179,8 @@ CRON_SECRET=<value from .env>
 # heartbeat the card false-alarms on quiet days). Added 2026-07-17.
 0 * * * * aws s3 sync /home/ubuntu/ea-sys/public/uploads/ s3://ea-sys-dr-singapore/uploads/ --region ap-southeast-1 --exclude "*/.gitkeep" >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1 && echo ok | aws s3 cp - s3://ea-sys-dr-singapore/heartbeats/uploads-mirror --region ap-southeast-1 >> /home/ubuntu/cron-dr-uploads-sync.log 2>&1
 
-# Postgres dump to Singapore DR bucket — ≤2h RPO Dubai daytime, ≤4h overnight
-0 2,4,6,8,10,12,14,16,18,22 * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
+# Postgres dump to Singapore DR bucket — ≤1h RPO (hourly)
+0 * * * * /home/ubuntu/ea-sys/scripts/dr-pg-dump.sh >> /home/ubuntu/cron-dr-db-backup.log 2>&1
 
 # Weekly docker prune (Friday 03:00 UTC)
 0 3 * * 5 /home/ubuntu/ea-sys/scripts/docker-prune.sh >> /home/ubuntu/cron-docker-prune.log 2>&1

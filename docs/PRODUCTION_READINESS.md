@@ -17,7 +17,7 @@
   (auto-recovers a hardware-dead box, same id/EIP/EBS), `ec2-cpu-high`,
   `ec2-cpu-credits-low` (t3 burst trap), `ec2-disk-high` (the INC-002 catch),
   `ec2-mem-high`. Two alert recipients (krishna@, vivek@meetingmindsdubai.com).
-- **DR backups**: `pg_dump` → Singapore S3 every 2h (RPO ≤2h day / ≤4h night),
+- **DR backups**: `pg_dump` → Singapore S3 every hour (RPO ≤1h),
   uploads hourly, `.env` daily; **quarterly restore drill** validates the dump
   restores clean. Runbooks in `infra/dr/README.md`.
 - **Security hardening**: nginx per-IP rate limiting + fail2ban, `npm audit` in

@@ -233,7 +233,7 @@ Postgres (Supabase, PG 17) is dumped by cron on the Mumbai box via
 
 - **Target cadence: hourly** (`5 * * * *`) — the "restore point every hour" decision of
   July 10, 2026. Until that crontab edit is applied the live cadence is 2-hourly daytime
-  (`0 2,4,6,8,10,12,14,16,18,22 * * *` UTC).
+  (`0 * * * *` UTC).
 - Restore procedures live in **[infra/dr/README.md](../infra/dr/README.md)**:
   - **Surgical recovery** (§A–E) — restore the dump into a scratch Postgres 17 container
     (`scripts/dr-restore-drill.sh` does exactly this), then copy back just the damaged

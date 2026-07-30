@@ -236,7 +236,7 @@ instead of waiting for a human.
   --namespace EA-SYS/DR --metric-name DbBackupSuccess --value 1`) at the end of
   `dr-pg-dump.sh`, plus an `ap-south-1` alarm (`--period 10800 --threshold 1
   --comparison-operator LessThanThreshold --treat-missing-data breaching`) — no
-  heartbeat in 3h → page (dumps run every 2h).
+  heartbeat in 3h → page (dumps run hourly).
 - **DR failover not yet drilled** — RTO is still a ~30min–2h *manual* runbook
   (`infra/dr/README.md`), never rehearsed under real conditions. See the
   production-readiness backlog in [`docs/PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
@@ -377,8 +377,8 @@ sudo -u ubuntu aws s3api copy-object --bucket ea-sys-dr-singapore \
 
 ### 2.4 Database restore from `pg_dump`
 
-Dumps run on `0 2,4,6,8,10,12,14,16,18,22 * * *` UTC (= **≤2h RPO during Dubai
-daytime 08:00–22:00 GST, ≤4h overnight**) and land at
+Dumps run on `0 * * * *` UTC (= **≤1h RPO (was 2h during Dubai
+daytime 08:00–22:00 GST, ≤1h overnight**) and land at
 `s3://ea-sys-dr-singapore/db/{YYYY}/{MM}/{DD-HH}-mumbai.dump`
 (`pg_dump -Fc --schema=public`, portable to any vanilla PG 17).
 
