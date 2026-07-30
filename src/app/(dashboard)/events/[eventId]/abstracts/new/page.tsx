@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
 import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,9 @@ export default function NewAbstractPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
+  // Surface separation: bounce a submitter whose signup flow doesn't cover
+  // this surface (src/lib/submitter-surfaces.ts). No-op for staff.
+  useSubmitterSurfaceGuard(eventId, "abstracts");
   const queryClient = useQueryClient();
   const { data: session } = useSession();
 

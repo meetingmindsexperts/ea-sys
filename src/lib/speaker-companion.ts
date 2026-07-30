@@ -285,6 +285,12 @@ export interface EventSpeakerProfile {
   registrationType?: string | null;
   /** Only applied on CREATE (links the speaker to an existing registration). */
   sourceRegistrationId?: string | null;
+  /**
+   * Which self-signup flow this upsert comes from ("abstract" | "proposal").
+   * Stamped on CREATE, and on UPDATE only when the speaker doesn't already
+   * carry one (FIRST FLOW WINS — see src/lib/submitter-surfaces.ts).
+   */
+  submitterSource?: string | null;
 }
 
 /**
@@ -317,10 +323,17 @@ export async function upsertEventSpeaker(
 
   const existing = await tx.speaker.findUnique({
     where: { eventId_email: { eventId, email } },
-    select: { id: true },
+    select: { id: true, submitterSource: true },
   });
 
   if (existing) {
+    // submitterSource: FIRST FLOW WINS — stamp only when not already set, on
+    // both the sign-up and sign-in branches (an existing abstract submitter
+    // signing in through the proposal page keeps "abstract").
+    const sourceStamp =
+      profile.submitterSource && !existing.submitterSource
+        ? { submitterSource: profile.submitterSource }
+        : {};
     await tx.speaker.update({
       where: { id: existing.id },
       // Sign-in flow: only ensure the link. Sign-up flow: refresh the profile
@@ -330,6 +343,7 @@ export async function upsertEventSpeaker(
       // an empty field, or `data.title` to leave it untouched when absent).
       data: overwriteExisting
         ? {
+            ...sourceStamp,
             userId,
             title: profile.title,
             role: profile.role,
@@ -347,7 +361,7 @@ export async function upsertEventSpeaker(
             customSpecialty: profile.customSpecialty,
             registrationType: profile.registrationType,
           }
-        : { userId },
+        : { ...sourceStamp, userId },
     });
     return existing.id;
   }
@@ -373,6 +387,7 @@ export async function upsertEventSpeaker(
       customSpecialty: profile.customSpecialty ?? null,
       registrationType: profile.registrationType ?? null,
       sourceRegistrationId: profile.sourceRegistrationId ?? null,
+      submitterSource: profile.submitterSource ?? null,
       status: "CONFIRMED",
     },
     select: { id: true },

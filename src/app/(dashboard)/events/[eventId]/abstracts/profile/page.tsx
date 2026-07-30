@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -94,6 +95,8 @@ export default function SubmitterProfilePage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
+  // Surface separation: bounce a proposal-only submitter to Session Proposals.
+  useSubmitterSurfaceGuard(eventId, "abstracts");
 
   const { data: event } = useEvent(eventId);
   const [profile, setProfile] = useState<MyProfile | null>(null);

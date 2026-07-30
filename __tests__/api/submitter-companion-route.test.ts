@@ -108,6 +108,37 @@ describe("submitter route — companion registration", () => {
   });
 });
 
+describe("submitter route — submitterSource stamping (first flow wins)", () => {
+  it("stamps the source on speaker CREATE", async () => {
+    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    expect(mockDb._tx.speaker.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ submitterSource: "proposal" }) }),
+    );
+  });
+
+  it("defaults an abstract signup to source 'abstract'", async () => {
+    await POST(makeReq(validBody), { params });
+    expect(mockDb._tx.speaker.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ submitterSource: "abstract" }) }),
+    );
+  });
+
+  it("stamps an EXISTING speaker only when their source is null", async () => {
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: null });
+    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ submitterSource: "proposal" }) }),
+    );
+  });
+
+  it("NEVER overwrites an existing source (abstract person using the proposal flow stays abstract)", async () => {
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: "abstract" });
+    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    const updateData = mockDb._tx.speaker.update.mock.calls[0][0].data;
+    expect(updateData).not.toHaveProperty("submitterSource");
+  });
+});
+
 describe("submitter route — abstract gate vs proposal source (July 30, 2026)", () => {
   it("403s an ABSTRACT signup when abstract submissions are closed", async () => {
     mockDb.event.findFirst.mockResolvedValue({

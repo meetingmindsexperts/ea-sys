@@ -25,6 +25,11 @@ import { ensureSpeakerCompanionRegistration, upsertEventSpeaker } from "@/lib/sp
 const bodySchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(1).max(200),
+  // Which public flow the sign-in came from — stamps Speaker.submitterSource
+  // (first flow wins) for the submitter surface separation. Despite this
+  // route's historical name it serves BOTH the abstract and the session-
+  // proposal register pages' existing-account paths.
+  source: z.enum(["abstract", "proposal"]).default("abstract"),
 });
 
 interface RouteParams {
@@ -135,6 +140,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           specialty: att?.specialty ?? null,
           registrationType: att?.registrationType ?? null,
           sourceRegistrationId: registration?.id ?? null,
+          submitterSource: parsed.data.source,
         },
       });
     });

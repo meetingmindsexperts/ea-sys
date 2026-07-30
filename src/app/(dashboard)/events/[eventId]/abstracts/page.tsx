@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
 import { useSession } from "next-auth/react";
 import { canWrite } from "@/lib/can-write";
 import Link from "next/link";
@@ -111,6 +112,9 @@ interface Abstract {
 export default function AbstractsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  // Surface separation: bounce a submitter whose signup flow doesn't cover
+  // this surface (src/lib/submitter-surfaces.ts). No-op for staff.
+  useSubmitterSurfaceGuard(eventId, "abstracts");
   const queryClient = useQueryClient();
   const { data: session } = useSession();
 

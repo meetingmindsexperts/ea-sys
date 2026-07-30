@@ -59,6 +59,7 @@ export const queryKeys = {
   abstractThemes: (eventId: string) => ["events", eventId, "abstract-themes"] as const,
   sessionProposals: (eventId: string) => ["events", eventId, "session-proposals"] as const,
   sessionProposalThemes: (eventId: string) => ["events", eventId, "session-proposal-themes"] as const,
+  submitterContext: (eventId: string) => ["events", eventId, "submitter-context"] as const,
   reviewCriteria: (eventId: string) => ["events", eventId, "review-criteria"] as const,
   eventMedia: (eventId: string) => ["events", eventId, "media"] as const,
   hotels: (eventId: string) => ["events", eventId, "hotels"] as const,
@@ -161,6 +162,23 @@ export function useEvent(eventId: string) {
     queryKey: queryKeys.event(eventId),
     queryFn: () => fetchApi<any>(`/api/events/${eventId}`),
     enabled: !!eventId,
+  });
+}
+
+/**
+ * The signed-in SUBMITTER's surface context for an event (submitterSource +
+ * abstract/proposal counts) — feeds src/lib/submitter-surfaces.ts in the
+ * sidebar and the page redirect guard. Only enabled for submitters.
+ */
+export function useSubmitterContext(eventId: string) {
+  return useQuery({
+    queryKey: queryKeys.submitterContext(eventId),
+    queryFn: () =>
+      fetchApi<{ submitterSource: string | null; abstractCount: number; proposalCount: number }>(
+        `/api/events/${eventId}/submitter-context`,
+      ),
+    enabled: !!eventId,
+    staleTime: 60 * 1000,
   });
 }
 

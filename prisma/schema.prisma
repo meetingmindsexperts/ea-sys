@@ -1183,6 +1183,12 @@ model Speaker {
   tags                           String[]      @default([])
   socialLinks                    Json          @default("{}")
   status                         SpeakerStatus @default(INVITED)
+  // Which public self-signup flow created this submitter-speaker:
+  // "abstract" | "proposal" | null (legacy / organizer-added). Drives the
+  // submitter surface separation (July 30, 2026 — proposal signups see only
+  // Session Proposals, abstract signups only Abstracts; src/lib/submitter-surfaces.ts).
+  // First flow wins — never overwritten once set.
+  submitterSource                String?
   externalId                     String?
   agreementAcceptedAt            DateTime?
   agreementAcceptedIp            String?

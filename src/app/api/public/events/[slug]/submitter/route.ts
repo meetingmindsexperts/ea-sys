@@ -253,6 +253,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           specialty: data.specialty,
           customSpecialty: data.customSpecialty || null,
           registrationType: data.registrationType || undefined,
+          // Surface separation: which flow this signup came through
+          // ("abstract" | "proposal"; first flow wins on an existing speaker).
+          submitterSource: data.source,
         },
       });
     });

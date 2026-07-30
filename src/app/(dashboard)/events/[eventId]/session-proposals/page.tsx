@@ -10,6 +10,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -106,6 +107,9 @@ function formatDate(value: string | null): string {
 export default function SessionProposalsPage() {
   const params = useParams<{ eventId: string }>();
   const eventId = params.eventId;
+  // Surface separation: bounce a submitter whose signup flow doesn't cover
+  // this surface (src/lib/submitter-surfaces.ts). No-op for staff.
+  useSubmitterSurfaceGuard(eventId, "session-proposals");
   const { data: session } = useSession();
   const isSubmitter = session?.user?.role === "SUBMITTER";
   const canManage = canWrite(session?.user?.role);

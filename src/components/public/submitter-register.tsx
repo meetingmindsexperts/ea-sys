@@ -382,7 +382,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       const res = await fetch(`/api/public/events/${slug}/abstract-start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, source: variant }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

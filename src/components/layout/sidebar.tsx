@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useOrgBranding, useOrganizations, useEvent } from "@/hooks/use-api";
+import { useOrgBranding, useOrganizations, useEvent, useSubmitterContext } from "@/hooks/use-api";
+import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
 import { useActiveOrg } from "@/contexts/active-org-context";
 import { webinarModuleFilter } from "@/lib/webinar";
 import {
@@ -214,6 +215,11 @@ export function Sidebar() {
   // Fetch event to know eventType (cached by React Query across navigation).
   // Skip fetch on non-event pages and for restricted roles whose sidebar doesn't branch.
   const { data: currentEvent } = useEvent(isEventPage && !isRestricted && !isOnsite && !isCrmUser ? (eventId as string) : "");
+  // Submitter surface separation — which of Abstracts / Session Proposals this
+  // submitter's signup flow covers (null while loading → show neither).
+  const { data: submitterCtx } = useSubmitterContext(
+    isSubmitter && isEventPage ? (eventId as string) : "",
+  );
   const webinarFilter = webinarModuleFilter(currentEvent?.eventType ?? null);
 
   const handleOrgSwitch = (orgId: string | null) => {
@@ -231,9 +237,21 @@ export function Sidebar() {
         ...navigation.filter((item) => ["Events"].includes(item.name)),
       ]
     : navigation.filter((item) => ["Events"].includes(item.name));
-  const restrictedEventItems = eventNavigation.filter((item) =>
-    ["Abstracts", "Session Proposals"].includes(item.name),
-  );
+  // Submitter surface separation (July 30, 2026): a SUBMITTER sees only the
+  // surface their signup flow covers (abstracts vs session proposals), plus
+  // any surface where they actually have content — one truth table shared
+  // with the page redirect guard (src/lib/submitter-surfaces.ts). While the
+  // context is loading we show NEITHER (a brief blank beats flashing the
+  // surface the person must not see). Reviewers keep the static pair.
+  const restrictedEventItems = eventNavigation
+    .filter((item) => ["Abstracts", "Session Proposals"].includes(item.name))
+    .filter((item) => {
+      if (!isSubmitter) return true;
+      if (!submitterCtx) return false;
+      return item.name === "Abstracts"
+        ? submitterSeesAbstracts(submitterCtx)
+        : submitterSeesProposals(submitterCtx);
+    });
   // ONSITE (registration-desk) sees only the events list + a chosen event's
   // Registrations + Check-In. Everything else is hidden here and redirected by
   // the middleware.

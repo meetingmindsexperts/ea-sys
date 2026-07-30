@@ -11,6 +11,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import {
@@ -47,6 +48,9 @@ interface SpeakerRow {
 function ProposalForm() {
   const params = useParams<{ eventId: string }>();
   const eventId = params.eventId;
+  // Surface separation: bounce a submitter whose signup flow doesn't cover
+  // this surface (src/lib/submitter-surfaces.ts). No-op for staff.
+  useSubmitterSurfaceGuard(eventId, "session-proposals");
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("edit");
