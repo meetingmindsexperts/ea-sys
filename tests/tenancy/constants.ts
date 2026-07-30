@@ -113,6 +113,27 @@ export const REFUND_ATTEMPT_A_ID = "tenancy-ra-a";
 export const REFUND_ATTEMPT_B_ID = "tenancy-ra-b";
 
 /**
+ * Ticketing follow-on sweep (Domain #8 carve-off). Hangs off the same
+ * Attendee/Registration chain: a TicketType + PricingTier on each org's shared
+ * event, a PromoCode (BOTH orgs use the SAME code string — `@@unique([eventId,
+ * code])` lets them coexist since the events differ, proving an unscoped
+ * by-code lookup is lane-scoped), a PromoCodeRedemption on each org's own
+ * registration, and a PromoCodeTicketType link. migration 20260730120000
+ * org-stamped all 5.
+ */
+export const TICKET_TYPE_A_ID = "tenancy-tt-a";
+export const TICKET_TYPE_B_ID = "tenancy-tt-b";
+export const PRICING_TIER_A_ID = "tenancy-pt-a";
+export const PRICING_TIER_B_ID = "tenancy-pt-b";
+export const SHARED_PROMO_CODE = "TENANCY10";
+export const PROMO_CODE_A_ID = "tenancy-pc-a";
+export const PROMO_CODE_B_ID = "tenancy-pc-b";
+export const PROMO_REDEMPTION_A_ID = "tenancy-pcr-a";
+export const PROMO_REDEMPTION_B_ID = "tenancy-pcr-b";
+export const PROMO_LINK_A_ID = "tenancy-pcl-a";
+export const PROMO_LINK_B_ID = "tenancy-pcl-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

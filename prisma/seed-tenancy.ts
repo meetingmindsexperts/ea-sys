@@ -52,6 +52,17 @@ import {
   PAYMENT_B_STRIPE_PI,
   REFUND_ATTEMPT_A_ID,
   REFUND_ATTEMPT_B_ID,
+  TICKET_TYPE_A_ID,
+  TICKET_TYPE_B_ID,
+  PRICING_TIER_A_ID,
+  PRICING_TIER_B_ID,
+  SHARED_PROMO_CODE,
+  PROMO_CODE_A_ID,
+  PROMO_CODE_B_ID,
+  PROMO_REDEMPTION_A_ID,
+  PROMO_REDEMPTION_B_ID,
+  PROMO_LINK_A_ID,
+  PROMO_LINK_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -113,6 +124,15 @@ async function seedOrg(
     // Registration-core sweep (#8) riders on the same chain.
     payment?: { id: string; stripePaymentId: string };
     refundAttemptId?: string;
+    // Ticketing follow-on sweep riders on the same chain.
+    ticketing?: {
+      ticketTypeId: string;
+      pricingTierId: string;
+      promoCodeId: string;
+      promoCode: string;
+      redemptionId: string;
+      linkId: string;
+    };
   },
   crmContacts: { id: string; emailKey: string }[] = [],
 ) {
@@ -261,6 +281,61 @@ async function seedOrg(
           subtotal: 100,
           total: 100,
           currency: "USD",
+        },
+      });
+    }
+    // Ticketing follow-on fixtures: TicketType → PricingTier on the event, a
+    // PromoCode (shared code string across orgs), a PromoCodeRedemption on this
+    // org's registration, and a PromoCodeTicketType link. All org-cascade from
+    // the Event (TicketType/PromoCode) or their parents.
+    if (invoicing.ticketing) {
+      const t = invoicing.ticketing;
+      await db.ticketType.create({
+        data: {
+          id: t.ticketTypeId,
+          eventId: invoicing.eventId,
+          organizationId: orgId,
+          name: "Delegate",
+          pricingTiers: {
+            create: [
+              {
+                id: t.pricingTierId,
+                organizationId: orgId,
+                name: "Early Bird",
+                price: 100,
+              },
+            ],
+          },
+        },
+      });
+      await db.promoCode.create({
+        data: {
+          id: t.promoCodeId,
+          eventId: invoicing.eventId,
+          organizationId: orgId,
+          code: t.promoCode,
+          discountType: "PERCENTAGE",
+          discountValue: 10,
+        },
+      });
+      await db.promoCodeTicketType.create({
+        data: {
+          id: t.linkId,
+          organizationId: orgId,
+          promoCodeId: t.promoCodeId,
+          ticketTypeId: t.ticketTypeId,
+        },
+      });
+      await db.promoCodeRedemption.create({
+        data: {
+          id: t.redemptionId,
+          organizationId: orgId,
+          promoCodeId: t.promoCodeId,
+          registrationId: invoicing.registrationId,
+          email: SHARED_ATTENDEE_EMAIL,
+          originalPrice: 100,
+          discountAmount: 10,
+          finalPrice: 90,
         },
       });
     }
@@ -443,6 +518,14 @@ async function main() {
       invoices: [{ id: INVOICE_A_ID, number: INVOICE_A_NUMBER, seq: 1 }],
       payment: { id: PAYMENT_A_ID, stripePaymentId: PAYMENT_A_STRIPE_PI },
       refundAttemptId: REFUND_ATTEMPT_A_ID,
+      ticketing: {
+        ticketTypeId: TICKET_TYPE_A_ID,
+        pricingTierId: PRICING_TIER_A_ID,
+        promoCodeId: PROMO_CODE_A_ID,
+        promoCode: SHARED_PROMO_CODE,
+        redemptionId: PROMO_REDEMPTION_A_ID,
+        linkId: PROMO_LINK_A_ID,
+      },
     },
     [{ id: CRM_CT_A_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY }],
   );
@@ -502,6 +585,14 @@ async function main() {
       ],
       payment: { id: PAYMENT_B_ID, stripePaymentId: PAYMENT_B_STRIPE_PI },
       refundAttemptId: REFUND_ATTEMPT_B_ID,
+      ticketing: {
+        ticketTypeId: TICKET_TYPE_B_ID,
+        pricingTierId: PRICING_TIER_B_ID,
+        promoCodeId: PROMO_CODE_B_ID,
+        promoCode: SHARED_PROMO_CODE,
+        redemptionId: PROMO_REDEMPTION_B_ID,
+        linkId: PROMO_LINK_B_ID,
+      },
     },
     [
       { id: CRM_CT_B_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY },
