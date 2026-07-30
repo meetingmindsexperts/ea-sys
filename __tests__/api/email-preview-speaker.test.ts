@@ -55,6 +55,10 @@ vi.mock("@/lib/email", () => ({
     mockRender(html, vars);
     return html.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
   },
+  // Faithful-enough fake: substitutes tokens from vars (escaping fidelity is
+  // pinned by the real helper's own unit suite).
+  renderMessageValue: (m: string, vars: Record<string, string>) =>
+    m.replace(/\{\{(\w+)\}\}/g, (_, k) => String(vars[k] ?? "")),
   renderTemplatePlain: (s: string, vars: Record<string, string>) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? ""),
   wrapWithBranding: (html: string) => html,
   inlineCss: (html: string) => html,
@@ -112,6 +116,57 @@ describe("email-preview with speakerId", () => {
     mockDb.speaker.findFirst.mockResolvedValue(null);
     const res = await POST(req({ slug: "speaker-invitation", speakerId: "foreign" }), params);
     expect(res.status).toBe(404);
+  });
+
+  it("a token TYPED INTO THE COMPOSE BOX resolves in preview like the send — the 'moderator block not rendering in preview' fix (July 30)", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "sp1", title: "DR", firstName: "Ahmed", lastName: "Osman", email: "osman@x.com" });
+    mockCtx.mockResolvedValue({
+      title: "Dr.", speakerName: "Dr. Ahmed Osman",
+      jobTitle: "", speakerOrganization: "", speakerCountry: "",
+      sessionTitles: "", topicTitles: "", sessionDateTime: "", trackNames: "", role: "Moderator",
+      presentationDetails: "", presentationDetailsText: "",
+      moderatorDetails: "<table>MOD-RUNSHEET</table>", moderatorDetailsText: "MOD-RUNSHEET",
+    });
+    // Template renders the typed message via {{personalMessage}} — the shape
+    // where the bug bit: the token inside the message stayed literal.
+    const { getEventTemplate } = await import("@/lib/email");
+    (getEventTemplate as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      subject: "Invitation",
+      htmlContent: "<p>{{personalMessage}}</p>",
+      textContent: "",
+      branding: { eventName: "Ev" },
+    });
+
+    const res = await POST(
+      req({ slug: "speaker-invitation", speakerId: "sp1", customMessage: "Your run-sheet: {{moderatorDetails}}" }),
+      params,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json() as { htmlContent: string };
+    expect(body.htmlContent).toContain("MOD-RUNSHEET");
+    expect(body.htmlContent).not.toContain("{{moderatorDetails}}");
+  });
+
+  it("{{moderatorDetails}} IN THE TEMPLATE renders the target moderator's run-sheet", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "sp1", title: "DR", firstName: "Ahmed", lastName: "Osman", email: "osman@x.com" });
+    mockCtx.mockResolvedValue({
+      title: "Dr.", speakerName: "Dr. Ahmed Osman",
+      jobTitle: "", speakerOrganization: "", speakerCountry: "",
+      sessionTitles: "", topicTitles: "", sessionDateTime: "", trackNames: "", role: "Moderator",
+      presentationDetails: "", presentationDetailsText: "",
+      moderatorDetails: "<table>MOD-RUNSHEET</table>", moderatorDetailsText: "MOD-RUNSHEET",
+    });
+    const { getEventTemplate } = await import("@/lib/email");
+    (getEventTemplate as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      subject: "Invitation",
+      htmlContent: "<p>Dear {{speakerName}}</p>{{moderatorDetails}}",
+      textContent: "",
+      branding: { eventName: "Ev" },
+    });
+    const res = await POST(req({ slug: "speaker-invitation", speakerId: "sp1" }), params);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { htmlContent: string };
+    expect(body.htmlContent).toContain("MOD-RUNSHEET");
   });
 
   it("registrationId greets the registrant title-prefixed with their real Registration #", async () => {

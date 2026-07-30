@@ -8,6 +8,7 @@ import {
   getEventTemplate,
   renderTemplate,
   renderTemplatePlain,
+  renderMessageValue,
   wrapWithBranding,
   inlineCss,
   buildEventPreviewVariables,
@@ -237,9 +238,34 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Target speaker (when previewing from a speaker's dialog) wins over the
     // sample/signed-in-user greeting and the representative speaker's blocks.
-    const mergedVars = { ...sampleVars, ...speakerVars };
+    const mergedVars: Record<string, string | number> = { ...sampleVars, ...speakerVars };
 
-    const renderedBody = renderTemplate(eventTemplate.htmlContent, mergedVars);
+    // Tokens typed into the compose box must resolve in the PREVIEW exactly
+    // like the send (the single-send route's renderMessageValue contract —
+    // July 16, 2026): {{personalMessage}} renders the typed message raw,
+    // {{message}} escapes its literal text, and substituted raw-key values
+    // ({{moderatorDetails}}, {{presentationDetails}}, {{organizerSignature}})
+    // stay raw HTML. Before this, a token typed into the message previewed as
+    // literal text while the send resolved it — organizer-reported July 29
+    // as "moderator block not rendering in preview".
+    const previewRawHtmlKeys = new Set([
+      "presentationDetails",
+      "moderatorDetails",
+      "organizerSignature",
+      "personalMessage",
+      "message",
+    ]);
+    if (customMessage) {
+      mergedVars.personalMessage = renderMessageValue(customMessage, mergedVars, {
+        isHtml: true,
+        rawHtmlKeys: previewRawHtmlKeys,
+      });
+      mergedVars.message = renderMessageValue(customMessage, mergedVars, {
+        rawHtmlKeys: previewRawHtmlKeys,
+      });
+    }
+
+    const renderedBody = renderTemplate(eventTemplate.htmlContent, mergedVars, previewRawHtmlKeys);
     // A typed subject previews as the subject — before this it was ignored
     // unless the template's own subject happened to contain {{subject}}
     // (review R2 M7). Tokens typed into it resolve, matching the send.
