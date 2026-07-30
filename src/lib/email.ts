@@ -1282,6 +1282,17 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "managementLink", description: "Abstract management link" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
+  "session-proposal-confirmation": [
+    { key: "title", description: "Proposer title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
+    { key: "firstName", description: "Proposer first name" },
+    { key: "lastName", description: "Proposer last name" },
+    { key: "eventName", description: "Event name" },
+    { key: "proposalTitle", description: "Session proposal title" },
+    { key: "proposalTheme", description: "Proposal theme name — blank if none" },
+    { key: "proposalFormat", description: "Proposed session format (e.g. Session, Workshop, Symposium) — blank if not set" },
+    { key: "managementLink", description: "Login link to view the proposal" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
+  ],
   "abstract-status-update": [
     { key: "title", description: "Submitter title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
     { key: "firstName", description: "Speaker first name" },
@@ -1707,6 +1718,49 @@ Submission Details:
 View Your Abstract: {{managementLink}}
 
 Important: Save this email! The link above is your personal access link to manage your submission.
+
+{{organizerSignature}}`,
+  },
+
+  {
+    slug: "session-proposal-confirmation",
+    name: "Session Proposal Confirmation",
+    subject: "Session Proposal Received - {{eventName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Session Proposal Received!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
+    <p>Thank you for proposing a session for <strong>{{eventName}}</strong>. Your proposal has been received and the organizing team will review it.</p>
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Proposal Details</h3>
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 8px 0; color: #6b7280;">Title:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalTitle}}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Theme:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalTheme}}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Format:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalFormat}}</td></tr>
+      </table>
+    </div>
+    <p>You can view your proposal any time using the link below:</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="{{managementLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">View Your Proposal</a>
+    </div>
+    <p>The organizing team will contact you about the next steps.</p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Session Proposal Received - {{eventName}}
+
+Dear {{title}} {{lastName}},
+
+Thank you for proposing a session for {{eventName}}. Your proposal has been received and the organizing team will review it.
+
+Proposal Details:
+- Title: {{proposalTitle}}
+- Theme: {{proposalTheme}}
+- Format: {{proposalFormat}}
+
+View Your Proposal: {{managementLink}}
+
+The organizing team will contact you about the next steps.
 
 {{organizerSignature}}`,
   },
@@ -2758,6 +2812,9 @@ export function getSamplePreviewVariables(
     // attachment only) — it renders as nothing everywhere, previews included.
     agreementAttachment: "",
     abstractTitle: "Sample Abstract Title",
+    proposalTitle: "Sample Session Proposal Title",
+    proposalTheme: "Interventional Cardiology",
+    proposalFormat: "Workshop",
     presentationType: "Oral",
     theme: "Cardiology",
     authorName: "Dr. Jane Doe",

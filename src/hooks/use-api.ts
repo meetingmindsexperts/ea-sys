@@ -57,6 +57,8 @@ export const queryKeys = {
   tracks: (eventId: string) => ["events", eventId, "tracks"] as const,
   abstracts: (eventId: string) => ["events", eventId, "abstracts"] as const,
   abstractThemes: (eventId: string) => ["events", eventId, "abstract-themes"] as const,
+  sessionProposals: (eventId: string) => ["events", eventId, "session-proposals"] as const,
+  sessionProposalThemes: (eventId: string) => ["events", eventId, "session-proposal-themes"] as const,
   reviewCriteria: (eventId: string) => ["events", eventId, "review-criteria"] as const,
   eventMedia: (eventId: string) => ["events", eventId, "media"] as const,
   hotels: (eventId: string) => ["events", eventId, "hotels"] as const,
@@ -1414,6 +1416,107 @@ export function useDeleteAbstractTheme(eventId: string) {
       fetchApi(`/api/events/${eventId}/abstract-themes/${themeId}`, { method: "DELETE" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.abstractThemes(eventId) });
+    },
+  });
+}
+
+// ============ SESSION PROPOSALS ============
+
+export function useSessionProposals(eventId: string) {
+  return useEventListQuery<any[]>(eventId, queryKeys.sessionProposals(eventId), "session-proposals");
+}
+
+export function useCreateSessionProposal(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      speakerId: string;
+      title: string;
+      description: string;
+      themeId?: string;
+      proposedFormat?: string;
+      durationMinutes?: number;
+      status?: "DRAFT" | "SUBMITTED";
+    }) =>
+      fetchApi(`/api/events/${eventId}/session-proposals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposals(eventId) });
+    },
+  });
+}
+
+export function useUpdateSessionProposal(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ proposalId, ...data }: { proposalId: string } & Record<string, unknown>) =>
+      fetchApi(`/api/events/${eventId}/session-proposals/${proposalId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposals(eventId) });
+    },
+  });
+}
+
+export function useDeleteSessionProposal(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (proposalId: string) =>
+      fetchApi(`/api/events/${eventId}/session-proposals/${proposalId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposals(eventId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposalThemes(eventId) });
+    },
+  });
+}
+
+export function useSessionProposalThemes(eventId: string) {
+  return useEventListQuery<any[]>(eventId, queryKeys.sessionProposalThemes(eventId), "session-proposal-themes");
+}
+
+export function useCreateSessionProposalTheme(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { name: string; sortOrder?: number }) =>
+      fetchApi(`/api/events/${eventId}/session-proposal-themes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposalThemes(eventId) });
+    },
+  });
+}
+
+export function useUpdateSessionProposalTheme(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ themeId, ...data }: { themeId: string; name?: string; sortOrder?: number }) =>
+      fetchApi(`/api/events/${eventId}/session-proposal-themes/${themeId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposalThemes(eventId) });
+    },
+  });
+}
+
+export function useDeleteSessionProposalTheme(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (themeId: string) =>
+      fetchApi(`/api/events/${eventId}/session-proposal-themes/${themeId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposalThemes(eventId) });
     },
   });
 }

@@ -43,21 +43,21 @@ model Organization {
   tenantDomains   TenantDomain[]
 
   // CRM module — see docs/CRM_MODULE_PLAN.md
-  crmCompanies      CrmCompany[]
-  crmContacts       CrmContact[]
-  crmPipelineStages CrmPipelineStage[]
-  crmDealTypes      CrmDealType[]
-  crmDeals          CrmDeal[]
-  crmTasks          CrmTask[]
-  crmNotes          CrmNote[]
-  crmActivities     CrmActivity[]
-  crmNotifications  CrmNotification[]
-  crmDealDocuments  CrmDealDocument[]
-  crmEmailTemplates CrmEmailTemplate[]
-  crmProducts       CrmProduct[]
-  crmEmailThreads   CrmEmailThread[]
+  crmCompanies       CrmCompany[]
+  crmContacts        CrmContact[]
+  crmPipelineStages  CrmPipelineStage[]
+  crmDealTypes       CrmDealType[]
+  crmDeals           CrmDeal[]
+  crmTasks           CrmTask[]
+  crmNotes           CrmNote[]
+  crmActivities      CrmActivity[]
+  crmNotifications   CrmNotification[]
+  crmDealDocuments   CrmDealDocument[]
+  crmEmailTemplates  CrmEmailTemplate[]
+  crmProducts        CrmProduct[]
+  crmEmailThreads    CrmEmailThread[]
   crmEmailSendClaims CrmEmailSendClaim[]
-  loginEvents       LoginEvent[]
+  loginEvents        LoginEvent[]
 }
 
 // Host → organization mapping for multi-tenant routing (Phase 0 spine —
@@ -133,17 +133,17 @@ model User {
 
   // CRM module — all SetNull on user delete, so removing a team member never
   // destroys deal/task/note history AND never blocks the delete. See CrmDeal.
-  ownedCrmDeals    CrmDeal[] @relation("CrmDealOwner")
-  ownedCrmContacts CrmContact[] @relation("CrmContactOwner")
-  ownedCrmTasks    CrmTask[] @relation("CrmTaskOwner")
-  authoredCrmNotes CrmNote[] @relation("CrmNoteAuthor")
-  crmActivities    CrmActivity[] @relation("CrmActivityActor")
-  uploadedCrmDealDocuments CrmDealDocument[] @relation("CrmDealDocumentUploader")
-  crmNotifications CrmNotification[] @relation("CrmNotificationRecipient")
+  ownedCrmDeals            CrmDeal[]          @relation("CrmDealOwner")
+  ownedCrmContacts         CrmContact[]       @relation("CrmContactOwner")
+  ownedCrmTasks            CrmTask[]          @relation("CrmTaskOwner")
+  authoredCrmNotes         CrmNote[]          @relation("CrmNoteAuthor")
+  crmActivities            CrmActivity[]      @relation("CrmActivityActor")
+  uploadedCrmDealDocuments CrmDealDocument[]  @relation("CrmDealDocumentUploader")
+  crmNotifications         CrmNotification[]  @relation("CrmNotificationRecipient")
   createdCrmEmailTemplates CrmEmailTemplate[] @relation("CrmEmailTemplateCreator")
-  createdCrmProducts CrmProduct[] @relation("CrmProductCreator")
-  sentCrmEmailMessages CrmEmailMessage[] @relation("CrmEmailMessageSender")
-  uploadedSpeakerDocuments SpeakerDocument[] @relation("SpeakerDocumentUploader")
+  createdCrmProducts       CrmProduct[]       @relation("CrmProductCreator")
+  sentCrmEmailMessages     CrmEmailMessage[]  @relation("CrmEmailMessageSender")
+  uploadedSpeakerDocuments SpeakerDocument[]  @relation("SpeakerDocumentUploader")
   loginEvents              LoginEvent[]
 
   @@index([organizationId])
@@ -235,67 +235,67 @@ enum AttendeeRole {
 }
 
 model Event {
-  id                           String      @id @default(cuid())
-  organizationId               String
-  name                         String
-  slug                         String
-  description                  String?     @db.Text
-  startDate                    DateTime
-  endDate                      DateTime
-  timezone                     String      @default("Asia/Dubai")
-  venue                        String?
-  address                      String?
-  city                         String?
-  country                      String?
-  eventType                    EventType?
-  tag                          String?
-  specialty                    String?
-  code                         String?
+  id                               String      @id @default(cuid())
+  organizationId                   String
+  name                             String
+  slug                             String
+  description                      String?     @db.Text
+  startDate                        DateTime
+  endDate                          DateTime
+  timezone                         String      @default("Asia/Dubai")
+  venue                            String?
+  address                          String?
+  city                             String?
+  country                          String?
+  eventType                        EventType?
+  tag                              String?
+  specialty                        String?
+  code                             String?
   // Dubai (DET/DTCM) compliance: when true, the per-registration DTCM
   // barcode field is surfaced for this event. DTCM barcodes are a Dubai
   // tourism requirement and are NOT applicable to Abu Dhabi / Fujairah /
   // Al Ain / non-UAE events — organizer ticks this only for Dubai events.
   // It does NOT make DTCM the entry barcode (that's always qrCode); it
   // only controls visibility of the separate DTCM field.
-  requiresDtcmBarcode          Boolean     @default(false)
-  status                       EventStatus @default(DRAFT)
-  settings                     Json        @default("{}")
-  bannerImage                  String?
+  requiresDtcmBarcode              Boolean     @default(false)
+  status                           EventStatus @default(DRAFT)
+  settings                         Json        @default("{}")
+  bannerImage                      String?
   // Optional phone banner (art-direction). When set it renders on screens
   // below 576px via a <picture> source; `bannerImage` shows at 576px and above.
   // Recommended ~700x300 (main banner ~1400x300). Null => the main banner is
   // used at every breakpoint.
-  bannerImageMobile            String?
-  footerHtml                   String?     @db.Text
-  emailHeaderImage             String?
+  bannerImageMobile                String?
+  footerHtml                       String?     @db.Text
+  emailHeaderImage                 String?
   // Responsive logo / sign-off image rendered at the very bottom of
   // every event email body (below the optional emailFooterHtml).
   // Same responsive treatment as emailHeaderImage — width="600"
   // attribute + max-width:600px CSS so Outlook desktop and modern
   // clients both render at the email-body width.
-  emailFooterImage             String?
-  emailFooterHtml              String?     @db.Text
-  emailFromAddress             String?
-  emailFromName                String?
+  emailFooterImage                 String?
+  emailFooterHtml                  String?     @db.Text
+  emailFromAddress                 String?
+  emailFromName                    String?
   // Addresses CC'd on every event-scoped email — both automated
   // (registration confirmation, speaker invite, abstract status,
   // bulk email, scheduled email) and manual single-sends from the
   // detail sheets. Empty array = no auto-CC.
-  emailCcAddresses             String[]    @default([])
-  supportEmail                 String?
-  registrationTermsHtml        String?     @db.Text
-  registrationWelcomeHtml      String?     @db.Text
-  abstractWelcomeHtml          String?     @db.Text
-  abstractGuidelinesHtml       String?     @db.Text
-  abstractTermsHtml            String?     @db.Text
-  abstractConfirmationHtml     String?     @db.Text
-  registrationConfirmationHtml String?     @db.Text
-  speakerAgreementHtml         String?     @db.Text
+  emailCcAddresses                 String[]    @default([])
+  supportEmail                     String?
+  registrationTermsHtml            String?     @db.Text
+  registrationWelcomeHtml          String?     @db.Text
+  abstractWelcomeHtml              String?     @db.Text
+  abstractGuidelinesHtml           String?     @db.Text
+  abstractTermsHtml                String?     @db.Text
+  abstractConfirmationHtml         String?     @db.Text
+  registrationConfirmationHtml     String?     @db.Text
+  speakerAgreementHtml             String?     @db.Text
   /// Organizer-authored rich-text intro shown at the top of the public
   /// survey form (Tiptap WYSIWYG, sanitized on render). Null = use the
   /// default intro copy.
-  surveyIntroHtml              String?     @db.Text
-  speakerAgreementTemplate     Json?
+  surveyIntroHtml                  String?     @db.Text
+  speakerAgreementTemplate         Json?
   /// Letterhead images for the generated agreement PDFs (the inline
   /// HTML→PDF paths only — an uploaded .docx speaker template carries its
   /// own branding). Full-page-width banners drawn at the top/bottom of
@@ -314,7 +314,7 @@ model Event {
   /// builder + the public form, so changing it mid-collection is
   /// allowed but care must be taken not to invalidate in-flight
   /// responses (answer linkage is by question.id, not array index).
-  surveyConfig                 Json?
+  surveyConfig                     Json?
   /// Organizer-generated reusable shareable survey link. Null when no
   /// link is active. Shape: `{ token, expiresAt, createdAt,
   /// createdByUserId }` — see `src/lib/survey/share-link.ts` for the
@@ -323,16 +323,16 @@ model Event {
   /// a valid registrant email is still required to submit, so this only
   /// gates reaching the form. Lookup is slug-scoped (the public URL
   /// carries the slug), so no global token index is needed.
-  surveyShareLink              Json?
-  taxRate                      Decimal?    @db.Decimal(5, 2)
-  taxLabel                     String?     @default("VAT")
-  bankDetails                  String?     @db.Text
-  badgeVerticalOffset          Int         @default(0)
+  surveyShareLink                  Json?
+  taxRate                          Decimal?    @db.Decimal(5, 2)
+  taxLabel                         String?     @default("VAT")
+  bankDetails                      String?     @db.Text
+  badgeVerticalOffset              Int         @default(0)
   // Event-wide attendee cap (July 24, 2026). Null = unlimited. Deliberately
   // NOT seeded from the legacy (never-enforced) `settings.maxAttendees` JSON
   // key — silently activating a forgotten number could block a live event's
   // registration; organizers re-enter the cap deliberately in Settings.
-  maxAttendees                 Int?
+  maxAttendees                     Int?
   // The enforcement counter for maxAttendees — mirrors TicketType.soldCount.
   // Counts registrations that hold a ticket/tier seat (non-CANCELLED +
   // IN_PERSON + not a speaker companion; see seatCounter() in
@@ -341,7 +341,7 @@ model Event {
   // can't compare seatCount < maxAttendees column-to-column); RECOMPUTED from
   // row-truth inside the same tx whenever an organizer sets/changes
   // maxAttendees, so pre-cap drift self-heals at the moment a cap goes live.
-  seatCount                    Int         @default(0)
+  seatCount                        Int         @default(0)
   // CME / CPD hours awarded for attending this event. Read by the CME
   // certificate template. Decimal(4,1) allows fractional hours up to
   // 999.9 — accreditors routinely award half-hour increments.
@@ -354,11 +354,11 @@ model Event {
   // settings-blob pattern (settings.zoom, settings.sponsors,
   // settings.webinar). Design-approval flag for cert templates lives
   // in `settings.cme.designApprovedBy` + `designApprovedAt`.
-  cmeHours                     Decimal?    @db.Decimal(4, 1)
-  externalId                   String?
-  externalSource               String?
-  createdAt                    DateTime    @default(now())
-  updatedAt                    DateTime    @updatedAt
+  cmeHours                         Decimal?    @db.Decimal(4, 1)
+  externalId                       String?
+  externalSource                   String?
+  createdAt                        DateTime    @default(now())
+  updatedAt                        DateTime    @updatedAt
 
   organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   ticketTypes    TicketType[]
@@ -372,6 +372,9 @@ model Event {
   abstractThemes AbstractTheme[]
   reviewCriteria ReviewCriterion[]
   auditLogs      AuditLog[]
+
+  sessionProposals      SessionProposal[]
+  sessionProposalThemes SessionProposalTheme[]
 
   importLogs                ImportLog[]
   emailTemplates            EmailTemplate[]
@@ -1214,6 +1217,7 @@ model Speaker {
   certificateIssueRunItems CertificateIssueRunItem[]
   documents                SpeakerDocument[]
   reimbursement            SpeakerReimbursement?
+  sessionProposals         SessionProposal[]
 
   @@unique([eventId, email])
   @@index([eventId])
@@ -1347,6 +1351,71 @@ model AbstractTheme {
 
   event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
   abstracts Abstract[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+}
+
+// ── Session proposals (July 30, 2026) ───────────────────────────────────────
+// "Abstracts-shaped but for proposing SESSIONS" — deliberately a SEPARATE
+// model family (no kind-discriminator on Abstract): Abstract carries review
+// machinery (reviewers/submissions/criteria/decisions) that proposals must
+// not inherit. v1 is an organizer INBOX only — no review, no accept/reject
+// (enum leaves additive room). See docs/SESSION_PROPOSALS_PLAN.md.
+
+enum SessionProposalStatus {
+  DRAFT
+  SUBMITTED
+  WITHDRAWN
+  // v2 room (add additively when a review workflow lands):
+  // UNDER_REVIEW, ACCEPTED, REJECTED
+}
+
+model SessionProposal {
+  id              String       @id @default(cuid())
+  eventId         String
+  // Denormalized tenant key, stamped at create — born multi-tenant-ready
+  // (LoginEvent/HelpChatQuery convention). App-level org scoping is
+  // defence #1; the program-domain RLS sweep picks this up later.
+  organizationId  String?
+  // The proposer's Speaker facet (SUBMITTER-account linkage, like Abstract).
+  speakerId       String
+  title           String
+  description     String       @db.Text
+  themeId         String?
+  // Program kinds only (SESSION/WORKSHOP/SYMPOSIUM) — validated in the app
+  // via SESSION_TYPE_KIND. Reusing SessionType keeps a future
+  // convert-to-session pre-fill free.
+  proposedFormat  SessionType?
+  durationMinutes Int?
+
+  status      SessionProposalStatus @default(SUBMITTED)
+  submittedAt DateTime?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  event   Event                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker Speaker               @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  theme   SessionProposalTheme? @relation(fields: [themeId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, status])
+  @@index([organizationId])
+  @@index([speakerId])
+}
+
+// Proposal themes are the event's OWN list (owner: "same like abstract it
+// has its own themes") — mirrors AbstractTheme, never shared with it.
+model SessionProposalTheme {
+  id             String   @id @default(cuid())
+  eventId        String
+  organizationId String?
+  name           String
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event     Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  proposals SessionProposal[]
 
   @@unique([eventId, name])
   @@index([eventId])
@@ -2143,10 +2212,10 @@ model WebinarPoll {
   // Denormalized tenant key (2 hops from Event via ZoomMeeting) — see ZoomMeeting.
   organizationId String?
   zoomPollId     String? // Zoom's poll id (nullable for imported/legacy rows)
-  title         String
-  questions     Json     @default("[]") // [{ name, question_type, answer_details?: [] }]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  title          String
+  questions      Json     @default("[]") // [{ name, question_type, answer_details?: [] }]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   zoomMeeting ZoomMeeting           @relation(fields: [zoomMeetingId], references: [id], onDelete: Cascade)
   responses   WebinarPollResponse[]
@@ -3000,13 +3069,13 @@ model CrmProduct {
   organizationId String
   org            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  name     String
-  sku      String?
-  category String
-  source   CrmProductSource @default(IN_HOUSE)
-  price    Decimal          @default(0) @db.Decimal(12, 2)
-  currency String           @default("AED")
-  priceIncludesTax Boolean  @default(false)
+  name             String
+  sku              String?
+  category         String
+  source           CrmProductSource @default(IN_HOUSE)
+  price            Decimal          @default(0) @db.Decimal(12, 2)
+  currency         String           @default("AED")
+  priceIncludesTax Boolean          @default(false)
 
   sortOrder  Int       @default(0)
   archivedAt DateTime?
@@ -3032,7 +3101,7 @@ model CrmProduct {
 /// (pre-filled from the catalog list price). name/category/sku are snapshotted at
 /// add-time so a later catalog edit never rewrites a deal's line.
 model CrmDealProduct {
-  id     String  @id @default(cuid())
+  id             String  @id @default(cuid())
   // Multi-tenant prep (July 23, 2026): junction rows carry the org directly so a
   // future RLS policy is a cheap single-column predicate instead of a join through
   // the parent deal. Nullable ONLY for blue-green safety on the shared prod DB
@@ -3210,8 +3279,8 @@ model CrmEmailMessage {
   htmlBody  String? @db.Text
 
   /// RFC Message-ID of this message (threading headers for the reply composer).
-  messageId  String?
-  inReplyTo  String?
+  messageId         String?
+  inReplyTo         String?
   /// Outbound: provider (SES) message id. Inbound: S3 key of the raw MIME.
   /// s3Key is UNIQUE (review H2): it's the idempotency key for the inbound
   /// drain, so two racing ticks can't both file the same email (the loser hits
@@ -3221,10 +3290,10 @@ model CrmEmailMessage {
 
   /// Inbound only: [{ filename, size, mimeType, path }] under the private
   /// crm-email-attachments upload prefix (blocked on the public /uploads route).
-  attachments Json?
+  attachments      Json?
   /// SES receipt verdicts (inbound): "PASS"/"FAIL"/etc. — FAIL is quarantined
   /// before it ever gets a row, so this is informational.
-  spamVerdict String?
+  spamVerdict      String?
   /// Inbound only (review H1): true when the sender could not be verified
   /// against the thread's counterparty (domain mismatch / DMARC fail). The
   /// message is stored + shown with a warning badge, but the auto-forward to
@@ -3276,7 +3345,6 @@ model CrmCompany {
   deals    CrmDeal[]
   tasks    CrmTask[]
   notes_   CrmNote[]
-
 
   /// External-system provenance (Freshsales CSV import). `externalId` is the
   /// source system's record id — the upsert key that makes RE-importing a fresh
@@ -3463,7 +3531,6 @@ model CrmDeal {
   products     CrmDealProduct[]
   documents    CrmDealDocument[]
   emailThreads CrmEmailThread[]
-
 
   /// External-system provenance (Freshsales CSV import). `externalId` is the
   /// source system's record id — the upsert key that makes RE-importing a fresh
@@ -3688,7 +3755,6 @@ model CrmContact {
   tasks        CrmTask[]
   crmNotes     CrmNote[]
   emailThreads CrmEmailThread[]
-
 
   /// External-system provenance (Freshsales CSV import). `externalId` is the
   /// source system's record id — the upsert key that makes RE-importing a fresh

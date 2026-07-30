@@ -38,6 +38,7 @@ import {
   BookOpen,
   Cpu,
   Handshake,
+  Lightbulb,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canViewFinance } from "@/lib/finance-visibility";
@@ -134,6 +135,7 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
     label: "Abstracts",
     items: [
       { name: "Abstracts", href: "/abstracts", icon: FileText },
+      { name: "Session Proposals", href: "/session-proposals", icon: Lightbulb },
       { name: "Reviewers", href: "/reviewers", icon: UserCheck },
     ],
   },
@@ -229,7 +231,9 @@ export function Sidebar() {
         ...navigation.filter((item) => ["Events"].includes(item.name)),
       ]
     : navigation.filter((item) => ["Events"].includes(item.name));
-  const restrictedEventItems = eventNavigation.filter((item) => ["Abstracts"].includes(item.name));
+  const restrictedEventItems = eventNavigation.filter((item) =>
+    ["Abstracts", "Session Proposals"].includes(item.name),
+  );
   // ONSITE (registration-desk) sees only the events list + a chosen event's
   // Registrations + Check-In. Everything else is hidden here and redirected by
   // the middleware.

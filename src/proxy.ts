@@ -227,9 +227,16 @@ export default auth((req) => {
   }
 
   const eventSubPath = eventPath[1] ?? "";
-  const isAbstractsPath = eventSubPath === "abstracts" || eventSubPath.startsWith("abstracts/");
+  // SUBMITTER/REVIEWER event surface: abstracts, plus session proposals
+  // (July 30, 2026 — SUBMITTER accounts also propose sessions; REVIEWER has
+  // no proposal API access, the page just renders empty for them).
+  const isSubmitterAllowedPath =
+    eventSubPath === "abstracts" ||
+    eventSubPath.startsWith("abstracts/") ||
+    eventSubPath === "session-proposals" ||
+    eventSubPath.startsWith("session-proposals/");
 
-  if (isAbstractsPath) {
+  if (isSubmitterAllowedPath) {
     return addCorsHeaders(NextResponse.next(), origin);
   }
 

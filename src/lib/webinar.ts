@@ -3,6 +3,7 @@ export const WEBINAR_HIDDEN_MODULES = [
   "Check-In",
   "Promo Codes",
   "Abstracts",
+  "Session Proposals",
   "Reviewers",
 ] as const;
 
