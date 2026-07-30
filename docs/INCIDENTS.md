@@ -54,14 +54,13 @@ pg_restore --no-owner --no-privileges -d "$DIRECT_URL" /tmp/recovery.dump   # 1 
 ```
 **Validate the dump in a scratch Postgres first** (`sudo -u ubuntu bash scripts/dr-restore-drill.sh`) — it restores the latest dump into a throwaway container and prints row counts, with **zero** risk to prod. We did this before touching prod.
 
-### Prevention / action items (OPEN)
-1. **Rotate the prod DB password NOW.** Every developer `.env` still holding the prod `DIRECT_URL` is a loaded gun. Rotating it (Supabase → Database → Reset password) instantly disarms every local copy. Then re-set it on the box `.env` + CI secrets only. **Highest priority.**
-2. **Give local dev its own database — un-defer the dev-DB-separation plan.** This incident is exactly the failure mode that plan exists to prevent. No developer `.env` should ever contain the prod URL. (Was deferred "until the new hire"; this is the forcing function.)
-3. **Guard the destructive Prisma scripts.** Add an npm preflight that refuses `prisma db push` / `migrate reset` when the target host/URL resolves to the prod project ref (`nifaqvgnfwddgsusxapy`) — a one-file check that would have hard-stopped this command.
-4. **Enable Supabase PITR.** Would cut RPO from ~55 min to seconds and give a rollback independent of the 2 h DR dump cadence. (Previously deferred on cost; re-evaluate — this incident had real, unrecoverable data loss.)
-5. **Restrict distribution of the prod `DIRECT_URL`** to the box + CI/deploy only.
-6. **Pull Supabase Postgres logs** around 08:5x UTC to identify the source IP/person (the only record of "who").
-7. Consider an automatic `pg_dump` immediately *before* any migration/schema op, and/or a tighter DR cadence.
+### Prevention / action items
+1. **Rotate the prod DB password.** ⏳ **OPEN (owner).** Every dev `.env` that ever held the prod `DIRECT_URL` is a loaded gun; the plaintext prod password is also still in `.env.prod` on the dev machine. Rotating it (Supabase → Database → Reset password) instantly disarms every copy. Then re-set it on the box `.env` + CI/Vercel secrets + `.env.prod`. **Highest remaining priority.**
+2. **Give local dev its own database.** ✅ **SHIPPED (2026-07-30).** New `postgres-prod-local` service (`postgres:17`, `localhost:54322`, persistent volume, db `ea_sys_prod_local`) in `docker-compose.yml`; **`npm run db:refresh`** ([scripts/dev-db-refresh.sh](../scripts/dev-db-refresh.sh)) restores the latest Singapore DR dump into it (realistic prod-like data locally + doubles as a restore drill). The dev machine's `.env` / `.env.local` now point at `localhost:54322`; the only prod copy left is `.env.prod`, read solely by the deliberate read-only **`npm run prod:psql`** ([scripts/prod-psql.sh](../scripts/prod-psql.sh)). A `prisma db push` from a dev machine now hits the local DB, not prod.
+3. **Guard the destructive Prisma commands.** ✅ **SHIPPED (2026-07-30).** Two layers: (a) a runtime fail-fast in [src/lib/db.ts](../src/lib/db.ts) (`assertNotProdDbOutsideProduction`) that **throws at startup** if `DATABASE_URL`/`DIRECT_URL` resolve to the prod project ref and `NODE_ENV !== "production"` — covers the app + every `tsx` script (inert on the box, where `NODE_ENV=production`); (b) an npm preflight [scripts/guard-db-target.sh](../scripts/guard-db-target.sh) on `db:push` / `db:reset` that refuses when the target is prod. `DANGEROUSLY_ALLOW_PROD_DB=1` / `ALLOW_PROD_DB=1` are the deliberate overrides. Note: a *direct* `npx prisma db push` still bypasses the npm preflight — the real protection there is that prod creds are no longer in the files Prisma auto-reads (item 2), and rotating the password (item 1) is the ultimate backstop.
+4. **Enable Supabase PITR.** ⏳ **OPEN.** Would cut RPO from ~55 min to seconds and give a rollback independent of the 2 h DR dump cadence. (Previously deferred on cost; re-evaluate — this incident had real, unrecoverable data loss.)
+5. **Pull Supabase Postgres logs** around 08:5x UTC to identify the source IP/person (the only record of "who"). ⏳ **OPEN (owner — needs the Supabase dashboard).**
+6. Consider an automatic `pg_dump` immediately *before* any migration/schema op, and/or a tighter DR cadence. ⏳ OPEN.
 
 ---
 

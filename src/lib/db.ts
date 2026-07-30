@@ -122,7 +122,40 @@ const CONNECTIVITY_OUTAGE_CATEGORIES = new Set([
 const CONNECTIVITY_ALERT_THROTTLE_MS = 5 * 60 * 1000; // in-memory, per-process
 let lastConnectivityAlertAt = 0;
 
+/** Master production Supabase project ref — the one DB we must never touch from dev. */
+const PROD_DB_MARKER = "nifaqvgnfwddgsusxapy";
+
+/**
+ * INC-002 guard (2026-07-30). A local `prisma db push --force-reset` run against
+ * the production DB (because a dev `.env` pointed DATABASE_URL/DIRECT_URL at prod)
+ * WIPED production — full data-loss SEV-1 (see docs/INCIDENTS.md INC-002).
+ *
+ * The production database must never be the ACTIVE connection outside a real
+ * production runtime. If DATABASE_URL/DIRECT_URL point at the master prod project
+ * and we are NOT `NODE_ENV=production`, refuse to create a client and fail LOUD at
+ * startup — this blocks the app AND every `tsx`/script that imports this module
+ * from reading or mutating prod by accident. On the box `NODE_ENV=production`, so
+ * this is completely inert in prod. `DANGEROUSLY_ALLOW_PROD_DB=1` is the explicit,
+ * deliberate escape hatch (you almost never should).
+ */
+function assertNotProdDbOutsideProduction() {
+  if (process.env.NODE_ENV === "production") return;
+  if (process.env.DANGEROUSLY_ALLOW_PROD_DB === "1") return;
+  const urls = [process.env.DATABASE_URL, process.env.DIRECT_URL].filter(
+    (u): u is string => typeof u === "string" && u.length > 0,
+  );
+  if (!urls.some((u) => u.includes(PROD_DB_MARKER))) return;
+  throw new Error(
+    `[INC-002 guard] Refusing to connect: DATABASE_URL/DIRECT_URL point at the PRODUCTION ` +
+      `database (Supabase project ${PROD_DB_MARKER}) while NODE_ENV=${process.env.NODE_ENV ?? "undefined"} ` +
+      `(not "production"). Point your .env / .env.local at the local dev DB — ` +
+      `\`docker compose up -d postgres-prod-local && npm run db:refresh\` — or set ` +
+      `DANGEROUSLY_ALLOW_PROD_DB=1 to override on purpose. See docs/INCIDENTS.md INC-002.`,
+  );
+}
+
 function createPrismaClient() {
+  assertNotProdDbOutsideProduction();
   const client = new PrismaClient({
     // Only log errors - remove query logging to keep console clean
     log: [

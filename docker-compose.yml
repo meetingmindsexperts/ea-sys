@@ -23,20 +23,26 @@ services:
     depends_on:
       - mailhog
 
-  # Uncomment to use local PostgreSQL instead of Supabase
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: ea-sys-db
-  #   ports:
-  #     - "5432:5432"
-  #   environment:
-  #     POSTGRES_USER: postgres
-  #     POSTGRES_PASSWORD: postgres
-  #     POSTGRES_DB: easys
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   networks:
-  #     - ea-network
+  # Local dev database — a PERSISTENT, 100%-LOCAL copy of prod. Seed it from the
+  # latest Singapore DR dump with `npm run db:refresh`. This is the daily-driver
+  # dev DB: `.env` / `.env.local` point at localhost:54322 so a `prisma db push`
+  # / `migrate reset` can NEVER reach prod again (the cause of INC-002 — see
+  # docs/INCIDENTS.md). postgres:17 (NOT 16) to match the PG17 DR dumps we
+  # restore. Distinct from the ephemeral, profile-gated tenancy/crm test DBs.
+  postgres-prod-local:
+    image: postgres:17-alpine
+    container_name: ea-sys-prod-local
+    restart: unless-stopped
+    ports:
+      - "54322:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ea_sys_prod_local
+    volumes:
+      - prod_local_pgdata:/var/lib/postgresql/data
+    networks:
+      - ea-network
 
   # Tenant-isolation harness DB (multi-tenancy Phase 0): real Postgres +
   # pgbouncer in TRANSACTION pool mode, mirroring the Supabase prod topology.
@@ -120,6 +126,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  prod_local_pgdata:
 
 networks:
   ea-network:
