@@ -63,7 +63,8 @@ import {
   Ticket,
 } from "lucide-react";
 import { formatDate, formatPersonName } from "@/lib/utils";
-import { queryKeys, usePreviewEmailBySlug, useEventSpeakerTags, useEvent } from "@/hooks/use-api";
+import { queryKeys, usePreviewEmailBySlug, useEventSpeakerTags, useEvent, useEmailTemplates } from "@/hooks/use-api";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
 import { EmailAttachmentPicker } from "@/components/email/email-attachment-picker";
@@ -193,7 +194,8 @@ export function SpeakerDetailSheet({
 
   // Email dialog state
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
-  const [emailType, setEmailType] = useState<"invitation" | "agreement" | "custom">("invitation");
+  const [emailType, setEmailType] = useState<"invitation" | "agreement" | "custom" | "template">("invitation");
+  const [selectedTemplateSlug, setSelectedTemplateSlug] = useState("");
   const [customEmailSubject, setCustomEmailSubject] = useState("");
   const [customEmailMessage, setCustomEmailMessage] = useState("");
   const [invitationFiles, setInvitationFiles] = useState<File[]>([]);
@@ -208,6 +210,13 @@ export function SpeakerDetailSheet({
   const previewMutation = usePreviewEmailBySlug(eventId);
   // Existing speaker tags for the in-sheet edit autocomplete.
   const speakerTagsQuery = useEventSpeakerTags(eventId);
+  // Active custom templates for the "Send Saved Template" option (July 31,
+  // 2026 — single-send parity with the bulk dialog's saved-template picks).
+  const { data: emailTemplatesData } = useEmailTemplates(eventId);
+  const savedTemplates = (
+    (emailTemplatesData as { templates?: Array<{ slug: string; name: string; isActive: boolean }> } | undefined)
+      ?.templates ?? []
+  ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
 
   const handlePreviewEmail = async () => {
     const slugMap: Record<string, string> = {
@@ -215,9 +224,13 @@ export function SpeakerDetailSheet({
       agreement: "speaker-agreement",
       custom: "custom-notification",
     };
+    if (emailType === "template" && !selectedTemplateSlug) {
+      toast.error("Pick a saved template first");
+      return;
+    }
     try {
       const result = await previewMutation.mutateAsync({
-        slug: slugMap[emailType],
+        slug: emailType === "template" ? selectedTemplateSlug : slugMap[emailType],
         // Preview greets THIS speaker with THEIR sessions, matching the send.
         speakerId: speakerId ?? undefined,
         customSubject: emailType === "custom" ? customEmailSubject.trim() || undefined : undefined,
@@ -404,6 +417,10 @@ export function SpeakerDetailSheet({
 
   const handleSendEmail = async () => {
     if (!speaker || sendingEmail) return;
+    if (emailType === "template" && !selectedTemplateSlug) {
+      toast.error("Pick a saved template first");
+      return;
+    }
     if (emailType === "custom" && (!customEmailSubject || !customEmailMessage)) {
       toast.error("Please provide subject and message");
       return;
@@ -434,6 +451,7 @@ export function SpeakerDetailSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: emailType,
+          templateSlug: emailType === "template" ? selectedTemplateSlug : undefined,
           customSubject: customEmailSubject || undefined,
           customMessage: customEmailMessage || undefined,
           includeAgreementLink: emailType === "agreement",
@@ -554,6 +572,9 @@ export function SpeakerDetailSheet({
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => { setEmailType("agreement"); setEmailDialogOpen(true); }}>
                             <FileText className="mr-2 h-4 w-4" /> Speaker Agreement
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { setEmailType("template"); setEmailDialogOpen(true); }}>
+                            <Mail className="mr-2 h-4 w-4" /> Send Saved Template
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => { setEmailType("custom"); setEmailDialogOpen(true); }}>
                             <Send className="mr-2 h-4 w-4" /> Custom Email
@@ -967,6 +988,7 @@ export function SpeakerDetailSheet({
                 {emailType === "invitation" && "Send Speaker Invitation"}
                 {emailType === "agreement" && "Send Speaker Agreement"}
                 {emailType === "custom" && "Send Custom Email"}
+                {emailType === "template" && "Send Saved Template"}
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
@@ -991,6 +1013,34 @@ export function SpeakerDetailSheet({
                 <p className="text-sm text-muted-foreground">
                   This will send a speaker agreement email with event details, session information, and agreement terms.
                 </p>
+              )}
+              {emailType === "template" && (
+                <div className="space-y-2">
+                  <Label>Saved template</Label>
+                  {savedTemplates.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No active saved templates yet — create one under Communications → Email
+                      Templates.
+                    </p>
+                  ) : (
+                    <Select value={selectedTemplateSlug} onValueChange={setSelectedTemplateSlug}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a template" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {savedTemplates.map((t) => (
+                          <SelectItem key={t.slug} value={t.slug}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Sends the template with this speaker&apos;s own details filled in
+                    (presentation/moderation blocks, agreement tokens, signature).
+                  </p>
+                </div>
               )}
               {emailType === "custom" && (
                 <>

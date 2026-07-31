@@ -26,7 +26,14 @@ import { validateManualAttachments } from "@/lib/email-attachments";
 import { MAX_MANUAL_ATTACHMENTS } from "@/lib/email-attachment-limits";
 
 const sendEmailSchema = z.object({
-  type: z.enum(["invitation", "agreement", "custom"]),
+  // "template" (July 31, 2026) sends one of the event's SAVED templates
+  // (Communications → Email Templates) to this speaker — the single-send
+  // parity of the bulk dialog's "Your saved template" option, which
+  // organizers couldn't reach when emailing one person.
+  type: z.enum(["invitation", "agreement", "custom", "template"]),
+  // Required when type === "template" (enforced below — Zod refine can't see
+  // across fields cleanly here without restructuring the schema).
+  templateSlug: z.string().min(1).max(200).optional(),
   customSubject: z.string().optional(),
   customMessage: z.string().optional(),
   includeAgreementLink: z.boolean().optional(),
@@ -119,7 +126,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { type, customSubject, customMessage, includeAgreementLink, bcc, bccSelf } = validated.data;
+    const { type, templateSlug, customSubject, customMessage, includeAgreementLink, bcc, bccSelf } = validated.data;
+
+    if (type === "template" && !templateSlug) {
+      apiLogger.warn({ msg: "events/speakers/email:template-slug-missing", eventId, speakerId });
+      return NextResponse.json(
+        { error: "templateSlug is required for template sends", code: "TEMPLATE_SLUG_REQUIRED" },
+        { status: 400 },
+      );
+    }
 
     // Validate operator-picked attachments (PDF/DOC/DOCX, ≤3 files, ≤10 MB
     // total, magic-byte checked). These merge into whatever the chosen email
@@ -213,8 +228,29 @@ export async function POST(req: Request, { params }: RouteParams) {
       vars.message = customMessage;
     }
 
-    const tpl = await getEventTemplate(eventId, slugMap[type]) || getDefaultTemplate(slugMap[type]);
+    // "template" type resolves the SAVED template by slug — getEventTemplate
+    // returns the row only when ACTIVE, and a custom slug has no system
+    // default, so a deactivated/deleted template hard-fails with a clear 400
+    // (never silently falls back to a different email — the bulk pipeline's
+    // semantics). System slugs keep their default fallback.
+    const effectiveSlug = type === "template" ? (templateSlug as string) : slugMap[type];
+    const tpl = await getEventTemplate(eventId, effectiveSlug) || getDefaultTemplate(effectiveSlug);
     if (!tpl) {
+      if (type === "template") {
+        apiLogger.warn({
+          msg: "events/speakers/email:template-not-available",
+          eventId,
+          speakerId,
+          templateSlug: effectiveSlug,
+        });
+        return NextResponse.json(
+          {
+            error: "That saved template is no longer available (deactivated or deleted).",
+            code: "TEMPLATE_NOT_AVAILABLE",
+          },
+          { status: 400 },
+        );
+      }
       return NextResponse.json({ error: "Email template not found" }, { status: 500 });
     }
 
@@ -381,7 +417,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         eventId,
         entityType: "SPEAKER",
         entityId: speakerId,
-        templateSlug: `speaker-${type}`,
+        // Template sends record the ACTUAL slug so Email History shows which
+        // saved template went out, not a generic "speaker-template".
+        templateSlug: type === "template" ? effectiveSlug : `speaker-${type}`,
         triggeredByUserId: session.user.id,
       },
     });
@@ -405,6 +443,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           entityId: speaker.id,
           changes: {
             emailType: type,
+            ...(type === "template" ? { templateSlug: effectiveSlug } : {}),
             recipient: speaker.email,
             subject: rendered.subject,
             attachmentCount: attachments.length,

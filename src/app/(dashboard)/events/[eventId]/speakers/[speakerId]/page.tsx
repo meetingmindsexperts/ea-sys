@@ -67,7 +67,8 @@ import { RegistrationTypeSelect } from "@/components/ui/registration-type-select
 import { TagInput } from "@/components/ui/tag-input";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { usePreviewEmailBySlug, useEventSpeakerTags, useEvent } from "@/hooks/use-api";
+import { usePreviewEmailBySlug, useEventSpeakerTags, useEvent, useEmailTemplates } from "@/hooks/use-api";
+import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { SESSION_ROLE_COLORS, formatSessionRole } from "@/lib/session-enums";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "@/lib/event-time";
 import { EmailPreviewDialog } from "@/components/email-preview-dialog";
@@ -201,7 +202,11 @@ export default function SpeakerDetailPage() {
     },
   });
   const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
-  const [emailType, setEmailType] = useState<"invitation" | "agreement" | "custom">("invitation");
+  const [emailType, setEmailType] = useState<"invitation" | "agreement" | "custom" | "template">("invitation");
+  // Saved-template single-send (July 31, 2026): the active custom templates
+  // (Communications → Email Templates) are pickable here, like the bulk
+  // dialog's "Your saved template" option.
+  const [selectedTemplateSlug, setSelectedTemplateSlug] = useState("");
   const [customEmailSubject, setCustomEmailSubject] = useState("");
   const [customEmailMessage, setCustomEmailMessage] = useState("");
   const [invitationFiles, setInvitationFiles] = useState<File[]>([]);
@@ -216,6 +221,12 @@ export default function SpeakerDetailPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
   const previewMutation = usePreviewEmailBySlug(eventId);
+  // Active custom templates for the "Send Saved Template" option.
+  const { data: emailTemplatesData } = useEmailTemplates(eventId);
+  const savedTemplates = (
+    (emailTemplatesData as { templates?: Array<{ slug: string; name: string; isActive: boolean }> } | undefined)
+      ?.templates ?? []
+  ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
   // Existing tags for the in-page edit autocomplete.
   const speakerTagsQuery = useEventSpeakerTags(eventId);
   // Event timezone — session times on this page render in the EVENT's clock
@@ -234,9 +245,13 @@ export default function SpeakerDetailPage() {
       agreement: "speaker-agreement",
       custom: "custom-notification",
     };
+    if (emailType === "template" && !selectedTemplateSlug) {
+      toast.error("Pick a saved template first");
+      return;
+    }
     try {
       const result = await previewMutation.mutateAsync({
-        slug: slugMap[emailType],
+        slug: emailType === "template" ? selectedTemplateSlug : slugMap[emailType],
         customSubject: emailType === "custom" ? customEmailSubject.trim() || undefined : undefined,
         customMessage: emailType === "custom" ? customEmailMessage.trim() || undefined : undefined,
         // Preview greets THIS speaker with THEIR sessions, matching the send.
@@ -492,6 +507,10 @@ export default function SpeakerDetailPage() {
 
   const handleSendEmail = async () => {
     if (sendingEmail) return;
+    if (emailType === "template" && !selectedTemplateSlug) {
+      toast.error("Pick a saved template first");
+      return;
+    }
     if (emailType === "custom" && (!customEmailSubject || !customEmailMessage)) {
       toast.error("Please provide subject and message");
       return;
@@ -522,6 +541,7 @@ export default function SpeakerDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: emailType,
+          templateSlug: emailType === "template" ? selectedTemplateSlug : undefined,
           customSubject: customEmailSubject || undefined,
           customMessage: customEmailMessage || undefined,
           includeAgreementLink: emailType === "agreement",
@@ -621,6 +641,9 @@ export default function SpeakerDetailPage() {
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => { setEmailType("agreement"); setIsEmailDialogOpen(true); }}>
                         <FileText className="mr-2 h-4 w-4" /> Speaker Agreement
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => { setEmailType("template"); setIsEmailDialogOpen(true); }}>
+                        <Mail className="mr-2 h-4 w-4" /> Send Saved Template
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => { setEmailType("custom"); setIsEmailDialogOpen(true); }}>
                         <Send className="mr-2 h-4 w-4" /> Custom Email
@@ -1353,6 +1376,7 @@ export default function SpeakerDetailPage() {
               {emailType === "invitation" && "Send Speaker Invitation"}
               {emailType === "agreement" && "Send Speaker Agreement"}
               {emailType === "custom" && "Send Custom Email"}
+              {emailType === "template" && "Send Saved Template"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1387,6 +1411,34 @@ export default function SpeakerDetailPage() {
                 and agreement terms. Re-sending issues a fresh link and{" "}
                 <strong>replaces any previously sent agreement link</strong>.
               </p>
+            )}
+            {emailType === "template" && (
+              <div className="space-y-2">
+                <Label>Saved template</Label>
+                {savedTemplates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No active saved templates yet — create one under Communications → Email
+                    Templates.
+                  </p>
+                ) : (
+                  <Select value={selectedTemplateSlug} onValueChange={setSelectedTemplateSlug}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {savedTemplates.map((t) => (
+                        <SelectItem key={t.slug} value={t.slug}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Sends the template with this speaker&apos;s own details filled in
+                  (presentation/moderation blocks, agreement tokens, signature).
+                </p>
+              </div>
             )}
             {emailType === "custom" && (
               <>
