@@ -32,6 +32,23 @@
  *
  * Dry-run first, ALWAYS. Read the diff before you write. These are live capacity
  * counters — a wrong correction oversells a real hotel.
+ *
+ * MULTI-TENANCY (platform cutover — read before running on the RLS-enabled
+ * platform instance): this script is org-BLIND by design — it recomputes GLOBAL
+ * row-truth across every RoomType, and it uses its OWN `new PrismaClient()`
+ * (below), NOT the app's tenant-scoped `db` from `@/lib/db`. That is correct FOR
+ * A RECONCILER: it must see all rows regardless of org. But once the platform
+ * turns on Row-Level Security, HOW it connects matters:
+ *   - Run it via the OWNER / DIRECT connection (the role that BYPASSES RLS) so it
+ *     sees every tenant's rows — the intended behavior. This is the default when
+ *     DATABASE_URL points at the owner role.
+ *   - If it ever runs as the non-owner app role with RLS enforced and NO
+ *     `app.current_org` set, the policy hides every row → it silently recomputes
+ *     NOTHING (fail-closed, harmless but useless) — do NOT mistake a clean "0
+ *     drift" run in that state for a healthy DB.
+ * On master (single-org, RLS off) none of this applies — it just works. Tracked
+ * on the platform-cutover checklist alongside the other org-blind workers/scripts
+ * (docs/MULTI_TENANCY.md).
  */
 import { PrismaClient } from "@prisma/client";
 import { holdsRoom } from "../src/lib/accommodation-rooms";
