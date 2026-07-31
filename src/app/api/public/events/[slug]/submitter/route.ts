@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -100,6 +101,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = event.organizationId;
+    return await runWithTenant(orgId, async () => {
     const body = await req.json();
     const validated = registerSchema.safeParse(body);
 
@@ -191,7 +195,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const passwordHash = await bcrypt.hash(data.password, 10);
 
     // Create user + speaker in a transaction
-    await db.$transaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       let user: { id: string };
 
       const clientIpForTerms = getClientIp(req);
@@ -234,6 +238,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // absent title/registrationType → undefined → left unchanged on update).
       await upsertEventSpeaker(tx, {
         eventId: event.id,
+        organizationId: event.organizationId,
         email: emailLower,
         userId: user.id,
         overwriteExisting: true,
@@ -375,6 +380,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({
       success: true,
       message: "Account created successfully. Please log in to submit your abstract.",
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating submitter account" });

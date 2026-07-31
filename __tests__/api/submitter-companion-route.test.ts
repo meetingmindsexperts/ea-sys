@@ -33,7 +33,13 @@ vi.mock("next/server", () => ({
     json: (body: unknown, init?: { status?: number }) => ({ status: init?.status ?? 200, json: async () => body }),
   },
 }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // Speaker sweep: upsertEventSpeaker now runs through tenantTransaction (was
+  // db.$transaction); delegate to the SAME passthrough so existing assertions hold.
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (c: unknown, o?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/security", () => ({
   checkRateLimit: () => ({ allowed: true, retryAfterSeconds: 0 }),

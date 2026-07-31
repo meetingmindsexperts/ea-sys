@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildSpeakerActivity } from "@/lib/activity-feed";
 import { canViewFinance } from "@/lib/finance-visibility";
@@ -41,6 +42,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return denied;
     }
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = session.user.organizationId ?? "";
+    return await runWithTenant(orgId, async () => {
     // Role-scoped event access (404 to avoid existence leak).
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
@@ -71,6 +75,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       canViewFinance(session.user.role),
     );
     return NextResponse.json({ items, linked });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error loading speaker activity timeline" });
     return NextResponse.json({ error: "Failed to load activity" }, { status: 500 });

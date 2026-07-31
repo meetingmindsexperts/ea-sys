@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
@@ -28,6 +29,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const validated = importSchema.safeParse(body);
     if (!validated.success) {
       apiLogger.warn({ msg: "events/speakers/import-contacts:zod-validation-failed", errors: validated.error.flatten() });
@@ -67,6 +71,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       await db.speaker.createMany({
         data: toCreate.map((c) => ({
           eventId,
+          organizationId: orgGuard.orgId, // multi-tenancy: Speaker sweep
           title: c.title ?? undefined,
           email: c.email,
           firstName: c.firstName,
@@ -123,6 +128,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ created: toCreate.length, skipped });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing contacts as speakers" });
     return NextResponse.json({ error: "Failed to import contacts" }, { status: 500 });

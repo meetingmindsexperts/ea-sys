@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -79,6 +80,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const [event, speaker] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
@@ -155,6 +159,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(speaker);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching speaker" });
     return NextResponse.json(
@@ -177,6 +182,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     // AUTHORIZATION stays here (the service takes `organizationId` on trust and
     // binds the speaker to {id, eventId} — it does not re-check that the event
     // belongs to the caller's org). 404, not 403, to avoid existence leaks.
@@ -279,6 +287,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // `companionCascade` tells the UI what happened to the companion
     // registration on a decline (cancelled / kept / real-registration / …).
     return NextResponse.json(companionCascade ? { ...speaker, companionCascade } : speaker);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating speaker" });
     return NextResponse.json(
@@ -301,6 +310,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const [event, speaker] = await Promise.all([
       db.event.findFirst({
         where: {
@@ -345,7 +357,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // while RoomType.bookedRooms kept counting it forever. Release the room in
     // the same transaction as the delete. No-op when the speaker has no booking
     // (or it's already cancelled).
-    await db.$transaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       await releaseRoomForDeletedPerson(tx, { speakerId });
       await tx.speaker.delete({ where: { id: speakerId } });
     });
@@ -408,6 +420,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting speaker" });
     return NextResponse.json(

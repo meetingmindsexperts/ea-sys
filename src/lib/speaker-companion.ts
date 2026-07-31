@@ -313,13 +313,14 @@ export async function upsertEventSpeaker(
   tx: Prisma.TransactionClient,
   args: {
     eventId: string;
+    organizationId: string;
     email: string;
     userId: string;
     profile: EventSpeakerProfile;
     overwriteExisting: boolean;
   },
 ): Promise<string> {
-  const { eventId, email, userId, profile, overwriteExisting } = args;
+  const { eventId, organizationId, email, userId, profile, overwriteExisting } = args;
 
   const existing = await tx.speaker.findUnique({
     where: { eventId_email: { eventId, email } },
@@ -369,6 +370,7 @@ export async function upsertEventSpeaker(
   const created = await tx.speaker.create({
     data: {
       eventId,
+      organizationId, // multi-tenancy: denormalized org (Speaker sweep)
       userId,
       email,
       title: profile.title ?? null,

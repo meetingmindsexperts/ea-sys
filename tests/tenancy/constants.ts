@@ -134,6 +134,25 @@ export const PROMO_LINK_A_ID = "tenancy-pcl-a";
 export const PROMO_LINK_B_ID = "tenancy-pcl-b";
 
 /**
+ * Speaker domain sweep (Phase 2). Speaker is @@unique([eventId, email]) — a
+ * per-event uniqueness — so BOTH orgs hold a speaker on the SAME email string
+ * (different events), proving an unscoped by-email lookup is lane-scoped (the
+ * ticketing shared-code shape). Plus a B-only speaker for cross-tenant-miss.
+ * SpeakerDocument (2-hop via speakerId → Speaker) has no unique-value field;
+ * each org's speaker gets one document, proving the 2-hop backfill is
+ * independently lane-scoped. Speaker cascades from Event (org cascade reaches
+ * it) and SpeakerDocument from Speaker — no explicit teardown needed.
+ */
+export const SHARED_SPEAKER_EMAIL = "shared.speaker@tenancy.test";
+export const SPEAKER_A_ID = "tenancy-sp-a";
+export const SPEAKER_B_ID = "tenancy-sp-b";
+export const SPEAKER_DOC_A_ID = "tenancy-spdoc-a";
+export const SPEAKER_DOC_B_ID = "tenancy-spdoc-b";
+
+export const ORG_B_ONLY_SPEAKER_EMAIL = "only.in.b.speaker@tenancy.test";
+export const SPEAKER_B_ONLY_ID = "tenancy-sp-b-only";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

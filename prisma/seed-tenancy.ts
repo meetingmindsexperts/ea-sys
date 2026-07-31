@@ -63,6 +63,13 @@ import {
   PROMO_REDEMPTION_B_ID,
   PROMO_LINK_A_ID,
   PROMO_LINK_B_ID,
+  SHARED_SPEAKER_EMAIL,
+  SPEAKER_A_ID,
+  SPEAKER_B_ID,
+  SPEAKER_DOC_A_ID,
+  SPEAKER_DOC_B_ID,
+  ORG_B_ONLY_SPEAKER_EMAIL,
+  SPEAKER_B_ONLY_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -135,6 +142,7 @@ async function seedOrg(
     };
   },
   crmContacts: { id: string; emailKey: string }[] = [],
+  speakers: { id: string; email: string; docId: string; eventId: string }[] = [],
 ) {
   await db.organization.create({
     data: {
@@ -340,6 +348,33 @@ async function seedOrg(
       });
     }
   }
+  // Speaker sweep fixtures. Speaker cascades from Event (org cascade reaches
+  // it); SpeakerDocument cascades from Speaker — no explicit teardown needed.
+  // Both userId + sourceRegistrationId left null (independent speakers).
+  for (const sp of speakers) {
+    await db.speaker.create({
+      data: {
+        id: sp.id,
+        eventId: sp.eventId,
+        organizationId: orgId,
+        email: sp.email,
+        firstName: "Tenancy",
+        lastName: `Speaker ${sp.id}`,
+      },
+    });
+    await db.speakerDocument.create({
+      data: {
+        id: sp.docId,
+        speakerId: sp.id,
+        organizationId: orgId,
+        kind: "SIGNED_AGREEMENT",
+        url: `/uploads/speaker-docs/${sp.eventId}/${sp.docId}.pdf`,
+        filename: "signed-agreement.pdf",
+        mimeType: "application/pdf",
+        size: 2048,
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -528,6 +563,7 @@ async function main() {
       },
     },
     [{ id: CRM_CT_A_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY }],
+    [{ id: SPEAKER_A_ID, email: SHARED_SPEAKER_EMAIL, docId: SPEAKER_DOC_A_ID, eventId: EVENT_A_SHARED_ID }],
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -597,6 +633,10 @@ async function main() {
     [
       { id: CRM_CT_B_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY },
       { id: CRM_CT_B_ONLY_ID, emailKey: ORG_B_ONLY_CRM_EMAIL_KEY },
+    ],
+    [
+      { id: SPEAKER_B_ID, email: SHARED_SPEAKER_EMAIL, docId: SPEAKER_DOC_B_ID, eventId: EVENT_B_SHARED_ID },
+      { id: SPEAKER_B_ONLY_ID, email: ORG_B_ONLY_SPEAKER_EMAIL, docId: "tenancy-spdoc-b-only", eventId: EVENT_B_SHARED_ID },
     ],
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

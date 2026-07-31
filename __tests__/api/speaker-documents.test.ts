@@ -42,7 +42,13 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // Speaker sweep: the route now runs its write through tenantTransaction (was
+  // db.$transaction); delegate to the SAME passthrough so existing assertions hold.
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (c: unknown, o?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));

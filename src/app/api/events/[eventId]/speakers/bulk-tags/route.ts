@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -35,6 +36,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
@@ -118,6 +122,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       .catch((err) => apiLogger.error({ err, msg: "Failed to write speaker bulk-tags audit log" }));
 
     return NextResponse.json({ updated: results.length, speakers: results });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error bulk-updating speaker tags" });
     return NextResponse.json({ error: "Failed to update tags" }, { status: 500 });

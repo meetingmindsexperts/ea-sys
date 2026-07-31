@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
@@ -69,6 +70,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const emailLimit = checkRateLimit({
       key: `speaker-email:${session.user.id}`,
       limit: 200,
@@ -420,6 +424,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       message: `Email sent to ${speaker.email}`,
       messageId: result.messageId,
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error sending speaker email" });
     return NextResponse.json(
@@ -452,6 +457,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const changeLimit = checkRateLimit({
       key: `email-change:${session.user.id}`,
       limit: 30,
@@ -622,6 +630,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       userCascaded: Boolean(speaker.userId),
       contactAction: result.contactAction,
       companionSynced: result.companionSynced,
+    });
     });
   } catch (error) {
     // P2002 — race between collision check and transaction commit.

@@ -52,6 +52,7 @@ SWEPT_ROUTE_DIRS=(
   "src/app/api/invoices"          # Invoice sweep — org-wide hub + export (July 27, 2026)
   "src/app/api/media"             # MediaFile route wiring — org-level list/upload/delete (July 27, 2026)
   "src/app/api/crm"               # CRM full-domain sweep — all 42 CRM routes (July 29, 2026)
+  "src/app/api/events/[eventId]/speakers"  # Speaker sweep — the whole speakers/** route family (July 30, 2026)
 )
 # Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
@@ -144,6 +145,16 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/tickets/[ticketId]/tiers/[tierId]/route.ts"            # Ticketing (July 30, 2026)
   "src/app/api/events/[eventId]/promo-codes/route.ts"                                  # Ticketing (July 30, 2026)
   "src/app/api/events/[eventId]/promo-codes/[promoCodeId]/route.ts"                    # Ticketing (July 30, 2026)
+  # Speaker sweep (July 30, 2026) — the CSV speaker importer (not under speakers/)
+  # + the speaker-facing PUBLIC routes (org via publicEventWhere → event.organizationId).
+  # (reviewers/route.ts got a narrow cross-domain speaker.update wrap but is NOT
+  # gated here — it's an abstracts/reviewer route, gated when that domain is swept;
+  # organization/users/[userId]'s speaker.updateMany is cross-org BY DESIGN — no wrap.)
+  "src/app/api/events/[eventId]/import/speakers/route.ts"                              # Speaker (July 30, 2026)
+  "src/app/api/public/events/[slug]/speaker-agreement/route.ts"                        # Speaker (July 30, 2026)
+  "src/app/api/public/events/[slug]/presenter-agreement/route.ts"                      # Speaker (July 30, 2026)
+  "src/app/api/public/events/[slug]/submitter/route.ts"                                # Speaker (July 30, 2026)
+  "src/app/api/public/events/[slug]/abstract-start/route.ts"                           # Speaker (July 30, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
@@ -169,6 +180,8 @@ SWEPT_MODULES=(
   # Ticketing follow-on sweep (July 30, 2026) — the promo-code MCP executors.
   # (create_ticket_type lives in the already-swept agent/tools/registrations.ts.)
   "src/lib/agent/tools/promo-codes.ts"      # promo-code agent / MCP executors (July 30, 2026)
+  # Speaker sweep (July 30, 2026) — the speaker MCP executors.
+  "src/lib/agent/tools/speakers.ts"         # speaker agent / MCP executors (July 30, 2026)
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't

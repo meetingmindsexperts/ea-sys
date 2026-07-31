@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { normalizeTag } from "@/lib/utils";
@@ -40,6 +41,8 @@ const BULK_MAX = 100;
 
 const listSpeakers: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const limit = Math.min(Number(input.limit ?? 50), 200);
     const statusValue = input.status ? String(input.status) : undefined;
     if (statusValue && !SPEAKER_STATUSES.has(statusValue)) {
@@ -82,6 +85,7 @@ const listSpeakers: ToolExecutor = async (input, ctx) => {
       orderBy: { createdAt: "desc" },
     });
     return { speakers, total: speakers.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_speakers failed");
     return { error: "Failed to fetch speakers" };
@@ -90,6 +94,8 @@ const listSpeakers: ToolExecutor = async (input, ctx) => {
 
 const createSpeakerTool: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const email = String(input.email ?? "").trim().toLowerCase();
     const firstName = String(input.firstName ?? "").trim();
     const lastName = String(input.lastName ?? "").trim();
@@ -168,6 +174,7 @@ const createSpeakerTool: ToolExecutor = async (input, ctx) => {
         status: result.speaker.status,
       },
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_speaker failed");
     return { error: "Failed to create speaker" };
@@ -176,6 +183,8 @@ const createSpeakerTool: ToolExecutor = async (input, ctx) => {
 
 const listSpeakerAgreements: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const filter = input.filter ? String(input.filter) : "unsigned";
     if (!["signed", "unsigned", "all"].includes(filter)) {
       return { error: `Invalid filter. Must be: signed, unsigned, or all` };
@@ -210,6 +219,7 @@ const listSpeakerAgreements: ToolExecutor = async (input, ctx) => {
     });
 
     return { filter, speakers, total: speakers.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_speaker_agreements failed");
     return { error: "Failed to list speaker agreements" };
@@ -219,6 +229,8 @@ const listSpeakerAgreements: ToolExecutor = async (input, ctx) => {
 
 const updateSpeaker: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const speakerId = String(input.speakerId ?? "").trim();
     if (!speakerId) return { error: "speakerId is required" };
 
@@ -336,6 +348,7 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
         },
       }),
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:update_speaker failed");
     return { error: err instanceof Error ? err.message : "Failed to update speaker" };
@@ -351,6 +364,8 @@ const updateSpeaker: ToolExecutor = async (input, ctx) => {
 // enforced identically to the dashboard route.
 const uploadSpeakerAgreementTemplate: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     // Same per-user 10/hr bucket as the dashboard upload route so this tool
     // can't be used to bypass that quota.
     const UPLOAD_LIMIT = 10;
@@ -436,6 +451,7 @@ const uploadSpeakerAgreementTemplate: ToolExecutor = async (input, ctx) => {
       }
       throw err;
     }
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:upload_speaker_agreement_template failed");
     return {
@@ -448,6 +464,8 @@ const uploadSpeakerAgreementTemplate: ToolExecutor = async (input, ctx) => {
 
 const getSpeakerAgreementTemplate: ToolExecutor = async (_input, ctx) => {
   try {
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const event = await db.event.findFirst({
       where: { id: ctx.eventId, organizationId: ctx.organizationId },
       select: { speakerAgreementTemplate: true },
@@ -455,6 +473,7 @@ const getSpeakerAgreementTemplate: ToolExecutor = async (_input, ctx) => {
     if (!event) return { error: "Event not found or access denied" };
 
     return { template: event.speakerAgreementTemplate ?? null };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:get_speaker_agreement_template failed");
     return { error: "Failed to fetch speaker agreement template" };
@@ -463,6 +482,8 @@ const getSpeakerAgreementTemplate: ToolExecutor = async (_input, ctx) => {
 
 const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    return await runWithTenant(ctx.organizationId, async () => {
     const items = Array.isArray(input.speakers) ? (input.speakers as unknown[]) : null;
     if (!items || !items.length) return { error: "speakers must be a non-empty array", code: "MISSING_SPEAKERS" };
     if (items.length > BULK_MAX) {
@@ -528,6 +549,7 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
         const speaker = await db.speaker.create({
           data: {
             eventId: ctx.eventId,
+            organizationId: ctx.organizationId, // multi-tenancy: Speaker sweep
             email,
             firstName,
             lastName,
@@ -638,6 +660,7 @@ const createSpeakersBulk: ToolExecutor = async (input, ctx) => {
       created,
       errors,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_speakers_bulk failed");
     return { error: err instanceof Error ? err.message : "Failed to bulk-create speakers" };

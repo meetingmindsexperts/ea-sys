@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -63,12 +64,15 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: await publicEventWhere(req, slug, { allowIdFallback: true }),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = event.organizationId;
+    return await runWithTenant(orgId, async () => {
     const user = await db.user.findUnique({
       where: { email: emailLower },
       select: { id: true, role: true, passwordHash: true, firstName: true, lastName: true, termsAcceptedAt: true },
@@ -106,7 +110,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const lastName = att?.lastName || user.lastName || "";
 
     let speakerId = "";
-    await db.$transaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       if (wasRegistrant) {
         await tx.user.update({
           where: { id: user.id },
@@ -121,6 +125,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // don't clobber an existing profile (overwriteExisting: false).
       speakerId = await upsertEventSpeaker(tx, {
         eventId: event.id,
+        organizationId: event.organizationId,
         email: emailLower,
         userId: user.id,
         overwriteExisting: false,
@@ -172,6 +177,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "public/abstract-start:ready", eventId: event.id, email: emailLower, wasRegistrant });
     return NextResponse.json({ ok: true, eventId: event.id, wasRegistrant });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "abstract-start failed" });
     return NextResponse.json({ error: "Something went wrong" }, { status: 500 });

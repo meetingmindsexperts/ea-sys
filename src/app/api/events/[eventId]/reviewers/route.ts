@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { updateEventSettings } from "@/lib/event-settings";
@@ -35,6 +36,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const [event, speakers] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -119,6 +123,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const response = NextResponse.json({ reviewers, availableSpeakers });
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching reviewers" });
     return NextResponse.json(
@@ -141,6 +146,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const validated = addReviewerSchema.safeParse(body);
     if (!validated.success) {
         apiLogger.warn({ msg: "events/reviewers:zod-validation-failed", errors: validated.error.flatten() });
@@ -323,6 +331,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
       { status: 201 }
     );
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error adding reviewer" });
     return NextResponse.json(

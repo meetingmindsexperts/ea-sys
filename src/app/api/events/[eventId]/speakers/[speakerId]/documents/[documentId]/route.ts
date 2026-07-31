@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -22,6 +23,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = session.user.organizationId ?? "";
+    return await runWithTenant(orgId, async () => {
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
@@ -71,6 +75,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "speaker-documents:deleted", eventId, speakerId, documentId, userId: session.user.id });
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting speaker document" });
     return NextResponse.json({ error: "Failed to delete document" }, { status: 500 });

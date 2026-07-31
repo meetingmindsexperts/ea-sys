@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant } from "@/lib/public-event";
+import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import {
@@ -69,6 +71,12 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const { speakerId } = tokenResult;
 
+    // Tenancy sweep: resolve the tenant org from the request HOST (the un-swept
+    // TenantDomain lookup) BEFORE reading the now-RLS'd Speaker — otherwise the
+    // read fail-closes to null on the platform. Passthrough on master; the
+    // eventMatchesRequestTenant check below stays the master-side tenant gate.
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     const speaker = await db.speaker.findFirst({
       where: { id: speakerId },
       select: {
@@ -134,6 +142,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       },
       agreementHtml: resolved.html,
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error validating presenter agreement token" });
     return NextResponse.json({ error: "Failed to load agreement" }, { status: 500 });
@@ -175,6 +184,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { speakerId, hashedToken } = tokenResult;
 
+    // Tenancy sweep: resolve the tenant org from the request HOST before the
+    // RLS'd Speaker read (see the GET handler). Passthrough on master.
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     const speaker = await db.speaker.findFirst({
       where: { id: speakerId },
       select: {
@@ -221,8 +234,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const acceptedAt = new Date();
 
-    await db.$transaction([
-      db.speaker.update({
+    // tenantTransaction (not the array form): a plain db.$transaction can't
+    // carry SET LOCAL onto its own pooled backend → writes fail-close under
+    // platform RLS. Passthrough on master.
+    await tenantTransaction(async (tx) => {
+      await tx.speaker.update({
         where: { id: speaker.id },
         data: {
           presenterAgreementAcceptedAt: acceptedAt,
@@ -230,9 +246,9 @@ export async function POST(req: Request, { params }: RouteParams) {
           presenterAgreementTextSnapshot: resolved.html,
           presenterAgreementAcceptedBy: "PRESENTER",
         },
-      }),
-      db.verificationToken.delete({ where: { token: hashedToken } }),
-    ]);
+      });
+      await tx.verificationToken.delete({ where: { token: hashedToken } });
+    });
 
     db.auditLog
       .create({
@@ -251,6 +267,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Presenter agreement accepted", speakerId: speaker.id, eventId: speaker.event.id, ip: clientIp });
 
     return NextResponse.json({ success: true, acceptedAt });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error accepting presenter agreement" });
     return NextResponse.json({ error: "Failed to accept agreement" }, { status: 500 });

@@ -207,6 +207,7 @@ export async function createSpeaker(
     speaker = await db.speaker.create({
       data: {
         eventId,
+        organizationId, // multi-tenancy: denormalized org (Speaker sweep)
         email: normalizedEmail,
         additionalEmail: normAdditionalEmail,
         firstName,

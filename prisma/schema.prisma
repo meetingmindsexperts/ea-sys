@@ -1210,6 +1210,10 @@ model Speaker {
   // on the speaker WITHOUT duplicating it. SetNull so deleting the
   // registration leaves the speaker intact (it's a first-class entity).
   sourceRegistrationId           String?
+  // Multi-tenancy Phase 2 (Speaker sweep) — denormalized org for RLS. Nullable
+  // (additive/idempotent, no FK), backfilled 1-hop from Event. See
+  // prisma/rls/speaker.sql + migration 20260730160000.
+  organizationId                 String?
   createdAt                      DateTime      @default(now())
   updatedAt                      DateTime      @updatedAt
 
@@ -1230,6 +1234,7 @@ model Speaker {
   @@index([eventId])
   @@index([status])
   @@index([sourceRegistrationId])
+  @@index([organizationId])
 }
 
 enum SpeakerStatus {
@@ -1264,12 +1269,16 @@ model SpeakerDocument {
   mimeType     String
   size         Int
   uploadedById String?
+  // Multi-tenancy Phase 2 (Speaker sweep) — denormalized org for RLS. Nullable,
+  // backfilled 2-hop via speakerId → Speaker → Event. See prisma/rls/speaker.sql.
+  organizationId String?
   createdAt    DateTime            @default(now())
 
   speaker    Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
   uploadedBy User?   @relation("SpeakerDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([speakerId])
+  @@index([organizationId])
 }
 
 model Abstract {

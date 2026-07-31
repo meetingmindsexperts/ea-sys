@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -77,6 +78,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    // Mixed auth — API-key org, else the session user's org (org-null for a
+    // linked SUBMITTER/REGISTRANT reader).
+    const tenantOrgId = orgCtx?.organizationId ?? session?.user.organizationId ?? "";
+    return await runWithTenant(tenantOrgId, async () => {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
 
@@ -140,6 +146,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const response = NextResponse.json(speakers);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching speakers" });
     return NextResponse.json(
@@ -167,6 +174,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const validated = createSpeakerSchema.safeParse(body);
 
     if (!validated.success) {
@@ -217,6 +227,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result.speaker, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating speaker" });
     return NextResponse.json(

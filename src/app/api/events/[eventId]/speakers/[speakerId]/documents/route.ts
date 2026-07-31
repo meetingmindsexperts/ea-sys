@@ -3,7 +3,8 @@ import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -87,6 +88,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: ["MEMBER"] });
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = session.user.organizationId ?? "";
+    return await runWithTenant(orgId, async () => {
     const speaker = await loadSpeakerInEvent(session.user, eventId, speakerId);
     if (!speaker) {
       apiLogger.warn({ msg: "speaker-documents:not-found", eventId, speakerId, userId: session.user.id });
@@ -99,6 +103,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       orderBy: [{ kind: "asc" }, { createdAt: "desc" }],
     });
     return NextResponse.json({ documents });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching speaker documents" });
     return NextResponse.json({ error: "Failed to fetch documents" }, { status: 500 });
@@ -115,6 +120,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = session.user.organizationId ?? "";
+    return await runWithTenant(orgId, async () => {
     const rl = checkRateLimit({
       key: `speaker-document-upload:${session.user.id}`,
       limit: 30,
@@ -182,7 +190,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // SIGNED_AGREEMENT is one-per-speaker: replace the previous row inside
     // the transaction (the partial unique index backstops a race), then
     // unlink the replaced file best-effort after commit.
-    const { document, replacedUrl } = await db.$transaction(async (tx) => {
+    const { document, replacedUrl } = await tenantTransaction(async (tx) => {
       let replaced: string | null = null;
       if (kind === "SIGNED_AGREEMENT") {
         const previous = await tx.speakerDocument.findFirst({
@@ -197,6 +205,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const created = await tx.speakerDocument.create({
         data: {
           speakerId,
+          organizationId: session.user.organizationId, // multi-tenancy: Speaker sweep
           kind,
           url,
           filename: file.name.slice(0, 255),
@@ -240,6 +249,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "speaker-documents:uploaded", eventId, speakerId, kind, userId: session.user.id });
     return NextResponse.json({ document }, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error uploading speaker document" });
     return NextResponse.json({ error: "Failed to upload document" }, { status: 500 });

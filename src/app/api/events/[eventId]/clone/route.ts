@@ -20,6 +20,12 @@ export async function POST(
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: clone is a staff route, so the org comes from the session
+    // (no DB lookup needed). Wrap the WHOLE clone — the source `speakers`
+    // include reads the now-RLS'd Speaker table, so it must run inside the
+    // tenant store or it fail-closes on the platform; likewise the cloned rows'
+    // WITH CHECK. Passthrough on master (flag off).
+    return await runWithTenant(session.user.organizationId ?? "", async () => {
     // Fetch source event with all structural data
     const source = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
@@ -65,12 +71,10 @@ export async function POST(
 
     // Use 30s timeout — default 5s is too short on Vercel/pgbouncer when cloning
     // events with many related records (each is a sequential create).
-    // Ticketing sweep: run the clone inside the source org's tenant context so
-    // the RLS WITH CHECK on the cloned TicketType / PricingTier rows passes on
-    // the platform. tenantTransaction issues SET LOCAL app.current_org inside
-    // the tx; both are passthrough on master.
-    const newEvent = await runWithTenant(source.organizationId ?? "", () =>
-    tenantTransaction(
+    // tenantTransaction issues SET LOCAL app.current_org inside the tx (from the
+    // enclosing runWithTenant above) so the cloned TicketType / PricingTier /
+    // Speaker WITH CHECK passes on the platform; passthrough on master.
+    const newEvent = await tenantTransaction(
       async (tx) => {
         // 1. Create the event
         const event = await tx.event.create({
@@ -189,6 +193,7 @@ export async function POST(
           const created = await tx.speaker.create({
             data: {
               eventId: event.id,
+              organizationId: source.organizationId, // multi-tenancy: Speaker sweep (same-org clone)
               title: sp.title,
               email: sp.email,
               firstName: sp.firstName,
@@ -333,7 +338,6 @@ export async function POST(
         return event;
       },
       { timeout: 30000 }
-    ),
     );
 
     apiLogger.info({
@@ -347,6 +351,7 @@ export async function POST(
       { id: newEvent.id, name: newEvent.name, slug: newEvent.slug },
       { status: 201 }
     );
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error cloning event" });
     return NextResponse.json(

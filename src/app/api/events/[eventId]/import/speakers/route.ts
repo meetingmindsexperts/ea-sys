@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -33,6 +34,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
+    const orgId = orgGuard.orgId;
+    return await runWithTenant(orgId, async () => {
     const rateLimit = checkRateLimit({
       key: `import-speakers:org:${session.user.organizationId}`,
       limit: 10,
@@ -152,6 +156,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
       speakers.push({
         eventId,
+        organizationId: orgGuard.orgId, // multi-tenancy: Speaker sweep
         email,
         firstName,
         lastName,
@@ -266,6 +271,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ created, skipped, errors });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing speakers" });
     return NextResponse.json({ error: "Failed to import speakers" }, { status: 500 });
