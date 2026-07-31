@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { getStripe, isZeroDecimalCurrency } from "@/lib/stripe";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
@@ -61,6 +62,11 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { registrationId } = validated.data;
 
+    // Tenancy sweep: resolve the tenant org from the request host BEFORE the
+    // swept registration read (else it fail-closes on the platform). Passthrough
+    // on master; publicEventWhere still enforces the event/tenant match below.
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     // Look up registration with ticket and event details (event tenant-scoped)
     const registration = await db.registration.findFirst({
       where: {
@@ -85,7 +91,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    return await runWithTenant(registration.event.organizationId, async () => {
     if (!registration.ticketType) {
       // Reachable for an uncategorised row (e.g. a CSV import whose file had no
       // registrationType and no fallback was picked). Nothing is priced, so
@@ -183,6 +188,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         registrationId: registration.id,
         eventId: registration.event.id,
         eventSlug,
+        // Tenancy sweep (H-1): carry the org so the Stripe webhook can open its
+        // tenant store BEFORE reading the swept Registration (the webhook is
+        // unauthenticated — no session/host to resolve the org from).
+        organizationId: registration.event.organizationId,
       },
       success_url: successUrl,
       cancel_url: cancelUrl,

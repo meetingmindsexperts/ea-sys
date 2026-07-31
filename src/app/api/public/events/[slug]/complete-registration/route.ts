@@ -6,6 +6,7 @@ import { eventMatchesRequestTenant } from "@/lib/public-event";
 import { rateLimited } from "@/lib/api-errors";
 import { checkRateLimit, getClientIp, hashVerificationToken } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { sendRegistrationConfirmation } from "@/lib/email";
@@ -142,6 +143,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const registrationId = tokenRecord.identifier.slice(4);
 
+    // Tenancy sweep: open the tenant store BEFORE the swept Registration read
+    // (resolved from HOST — this route reads no un-swept Event first, the
+    // registration is resolved by token→id). Passthrough on master.
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     // Load registration + attendee + event
     const registration = await db.registration.findFirst({
       where: { id: registrationId, status: { notIn: ["CANCELLED"] } },
@@ -224,7 +230,6 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
-    return await runWithTenant(registration.event.organizationId, async () => {
     // Check if already completed (user account linked)
     if (registration.userId) {
       apiLogger.info({ msg: "Already-completed registration accessed via token", registrationId, email: registration.attendee.email });
@@ -343,6 +348,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const registrationId = tokenRecord.identifier.slice(4);
 
+    // Tenancy sweep: open the tenant store BEFORE the swept Registration read
+    // (resolved from HOST — the registration is resolved by token→id, no
+    // un-swept Event is read first). Passthrough on master.
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     // Load registration with only needed fields
     const registration = await db.registration.findFirst({
       where: { id: registrationId, status: { notIn: ["CANCELLED"] } },
@@ -410,7 +420,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "This link does not match the event. Please use the original link from your email." }, { status: 400 });
     }
 
-    return await runWithTenant(registration.event.organizationId, async () => {
     if (registration.userId) {
       apiLogger.info({ msg: "Completion POST on already-completed registration", registrationId, email: registration.attendee.email });
       return NextResponse.json({ error: "This registration has already been completed. You can sign in to manage your registration." }, { status: 409 });

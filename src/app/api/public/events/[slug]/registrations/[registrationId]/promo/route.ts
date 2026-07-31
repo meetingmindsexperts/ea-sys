@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import {
   applyPromoCodeToRegistration,
   removePromoCodeFromRegistration,
@@ -76,13 +77,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Tenancy sweep: open the tenant store BEFORE the swept Registration read
+    // in slugBoundRegistration (resolved from HOST — the read is host-scoped
+    // via publicEventWhere but fail-closes under RLS without a tenant store).
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     const reg = await slugBoundRegistration(req, slug, registrationId);
     if (!reg) {
       apiLogger.warn({ msg: "public/promo:registration-not-found", slug, registrationId });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    return await runWithTenant(reg.event.organizationId, async () => {
     const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) {
       apiLogger.warn({ msg: "public/promo:invalid-input", registrationId, errors: parsed.error.flatten() });
@@ -127,13 +132,16 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Tenancy sweep: open the tenant store BEFORE the swept Registration read
+    // in slugBoundRegistration (resolved from HOST — see the POST handler).
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     const reg = await slugBoundRegistration(req, slug, registrationId);
     if (!reg) {
       apiLogger.warn({ msg: "public/promo:registration-not-found", slug, registrationId });
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    return await runWithTenant(reg.event.organizationId, async () => {
     const result = await removePromoCodeFromRegistration({ registrationId, eventId: reg.eventId, source: "public" });
     if (!result.ok) {
       apiLogger.warn({ msg: "public/promo:remove-rejected", registrationId, code: result.code });

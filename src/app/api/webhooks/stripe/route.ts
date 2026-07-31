@@ -53,7 +53,12 @@ export async function POST(req: Request) {
       // confirmation email can display the same short "Registration #"
       // the user saw in their initial confirmation — gives continuity
       // instead of surfacing the internal cuid.
-      const registration = await db.registration.findUnique({
+      // Tenancy sweep (H-1): the pre-read is a swept table (Registration) and
+      // the webhook has no session/host to resolve the org from — so wrap it in
+      // the org carried on the checkout session metadata (added at checkout).
+      // Passthrough on master; the money-writes below keep their own wrap.
+      const registration = await runWithTenant(session.metadata?.organizationId ?? "", () =>
+        db.registration.findUnique({
         where: { id: registrationId },
         include: {
           attendee: { select: { firstName: true, lastName: true, email: true, additionalEmail: true, title: true } },
@@ -61,7 +66,7 @@ export async function POST(req: Request) {
           pricingTier: { select: { price: true, currency: true } },
           event: { select: { id: true, organizationId: true, name: true, slug: true, startDate: true, venue: true, city: true, taxRate: true, taxLabel: true } },
         },
-      });
+        }));
 
       if (!registration) {
         apiLogger.warn({ msg: "Stripe webhook: registration not found", registrationId, sessionId: session.id });
@@ -364,14 +369,14 @@ export async function POST(req: Request) {
     if (!registrationId) return NextResponse.json({ received: true });
 
     try {
-      // Minimal pre-write org read (multi-tenancy sweep): the tenant must be
-      // known before the release write can ride the tenant lane. Inert on
-      // master (flag off = passthrough); an unknown row leaves the updateMany
-      // a no-op either way.
-      const expiredReg = await db.registration.findUnique({
+      // Tenancy sweep (H-1): wrap the swept pre-read in the org from the session
+      // metadata (the webhook has no session/host context). Inert on master;
+      // an unknown row leaves the updateMany a no-op either way.
+      const expiredReg = await runWithTenant(session.metadata?.organizationId ?? "", () =>
+        db.registration.findUnique({
         where: { id: registrationId },
         select: { event: { select: { organizationId: true } } },
-      });
+        }));
       const updated = await runWithTenant(expiredReg?.event.organizationId ?? "", async () =>
         db.registration.updateMany({
           where: { id: registrationId, paymentStatus: "PENDING" },
@@ -394,6 +399,14 @@ export async function POST(req: Request) {
     if (!paymentIntentId) return NextResponse.json({ received: true });
 
     try {
+      // Tenancy sweep (H-1) — PLATFORM PRECONDITION, not fixed here: unlike the
+      // checkout.session branches, a `charge` object carries no session metadata
+      // and Stripe doesn't copy PaymentIntent metadata onto the charge, so the
+      // org can't be known before this swept Payment read. On the platform this
+      // branch needs either an RLS-bypass connection for the webhook OR the PI
+      // metadata retrieved first — same "system endpoint, no tenant context"
+      // class as the org-blind worker candidate scans. Behavior-preserving on
+      // master (flag off); tracked in docs/MULTI_TENANCY.md.
       const payment = await db.payment.findUnique({
         where: { stripePaymentId: paymentIntentId },
         select: {

@@ -160,6 +160,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Tenancy sweep (B-1 fix): the handler was never wrapped — the swept
+    // registration read + the tenantTransaction (claim + payment.create) ran
+    // with an empty tenant store, fail-closing this money-write route on the
+    // platform. Wrap the whole body in the event's org (the inner invoice
+    // runWithTenant harmlessly re-enters). Passthrough on master.
+    return await runWithTenant(event.organizationId, async () => {
     const registration = await db.registration.findFirst({
       where: { id: registrationId, eventId },
       select: {
@@ -405,12 +411,14 @@ export async function POST(req: Request, { params }: RouteParams) {
         apiLogger.warn({ err, msg: "manual-payment:audit-write-failed", paymentId: payment.id }),
       );
 
-    // Refresh denormalized event stats (fire-and-forget).
-    refreshEventStats(eventId);
+    // Refresh denormalized event stats (fire-and-forget). Use event.id (a
+    // definite string) — the outer `let eventId` loses narrowing inside the
+    // runWithTenant closure added by the B-1 fix.
+    refreshEventStats(event.id);
 
     // Notify event admins (non-blocking). A partial capture says so.
     const fullyPaidNow = coversTotal || wasAlreadyPaid;
-    notifyEventAdmins(eventId, {
+    notifyEventAdmins(event.id, {
       type: "PAYMENT",
       title: fullyPaidNow ? "Manual Payment Recorded" : "Partial Payment Recorded",
       message: `${registration.attendee.firstName} ${registration.attendee.lastName} — ${data.method.replace("_", " ")} — ${currency} ${amount.toFixed(2)}${fullyPaidNow ? "" : ` (partial: ${fallbackCurrency} ${capturedAfter.toFixed(2)} of ${fallbackCurrency} ${fin.total.toFixed(2)} captured — registration stays unpaid)`}`,
@@ -481,6 +489,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       fullyPaid: fullyPaidNow,
       capturedTotal: capturedAfter,
       totalDue: fin.total,
+    });
     });
   } catch (error) {
     if (error instanceof ManualPaymentRaceError) {

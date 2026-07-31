@@ -37,6 +37,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import {
   checkRateLimit,
   getClientIp,
@@ -413,6 +414,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const registrationId = tokenRecord.identifier.slice(TOKEN_PREFIX.length);
 
+    // Tenancy sweep: open the tenant store BEFORE the swept Registration read
+    // (resolved from HOST — the token path resolves the registration by
+    // token→id and reads no un-swept Event first). Passthrough on master.
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     const registration = await db.registration.findFirst({
       where: { id: registrationId, status: { notIn: ["CANCELLED"] } },
       select: {
@@ -474,7 +480,6 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    return await runWithTenant(registration.event.organizationId, async () => {
     const config = readSurveyConfig(
       registration.event.surveyConfig,
       registration.event.id,
@@ -743,10 +748,18 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
     registrationId = tokenRecord.identifier.slice(TOKEN_PREFIX.length);
+    // Capture as a const: the outer `registrationId` is a `let` (for catch
+    // logging), so its non-null narrowing would be lost inside the closure below.
+    const resolvedRegistrationId = registrationId;
 
+    // Tenancy sweep: open the tenant store BEFORE the swept Registration read
+    // (resolved from HOST — the token path resolves the registration by
+    // token→id and reads no un-swept Event first). Passthrough on master.
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     stage = "load-registration";
     const registration = await db.registration.findFirst({
-      where: { id: registrationId, status: { notIn: ["CANCELLED"] } },
+      where: { id: resolvedRegistrationId, status: { notIn: ["CANCELLED"] } },
       select: SUBMIT_REGISTRATION_SELECT,
     });
 
@@ -785,7 +798,6 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Shared finalizer — single-use token path deletes the token.
     stage = "finalize";
-    return await runWithTenant(registration.event.organizationId, async () => {
     return await finalizeSubmission(req, registration, rawAnswers, hashedToken);
     });
   } catch (err) {

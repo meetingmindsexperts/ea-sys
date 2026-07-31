@@ -4,6 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { readRegistrationBasePrice } from "@/lib/registration-financials";
 import { runWithTenant } from "@/lib/tenant-context";
+import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 
 interface RouteParams {
   params: Promise<{ slug: string; registrationId: string }>;
@@ -13,6 +14,11 @@ export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { slug, registrationId } = await params;
 
+    // Tenancy sweep: open the tenant store BEFORE the swept Registration read
+    // (resolved from the request HOST — this route reads no un-swept Event
+    // first). Passthrough on master (host unresolved → orgId "" → no SET LOCAL).
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    return await runWithTenant(tenant.orgId ?? "", async () => {
     const registration = await db.registration.findFirst({
       where: {
         id: registrationId,
@@ -55,7 +61,6 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
 
-    return await runWithTenant(registration.event.organizationId, async () => {
     const basePrice = readRegistrationBasePrice(registration);
     const discount = registration.discountAmount ? Number(registration.discountAmount) : 0;
 

@@ -100,9 +100,13 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/public/events/[slug]/sessions/[sessionId]/recording/route.ts"      # Webinar (July 28, 2026)
   "src/app/api/public/events/[slug]/sessions/[sessionId]/detail/route.ts"         # Webinar (July 28, 2026)
   # Registration-core sweep (July 29, 2026) — staff registration + import routes.
-  # (payments / quote / documents-resend were gated by the Invoice sweep; the
-  # 7 REGISTRANT self-service routes under /api/registrant/** are deliberately
-  # NOT swept — cross-org by design, deferred to the Phase-1 identity decision.)
+  # (quote / documents-resend were gated by the Invoice sweep; the 7 REGISTRANT
+  # self-service routes under /api/registrant/** are deliberately NOT swept —
+  # cross-org by design, deferred to the Phase-1 identity decision.)
+  # payments/route.ts added Jul 30 (review B-1): the Invoice wrap only covered
+  # the INVOICE write, NOT the registration/payment writes — the handler was
+  # never wrapped. Corrects the earlier wrong "payments gated by Invoice" note.
+  "src/app/api/events/[eventId]/registrations/[registrationId]/payments/route.ts"      # Reg-core B-1 (July 30, 2026)
   "src/app/api/events/[eventId]/registrations/route.ts"                                # Reg-core (July 29, 2026)
   "src/app/api/events/[eventId]/registrations/badges/route.ts"                         # Reg-core (July 29, 2026)
   "src/app/api/events/[eventId]/registrations/bulk-tags/route.ts"                      # Reg-core (July 29, 2026)
@@ -198,6 +202,17 @@ count_fixed() { printf '%s' "$1" | { grep -oF "$2" || true; } | wc -l | tr -d ' 
 # keeps the regex portable (no \b, which BSD grep on macOS doesn't support).
 HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|PUT|PATCH|DELETE)[[:space:]]*\('
 
+# READ-PLACEMENT check (added after 3 sweeps shipped with a swept read placed
+# BEFORE the handler's runWithTenant — inert on master, fail-closes on the
+# platform; the ≥-count check above can't see placement). Matches a Prisma op on
+# a SWEPT model — `<db|tx>.<model>.<method>` — precisely (the trailing method
+# name means a plain property chain like `payment.registration.event` never
+# matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
+# session) are the ONLY reads allowed before the wrap (org resolution).
+SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType'
+# `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
+SWEPT_OP_RE="[.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)"
+
 violations=0
 fail_header() {
   if [ "$violations" -eq 0 ]; then
@@ -224,6 +239,32 @@ check_one_route_file() {
   fi
 }
 
+# READ-PLACEMENT invariant: within each HTTP handler, no swept-model Prisma op
+# may appear BEFORE that handler's first runWithTenant( — else the read/write
+# fail-closes on the platform (the class that shipped in Ticketing/Speaker/
+# Reg-core until reviewed). Per-handler, first-op-vs-first-wrap (the realistic
+# regression — an existence read then a lower wrap — is always caught; an
+# intra-handler later unwrapped read after an earlier wrap is a documented
+# precondition, e.g. the Stripe webhook charge.refunded branch).
+check_read_placement() {
+  local file="$1" rel out
+  rel="${file#"$REPO_ROOT"/}"
+  if out="$(awk -v RE="$SWEPT_OP_RE" -v FN="$rel" '
+    function endh(){ if (inh && rl>0 && (wl==0 || rl<wl)) { printf "  %s:%d — swept-model DB op before runWithTenant: %s\n", FN, rl, rt; found=1 } }
+    { line=$0; sub(/\/\/.*$/,"",line) }
+    line ~ /export[ \t]+(async[ \t]+)?function[ \t]+(GET|POST|PUT|PATCH|DELETE)[ \t]*\(/ { endh(); inh=1; wl=0; rl=0; rt="" }
+    inh && wl==0 && line ~ /runWithTenant\(/ { wl=NR }
+    inh && rl==0 && line ~ RE { rl=NR; rt=line; sub(/^[ \t]+/,"",rt); sub(/[ \t]+$/,"",rt) }
+    END { endh(); exit (found?1:0) }
+  ' "$file")"; then
+    : # clean
+  else
+    fail_header
+    printf '%s\n' "$out"
+    echo "    → open runWithTenant BEFORE the swept read (org comes from the un-swept Event/session, not the swept row)."
+  fi
+}
+
 # --- route dirs: runWithTenant( count >= HTTP handler count, per file ---
 for dir in "${SWEPT_ROUTE_DIRS[@]}"; do
   abs="$REPO_ROOT/$dir"
@@ -234,6 +275,7 @@ for dir in "${SWEPT_ROUTE_DIRS[@]}"; do
   fi
   while IFS= read -r file; do
     check_one_route_file "$file"
+    check_read_placement "$file"
   done < <(find "$abs" -name "route.ts" -type f)
 done
 
@@ -246,6 +288,7 @@ for file in "${SWEPT_ROUTE_FILES[@]}"; do
     continue
   fi
   check_one_route_file "$abs"
+  check_read_placement "$abs"
 done
 
 # --- module files: must contain a runWithTenant( call ---
