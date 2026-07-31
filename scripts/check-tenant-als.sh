@@ -170,6 +170,28 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/hotels/[hotelId]/rooms/[roomId]/route.ts"              # Accommodation (July 31, 2026)
   "src/app/api/events/[eventId]/accommodations/route.ts"                               # Accommodation (July 31, 2026)
   "src/app/api/events/[eventId]/accommodations/[accommodationId]/route.ts"             # Accommodation (July 31, 2026)
+  # Abstract sweep (July 31, 2026) — Domain #11. The organizer routes wrap with
+  # the session org (requireOrgId); the DUAL routes (abstracts list/create, detail,
+  # submissions, my-profile, presenter-agreement) serve org-INDEPENDENT
+  # reviewers/submitters and wrap with the RESOURCE org (event.organizationId,
+  # loaded first). /api/my-reviews is DELIBERATELY NOT here — it is cross-org by
+  # design (the Phase-1 identity edge, deferred). abstract-service.ts is NOT a
+  # module entry (uses tenantTransaction, opens no runWithTenant of its own).
+  "src/app/api/events/[eventId]/abstract-themes/route.ts"                              # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/abstract-themes/[themeId]/route.ts"                    # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/review-criteria/route.ts"                              # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/review-criteria/[criterionId]/route.ts"               # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/reviewers/route.ts"                                    # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/reviewers/[reviewerId]/route.ts"                       # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/reviewers/[reviewerId]/resend-invitation/route.ts"     # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/import/abstracts/route.ts"                             # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/abstracts/route.ts"                                    # Abstract — dual/resource-org (July 31, 2026)
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/route.ts"                       # Abstract — dual/resource-org (July 31, 2026)
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/submissions/route.ts"           # Abstract — dual/resource-org (July 31, 2026)
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/route.ts"             # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/[userId]/route.ts"    # Abstract (July 31, 2026)
+  "src/app/api/events/[eventId]/abstracts/[abstractId]/presenter-agreement/email/route.ts" # Abstract — resource-org (July 31, 2026)
+  "src/app/api/events/[eventId]/abstracts/my-profile/route.ts"                         # Abstract — resource-org (July 31, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
@@ -199,6 +221,8 @@ SWEPT_MODULES=(
   "src/lib/agent/tools/speakers.ts"         # speaker agent / MCP executors (July 30, 2026)
   # Accommodation sweep (July 31, 2026) — the accommodation MCP executors.
   "src/lib/agent/tools/accommodations.ts"   # accommodation agent / MCP executors (July 31, 2026)
+  # Abstract sweep (July 31, 2026) — the abstract/reviewer/criteria MCP executors.
+  "src/lib/agent/tools/abstracts.ts"        # abstract agent / MCP executors (July 31, 2026)
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
@@ -222,7 +246,7 @@ HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|
 # name means a plain property chain like `payment.registration.event` never
 # matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
 # session) are the ONLY reads allowed before the wrap (org resolution).
-SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation'
+SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission'
 # `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
 SWEPT_OP_RE="[.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)"
 

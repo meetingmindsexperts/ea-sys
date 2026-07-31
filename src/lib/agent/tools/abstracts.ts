@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { AbstractStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
 import {
@@ -22,12 +23,14 @@ const ABSTRACT_UPDATE_STATUSES = new Set(["UNDER_REVIEW", "ACCEPTED", "REJECTED"
 
 const listAbstractThemes: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const themes = await db.abstractTheme.findMany({
       where: { eventId: ctx.eventId },
       select: { id: true, name: true, sortOrder: true },
       orderBy: { sortOrder: "asc" },
     });
     return { themes, total: themes.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_abstract_themes failed");
     return { error: "Failed to fetch abstract themes" };
@@ -36,6 +39,7 @@ const listAbstractThemes: ToolExecutor = async (_input, ctx) => {
 
 const createAbstractTheme: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const name = String(input.name ?? "").trim();
     if (!name) return { error: "name is required" };
 
@@ -46,9 +50,10 @@ const createAbstractTheme: ToolExecutor = async (input, ctx) => {
 
     const count = await db.abstractTheme.count({ where: { eventId: ctx.eventId } });
     const theme = await db.abstractTheme.create({
-      data: { eventId: ctx.eventId, name, sortOrder: count },
+      data: { eventId: ctx.eventId, organizationId: ctx.organizationId, name, sortOrder: count },
     });
     return { theme };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_abstract_theme failed");
     return { error: "Failed to create abstract theme" };
@@ -57,12 +62,14 @@ const createAbstractTheme: ToolExecutor = async (input, ctx) => {
 
 const listReviewCriteria: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const criteria = await db.reviewCriterion.findMany({
       where: { eventId: ctx.eventId },
       select: { id: true, name: true, weight: true, sortOrder: true },
       orderBy: { sortOrder: "asc" },
     });
     return { criteria, total: criteria.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_review_criteria failed");
     return { error: "Failed to fetch review criteria" };
@@ -71,6 +78,7 @@ const listReviewCriteria: ToolExecutor = async (_input, ctx) => {
 
 const createReviewCriterion: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const name = String(input.name ?? "").trim();
     const weight = Number(input.weight ?? 1);
     if (!name) return { error: "name is required" };
@@ -82,9 +90,10 @@ const createReviewCriterion: ToolExecutor = async (input, ctx) => {
 
     const count = await db.reviewCriterion.count({ where: { eventId: ctx.eventId } });
     const criterion = await db.reviewCriterion.create({
-      data: { eventId: ctx.eventId, name, weight, sortOrder: count },
+      data: { eventId: ctx.eventId, organizationId: ctx.organizationId, name, weight, sortOrder: count },
     });
     return { criterion };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_review_criterion failed");
     return { error: "Failed to create review criterion" };
@@ -93,6 +102,7 @@ const createReviewCriterion: ToolExecutor = async (input, ctx) => {
 
 const updateReviewCriterion: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const criterionId = String(input.criterionId ?? "").trim();
     if (!criterionId) return { error: "criterionId is required" };
 
@@ -132,6 +142,7 @@ const updateReviewCriterion: ToolExecutor = async (input, ctx) => {
       select: { id: true, name: true, weight: true, sortOrder: true },
     });
     return { success: true, criterion };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:update_review_criterion failed");
     return { error: "Failed to update review criterion" };
@@ -140,6 +151,7 @@ const updateReviewCriterion: ToolExecutor = async (input, ctx) => {
 
 const deleteReviewCriterion: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const criterionId = String(input.criterionId ?? "").trim();
     if (!criterionId) return { error: "criterionId is required" };
 
@@ -151,6 +163,7 @@ const deleteReviewCriterion: ToolExecutor = async (input, ctx) => {
 
     await db.reviewCriterion.delete({ where: { id: criterionId } });
     return { success: true };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:delete_review_criterion failed");
     return { error: "Failed to delete review criterion" };
@@ -159,6 +172,7 @@ const deleteReviewCriterion: ToolExecutor = async (input, ctx) => {
 
 const listAbstracts: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const limit = Math.min(Number(input.limit ?? 50), 200);
     const statusValue = input.status ? String(input.status) : undefined;
     if (statusValue && !ABSTRACT_STATUSES.has(statusValue)) {
@@ -204,6 +218,7 @@ const listAbstracts: ToolExecutor = async (input, ctx) => {
       };
     });
     return { abstracts: enriched, total: enriched.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_abstracts failed");
     return { error: "Failed to fetch abstracts" };
@@ -212,6 +227,7 @@ const listAbstracts: ToolExecutor = async (input, ctx) => {
 
 const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const abstractId = String(input.abstractId ?? "").trim();
     const status = String(input.status ?? "").trim();
     const force = input.force === true;
@@ -269,6 +285,7 @@ const updateAbstractStatus: ToolExecutor = async (input, ctx) => {
       notificationStatus: result.notificationStatus,
       ...(result.notificationError && { notificationError: result.notificationError }),
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:update_abstract_status failed");
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -293,6 +310,7 @@ const ABSTRACT_REVIEWER_ROLES = new Set(["PRIMARY", "SECONDARY", "CONSULTING"]);
 // boundary keeps loose-input parsing + the MCP response/message shapes.
 const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const abstractId = String(input.abstractId ?? "").trim();
     const userId = String(input.userId ?? "").trim();
     if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
@@ -338,6 +356,7 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
       ...(result.kind === "updated" ? { updated: true } : {}),
       assignment: { ...assignment, reviewer },
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:assign_reviewer_to_abstract failed");
     return {
@@ -350,6 +369,7 @@ const assignReviewerToAbstract: ToolExecutor = async (input, ctx) => {
 
 const unassignReviewerFromAbstract: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const abstractId = String(input.abstractId ?? "").trim();
     const userId = String(input.userId ?? "").trim();
     if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
@@ -377,6 +397,7 @@ const unassignReviewerFromAbstract: ToolExecutor = async (input, ctx) => {
       unassignedAssignmentId: result.unassignedAssignmentId,
       note: "Assignment removed. Any submission this reviewer made is preserved.",
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:unassign_reviewer_from_abstract failed");
     return {
@@ -396,6 +417,7 @@ const unassignReviewerFromAbstract: ToolExecutor = async (input, ctx) => {
 // INTEGERS, and reviewNotes: "" now CLEARS the notes (absent still keeps them).
 const submitAbstractReviewTool: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const abstractId = String(input.abstractId ?? "").trim();
     if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
 
@@ -426,6 +448,7 @@ const submitAbstractReviewTool: ToolExecutor = async (input, ctx) => {
     });
     if (!result.ok) return { error: result.message, code: result.code };
     return { success: true, submission: result.submission };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:submit_abstract_review failed");
     return {
@@ -470,6 +493,7 @@ function parseReviewFields(input: Record<string, unknown>): {
 // audit row flags source "mcp-on-behalf-of".
 const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const abstractId = String(input.abstractId ?? "").trim();
     const reviewerUserId = String(input.reviewerUserId ?? "").trim();
     if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
@@ -493,6 +517,7 @@ const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
         email: result.reviewer?.email ?? null,
       },
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:admin_submit_review_on_behalf failed");
     return {
@@ -505,6 +530,7 @@ const adminSubmitReviewOnBehalf: ToolExecutor = async (input, ctx) => {
 
 const getAbstractScores: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const abstractId = String(input.abstractId ?? "").trim();
     if (!abstractId) return { error: "abstractId is required", code: "MISSING_ABSTRACT_ID" };
 
@@ -545,6 +571,7 @@ const getAbstractScores: ToolExecutor = async (input, ctx) => {
       // total rows — an all-null review no longer looks like it meets the bar.
       meetsThreshold: aggregate.aggregates.scoredCount >= requiredCount,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:get_abstract_scores failed");
     return { error: "Failed to fetch abstract scores", code: "UNKNOWN" };
@@ -555,6 +582,7 @@ const getAbstractScores: ToolExecutor = async (input, ctx) => {
 
 const listReviewers: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const event = await db.event.findFirst({
       where: { id: ctx.eventId },
       select: { settings: true },
@@ -567,6 +595,7 @@ const listReviewers: ToolExecutor = async (_input, ctx) => {
       select: { id: true, email: true, firstName: true, lastName: true },
     });
     return { reviewers: users, total: users.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_reviewers failed");
     return { error: "Failed to fetch reviewers" };

@@ -37,7 +37,13 @@ const {
   };
 });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenancy: changeAbstractStatus now uses tenantTransaction (not db.$transaction)
+// for the swept abstract.updateMany — passthrough to the mock's $transaction proxy.
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (cb: (tx: unknown) => unknown, opts?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/abstract-review", () => ({
   computeSubmissionAggregates: mockComputeAggregates,

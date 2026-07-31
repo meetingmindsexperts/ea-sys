@@ -23,7 +23,7 @@
  * inputs, caller identity via `source`).
  */
 
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
 import {
@@ -176,7 +176,10 @@ export async function changeAbstractStatus(
 
   let outcome: TxOutcome;
   try {
-    outcome = await db.$transaction(async (tx): Promise<TxOutcome> => {
+    // tenantTransaction (not db.$transaction): the abstract.updateMany below is a
+    // swept-table write, so the SET LOCAL must ride this tx's own pooled backend.
+    // Passthrough on master; orgId comes from the caller's runWithTenant store.
+    outcome = await tenantTransaction(async (tx): Promise<TxOutcome> => {
       let aggregates: Awaited<ReturnType<typeof computeSubmissionAggregates>> | null = null;
       let scoredCount: number | null = null;
       if (gateRelevant) {
@@ -587,6 +590,7 @@ export async function submitAbstractReview(
       where: { abstractId_reviewerUserId: { abstractId, reviewerUserId } },
       create: {
         abstractId,
+        organizationId: event.organizationId, // tenancy: the abstract's event's org
         reviewerUserId,
         abstractReviewerId: assignment?.id ?? null,
         criteriaScores: criteriaScoresJson ?? undefined,
@@ -826,6 +830,7 @@ export async function assignReviewer(input: AssignReviewerInput): Promise<Assign
     const assignment = await db.abstractReviewer.create({
       data: {
         abstractId,
+        organizationId: input.organizationId, // tenancy: the abstract's event's org
         userId: reviewerUserId,
         assignedById: input.actorUserId,
         role: input.role ?? "SECONDARY",

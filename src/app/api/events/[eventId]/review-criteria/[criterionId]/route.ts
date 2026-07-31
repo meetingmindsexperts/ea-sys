@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { denyReviewer } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 
 const updateCriterionSchema = z.object({
@@ -29,6 +30,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, criterion] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -57,6 +59,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(updated);
+    });
   } catch (err) {
     apiLogger.error({ err }, "review-criteria:PUT failed");
     return NextResponse.json({ error: "Failed to update criterion" }, { status: 500 });
@@ -76,6 +79,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, criterion] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -93,6 +97,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     await db.reviewCriterion.delete({ where: { id: criterionId } });
 
     return NextResponse.json({ success: true });
+    });
   } catch (err) {
     apiLogger.error({ err }, "review-criteria:DELETE failed");
     return NextResponse.json({ error: "Failed to delete criterion" }, { status: 500 });

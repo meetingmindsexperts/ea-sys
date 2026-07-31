@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { computeSubmissionAggregates } from "@/lib/abstract-review";
@@ -48,17 +49,20 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const [event, abstract] = await Promise.all([
-      db.event.findFirst({
-        where: { id: eventId },
-        select: { id: true, organizationId: true, settings: true },
-      }),
-      db.abstract.findFirst({
-        where: { id: abstractId, eventId },
-        select: { id: true, speaker: { select: { userId: true } } },
-      }),
-    ]);
+    // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so
+    // an org-null reviewer/submitter caller works). The swept abstract read +
+    // computeSubmissionAggregates run INSIDE the wrap.
+    const event = await db.event.findFirst({
+      where: { id: eventId },
+      select: { id: true, organizationId: true, settings: true },
+    });
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+
+    return await runWithTenant(event.organizationId, async () => {
+    const abstract = await db.abstract.findFirst({
+      where: { id: abstractId, eventId },
+      select: { id: true, speaker: { select: { userId: true } } },
+    });
     if (!abstract) return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
 
     // Access matrix for reading reviewer feedback (tightened July 13 — review H9):
@@ -113,6 +117,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return NextResponse.json({
       submissions: aggregate.submissions,
       aggregates: aggregate.aggregates,
+    });
     });
   } catch (err) {
     apiLogger.error({ err, msg: "list-submissions:failed" });
@@ -173,6 +178,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     const data = validated.data;
 
+    // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so
+    // an org-null reviewer caller works). submitAbstractReview reads/writes
+    // swept tables, so the service call runs INSIDE the wrap.
+    const event = await db.event.findFirst({
+      where: { id: eventId },
+      select: { id: true, organizationId: true },
+    });
+    if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+
+    return await runWithTenant(event.organizationId, async () => {
     // Domain logic — auth matrix (pool / assignment / H3 org-bound admin),
     // the H6 reviewable-status + COI + empty-payload gates, criteria
     // validation, the upsert, and the audit row — lives in
@@ -208,6 +223,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       { success: true, submission: result.submission },
       { status: result.wasCreate ? 201 : 200 },
     );
+    });
   } catch (err) {
     apiLogger.error({ err, msg: "submit-review:failed" });
     return NextResponse.json(

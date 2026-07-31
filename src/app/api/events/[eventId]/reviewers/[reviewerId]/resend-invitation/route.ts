@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
@@ -36,6 +37,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const rl = checkRateLimit({ key: `reviewer-invite-resend:${session.user.id}`, limit: 20, windowMs: 60 * 60 * 1000 });
     if (!rl.allowed) {
       apiLogger.warn({ msg: "reviewer-invite-resend:rate-limited", userId: session.user.id });
@@ -148,6 +150,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }).catch((err) => apiLogger.error({ err, msg: "resend-invitation:audit-log-failed" }));
 
     return NextResponse.json({ success: true, sent: true, type: "setup" });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error resending reviewer invitation" });
     return NextResponse.json({ error: "Failed to resend invitation" }, { status: 500 });

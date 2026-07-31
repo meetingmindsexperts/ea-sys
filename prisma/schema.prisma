@@ -1284,6 +1284,9 @@ model SpeakerDocument {
 model Abstract {
   id               String            @id @default(cuid())
   eventId          String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Event at create; backfilled 1-hop. Backs the flat RLS policy.
+  organizationId   String?
   speakerId        String
   title            String
   content          String            @db.Text
@@ -1314,11 +1317,16 @@ model Abstract {
   @@index([eventId])
   @@index([speakerId])
   @@index([status])
+  @@index([organizationId])
 }
 
 model AbstractReviewer {
   id           String               @id @default(cuid())
   abstractId   String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Abstract's Event at create; backfilled 2-hop. The reviewer
+  // User is org-independent, but this ROW belongs to the abstract's event's org.
+  organizationId String?
   userId       String
   assignedAt   DateTime             @default(now())
   assignedById String
@@ -1333,11 +1341,16 @@ model AbstractReviewer {
   @@unique([abstractId, userId])
   @@index([abstractId])
   @@index([userId])
+  @@index([organizationId])
 }
 
 model AbstractReviewSubmission {
   id                 String             @id @default(cuid())
   abstractId         String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Abstract's Event at create; backfilled 2-hop. The reviewer
+  // User is org-independent, but this ROW belongs to the abstract's event's org.
+  organizationId     String?
   reviewerUserId     String
   abstractReviewerId String?
   criteriaScores     Json?
@@ -1355,11 +1368,14 @@ model AbstractReviewSubmission {
   @@unique([abstractId, reviewerUserId])
   @@index([abstractId])
   @@index([reviewerUserId])
+  @@index([organizationId])
 }
 
 model AbstractTheme {
   id        String   @id @default(cuid())
   eventId   String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
+  organizationId String?
   name      String
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
@@ -1370,6 +1386,7 @@ model AbstractTheme {
 
   @@unique([eventId, name])
   @@index([eventId])
+  @@index([organizationId])
 }
 
 // ── Session proposals (July 30, 2026) ───────────────────────────────────────
@@ -1440,6 +1457,8 @@ model SessionProposalTheme {
 model ReviewCriterion {
   id        String   @id @default(cuid())
   eventId   String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
+  organizationId String?
   name      String
   weight    Int
   sortOrder Int      @default(0)
@@ -1449,6 +1468,7 @@ model ReviewCriterion {
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([eventId])
+  @@index([organizationId])
 }
 
 enum AbstractStatus {

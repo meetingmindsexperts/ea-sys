@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
@@ -64,37 +65,40 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const [event, abstract] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true },
-      }),
-      db.abstract.findFirst({
-        where: {
-          id: abstractId,
-          eventId,
-        },
-        include: {
-          speaker: true,
-          track: true,
-          theme: { select: { id: true, name: true } },
-          eventSession: {
-            include: {
-              track: true,
-              speakers: {
-                include: {
-                  speaker: true,
-                },
-              },
-            },
-          },
-        },
-      }),
-    ]);
+    // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org,
+    // so an org-null SUBMITTER caller works). The swept abstract read runs
+    // INSIDE the wrap.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    return await runWithTenant(event.organizationId, async () => {
+    const abstract = await db.abstract.findFirst({
+      where: {
+        id: abstractId,
+        eventId,
+      },
+      include: {
+        speaker: true,
+        track: true,
+        theme: { select: { id: true, name: true } },
+        eventSession: {
+          include: {
+            track: true,
+            speakers: {
+              include: {
+                speaker: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
     if (!abstract) {
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
@@ -108,6 +112,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(abstract);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching abstract" });
     return NextResponse.json(
@@ -125,23 +130,26 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const [event, existingAbstract] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, organizationId: true, name: true, settings: true },
-      }),
-      db.abstract.findFirst({
-        where: {
-          id: abstractId,
-          eventId,
-        },
-        include: { speaker: { select: { userId: true } } },
-      }),
-    ]);
+    // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org,
+    // so an org-null REVIEWER/SUBMITTER caller works). The swept abstract read +
+    // all downstream swept writes run INSIDE the wrap.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true, name: true, settings: true },
+    });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    return await runWithTenant(event.organizationId, async () => {
+    const existingAbstract = await db.abstract.findFirst({
+      where: {
+        id: abstractId,
+        eventId,
+      },
+      include: { speaker: { select: { userId: true } } },
+    });
 
     if (!existingAbstract) {
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
@@ -493,6 +501,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(abstract);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating abstract" });
     return NextResponse.json(
@@ -517,25 +526,27 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    const [event, abstract] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true },
-      }),
-      db.abstract.findFirst({
-        where: {
-          id: abstractId,
-          eventId,
-        },
-        include: {
-          eventSession: true,
-        },
-      }),
-    ]);
+    // Resolve the event FIRST — its org opens the tenant wrap. The swept
+    // abstract read + delete run INSIDE the wrap.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    return await runWithTenant(event.organizationId, async () => {
+    const abstract = await db.abstract.findFirst({
+      where: {
+        id: abstractId,
+        eventId,
+      },
+      include: {
+        eventSession: true,
+      },
+    });
 
     if (!abstract) {
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
@@ -568,6 +579,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Abstract deleted", eventId, abstractId, title: abstract.title, userId: session.user.id });
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting abstract" });
     return NextResponse.json(

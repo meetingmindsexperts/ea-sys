@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
@@ -42,6 +43,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const result = await unassignReviewer({
       eventId,
       organizationId: orgGuard.orgId,
@@ -72,6 +74,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       success: true,
       unassignedAssignmentId: result.unassignedAssignmentId,
       note: "Assignment removed. Any submission this reviewer made is preserved.",
+    });
     });
   } catch (err) {
     apiLogger.error({ err, msg: "unassign-reviewer:failed" });

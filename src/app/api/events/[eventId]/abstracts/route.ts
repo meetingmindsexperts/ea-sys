@@ -4,6 +4,7 @@ import { z } from "zod";
 import { AbstractStatus, PresentationType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
@@ -89,39 +90,41 @@ export async function GET(req: Request, { params }: RouteParams) {
       requestedStatus: status,
     });
 
-    // Parallelize event validation and abstracts fetch
-    const [event, abstracts] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true },
-      }),
-      db.abstract.findMany({
-        where: {
-          eventId,
-          ...(statusFilter !== undefined && { status: statusFilter }),
-          ...(trackId && { trackId }),
-          ...(speakerId && { speakerId }),
-          ...submitterFilter,
-        },
-        include: {
-          speaker: true,
-          track: true,
-          theme: { select: { id: true, name: true } },
-          eventSession: true,
-          // Sprint B: fold submission rollup into the list response so the
-          // dashboard card can render meanOverallScore + reviewCount without
-          // an extra per-row fetch. Only pick fields needed for the mean.
-          submissions: { select: { overallScore: true } },
-          _count: { select: { reviewers: true } },
-        },
-        orderBy: { submittedAt: "desc" },
-        take: limit,
-      }),
-    ]);
+    // Resolve the event FIRST — its org opens the tenant wrap. buildEventAccessWhere
+    // scopes by role (a SUBMITTER → their own linked event), so event.organizationId
+    // is the RESOURCE org even for an org-null submitter/reviewer caller.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
 
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    return await runWithTenant(event.organizationId, async () => {
+    const abstracts = await db.abstract.findMany({
+      where: {
+        eventId,
+        ...(statusFilter !== undefined && { status: statusFilter }),
+        ...(trackId && { trackId }),
+        ...(speakerId && { speakerId }),
+        ...submitterFilter,
+      },
+      include: {
+        speaker: true,
+        track: true,
+        theme: { select: { id: true, name: true } },
+        eventSession: true,
+        // Sprint B: fold submission rollup into the list response so the
+        // dashboard card can render meanOverallScore + reviewCount without
+        // an extra per-row fetch. Only pick fields needed for the mean.
+        submissions: { select: { overallScore: true } },
+        _count: { select: { reviewers: true } },
+      },
+      orderBy: { submittedAt: "desc" },
+      take: limit,
+    });
 
     const enriched = abstracts.map((a) => {
       const rest: Omit<typeof a, "submissions"> & { submissions?: typeof a.submissions } = { ...a };
@@ -139,6 +142,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const response = NextResponse.json(enriched);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching abstracts" });
     return NextResponse.json(
@@ -183,12 +187,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? { id: speakerId, eventId, userId: session.user.id }
       : { id: speakerId, eventId };
 
-    // Parallelize event, speaker, track, and theme validation
-    const [event, speaker, track, theme] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, settings: true },
-      }),
+    // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so a
+    // SUBMITTER creating their own abstract works even though their session org is
+    // null). The theme lookup below reads a swept table, so it must run INSIDE.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, settings: true, organizationId: true },
+    });
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    return await runWithTenant(event.organizationId, async () => {
+    // Parallelize speaker, track, and theme validation
+    const [speaker, track, theme] = await Promise.all([
       db.speaker.findFirst({
         where: speakerWhere,
         select: { id: true },
@@ -206,10 +219,6 @@ export async function POST(req: Request, { params }: RouteParams) {
           })
         : Promise.resolve(null),
     ]);
-
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
 
     if (!speaker) {
       return NextResponse.json(
@@ -244,6 +253,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const abstract = await db.abstract.create({
       data: {
         eventId,
+        organizationId: event.organizationId, // tenancy: the event's org (resource)
         speakerId,
         title,
         content,
@@ -346,6 +356,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     apiLogger.info({ msg: "Abstract created", eventId, abstractId: abstract.id, speakerId, title, userId: session.user.id });
 
     return NextResponse.json(abstract, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating abstract" });
     return NextResponse.json(

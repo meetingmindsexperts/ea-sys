@@ -15,6 +15,16 @@ import { apiLogger } from "@/lib/logger";
  *
  * For each abstract, reports the user's own submission status so the portal
  * can render PENDING / SUBMITTED / NEEDS_UPDATE badges without a second call.
+ *
+ * MULTI-TENANCY (Abstract sweep, Domain #11): this route is DELIBERATELY NOT
+ * wrapped in runWithTenant. It is CROSS-ORG BY DESIGN — a single reviewer's feed
+ * unions abstracts across EVERY event/org where they hold a pool membership or an
+ * AbstractReviewer row, so there is no single tenant org to scope to at request
+ * time (the reviewer User is org-independent, organizationId = null). Same class
+ * as the deferred REGISTRANT self-service routes: it belongs to the open Phase-1
+ * identity-model decision (shared User + per-event Membership), NOT this sweep.
+ * On the RLS-enabled platform this read fail-closes until that decision lands;
+ * on master (RLS off) it is unaffected. See docs/MULTI_TENANCY.md §13.
  */
 
 export async function GET() {

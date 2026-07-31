@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -30,6 +31,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const rateLimit = checkRateLimit({
       key: `import-abstracts:org:${session.user.organizationId}`,
       limit: 10,
@@ -157,6 +159,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         await db.abstract.create({
           data: {
             eventId,
+            organizationId: orgGuard.orgId,
             speakerId,
             title,
             content,
@@ -195,6 +198,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ created, skipped, errors });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing abstracts" });
     return NextResponse.json({ error: "Failed to import abstracts" }, { status: 500 });

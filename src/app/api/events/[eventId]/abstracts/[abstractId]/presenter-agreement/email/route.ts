@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import {
   sendEmail,
@@ -80,11 +81,20 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const [event, abstract, user] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, name: true, slug: true, venue: true },
-      }),
+    // Resolve the event FIRST — its org opens the tenant wrap. The swept
+    // abstract read + everything downstream (token mint, send, audit) run
+    // INSIDE the wrap.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, name: true, slug: true, venue: true, organizationId: true },
+    });
+
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    return await runWithTenant(event.organizationId, async () => {
+    const [abstract, user] = await Promise.all([
       db.abstract.findFirst({
         where: { id: abstractId, eventId },
         select: {
@@ -101,9 +111,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       }),
     ]);
 
-    if (!event) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
     if (!abstract) {
       return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
     }
@@ -251,6 +258,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       success: true,
       message: `Presenter agreement sent to ${speaker.email}`,
       messageId: result.messageId,
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error sending presenter agreement email" });

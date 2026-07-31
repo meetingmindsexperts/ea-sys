@@ -63,7 +63,7 @@ describe("assignReviewer", () => {
     expect(r).toMatchObject({ ok: true, kind: "created" });
     expect(mockDb.abstractReviewer.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { abstractId: "ab1", userId: "rev1", assignedById: "admin1", role: "SECONDARY", conflictFlag: false },
+        data: { abstractId: "ab1", organizationId: "org1", userId: "rev1", assignedById: "admin1", role: "SECONDARY", conflictFlag: false },
       }),
     );
     expect(mockDb.auditLog.create).toHaveBeenCalledWith({

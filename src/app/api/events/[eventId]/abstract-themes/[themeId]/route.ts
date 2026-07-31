@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { denyReviewer } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 
 const updateThemeSchema = z.object({
@@ -28,6 +29,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, theme] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -56,6 +58,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(updated);
+    });
   } catch (err: unknown) {
     if (err instanceof Error && err.message.includes("Unique constraint")) {
       return NextResponse.json({ error: "A theme with this name already exists" }, { status: 409 });
@@ -78,6 +81,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, theme] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -102,6 +106,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     await db.abstractTheme.delete({ where: { id: themeId } });
 
     return NextResponse.json({ success: true });
+    });
   } catch (err) {
     apiLogger.error({ err }, "abstract-themes:DELETE failed");
     return NextResponse.json({ error: "Failed to delete theme" }, { status: 500 });

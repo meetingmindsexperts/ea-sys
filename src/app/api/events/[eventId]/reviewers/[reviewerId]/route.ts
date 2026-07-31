@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { updateEventSettings } from "@/lib/event-settings";
@@ -24,6 +25,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true, settings: true },
@@ -66,6 +68,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error removing reviewer" });
     return NextResponse.json(

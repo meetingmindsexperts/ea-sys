@@ -172,6 +172,30 @@ export const ACCOMMODATION_A_ID = "tenancy-acc-a";
 export const ACCOMMODATION_B_ID = "tenancy-acc-b";
 
 /**
+ * Abstract domain sweep (Phase 2, Domain #11). Abstract/AbstractTheme/
+ * ReviewCriterion (1-hop from Event) + AbstractReviewer/AbstractReviewSubmission
+ * (2-hop via Abstract). The reviewer/submitter User is org-independent, but each
+ * ROW belongs to the abstract's event's org. Each org gets one abstract on its
+ * OWN speaker (SPEAKER_A_ID/B) + shared event, one theme (BOTH orgs share the
+ * name — `@@unique([eventId, name])` lets them coexist, proving an unscoped
+ * by-name lookup is lane-scoped), one review criterion, and an AbstractReviewer
+ * + AbstractReviewSubmission for the org's uploader User (UPLOADER_A_ID/B) acting
+ * as reviewer — proving the 2-hop tables are independently lane-scoped. All
+ * cascade from Event/Abstract (org cascade reaches them).
+ */
+export const SHARED_ABSTRACT_THEME_NAME = "Cardiology";
+export const ABSTRACT_A_ID = "tenancy-abs-a";
+export const ABSTRACT_B_ID = "tenancy-abs-b";
+export const ABSTRACT_THEME_A_ID = "tenancy-atheme-a";
+export const ABSTRACT_THEME_B_ID = "tenancy-atheme-b";
+export const REVIEW_CRITERION_A_ID = "tenancy-rc-a";
+export const REVIEW_CRITERION_B_ID = "tenancy-rc-b";
+export const ABSTRACT_REVIEWER_A_ID = "tenancy-arev-a";
+export const ABSTRACT_REVIEWER_B_ID = "tenancy-arev-b";
+export const ABSTRACT_SUBMISSION_A_ID = "tenancy-asub-a";
+export const ABSTRACT_SUBMISSION_B_ID = "tenancy-asub-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

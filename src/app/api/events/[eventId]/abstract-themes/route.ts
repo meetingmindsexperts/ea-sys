@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { denyReviewer } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 
 const createThemeSchema = z.object({
@@ -25,6 +26,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: session.user.organizationId ?? undefined },
       select: { id: true },
@@ -42,6 +44,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const response = NextResponse.json(themes);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (err) {
     apiLogger.error({ err }, "abstract-themes:GET failed");
     return NextResponse.json({ error: "Failed to fetch themes" }, { status: 500 });
@@ -61,6 +64,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
       select: { id: true },
@@ -84,11 +88,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     const sortOrder = parsed.data.sortOrder ?? (maxOrder?.sortOrder ?? -1) + 1;
 
     const theme = await db.abstractTheme.create({
-      data: { eventId, name: parsed.data.name, sortOrder },
+      data: { eventId, organizationId: orgGuard.orgId, name: parsed.data.name, sortOrder },
       select: { id: true, name: true, sortOrder: true },
     });
 
     return NextResponse.json(theme, { status: 201 });
+    });
   } catch (err: unknown) {
     if (err instanceof Error && err.message.includes("Unique constraint")) {
       return NextResponse.json({ error: "A theme with this name already exists" }, { status: 409 });

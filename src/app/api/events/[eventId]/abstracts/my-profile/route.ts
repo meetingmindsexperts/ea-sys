@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { apiLogger } from "@/lib/logger";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -25,6 +27,19 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Resolve the event FIRST — its org opens the tenant wrap (RESOURCE org, so
+    // an org-null SUBMITTER caller works). This also adds an eventId-scoped
+    // existence check the handler previously lacked. The speaker read's nested
+    // `abstracts` select reads a swept table, so it runs INSIDE the wrap.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    return await runWithTenant(event.organizationId, async () => {
     const speaker = await db.speaker.findFirst({
       where: { eventId, userId: session.user.id },
       select: {
@@ -85,6 +100,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(speaker);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching submitter profile" });
     return NextResponse.json({ error: "Failed to load your profile" }, { status: 500 });

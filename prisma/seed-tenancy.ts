@@ -77,6 +77,17 @@ import {
   ROOMTYPE_B_ID,
   ACCOMMODATION_A_ID,
   ACCOMMODATION_B_ID,
+  SHARED_ABSTRACT_THEME_NAME,
+  ABSTRACT_A_ID,
+  ABSTRACT_B_ID,
+  ABSTRACT_THEME_A_ID,
+  ABSTRACT_THEME_B_ID,
+  REVIEW_CRITERION_A_ID,
+  REVIEW_CRITERION_B_ID,
+  ABSTRACT_REVIEWER_A_ID,
+  ABSTRACT_REVIEWER_B_ID,
+  ABSTRACT_SUBMISSION_A_ID,
+  ABSTRACT_SUBMISSION_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -159,6 +170,21 @@ async function seedOrg(
     accommodationId: string;
     eventId: string;
     registrationId: string;
+  },
+  // Abstract sweep (Domain #11): one Abstract (+ theme, criterion, reviewer,
+  // submission) per org. The reviewer is the org's uploader User (org-independent
+  // in prod, but here just a convenient existing User row); the ROWs belong to
+  // the abstract's event's org.
+  abstract?: {
+    abstractId: string;
+    themeId: string;
+    themeName: string;
+    criterionId: string;
+    reviewerId: string;
+    submissionId: string;
+    eventId: string;
+    speakerId: string;
+    reviewerUserId: string;
   },
 ) {
   await db.organization.create({
@@ -433,6 +459,59 @@ async function seedOrg(
       },
     });
   }
+  // Abstract sweep fixtures. Abstract/AbstractTheme/ReviewCriterion cascade from
+  // Event; AbstractReviewer/AbstractReviewSubmission from Abstract. Runs after the
+  // speaker + uploader User exist (both seeded above).
+  if (abstract) {
+    await db.abstractTheme.create({
+      data: {
+        id: abstract.themeId,
+        eventId: abstract.eventId,
+        organizationId: orgId,
+        name: abstract.themeName,
+      },
+    });
+    await db.reviewCriterion.create({
+      data: {
+        id: abstract.criterionId,
+        eventId: abstract.eventId,
+        organizationId: orgId,
+        name: "Originality",
+        weight: 50,
+      },
+    });
+    await db.abstract.create({
+      data: {
+        id: abstract.abstractId,
+        eventId: abstract.eventId,
+        organizationId: orgId,
+        speakerId: abstract.speakerId,
+        themeId: abstract.themeId,
+        title: "Tenancy Abstract",
+        content: "Abstract body for the tenancy harness.",
+        status: "SUBMITTED",
+      },
+    });
+    await db.abstractReviewer.create({
+      data: {
+        id: abstract.reviewerId,
+        abstractId: abstract.abstractId,
+        organizationId: orgId,
+        userId: abstract.reviewerUserId,
+        assignedById: abstract.reviewerUserId,
+      },
+    });
+    await db.abstractReviewSubmission.create({
+      data: {
+        id: abstract.submissionId,
+        abstractId: abstract.abstractId,
+        organizationId: orgId,
+        reviewerUserId: abstract.reviewerUserId,
+        abstractReviewerId: abstract.reviewerId,
+        overallScore: 80,
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -630,6 +709,17 @@ async function main() {
       eventId: EVENT_A_SHARED_ID,
       registrationId: REG_A_ID,
     },
+    {
+      abstractId: ABSTRACT_A_ID,
+      themeId: ABSTRACT_THEME_A_ID,
+      themeName: SHARED_ABSTRACT_THEME_NAME,
+      criterionId: REVIEW_CRITERION_A_ID,
+      reviewerId: ABSTRACT_REVIEWER_A_ID,
+      submissionId: ABSTRACT_SUBMISSION_A_ID,
+      eventId: EVENT_A_SHARED_ID,
+      speakerId: SPEAKER_A_ID,
+      reviewerUserId: UPLOADER_A_ID,
+    },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -711,6 +801,17 @@ async function main() {
       accommodationId: ACCOMMODATION_B_ID,
       eventId: EVENT_B_SHARED_ID,
       registrationId: REG_B_ID,
+    },
+    {
+      abstractId: ABSTRACT_B_ID,
+      themeId: ABSTRACT_THEME_B_ID,
+      themeName: SHARED_ABSTRACT_THEME_NAME,
+      criterionId: REVIEW_CRITERION_B_ID,
+      reviewerId: ABSTRACT_REVIEWER_B_ID,
+      submissionId: ABSTRACT_SUBMISSION_B_ID,
+      eventId: EVENT_B_SHARED_ID,
+      speakerId: SPEAKER_B_ID,
+      reviewerUserId: UPLOADER_B_ID,
     },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

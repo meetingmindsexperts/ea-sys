@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -61,6 +62,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     if (!body) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
@@ -122,6 +124,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
       { status: result.kind === "created" ? 201 : 200 },
     );
+    });
   } catch (err) {
     apiLogger.error({ err, msg: "assign-reviewer:failed" });
     return NextResponse.json(
@@ -149,6 +152,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // Scope by role, not org: reviewers + submitters are org-independent
     // (organizationId = null), so the old `organizationId!` filter threw a
     // Prisma validation error ("must not be null") when a reviewer opened the
@@ -194,6 +198,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
         submission: a.submissions[0] ?? null,
       })),
       total: assignments.length,
+    });
     });
   } catch (err) {
     apiLogger.error({ err, msg: "list-reviewers:failed" });
