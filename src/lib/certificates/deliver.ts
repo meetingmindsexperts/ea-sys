@@ -163,7 +163,7 @@ export async function issueSingleCertificate(
     return { ok: false, code: "NO_RECIPIENT_EMAIL", error: "Recipient has no email address on file.", status: 409 };
   }
 
-  const serial = await allocateSerial(ctx.eventId, tmpl.category);
+  const serial = await allocateSerial(ctx.eventId, tmpl.category, ctx.organizationId);
 
   let render: RenderAndUploadResult;
   try {
@@ -187,6 +187,7 @@ export async function issueSingleCertificate(
     const cert = await db.issuedCertificate.create({
       data: {
         eventId: ctx.eventId,
+        organizationId: ctx.organizationId, // tenancy
         registrationId,
         speakerId,
         type: tmpl.category,
@@ -522,6 +523,7 @@ export async function issueCertificateBundle(
   for (const t of eligible) {
     const res = await findOrIssueCertificate({
       eventId: ctx.eventId,
+      organizationId: ctx.organizationId, // tenancy
       templateId: t.id,
       registrationId,
       speakerId,

@@ -22,7 +22,8 @@
 
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { updateEventSettings } from "@/lib/event-settings";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
@@ -139,32 +140,36 @@ function validateTextBoxes(input: unknown): TextBox[] | { error: string; code: s
 // ── Tool: list_certificate_templates ────────────────────────────────────────
 
 async function listCertificateTemplates(_input: Record<string, unknown>, ctx: AgentContext) {
-  const event = await db.event.findFirst({
-    where: { id: ctx.eventId, organizationId: ctx.organizationId },
-    select: {
-      id: true,
-      cmeHours: true,
-      settings: true,
-      certificateTemplates: {
-        orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
-        select: {
-          id: true,
-          name: true,
-          category: true,
-          backgroundPdfUrl: true,
-          textBoxes: true,
-          sortOrder: true,
-          role: true,
-          cmeHours: true,
-          autoIssueOnSurvey: true,
-          autoIssueTag: true,
-          createdAt: true,
-          updatedAt: true,
-          _count: { select: { issuedCertificates: true, issueRuns: true } },
+  // tenancy: swept CertificateTemplate read (via the event relation) runs
+  // inside the caller's org.
+  const event = await runWithTenant(ctx.organizationId, () =>
+    db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: {
+        id: true,
+        cmeHours: true,
+        settings: true,
+        certificateTemplates: {
+          orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            name: true,
+            category: true,
+            backgroundPdfUrl: true,
+            textBoxes: true,
+            sortOrder: true,
+            role: true,
+            cmeHours: true,
+            autoIssueOnSurvey: true,
+            autoIssueTag: true,
+            createdAt: true,
+            updatedAt: true,
+            _count: { select: { issuedCertificates: true, issueRuns: true } },
+          },
         },
       },
-    },
-  });
+    }),
+  );
   if (!event) return { error: "Event not found", code: "EVENT_NOT_FOUND" };
 
   const settings = readSettings(event.settings);
@@ -269,7 +274,10 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
   // constrained but operator-visible position semantics rely on it.
   const eventIdLocked = ctx.eventId;
   const trimmedName = input.name.trim();
-  const template = await db.$transaction(async (tx) => {
+  // tenancy: wrap the aggregate+create tx in the caller's org so the swept
+  // CertificateTemplate write runs under SET LOCAL on the platform.
+  const template = await runWithTenant(ctx.organizationId, () =>
+    tenantTransaction(async (tx) => {
     const maxOrder = await tx.certificateTemplate.aggregate({
       where: { eventId: eventIdLocked, category },
       _max: { sortOrder: true },
@@ -278,6 +286,7 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     return tx.certificateTemplate.create({
       data: {
         eventId: eventIdLocked,
+        organizationId: ctx.organizationId, // tenancy
         name: trimmedName,
         category,
         backgroundPdfUrl,
@@ -291,7 +300,8 @@ async function createCertificateTemplate(input: Record<string, unknown>, ctx: Ag
         autoIssueTag,
       },
     });
-  });
+    }),
+  );
 
   db.auditLog
     .create({
@@ -326,13 +336,16 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
   }
   const templateId = input.templateId;
 
-  const template = await db.certificateTemplate.findFirst({
-    where: {
-      id: templateId,
-      event: { id: ctx.eventId, organizationId: ctx.organizationId },
-    },
-    select: { id: true },
-  });
+  // tenancy: swept CertificateTemplate read runs inside the caller's org.
+  const template = await runWithTenant(ctx.organizationId, () =>
+    db.certificateTemplate.findFirst({
+      where: {
+        id: templateId,
+        event: { id: ctx.eventId, organizationId: ctx.organizationId },
+      },
+      select: { id: true },
+    }),
+  );
   if (!template) return { error: "Template not found", code: "TEMPLATE_NOT_FOUND" };
 
   const data: Prisma.CertificateTemplateUpdateInput = {};
@@ -425,10 +438,13 @@ async function updateCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     };
   }
 
-  const updated = await db.certificateTemplate.update({
-    where: { id: templateId },
-    data,
-  });
+  // tenancy: swept CertificateTemplate write runs inside the caller's org.
+  const updated = await runWithTenant(ctx.organizationId, () =>
+    db.certificateTemplate.update({
+      where: { id: templateId },
+      data,
+    }),
+  );
 
   db.auditLog
     .create({
@@ -462,13 +478,16 @@ async function deleteCertificateTemplate(input: Record<string, unknown>, ctx: Ag
   }
   const templateId = input.templateId;
 
-  const template = await db.certificateTemplate.findFirst({
-    where: {
-      id: templateId,
-      event: { id: ctx.eventId, organizationId: ctx.organizationId },
-    },
-    include: { _count: { select: { issuedCertificates: true, issueRuns: true } } },
-  });
+  // tenancy: swept CertificateTemplate read runs inside the caller's org.
+  const template = await runWithTenant(ctx.organizationId, () =>
+    db.certificateTemplate.findFirst({
+      where: {
+        id: templateId,
+        event: { id: ctx.eventId, organizationId: ctx.organizationId },
+      },
+      include: { _count: { select: { issuedCertificates: true, issueRuns: true } } },
+    }),
+  );
   if (!template) return { error: "Template not found", code: "TEMPLATE_NOT_FOUND" };
 
   if (template._count.issuedCertificates > 0 || template._count.issueRuns > 0) {
@@ -480,7 +499,10 @@ async function deleteCertificateTemplate(input: Record<string, unknown>, ctx: Ag
     };
   }
 
-  await db.certificateTemplate.delete({ where: { id: templateId } });
+  // tenancy: swept CertificateTemplate delete runs inside the caller's org.
+  await runWithTenant(ctx.organizationId, () =>
+    db.certificateTemplate.delete({ where: { id: templateId } }),
+  );
 
   db.auditLog
     .create({
@@ -564,10 +586,14 @@ async function updateCmeSettings(input: Record<string, unknown>, ctx: AgentConte
     return { error: "Provide at least one of cmeHours or accreditations", code: "NOTHING_TO_UPDATE" };
   }
 
-  const event = await db.event.findFirst({
-    where: { id: ctx.eventId, organizationId: ctx.organizationId },
-    select: { id: true, settings: true },
-  });
+  // tenancy: wrap for consistency with the other cert executors (Event is not
+  // a swept cert table, so this is a harmless passthrough on master).
+  const event = await runWithTenant(ctx.organizationId, () =>
+    db.event.findFirst({
+      where: { id: ctx.eventId, organizationId: ctx.organizationId },
+      select: { id: true, settings: true },
+    }),
+  );
   if (!event) return { error: "Event not found", code: "EVENT_NOT_FOUND" };
 
   const settings = readSettings(event.settings);

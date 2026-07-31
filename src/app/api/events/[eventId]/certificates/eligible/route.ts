@@ -21,6 +21,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { eligibleForType, eligibleForTemplates } from "@/lib/certificates/eligibility";
@@ -43,6 +44,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "cert-eligible:no-org", userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     const url = new URL(req.url);
     const templateId = url.searchParams.get("templateId");
@@ -63,14 +65,17 @@ export async function GET(req: Request, { params }: RouteParams) {
           { status: 400 },
         );
       }
-      const templates = await db.certificateTemplate.findMany({
-        where: {
-          id: { in: templateIds },
-          eventId,
-          event: { organizationId: session.user.organizationId },
-        },
-        select: { id: true, name: true, category: true, autoIssueTag: true },
-      });
+      // tenancy: swept CertificateTemplate read runs inside the session org.
+      const templates = await runWithTenant(orgId, () =>
+        db.certificateTemplate.findMany({
+          where: {
+            id: { in: templateIds },
+            eventId,
+            event: { organizationId: orgId },
+          },
+          select: { id: true, name: true, category: true, autoIssueTag: true },
+        }),
+      );
       if (templates.length !== new Set(templateIds).size) {
         apiLogger.warn({
           msg: "cert-eligible:template-not-found",
@@ -81,7 +86,8 @@ export async function GET(req: Request, { params }: RouteParams) {
         });
         return NextResponse.json({ error: "Template not found" }, { status: 404 });
       }
-      const merged = await eligibleForTemplates(eventId, templates);
+      // tenancy: eligibility reads swept cert tables — run inside the session org.
+      const merged = await runWithTenant(orgId, () => eligibleForTemplates(eventId, templates));
       return NextResponse.json({
         peopleCount: merged.people.length,
         perTemplate: merged.perTemplate,
@@ -103,13 +109,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const tmpl = await db.certificateTemplate.findFirst({
-      where: {
-        id: templateId,
-        event: { organizationId: session.user.organizationId },
-      },
-      select: { eventId: true, category: true },
-    });
+    // tenancy: swept CertificateTemplate read runs inside the session org.
+    const tmpl = await runWithTenant(orgId, () =>
+      db.certificateTemplate.findFirst({
+        where: {
+          id: templateId,
+          event: { organizationId: orgId },
+        },
+        select: { eventId: true, category: true },
+      }),
+    );
     if (!tmpl || tmpl.eventId !== eventId) {
       apiLogger.warn({
         msg: "cert-eligible:template-not-found",
@@ -120,7 +129,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Template not found" }, { status: 404 });
     }
 
-    const result = await eligibleForType(tmpl.category, eventId, tag, templateId);
+    // tenancy: eligibility reads swept cert tables — run inside the session org.
+    const result = await runWithTenant(orgId, () =>
+      eligibleForType(tmpl.category, eventId, tag, templateId),
+    );
 
     return NextResponse.json({
       type: result.type,

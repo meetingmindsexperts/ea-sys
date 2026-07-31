@@ -20,6 +20,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { buildPersonCertificateWhere } from "@/lib/certificates/bundle";
@@ -46,6 +47,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     const url = new URL(req.url);
     const registrationId = url.searchParams.get("registrationId");
@@ -84,12 +86,17 @@ export async function GET(req: Request, { params }: RouteParams) {
     // So when asked for one facet, also fold in the linked counterpart's certs
     // (same person) — shared helper so this list and the resend-bundle route
     // agree on "the same person's" cert set.
-    const { where } = await buildPersonCertificateWhere(eventId, registrationId, speakerId);
+    // tenancy: counterpart resolution + the swept IssuedCertificate read run
+    // inside the session org.
+    const { where } = await runWithTenant(orgId, () =>
+      buildPersonCertificateWhere(p.eventId, registrationId, speakerId),
+    );
 
-    const certificates = await db.issuedCertificate.findMany({
-      where,
-      orderBy: { issuedAt: "desc" },
-      select: {
+    const certificates = await runWithTenant(orgId, () =>
+      db.issuedCertificate.findMany({
+        where,
+        orderBy: { issuedAt: "desc" },
+        select: {
         id: true,
         type: true,
         serial: true,
@@ -112,7 +119,8 @@ export async function GET(req: Request, { params }: RouteParams) {
           },
         },
       },
-    });
+      }),
+    );
 
     return NextResponse.json({ certificates });
   } catch (error) {

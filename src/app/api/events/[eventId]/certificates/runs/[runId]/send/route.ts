@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 
@@ -32,26 +33,33 @@ export async function POST(_req: Request, { params }: RouteParams) {
     if (!session.user.organizationId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     // Atomic transition — only AWAITING_REVIEW runs can move to SENDING.
     // updateMany with the status guard prevents double-click race.
-    const updated = await db.certificateIssueRun.updateMany({
-      where: {
-        id: runId,
-        status: "AWAITING_REVIEW",
-        event: { organizationId: session.user.organizationId, id: p.eventId },
-      },
-      data: {
-        status: "SENDING",
-        emailerStartedAt: new Date(),
-        lastTickAt: new Date(),
-      },
-    });
+    // tenancy: swept CertificateIssueRun write runs inside the session org.
+    const updated = await runWithTenant(orgId, () =>
+      db.certificateIssueRun.updateMany({
+        where: {
+          id: runId,
+          status: "AWAITING_REVIEW",
+          event: { organizationId: orgId, id: p.eventId },
+        },
+        data: {
+          status: "SENDING",
+          emailerStartedAt: new Date(),
+          lastTickAt: new Date(),
+        },
+      }),
+    );
     if (updated.count === 0) {
-      const run = await db.certificateIssueRun.findUnique({
-        where: { id: runId },
-        select: { status: true },
-      });
+      // tenancy: swept CertificateIssueRun read runs inside the session org.
+      const run = await runWithTenant(orgId, () =>
+        db.certificateIssueRun.findUnique({
+          where: { id: runId },
+          select: { status: true },
+        }),
+      );
       if (!run) {
         return NextResponse.json({ error: "Run not found" }, { status: 404 });
       }

@@ -28,6 +28,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -72,6 +73,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "cert-resend-bundle:no-org", userId: session.user.id, eventId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     const parsed = bodySchema.safeParse(rawBody);
     if (!parsed.success) {
@@ -123,22 +125,24 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const { where, linkedRegistrationId, linkedSpeakerId } = await buildPersonCertificateWhere(
-      eventId,
-      registrationId,
-      speakerId,
+    // tenancy: counterpart resolution + the swept IssuedCertificate read run
+    // inside the session org.
+    const { where, linkedRegistrationId, linkedSpeakerId } = await runWithTenant(orgId, () =>
+      buildPersonCertificateWhere(p.eventId, registrationId, speakerId),
     );
-    const certs = await db.issuedCertificate.findMany({
-      where: { ...where, revokedAt: null, pdfUrl: { not: null } },
-      orderBy: { issuedAt: "asc" },
-      select: {
-        id: true,
-        serial: true,
-        type: true,
-        pdfUrl: true,
-        certificateTemplate: { select: { name: true } },
-      },
-    });
+    const certs = await runWithTenant(orgId, () =>
+      db.issuedCertificate.findMany({
+        where: { ...where, revokedAt: null, pdfUrl: { not: null } },
+        orderBy: { issuedAt: "asc" },
+        select: {
+          id: true,
+          serial: true,
+          type: true,
+          pdfUrl: true,
+          certificateTemplate: { select: { name: true } },
+        },
+      }),
+    );
     if (certs.length === 0) {
       apiLogger.warn({
         msg: "cert-resend-bundle:no-sendable-certs",
@@ -232,21 +236,26 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // 2+ certs → the event's editable bundle cover template; the shared
     // resolver keeps this send byte-identical to its preview.
-    const cover = await resolveResendBundleCover(eventId, bundle.length, bundle[0].type);
-    const send = await sendCertificateBundleEmail({
-      eventId,
-      organizationId: event.organizationId,
-      recipientEmail,
-      recipientName: recipient?.fullName ?? "Certificate recipient",
-      recipientFirstName: recipient?.firstName ?? null,
-      recipientLastName: recipient?.lastName ?? null,
-      registrationId: linkedRegistrationId,
-      speakerId: linkedSpeakerId,
-      certs: bundle,
-      emailSubjectTemplate: cover.subject,
-      emailBodyTemplate: cover.body,
-      triggeredByUserId: session.user.id,
-    });
+    // tenancy: cover-template read runs inside the session org.
+    const cover = await runWithTenant(orgId, () =>
+      resolveResendBundleCover(p.eventId, bundle.length, bundle[0].type),
+    );
+    const send = await runWithTenant(orgId, () =>
+      sendCertificateBundleEmail({
+        eventId: p.eventId,
+        organizationId: event.organizationId,
+        recipientEmail,
+        recipientName: recipient?.fullName ?? "Certificate recipient",
+        recipientFirstName: recipient?.firstName ?? null,
+        recipientLastName: recipient?.lastName ?? null,
+        registrationId: linkedRegistrationId,
+        speakerId: linkedSpeakerId,
+        certs: bundle,
+        emailSubjectTemplate: cover.subject,
+        emailBodyTemplate: cover.body,
+        triggeredByUserId: session.user.id,
+      }),
+    );
     if (!send.success) {
       apiLogger.warn({
         msg: "cert-resend-bundle:send-failed",
@@ -261,10 +270,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    await db.issuedCertificate.updateMany({
-      where: { id: { in: sentCertIds } },
-      data: { resendCount: { increment: 1 }, lastResentAt: new Date() },
-    });
+    // tenancy: swept IssuedCertificate counter write runs inside the session org.
+    await runWithTenant(orgId, () =>
+      db.issuedCertificate.updateMany({
+        where: { id: { in: sentCertIds } },
+        data: { resendCount: { increment: 1 }, lastResentAt: new Date() },
+      }),
+    );
     db.auditLog
       .create({
         data: {

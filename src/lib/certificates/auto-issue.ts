@@ -291,6 +291,9 @@ async function processRegistration(
   reg: {
     id: string;
     eventId: string;
+    // tenancy: the reg's org (nullable for legacy/master), stamped on the
+    // auto-run + item. The wrap is applied at the sweep loop (runWithTenant).
+    organizationId: string | null;
     attendee: {
       title: string | null;
       firstName: string | null;
@@ -400,6 +403,7 @@ async function processRegistration(
       const run = await tx.certificateIssueRun.create({
         data: {
           eventId: reg.eventId,
+          organizationId: reg.organizationId, // tenancy
           type: runType,
           certificateTemplateId: surviving.length === 1 ? surviving[0].templateId : null,
           templateIds,
@@ -416,6 +420,7 @@ async function processRegistration(
       await tx.certificateIssueRunItem.create({
         data: {
           runId: run.id,
+          organizationId: reg.organizationId, // tenancy
           registrationId: anyRegistrationTarget ? reg.id : null,
           speakerId: anySpeakerTarget ? speaker!.id : null,
           recipientName,

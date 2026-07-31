@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 
@@ -30,13 +31,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session.user.organizationId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
-    const run = await db.certificateIssueRun.findFirst({
-      where: {
-        id: runId,
-        event: { organizationId: session.user.organizationId, id: eventId },
-      },
-      select: {
+    // tenancy: swept CertificateIssueRun read runs inside the session org.
+    const run = await runWithTenant(orgId, () =>
+      db.certificateIssueRun.findFirst({
+        where: {
+          id: runId,
+          event: { organizationId: orgId, id: eventId },
+        },
+        select: {
         id: true, eventId: true, type: true, status: true,
         autoIssue: true, templateIds: true,
         totalCount: true, renderedCount: true, emailedCount: true, failedCount: true,
@@ -47,8 +51,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
         // Null for auto-issue runs (no operator) — Prisma returns null for
         // the optional relation, so callers must tolerate triggeredBy: null.
         triggeredBy: { select: { id: true, firstName: true, lastName: true, email: true } },
-      },
-    });
+        },
+      }),
+    );
     if (!run) {
       return NextResponse.json({ error: "Run not found" }, { status: 404 });
     }
@@ -61,19 +66,22 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // operator would have to dig through the filesystem). Capped at 20
     // so the polling response stays small even on multi-thousand
     // recipient runs.
-    const sampleItemsRaw = await db.certificateIssueRunItem.findMany({
-      where: { runId },
-      orderBy: { recipientName: "asc" },
-      take: 20,
-      select: {
-        id: true, recipientName: true, recipientEmail: true,
-        registrationId: true, speakerId: true, templateIds: true,
-        renderedAt: true, emailedAt: true,
-        errorPhase: true, errorMessage: true,
-        issuedCertificateId: true,
-        issuedCertificate: { select: { pdfUrl: true, serial: true } },
-      },
-    });
+    // tenancy: swept CertificateIssueRunItem read runs inside the session org.
+    const sampleItemsRaw = await runWithTenant(orgId, () =>
+      db.certificateIssueRunItem.findMany({
+        where: { runId },
+        orderBy: { recipientName: "asc" },
+        take: 20,
+        select: {
+          id: true, recipientName: true, recipientEmail: true,
+          registrationId: true, speakerId: true, templateIds: true,
+          renderedAt: true, emailedAt: true,
+          errorPhase: true, errorMessage: true,
+          issuedCertificateId: true,
+          issuedCertificate: { select: { pdfUrl: true, serial: true } },
+        },
+      }),
+    );
 
     // Bundle-model items carry EVERY cert the person earned (one per
     // applicable template). Recomputed from (item.templateIds × facets) —
@@ -83,24 +91,27 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const runTemplateIds = run.templateIds;
     const sampleRegIds = sampleItemsRaw.map((r) => r.registrationId).filter((x): x is string => !!x);
     const sampleSpkIds = sampleItemsRaw.map((r) => r.speakerId).filter((x): x is string => !!x);
+    // tenancy: swept IssuedCertificate read runs inside the session org.
     const bundleCertRows =
       runTemplateIds.length > 0 && (sampleRegIds.length > 0 || sampleSpkIds.length > 0)
-        ? await db.issuedCertificate.findMany({
-            where: {
-              eventId: run.eventId,
-              certificateTemplateId: { in: runTemplateIds },
-              revokedAt: null,
-              OR: [
-                ...(sampleRegIds.length ? [{ registrationId: { in: sampleRegIds } }] : []),
-                ...(sampleSpkIds.length ? [{ speakerId: { in: sampleSpkIds } }] : []),
-              ],
-            },
-            select: {
-              id: true, pdfUrl: true, serial: true, type: true,
-              certificateTemplateId: true, registrationId: true, speakerId: true,
-            },
-            orderBy: { issuedAt: "asc" },
-          })
+        ? await runWithTenant(orgId, () =>
+            db.issuedCertificate.findMany({
+              where: {
+                eventId: run.eventId,
+                certificateTemplateId: { in: runTemplateIds },
+                revokedAt: null,
+                OR: [
+                  ...(sampleRegIds.length ? [{ registrationId: { in: sampleRegIds } }] : []),
+                  ...(sampleSpkIds.length ? [{ speakerId: { in: sampleSpkIds } }] : []),
+                ],
+              },
+              select: {
+                id: true, pdfUrl: true, serial: true, type: true,
+                certificateTemplateId: true, registrationId: true, speakerId: true,
+              },
+              orderBy: { issuedAt: "asc" },
+            }),
+          )
         : [];
 
     const sampleItems = sampleItemsRaw.map((r) => {
@@ -138,22 +149,25 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // capped operationally by the recipient pool — for events with
     // tens of thousands of recipients the worst case is a few hundred
     // failures, which fits comfortably in a polling response.
+    // tenancy: swept CertificateIssueRunItem read runs inside the session org.
     const failedItems =
       run.failedCount > 0
-        ? await db.certificateIssueRunItem.findMany({
-            where: { runId, errorMessage: { not: null } },
-            orderBy: { recipientName: "asc" },
-            select: {
-              id: true,
-              recipientName: true,
-              recipientEmail: true,
-              errorPhase: true,
-              errorMessage: true,
-              renderedAt: true,
-              emailedAt: true,
-              issuedCertificateId: true,
-            },
-          })
+        ? await runWithTenant(orgId, () =>
+            db.certificateIssueRunItem.findMany({
+              where: { runId, errorMessage: { not: null } },
+              orderBy: { recipientName: "asc" },
+              select: {
+                id: true,
+                recipientName: true,
+                recipientEmail: true,
+                errorPhase: true,
+                errorMessage: true,
+                renderedAt: true,
+                emailedAt: true,
+                issuedCertificateId: true,
+              },
+            }),
+          )
         : [];
 
     return NextResponse.json({

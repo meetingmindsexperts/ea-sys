@@ -230,6 +230,9 @@ export type FindOrIssueResult =
  */
 export async function findOrIssueCertificate(args: {
   eventId: string;
+  // tenancy: the event's org (nullable for legacy/master). Stamped on the new
+  // cert row + the serial counter. Caller runs inside runWithTenant.
+  organizationId: string | null;
   templateId: string;
   registrationId: string | null;
   speakerId: string | null;
@@ -273,7 +276,7 @@ export async function findOrIssueCertificate(args: {
     return reuseExistingCert(args.eventId, tmpl, registrationId, speakerId, existing);
   }
 
-  const serial = await allocateSerial(args.eventId, tmpl.category);
+  const serial = await allocateSerial(args.eventId, tmpl.category, args.organizationId);
   let render: RenderAndUploadResult;
   try {
     render = await renderAndUpload({
@@ -292,6 +295,7 @@ export async function findOrIssueCertificate(args: {
     const cert = await db.issuedCertificate.create({
       data: {
         eventId: args.eventId,
+        organizationId: args.organizationId, // tenancy
         registrationId,
         speakerId,
         type: tmpl.category,

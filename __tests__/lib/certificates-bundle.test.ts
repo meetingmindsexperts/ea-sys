@@ -60,7 +60,7 @@ vi.mock("@/lib/certificates/email-tokens-resolver", () => ({
 vi.mock("@/lib/certificates/cert-context", () => ({
   loadRecipient: (r: string | null, s: string | null) => mockLoadRecipient(r, s),
   loadEventContext: (e: string) => mockLoadEvent(e),
-  allocateSerial: (e: string, t: string) => mockAllocSerial(e, t),
+  allocateSerial: (e: string, t: string, o: string | null) => mockAllocSerial(e, t, o),
   loadPosterAbstractTitle: vi.fn().mockResolvedValue(null),
   // Faithful copy of the real predicate (M1) — the recipient-dup P2002 the
   // race tests simulate carries no `serial` target, so this returns false and
@@ -118,6 +118,7 @@ beforeEach(() => {
 
 const BASE_ARGS = {
   eventId: "evt-1",
+  organizationId: "org-1", // tenancy
   templateId: "tpl-att",
   registrationId: "reg-1",
   speakerId: "spk-1", // both facets passed — category must pick
@@ -130,7 +131,7 @@ describe("findOrIssueCertificate", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.cert).toMatchObject({ certificateId: "cert-new", serial: "OMM-ATT-0042", reused: false, templateName: "Standard Attendance" });
-    expect(mockAllocSerial).toHaveBeenCalledWith("evt-1", "ATTENDANCE");
+    expect(mockAllocSerial).toHaveBeenCalledWith("evt-1", "ATTENDANCE", "org-1");
     const createData = mockDb.issuedCertificate.create.mock.calls[0][0].data;
     // ATTENDANCE keys on the registration; the speaker facet is nulled.
     expect(createData.registrationId).toBe("reg-1");

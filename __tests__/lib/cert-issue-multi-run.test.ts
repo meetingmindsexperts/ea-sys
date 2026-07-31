@@ -87,7 +87,7 @@ describe("processBundleRenderPhase", () => {
 
   it("issues one cert per stamped template, threading the run item id", async () => {
     mockDb.certificateIssueRunItem.findMany.mockResolvedValue([ITEM]);
-    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att", "tpl-app"], false, "user-1");
+    const res = await processBundleRenderPhase("run-1", "evt-1", "org-1", ["tpl-att", "tpl-app"], false, "user-1");
     expect(res.renderedThisTick).toBe(1);
     expect(mockFindOrIssue).toHaveBeenCalledTimes(2);
     expect(mockFindOrIssue.mock.calls.map((c) => c[0])).toEqual(
@@ -104,7 +104,7 @@ describe("processBundleRenderPhase", () => {
 
   it("renders only the item's stamped subset, not every run template", async () => {
     mockDb.certificateIssueRunItem.findMany.mockResolvedValue([{ ...ITEM, templateIds: ["tpl-att"] }]);
-    await processBundleRenderPhase("run-1", "evt-1", ["tpl-att", "tpl-app"], false, "user-1");
+    await processBundleRenderPhase("run-1", "evt-1", "org-1", ["tpl-att", "tpl-app"], false, "user-1");
     expect(mockFindOrIssue).toHaveBeenCalledTimes(1);
     expect(mockFindOrIssue.mock.calls[0][0]).toMatchObject({ templateId: "tpl-att" });
   });
@@ -116,7 +116,7 @@ describe("processBundleRenderPhase", () => {
         ? Promise.resolve({ ok: false as const, code: "RENDER_FAILED" as const, error: "boom" })
         : okCert("cert-tpl-att"),
     );
-    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att", "tpl-app"], false, "user-1");
+    const res = await processBundleRenderPhase("run-1", "evt-1", "org-1", ["tpl-att", "tpl-app"], false, "user-1");
     expect(res.renderedThisTick).toBe(0);
     // markItemFailed sets errorPhase render + renderedAt (batch exclusion),
     // but NOT issuedCertificateId — the item isn't email-eligible.
@@ -133,7 +133,7 @@ describe("processBundleRenderPhase", () => {
         ? Promise.resolve({ ok: false as const, code: "RENDER_FAILED" as const, error: "boom" })
         : okCert("cert-tpl-att"),
     );
-    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att", "tpl-app"], true, null);
+    const res = await processBundleRenderPhase("run-1", "evt-1", "org-1", ["tpl-att", "tpl-app"], true, null);
     expect(res.renderedThisTick).toBe(1);
     // Item marked rendered (email-eligible) WITHOUT errorPhase; the miss is
     // recorded on the run (errors append + failedCount) instead.
@@ -154,7 +154,7 @@ describe("processBundleRenderPhase", () => {
         new Prisma.PrismaClientKnownRequestError("Unique", { code: "P2002", clientVersion: "t" }),
       )
       .mockResolvedValueOnce({});
-    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att"], false, "user-1");
+    const res = await processBundleRenderPhase("run-1", "evt-1", "org-1", ["tpl-att"], false, "user-1");
     // Item still counts as rendered — the send phase recomputes the cert
     // set from templateIds, so the missing legacy pointer is harmless.
     expect(res.renderedThisTick).toBe(1);
@@ -166,7 +166,7 @@ describe("processBundleRenderPhase", () => {
   it("an unexpected throw is contained per-item via markItemFailed (run never wedges)", async () => {
     mockDb.certificateIssueRunItem.findMany.mockResolvedValue([{ ...ITEM, templateIds: ["tpl-att"] }]);
     mockFindOrIssue.mockRejectedValue(new Error("connection closed"));
-    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att"], false, "user-1");
+    const res = await processBundleRenderPhase("run-1", "evt-1", "org-1", ["tpl-att"], false, "user-1");
     expect(res.renderedThisTick).toBe(0);
     const failUpdate = mockDb.certificateIssueRunItem.update.mock.calls[0][0];
     expect(failUpdate.data.errorPhase).toBe("render");
@@ -178,7 +178,7 @@ describe("processBundleRenderPhase", () => {
     mockLoadTemplate.mockImplementation((_e: string, id: string) =>
       Promise.resolve(id === "tpl-app" ? null : TPL(id, "ATTENDANCE")),
     );
-    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att", "tpl-app"], false, "user-1");
+    const res = await processBundleRenderPhase("run-1", "evt-1", "org-1", ["tpl-att", "tpl-app"], false, "user-1");
     expect(res.transitionedTo).toBe("FAILED");
     expect(mockFindOrIssue).not.toHaveBeenCalled();
     // failRun now goes through the conditional transition (updateMany, H1).
@@ -194,9 +194,9 @@ describe("processBundleRenderPhase", () => {
 
   it("transitions manual runs to AWAITING_REVIEW and auto runs to SENDING when drained", async () => {
     mockDb.certificateIssueRunItem.findMany.mockResolvedValue([]);
-    const manual = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att"], false, "user-1");
+    const manual = await processBundleRenderPhase("run-1", "evt-1", "org-1", ["tpl-att"], false, "user-1");
     expect(manual.transitionedTo).toBe("AWAITING_REVIEW");
-    const auto = await processBundleRenderPhase("run-2", "evt-1", ["tpl-att"], true, null);
+    const auto = await processBundleRenderPhase("run-2", "evt-1", "org-1", ["tpl-att"], true, null);
     expect(auto.transitionedTo).toBeNull(); // SENDING transition returns null (same as legacy)
     // Phase-complete transitions are conditional on the prior RENDERING status (H1).
     const sendingUpdate = mockDb.certificateIssueRun.updateMany.mock.calls.find(
@@ -210,7 +210,7 @@ describe("processBundleRenderPhase", () => {
     mockDb.certificateIssueRunItem.findMany.mockResolvedValue([]);
     // Cancel won the race → the guarded updateMany matches 0 rows.
     mockDb.certificateIssueRun.updateMany.mockResolvedValue({ count: 0 });
-    const res = await processBundleRenderPhase("run-1", "evt-1", ["tpl-att"], false, "user-1");
+    const res = await processBundleRenderPhase("run-1", "evt-1", "org-1", ["tpl-att"], false, "user-1");
     // Superseded → we do NOT report a transition (the cancel stands).
     expect(res.transitionedTo).toBeNull();
   });

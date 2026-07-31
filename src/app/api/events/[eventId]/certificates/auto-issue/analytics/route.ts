@@ -23,6 +23,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import type { Prisma } from "@prisma/client";
@@ -80,6 +81,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const surveyed: Prisma.RegistrationWhereInput = { eventId, surveyCompletedAt: { not: null } };
 
+    // tenancy: this aggregate touches swept cert tables (IssuedCertificate,
+    // CertificateIssueRun, CertificateTemplate) — run inside the session org.
     const [
       pending,
       retrying,
@@ -89,7 +92,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       autoRunsByStatus,
       templates,
       recentErrorsRaw,
-    ] = await Promise.all([
+    ] = await runWithTenant(orgGuard.orgId, () =>
+      Promise.all([
       db.registration.count({
         where: { ...surveyed, certAutoIssueCheckedAt: null, certAutoIssueAttempts: 0 },
       }),
@@ -126,7 +130,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
           attendee: { select: { firstName: true, lastName: true, email: true } },
         },
       }),
-    ]);
+      ]),
+    );
 
     const runStatusCounts: Record<string, number> = {};
     for (const row of autoRunsByStatus) {

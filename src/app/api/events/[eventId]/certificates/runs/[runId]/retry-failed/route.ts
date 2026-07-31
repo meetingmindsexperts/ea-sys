@@ -33,7 +33,8 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 
@@ -57,16 +58,20 @@ export async function POST(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "cert-retry-failed:no-org", userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     // Org-bound lookup. We need the current status to decide the
     // post-retry status transition.
-    const run = await db.certificateIssueRun.findFirst({
-      where: {
-        id: runId,
-        event: { organizationId: session.user.organizationId, id: eventId },
-      },
-      select: { id: true, status: true, failedCount: true },
-    });
+    // tenancy: swept CertificateIssueRun read runs inside the session org.
+    const run = await runWithTenant(orgId, () =>
+      db.certificateIssueRun.findFirst({
+        where: {
+          id: runId,
+          event: { organizationId: orgId, id: eventId },
+        },
+        select: { id: true, status: true, failedCount: true },
+      }),
+    );
     if (!run) {
       apiLogger.warn({
         msg: "cert-retry-failed:run-not-found",
@@ -111,10 +116,13 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     // Pull the failed items so we know how to reset each one. Split by
     // phase to decide the run status transition.
-    const failed = await db.certificateIssueRunItem.findMany({
-      where: { runId, errorMessage: { not: null } },
-      select: { id: true, errorPhase: true, issuedCertificateId: true },
-    });
+    // tenancy: swept CertificateIssueRunItem read runs inside the session org.
+    const failed = await runWithTenant(orgId, () =>
+      db.certificateIssueRunItem.findMany({
+        where: { runId, errorMessage: { not: null } },
+        select: { id: true, errorPhase: true, issuedCertificateId: true },
+      }),
+    );
 
     if (failed.length === 0) {
       // Run.failedCount was stale (concurrent retry?) — recompute and
@@ -127,10 +135,13 @@ export async function POST(_req: Request, { params }: RouteParams) {
         failedCountOnRun: run.failedCount,
         failedItemsFound: 0,
       });
-      await db.certificateIssueRun.update({
-        where: { id: runId },
-        data: { failedCount: 0 },
-      });
+      // tenancy: swept CertificateIssueRun write runs inside the session org.
+      await runWithTenant(orgId, () =>
+        db.certificateIssueRun.update({
+          where: { id: runId },
+          data: { failedCount: 0 },
+        }),
+      );
       return NextResponse.json({
         ok: true,
         retried: 0,
@@ -154,7 +165,10 @@ export async function POST(_req: Request, { params }: RouteParams) {
       .filter((f) => f.errorPhase === "email")
       .map((f) => f.id);
 
-    await db.$transaction(async (tx) => {
+    // tenancy: wrap the batch-reset tx in the session org; swept
+    // CertificateIssueRunItem + CertificateIssueRun writes run under SET LOCAL.
+    await runWithTenant(orgId, () =>
+      tenantTransaction(async (tx) => {
       if (renderFailedIds.length > 0) {
         await tx.certificateIssueRunItem.updateMany({
           where: { id: { in: renderFailedIds } },
@@ -197,7 +211,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
           lastTickAt: new Date(),
         },
       });
-    });
+      }),
+    );
 
     db.auditLog
       .create({

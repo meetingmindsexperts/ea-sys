@@ -134,10 +134,19 @@ export function formatRecipientName(title: string | null, first: string, last: s
   return `${t}${first} ${last}`.trim();
 }
 
-export async function allocateSerial(eventId: string, type: CertificateType): Promise<string> {
+export async function allocateSerial(
+  eventId: string,
+  type: CertificateType,
+  // tenancy: the event's org (nullable for legacy/master). Stamped on the
+  // create branch of the counter upsert so the atomic INSERT…ON CONFLICT
+  // against a policy-invisible row can't raise a spurious unique violation
+  // under RLS (the RegistrationSerialCounter flat-column reason). Caller runs
+  // inside runWithTenant so the per-op SET LOCAL applies; null → passthrough.
+  organizationId: string | null,
+): Promise<string> {
   const counter = await db.certificateSerialCounter.upsert({
     where: { eventId_type: { eventId, type } },
-    create: { eventId, type, lastSerial: 1 },
+    create: { eventId, type, lastSerial: 1, organizationId },
     update: { lastSerial: { increment: 1 } },
     select: { lastSerial: true },
   });

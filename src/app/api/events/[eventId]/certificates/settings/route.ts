@@ -18,6 +18,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { updateEventSettings } from "@/lib/event-settings";
@@ -66,11 +67,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "cert-settings:no-org", userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
-    const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId },
-      select: { id: true, cmeHours: true, settings: true },
-    });
+    // tenancy: wrap the event read for consistency with the cert sweep (Event
+    // is not a swept cert table, so this is a harmless passthrough on master).
+    const event = await runWithTenant(orgId, () =>
+      db.event.findFirst({
+        where: { id: eventId, organizationId: orgId },
+        select: { id: true, cmeHours: true, settings: true },
+      }),
+    );
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
@@ -108,6 +114,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "cert-settings:no-org", userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {
@@ -123,10 +130,14 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       );
     }
 
-    const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId },
-      select: { id: true, settings: true },
-    });
+    // tenancy: wrap the event read for consistency with the cert sweep (Event
+    // is not a swept cert table, so this is a harmless passthrough on master).
+    const event = await runWithTenant(orgId, () =>
+      db.event.findFirst({
+        where: { id: eventId, organizationId: orgId },
+        select: { id: true, settings: true },
+      }),
+    );
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }

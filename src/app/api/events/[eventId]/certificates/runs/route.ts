@@ -15,6 +15,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import type { CertIssueRunStatus } from "@prisma/client";
@@ -65,11 +66,13 @@ export async function GET(req: Request, { params }: RouteParams) {
         ? { eventId }
         : { eventId, status: { in: ACTIVE_STATUSES } };
 
-    const runs = await db.certificateIssueRun.findMany({
-      where,
-      orderBy: { triggeredAt: "desc" },
-      take: 50, // cap; an event rarely has more active runs than this
-      select: {
+    // tenancy: swept CertificateIssueRun read runs inside the session org.
+    const runs = await runWithTenant(session.user.organizationId, () =>
+      db.certificateIssueRun.findMany({
+        where,
+        orderBy: { triggeredAt: "desc" },
+        take: 50, // cap; an event rarely has more active runs than this
+        select: {
         id: true,
         type: true,
         status: true,
@@ -85,8 +88,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         // Bundle-model runs (2+ templates) leave certificateTemplateId null
         // and list their templates here — the UI joins names client-side.
         templateIds: true,
-      },
-    });
+        },
+      }),
+    );
 
     return NextResponse.json({ runs });
   } catch (error) {

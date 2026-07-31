@@ -24,7 +24,8 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { uploadCertificatePdf } from "@/lib/storage";
@@ -82,15 +83,19 @@ export async function POST(_req: Request, { params }: RouteParams) {
       });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     // Load the source — bind to org via the event relation. 404 (not 403)
     // for cross-tenant to avoid enumeration, same pattern as PATCH/DELETE.
-    const source = await db.certificateTemplate.findFirst({
-      where: {
-        id: templateId,
-        event: { organizationId: session.user.organizationId },
-      },
-    });
+    // tenancy: swept CertificateTemplate read runs inside the session org.
+    const source = await runWithTenant(orgId, () =>
+      db.certificateTemplate.findFirst({
+        where: {
+          id: templateId,
+          event: { organizationId: orgId },
+        },
+      }),
+    );
     if (!source || source.eventId !== eventId) {
       apiLogger.warn({
         msg: "cert-templates:duplicate-not-found-or-cross-tenant",
@@ -127,7 +132,10 @@ export async function POST(_req: Request, { params }: RouteParams) {
     // templates in the same category can't both land at the same index.
     const eventIdLocked = eventId;
     const newName = `${source.name} (copy)`;
-    const clone = await db.$transaction(async (tx) => {
+    // tenancy: wrap the aggregate+create tx in the session org so the swept
+    // CertificateTemplate write runs under SET LOCAL on the platform.
+    const clone = await runWithTenant(orgId, () =>
+      tenantTransaction(async (tx) => {
       const maxOrder = await tx.certificateTemplate.aggregate({
         where: { eventId: eventIdLocked, category: source.category },
         _max: { sortOrder: true },
@@ -136,6 +144,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       return tx.certificateTemplate.create({
         data: {
           eventId: eventIdLocked,
+          organizationId: orgId, // tenancy
           name: newName,
           category: source.category,
           backgroundPdfUrl: newBackgroundUrl,
@@ -160,7 +169,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
           autoIssueOnSurvey: false,
         },
       });
-    });
+      }),
+    );
 
     // The source's auto-issue was left OFF on the clone by design (H4) —
     // tell the caller so the UI can prompt "re-enable auto-issue when ready".

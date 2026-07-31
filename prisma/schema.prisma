@@ -440,10 +440,17 @@ model CertificateSerialCounter {
   eventId    String
   type       CertificateType
   lastSerial Int             @default(0)
+  // tenancy (Certificates sweep): denormalized org, no FK. FLAT column on this
+  // composite-PK counter for the RegistrationSerialCounter reason — the atomic
+  // INSERT…ON CONFLICT upsert against a policy-invisible row would raise a
+  // spurious unique violation the app misreads; a flat column the writer stamps
+  // sidesteps it. Backfilled 1-hop from Event.
+  organizationId String?
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@id([eventId, type])
+  @@index([organizationId])
 }
 
 /// User-defined certificate template (2026-06-02 — N templates per event-per-
@@ -465,6 +472,8 @@ model CertificateSerialCounter {
 model CertificateTemplate {
   id                String          @id @default(cuid())
   eventId           String
+  // tenancy (Certificates sweep): denormalized org, no FK. Backfilled 1-hop from Event.
+  organizationId    String?
   name              String // organizer-defined, e.g. "VIP Attendance"
   category          CertificateType // ATTENDANCE | APPRECIATION
   // Role/designation this template certifies (e.g. "Speaker", "Moderator",
@@ -500,6 +509,7 @@ model CertificateTemplate {
   issueRuns          CertificateIssueRun[]
 
   @@index([eventId, category, sortOrder])
+  @@index([organizationId])
 }
 
 /// Audit record of a certificate that was actually issued + emailed. One row
@@ -514,6 +524,8 @@ model CertificateTemplate {
 model IssuedCertificate {
   id                    String          @id @default(cuid())
   eventId               String
+  // tenancy (Certificates sweep): denormalized org, no FK. Backfilled 1-hop from Event.
+  organizationId        String?
   registrationId        String?
   speakerId             String?
   type                  CertificateType
@@ -589,6 +601,7 @@ model IssuedCertificate {
   @@index([certificateTemplateId])
   @@index([serial])
   @@index([issueRunItemId])
+  @@index([organizationId])
 }
 
 /// Bulk certificate-issuing run. One row per "issue all certificates of
@@ -604,6 +617,10 @@ model IssuedCertificate {
 model CertificateIssueRun {
   id                    String             @id @default(cuid())
   eventId               String
+  // tenancy (Certificates sweep): denormalized org, no FK. Backfilled 1-hop from
+  // Event. The cert worker reads this off the run row to wrap each run's
+  // render/send in runWithTenant (org-blind candidate scan, per-run wrap).
+  organizationId        String?
   type                  CertificateType
   /// Which template fired this run. Nullable for legacy rows (pre-flip);
   /// SINGLE-template runs still set it (legacy readers depend on it). A
@@ -665,6 +682,7 @@ model CertificateIssueRun {
   @@index([eventId, type, status])
   @@index([certificateTemplateId])
   @@index([status, lastTickAt])
+  @@index([organizationId])
 }
 
 enum CertIssueRunStatus {
@@ -684,6 +702,9 @@ enum CertIssueRunStatus {
 model CertificateIssueRunItem {
   id                  String    @id @default(cuid())
   runId               String
+  // tenancy (Certificates sweep): denormalized org, no FK. Backfilled 2-hop
+  // from Event via the parent CertificateIssueRun (stamped first).
+  organizationId      String?
   registrationId      String?
   speakerId           String?
   // Snapshot at run-creation time — used to display the recipient list
@@ -718,6 +739,7 @@ model CertificateIssueRunItem {
   @@unique([runId, speakerId])
   @@index([runId, renderedAt])
   @@index([runId, emailedAt])
+  @@index([organizationId])
 }
 
 enum EventStatus {

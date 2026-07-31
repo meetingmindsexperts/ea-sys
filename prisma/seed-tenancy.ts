@@ -94,6 +94,17 @@ import {
   SESSION_B_ID,
   SESSION_TOPIC_A_ID,
   SESSION_TOPIC_B_ID,
+  SHARED_CERT_TEMPLATE_NAME,
+  CERT_TEMPLATE_A_ID,
+  CERT_TEMPLATE_B_ID,
+  ISSUED_CERT_A_ID,
+  ISSUED_CERT_B_ID,
+  CERT_A_SERIAL,
+  CERT_B_SERIAL,
+  CERT_RUN_A_ID,
+  CERT_RUN_B_ID,
+  CERT_RUN_ITEM_A_ID,
+  CERT_RUN_ITEM_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -200,6 +211,19 @@ async function seedOrg(
     topicId: string;
     eventId: string;
     speakerId: string;
+  },
+  // Certificates sweep (Domain #13): a template + an issued cert (on this org's
+  // own registration) + an issue run + run item + serial counter, all on the
+  // org's shared event. Runs after the invoicing block (needs the registration).
+  certificates?: {
+    templateId: string;
+    templateName: string;
+    issuedCertId: string;
+    serial: string;
+    runId: string;
+    runItemId: string;
+    eventId: string;
+    registrationId: string;
   },
 ) {
   await db.organization.create({
@@ -555,6 +579,54 @@ async function seedOrg(
       data: { topicId: session.topicId, speakerId: session.speakerId, organizationId: orgId },
     });
   }
+  // Certificates sweep fixtures. All cascade from Event (org cascade reaches
+  // them); the run item from the run, the issued cert's registrationId is
+  // SetNull but the cert itself is Event-cascaded. Runs after the invoicing
+  // block so the registration exists.
+  if (certificates) {
+    await db.certificateTemplate.create({
+      data: {
+        id: certificates.templateId,
+        eventId: certificates.eventId,
+        organizationId: orgId,
+        name: certificates.templateName,
+        category: "ATTENDANCE",
+      },
+    });
+    await db.certificateSerialCounter.create({
+      data: { eventId: certificates.eventId, type: "ATTENDANCE", lastSerial: 1, organizationId: orgId },
+    });
+    await db.certificateIssueRun.create({
+      data: {
+        id: certificates.runId,
+        eventId: certificates.eventId,
+        organizationId: orgId,
+        type: "ATTENDANCE",
+        totalCount: 1,
+        status: "COMPLETED",
+      },
+    });
+    await db.certificateIssueRunItem.create({
+      data: {
+        id: certificates.runItemId,
+        runId: certificates.runId,
+        organizationId: orgId,
+        recipientName: "Tenancy Recipient",
+      },
+    });
+    await db.issuedCertificate.create({
+      data: {
+        id: certificates.issuedCertId,
+        eventId: certificates.eventId,
+        organizationId: orgId,
+        registrationId: certificates.registrationId,
+        certificateTemplateId: certificates.templateId,
+        type: "ATTENDANCE",
+        serial: certificates.serial,
+        recipientSnapshot: { fullName: "Tenancy Recipient" },
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -770,6 +842,16 @@ async function main() {
       eventId: EVENT_A_SHARED_ID,
       speakerId: SPEAKER_A_ID,
     },
+    {
+      templateId: CERT_TEMPLATE_A_ID,
+      templateName: SHARED_CERT_TEMPLATE_NAME,
+      issuedCertId: ISSUED_CERT_A_ID,
+      serial: CERT_A_SERIAL,
+      runId: CERT_RUN_A_ID,
+      runItemId: CERT_RUN_ITEM_A_ID,
+      eventId: EVENT_A_SHARED_ID,
+      registrationId: REG_A_ID,
+    },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -869,6 +951,16 @@ async function main() {
       topicId: SESSION_TOPIC_B_ID,
       eventId: EVENT_B_SHARED_ID,
       speakerId: SPEAKER_B_ID,
+    },
+    {
+      templateId: CERT_TEMPLATE_B_ID,
+      templateName: SHARED_CERT_TEMPLATE_NAME,
+      issuedCertId: ISSUED_CERT_B_ID,
+      serial: CERT_B_SERIAL,
+      runId: CERT_RUN_B_ID,
+      runItemId: CERT_RUN_ITEM_B_ID,
+      eventId: EVENT_B_SHARED_ID,
+      registrationId: REG_B_ID,
     },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

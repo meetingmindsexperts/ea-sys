@@ -27,7 +27,12 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // tenancy: routes now use tenantTransaction — passthrough to the mocked $transaction.
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (cb: (tx: unknown) => unknown, opts?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/security", () => ({ checkRateLimit: (a: unknown) => mockRateLimit(a) }));
 vi.mock("@/lib/auth-guards", () => ({
   denyReviewer: (s: { user?: { role?: string } } | null) =>

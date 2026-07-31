@@ -17,6 +17,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -81,14 +82,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     const templateIds = parsed.data.templateIds?.length
       ? parsed.data.templateIds
       : [parsed.data.templateId!];
-    const result = await issueCertificateBundle(
-      { eventId, organizationId: session.user.organizationId, actorUserId: session.user.id, source: "rest" },
-      {
-        templateIds,
-        registrationId: parsed.data.registrationId,
-        speakerId: parsed.data.speakerId,
-        sendEmail: parsed.data.sendEmail,
-      },
+    // tenancy: the bundle service creates swept cert rows — run inside the
+    // session org so those writes land under SET LOCAL on the platform.
+    const orgId = session.user.organizationId;
+    const result = await runWithTenant(orgId, () =>
+      issueCertificateBundle(
+        { eventId: p.eventId, organizationId: orgId, actorUserId: session.user.id, source: "rest" },
+        {
+          templateIds,
+          registrationId: parsed.data.registrationId,
+          speakerId: parsed.data.speakerId,
+          sendEmail: parsed.data.sendEmail,
+        },
+      ),
     );
 
     if (!result.ok) {

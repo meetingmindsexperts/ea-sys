@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 
@@ -29,15 +30,19 @@ export async function POST(_req: Request, { params }: RouteParams) {
     if (!session.user.organizationId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
-    const updated = await db.certificateIssueRun.updateMany({
-      where: {
-        id: runId,
-        status: { in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"] },
-        event: { organizationId: session.user.organizationId, id: eventId },
-      },
-      data: { status: "CANCELLED", lastTickAt: new Date() },
-    });
+    // tenancy: swept CertificateIssueRun write runs inside the session org.
+    const updated = await runWithTenant(orgId, () =>
+      db.certificateIssueRun.updateMany({
+        where: {
+          id: runId,
+          status: { in: ["PENDING", "RENDERING", "AWAITING_REVIEW", "SENDING"] },
+          event: { organizationId: orgId, id: eventId },
+        },
+        data: { status: "CANCELLED", lastTickAt: new Date() },
+      }),
+    );
     if (updated.count === 0) {
       return NextResponse.json(
         { error: "Run not found or already in a terminal state", code: "INVALID_TRANSITION" },

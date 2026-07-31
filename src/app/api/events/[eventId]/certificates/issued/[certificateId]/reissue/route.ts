@@ -14,6 +14,7 @@
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -47,9 +48,14 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    const result = await reRenderAndResendCert(
-      { eventId, organizationId: session.user.organizationId, actorUserId: session.user.id, source: "rest" },
-      certificateId,
+    // tenancy: the deliver service reads + updates swept cert rows — run inside
+    // the session org so those ops land under SET LOCAL on the platform.
+    const orgId = session.user.organizationId;
+    const result = await runWithTenant(orgId, () =>
+      reRenderAndResendCert(
+        { eventId: p.eventId, organizationId: orgId, actorUserId: session.user.id, source: "rest" },
+        p.certificateId,
+      ),
     );
 
     if (!result.ok) {

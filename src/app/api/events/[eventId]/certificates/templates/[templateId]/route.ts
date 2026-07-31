@@ -19,6 +19,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
@@ -70,10 +71,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     // Combined lookup binds event to org + template to event in one query.
-    const template = await db.certificateTemplate.findFirst({
-      where: { id: templateId, event: { organizationId: orgGuard.orgId } },
-      select: { id: true, eventId: true },
-    });
+    // tenancy: swept CertificateTemplate read runs inside the session org.
+    const template = await runWithTenant(orgGuard.orgId, () =>
+      db.certificateTemplate.findFirst({
+        where: { id: templateId, event: { organizationId: orgGuard.orgId } },
+        select: { id: true, eventId: true },
+      }),
+    );
     if (!template || template.eventId !== eventId) {
       apiLogger.warn({
         msg: "cert-templates:patch-not-found-or-cross-tenant",
@@ -115,10 +119,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     if (parsed.data.autoIssueOnSurvey !== undefined) data.autoIssueOnSurvey = parsed.data.autoIssueOnSurvey;
     if (parsed.data.autoIssueTag !== undefined) data.autoIssueTag = parsed.data.autoIssueTag;
 
-    const updated = await db.certificateTemplate.update({
-      where: { id: templateId },
-      data,
-    });
+    // tenancy: swept CertificateTemplate write runs inside the session org.
+    const updated = await runWithTenant(orgGuard.orgId, () =>
+      db.certificateTemplate.update({
+        where: { id: templateId },
+        data,
+      }),
+    );
 
     apiLogger.info({
       msg: "cert-templates:updated",
@@ -150,12 +157,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const template = await db.certificateTemplate.findFirst({
-      where: { id: templateId, event: { organizationId: orgGuard.orgId } },
-      include: {
-        _count: { select: { issuedCertificates: true, issueRuns: true } },
-      },
-    });
+    // tenancy: swept CertificateTemplate read runs inside the session org.
+    const template = await runWithTenant(orgGuard.orgId, () =>
+      db.certificateTemplate.findFirst({
+        where: { id: templateId, event: { organizationId: orgGuard.orgId } },
+        include: {
+          _count: { select: { issuedCertificates: true, issueRuns: true } },
+        },
+      }),
+    );
     if (!template || template.eventId !== eventId) {
       apiLogger.warn({
         msg: "cert-templates:delete-not-found-or-cross-tenant",
@@ -186,7 +196,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    await db.certificateTemplate.delete({ where: { id: templateId } });
+    // tenancy: swept CertificateTemplate delete runs inside the session org.
+    await runWithTenant(orgGuard.orgId, () =>
+      db.certificateTemplate.delete({ where: { id: templateId } }),
+    );
 
     apiLogger.info({
       msg: "cert-templates:deleted",

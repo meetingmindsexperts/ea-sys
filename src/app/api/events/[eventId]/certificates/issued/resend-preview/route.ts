@@ -17,6 +17,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -105,12 +106,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       actorUserId: session.user.id,
       source: "rest" as const,
     };
-    const result = parsed.data.certificateId
-      ? await previewReissueEmail(ctx, parsed.data.certificateId)
-      : await previewResendBundleEmail(ctx, {
-          registrationId: parsed.data.registrationId,
-          speakerId: parsed.data.speakerId,
-        });
+    // tenancy: the preview helpers read swept cert rows — run inside the
+    // session org so the reads see the tenant's rows on the platform.
+    const orgId = session.user.organizationId;
+    const result = await runWithTenant(orgId, () =>
+      parsed.data.certificateId
+        ? previewReissueEmail(ctx, parsed.data.certificateId)
+        : previewResendBundleEmail(ctx, {
+            registrationId: parsed.data.registrationId,
+            speakerId: parsed.data.speakerId,
+          }),
+    );
 
     if (!result.ok) {
       apiLogger.warn({

@@ -31,7 +31,8 @@ import { Prisma } from "@prisma/client";
 
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -157,7 +158,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
 
     const eventIdLocked = event.id;
-    const template = await db.$transaction(async (tx) => {
+    // tenancy: wrap the aggregate+create tx in the session org so the swept
+    // CertificateTemplate write runs under SET LOCAL on the platform.
+    const template = await runWithTenant(orgGuard.orgId, () =>
+      tenantTransaction(async (tx) => {
       const maxOrder = await tx.certificateTemplate.aggregate({
         where: { eventId: eventIdLocked, category },
         _max: { sortOrder: true },
@@ -165,6 +169,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return tx.certificateTemplate.create({
         data: {
           eventId: eventIdLocked,
+          organizationId: orgGuard.orgId, // tenancy
           name: starterTemplateName(category),
           category,
           backgroundPdfUrl,
@@ -177,7 +182,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           autoIssueOnSurvey: false,
         },
       });
-    });
+      }),
+    );
 
     db.auditLog
       .create({

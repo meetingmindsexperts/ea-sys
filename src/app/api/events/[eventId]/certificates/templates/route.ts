@@ -15,7 +15,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
@@ -83,13 +84,16 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const templates = await db.certificateTemplate.findMany({
-      where: { eventId },
-      orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
-      include: {
-        _count: { select: { issuedCertificates: true, issueRuns: true } },
-      },
-    });
+    // tenancy: swept CertificateTemplate read runs inside the session org.
+    const templates = await runWithTenant(orgGuard.orgId, () =>
+      db.certificateTemplate.findMany({
+        where: { eventId },
+        orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+        include: {
+          _count: { select: { issuedCertificates: true, issueRuns: true } },
+        },
+      }),
+    );
 
     return NextResponse.json({ templates });
   } catch (error) {
@@ -147,7 +151,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // canonical-position semantic relies on per-category uniqueness.
     const eventIdLocked = eventId;
     const data = parsed.data;
-    const template = await db.$transaction(async (tx) => {
+    // tenancy: wrap the aggregate+create tx in the session org so the swept
+    // CertificateTemplate write runs inside SET LOCAL on the platform.
+    const template = await runWithTenant(orgGuard.orgId, () =>
+      tenantTransaction(async (tx) => {
       const maxOrder = await tx.certificateTemplate.aggregate({
         where: { eventId: eventIdLocked, category: data.category },
         _max: { sortOrder: true },
@@ -156,6 +163,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return tx.certificateTemplate.create({
         data: {
           eventId: eventIdLocked,
+          organizationId: orgGuard.orgId, // tenancy
           name: data.name,
           category: data.category,
           backgroundPdfUrl: data.backgroundPdfUrl ?? null,
@@ -169,7 +177,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           autoIssueTag: data.autoIssueTag ?? null,
         },
       });
-    });
+    }),
+    );
 
     apiLogger.info({
       msg: "cert-templates:created",

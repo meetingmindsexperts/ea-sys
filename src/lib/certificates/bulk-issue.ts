@@ -352,6 +352,7 @@ export async function executeCertificateBulkSend(input: CertificateBulkSendInput
       if (!template) continue;
       const res = await findOrIssueCertificate({
         eventId,
+        organizationId: organizationId ?? null, // tenancy
         templateId: target.templateId,
         registrationId: facets.registrationId,
         speakerId: facets.speakerId,

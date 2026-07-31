@@ -36,6 +36,7 @@
 import { Prisma } from "@prisma/client";
 import type { CertificateType, CertIssueRunStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { renderCertificate } from "./render";
 import { uploadCertificatePdf } from "@/lib/storage";
@@ -97,7 +98,11 @@ export async function tickAllRuns(): Promise<{
 
   for (const run of runs) {
     try {
-      const result = await processRun(run.id);
+      // tenancy: wrap each run's render/send in the run's tenant org so the
+      // swept cert-table writes + Registration/Speaker reads run inside the
+      // SET LOCAL scope on the platform. Org-blind candidate scan above (the
+      // established worker pattern); null org (legacy/master) → "" → passthrough.
+      const result = await runWithTenant(run.organizationId ?? "", () => processRun(run.id));
       rendered += result.renderedThisTick;
       emailed += result.emailedThisTick;
       if (result.transitionedTo === "COMPLETED") completed++;
@@ -171,7 +176,7 @@ async function processRun(runId: string): Promise<RunTickResult> {
   const run = await db.certificateIssueRun.findUnique({
     where: { id: runId },
     select: {
-      id: true, eventId: true, type: true, status: true,
+      id: true, eventId: true, organizationId: true, type: true, status: true,
       certificateTemplateId: true, templateIds: true, autoIssue: true, reissue: true,
       triggeredByUserId: true,
       totalCount: true, renderedCount: true, emailedCount: true, failedCount: true,
@@ -218,9 +223,9 @@ async function processRun(runId: string): Promise<RunTickResult> {
     // template per person-keyed item. Pre-bundle in-flight runs keep the
     // legacy single-template path byte-for-byte.
     if (run.templateIds.length > 0) {
-      return processBundleRenderPhase(runId, run.eventId, templateIds, run.autoIssue, run.triggeredByUserId);
+      return processBundleRenderPhase(runId, run.eventId, run.organizationId, templateIds, run.autoIssue, run.triggeredByUserId);
     }
-    return processRenderPhase(runId, run.eventId, run.type, run.certificateTemplateId, run.autoIssue);
+    return processRenderPhase(runId, run.eventId, run.organizationId, run.type, run.certificateTemplateId, run.autoIssue);
   }
   if (run.status === "SENDING") {
     return processSendPhase(runId, run.eventId);
@@ -233,6 +238,7 @@ async function processRun(runId: string): Promise<RunTickResult> {
 async function processRenderPhase(
   runId: string,
   eventId: string,
+  organizationId: string | null, // tenancy
   type: CertificateType,
   certificateTemplateId: string | null,
   autoIssue: boolean,
@@ -328,6 +334,7 @@ async function processRenderPhase(
         item,
         runId,
         eventId,
+        organizationId,
         type,
         certificateTemplateId,
         event,
@@ -370,12 +377,15 @@ async function renderAndStoreItem(args: {
   };
   runId: string;
   eventId: string;
+  // tenancy: the run's org (nullable for legacy/master). Stamped on the cert
+  // row + serial counter; the wrap is applied at the tickAllRuns loop.
+  organizationId: string | null;
   type: CertificateType;
   certificateTemplateId: string | null;
   event: EventContext;
   template: CertificateTemplate;
 }): Promise<string> {
-  const { item, eventId, type, certificateTemplateId, event, template } = args;
+  const { item, eventId, organizationId, type, certificateTemplateId, event, template } = args;
 
   // Resolve recipient details (title, email, affiliation) for the
   // recipientSnapshot + render data. We have recipientName + email
@@ -404,7 +414,7 @@ async function renderAndStoreItem(args: {
 
   const certData: CertificateData = {
     type,
-    serial: await allocateSerial(eventId, type),
+    serial: await allocateSerial(eventId, type, organizationId),
     issuedAt: new Date(),
     recipient: recipientData,
     event,
@@ -423,6 +433,7 @@ async function renderAndStoreItem(args: {
     const cert = await db.issuedCertificate.create({
       data: {
         eventId,
+        organizationId, // tenancy
         registrationId: item.registrationId,
         speakerId: item.speakerId,
         type,
@@ -492,6 +503,7 @@ async function renderAndStoreItem(args: {
 export async function processBundleRenderPhase(
   runId: string,
   eventId: string,
+  organizationId: string | null, // tenancy
   templateIds: string[],
   autoIssue: boolean,
   triggeredByUserId: string | null,
@@ -567,6 +579,7 @@ export async function processBundleRenderPhase(
         }
         const res = await findOrIssueCertificate({
           eventId,
+          organizationId, // tenancy
           templateId: tid,
           registrationId: item.registrationId,
           speakerId: item.speakerId,

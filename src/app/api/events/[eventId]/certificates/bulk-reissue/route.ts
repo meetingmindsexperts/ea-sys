@@ -18,7 +18,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { Prisma, CertificateType } from "@prisma/client";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -61,6 +62,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "cert-bulk-reissue:no-org", userId: session.user.id, eventId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     const rl = checkRateLimit({ key: `cert-bulk-reissue:${session.user.id}`, limit: 10, windowMs: 60 * 60 * 1000 });
     if (!rl.allowed) {
@@ -79,23 +81,29 @@ export async function POST(req: Request, { params }: RouteParams) {
     const { templateId, tag } = parsed.data;
 
     // Org-bind the event + resolve the template's category.
-    const [event, template] = await Promise.all([
-      db.event.findFirst({ where: { id: eventId, organizationId: session.user.organizationId }, select: { id: true } }),
-      db.certificateTemplate.findFirst({ where: { id: templateId, eventId }, select: { id: true, category: true } }),
-    ]);
+    // tenancy: swept CertificateTemplate read runs inside the session org.
+    const [event, template] = await runWithTenant(orgId, () =>
+      Promise.all([
+        db.event.findFirst({ where: { id: eventId, organizationId: orgId }, select: { id: true } }),
+        db.certificateTemplate.findFirst({ where: { id: templateId, eventId }, select: { id: true, category: true } }),
+      ]),
+    );
     if (!event) return NextResponse.json({ error: "Event not found" }, { status: 404 });
     if (!template) return NextResponse.json({ error: "Certificate template not found", code: "TEMPLATE_NOT_FOUND" }, { status: 404 });
 
     // Guard: one active reissue run per template — don't double-resend.
-    const active = await db.certificateIssueRun.findFirst({
-      where: {
-        eventId,
-        certificateTemplateId: templateId,
-        reissue: true,
-        status: { notIn: ["COMPLETED", "FAILED", "CANCELLED"] },
-      },
-      select: { id: true },
-    });
+    // tenancy: swept CertificateIssueRun read runs inside the session org.
+    const active = await runWithTenant(orgId, () =>
+      db.certificateIssueRun.findFirst({
+        where: {
+          eventId,
+          certificateTemplateId: templateId,
+          reissue: true,
+          status: { notIn: ["COMPLETED", "FAILED", "CANCELLED"] },
+        },
+        select: { id: true },
+      }),
+    );
     if (active) {
       return NextResponse.json(
         { error: "A resend for this template is already in progress.", code: "REISSUE_IN_PROGRESS", runId: active.id },
@@ -107,16 +115,19 @@ export async function POST(req: Request, { params }: RouteParams) {
     // filtered to recipients holding `tag`.
     const tagFilter = cohortTagFilter(template.category, tag);
 
-    const certs = await db.issuedCertificate.findMany({
-      where: {
-        eventId,
-        certificateTemplateId: templateId,
-        revokedAt: null,
-        pdfUrl: { not: null },
-        ...tagFilter,
-      },
-      select: { id: true, registrationId: true, speakerId: true, recipientSnapshot: true },
-    });
+    // tenancy: swept IssuedCertificate read runs inside the session org.
+    const certs = await runWithTenant(orgId, () =>
+      db.issuedCertificate.findMany({
+        where: {
+          eventId,
+          certificateTemplateId: templateId,
+          revokedAt: null,
+          pdfUrl: { not: null },
+          ...tagFilter,
+        },
+        select: { id: true, registrationId: true, speakerId: true, recipientSnapshot: true },
+      }),
+    );
 
     if (certs.length === 0) {
       return NextResponse.json(
@@ -132,10 +143,14 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Create the reissue run + one item per existing cert (per-template, so each
     // recipient appears once → no @@unique([runId, registrationId]) collision).
-    const run = await db.$transaction(async (tx) => {
+    // tenancy: wrap the run+items create tx in the session org; swept
+    // CertificateIssueRun + CertificateIssueRunItem writes run under SET LOCAL.
+    const run = await runWithTenant(orgId, () =>
+      tenantTransaction(async (tx) => {
       const created = await tx.certificateIssueRun.create({
         data: {
           eventId: p.eventId,
+          organizationId: orgId, // tenancy
           type: template.category,
           certificateTemplateId: templateId,
           reissue: true,
@@ -149,6 +164,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       await tx.certificateIssueRunItem.createMany({
         data: certs.map((c) => ({
           runId: created.id,
+          organizationId: orgId, // tenancy
           registrationId: c.registrationId,
           speakerId: c.speakerId,
           recipientName: snapshotName(c.recipientSnapshot),
@@ -156,7 +172,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         })),
       });
       return created;
-    });
+      }),
+    );
 
     await db.auditLog
       .create({

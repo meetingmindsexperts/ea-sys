@@ -20,6 +20,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
@@ -46,6 +47,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "cert-preview:no-org", userId: session.user.id });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     const url = new URL(req.url);
     const templateId = url.searchParams.get("templateId");
@@ -92,34 +94,37 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Combined org-bound lookup — template must live in an event in the
     // user's org, AND the URL eventId must match (defense against id
     // mismatch). 404 on either fail to avoid existence enumeration.
-    const template = await db.certificateTemplate.findFirst({
-      where: {
-        id: templateId,
-        event: { organizationId: session.user.organizationId },
-      },
-      select: {
-        id: true,
-        eventId: true,
-        category: true,
-        name: true,
-        backgroundPdfUrl: true,
-        textBoxes: true,
-        event: {
-          select: {
-            id: true,
-            name: true,
-            startDate: true,
-            endDate: true,
-            venue: true,
-            city: true,
-            country: true,
-            cmeHours: true,
-            settings: true,
-            organization: { select: { name: true, logo: true } },
+    // tenancy: swept CertificateTemplate read runs inside the session org.
+    const template = await runWithTenant(orgId, () =>
+      db.certificateTemplate.findFirst({
+        where: {
+          id: templateId,
+          event: { organizationId: orgId },
+        },
+        select: {
+          id: true,
+          eventId: true,
+          category: true,
+          name: true,
+          backgroundPdfUrl: true,
+          textBoxes: true,
+          event: {
+            select: {
+              id: true,
+              name: true,
+              startDate: true,
+              endDate: true,
+              venue: true,
+              city: true,
+              country: true,
+              cmeHours: true,
+              settings: true,
+              organization: { select: { name: true, logo: true } },
+            },
           },
         },
-      },
-    });
+      }),
+    );
     if (!template || template.eventId !== eventId) {
       apiLogger.warn({
         msg: "cert-preview:template-not-found",

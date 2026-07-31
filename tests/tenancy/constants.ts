@@ -211,6 +211,32 @@ export const SESSION_TOPIC_A_ID = "tenancy-stopic-a";
 export const SESSION_TOPIC_B_ID = "tenancy-stopic-b";
 
 /**
+ * Certificates domain sweep (Phase 2, Domain #13). CertificateTemplate /
+ * IssuedCertificate / CertificateIssueRun / CertificateSerialCounter (1-hop from
+ * Event) + CertificateIssueRunItem (2-hop via CertificateIssueRun). Each org gets
+ * one template (BOTH orgs share the name — CertificateTemplate has no per-org
+ * unique, so an unscoped `where:{ name }` returns only the caller's row, the
+ * MediaFile shared-value shape), one IssuedCertificate on the org's OWN
+ * registration (REG_A/REG_B — the serial is GLOBALLY @unique so scoping is proven
+ * by per-lane count + cross-tenant by-id/by-serial miss, the Invoice shape), one
+ * CertificateIssueRun + one CertificateIssueRunItem (2-hop) on it, and one
+ * CertificateSerialCounter (composite-PK flat-column counter, keyed by
+ * eventId+type — one per org's shared event). All cascade from Event (org cascade
+ * reaches them); the run item cascades from the run.
+ */
+export const SHARED_CERT_TEMPLATE_NAME = "Attendance Certificate";
+export const CERT_TEMPLATE_A_ID = "tenancy-ctpl-a";
+export const CERT_TEMPLATE_B_ID = "tenancy-ctpl-b";
+export const ISSUED_CERT_A_ID = "tenancy-icert-a";
+export const ISSUED_CERT_B_ID = "tenancy-icert-b";
+export const CERT_A_SERIAL = "TEN-A-ATT-0001";
+export const CERT_B_SERIAL = "TEN-B-ATT-0001";
+export const CERT_RUN_A_ID = "tenancy-crun-a";
+export const CERT_RUN_B_ID = "tenancy-crun-b";
+export const CERT_RUN_ITEM_A_ID = "tenancy-critem-a";
+export const CERT_RUN_ITEM_B_ID = "tenancy-critem-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

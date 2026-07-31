@@ -26,6 +26,7 @@ import { NextResponse } from "next/server";
 import JSZip from "jszip";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
@@ -55,6 +56,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "cert-run-download:no-org", userId: session.user.id, eventId, runId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     const rl = checkRateLimit({
       key: `cert-run-download:${session.user.id}`,
@@ -75,16 +77,19 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const run = await db.certificateIssueRun.findFirst({
-      where: { id: runId, eventId, event: { organizationId: session.user.organizationId } },
-      select: {
-        id: true,
-        status: true,
-        templateIds: true,
-        certificateTemplateId: true,
-        event: { select: { code: true } },
-      },
-    });
+    // tenancy: swept CertificateIssueRun read runs inside the session org.
+    const run = await runWithTenant(orgId, () =>
+      db.certificateIssueRun.findFirst({
+        where: { id: runId, eventId, event: { organizationId: orgId } },
+        select: {
+          id: true,
+          status: true,
+          templateIds: true,
+          certificateTemplateId: true,
+          event: { select: { code: true } },
+        },
+      }),
+    );
     if (!run) {
       apiLogger.warn({ msg: "cert-run-download:not-found", eventId, runId, userId: session.user.id });
       return NextResponse.json({ error: "Run not found" }, { status: 404 });
@@ -101,16 +106,19 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const items = await db.certificateIssueRunItem.findMany({
-      where: { runId, renderedAt: { not: null } },
-      select: {
-        registrationId: true,
-        speakerId: true,
-        templateIds: true,
-        issuedCertificateId: true,
-        recipientName: true,
-      },
-    });
+    // tenancy: swept CertificateIssueRunItem read runs inside the session org.
+    const items = await runWithTenant(orgId, () =>
+      db.certificateIssueRunItem.findMany({
+        where: { runId, renderedAt: { not: null } },
+        select: {
+          registrationId: true,
+          speakerId: true,
+          templateIds: true,
+          issuedCertificateId: true,
+          recipientName: true,
+        },
+      }),
+    );
     const runTemplateIds = run.templateIds.length
       ? run.templateIds
       : run.certificateTemplateId
@@ -121,7 +129,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     // real cert total (an item can carry several certs in the bundle model).
     const entries: Array<{ pdfUrl: string; serial: string; recipientName: string }> = [];
     for (const item of items) {
-      const rows = await collectRunItemCertRows({ eventId, runTemplateIds, item });
+      // tenancy: collectRunItemCertRows reads swept IssuedCertificate rows.
+      const rows = await runWithTenant(orgId, () =>
+        collectRunItemCertRows({ eventId: p.eventId, runTemplateIds, item }),
+      );
       for (const row of rows) {
         if (!row.pdfUrl) continue; // render-failed leftovers — nothing to include
         entries.push({ pdfUrl: row.pdfUrl, serial: row.serial, recipientName: item.recipientName });

@@ -40,7 +40,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
 import { eligibleForTemplates } from "@/lib/certificates/eligibility";
@@ -95,6 +96,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "cert-issue:no-org", userId: session.user.id, eventId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    const orgId = session.user.organizationId; // tenancy: session org
 
     const parsed = bodySchema.safeParse(rawBody);
     if (!parsed.success) {
@@ -114,14 +116,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       : [templateId!];
 
     // Combined lookup — every template must belong to the (org-bound) event.
-    const templates = await db.certificateTemplate.findMany({
-      where: {
-        id: { in: requestedTemplateIds },
-        eventId,
-        event: { organizationId: session.user.organizationId },
-      },
-      select: { id: true, category: true, name: true, autoIssueTag: true },
-    });
+    // tenancy: swept CertificateTemplate read runs inside the session org.
+    const templates = await runWithTenant(orgId, () =>
+      db.certificateTemplate.findMany({
+        where: {
+          id: { in: requestedTemplateIds },
+          eventId,
+          event: { organizationId: orgId },
+        },
+        select: { id: true, category: true, name: true, autoIssueTag: true },
+      }),
+    );
     if (templates.length !== new Set(requestedTemplateIds).size) {
       apiLogger.warn({
         msg: "cert-issue:template-not-found",
@@ -162,14 +167,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // that template), merged per PERSON so one run item = one email carrying
     // every cert the person earns. The legacy shape reuses the same merge
     // with its explicit tag substituted for the stored one.
-    const merged = await eligibleForTemplates(
-      eventId,
-      templates.map((t) => ({
-        id: t.id,
-        name: t.name,
-        category: t.category,
-        autoIssueTag: isBundleShape ? t.autoIssueTag : tag!,
-      })),
+    // tenancy: eligibility reads swept cert tables — run inside the session org.
+    const merged = await runWithTenant(orgId, () =>
+      eligibleForTemplates(
+        p.eventId,
+        templates.map((t) => ({
+          id: t.id,
+          name: t.name,
+          category: t.category,
+          autoIssueTag: isBundleShape ? t.autoIssueTag : tag!,
+        })),
+      ),
     );
     const people = merged.people;
 
@@ -208,7 +216,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? ("ATTENDANCE" as const)
       : ("APPRECIATION" as const);
     const requestedIdSet = new Set(templates.map((t) => t.id));
-    const txResult = await db.$transaction(async (tx) => {
+    // tenancy: wrap the guard+create tx in the session org; swept
+    // CertificateIssueRun + CertificateIssueRunItem writes run under SET LOCAL.
+    const txResult = await runWithTenant(orgId, () =>
+      tenantTransaction(async (tx) => {
       // Concurrent-run guard: block only when a non-terminal MANUAL run
       // OVERLAPS this request's template set (same-template double-issue is
       // the real hazard). Deliberately NOT one-run-per-event: manual runs
@@ -245,6 +256,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const created = await tx.certificateIssueRun.create({
         data: {
           eventId: eventIdLocked,
+          organizationId: orgId, // tenancy
           type: runType,
           // Legacy pointer only meaningful for single-template runs; a
           // multi-template bundle leaves it null and lists templateIds.
@@ -264,6 +276,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       await tx.certificateIssueRunItem.createMany({
         data: people.map((r) => ({
           runId: created.id,
+          organizationId: orgId, // tenancy
           registrationId: r.registrationId,
           speakerId: r.speakerId,
           recipientName: r.recipientName,
@@ -275,7 +288,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         })),
       });
       return { kind: "created" as const, created };
-    });
+      }),
+    );
 
     if (txResult.kind === "exists") {
       const templateLabel = txResult.existing.certificateTemplate?.name ?? "certificates";
