@@ -1,19 +1,23 @@
 # Rollback Runbook — EA-SYS
 
-**Last updated:** July 14, 2026
+**Last updated:** July 31, 2026
 **Audience:** operators (Krishna / on-call). Browseable in-app at `/admin/docs`.
 
-> ✅ **The code-rollback path was drilled end-to-end on production on July 14, 2026 — it works.**
-> Measured: **22 seconds**, zero downtime. Full drill log, real timings and the four things it
-> taught us are in **[§1.6 Drill log](#16-drill-log--july-14-2026)**. An untested rollback path is
-> not a rollback path; re-drill after any change to `deploy.sh`, the compose file, or the CI workflow.
+> ✅ **Both rollback axes are drilled — they work.**
+> **Code (Docker image):** drilled end-to-end on production July 14, 2026 — **22 s**, zero downtime
+> ([§1.6 Drill log](#16-drill-log--july-14-2026)).
+> **Database (Postgres restore):** the restore mechanism is **~6 s** for our data (measured
+> 2026-07-31) and was exercised for real in INC-002 (restore op ~1 min; RTO ≈ 14 min end-to-end,
+> almost all of it diagnosis, not the DB op) — [§2.1 Drill log](#21-drill-log--database-restore).
+> An untested rollback path is not a rollback path; re-drill after any change to `deploy.sh`, the
+> compose file, or the CI workflow.
 
 EA-SYS has **two independent rollback axes**. Know which one you need before touching anything:
 
 | What broke | What to roll back | Tool | Time to restore | Data loss |
 |---|---|---|---|---|
 | A bad deploy — new code misbehaves, UI broken, 500s after a release | **Code (Docker image)** | `IMAGE_TAG=<sha> bash scripts/deploy.sh` | **~25 s** (measured) | None |
-| Bad/lost DATA — wrong bulk edit, accidental deletes, corruption | **Database** | S3 `pg_dump` restore points (Singapore DR bucket) | 15–60 min | Up to 1 dump interval |
+| Bad/lost DATA — wrong bulk edit, accidental deletes, corruption | **Database** | S3 `pg_dump` restore points (Singapore DR bucket) | restore op **~seconds–1 min**; **~14 min** incident RTO incl. diagnosis (measured, INC-002) | ≤ 1 h (RPO = dump cadence) |
 | Lost uploaded files (photos, cert PDFs, agreement docs) | **Uploads** | Hourly S3 mirror | Minutes | ≤ 1 hour |
 | Broken `.env` on the box | **Env file** | Daily S3 copy | Minutes | ≤ 24 h (env rarely changes) |
 
@@ -221,7 +225,8 @@ after it are docs + the empty commit, which by design never deploy).
       CI workflow.
 
 **Cadence:** re-drill **quarterly**, and always before a conference season. Pair it with the DB
-restore drill (`scripts/dr-restore-drill.sh`) so both axes get exercised in the same sitting.
+restore drill (§2.1 — `scripts/dr-restore-drill.sh` / `npm run db:refresh`) so both axes get
+exercised in the same sitting.
 
 ---
 
@@ -249,6 +254,31 @@ Quick reference — spin up the latest dump locally for inspection:
 ```bash
 bash scripts/dr-restore-drill.sh    # ephemeral postgres:17 on :55432 + row counts
 ```
+
+### 2.1 Drill log — Database restore
+
+**The restore mechanism is trivially fast; an incident's minutes are diagnosis, not the DB
+operation.** Two real data points:
+
+| Event | What was restored | Measured |
+|---|---|---|
+| **INC-002 — real prod recovery** (2026-07-30) | 2.56 MB DR dump → live Supabase via `DIRECT_URL` (`DROP SCHEMA public CASCADE` + `pg_restore`) | **restore op ~1 min** · **RTO ≈ 14 min** end-to-end (08:59 detect → ~09:13 recovered) · **RPO ≈ 55 min** (restored to the 08:00 dump). The 14 min was diagnosis + validating the dump in a scratch Postgres + a safety-dump of the wiped prod — *not* the restore itself. |
+| **DR restore drill** (2026-07-31) | latest 2.57 MB dump → PG 17, download + `DROP SCHEMA` + `pg_restore` + verify (2 orgs / 35 events / 3,592 registrations / 99 users — matches prod) | **~6 s** end-to-end (`npm run db:refresh`) |
+
+**What it means for an incident:** the DB rollback is *not* the slow part — restoring ~2.5 MB of
+dump is seconds. Budget the RTO for **diagnosis + validate-in-scratch + safety-dump**, and always
+**validate the dump in a throwaway container before touching prod** (INC-002 did this at 09:09,
+3 min before the real restore — zero risk to prod).
+
+**Gotcha (surfaced by the 2026-07-31 drill):** `scripts/dr-restore-drill.sh` binds **:55432**,
+which the tenancy/CRM test container (`ea-sys-tenancy-db`) also uses — if that's up, the drill
+fails to bind (`port is already allocated`). Either stop it
+(`docker compose --profile tenancy down`) or measure the restore against the local dev DB with
+**`npm run db:refresh`** (port 54322), which runs the same download → `pg_restore` → verify path.
+
+**Cadence:** re-run alongside the code-rollback drill (§1.6) each quarter and before a conference
+season, so **both axes** — code (Docker image) and data (Postgres restore) — are proven in one
+sitting.
 
 ---
 

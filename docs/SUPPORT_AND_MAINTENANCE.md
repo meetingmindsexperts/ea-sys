@@ -134,7 +134,9 @@ The platform is largely self-monitoring (errors trigger emails, scheduled jobs a
 
 ### Quarterly (~1 full day / quarter)
 
-- **DR drill** — restore the latest Postgres backup into a scratch environment, verify row counts on critical tables. This is the proof that disaster recovery actually works. Already scripted at `scripts/dr-restore-drill.sh`.
+- **Rollback & restore drills (both axes)** — the platform has two independent rollback paths, both drilled with measured results (details + reproduce steps in [`docs/ROLLBACK.md`](ROLLBACK.md)):
+  - **Code (Docker image)** — pinned-image redeploy, drilled end-to-end on prod 2026-07-14: **~22 s**, zero downtime.
+  - **Database (Postgres restore)** — restore the latest DR `pg_dump` into a scratch Postgres and verify row counts on critical tables (the proof that DR actually works). Scripted at `scripts/dr-restore-drill.sh` (or `npm run db:refresh` into the local dev DB — same download → `pg_restore` → verify path; use it if the tenancy test container holds port `:55432`). Measured 2026-07-31: **~6 s** to restore our data (2.57 MB dump). The restore *mechanism* is seconds; in a real incident (INC-002) the ~14 min RTO was diagnosis + validate-in-scratch + safety-dump, **not** the DB op — so always validate the dump in a throwaway container before touching prod.
 - **Access review** — every team member's GitHub / AWS / Stripe / Zoom / Sentry access reviewed; remove anyone who left
 - **Cost review** — AWS bill itemised, anomalies investigated
 - **Security check** — `npm audit` triage, review CVE list, plan remediation
@@ -209,7 +211,7 @@ Honest list of where the platform is exposed. Each row notes whether it's alread
 | **Maintenance time allocation** | Implicit in current role assignment | Medium | The 8–14 hr/month of recurring upkeep needs protected calendar time. Best mitigated by treating it as a budgeted commitment, not a "if there's time" fill-in. |
 | **AWS IAM key in `.env` (overrides instance role)** | Identified, scheduled for removal | Medium | One-line change + redeploy; key rotation handled by AWS |
 | **No staging environment** | Intentional design choice (prod-only UAT) | Low–Medium | Documented; works at current scale but limits some kinds of testing |
-| **DR drill not auto-run** | Manual quarterly process | Medium | Script exists (`scripts/dr-restore-drill.sh`); could be CI-scheduled |
+| **DR drill not auto-run** | Manual quarterly process — **but both rollback axes have now been drilled with measured RTOs** (code ~22 s / DB ~6 s; see [`docs/ROLLBACK.md`](ROLLBACK.md) §1.6 + §2.1) | Low–Medium | Script exists (`scripts/dr-restore-drill.sh`); could be CI-scheduled. One caveat found in the 2026-07-31 drill: the script's port `:55432` clashes with the tenancy test container — stop it first or use `npm run db:refresh`. |
 | **Sentry alert rule not configured in Sentry web UI** | Sentry captures errors but doesn't email | Medium | One-time 5-min setup pending |
 | **CloudWatch metric-filter alarm not yet enabled** | Logs are flowing to CloudWatch (June 8, 2026) — the alarm + SNS topic on `{ $.level >= 50 }` would add a sixth notification path for error-rate spikes specifically | Low | Setup scripted in `infra/cloudwatch/README.md` §3 |
 | **SES sender `meetingmindsexperts.com` only verified — `meetingmindsgroup.com` not** | Causes occasional rejections when an event uses `@meetingmindsgroup.com` from-address | Low | Documented workaround (use `meetingmindsexperts.com` from-address); domain verification is an alternative |
