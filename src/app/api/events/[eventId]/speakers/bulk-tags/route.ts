@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -86,14 +86,26 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         sourceRegistrationId: speaker.sourceRegistrationId,
         delta: computeTagDelta(speaker.tags, newTags),
       });
-      return db.speaker.update({
-        where: { id: speaker.id },
-        data: { tags: newTags },
-        select: { id: true, tags: true },
-      });
+      return { id: speaker.id, newTags };
     });
 
-    const results = await db.$transaction(updates);
+    // tenantTransaction (was array-form db.$transaction(updates)): the array
+    // form can't carry SET LOCAL onto its own pooled backend → the updates
+    // fail-close under platform RLS. Sequential interactive; passthrough on
+    // master. Rebuild each update on `tx` so it rides the tenant store.
+    const results = await tenantTransaction(async (tx) => {
+      const out: { id: string; tags: string[] }[] = [];
+      for (const u of updates) {
+        out.push(
+          await tx.speaker.update({
+            where: { id: u.id },
+            data: { tags: u.newTags },
+            select: { id: true, tags: true },
+          }),
+        );
+      }
+      return out;
+    });
 
     // Mirror the change onto each person's Registration facet (best-effort).
     await syncSpeakerTagsToRegistrations(eventId, tagChanges);
