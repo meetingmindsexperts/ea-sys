@@ -37,6 +37,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read so it
+    // rides the tenant store (a read outside the wrap fail-closes on platform).
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, ticketType] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
@@ -62,7 +65,6 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     return NextResponse.json(ticketType);
     });
   } catch (error) {
@@ -91,6 +93,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, existing] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -109,7 +113,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     const validated = updateTicketTypeSchema.safeParse(body);
     if (!validated.success) {
         apiLogger.warn({ msg: "events/tickets:zod-validation-failed", errors: validated.error.flatten() });
@@ -208,6 +211,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, ticketType] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -227,7 +232,6 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     if (ticketType._count.registrations > 0) {
       return NextResponse.json(
         { error: "Cannot delete registration type with existing registrations" },

@@ -41,6 +41,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept pricingTier read.
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, tier] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -58,7 +60,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Pricing tier not found" }, { status: 404 });
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     const validated = updateTierSchema.safeParse(body);
     if (!validated.success) {
         apiLogger.warn({ msg: "events/tickets/tiers:zod-validation-failed", errors: validated.error.flatten() });
@@ -141,6 +142,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept pricingTier read.
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, tier] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -159,7 +162,6 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Pricing tier not found" }, { status: 404 });
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     if (tier._count.registrations > 0) {
       return NextResponse.json(
         { error: "Cannot delete pricing tier with existing registrations" },

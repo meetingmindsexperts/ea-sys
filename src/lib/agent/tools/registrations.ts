@@ -153,6 +153,10 @@ const listTicketTypes: ToolExecutor = async (_input, ctx) => {
 
 const createTicketType: ToolExecutor = async (input, ctx) => {
   try {
+    // Tenancy sweep (Ticketing): wrap the whole executor — the dup/sortOrder
+    // reads + the create/nested-tier create all hit swept tables and must ride
+    // the tenant store. Passthrough on master. (Was unwrapped — B2 fix.)
+    return await runWithTenant(ctx.organizationId, async () => {
     const name = String(input.name ?? "").trim();
     if (!name) return { error: "Ticket type name is required" };
 
@@ -208,6 +212,7 @@ const createTicketType: ToolExecutor = async (input, ctx) => {
       message:
         "Ticket type created with 3 inactive pricing tiers (Early Bird, Standard, Onsite) at $0. Go to Settings → Registration Types to set prices and activate tiers.",
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_ticket_type failed");
     return { error: "Failed to create ticket type" };

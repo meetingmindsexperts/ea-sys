@@ -132,6 +132,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept promoCode read.
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, existing] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -153,7 +155,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     const { ticketTypeIds, ...data } = parsed.data;
 
     // Check for duplicate code if code is being changed
@@ -250,6 +251,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept promoCode read.
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, promoCode] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -271,7 +274,6 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     // If code has been used, soft-delete (deactivate). Otherwise hard-delete.
     if (promoCode._count.redemptions > 0) {
       await db.promoCode.update({

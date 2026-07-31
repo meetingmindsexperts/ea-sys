@@ -65,6 +65,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, ticketTypes] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
@@ -91,7 +93,6 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     // MEMBER sees ticket-type names + capacity but not prices (price,
     // pricingTiers[].price are all financial). redactFinancialFields
     // strips them; the UI renders "—" for the missing price.

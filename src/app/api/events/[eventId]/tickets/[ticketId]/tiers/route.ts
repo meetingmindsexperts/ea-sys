@@ -41,6 +41,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, ticketType] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -59,7 +61,6 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Registration type not found" }, { status: 404 });
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     const validated = createTierSchema.safeParse(body);
     if (!validated.success) {
         apiLogger.warn({ msg: "events/tickets/tiers:zod-validation-failed", errors: validated.error.flatten() });

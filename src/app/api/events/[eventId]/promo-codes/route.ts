@@ -59,6 +59,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    // Tenancy sweep (B1 fix): wrap opens BEFORE the swept promoCode read.
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, promoCodes] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
@@ -80,7 +82,6 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    return await runWithTenant(orgGuard.orgId, async () => {
     return NextResponse.json(promoCodes);
     });
   } catch (error) {
