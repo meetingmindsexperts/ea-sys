@@ -1843,7 +1843,14 @@ function SessionCard({
           </div>
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right" className="max-w-xs">
+      {/* Light popover surface (NOT the default solid-blue tooltip): this
+          tooltip carries muted/foreground/primary-colored content designed for
+          a light background — on the blue default it was unreadable
+          (organizer, July 31 2026). */}
+      <TooltipContent
+        side="right"
+        className="max-w-xs bg-popover text-popover-foreground border shadow-md p-3"
+      >
         <div className="space-y-1.5">
           <div className="font-medium">{session.name}</div>
           <div className="text-xs space-y-1 text-muted-foreground">
