@@ -115,18 +115,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (cachedBody) {
       body = cachedBody;
     } else {
-      // Resolve the event's org (RESOURCE org) FIRST so the swept eventSession
-      // read runs inside the tenant wrap. Only on a cache miss, so the 3s
-      // micro-cache still collapses the 5k-concurrency read storm.
-      const event = await db.event.findFirst({
-        where: eventWhere,
-        select: { id: true, organizationId: true },
-      });
-      if (!event) {
-        apiLogger.warn({ slug, sessionId }, "lobby-status:session-not-found");
-        return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
-      body = await runWithTenant(event.organizationId, () =>
+      // Ride the tenant org resolved from the Host — it's already in `eventWhere`
+      // (extracted as `orgKey` above for the cache key), so the swept eventSession
+      // read in computeLobbyBody runs inside the tenant wrap without a second
+      // event lookup. On master (RLS off / unresolved host) orgKey is "none" and
+      // the wrap is a passthrough; publicEventWhere still enforces the event/
+      // tenant match, and computeLobbyBody's "not-found" covers the missing case.
+      body = await runWithTenant(orgKey === "none" ? "" : orgKey, () =>
         computeLobbyBody(eventWhere, sessionId),
       );
     }
