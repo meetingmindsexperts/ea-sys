@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { cache } from "react";
 import { headers } from "next/headers";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
+import { resolveTenantOrg, normalizeHost } from "@/lib/tenant/resolver";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhereForHost } from "@/lib/public-event";
 
@@ -40,10 +42,18 @@ const getEventForMeta = cache(async (host: string | null, slug: string) =>
 );
 
 const getSessionName = cache(async (host: string | null, slug: string, sessionId: string) => {
-  const session = await db.eventSession.findFirst({
-    where: { id: sessionId, event: await publicEventWhereForHost(host, slug) },
-    select: { name: true },
-  });
+  // tenancy: EventSession is swept (Sessions sweep, Domain #12) — resolve the
+  // tenant org from the host and ride the store, else the read fail-closes to
+  // null on the platform (session social/OG title goes missing). Passthrough on
+  // master; publicEventWhereForHost still enforces the event/tenant match.
+  const tenant = await resolveTenantOrg(normalizeHost(host));
+  const where = await publicEventWhereForHost(host, slug);
+  const session = await runWithTenant(tenant.orgId ?? "", () =>
+    db.eventSession.findFirst({
+      where: { id: sessionId, event: where },
+      select: { name: true },
+    }),
+  );
   return session?.name ?? null;
 });
 

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { parseCSV, getField } from "@/lib/csv-parser";
 import { resolveTimezone, wallTimeInTzToDate } from "@/lib/event-time";
@@ -123,13 +124,16 @@ export async function POST(req: Request, { params }: RouteParams) {
     // used to 404 on the hand-rolled organizationId check).
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, timezone: true },
+      select: { id: true, timezone: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ msg: "events/import-sessions:event-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // The event's org (RESOURCE org) opens the tenant wrap around every swept
+    // track/session read+write below.
+    return await runWithTenant(event.organizationId, async () => {
     // Load existing tracks, speakers, and sessions for this event
     const [existingTracks, existingSpeakers, existingSessions] = await Promise.all([
       db.track.findMany({ where: { eventId }, select: { id: true, name: true } }),
@@ -210,10 +214,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         if (existingTrackId) {
           trackId = existingTrackId;
         } else {
-          const newTrack = await db.$transaction(async (tx) => {
+          const newTrack = await tenantTransaction(async (tx) => {
             const max = await tx.track.aggregate({ where: { eventId }, _max: { sortOrder: true } });
             return tx.track.create({
-              data: { eventId, name: trackName, sortOrder: (max._max.sortOrder ?? -1) + 1 },
+              data: { eventId, organizationId: event.organizationId, name: trackName, sortOrder: (max._max.sortOrder ?? -1) + 1 },
             });
           });
           trackByName.set(trackName.toLowerCase(), newTrack.id);
@@ -252,6 +256,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // stats refresh all happen there. Rejections become row errors.
       const result = await createSession({
         eventId,
+        organizationId: event.organizationId,
         userId: session.user.id,
         source: "rest",
         requestIp,
@@ -305,6 +310,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ created, skipped, tracksCreated, errors });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error importing sessions" });
     return NextResponse.json({ error: "Failed to import sessions" }, { status: 500 });

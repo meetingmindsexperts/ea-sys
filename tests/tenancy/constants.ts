@@ -196,6 +196,21 @@ export const ABSTRACT_SUBMISSION_A_ID = "tenancy-asub-a";
 export const ABSTRACT_SUBMISSION_B_ID = "tenancy-asub-b";
 
 /**
+ * Sessions/Tracks domain sweep (Phase 2, Domain #12). Track/EventSession (1-hop) +
+ * SessionTopic (2-hop) + SessionSpeaker/TopicSpeaker (composite-PK join tables,
+ * 2/3-hop). Each org gets one Track → EventSession → SessionTopic chain, with a
+ * SessionSpeaker + TopicSpeaker linking the org's own speaker (SPEAKER_A_ID/B).
+ * Proves 1/2/3-hop backfill + composite-PK-table lane-scoping. All cascade from
+ * Event (org cascade reaches them).
+ */
+export const TRACK_A_ID = "tenancy-trk-a";
+export const TRACK_B_ID = "tenancy-trk-b";
+export const SESSION_A_ID = "tenancy-sess-a";
+export const SESSION_B_ID = "tenancy-sess-b";
+export const SESSION_TOPIC_A_ID = "tenancy-stopic-a";
+export const SESSION_TOPIC_B_ID = "tenancy-stopic-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

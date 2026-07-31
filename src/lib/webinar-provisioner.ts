@@ -169,6 +169,7 @@ export async function provisionWebinar(
     const eventSession = await db.eventSession.create({
       data: {
         eventId: event.id,
+        organizationId: event.organizationId, // multi-tenancy: Sessions sweep
         name: event.name,
         description: event.description ?? null,
         startTime,

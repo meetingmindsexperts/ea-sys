@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const updateTrackSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -33,22 +34,29 @@ async function getAuthenticatedUser() {
 
 // L4: org-scope via buildEventAccessWhere like the GET (denyReviewer has
 // already blocked restricted roles) — the hand-rolled organizationId filter
-// 404'd an org-null SUPER_ADMIN.
+// 404'd an org-null SUPER_ADMIN. Returns the event's org (RESOURCE org) so
+// the caller can open the tenant wrap around its swept track ops.
 async function validateEventAccess(
   eventId: string,
   user: { id: string; role: string; organizationId?: string | null },
-) {
+): Promise<
+  | { error: NextResponse; organizationId: null }
+  | { error: null; organizationId: string }
+> {
   const event = await db.event.findFirst({
     where: buildEventAccessWhere(user, eventId),
-    select: { id: true },
+    select: { id: true, organizationId: true },
   });
 
   if (!event) {
     apiLogger.warn({ msg: "track:event-not-found", eventId });
-    return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    return {
+      error: NextResponse.json({ error: "Event not found" }, { status: 404 }),
+      organizationId: null,
+    };
   }
 
-  return null;
+  return { error: null, organizationId: event.organizationId };
 }
 
 export async function GET(req: Request, { params }: RouteParams) {
@@ -62,13 +70,14 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ msg: "track:event-not-found", eventId });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     const track = await db.track.findFirst({
       where: {
         id: trackId,
@@ -105,6 +114,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(track);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching track" });
     return NextResponse.json(
@@ -126,11 +136,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const eventError = await validateEventAccess(eventId, session.user);
-    if (eventError) {
-      return eventError;
+    const access = await validateEventAccess(eventId, session.user);
+    if (access.error) {
+      return access.error;
     }
 
+    return await runWithTenant(access.organizationId, async () => {
     const existingTrack = await db.track.findFirst({
       where: {
         id: trackId,
@@ -191,6 +202,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(track);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating track" });
     return NextResponse.json(
@@ -212,11 +224,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const eventError = await validateEventAccess(eventId, session.user);
-    if (eventError) {
-      return eventError;
+    const access = await validateEventAccess(eventId, session.user);
+    if (access.error) {
+      return access.error;
     }
 
+    return await runWithTenant(access.organizationId, async () => {
     const track = await db.track.findFirst({
       where: {
         id: trackId,
@@ -262,6 +275,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting track" });
     return NextResponse.json(

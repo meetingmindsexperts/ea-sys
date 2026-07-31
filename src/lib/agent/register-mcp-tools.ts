@@ -830,9 +830,9 @@ export function registerAllMcpTools(
     async (uri, params) => safeResource("event-agenda", String(uri), async () => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
-      // tenancy: EventSession is NOT yet swept — no RLS policy, so this read is
-      // safe unwrapped for now. The Sessions-domain sweep MUST wrap this handler
-      // in runWithTenant(organizationId) when it adds EventSession to SWEPT_MODELS.
+      // tenancy: EventSession + SessionTopic/SessionSpeaker/TopicSpeaker are swept
+      // (Sessions sweep) — the read must ride the tenant store.
+      return runWithTenant(organizationId, async () => {
       const sessions = await db.eventSession.findMany({
         where: { eventId },
         select: {
@@ -844,6 +844,7 @@ export function registerAllMcpTools(
         orderBy: { startTime: "asc" },
       });
       return { contents: [{ uri: String(uri), text: JSON.stringify(sessions, null, 2), mimeType: "application/json" }] };
+      });
     })
   );
 

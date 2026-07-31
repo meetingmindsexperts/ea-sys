@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const createTrackSchema = z.object({
   name: z.string().min(1).max(255),
@@ -30,34 +31,36 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Fetch event validation and tracks in parallel
-    const [event, tracks] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true },
-      }),
-      db.track.findMany({
-        where: { eventId },
-        include: {
-          _count: {
-            select: {
-              eventSessions: true,
-              abstracts: true,
-            },
-          },
-        },
-        orderBy: { sortOrder: "asc" },
-      }),
-    ]);
+    // Resolve the event FIRST — its org (RESOURCE org) opens the tenant wrap
+    // around the swept track read.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
 
     if (!event) {
       apiLogger.warn({ msg: "tracks-get:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
+    const tracks = await db.track.findMany({
+      where: { eventId },
+      include: {
+        _count: {
+          select: {
+            eventSessions: true,
+            abstracts: true,
+          },
+        },
+      },
+      orderBy: { sortOrder: "asc" },
+    });
+
     const response = NextResponse.json(tracks);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching tracks" });
     return NextResponse.json(
@@ -100,7 +103,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // filter 404'd a SUPER_ADMIN with no org.
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
 
     if (!event) {
@@ -108,12 +111,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     // sortOrder defaults to max+1, computed INSIDE the same transaction as
     // the create so two concurrent track creates can't read the same max and
     // tie (M10, program/agenda review — same shape as the certificate
     // templates fix). Ties aren't fatal (no unique constraint) but make the
     // agenda's track ordering non-deterministic.
-    const track = await db.$transaction(async (tx) => {
+    const track = await tenantTransaction(async (tx) => {
       const finalSortOrder =
         sortOrder ??
         ((
@@ -126,6 +130,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return tx.track.create({
         data: {
           eventId,
+          organizationId: event.organizationId, // tenancy: the event's org (resource)
           name,
           description: description || null,
           color,
@@ -155,6 +160,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(track, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating track" });
     return NextResponse.json(

@@ -35,7 +35,7 @@
  */
 
 import { Prisma, type SessionType } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -106,6 +106,8 @@ interface SessionFieldsInput {
 
 export interface CreateSessionInput extends SessionFieldsInput {
   eventId: string;
+  /** Tenant org (the event's org) — stamped onto the session + its child rows. */
+  organizationId: string;
   userId: string;
   source: "rest" | "mcp" | "api";
   requestIp?: string | null;
@@ -122,6 +124,8 @@ export interface CreateSessionInput extends SessionFieldsInput {
 
 export interface UpdateSessionInput extends SessionFieldsInput {
   eventId: string;
+  /** Tenant org (the event's org) — stamped onto any child rows created here. */
+  organizationId: string;
   sessionId: string;
   userId: string;
   source: "rest" | "mcp" | "api";
@@ -454,9 +458,15 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
 
   let created: { id: string };
   try {
+    // tenancy: stamp organizationId on the session AND every nested child row
+    // (SessionSpeaker / SessionTopic / TopicSpeaker) so the WITH CHECK policy
+    // admits them on the platform. Single nested create — the db extension
+    // applies SET LOCAL per-op, so no tenantTransaction needed here.
+    const orgId = input.organizationId;
     created = await db.eventSession.create({
       data: {
         eventId,
+        organizationId: orgId,
         name: input.name,
         description: input.description ?? null,
         trackId: input.trackId ?? null,
@@ -471,13 +481,16 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
         type: input.type ?? "SESSION",
         speakers: (() => {
           const { rows } = buildSessionSpeakerRows(input);
-          return rows.length > 0 ? { create: rows } : undefined;
+          return rows.length > 0
+            ? { create: rows.map((r) => ({ ...r, organizationId: orgId })) }
+            : undefined;
         })(),
         topics:
           input.topics && input.topics.length > 0
             ? {
                 create: input.topics.map((t, i) => ({
                   title: t.title,
+                  organizationId: orgId,
                   abstractId: t.abstractId || null,
                   duration: t.duration || null,
                   // MCP used to drop client-supplied sortOrder.
@@ -486,7 +499,7 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
                   // P2002 the whole create (TopicSpeaker composite PK).
                   speakers:
                     t.speakerIds && t.speakerIds.length > 0
-                      ? { create: [...new Set(t.speakerIds)].map((speakerId) => ({ speakerId })) }
+                      ? { create: [...new Set(t.speakerIds)].map((speakerId) => ({ speakerId, organizationId: orgId })) }
                       : undefined,
                 })),
               }
@@ -603,8 +616,9 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
     });
   }
 
+  const orgId = input.organizationId;
   try {
-    await db.$transaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       // 1. CLAIM THE ROW FIRST (H1). Nothing below runs unless we own the write.
       const claim = await tx.eventSession.updateMany({
         where: {
@@ -632,7 +646,7 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
       //    cleanup is skipped when the payload replaces topics too — step 3
       //    writes the exact requested per-topic rosters instead.
       if (input.sessionRoles !== undefined || input.speakerIds !== undefined) {
-        await setSessionSpeakersTx(tx, sessionId, buildSessionSpeakerRows(input).rows, {
+        await setSessionSpeakersTx(tx, sessionId, orgId, buildSessionSpeakerRows(input).rows, {
           cleanTopicSpeakers: input.topics === undefined,
         });
       }
@@ -679,17 +693,18 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
             if (t.speakerIds && t.speakerIds.length > 0) {
               // Set-dedupe: a duplicated id used to P2002 the whole save.
               await tx.topicSpeaker.createMany({
-                data: [...new Set(t.speakerIds)].map((speakerId) => ({ topicId: existingId, speakerId })),
+                data: [...new Set(t.speakerIds)].map((speakerId) => ({ topicId: existingId, speakerId, organizationId: orgId })),
               });
             }
           } else {
             await tx.sessionTopic.create({
               data: {
                 sessionId,
+                organizationId: orgId,
                 ...fields,
                 speakers:
                   t.speakerIds && t.speakerIds.length > 0
-                    ? { create: [...new Set(t.speakerIds)].map((speakerId) => ({ speakerId })) }
+                    ? { create: [...new Set(t.speakerIds)].map((speakerId) => ({ speakerId, organizationId: orgId })) }
                     : undefined,
               },
             });
@@ -870,13 +885,14 @@ const rosterFail = (
 export async function setSessionSpeakersTx(
   tx: Prisma.TransactionClient,
   sessionId: string,
+  organizationId: string,
   rows: { speakerId: string; role: SessionRole }[],
   opts: { cleanTopicSpeakers?: boolean } = {},
 ): Promise<{ topicRowsRemoved: number }> {
   await tx.sessionSpeaker.deleteMany({ where: { sessionId } });
   if (rows.length > 0) {
     await tx.sessionSpeaker.createMany({
-      data: rows.map((r) => ({ sessionId, ...r })),
+      data: rows.map((r) => ({ sessionId, organizationId, ...r })),
     });
   }
   if (opts.cleanTopicSpeakers === false) return { topicRowsRemoved: 0 };
@@ -891,6 +907,8 @@ export async function setSessionSpeakersTx(
 
 interface RosterOpBase {
   eventId: string;
+  /** Tenant org (the event's org) — stamped onto any SessionSpeaker created here. */
+  organizationId: string;
   sessionId: string;
   actorUserId: string;
   source: "rest" | "mcp";
@@ -953,7 +971,7 @@ export async function addSessionSpeaker(
     }
     const result = await db.sessionSpeaker.upsert({
       where: { sessionId_speakerId: { sessionId, speakerId } },
-      create: { sessionId, speakerId, role },
+      create: { sessionId, speakerId, role, organizationId: input.organizationId },
       update: { role },
       select: { sessionId: true, speakerId: true, role: true },
     });
@@ -999,7 +1017,7 @@ export async function removeSessionSpeaker(
       return rosterFail("SESSION_NOT_FOUND", `Session ${sessionId} not found in this event`);
     }
 
-    const { removed, topicRowsRemoved } = await db.$transaction(async (tx) => {
+    const { removed, topicRowsRemoved } = await tenantTransaction(async (tx) => {
       const del = await tx.sessionSpeaker.deleteMany({ where: { sessionId, speakerId } });
       if (del.count === 0) return { removed: false, topicRowsRemoved: 0 };
       const topicDel = await tx.topicSpeaker.deleteMany({
@@ -1085,12 +1103,12 @@ export async function replaceSessionRoster(
       }
     }
 
-    const result = await db.$transaction(async (tx) => {
+    const result = await tenantTransaction(async (tx) => {
       const beforeRows = await tx.sessionSpeaker.findMany({
         where: { sessionId },
         select: { speakerId: true, role: true },
       });
-      const { topicRowsRemoved } = await setSessionSpeakersTx(tx, sessionId, assignments);
+      const { topicRowsRemoved } = await setSessionSpeakersTx(tx, sessionId, input.organizationId, assignments);
       return { before: beforeRows, topicRowsRemoved };
     });
 

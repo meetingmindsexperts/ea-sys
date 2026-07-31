@@ -1,5 +1,6 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import type { ToolExecutor } from "./_shared";
 import {
@@ -51,6 +52,7 @@ function parseSessionType(type: unknown): SessionType | { error: string; code: s
 
 const listSessions: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const limit = Math.min(Number(input.limit ?? 50), 100);
     const sessions = await db.eventSession.findMany({
       where: {
@@ -95,6 +97,7 @@ const listSessions: ToolExecutor = async (input, ctx) => {
       take: limit,
     });
     return { sessions, total: sessions.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_sessions failed");
     return { error: "Failed to fetch sessions" };
@@ -103,6 +106,7 @@ const listSessions: ToolExecutor = async (input, ctx) => {
 
 const createSession: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const name = String(input.name ?? "").trim();
     if (!name) return { error: "Session name is required", code: "MISSING_NAME" };
 
@@ -138,6 +142,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
     // `status`, `abstractId` and topic `sortOrder`.
     const result = await createSessionService({
       eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
       userId: ctx.userId,
       source: "mcp",
       name,
@@ -165,6 +170,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
 
     if (!result.ok) return { error: result.message, code: result.code, ...(result.meta ?? {}) };
     return { success: true, session: result.session };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_session failed");
     return { error: err instanceof Error ? err.message : "Failed to create session" };
@@ -173,6 +179,7 @@ const createSession: ToolExecutor = async (input, ctx) => {
 
 const addTopicToSession: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const sessionId = String(input.sessionId ?? "").trim();
     const title = String(input.title ?? "").trim();
     if (!sessionId) return { error: "sessionId is required" };
@@ -216,7 +223,7 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
     // count and tie (M10, program/agenda review — same shape as the
     // certificate templates fix). max+1 instead of count() so a payload that
     // supplied explicit sortOrders earlier still appends after them.
-    const topic = await db.$transaction(async (tx) => {
+    const topic = await tenantTransaction(async (tx) => {
       const maxOrder = await tx.sessionTopic.aggregate({
         where: { sessionId },
         _max: { sortOrder: true },
@@ -224,11 +231,12 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
       return tx.sessionTopic.create({
         data: {
           sessionId,
+          organizationId: ctx.organizationId,
           title,
           duration: input.duration ? Number(input.duration) : null,
           sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
           speakers: rawSpeakerIds.length > 0
-            ? { create: rawSpeakerIds.map((sid) => ({ speakerId: sid })) }
+            ? { create: rawSpeakerIds.map((sid) => ({ speakerId: sid, organizationId: ctx.organizationId })) }
             : undefined,
         },
         select: {
@@ -248,6 +256,7 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
       },
       session: session.name,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:add_topic_to_session failed");
     return { error: "Failed to add topic to session" };
@@ -256,6 +265,7 @@ const addTopicToSession: ToolExecutor = async (input, ctx) => {
 
 const listLiveSessionsNow: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const withinMinutes = input.withinMinutes != null ? Math.max(0, Number(input.withinMinutes)) : 0;
     const now = new Date();
     const windowEnd = new Date(now.getTime() + withinMinutes * 60 * 1000);
@@ -304,6 +314,7 @@ const listLiveSessionsNow: ToolExecutor = async (input, ctx) => {
     }));
 
     return { now: now.toISOString(), sessions: enriched, total: sessions.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_live_sessions_now failed");
     return { error: "Failed to list live sessions" };
@@ -312,6 +323,7 @@ const listLiveSessionsNow: ToolExecutor = async (input, ctx) => {
 
 const updateSession: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const sessionId = String(input.sessionId ?? "").trim();
     if (!sessionId) return { error: "sessionId is required", code: "MISSING_SESSION_ID" };
 
@@ -344,6 +356,7 @@ const updateSession: ToolExecutor = async (input, ctx) => {
     // capacity rule (this path used to allow 0) are now identical to REST.
     const result = await updateSessionService({
       eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
       sessionId,
       userId: ctx.userId,
       source: "mcp",
@@ -382,6 +395,7 @@ const updateSession: ToolExecutor = async (input, ctx) => {
       session: result.session,
       ...(result.zoomSync ? { zoomSync: result.zoomSync } : {}),
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:update_session failed");
     return { error: err instanceof Error ? err.message : "Failed to update session" };
@@ -592,6 +606,7 @@ const SESSION_ROLES = VALID_SESSION_ROLES;
 
 const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const sessionId = String(input.sessionId ?? "").trim();
     const speakerId = String(input.speakerId ?? "").trim();
     const rawRole = input.role ? String(input.role).toUpperCase() : "SPEAKER";
@@ -603,6 +618,7 @@ const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
 
     const result = await addSessionSpeakerService({
       eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
       sessionId,
       speakerId,
       role: rawRole as SessionRole,
@@ -618,6 +634,7 @@ const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
       return { sessionSpeaker: result.sessionSpeaker, alreadyAssigned: true };
     }
     return { sessionSpeaker: result.sessionSpeaker, alreadyAssigned: false, roleChanged: result.roleChanged };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:add_speaker_to_session failed");
     return { error: err instanceof Error ? err.message : "Failed to add speaker to session" };
@@ -626,6 +643,7 @@ const addSpeakerToSession: ToolExecutor = async (input, ctx) => {
 
 const removeSpeakerFromSession: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const sessionId = String(input.sessionId ?? "").trim();
     const speakerId = String(input.speakerId ?? "").trim();
     if (!sessionId) return { error: "sessionId is required", code: "MISSING_SESSION_ID" };
@@ -633,6 +651,7 @@ const removeSpeakerFromSession: ToolExecutor = async (input, ctx) => {
 
     const result = await removeSessionSpeakerService({
       eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
       sessionId,
       speakerId,
       actorUserId: ctx.userId,
@@ -647,6 +666,7 @@ const removeSpeakerFromSession: ToolExecutor = async (input, ctx) => {
       return { success: false, message: "Speaker was not assigned to this session", alreadyRemoved: true };
     }
     return { success: true, sessionId, speakerId, topicAssignmentsRemoved: result.topicRowsRemoved };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:remove_speaker_from_session failed");
     return { error: err instanceof Error ? err.message : "Failed to remove speaker from session" };
@@ -655,6 +675,7 @@ const removeSpeakerFromSession: ToolExecutor = async (input, ctx) => {
 
 const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const sessionId = String(input.sessionId ?? "").trim();
     if (!sessionId) return { error: "sessionId is required", code: "MISSING_SESSION_ID" };
 
@@ -685,6 +706,7 @@ const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
 
     const result = await replaceSessionRosterService({
       eventId: ctx.eventId,
+      organizationId: ctx.organizationId,
       sessionId,
       assignments: normalised,
       actorUserId: ctx.userId,
@@ -705,6 +727,7 @@ const replaceSessionSpeakers: ToolExecutor = async (input, ctx) => {
       previousAssignmentCount: result.before.length,
       topicAssignmentsRemoved: result.topicRowsRemoved,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:replace_session_speakers failed");
     return { error: err instanceof Error ? err.message : "Failed to replace session speakers" };

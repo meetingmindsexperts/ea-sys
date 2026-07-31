@@ -129,7 +129,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           trackId = existingTrackId;
         } else {
           const newTrack = await db.track.create({
-            data: { eventId, name: trackName, sortOrder: nextSortOrder++ },
+            data: { eventId, organizationId: orgGuard.orgId, name: trackName, sortOrder: nextSortOrder++ },
           });
           trackByName.set(trackName.toLowerCase(), newTrack.id);
           trackId = newTrack.id;

@@ -192,6 +192,18 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/abstracts/[abstractId]/reviewers/[userId]/route.ts"    # Abstract (July 31, 2026)
   "src/app/api/events/[eventId]/abstracts/[abstractId]/presenter-agreement/email/route.ts" # Abstract — resource-org (July 31, 2026)
   "src/app/api/events/[eventId]/abstracts/my-profile/route.ts"                         # Abstract — resource-org (July 31, 2026)
+  # Sessions/Tracks sweep (July 31, 2026) — Domain #12. RESOURCE-org routes
+  # (buildEventAccessWhere / publicEventWhere → event.organizationId; they serve
+  # org-null submitters on the agenda GET too). The zoom + other public session
+  # routes (detail/presence/recording/stream-status/zoom-join, zoom/route,
+  # zoom/panelists) are already in this list from the Webinar sweep — their
+  # existing wraps now also scope EventSession.
+  "src/app/api/events/[eventId]/sessions/route.ts"                                     # Sessions (July 31, 2026)
+  "src/app/api/events/[eventId]/sessions/[sessionId]/route.ts"                         # Sessions (July 31, 2026)
+  "src/app/api/events/[eventId]/tracks/route.ts"                                       # Sessions (July 31, 2026)
+  "src/app/api/events/[eventId]/tracks/[trackId]/route.ts"                             # Sessions (July 31, 2026)
+  "src/app/api/events/[eventId]/import/sessions/route.ts"                              # Sessions (July 31, 2026)
+  "src/app/api/public/events/[slug]/sessions/[sessionId]/lobby-status/route.ts"        # Sessions — public resource-org (July 31, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
@@ -223,6 +235,9 @@ SWEPT_MODULES=(
   "src/lib/agent/tools/accommodations.ts"   # accommodation agent / MCP executors (July 31, 2026)
   # Abstract sweep (July 31, 2026) — the abstract/reviewer/criteria MCP executors.
   "src/lib/agent/tools/abstracts.ts"        # abstract agent / MCP executors (July 31, 2026)
+  # Sessions/Tracks sweep (July 31, 2026) — the session + track/event MCP executors.
+  "src/lib/agent/tools/sessions.ts"         # session agent / MCP executors (July 31, 2026)
+  "src/lib/agent/tools/events.ts"           # events/tracks agent / MCP executors (July 31, 2026)
   # MCP-resource-handlers follow-on (July 31, 2026) — register-mcp-tools.ts has
   # inline server.tool / server.resource handlers that read swept tables directly
   # (NOT via the wrapped tools/*.ts executors): list_contacts (Contact),
@@ -255,7 +270,7 @@ HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|
 # name means a plain property chain like `payment.registration.event` never
 # matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
 # session) are the ONLY reads allowed before the wrap (org resolution).
-SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission'
+SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker'
 # `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
 SWEPT_OP_RE="[.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)"
 

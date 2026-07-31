@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
@@ -264,10 +265,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (datesOrTzChanged) {
       // CANCELLED sessions are excluded — they no longer render on the agenda
       // and must not block a legitimate date change.
-      const eventSessions = await db.eventSession.findMany({
-        where: { eventId, status: { not: "CANCELLED" } },
-        select: { id: true, name: true, startTime: true, endTime: true },
-      });
+      // tenancy: EventSession is swept (Sessions sweep, Domain #12) — this guard
+      // read must ride the tenant store or it fail-closes to zero rows on the
+      // platform and silently allows a date change that orphans sessions. This
+      // Event-route file is NOT yet in the als-gate (Event domain unswept); when
+      // it is swept, wrap the whole handler + add the file to the gate.
+      const eventSessions = await runWithTenant(orgGuard.orgId, () =>
+        db.eventSession.findMany({
+          where: { eventId, status: { not: "CANCELLED" } },
+          select: { id: true, name: true, startTime: true, endTime: true },
+        }),
+      );
       const outOfRange = eventSessions.filter(
         (s) =>
           !isSessionWithinEventDates(

@@ -11,6 +11,7 @@ import { canViewZoomHostCredentials, redactZoomHostFieldsFromSessions } from "@/
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const topicSchema = z.object({
   title: z.string().min(1).max(255),
@@ -77,46 +78,13 @@ export async function GET(req: Request, { params }: RouteParams) {
       ? { id: eventId, organizationId: orgCtx.organizationId }
       : buildEventAccessWhere(session!.user, eventId);
 
-    // Fetch event validation and sessions in parallel
-    const [event, sessions] = await Promise.all([
-      db.event.findFirst({
-        where: eventWhere,
-        select: { id: true },
-      }),
-      db.eventSession.findMany({
-        where: {
-          eventId,
-          ...(trackId && { trackId }),
-          ...(status && { status: status as "DRAFT" | "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED" }),
-          ...(date && {
-            startTime: {
-              gte: new Date(date),
-              lt: new Date(new Date(date).getTime() + 24 * 60 * 60 * 1000),
-            },
-          }),
-        },
-        select: {
-          // The canonical session shape (single source of truth in the
-          // service) + the Zoom relation only this list endpoint returns.
-          ...SESSION_SELECT,
-          zoomMeeting: {
-            select: {
-              id: true,
-              zoomMeetingId: true,
-              meetingType: true,
-              status: true,
-              joinUrl: true,
-              startUrl: true,
-              passcode: true,
-              liveStreamEnabled: true,
-              streamKey: true,
-              streamStatus: true,
-            },
-          },
-        },
-        orderBy: { startTime: "asc" },
-      }),
-    ]);
+    // Resolve the event FIRST — its org (RESOURCE org, so an org-null caller
+    // reaching the event by linkage still resolves) opens the tenant wrap
+    // around the swept eventSession read.
+    const event = await db.event.findFirst({
+      where: eventWhere,
+      select: { id: true, organizationId: true },
+    });
 
     if (!event) {
       apiLogger.warn({
@@ -128,6 +96,41 @@ export async function GET(req: Request, { params }: RouteParams) {
       });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    return await runWithTenant(event.organizationId, async () => {
+    const sessions = await db.eventSession.findMany({
+      where: {
+        eventId,
+        ...(trackId && { trackId }),
+        ...(status && { status: status as "DRAFT" | "SCHEDULED" | "LIVE" | "COMPLETED" | "CANCELLED" }),
+        ...(date && {
+          startTime: {
+            gte: new Date(date),
+            lt: new Date(new Date(date).getTime() + 24 * 60 * 60 * 1000),
+          },
+        }),
+      },
+      select: {
+        // The canonical session shape (single source of truth in the
+        // service) + the Zoom relation only this list endpoint returns.
+        ...SESSION_SELECT,
+        zoomMeeting: {
+          select: {
+            id: true,
+            zoomMeetingId: true,
+            meetingType: true,
+            status: true,
+            joinUrl: true,
+            startUrl: true,
+            passcode: true,
+            liveStreamEnabled: true,
+            streamKey: true,
+            streamStatus: true,
+          },
+        },
+      },
+      orderBy: { startTime: "asc" },
+    });
 
     // BLOCKER B1 (program/agenda review): this GET has no `denyReviewer`, and
     // `buildEventAccessWhere` grants event access to the org-null attendee
@@ -149,6 +152,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching sessions" });
     return NextResponse.json(
@@ -193,7 +197,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // 404'd an org-null SUPER_ADMIN).
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({
@@ -204,11 +208,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     // Validation, the write, the audit row, the admin notification and the
     // stats refresh all live in the service (H4) so this route and the MCP
     // `create_session` tool can't drift again.
     const result = await createSession({
       eventId,
+      organizationId: event.organizationId,
       userId: session.user.id,
       source: "rest",
       requestIp: getClientIp(req),
@@ -236,6 +242,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result.session, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating session" });
     return NextResponse.json(

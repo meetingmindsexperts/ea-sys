@@ -1506,6 +1506,8 @@ enum AbstractReviewerRole {
 model Track {
   id          String   @id @default(cuid())
   eventId     String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
+  organizationId String?
   name        String
   description String?  @db.Text
   color       String   @default("#3B82F6")
@@ -1518,11 +1520,14 @@ model Track {
   abstracts     Abstract[]
 
   @@index([eventId])
+  @@index([organizationId])
 }
 
 model EventSession {
   id          String        @id @default(cuid())
   eventId     String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
+  organizationId String?
   abstractId  String?       @unique
   trackId     String?
   name        String
@@ -1549,6 +1554,7 @@ model EventSession {
   @@index([eventId])
   @@index([startTime])
   @@index([trackId])
+  @@index([organizationId])
 }
 
 enum SessionStatus {
@@ -1583,17 +1589,24 @@ enum SessionType {
 model SessionSpeaker {
   sessionId String
   speakerId String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from the session's
+  // Event; 2-hop backfill via sessionId. Composite-PK join table (no own id).
+  organizationId String?
   role      SessionRole @default(SPEAKER)
 
   session EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   speaker Speaker      @relation(fields: [speakerId], references: [id], onDelete: Cascade)
 
   @@id([sessionId, speakerId])
+  @@index([organizationId])
 }
 
 model SessionTopic {
   id         String   @id @default(cuid())
   sessionId  String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from the session's
+  // Event; 2-hop backfill via sessionId.
+  organizationId String?
   abstractId String?  @unique
   title      String
   sortOrder  Int      @default(0)
@@ -1606,16 +1619,21 @@ model SessionTopic {
   speakers TopicSpeaker[]
 
   @@index([sessionId])
+  @@index([organizationId])
 }
 
 model TopicSpeaker {
   topicId   String
   speakerId String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from the topic's
+  // session's Event; 3-hop backfill via topicId. Composite-PK join (no own id).
+  organizationId String?
 
   topic   SessionTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
   speaker Speaker      @relation(fields: [speakerId], references: [id], onDelete: Cascade)
 
   @@id([topicId, speakerId])
+  @@index([organizationId])
 }
 
 // ==================== ACCOMMODATION ====================

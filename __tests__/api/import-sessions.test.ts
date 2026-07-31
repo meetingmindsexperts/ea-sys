@@ -33,7 +33,13 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenancy: the track-create tx is now tenantTransaction — passthrough so the
+// per-test $transaction.mockImplementation still drives it.
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (cb: (tx: unknown) => unknown, opts?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null }));
 vi.mock("@/lib/security", () => ({
@@ -58,7 +64,7 @@ function csvRequest(csv: string): Request {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org1" } });
-  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", timezone: "Asia/Dubai" });
+  mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", timezone: "Asia/Dubai" });
   mockDb.eventSession.findMany.mockResolvedValue([]);
   mockDb.track.findMany.mockResolvedValue([{ id: "trk-main", name: "Main" }]);
   mockDb.speaker.findMany.mockResolvedValue([
@@ -139,7 +145,7 @@ describe("agenda CSV import delegates to session-service", () => {
     // All rows rejected → no summary notification either.
     vi.clearAllMocks();
     mockAuth.mockResolvedValue({ user: { id: "u1", role: "ADMIN", organizationId: "org1" } });
-    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", timezone: "Asia/Dubai" });
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", timezone: "Asia/Dubai" });
     mockDb.track.findMany.mockResolvedValue([]);
     mockDb.speaker.findMany.mockResolvedValue([]);
     mockCreateSession.mockResolvedValue({ ok: false, code: "OUTSIDE_EVENT_DATES", message: "nope" });
@@ -164,7 +170,7 @@ describe("agenda CSV import delegates to session-service", () => {
 
     expect(body.tracksCreated).toBe(1);
     expect(txTrack.create).toHaveBeenCalledWith({
-      data: { eventId: "ev1", name: "Cardiology", sortOrder: 5 },
+      data: { eventId: "ev1", organizationId: "org1", name: "Cardiology", sortOrder: 5 },
     });
     expect(mockCreateSession.mock.calls[0][0].trackId).toBe("trk-new");
   });

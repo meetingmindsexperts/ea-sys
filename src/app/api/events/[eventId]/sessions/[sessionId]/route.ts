@@ -13,6 +13,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { optimisticLockField } from "@/lib/optimistic-lock";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const topicSchema = z.object({
   id: z.string().max(100).optional(), // existing topic ID (for updates)
@@ -66,7 +67,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
 
     if (!event) {
@@ -74,6 +75,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     const eventSession = await db.eventSession.findFirst({
       where: { id: sessionId, eventId },
       select: SESSION_SELECT,
@@ -85,6 +87,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(eventSession);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching session" });
     return NextResponse.json(
@@ -107,21 +110,23 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     // L4: buildEventAccessWhere instead of a hand-rolled organizationId filter
-    // (denyReviewer already blocked restricted roles).
-    const [event, existingSession] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, startDate: true, endDate: true, timezone: true },
-      }),
-      db.eventSession.findFirst({
-        where: { id: sessionId, eventId },
-      }),
-    ]);
+    // (denyReviewer already blocked restricted roles). Load the event FIRST/
+    // alone — its org opens the tenant wrap around the swept eventSession read
+    // + the updateSession service (which touches swept child tables).
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true, startDate: true, endDate: true, timezone: true },
+    });
 
     if (!event) {
       apiLogger.warn({ msg: "session-put:event-not-found", eventId, sessionId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    return await runWithTenant(event.organizationId, async () => {
+    const existingSession = await db.eventSession.findFirst({
+      where: { id: sessionId, eventId },
+    });
 
     if (!existingSession) {
       apiLogger.warn({ msg: "session-put:session-not-found", eventId, sessionId, userId: session.user.id });
@@ -146,6 +151,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // REST route and the MCP `update_session` tool can't drift again.
     const result = await updateSession({
       eventId,
+      organizationId: event.organizationId,
       sessionId,
       userId: session.user.id,
       source: "rest",
@@ -183,6 +189,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       ...result.session,
       ...(result.zoomSync ? { zoomSync: result.zoomSync } : {}),
     });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating session" });
     return NextResponse.json(
@@ -215,6 +222,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    return await runWithTenant(event.organizationId, async () => {
     const eventSession = await db.eventSession.findFirst({
       where: { id: sessionId, eventId },
       include: {
@@ -281,6 +289,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting session" });
     return NextResponse.json(

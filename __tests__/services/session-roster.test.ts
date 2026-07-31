@@ -29,7 +29,12 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenancy: remove/replace roster ops now use tenantTransaction (not db.$transaction).
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (cb: (tx: unknown) => unknown, opts?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: vi.fn() }));
@@ -41,7 +46,7 @@ import {
   setSessionSpeakersTx,
 } from "@/services/session-service";
 
-const BASE = { eventId: "ev1", sessionId: "s1", actorUserId: "u1", source: "mcp" as const };
+const BASE = { eventId: "ev1", organizationId: "org1", sessionId: "s1", actorUserId: "u1", source: "mcp" as const };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -61,13 +66,14 @@ describe("setSessionSpeakersTx (the shared swap + L1 cleanup applier)", () => {
     const res = await setSessionSpeakersTx(
       mockDb._tx as never,
       "s1",
+      "org1",
       [{ speakerId: "sp1", role: "SPEAKER" }, { speakerId: "sp2", role: "MODERATOR" }],
     );
     expect(mockDb._tx.sessionSpeaker.deleteMany).toHaveBeenCalledWith({ where: { sessionId: "s1" } });
     expect(mockDb._tx.sessionSpeaker.createMany).toHaveBeenCalledWith({
       data: [
-        { sessionId: "s1", speakerId: "sp1", role: "SPEAKER" },
-        { sessionId: "s1", speakerId: "sp2", role: "MODERATOR" },
+        { sessionId: "s1", organizationId: "org1", speakerId: "sp1", role: "SPEAKER" },
+        { sessionId: "s1", organizationId: "org1", speakerId: "sp2", role: "MODERATOR" },
       ],
     });
     // L1: everyone NOT in the new roster drops off the session's topics.
@@ -78,7 +84,7 @@ describe("setSessionSpeakersTx (the shared swap + L1 cleanup applier)", () => {
   });
 
   it("skips the L1 cleanup when the caller rewrites topics itself (updateSession step 3)", async () => {
-    const res = await setSessionSpeakersTx(mockDb._tx as never, "s1", [], { cleanTopicSpeakers: false });
+    const res = await setSessionSpeakersTx(mockDb._tx as never, "s1", "org1", [], { cleanTopicSpeakers: false });
     expect(mockDb._tx.topicSpeaker.deleteMany).not.toHaveBeenCalled();
     expect(res.topicRowsRemoved).toBe(0);
     // Empty roster → no createMany, but the delete still ran (clear-all).
@@ -187,8 +193,8 @@ describe("replaceSessionRoster", () => {
     });
     expect(mockDb._tx.sessionSpeaker.createMany).toHaveBeenCalledWith({
       data: [
-        { sessionId: "s1", speakerId: "sp1", role: "SPEAKER" },
-        { sessionId: "s1", speakerId: "sp2", role: "PANELIST" },
+        { sessionId: "s1", organizationId: "org1", speakerId: "sp1", role: "SPEAKER" },
+        { sessionId: "s1", organizationId: "org1", speakerId: "sp2", role: "PANELIST" },
       ],
     });
     expect(mockDb.auditLog.create).toHaveBeenCalledWith({

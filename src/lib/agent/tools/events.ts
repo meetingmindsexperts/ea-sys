@@ -1,6 +1,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { refreshEventStats } from "@/lib/event-stats";
 import { slugify, deriveEventCode } from "@/lib/utils";
@@ -15,6 +16,7 @@ const CODE_RE = /^[A-Z0-9-]+$/;
 
 const listEventInfo: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const event = await db.event.findFirst({
       where: { id: ctx.eventId, organizationId: ctx.organizationId },
       select: {
@@ -44,6 +46,7 @@ const listEventInfo: ToolExecutor = async (_input, ctx) => {
     });
     if (!event) return { error: "Event not found" };
     return event;
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_event_info failed");
     return { error: "Failed to fetch event info" };
@@ -52,6 +55,7 @@ const listEventInfo: ToolExecutor = async (_input, ctx) => {
 
 const listTracks: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const tracks = await db.track.findMany({
       where: { eventId: ctx.eventId },
       select: {
@@ -65,6 +69,7 @@ const listTracks: ToolExecutor = async (_input, ctx) => {
       orderBy: { sortOrder: "asc" },
     });
     return { tracks, total: tracks.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_tracks failed");
     return { error: "Failed to fetch tracks" };
@@ -73,6 +78,7 @@ const listTracks: ToolExecutor = async (_input, ctx) => {
 
 const createTrack: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const name = String(input.name ?? "").trim();
     if (!name) return { error: "Track name is required" };
 
@@ -92,6 +98,7 @@ const createTrack: ToolExecutor = async (input, ctx) => {
     const track = await db.track.create({
       data: {
         eventId: ctx.eventId,
+        organizationId: ctx.organizationId,
         name,
         color,
         description: input.description ? String(input.description) : null,
@@ -104,6 +111,7 @@ const createTrack: ToolExecutor = async (input, ctx) => {
     refreshEventStats(ctx.eventId);
 
     return { success: true, track };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_track failed");
     return { error: "Failed to create track" };
@@ -112,6 +120,7 @@ const createTrack: ToolExecutor = async (input, ctx) => {
 
 const createEvent: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const name = String(input.name ?? "").trim();
     const startDateStr = String(input.startDate ?? "").trim();
     const endDateStr = String(input.endDate ?? "").trim();
@@ -235,6 +244,7 @@ const createEvent: ToolExecutor = async (input, ctx) => {
     }
 
     return { success: true, event };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_event failed");
     return { error: "Failed to create event" };
@@ -274,6 +284,7 @@ const EVENT_UPDATE_FIELD_BLACKLIST = new Set([
 
 const updateEvent: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const eventId = String(input.eventId ?? "").trim();
     if (!eventId) return { error: "eventId is required", code: "MISSING_EVENT_ID" };
 
@@ -412,6 +423,7 @@ const updateEvent: ToolExecutor = async (input, ctx) => {
     }).catch((err) => apiLogger.error({ err }, "agent:update_event audit-log-failed"));
 
     return { success: true, event: updated };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:update_event failed");
     return { error: err instanceof Error ? err.message : "Failed to update event" };

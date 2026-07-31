@@ -88,6 +88,12 @@ import {
   ABSTRACT_REVIEWER_B_ID,
   ABSTRACT_SUBMISSION_A_ID,
   ABSTRACT_SUBMISSION_B_ID,
+  TRACK_A_ID,
+  TRACK_B_ID,
+  SESSION_A_ID,
+  SESSION_B_ID,
+  SESSION_TOPIC_A_ID,
+  SESSION_TOPIC_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -185,6 +191,15 @@ async function seedOrg(
     eventId: string;
     speakerId: string;
     reviewerUserId: string;
+  },
+  // Sessions/Tracks sweep (Domain #12): one Track → EventSession → SessionTopic
+  // chain per org, with a SessionSpeaker + TopicSpeaker linking the org's speaker.
+  session?: {
+    trackId: string;
+    sessionId: string;
+    topicId: string;
+    eventId: string;
+    speakerId: string;
   },
 ) {
   await db.organization.create({
@@ -512,6 +527,34 @@ async function seedOrg(
       },
     });
   }
+  // Sessions/Tracks sweep fixtures. Track/EventSession cascade from Event;
+  // SessionTopic/SessionSpeaker/TopicSpeaker from EventSession/SessionTopic. Runs
+  // after the speaker exists (seeded above).
+  if (session) {
+    await db.track.create({
+      data: { id: session.trackId, eventId: session.eventId, organizationId: orgId, name: "Tenancy Track" },
+    });
+    await db.eventSession.create({
+      data: {
+        id: session.sessionId,
+        eventId: session.eventId,
+        organizationId: orgId,
+        trackId: session.trackId,
+        name: "Tenancy Session",
+        startTime: new Date("2027-01-10T10:00:00Z"),
+        endTime: new Date("2027-01-10T11:00:00Z"),
+      },
+    });
+    await db.sessionSpeaker.create({
+      data: { sessionId: session.sessionId, speakerId: session.speakerId, organizationId: orgId, role: "SPEAKER" },
+    });
+    await db.sessionTopic.create({
+      data: { id: session.topicId, sessionId: session.sessionId, organizationId: orgId, title: "Tenancy Topic" },
+    });
+    await db.topicSpeaker.create({
+      data: { topicId: session.topicId, speakerId: session.speakerId, organizationId: orgId },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -720,6 +763,13 @@ async function main() {
       speakerId: SPEAKER_A_ID,
       reviewerUserId: UPLOADER_A_ID,
     },
+    {
+      trackId: TRACK_A_ID,
+      sessionId: SESSION_A_ID,
+      topicId: SESSION_TOPIC_A_ID,
+      eventId: EVENT_A_SHARED_ID,
+      speakerId: SPEAKER_A_ID,
+    },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -812,6 +862,13 @@ async function main() {
       eventId: EVENT_B_SHARED_ID,
       speakerId: SPEAKER_B_ID,
       reviewerUserId: UPLOADER_B_ID,
+    },
+    {
+      trackId: TRACK_B_ID,
+      sessionId: SESSION_B_ID,
+      topicId: SESSION_TOPIC_B_ID,
+      eventId: EVENT_B_SHARED_ID,
+      speakerId: SPEAKER_B_ID,
     },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

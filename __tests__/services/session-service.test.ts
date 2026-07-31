@@ -43,7 +43,13 @@ const {
   };
 });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenancy: updateSession/roster paths now use tenantTransaction (not db.$transaction)
+// for swept writes — passthrough to the same tx-proxy.
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (cb: (tx: unknown) => unknown, opts?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: mockRefreshStats }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
@@ -65,6 +71,7 @@ const END = new Date("2026-09-02T07:00:00Z");
 
 const BASE_CREATE = {
   eventId: "ev1",
+  organizationId: "org1",
   userId: "u1",
   source: "rest" as const,
   name: "Keynote",
@@ -73,6 +80,7 @@ const BASE_CREATE = {
 };
 const BASE_UPDATE = {
   eventId: "ev1",
+  organizationId: "org1",
   sessionId: "s1",
   userId: "u1",
   source: "rest" as const,
@@ -148,7 +156,7 @@ describe("createSession — H4: side effects the MCP path used to skip", () => {
       sessionRoles: [{ speakerId: "sp1", role: "MODERATOR" }],
     });
     const speakers = mockDb.eventSession.create.mock.calls[0][0].data.speakers.create;
-    expect(speakers).toEqual([{ speakerId: "sp1", role: "MODERATOR" }]);
+    expect(speakers).toEqual([{ speakerId: "sp1", role: "MODERATOR", organizationId: "org1" }]);
   });
 });
 
@@ -393,7 +401,7 @@ describe("updateSession — M2: topic ids are stable across saves", () => {
     // Per-topic speakers replaced on the kept row.
     expect(mockTx.topicSpeaker.deleteMany).toHaveBeenCalledWith({ where: { topicId: "t1" } });
     expect(mockTx.topicSpeaker.createMany).toHaveBeenCalledWith({
-      data: [{ topicId: "t1", speakerId: "sp-a" }],
+      data: [{ topicId: "t1", speakerId: "sp-a", organizationId: "org1" }],
     });
   });
 
@@ -538,8 +546,8 @@ describe("duplicate speaker in the roster payload (July 21, 2026 prod alert — 
     expect(res.ok).toBe(true);
     expect(mockTx.sessionSpeaker.createMany).toHaveBeenCalledWith({
       data: [
-        { sessionId: "s1", speakerId: "sp1", role: "SPEAKER" },
-        { sessionId: "s1", speakerId: "sp2", role: "MODERATOR" },
+        { sessionId: "s1", organizationId: "org1", speakerId: "sp1", role: "SPEAKER" },
+        { sessionId: "s1", organizationId: "org1", speakerId: "sp2", role: "MODERATOR" },
       ],
     });
   });
@@ -562,8 +570,8 @@ describe("duplicate speaker in the roster payload (July 21, 2026 prod alert — 
     expect(res.ok).toBe(true);
     expect(mockTx.topicSpeaker.createMany).toHaveBeenCalledWith({
       data: [
-        { topicId: "t1", speakerId: "sp1" },
-        { topicId: "t1", speakerId: "sp2" },
+        { topicId: "t1", speakerId: "sp1", organizationId: "org1" },
+        { topicId: "t1", speakerId: "sp2", organizationId: "org1" },
       ],
     });
   });

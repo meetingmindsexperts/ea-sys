@@ -18,7 +18,13 @@ const { mockDb } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenancy: replaceSessionRoster now uses tenantTransaction (not db.$transaction)
+// — passthrough so the per-test $transaction.mockImplementationOnce still drives it.
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (cb: (tx: unknown) => unknown, opts?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));

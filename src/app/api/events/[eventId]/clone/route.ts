@@ -222,6 +222,7 @@ export async function POST(
           const created = await tx.track.create({
             data: {
               eventId: event.id,
+              organizationId: event.organizationId, // multi-tenancy: Sessions sweep
               name: tr.name,
               description: tr.description,
               color: tr.color,
@@ -272,6 +273,7 @@ export async function POST(
           const newSession = await tx.eventSession.create({
             data: {
               eventId: event.id,
+              organizationId: event.organizationId, // multi-tenancy: Sessions sweep
               trackId: sess.trackId ? trackMap.get(sess.trackId) ?? null : null,
               name: sess.name,
               description: sess.description,
@@ -290,6 +292,7 @@ export async function POST(
               await tx.sessionSpeaker.create({
                 data: {
                   sessionId: newSession.id,
+                  organizationId: event.organizationId, // multi-tenancy: Sessions sweep
                   speakerId: newSpeakerId,
                   role: ss.role,
                 },
@@ -304,10 +307,11 @@ export async function POST(
             const remappedTopicSpeakers = topic.speakers
               .map((ts) => speakerMap.get(ts.speakerId))
               .filter((id): id is string => Boolean(id))
-              .map((speakerId) => ({ speakerId }));
+              .map((speakerId) => ({ speakerId, organizationId: event.organizationId })); // multi-tenancy: Sessions sweep
             await tx.sessionTopic.create({
               data: {
                 sessionId: newSession.id,
+                organizationId: event.organizationId, // multi-tenancy: Sessions sweep
                 title: topic.title,
                 sortOrder: topic.sortOrder,
                 duration: topic.duration,

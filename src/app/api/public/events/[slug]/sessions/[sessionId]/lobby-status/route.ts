@@ -5,6 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { readWebinarSettings } from "@/lib/webinar";
+import { runWithTenant } from "@/lib/tenant-context";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -110,7 +111,25 @@ export async function GET(req: Request, { params }: RouteParams) {
     const cached = lobbyCache.get(cacheKey);
     const cachedBody = cached && Date.now() - cached.at < LOBBY_TTL_MS ? cached.body : null;
 
-    const body = cachedBody ?? (await computeLobbyBody(eventWhere, sessionId));
+    let body: LobbyBody | "not-found";
+    if (cachedBody) {
+      body = cachedBody;
+    } else {
+      // Resolve the event's org (RESOURCE org) FIRST so the swept eventSession
+      // read runs inside the tenant wrap. Only on a cache miss, so the 3s
+      // micro-cache still collapses the 5k-concurrency read storm.
+      const event = await db.event.findFirst({
+        where: eventWhere,
+        select: { id: true, organizationId: true },
+      });
+      if (!event) {
+        apiLogger.warn({ slug, sessionId }, "lobby-status:session-not-found");
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      body = await runWithTenant(event.organizationId, () =>
+        computeLobbyBody(eventWhere, sessionId),
+      );
+    }
     if (body === "not-found") {
       apiLogger.warn({ slug, sessionId }, "lobby-status:session-not-found");
       return NextResponse.json({ error: "Not found" }, { status: 404 });
