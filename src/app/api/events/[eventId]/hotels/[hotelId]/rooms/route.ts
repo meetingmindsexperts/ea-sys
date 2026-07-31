@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
@@ -34,6 +35,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
@@ -68,6 +70,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(roomTypes);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching room types" });
     return NextResponse.json(
@@ -91,6 +94,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
@@ -140,6 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const roomType = await db.roomType.create({
       data: {
         hotelId,
+        organizationId: orgGuard.orgId, // tenancy: stamp from the event's org
         name,
         description: description || null,
         pricePerNight,
@@ -170,6 +175,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(roomType, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating room type" });
     return NextResponse.json(

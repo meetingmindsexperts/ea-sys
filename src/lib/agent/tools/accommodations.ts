@@ -1,5 +1,6 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { createAccommodation } from "@/services/accommodation-service";
 import { applyRoomStatusTransition } from "@/lib/accommodation-rooms";
@@ -9,6 +10,7 @@ const ACCOMMODATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "CH
 
 const listHotels: ToolExecutor = async (_input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const hotels = await db.hotel.findMany({
       where: { eventId: ctx.eventId },
       select: {
@@ -18,6 +20,7 @@ const listHotels: ToolExecutor = async (_input, ctx) => {
       orderBy: { name: "asc" },
     });
     return { hotels, total: hotels.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_hotels failed");
     return { error: "Failed to fetch hotels" };
@@ -26,6 +29,7 @@ const listHotels: ToolExecutor = async (_input, ctx) => {
 
 const createHotel: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const name = String(input.name ?? "").trim();
     if (!name) return { error: "name is required" };
 
@@ -37,6 +41,7 @@ const createHotel: ToolExecutor = async (input, ctx) => {
     const hotel = await db.hotel.create({
       data: {
         eventId: ctx.eventId,
+        organizationId: ctx.organizationId,
         name,
         address: input.address ? String(input.address) : null,
         stars: input.stars ? Number(input.stars) : null,
@@ -45,6 +50,7 @@ const createHotel: ToolExecutor = async (input, ctx) => {
       },
     });
     return { hotel };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_hotel failed");
     return { error: "Failed to create hotel" };
@@ -53,6 +59,7 @@ const createHotel: ToolExecutor = async (input, ctx) => {
 
 const listAccommodations: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const limit = Math.min(Number(input.limit ?? 50), 200);
     const statusValue = input.status ? String(input.status) : undefined;
     if (statusValue && !ACCOMMODATION_STATUSES.has(statusValue)) {
@@ -72,6 +79,7 @@ const listAccommodations: ToolExecutor = async (input, ctx) => {
       orderBy: { checkIn: "asc" },
     });
     return { accommodations, total: accommodations.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_accommodations failed");
     return { error: "Failed to fetch accommodations" };
@@ -82,6 +90,7 @@ const listAccommodations: ToolExecutor = async (input, ctx) => {
 
 const listRoomTypes: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const hotelId = input.hotelId ? String(input.hotelId) : undefined;
 
     const roomTypes = await db.roomType.findMany({
@@ -115,6 +124,7 @@ const listRoomTypes: ToolExecutor = async (input, ctx) => {
       })),
       total: roomTypes.length,
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_room_types failed");
     return { error: "Failed to list room types" };
@@ -133,6 +143,7 @@ const listRoomTypes: ToolExecutor = async (input, ctx) => {
 
 const createRoomType: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const hotelId = String(input.hotelId ?? "").trim();
     const name = String(input.name ?? "").trim();
     const totalRooms = Number(input.totalRooms);
@@ -164,6 +175,7 @@ const createRoomType: ToolExecutor = async (input, ctx) => {
     const roomType = await db.roomType.create({
       data: {
         hotelId,
+        organizationId: ctx.organizationId,
         name,
         description,
         pricePerNight,
@@ -197,6 +209,7 @@ const createRoomType: ToolExecutor = async (input, ctx) => {
     return {
       roomType: { ...roomType, pricePerNight: Number(roomType.pricePerNight), available: roomType.totalRooms - roomType.bookedRooms },
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_room_type failed");
     return { error: err instanceof Error ? err.message : "Failed to create room type" };
@@ -205,6 +218,7 @@ const createRoomType: ToolExecutor = async (input, ctx) => {
 
 const updateRoomType: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const roomTypeId = String(input.roomTypeId ?? "").trim();
     if (!roomTypeId) return { error: "roomTypeId is required", code: "MISSING_ROOM_TYPE_ID" };
 
@@ -305,6 +319,7 @@ const updateRoomType: ToolExecutor = async (input, ctx) => {
     return {
       roomType: { ...updated, pricePerNight: Number(updated.pricePerNight), available: updated.totalRooms - updated.bookedRooms },
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:update_room_type failed");
     return { error: err instanceof Error ? err.message : "Failed to update room type" };
@@ -313,6 +328,7 @@ const updateRoomType: ToolExecutor = async (input, ctx) => {
 
 const deleteRoomType: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const roomTypeId = String(input.roomTypeId ?? "").trim();
     if (!roomTypeId) return { error: "roomTypeId is required", code: "MISSING_ROOM_TYPE_ID" };
 
@@ -357,6 +373,7 @@ const deleteRoomType: ToolExecutor = async (input, ctx) => {
       },
     }).catch((err) => apiLogger.error({ err }, "agent:delete_room_type audit-log-failed"));
     return { success: true, roomTypeId, soft: false };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:delete_room_type failed");
     return { error: err instanceof Error ? err.message : "Failed to delete room type" };
@@ -365,6 +382,7 @@ const deleteRoomType: ToolExecutor = async (input, ctx) => {
 
 const createAccommodationTool: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const registrationId = input.registrationId ? String(input.registrationId).trim() : undefined;
     const speakerId = input.speakerId ? String(input.speakerId).trim() : undefined;
     const roomTypeId = String(input.roomTypeId ?? "").trim();
@@ -436,6 +454,7 @@ const createAccommodationTool: ToolExecutor = async (input, ctx) => {
         },
       },
     };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:create_accommodation failed");
     return { error: err instanceof Error ? err.message : "Failed to create accommodation" };
@@ -446,6 +465,7 @@ const ACCOMMODATION_STATUSES_SET = new Set(["PENDING", "CONFIRMED", "CANCELLED",
 
 const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
   try {
+    return await runWithTenant(ctx.organizationId, async () => {
     const accommodationId = String(input.accommodationId ?? "").trim();
     const status = String(input.status ?? "").trim();
     if (!accommodationId) return { error: "accommodationId is required" };
@@ -475,7 +495,7 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
       });
     }
 
-    const updated = await db.$transaction(async (tx) => {
+    const updated = await tenantTransaction(async (tx) => {
       // (review H5) Claim the row FIRST, conditional on the status we read.
       // The counter move below is planned from `existing.status`, which was read
       // BEFORE this transaction — if a concurrent cancel (another agent call, or
@@ -532,6 +552,7 @@ const updateAccommodationStatus: ToolExecutor = async (input, ctx) => {
     }).catch((err) => apiLogger.error({ err }, "agent:update_accommodation_status audit-log-failed"));
 
     return { success: true, accommodation: updated };
+    });
   } catch (err) {
     if (err instanceof Error && err.message === "NO_ROOMS_AVAILABLE") {
       return { error: "Cannot reinstate: no rooms available in that room type" };

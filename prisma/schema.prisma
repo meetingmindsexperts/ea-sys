@@ -1603,6 +1603,9 @@ model TopicSpeaker {
 model Hotel {
   id           String   @id @default(cuid())
   eventId      String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Event at create; backfilled 1-hop. Backs the flat RLS policy.
+  organizationId String?
   name         String
   address      String?
   description  String?  @db.Text
@@ -1618,11 +1621,15 @@ model Hotel {
   roomTypes RoomType[]
 
   @@index([eventId])
+  @@index([organizationId])
 }
 
 model RoomType {
   id            String   @id @default(cuid())
   hotelId       String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Hotel's Event at create; backfilled 2-hop. Backs the RLS policy.
+  organizationId String?
   name          String
   description   String?  @db.Text
   pricePerNight Decimal  @db.Decimal(10, 2)
@@ -1640,11 +1647,15 @@ model RoomType {
   accommodations Accommodation[]
 
   @@index([hotelId])
+  @@index([organizationId])
 }
 
 model Accommodation {
   id              String              @id @default(cuid())
   eventId         String
+  // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
+  // from the parent Event at create; backfilled 1-hop. Backs the flat RLS policy.
+  organizationId  String?
   registrationId  String?             @unique
   speakerId       String?             @unique
   roomTypeId      String
@@ -1667,6 +1678,7 @@ model Accommodation {
   @@index([eventId])
   @@index([roomTypeId])
   @@index([status])
+  @@index([organizationId])
 }
 
 enum AccommodationStatus {

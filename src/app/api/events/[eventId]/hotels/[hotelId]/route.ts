@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
@@ -33,6 +34,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
@@ -66,6 +68,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(hotel);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching hotel" });
     return NextResponse.json(
@@ -89,6 +92,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
@@ -165,6 +169,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json(hotel);
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating hotel" });
     return NextResponse.json(
@@ -188,6 +193,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
       where: {
         id: eventId,
@@ -246,6 +252,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting hotel" });
     return NextResponse.json(

@@ -153,6 +153,25 @@ export const ORG_B_ONLY_SPEAKER_EMAIL = "only.in.b.speaker@tenancy.test";
 export const SPEAKER_B_ONLY_ID = "tenancy-sp-b-only";
 
 /**
+ * Accommodation domain sweep (Phase 2, Domain #10). Hotel / RoomType /
+ * Accommodation — the clean case (every row → one Event → one org, migration
+ * 20260731100000 backfilled 1/2-hop). Hotel/RoomType carry no per-org-unique
+ * field, so BOTH orgs hold a hotel on the SAME name — proving an unscoped
+ * `where:{ name }` returns only the caller's row (the MediaFile shared-url
+ * shape). Each hotel gets one RoomType (2-hop backfill via Hotel), and each org
+ * gets one Accommodation on its OWN registration (REG_A/REG_B) + roomtype —
+ * proving the 1-hop Accommodation lane is independently scoped. All cascade from
+ * Event (org cascade reaches them) — no explicit teardown.
+ */
+export const SHARED_HOTEL_NAME = "Shared Grand Hotel";
+export const HOTEL_A_ID = "tenancy-hotel-a";
+export const HOTEL_B_ID = "tenancy-hotel-b";
+export const ROOMTYPE_A_ID = "tenancy-rt-a";
+export const ROOMTYPE_B_ID = "tenancy-rt-b";
+export const ACCOMMODATION_A_ID = "tenancy-acc-a";
+export const ACCOMMODATION_B_ID = "tenancy-acc-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

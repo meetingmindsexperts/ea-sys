@@ -25,7 +25,14 @@ const { mockDb } = vi.hoisted(() => {
   };
 });
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenancy: MCP updateAccommodationStatus now uses tenantTransaction (not
+// db.$transaction) for the swept Accommodation write — passthrough to the mock's
+// $transaction tx-proxy.
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (cb: (tx: unknown) => unknown, opts?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { ACCOMMODATION_EXECUTORS } from "@/lib/agent/tools/accommodations";

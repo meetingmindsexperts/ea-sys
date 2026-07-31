@@ -13,7 +13,7 @@
  */
 
 import type { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
 // ── Input / Result types ─────────────────────────────────────────────────────
@@ -209,7 +209,11 @@ export async function createAccommodation(
   // sentinel is caught below and mapped to the NO_ROOMS_AVAILABLE error code.
   let accommodation: AccommodationWithRelations;
   try {
-    accommodation = await db.$transaction(async (tx) => {
+    // tenantTransaction (not db.$transaction): the RoomType/Accommodation writes
+    // below are tenant-scoped tables, so the SET LOCAL must ride this tx's own
+    // pooled backend. Passthrough on master (RLS_SET_LOCAL unset); the orgId is
+    // read from the caller's runWithTenant store.
+    accommodation = await tenantTransaction(async (tx) => {
       const fresh = await tx.roomType.findUnique({
         where: { id: roomTypeId },
         select: { totalRooms: true },
@@ -228,6 +232,7 @@ export async function createAccommodation(
       const created = await tx.accommodation.create({
         data: {
           eventId,
+          organizationId, // tenancy: stamped from the caller's ctx (event's org)
           ...(registrationId && { registrationId }),
           ...(speakerId && { speakerId }),
           roomTypeId,

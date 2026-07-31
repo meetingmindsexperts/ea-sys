@@ -37,7 +37,13 @@ const { mockDb, mockApiLogger } = vi.hoisted(() => ({
   mockApiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenancy: the service now uses tenantTransaction (not db.$transaction) for the
+// swept RoomType/Accommodation writes — passthrough to the same tx-proxy above.
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (cb: (tx: unknown) => unknown, opts?: unknown) =>
+    (mockDb.$transaction as (cb: (tx: unknown) => unknown, opts?: unknown) => unknown)(cb, opts),
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 
 import { createAccommodation } from "@/services/accommodation-service";

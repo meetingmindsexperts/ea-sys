@@ -4,6 +4,7 @@ import { AccommodationStatus } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
@@ -58,6 +59,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const { searchParams } = new URL(req.url);
     const statusParam = searchParams.get("status");
     const parsedStatus = statusParam ? accommodationStatusSchema.safeParse(statusParam) : null;
@@ -134,6 +136,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching accommodations" });
     return NextResponse.json(
@@ -161,6 +164,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const validated = createAccommodationSchema.safeParse(body);
 
     if (!validated.success) {
@@ -205,6 +209,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(result.accommodation, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating accommodation" });
     return NextResponse.json(

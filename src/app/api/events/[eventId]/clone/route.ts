@@ -236,6 +236,7 @@ export async function POST(
           const newHotel = await tx.hotel.create({
             data: {
               eventId: event.id,
+              organizationId: event.organizationId, // multi-tenancy: Accommodation sweep
               name: hotel.name,
               address: hotel.address,
               description: hotel.description,
@@ -250,6 +251,7 @@ export async function POST(
             await tx.roomType.create({
               data: {
                 hotelId: newHotel.id,
+                organizationId: event.organizationId, // multi-tenancy: Accommodation sweep
                 name: rt.name,
                 description: rt.description,
                 pricePerNight: rt.pricePerNight,

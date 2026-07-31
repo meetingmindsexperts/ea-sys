@@ -70,6 +70,13 @@ import {
   SPEAKER_DOC_B_ID,
   ORG_B_ONLY_SPEAKER_EMAIL,
   SPEAKER_B_ONLY_ID,
+  SHARED_HOTEL_NAME,
+  HOTEL_A_ID,
+  HOTEL_B_ID,
+  ROOMTYPE_A_ID,
+  ROOMTYPE_B_ID,
+  ACCOMMODATION_A_ID,
+  ACCOMMODATION_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -143,6 +150,16 @@ async function seedOrg(
   },
   crmContacts: { id: string; emailKey: string }[] = [],
   speakers: { id: string; email: string; docId: string; eventId: string }[] = [],
+  // Accommodation sweep (Domain #10): one Hotel → RoomType → Accommodation chain
+  // per org, the accommodation hung on this org's own registration.
+  accommodation?: {
+    hotelId: string;
+    hotelName: string;
+    roomTypeId: string;
+    accommodationId: string;
+    eventId: string;
+    registrationId: string;
+  },
 ) {
   await db.organization.create({
     data: {
@@ -375,6 +392,47 @@ async function seedOrg(
       },
     });
   }
+  // Accommodation sweep fixtures. Hotel/RoomType/Accommodation all cascade from
+  // Event (org cascade reaches them). The accommodation hangs on this org's own
+  // registration (created in the invoicing block above), so it runs after it.
+  if (accommodation) {
+    await db.hotel.create({
+      data: {
+        id: accommodation.hotelId,
+        eventId: accommodation.eventId,
+        organizationId: orgId,
+        name: accommodation.hotelName,
+      },
+    });
+    await db.roomType.create({
+      data: {
+        id: accommodation.roomTypeId,
+        hotelId: accommodation.hotelId,
+        organizationId: orgId,
+        name: "Standard Room",
+        pricePerNight: 100,
+        currency: "USD",
+        capacity: 2,
+        totalRooms: 10,
+        bookedRooms: 1,
+      },
+    });
+    await db.accommodation.create({
+      data: {
+        id: accommodation.accommodationId,
+        eventId: accommodation.eventId,
+        organizationId: orgId,
+        registrationId: accommodation.registrationId,
+        roomTypeId: accommodation.roomTypeId,
+        checkIn: new Date("2027-01-10T14:00:00Z"),
+        checkOut: new Date("2027-01-12T11:00:00Z"),
+        guestCount: 1,
+        totalPrice: 200,
+        currency: "USD",
+        status: "PENDING",
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -564,6 +622,14 @@ async function main() {
     },
     [{ id: CRM_CT_A_SHARED_ID, emailKey: SHARED_CRM_EMAIL_KEY }],
     [{ id: SPEAKER_A_ID, email: SHARED_SPEAKER_EMAIL, docId: SPEAKER_DOC_A_ID, eventId: EVENT_A_SHARED_ID }],
+    {
+      hotelId: HOTEL_A_ID,
+      hotelName: SHARED_HOTEL_NAME,
+      roomTypeId: ROOMTYPE_A_ID,
+      accommodationId: ACCOMMODATION_A_ID,
+      eventId: EVENT_A_SHARED_ID,
+      registrationId: REG_A_ID,
+    },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -638,6 +704,14 @@ async function main() {
       { id: SPEAKER_B_ID, email: SHARED_SPEAKER_EMAIL, docId: SPEAKER_DOC_B_ID, eventId: EVENT_B_SHARED_ID },
       { id: SPEAKER_B_ONLY_ID, email: ORG_B_ONLY_SPEAKER_EMAIL, docId: "tenancy-spdoc-b-only", eventId: EVENT_B_SHARED_ID },
     ],
+    {
+      hotelId: HOTEL_B_ID,
+      hotelName: SHARED_HOTEL_NAME,
+      roomTypeId: ROOMTYPE_B_ID,
+      accommodationId: ACCOMMODATION_B_ID,
+      eventId: EVENT_B_SHARED_ID,
+      registrationId: REG_B_ID,
+    },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {
     companyId: CRM_CO_B_ID,

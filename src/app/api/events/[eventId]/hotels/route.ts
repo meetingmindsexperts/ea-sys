@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
@@ -34,6 +35,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // Parallelize event validation and hotels fetch
     const [event, hotels] = await Promise.all([
       db.event.findFirst({
@@ -76,6 +78,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const response = NextResponse.json(payload);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching hotels" });
     return NextResponse.json(
@@ -103,6 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     // Use select for minimal data fetch
     const event = await db.event.findFirst({
       where: {
@@ -140,6 +144,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const hotel = await db.hotel.create({
       data: {
         eventId,
+        organizationId: orgGuard.orgId, // tenancy: stamp from the event's org
         name,
         address: address || null,
         description: description || null,
@@ -169,6 +174,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log" }));
 
     return NextResponse.json(hotel, { status: 201 });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating hotel" });
     return NextResponse.json(

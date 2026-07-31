@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
@@ -83,6 +84,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, accommodation] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -105,6 +107,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json(redactBooking(accommodation, session.user.role));
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching accommodation" });
     return NextResponse.json(
@@ -130,6 +133,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, existingAccommodation, body] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -222,7 +226,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     // Atomic transaction: update accommodation + adjust room counts together
-    const accommodation = await db.$transaction(async (tx) => {
+    const accommodation = await tenantTransaction(async (tx) => {
       // ── Claim the row FIRST, conditional on the state we planned from ──
       // (review H5) The counter plan below is derived from `existingAccommodation`,
       // which was read BEFORE the transaction. If someone else changed the status
@@ -297,6 +301,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log for accommodation update" }));
 
     return NextResponse.json(redactBooking(accommodation, session.user.role));
+    });
   } catch (error) {
     if (error instanceof Error && error.message === "NO_ROOMS_AVAILABLE") {
       apiLogger.warn({ msg: "accommodation:no-rooms-available", eventId, accommodationId });
@@ -337,6 +342,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    return await runWithTenant(orgGuard.orgId, async () => {
     const [event, accommodation] = await Promise.all([
       db.event.findFirst({
         where: { id: eventId, organizationId: orgGuard.orgId },
@@ -368,7 +374,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     // Now the DELETE itself carries the precondition: we delete the row *only if
     // it still holds a room*, and release exactly when that delete matched. The
     // database, not a stale snapshot, decides which branch we're in.
-    await db.$transaction(async (tx) => {
+    await tenantTransaction(async (tx) => {
       const deletedHolding = await tx.accommodation.deleteMany({
         where: { id: accommodationId, status: { not: "CANCELLED" } },
       });
@@ -397,6 +403,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }).catch((err) => apiLogger.error({ err, msg: "Failed to create audit log for accommodation delete" }));
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error deleting accommodation" });
     return NextResponse.json(

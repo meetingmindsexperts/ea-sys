@@ -159,6 +159,17 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/public/events/[slug]/presenter-agreement/route.ts"                      # Speaker (July 30, 2026)
   "src/app/api/public/events/[slug]/submitter/route.ts"                                # Speaker (July 30, 2026)
   "src/app/api/public/events/[slug]/abstract-start/route.ts"                           # Speaker (July 30, 2026)
+  # Accommodation sweep (July 31, 2026) — the hotels/** + accommodations/** route
+  # family, nested under events/[eventId] so listed by file (dir-sweep would wrongly
+  # demand a wrap on every event route). accommodation-service.ts is NOT a module
+  # entry — it opens no runWithTenant of its own (its callers wrap; it uses
+  # tenantTransaction for the swept writes, reading orgId from the caller's store).
+  "src/app/api/events/[eventId]/hotels/route.ts"                                       # Accommodation (July 31, 2026)
+  "src/app/api/events/[eventId]/hotels/[hotelId]/route.ts"                             # Accommodation (July 31, 2026)
+  "src/app/api/events/[eventId]/hotels/[hotelId]/rooms/route.ts"                       # Accommodation (July 31, 2026)
+  "src/app/api/events/[eventId]/hotels/[hotelId]/rooms/[roomId]/route.ts"              # Accommodation (July 31, 2026)
+  "src/app/api/events/[eventId]/accommodations/route.ts"                               # Accommodation (July 31, 2026)
+  "src/app/api/events/[eventId]/accommodations/[accommodationId]/route.ts"             # Accommodation (July 31, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
@@ -186,6 +197,8 @@ SWEPT_MODULES=(
   "src/lib/agent/tools/promo-codes.ts"      # promo-code agent / MCP executors (July 30, 2026)
   # Speaker sweep (July 30, 2026) — the speaker MCP executors.
   "src/lib/agent/tools/speakers.ts"         # speaker agent / MCP executors (July 30, 2026)
+  # Accommodation sweep (July 31, 2026) — the accommodation MCP executors.
+  "src/lib/agent/tools/accommodations.ts"   # accommodation agent / MCP executors (July 31, 2026)
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
@@ -209,7 +222,7 @@ HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|
 # name means a plain property chain like `payment.registration.event` never
 # matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
 # session) are the ONLY reads allowed before the wrap (org resolution).
-SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType'
+SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation'
 # `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
 SWEPT_OP_RE="[.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)"
 
