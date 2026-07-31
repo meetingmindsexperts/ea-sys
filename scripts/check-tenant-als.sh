@@ -223,6 +223,15 @@ SWEPT_MODULES=(
   "src/lib/agent/tools/accommodations.ts"   # accommodation agent / MCP executors (July 31, 2026)
   # Abstract sweep (July 31, 2026) — the abstract/reviewer/criteria MCP executors.
   "src/lib/agent/tools/abstracts.ts"        # abstract agent / MCP executors (July 31, 2026)
+  # MCP-resource-handlers follow-on (July 31, 2026) — register-mcp-tools.ts has
+  # inline server.tool / server.resource handlers that read swept tables directly
+  # (NOT via the wrapped tools/*.ts executors): list_contacts (Contact),
+  # event-registrations-summary (Registration), event-speakers (Speaker),
+  # event-abstracts-summary (Abstract/AbstractTheme) — all now wrap in
+  # runWithTenant(organizationId). Tripwire: ≥1 wrap must remain. NOTE the
+  # event-agenda resource reads EventSession (not yet swept) unwrapped — the
+  # Sessions-domain sweep must wrap it then.
+  "src/lib/agent/register-mcp-tools.ts"     # MCP resource/tool handlers (July 31, 2026)
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't

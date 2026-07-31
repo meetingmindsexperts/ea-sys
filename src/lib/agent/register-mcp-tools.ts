@@ -10,6 +10,7 @@ import { registerCrmMcpTools } from "@/crm/agent-tools"; // permitted core-side 
 import { z } from "zod";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { TOOL_EXECUTOR_MAP, type AgentContext } from "@/lib/agent/event-tools";
 import { apiLogger } from "@/lib/logger";
@@ -163,7 +164,7 @@ export function registerAllMcpTools(
   server.tool(
     "list_contacts", "Search organization contacts.",
     { search: z.string().optional(), tag: z.string().optional(), limit: z.number().optional() },
-    async ({ search, tag, limit }) => safeTool("list_contacts", async () => {
+    async ({ search, tag, limit }) => safeTool("list_contacts", () => runWithTenant(organizationId, async () => {
       const contacts = await db.contact.findMany({
         where: {
           organizationId,
@@ -180,7 +181,7 @@ export function registerAllMcpTools(
       });
       return contacts.length === 0 ? "No contacts found." :
         contacts.map(c => `${c.firstName} ${c.lastName} <${c.email}>${c.organization ? ` — ${c.organization}` : ""}`).join("\n");
-    })
+    }))
   );
 
   server.tool(
@@ -787,6 +788,8 @@ export function registerAllMcpTools(
     async (uri, params) => safeResource("event-registrations-summary", String(uri), async () => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
+      // tenancy: Registration is swept — the read must ride the tenant store.
+      return runWithTenant(organizationId, async () => {
       const [byStatus, byPayment] = await Promise.all([
         db.registration.groupBy({ by: ["status"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
         db.registration.groupBy({ by: ["paymentStatus"], where: { eventId, ...EXCLUDE_FACULTY_WHERE }, _count: true }),
@@ -797,6 +800,7 @@ export function registerAllMcpTools(
         total: byStatus.reduce((s, r) => s + r._count, 0),
       };
       return { contents: [{ uri: String(uri), text: JSON.stringify(data, null, 2), mimeType: "application/json" }] };
+      });
     })
   );
 
@@ -807,12 +811,15 @@ export function registerAllMcpTools(
     async (uri, params) => safeResource("event-speakers", String(uri), async () => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
+      // tenancy: Speaker is swept — the read must ride the tenant store.
+      return runWithTenant(organizationId, async () => {
       const speakers = await db.speaker.findMany({
         where: { eventId },
         select: { id: true, firstName: true, lastName: true, email: true, status: true, organization: true, specialty: true },
         orderBy: { lastName: "asc" },
       });
       return { contents: [{ uri: String(uri), text: JSON.stringify(speakers, null, 2), mimeType: "application/json" }] };
+      });
     })
   );
 
@@ -823,6 +830,9 @@ export function registerAllMcpTools(
     async (uri, params) => safeResource("event-agenda", String(uri), async () => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
+      // tenancy: EventSession is NOT yet swept — no RLS policy, so this read is
+      // safe unwrapped for now. The Sessions-domain sweep MUST wrap this handler
+      // in runWithTenant(organizationId) when it adds EventSession to SWEPT_MODELS.
       const sessions = await db.eventSession.findMany({
         where: { eventId },
         select: {
@@ -844,6 +854,8 @@ export function registerAllMcpTools(
     async (uri, params) => safeResource("event-abstracts-summary", String(uri), async () => {
       const eventId = String(params.eventId);
       if (!await verifyEventAccess(eventId)) return { contents: [{ uri: String(uri), text: "Event not found or access denied.", mimeType: "text/plain" }] };
+      // tenancy: Abstract + AbstractTheme are swept — the reads must ride the store.
+      return runWithTenant(organizationId, async () => {
       const [byStatus, byTheme] = await Promise.all([
         db.abstract.groupBy({ by: ["status"], where: { eventId }, _count: true }),
         db.abstract.groupBy({ by: ["themeId"], where: { eventId, themeId: { not: null } }, _count: true }),
@@ -858,6 +870,7 @@ export function registerAllMcpTools(
         total: byStatus.reduce((s, r) => s + r._count, 0),
       };
       return { contents: [{ uri: String(uri), text: JSON.stringify(data, null, 2), mimeType: "application/json" }] };
+      });
     })
   );
 
