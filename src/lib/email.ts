@@ -1214,8 +1214,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
     { key: "personalMessage", description: "Personal message from organizer" },
-    { key: "presentationDetails", description: "Pre-rendered presentation details block — a 'Your Presentation details:' heading + the person's SPEAKING engagements only; sessions they moderate/chair render in {{moderatorDetails}} instead (HTML)" },
-    { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
+    { key: "presentationDetails", description: "Pre-rendered presentation details block — a 'Your Presentation Details:' heading + the person's SPEAKING engagements only; sessions they moderate/chair render in {{moderatorDetails}} instead (HTML)" },
+    { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation Details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
     { key: "agreementBlock", description: "Pre-rendered Review & Agree button (CTA-only — add your own intro wording around the token); shows an already-signed note for speakers who accepted" },
     { key: "agreementBlockText", description: "Plain-text variant of the agreement block (for the text part)" },
     { key: "agreementLink", description: "Bare one-time agreement URL (minted when the template uses an agreement token)" },
@@ -1233,8 +1233,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
     { key: "sessionDetails", description: "Session details" },
-    { key: "presentationDetails", description: "Pre-rendered presentation details block — a 'Your Presentation details:' heading + the person's SPEAKING engagements only; sessions they moderate/chair render in {{moderatorDetails}} instead (HTML)" },
-    { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
+    { key: "presentationDetails", description: "Pre-rendered presentation details block — a 'Your Presentation Details:' heading + the person's SPEAKING engagements only; sessions they moderate/chair render in {{moderatorDetails}} instead (HTML)" },
+    { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation Details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
     { key: "agreementLink", description: "Agreement link URL" },
     { key: "agreementAttachment", description: "Invisible marker — attaches the personalized agreement PDF/.docx to the email WITHOUT rendering the Review & Agree block or minting a link (renders as nothing; skipped for speakers who already signed)" },
     { key: "organizerName", description: "Organizer name" },
@@ -2761,20 +2761,20 @@ export function getSamplePreviewVariables(
     // speaker's OWN sessions/topics per recipient). Without a sample the
     // preview showed the literal {{presentationDetails}} token — renderTemplate
     // leaves unknown keys as-is. Raw-HTML key (DEFAULT_RAW_HTML_KEYS).
-    presentationDetails: `<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Presentation details:</p>
+    presentationDetails: `<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Presentation Details:</p>
 <table style="border-collapse:collapse; margin:16px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
         <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Session</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Opening Keynote</td></tr>
         <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Topic</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Advances in Interventional Cardiology<br/>9:00 AM – 9:30 AM (GMT+4)</td></tr>
         <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Date &amp; Time</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Monday, March 15, 2026<br/>9:00 AM – 10:30 AM (GMT+4)</td></tr>
       </table>`,
     presentationDetailsText:
-      "Your Presentation details:\nSession: Opening Keynote\nTopic: Advances in Interventional Cardiology, 9:00 AM – 9:30 AM (GMT+4)\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM (GMT+4)",
+      "Your Presentation Details:\nSession: Opening Keynote\nTopic: Advances in Interventional Cardiology, 9:00 AM – 9:30 AM (GMT+4)\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM (GMT+4)",
     // {{moderatorDetails}} preview — representative run-sheet in the exact
     // markup buildModeratorBlocks() emits (labeled Session / Date & Time
     // table, then the Time | Topic | Presented by run-sheet — no role/track/
     // duration, organizer decision July 30 2026); real sends render the
     // sessions the RECIPIENT moderates OR chairs (empty otherwise). Raw-HTML key.
-    moderatorDetails: `<p style="margin:16px 0 4px 0;font-weight:700; color:#111827; font-size:16px;">Your Moderation details:</p>
+    moderatorDetails: `<p style="margin:16px 0 4px 0;font-weight:700; color:#111827; font-size:16px;">Your Moderation Details:</p>
 <div style="margin:16px 0;">
       <table style="border-collapse:collapse; margin:0 0 8px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
         <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Session</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Opening Keynote · Main Hall</td></tr>
@@ -2787,7 +2787,7 @@ export function getSamplePreviewVariables(
       </table>
     </div>`,
     moderatorDetailsText:
-      "Your Moderation details:\nSession: Opening Keynote · Main Hall\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM (GMT+4)\n  Advances in Interventional Cardiology — Dr. Jane Doe\n  Structural Heart Panel — Prof. John Smith, Dr. Mary Johnson",
+      "Your Moderation Details:\nSession: Opening Keynote · Main Hall\nDate & Time: Monday, March 15, 2026, 9:00 AM – 10:30 AM (GMT+4)\n  Advances in Interventional Cardiology — Dr. Jane Doe\n  Structural Heart Panel — Prof. John Smith, Dr. Mary Johnson",
     // Webinar-template previews — real sends enrich these per event/recipient
     // in bulk-email.ts (attendee {{joinUrl}} = OUR gated session page, never
     // the raw Zoom link) and webinar-panelist-email.ts. Without samples the

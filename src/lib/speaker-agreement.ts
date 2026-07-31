@@ -163,7 +163,7 @@ export interface SpeakerEmailContext {
   eventCity: string;
   organizationName: string;
 
-  // Presentation details
+  // Presentation Details
   sessionTitles: string;
   topicTitles: string;
   sessionDateTime: string;
@@ -371,7 +371,7 @@ ${rows
 /**
  * {{moderatorDetails}} — for each session the speaker MODERATES or CHAIRS
  * (July 30, 2026 owner request: chairpersons run sessions too and need the
- * same run-sheet): a "Your Moderation details:" heading, the labeled
+ * same run-sheet): a "Your Moderation Details:" heading, the labeled
  * Session / Date & Time info table, then the topic run-sheet
  * (Topic | Presented by) — topic-level TIMES were removed too (July 30 PM,
  * organizer), so the session window above is the only clock shown. NO
@@ -445,17 +445,17 @@ ${bodyRows}      </table>`
 
   // Blank line between moderated sessions so each block reads as one
   // engagement — mirrors the presentation block's per-session grouping. The
-  // whole block opens with a "Your Moderation details:" heading — BOLD and
+  // whole block opens with a "Your Moderation Details:" heading — BOLD and
   // LARGER than the 14px body text (organizer, July 31 2026; supersedes the
   // brief un-bolded version).
   const heading =
-    '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Moderation details:</p>';
+    '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Moderation Details:</p>';
   // Same explicit spacer between sessions as the presentation block —
   // email clients that drop CSS margins otherwise glue them together.
   const gap = '<div style="height:16px; font-size:0; line-height:0;">&nbsp;</div>';
   return {
     html: `${heading}\n${htmlParts.join(`\n${gap}\n`)}`,
-    text: `Your Moderation details:\n${textParts.join("\n\n")}`,
+    text: `Your Moderation Details:\n${textParts.join("\n\n")}`,
   };
 }
 
@@ -637,12 +637,12 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     );
   }
 
-  // "Your Presentation details:" heading baked into the variable (organizer,
+  // "Your Presentation Details:" heading baked into the variable (organizer,
   // July 31 2026) — same bold/16px style as the moderation heading. Only when
   // the block has content: an empty block must STAY empty so the token remains
   // safe to include in any template (moderator-only people see nothing here).
   const presentationHeading =
-    '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Presentation details:</p>';
+    '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Presentation Details:</p>';
   // Explicit spacer between consecutive session tables (organizer, July 31
   // 2026): the tables' own CSS margins are dropped by some email clients
   // (Outlook desktop ignores margins on <table>), so back-to-back sessions
@@ -652,7 +652,7 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     ? `${presentationHeading}\n${htmlBlocks.join(`\n${SESSION_GAP}\n`)}`
     : "";
   const text = textBlocks.length
-    ? `Your Presentation details:\n${textBlocks.join("\n\n")}`
+    ? `Your Presentation Details:\n${textBlocks.join("\n\n")}`
     : "";
 
   return { sessionTitles, topicTitles, sessionDateTime, trackNames, role, html, text };

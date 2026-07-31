@@ -186,7 +186,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
     // Speaking session stays in the presentation block, under its own
     // bold heading (baked into the variable — organizer, July 31 2026)…
-    expect(ctx?.presentationDetails).toContain("Your Presentation details:");
+    expect(ctx?.presentationDetails).toContain("Your Presentation Details:");
     expect(ctx?.presentationDetails).toContain("font-weight:700");
     expect(ctx?.presentationDetails).toContain("9:00 AM – 10:00 AM");
     expect(ctx?.presentationDetails).toContain("Opening Keynote");
@@ -210,7 +210,7 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
     expect(ctx?.presentationDetails).toBe("");
-    expect(ctx?.moderatorDetails).toContain("Your Moderation details:");
+    expect(ctx?.moderatorDetails).toContain("Your Moderation Details:");
   });
 });
 
@@ -241,10 +241,10 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
   });
 
-  it("opens with the 'Your Moderation details:' heading and renders NO topic-level times (organizer, July 30 PM)", async () => {
+  it("opens with the 'Your Moderation Details:' heading and renders NO topic-level times (organizer, July 30 PM)", async () => {
     mockDb.speaker.findFirst.mockResolvedValue(moderatorRow());
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
-    expect(ctx?.moderatorDetails).toContain("Your Moderation details:");
+    expect(ctx?.moderatorDetails).toContain("Your Moderation Details:");
     // Session header + window — the ONLY clock shown, tz in parens.
     expect(ctx?.moderatorDetails).toContain("Structural Heart Panel");
     expect(ctx?.moderatorDetails).toContain("Hall B");
@@ -258,7 +258,7 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     expect(ctx?.moderatorDetails).toContain("Dr. Jane Doe");
     expect(ctx?.moderatorDetails).toContain("Prof. John Smith, Mary Johnson");
     // Text variant mirrors it (heading + no topic times).
-    expect(ctx?.moderatorDetailsText).toContain("Your Moderation details:");
+    expect(ctx?.moderatorDetailsText).toContain("Your Moderation Details:");
     expect(ctx?.moderatorDetailsText).not.toContain("11:00 AM – 11:20 AM");
     expect(ctx?.moderatorDetailsText).toContain("TAVR Outcomes");
   });
