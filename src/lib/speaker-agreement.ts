@@ -450,8 +450,11 @@ ${bodyRows}      </table>`
   // brief un-bolded version).
   const heading =
     '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Moderation details:</p>';
+  // Same explicit spacer between sessions as the presentation block —
+  // email clients that drop CSS margins otherwise glue them together.
+  const gap = '<div style="height:16px; font-size:0; line-height:0;">&nbsp;</div>';
   return {
-    html: `${heading}\n${htmlParts.join("\n")}`,
+    html: `${heading}\n${htmlParts.join(`\n${gap}\n`)}`,
     text: `Your Moderation details:\n${textParts.join("\n\n")}`,
   };
 }
@@ -640,8 +643,13 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // safe to include in any template (moderator-only people see nothing here).
   const presentationHeading =
     '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Presentation details:</p>';
+  // Explicit spacer between consecutive session tables (organizer, July 31
+  // 2026): the tables' own CSS margins are dropped by some email clients
+  // (Outlook desktop ignores margins on <table>), so back-to-back sessions
+  // rendered glued together. A fixed-height spacer div survives every client.
+  const SESSION_GAP = '<div style="height:16px; font-size:0; line-height:0;">&nbsp;</div>';
   const html = htmlBlocks.length
-    ? `${presentationHeading}\n${htmlBlocks.join("\n")}`
+    ? `${presentationHeading}\n${htmlBlocks.join(`\n${SESSION_GAP}\n`)}`
     : "";
   const text = textBlocks.length
     ? `Your Presentation details:\n${textBlocks.join("\n\n")}`

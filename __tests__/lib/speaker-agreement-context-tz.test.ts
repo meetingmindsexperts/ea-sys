@@ -144,8 +144,10 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
     const html = ctx?.presentationDetails ?? "";
 
-    // Two separate tables — one per session.
+    // Two separate tables — one per session, with an explicit spacer div
+    // between them (email clients that drop table margins glued them).
     expect(html.match(/<table/g)?.length).toBe(2);
+    expect(html).toContain('<div style="height:16px; font-size:0; line-height:0;">&nbsp;</div>');
     // Each session's table carries ITS OWN track, never the joined list.
     const [first, second] = html.split("</table>");
     expect(first).toContain("Opening Keynote"); // earlier session first
