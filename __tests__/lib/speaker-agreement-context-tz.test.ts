@@ -182,7 +182,10 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     mockDb.speaker.findFirst.mockResolvedValue(row);
     mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
-    // Speaking session stays in the presentation block…
+    // Speaking session stays in the presentation block, under its own
+    // bold heading (baked into the variable — organizer, July 31 2026)…
+    expect(ctx?.presentationDetails).toContain("Your Presentation details:");
+    expect(ctx?.presentationDetails).toContain("font-weight:700");
     expect(ctx?.presentationDetails).toContain("9:00 AM – 10:00 AM");
     expect(ctx?.presentationDetails).toContain("Opening Keynote");
     // …but the moderated session's window/name must NOT appear there…

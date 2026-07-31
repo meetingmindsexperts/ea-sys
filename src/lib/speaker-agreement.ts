@@ -445,10 +445,11 @@ ${bodyRows}      </table>`
 
   // Blank line between moderated sessions so each block reads as one
   // engagement — mirrors the presentation block's per-session grouping. The
-  // whole block opens with a "Your Moderation details:" heading (organizer
-  // request, July 30 2026 PM).
+  // whole block opens with a "Your Moderation details:" heading — BOLD and
+  // LARGER than the 14px body text (organizer, July 31 2026; supersedes the
+  // brief un-bolded version).
   const heading =
-    '<p style="margin:16px 0 4px 0; color:#111827; font-size:14px;">Your Moderation details:</p>';
+    '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Moderation details:</p>';
   return {
     html: `${heading}\n${htmlParts.join("\n")}`,
     text: `Your Moderation details:\n${textParts.join("\n\n")}`,
@@ -633,8 +634,18 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     );
   }
 
-  const html = htmlBlocks.join("\n");
-  const text = textBlocks.join("\n\n");
+  // "Your Presentation details:" heading baked into the variable (organizer,
+  // July 31 2026) — same bold/16px style as the moderation heading. Only when
+  // the block has content: an empty block must STAY empty so the token remains
+  // safe to include in any template (moderator-only people see nothing here).
+  const presentationHeading =
+    '<p style="margin:16px 0 4px 0; color:#111827; font-size:16px; font-weight:700;">Your Presentation details:</p>';
+  const html = htmlBlocks.length
+    ? `${presentationHeading}\n${htmlBlocks.join("\n")}`
+    : "";
+  const text = textBlocks.length
+    ? `Your Presentation details:\n${textBlocks.join("\n\n")}`
+    : "";
 
   return { sessionTitles, topicTitles, sessionDateTime, trackNames, role, html, text };
 }
