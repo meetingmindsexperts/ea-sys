@@ -1214,7 +1214,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
     { key: "personalMessage", description: "Personal message from organizer" },
-    { key: "presentationDetails", description: "Pre-rendered presentation details block (HTML)" },
+    { key: "presentationDetails", description: "Pre-rendered presentation details block — SPEAKING engagements only; sessions the person moderates/chairs render in {{moderatorDetails}} instead (HTML)" },
     { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
     { key: "agreementBlock", description: "Pre-rendered Review & Agree button (CTA-only — add your own intro wording around the token); shows an already-signed note for speakers who accepted" },
     { key: "agreementBlockText", description: "Plain-text variant of the agreement block (for the text part)" },
@@ -1233,7 +1233,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
     { key: "sessionDetails", description: "Session details" },
-    { key: "presentationDetails", description: "Pre-rendered presentation details block (HTML)" },
+    { key: "presentationDetails", description: "Pre-rendered presentation details block — SPEAKING engagements only; sessions the person moderates/chairs render in {{moderatorDetails}} instead (HTML)" },
     { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
     { key: "agreementLink", description: "Agreement link URL" },
     { key: "agreementAttachment", description: "Invisible marker — attaches the personalized agreement PDF/.docx to the email WITHOUT rendering the Review & Agree block or minting a link (renders as nothing; skipped for speakers who already signed)" },
@@ -2773,7 +2773,7 @@ export function getSamplePreviewVariables(
     // table, then the Time | Topic | Presented by run-sheet — no role/track/
     // duration, organizer decision July 30 2026); real sends render the
     // sessions the RECIPIENT moderates OR chairs (empty otherwise). Raw-HTML key.
-    moderatorDetails: `<p style="margin:16px 0 4px 0; font-weight:600; color:#111827; font-size:14px;">Your Moderation details:</p>
+    moderatorDetails: `<p style="margin:16px 0 4px 0;font-weight:700; color:#111827; font-size:16px;">Your Moderation details:</p>
 <div style="margin:16px 0;">
       <table style="border-collapse:collapse; margin:0 0 8px 0; width:100%; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px;">
         <tr><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#6b7280; font-size:13px; width:140px; vertical-align:top;">Session</td><td style="padding:10px 14px; border-bottom:1px solid #e5e7eb; color:#111827; font-size:14px;">Opening Keynote · Main Hall</td></tr>

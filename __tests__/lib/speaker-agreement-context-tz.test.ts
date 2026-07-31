@@ -176,15 +176,36 @@ describe("buildSpeakerEmailContext — {sessionDateTime} in the event's timezone
     expect(ctx?.sessionDateTime).not.toContain("(1h)");
   });
 
-  it("renders one Date & Time line per session for a multi-session speaker", async () => {
+  it("dual-role person: each engagement in exactly ONE block — speaking session in presentationDetails, moderated session ONLY in moderatorDetails (July 31, 2026)", async () => {
     const row = speakerRow();
     row.sessions.push(moderatedSession());
     mockDb.speaker.findFirst.mockResolvedValue(row);
     mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
     const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    // Speaking session stays in the presentation block…
     expect(ctx?.presentationDetails).toContain("9:00 AM – 10:00 AM");
-    expect(ctx?.presentationDetails).toContain("11:00 AM – 12:30 PM");
+    expect(ctx?.presentationDetails).toContain("Opening Keynote");
+    // …but the moderated session's window/name must NOT appear there…
+    expect(ctx?.presentationDetails).not.toContain("11:00 AM – 12:30 PM");
+    expect(ctx?.presentationDetails).not.toContain("Structural Heart Panel");
+    // …it renders in the moderator block instead.
+    expect(ctx?.moderatorDetails).toContain("Structural Heart Panel");
+    expect(ctx?.moderatorDetails).toContain("11:00 AM – 12:30 PM (EST)");
     expect(ctx?.presentationDetails).not.toContain("1h 30m"); // durations removed July 30
+    // The docx scalar tokens deliberately keep covering ALL engagements.
+    expect(ctx?.sessionTitles).toContain("Opening Keynote");
+    expect(ctx?.sessionTitles).toContain("Structural Heart Panel");
+  });
+
+  it("moderator-only person: presentationDetails is EMPTY (their whole schedule lives in moderatorDetails)", async () => {
+    const row = speakerRow();
+    row.sessions = [moderatedSession()];
+    row.topicSpeakers = [];
+    mockDb.speaker.findFirst.mockResolvedValue(row);
+    mockDb.event.findFirst.mockResolvedValue(eventRow("America/New_York"));
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.presentationDetails).toBe("");
+    expect(ctx?.moderatorDetails).toContain("Your Moderation details:");
   });
 });
 

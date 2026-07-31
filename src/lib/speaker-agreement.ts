@@ -448,7 +448,7 @@ ${bodyRows}      </table>`
   // whole block opens with a "Your Moderation details:" heading (organizer
   // request, July 30 2026 PM).
   const heading =
-    '<p style="margin:16px 0 4px 0; font-weight:600; color:#111827; font-size:14px;">Your Moderation details:</p>';
+    '<p style="margin:16px 0 4px 0; color:#111827; font-size:14px;">Your Moderation details:</p>';
   return {
     html: `${heading}\n${htmlParts.join("\n")}`,
     text: `Your Moderation details:\n${textParts.join("\n\n")}`,
@@ -466,6 +466,26 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
 } {
   const sessionRows = row.speaker.sessions;
   const topicRows = row.speaker.topicSpeakers;
+
+  // Each engagement lives in exactly ONE block (organizer, July 31 2026): a
+  // session this person MODERATES or CHAIRS renders in {{moderatorDetails}}
+  // only — the presentation block below shows SPEAKING engagements only
+  // (SPEAKER / PANELIST roles + topic assignments in non-moderated sessions).
+  // A topic they present inside a session they ALSO moderate already appears
+  // on that session's moderator run-sheet, so nothing is lost. The scalar
+  // docx merge tokens ({sessionTitles}/{topicTitles}/{trackNames}/{role}/
+  // {sessionDateTime}) deliberately keep covering ALL engagements —
+  // format-stable and the agreement document lists everything.
+  const sessionKey = (s: { name: string; startTime: Date }) =>
+    `${s.name}|${new Date(s.startTime).getTime()}`;
+  const moderatedKeys = new Set(
+    sessionRows
+      .filter((s) => s.role === "MODERATOR" || s.role === "CHAIRPERSON")
+      .map((s) => sessionKey(s.session)),
+  );
+  const speakingSessionRows = sessionRows.filter(
+    (s) => s.role !== "MODERATOR" && s.role !== "CHAIRPERSON",
+  );
 
   const sessionTitles = sessionRows.map((s) => s.session.name).join("\n");
   const topicTitles = topicRows.map((t) => t.topic.title).join("\n");
@@ -537,9 +557,11 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
     topicsHtml: string[];
     topicsText: string[];
   };
-  const groupKey = (s: { name: string; startTime: Date }) => `${s.name}|${new Date(s.startTime).getTime()}`;
+  const groupKey = sessionKey;
   const groups = new Map<string, SessionGroup>();
-  for (const s of sessionRows) {
+  // Speaking sessions only — moderated/chaired ones render in the moderator
+  // block instead (see the split at the top of this function).
+  for (const s of speakingSessionRows) {
     const k = groupKey(s.session);
     if (!groups.has(k)) {
       groups.set(k, {
@@ -556,6 +578,9 @@ function buildPresentationBlocks(row: SpeakerEmailContextRow): {
   // speakers — several topics can share one session, so the key dedups).
   topicRows.forEach((t, i) => {
     const s = t.topic.session;
+    // A topic inside a session this person moderates/chairs belongs to the
+    // moderator run-sheet, not here (each engagement in exactly one block).
+    if (moderatedKeys.has(groupKey(s))) return;
     const k = groupKey(s);
     if (!groups.has(k)) {
       groups.set(k, {
