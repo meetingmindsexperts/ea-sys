@@ -2,13 +2,13 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import Image from "next/image";
 import Link from "next/link";
 import { AlertCircle, CheckCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { sanitizeHtml } from "@/lib/sanitize";
+import { EventBanner } from "@/components/public/event-banner";
 import { toast } from "sonner";
 
 interface AgreementData {
@@ -26,6 +26,7 @@ interface AgreementData {
     name: string;
     slug: string;
     bannerImage: string | null;
+    bannerImageMobile?: string | null;
     organization: { name: string; logo: string | null } | null;
   };
   agreementHtml: string;
@@ -128,14 +129,13 @@ function SpeakerAgreementContent() {
       {data.event.bannerImage ? (
         <div className="relative w-full bg-white">
           <div className="max-w-[1400px] mx-auto">
-            <Image
-              src={data.event.bannerImage}
-              alt={data.event.name}
-              width={1400}
-              height={400}
+            {/* Art-directed: serves the mobile banner below 576px. */}
+            <EventBanner
+              banner={data.event.bannerImage}
+              bannerMobile={data.event.bannerImageMobile}
+              name={data.event.name}
               className="w-full h-auto max-h-[240px] object-contain"
               priority
-              unoptimized
             />
           </div>
         </div>

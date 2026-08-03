@@ -37,6 +37,7 @@ import {
 import { toast } from "sonner";
 import type { SurveyConfig, SurveyQuestion } from "@/lib/survey/schema";
 import { getTitleLabel } from "@/lib/utils";
+import { EventBanner } from "@/components/public/event-banner";
 import { sanitizeHtml } from "@/lib/sanitize";
 
 // ── Loaded payload types ───────────────────────────────────────────────
@@ -48,6 +49,7 @@ interface EventLite {
   name: string;
   slug: string;
   bannerImage: string | null;
+  bannerImageMobile?: string | null;
 }
 
 interface Attendee {
@@ -414,11 +416,13 @@ function PublicHeader({
           <div className="mx-auto max-w-[1400px]">
             {/* Full-width, whole image (no object-contain letterbox / height
                 cap that was shrinking the banner so it didn't fill the width). */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={event.bannerImage}
-              alt={event.name}
+            {/* Art-directed: serves the mobile banner below 576px. */}
+            <EventBanner
+              banner={event.bannerImage}
+              bannerMobile={event.bannerImageMobile}
+              name={event.name}
               className="block h-auto w-full"
+              priority
             />
           </div>
         </div>
