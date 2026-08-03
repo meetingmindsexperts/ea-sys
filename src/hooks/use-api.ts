@@ -1867,6 +1867,7 @@ export interface WebinarConsoleData {
     automationEnabled?: boolean;
     viewingMode?: "zoom" | "hls";
     lobbyVideoUrl?: string;
+    lobbyImageUrl?: string;
     lobbyMessage?: string;
   };
   anchorSession: {

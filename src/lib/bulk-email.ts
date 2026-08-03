@@ -31,6 +31,7 @@ import { EXCLUDE_FACULTY_WHERE } from "./faculty-filter";
 import { getTitleLabel } from "./utils";
 import { resolveTimezone, formatTimeInTz, tzLabel } from "./event-time";
 import { buildPaymentReminderVars } from "./payment-reminder";
+import { googleCalendarUrl, outlookCalendarUrl, buildIcsContent } from "./calendar-links";
 import {
   DEFAULT_SURVEY_EXPIRY_DAYS,
   DAY_MS,
@@ -840,6 +841,54 @@ export async function precheckBulkEmailViability(
 }
 
 /**
+ * Timezone-correct Add-to-Calendar artifacts for webinar emails (Aug 3, 2026
+ * organizer feedback: mail clients auto-parsed the body's "Date:/Time:" text
+ * and minted WRONG calendar chips). All times are UTC-encoded via
+ * calendar-links.ts, so every client converts correctly. Returns empty
+ * strings + null attachment when the anchor session has no times yet —
+ * the {{calendarBlock}} token then renders nothing.
+ */
+function buildWebinarCalendarEnrichment(args: {
+  eventName: string;
+  joinUrl: string;
+  passcode: string;
+  start: Date | null;
+  end: Date | null;
+}): { calendarBlockHtml: string; calendarBlockText: string; icsAttachment: BulkEmailAttachment | null } {
+  const { eventName, joinUrl, passcode, start, end } = args;
+  if (!start) {
+    return { calendarBlockHtml: "", calendarBlockText: "", icsAttachment: null };
+  }
+  const calEvent = {
+    title: eventName,
+    description: `Join: ${joinUrl}${passcode ? `\nPasscode: ${passcode}` : ""}`,
+    location: joinUrl,
+    start,
+    // No end time on the anchor session ⇒ default a 1-hour slot.
+    end: end && end.getTime() > start.getTime() ? end : new Date(start.getTime() + 60 * 60_000),
+  };
+  const gUrl = googleCalendarUrl(calEvent);
+  const oUrl = outlookCalendarUrl(calEvent);
+  const linkStyle = "color:#00aade; text-decoration:underline; font-weight:600;";
+  return {
+    calendarBlockHtml:
+      `<div style="text-align:center; margin:16px 0; font-size:14px; color:#374151;">` +
+      `Add to calendar: <a href="${gUrl}" style="${linkStyle}">Google</a>` +
+      `&nbsp;&middot;&nbsp;<a href="${oUrl}" style="${linkStyle}">Outlook</a>` +
+      `&nbsp;&middot;&nbsp;<span style="color:#6b7280;">or open the attached invite (.ics)</span></div>`,
+    calendarBlockText: `Add to calendar:\nGoogle: ${gUrl}\nOutlook: ${oUrl}\n(or open the attached invite.ics)`,
+    icsAttachment: {
+      name: "invite.ics",
+      content: Buffer.from(
+        buildIcsContent(calEvent, `${joinUrl}#webinar-invite`),
+        "utf8",
+      ).toString("base64"),
+      contentType: "text/calendar",
+    },
+  };
+}
+
+/**
  * Resolves recipients, loads template, renders per-recipient, and dispatches in batches.
  * Used by both the immediate-send route and the cron worker for scheduled sends.
  *
@@ -1230,6 +1279,11 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
     passcodeBlockText: string;
     recordingBlockHtml: string;
     recordingBlockText: string;
+    calendarBlockHtml: string;
+    calendarBlockText: string;
+    /** invite.ics — attached on webinar-confirmation sends so mail clients
+     *  chip the CORRECT date/time instead of mis-parsing the body text. */
+    icsAttachment: BulkEmailAttachment | null;
   } | null = null;
 
   if (isWebinarEmailType(emailType)) {
@@ -1311,6 +1365,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       recordingBlockText: recordingUrl
         ? `Watch replay: ${recordingUrl}`
         : "The recording will be available shortly. We'll send it to you as soon as it's ready.",
+      ...buildWebinarCalendarEnrichment({
+        eventName: event.name,
+        joinUrl: `${appUrl}/e/${event.slug}/session/${anchorSessionId}`,
+        passcode,
+        start: anchorSession?.startTime ?? null,
+        end: anchorSession?.endTime ?? null,
+      }),
     };
   }
 
@@ -1484,6 +1545,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       vars.passcodeBlockText = webinarEnrichment.passcodeBlockText;
       vars.recordingBlock = webinarEnrichment.recordingBlockHtml;
       vars.recordingBlockText = webinarEnrichment.recordingBlockText;
+      vars.calendarBlock = webinarEnrichment.calendarBlockHtml;
+      vars.calendarBlockText = webinarEnrichment.calendarBlockText;
     }
 
     // Per-recipient entry barcode for the {{entryBarcode}} token — only for
@@ -1519,6 +1582,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       "personalMessage",
       "passcodeBlock",
       "recordingBlock",
+      "calendarBlock",
       // message + personalMessage are pre-rendered FINAL HTML below via
       // renderMessageValue — escaping is handled there (dashboard plain text
       // escaped, MCP sanitized HTML kept — the A1 contract), so both render
@@ -1630,6 +1694,15 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             recipientAttachments = [
               ...(recipientAttachments ?? []),
               emailContent.barcodeAttachment,
+            ];
+          }
+          // Attach the timezone-correct calendar invite on the confirmation —
+          // an .ics gives Gmail/Outlook an authoritative event to chip,
+          // overriding their own (wrong) parsing of the body's date text.
+          if (emailType === "webinar-confirmation" && webinarEnrichment?.icsAttachment) {
+            recipientAttachments = [
+              ...(recipientAttachments ?? []),
+              webinarEnrichment.icsAttachment,
             ];
           }
           // Strict mode (agreement type) always attaches; soft mode

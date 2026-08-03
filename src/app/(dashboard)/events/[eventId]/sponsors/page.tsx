@@ -481,7 +481,7 @@ function SponsorsEditor({
               Cancel
             </Button>
             <Button onClick={saveDialog}>
-              {editingIndex === null ? "Add to draft" : "Update draft"}
+              {editingIndex === null ? "Add" : "Update"}
             </Button>
           </DialogFooter>
         </DialogContent>

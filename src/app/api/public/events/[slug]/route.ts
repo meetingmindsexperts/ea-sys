@@ -178,7 +178,29 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const settings = (event.settings || {}) as Record<string, unknown>;
 
+    // Webinar anchor-session times for the confirmation page's Add-to-Calendar
+    // buttons — the SESSION carries the authoritative clock (a console retime
+    // updates the session, not Event.startDate), so calendar artifacts must
+    // come from it, not the event dates.
+    let webinarSession: { startsAt: string; endsAt: string } | null = null;
+    if (event.eventType === "WEBINAR") {
+      const anchorSessionId = (settings.webinar as { sessionId?: string } | undefined)?.sessionId;
+      if (anchorSessionId) {
+        const anchor = await db.eventSession.findFirst({
+          where: { id: anchorSessionId, eventId: event.id },
+          select: { startTime: true, endTime: true },
+        });
+        if (anchor) {
+          webinarSession = {
+            startsAt: anchor.startTime.toISOString(),
+            endsAt: anchor.endTime.toISOString(),
+          };
+        }
+      }
+    }
+
     return NextResponse.json({
+      webinarSession,
       ...event,
       settings: undefined,
       // Raw counters stay private — the public payload carries only the flag.

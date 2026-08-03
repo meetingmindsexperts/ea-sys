@@ -52,6 +52,9 @@ export interface WebinarSettings {
   viewingMode?: WebinarViewingMode;
   /** YouTube/Vimeo URL looped in the waiting room before the room opens. */
   lobbyVideoUrl?: string;
+  /** Custom waiting-room image (uploaded), shown behind the countdown when
+   *  no holding video is set. Falls back to the event banner when absent. */
+  lobbyImageUrl?: string;
   /** Short message shown in the waiting room (e.g. "We'll begin shortly"). */
   lobbyMessage?: string;
 }

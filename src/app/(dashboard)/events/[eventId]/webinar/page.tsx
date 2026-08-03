@@ -80,6 +80,7 @@ import { toast } from "sonner";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { isValidLobbyVideoUrl } from "@/lib/webinar/lobby-video";
+import { PhotoUpload } from "@/components/ui/photo-upload";
 
 type AutoRecording = "none" | "local" | "cloud";
 
@@ -1922,6 +1923,7 @@ function LobbyCard({
     () => webinar.viewingMode ?? "zoom",
   );
   const [lobbyVideoUrl, setLobbyVideoUrl] = useState(() => webinar.lobbyVideoUrl ?? "");
+  const [lobbyImageUrl, setLobbyImageUrl] = useState<string | null>(() => webinar.lobbyImageUrl ?? null);
   const [lobbyMessage, setLobbyMessage] = useState(() => webinar.lobbyMessage ?? "");
 
   const roomOpen = anchor?.status === "LIVE";
@@ -1960,6 +1962,7 @@ function LobbyCard({
       await updateSettings.mutateAsync({
         viewingMode,
         lobbyVideoUrl: lobbyVideoUrl.trim(),
+        lobbyImageUrl: lobbyImageUrl ?? "",
         lobbyMessage: lobbyMessage.trim(),
       });
       toast.success("Lobby settings saved");
@@ -2110,6 +2113,16 @@ function LobbyCard({
             {videoInvalid && (
               <span className="text-red-600 block">Must be a YouTube or Vimeo link.</span>
             )}
+          </p>
+        </div>
+
+        {/* Waiting-room image (shown when no holding video is set) */}
+        <div className="space-y-2">
+          <Label>Waiting room image (optional)</Label>
+          <PhotoUpload value={lobbyImageUrl} onChange={setLobbyImageUrl} />
+          <p className="text-sm text-muted-foreground">
+            Shown behind the countdown while attendees wait, when no holding video is set.
+            Wide images work best (e.g. 1280×720). Leave empty to use the event banner.
           </p>
         </div>
 

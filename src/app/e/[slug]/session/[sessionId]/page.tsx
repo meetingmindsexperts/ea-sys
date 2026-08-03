@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { SponsorEntry } from "@/lib/webinar";
 import { WaitingRoom } from "@/components/webinar/waiting-room";
+import { EventBanner } from "@/components/public/event-banner";
 import { formatPersonName } from "@/lib/utils";
 import {
   DEFAULT_EVENT_TIMEZONE,
@@ -97,6 +98,7 @@ interface LobbyStatus {
   ended: boolean;
   viewingMode: "zoom" | "hls";
   lobbyVideoUrl: string | null;
+  lobbyImageUrl: string | null;
   lobbyMessage: string | null;
   startsAt: string;
   endsAt: string;
@@ -160,6 +162,7 @@ interface EventDetail {
   slug: string;
   eventType?: string | null;
   bannerImage?: string;
+  bannerImageMobile?: string | null;
   timezone?: string | null;
   organization?: { name: string; logo?: string };
 }
@@ -497,11 +500,13 @@ export default function PublicSessionPage() {
       <div className="bg-white border-b">
         {event?.bannerImage && (
           <div className="w-full h-32 md:h-48 relative overflow-hidden">
-            <Image
-              src={event.bannerImage}
-              alt={event.name}
-              fill
-              className="object-cover"
+            {/* Art-directed: serves the mobile banner below 576px. */}
+            <EventBanner
+              banner={event.bannerImage}
+              bannerMobile={event.bannerImageMobile}
+              name={event.name}
+              className="absolute inset-0 h-full w-full object-cover"
+              priority
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
           </div>
@@ -645,7 +650,7 @@ export default function PublicSessionPage() {
                 startsAt={lobby.startsAt}
                 lobbyVideoUrl={lobby.lobbyVideoUrl}
                 lobbyMessage={lobby.lobbyMessage}
-                posterUrl={event?.bannerImage}
+                posterUrl={lobby.lobbyImageUrl ?? event?.bannerImage}
               />
             ) : (
               <>

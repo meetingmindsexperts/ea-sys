@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams, useParams } from "next/navigation";
-import Image from "next/image";
+import { EventBanner } from "@/components/public/event-banner";
 import {
   CheckCircle2,
   Clock,
@@ -17,11 +17,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { sanitizeHtml } from "@/lib/sanitize";
+import {
+  googleCalendarUrl,
+  outlookCalendarUrl,
+  buildIcsContent,
+  type CalendarEventInput,
+} from "@/lib/calendar-links";
 import { formatDateRange } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface EventBranding {
   bannerImage: string | null;
+  bannerImageMobile?: string | null;
   footerHtml: string | null;
   registrationConfirmationHtml: string | null;
   name: string | null;
@@ -31,6 +38,9 @@ interface EventBranding {
   city?: string | null;
   country?: string | null;
   organization?: { name: string; logo: string | null } | null;
+  eventType?: string | null;
+  /** Webinar anchor-session clock — the authoritative times for calendar links. */
+  webinarSession?: { startsAt: string; endsAt: string } | null;
 }
 
 interface PaymentInfo {
@@ -65,6 +75,38 @@ function ConfirmationContent() {
   const [promoInput, setPromoInput] = useState("");
   const [promoBusy, setPromoBusy] = useState(false);
 
+  // Timezone-correct Add-to-Calendar (UTC-encoded — every client converts
+  // correctly). Rendered only when the WEBINAR anchor session provides an
+  // exact clock; conference startDate is a date-only value whose midnight
+  // would produce a wrong-looking timed entry, so those keep the plain
+  // "save the date" tip instead.
+  const calendarEvent: CalendarEventInput | null =
+    branding?.name && branding.webinarSession
+      ? {
+          title: branding.name,
+          description: `You're registered for ${branding.name}. Your join link is in your confirmation email.`,
+          location:
+            [branding.venue, branding.city, branding.country].filter(Boolean).join(", ") ||
+            undefined,
+          start: new Date(branding.webinarSession.startsAt),
+          end: new Date(branding.webinarSession.endsAt),
+        }
+      : null;
+
+  const handleDownloadIcs = () => {
+    if (!calendarEvent) return;
+    const ics = buildIcsContent(calendarEvent, `${slug}-${registrationId ?? "registration"}@ea-sys`);
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "event-invite.ics";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5_000);
+  };
+
   // Fetch event branding
   useEffect(() => {
     if (!slug) return;
@@ -79,6 +121,7 @@ function ConfirmationContent() {
       .then((data) => {
         if (data) setBranding({
           bannerImage: data.bannerImage,
+          bannerImageMobile: data.bannerImageMobile ?? null,
           footerHtml: data.footerHtml,
           registrationConfirmationHtml: data.registrationConfirmationHtml || null,
           name: data.name,
@@ -88,6 +131,8 @@ function ConfirmationContent() {
           city: data.city,
           country: data.country,
           organization: data.organization,
+          eventType: data.eventType ?? null,
+          webinarSession: data.webinarSession ?? null,
         });
       })
       .catch((err) => { console.error("[confirmation] branding fetch failed", err); });
@@ -252,13 +297,13 @@ function ConfirmationContent() {
           {/* Wide hero — the banner graphic carries its own branding, so no
               dark overlay or event-name bar over it. */}
           <div className="relative w-full h-40 sm:h-56 overflow-hidden rounded-2xl">
-            <Image
-              src={branding.bannerImage}
-              alt={branding.name || "Event banner"}
-              width={1600}
-              height={200}
+            {/* Art-directed: serves the mobile banner below 576px. */}
+            <EventBanner
+              banner={branding.bannerImage}
+              bannerMobile={branding.bannerImageMobile}
+              name={branding.name || "Event banner"}
               className="w-full h-full object-contain object-center"
-              unoptimized
+              priority
             />
           </div>
         </div>
@@ -549,6 +594,42 @@ function ConfirmationContent() {
 
             {/* Divider */}
             <div className="mx-6 mb-5 border-t border-slate-100" />
+
+            {/* Add to calendar — timezone-correct (UTC-encoded) artifacts.
+                Webinars use the anchor session's exact clock; conferences use
+                the event dates. */}
+            {calendarEvent && (
+              <div className="mx-6 mb-6">
+                <p className="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-3">
+                  Add to Calendar
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={googleCalendarUrl(calendarEvent)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Calendar className="h-4 w-4 text-primary" /> Google
+                  </a>
+                  <a
+                    href={outlookCalendarUrl(calendarEvent)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Calendar className="h-4 w-4 text-primary" /> Outlook
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleDownloadIcs}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Calendar className="h-4 w-4 text-primary" /> Apple / .ics
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* What to expect */}
             <div className="mx-6 mb-6">

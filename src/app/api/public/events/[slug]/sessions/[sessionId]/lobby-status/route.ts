@@ -14,6 +14,7 @@ interface LobbyBody {
   ended: boolean;
   viewingMode: "zoom" | "hls";
   lobbyVideoUrl: string | null;
+  lobbyImageUrl: string | null;
   lobbyMessage: string | null;
   startsAt: string;
   endsAt: string;
@@ -56,6 +57,7 @@ async function computeLobbyBody(
     ended,
     viewingMode: webinar?.viewingMode ?? "zoom",
     lobbyVideoUrl: webinar?.lobbyVideoUrl ?? null,
+    lobbyImageUrl: webinar?.lobbyImageUrl ?? null,
     lobbyMessage: webinar?.lobbyMessage ?? null,
     startsAt: session.startTime.toISOString(),
     endsAt: session.endTime.toISOString(),

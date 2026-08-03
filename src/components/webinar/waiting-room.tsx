@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, Clock } from "lucide-react";
-import { parseLobbyVideo } from "@/lib/webinar/lobby-video";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Clock, Volume2, VolumeX } from "lucide-react";
+import { parseLobbyVideo, type LobbyVideoProvider } from "@/lib/webinar/lobby-video";
 
 interface WaitingRoomProps {
   /** ISO start time, for the countdown. */
@@ -22,6 +22,26 @@ function useNow(intervalMs = 1000): number {
     return () => clearInterval(id);
   }, [intervalMs]);
   return now;
+}
+
+/**
+ * Drive the embedded player's audio over postMessage. Autoplay is only
+ * browser-permitted MUTED, so sound needs one user gesture — this button is
+ * OUR one control (the provider's own chrome is fully non-interactive:
+ * the iframe is pointer-events-none per organizer feedback).
+ */
+function setEmbedMuted(iframe: HTMLIFrameElement | null, provider: LobbyVideoProvider, muted: boolean) {
+  const w = iframe?.contentWindow;
+  if (!w) return;
+  if (provider === "youtube") {
+    // YouTube IFrame API command envelope (enablejsapi=1 on the embed URL).
+    w.postMessage(JSON.stringify({ event: "command", func: muted ? "mute" : "unMute", args: [] }), "*");
+    if (!muted) w.postMessage(JSON.stringify({ event: "command", func: "setVolume", args: [100] }), "*");
+  } else {
+    // Vimeo player postMessage API.
+    w.postMessage(JSON.stringify({ method: "setMuted", value: muted }), "*");
+    if (!muted) w.postMessage(JSON.stringify({ method: "setVolume", value: 1 }), "*");
+  }
 }
 
 function formatRemaining(ms: number): string {
@@ -52,21 +72,42 @@ export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl }
   const started = remaining <= 0;
   const overdue = remaining <= -OVERDUE_AFTER_MS;
   const video = parseLobbyVideo(lobbyVideoUrl);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Autoplay policy forces muted start; one tap on OUR button turns sound on.
+  const [muted, setMuted] = useState(true);
 
   return (
     <div className="space-y-4">
-      {/* Three-tier visual: holding video → event-banner poster → gradient.
-          The "waiting…" overlay sits on all non-video states so the lobby
-          always reads as a deliberate holding screen, never a broken embed. */}
+      {/* Three-tier visual: holding video → lobby-image/banner poster →
+          gradient. The "waiting…" overlay sits on all non-video states so the
+          lobby always reads as a deliberate holding screen, never a broken
+          embed. */}
       {video ? (
         <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-black">
+          {/* pointer-events-none: NOTHING on the provider's player is
+              clickable (no pause, no title bar, no "more videos", no copy
+              link — organizer feedback). Audio is driven by our button below
+              via postMessage. */}
           <iframe
+            ref={iframeRef}
             src={video.embedUrl}
             title="Waiting room"
-            className="absolute inset-0 h-full w-full"
-            allow="autoplay; encrypted-media; picture-in-picture"
-            allowFullScreen
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            allow="autoplay; encrypted-media"
           />
+          <button
+            type="button"
+            onClick={() => {
+              const next = !muted;
+              setMuted(next);
+              setEmbedMuted(iframeRef.current, video.provider, next);
+            }}
+            className="absolute bottom-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm transition-colors hover:bg-black/80"
+            aria-label={muted ? "Unmute video" : "Mute video"}
+          >
+            {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+            {muted ? "Unmute" : "Mute"}
+          </button>
         </div>
       ) : (
         <div className="relative flex aspect-video w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-lg bg-gradient-to-br from-slate-900 to-slate-700 text-white">

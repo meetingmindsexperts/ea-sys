@@ -32,6 +32,15 @@ const updateWebinarSchema = z.object({
       message: "Holding video must be a YouTube or Vimeo URL",
     }),
   lobbyMessage: z.string().max(280).optional(),
+  // Empty string clears the field; otherwise a local upload path or https URL
+  // (the LobbyCard uploads via /api/upload/photo, which returns /uploads/…).
+  lobbyImageUrl: z
+    .string()
+    .max(500)
+    .optional()
+    .refine((v) => !v || v.startsWith("/uploads/") || v.startsWith("https://"), {
+      message: "Waiting-room image must be an uploaded image or an https URL",
+    }),
 });
 
 // ── GET — Return webinar settings + anchor session + zoom meeting ───

@@ -87,8 +87,12 @@ export function parseLobbyVideo(raw: string | null | undefined): ParsedLobbyVide
   if (YOUTUBE_HOSTS.has(host)) {
     const id = youtubeId(u);
     if (!id) return null;
-    // loop on a single video requires playlist=<id>.
-    const embedUrl = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&modestbranding=1&rel=0&playsinline=1`;
+    // loop on a single video requires playlist=<id>. enablejsapi=1 lets the
+    // waiting room's own mute/unmute button drive the player via postMessage
+    // (the iframe itself is pointer-events-none — organizer feedback: nothing
+    // on the video may be clickable). disablekb/fs/iv_load_policy strip the
+    // remaining keyboard/fullscreen/annotation chrome.
+    const embedUrl = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}&controls=0&modestbranding=1&rel=0&playsinline=1&disablekb=1&fs=0&iv_load_policy=3&enablejsapi=1`;
     return { provider: "youtube", id, embedUrl };
   }
 

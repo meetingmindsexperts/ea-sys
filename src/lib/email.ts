@@ -913,6 +913,9 @@ const DEFAULT_RAW_HTML_KEYS = new Set([
   // Webinar enrichment in bulk-email.ts.
   "passcodeBlock",
   "recordingBlock",
+  // Add-to-calendar links (our own markup + Google/Outlook URLs we built) —
+  // see buildWebinarCalendarEnrichment() in bulk-email.ts.
+  "calendarBlock",
   // Organizer-controlled entry-barcode token (see src/lib/email-barcode.ts).
   // The value is always our own generated <img cid:reg-barcode> block or "".
   "entryBarcode",
@@ -2134,6 +2137,7 @@ If you have already made the payment, please disregard this email.
       <a href="{{joinUrl}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px;">Join Webinar</a>
     </div>
     {{passcodeBlock}}
+    {{calendarBlock}}
     <p style="color: #6b7280; font-size: 13px;">You can join up to 15 minutes before the scheduled start time. We'll also send you reminders 24 hours and 1 hour before the webinar begins.</p>
     <p style="margin-bottom: 0;">See you online!</p>
     {{organizerSignature}}
@@ -2149,6 +2153,8 @@ Time: {{webinarTime}}
 
 Join link: {{joinUrl}}
 {{passcodeBlock}}
+
+{{calendarBlockText}}
 
 You can join up to 15 minutes before the scheduled start time. We'll send reminders 24 hours and 1 hour before the webinar begins.
 
@@ -2808,6 +2814,11 @@ export function getSamplePreviewVariables(
       '<div style="text-align:center; margin:12px 0; color:#374151; font-size:14px;">Passcode: <strong style="font-family:monospace;">123456</strong></div>',
     recordingBlock:
       '<div style="text-align:center; margin:20px 0;"><a href="#" style="display:inline-block; background:#00aade; color:#ffffff; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600;">Watch Replay</a></div>',
+    // Add-to-calendar links (real sends build timezone-correct Google/Outlook
+    // URLs + attach invite.ics — see buildWebinarCalendarEnrichment).
+    calendarBlock:
+      '<div style="text-align:center; margin:16px 0; font-size:14px; color:#374151;">Add to calendar: <a href="#" style="color:#00aade; text-decoration:underline; font-weight:600;">Google</a>&nbsp;&middot;&nbsp;<a href="#" style="color:#00aade; text-decoration:underline; font-weight:600;">Outlook</a>&nbsp;&middot;&nbsp;<span style="color:#6b7280;">or open the attached invite (.ics)</span></div>',
+    calendarBlockText: "Add to calendar:\nGoogle: #\nOutlook: #\n(or open the attached invite.ics)",
     panelistName: "Dr. John Doe",
     sessionName: "Opening Keynote",
     sessionStart: "Monday, March 15, 2026, 9:00 AM GMT+4",
