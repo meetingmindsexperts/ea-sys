@@ -639,6 +639,16 @@ async function fetchWorker(): Promise<InfraSnapshot["worker"]> {
  * You could always see that a job RAN. You could never see that it was falling
  * behind. A scheduled-emails job that ticks happily every minute while 400
  * emails sit due-and-unsent is green on every existing card.
+ *
+ * Tenancy (Domain #18): these counts (and fetchEmailFailures/emailsSent24h
+ * above) are deliberately ORG-BLIND — this is the SUPER_ADMIN ops view over
+ * the whole system. ScheduledEmail + EmailLog are now RLS-swept, so under
+ * platform RLS as the app role these reads all go to ZERO — which is the
+ * WORST failure mode for this card: a fully stalled queue would report
+ * "due 0 / stuck 0 / failed 0", i.e. green. The platform MUST run this
+ * surface (like the workers' candidate scans and the email-log-prune job) on
+ * a privileged maintenance lane. Documented cross-sweep precondition,
+ * MULTI_TENANCY.md §13. No-op concern on master (RLS never enabled there).
  */
 async function fetchQueues(): Promise<InfraSnapshot["queues"]> {
   try {

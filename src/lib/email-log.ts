@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { runWithTenant } from "@/lib/tenant-context";
+import { getTenantOrgId, runWithTenant } from "@/lib/tenant-context";
 import type { EmailLogEntityType } from "@prisma/client";
 
 /**
@@ -56,40 +56,79 @@ export interface EmailLogRecord {
  *
  * Tenancy (Domain #18, Aug 3 2026) — this is the ONE writer for EmailLog, so
  * the org attribution + RLS lane are established HERE for every sender:
- *   1. Org resolution: explicit `context.organizationId` wins; else, when the
- *      caller tagged an event, the org is derived 1-hop from the (un-swept)
- *      Event — several transactional senders historically threaded eventId but
- *      not org, minting NULL-org rows for tenant emails that then leaned on
- *      the OR-null read fallbacks. Only genuinely org-less sends (auth emails
- *      to org-null accounts) stay NULL.
+ *   1. Org resolution, in strictly-safer order: explicit `context.organizationId`
+ *      wins; else derived 1-hop from a tagged event; else the AMBIENT tenant
+ *      lane (`getTenantOrgId()` — a caller already inside a wrap is sending on
+ *      that tenant's behalf, and stamping the ambient org is strictly better
+ *      than an unreadable NULL row). Only genuinely org-less sends (auth
+ *      emails to org-null accounts, from unwrapped auth routes) stay NULL.
+ *      ⚠ The event lookup runs on the CURRENT lane — under platform RLS an
+ *      Event policy makes it a silent null for unwrapped callers, which is
+ *      why the ambient fallback + the unattributed-row warn below exist
+ *      (review Aug 3: never depend on "Event never gets a policy").
  *   2. Self-wrap: the insert runs inside `runWithTenant(resolvedOrg)` so a
  *      stamped row always rides its own lane regardless of caller context
  *      (auth routes and other unwrapped callers included). NULL-org rows
  *      insert bare — the asymmetric WITH CHECK in prisma/rls/emaillog.sql
  *      admits them while USING keeps them invisible to every tenant lane
  *      (owner decision Aug 3, 2026: keep-them-hidden).
- * Both are passthrough/no-op on master (RLS_SET_LOCAL unset; resolution only
- * fills a column that reads already fall back around).
+ * On master (RLS_SET_LOCAL unset) the wrap is a passthrough; the resolution is
+ * NOT byte-neutral — rows from org-less-session senders that used to persist
+ * NULL organizationId now persist the event's org (read surfaces unaffected:
+ * every reader ORs the null branch or filters by eventId). Note the wrap also
+ * REPLACES any enclosing tenantTransaction context (drops `inTenantTx`), so an
+ * EmailLog row written mid-transaction lands on its own backend and survives a
+ * caller rollback — the right durability for an audit row, recorded here so
+ * nobody "fixes" it.
  */
 export async function logEmail(record: EmailLogRecord): Promise<void> {
   try {
     let organizationId = record.context?.organizationId ?? null;
     if (!organizationId && record.context?.eventId) {
-      // Failure-isolated: a blip on this lookup degrades to the null-org
-      // write below (row kept, just un-attributed) instead of losing the row.
+      // Failure-isolated: a blip on this lookup degrades to the fallbacks
+      // below (row kept, just less attributed) instead of losing the row.
       try {
         const event = await db.event.findUnique({
           where: { id: record.context.eventId },
           select: { organizationId: true },
         });
         organizationId = event?.organizationId ?? null;
+        if (!event) {
+          // Stale/deleted eventId — a distinct failure path from a thrown
+          // lookup, and it must log too (repo rule: every failure path logs).
+          apiLogger.warn({
+            msg: "email-log:event-not-found; falling back to ambient org",
+            eventId: record.context.eventId,
+          });
+        }
       } catch (lookupErr) {
         apiLogger.warn({
           err: lookupErr,
-          msg: "email-log:org-resolution-failed; writing un-attributed row",
+          msg: "email-log:org-resolution-failed; falling back to ambient org",
           eventId: record.context.eventId,
         });
       }
+    }
+    // Ambient-lane fallback: `||` not `??` — some workers wrap with "" for a
+    // legacy null-org row, and "" must not be stamped.
+    organizationId = organizationId || getTenantOrgId() || null;
+    // A tenant-owned row landing NULL-org is a LOST-ATTRIBUTION bug (the row
+    // becomes invisible to the tenant under platform RLS), never the intended
+    // org-less auth-email class — make it loud instead of letting the policy's
+    // NULL carve-out swallow it (review Aug 3; prod showed 85 of 91 null rows
+    // were this class, not auth emails).
+    const tenantOwnedEntity =
+      record.context?.entityType === "REGISTRATION" ||
+      record.context?.entityType === "SPEAKER" ||
+      record.context?.entityType === "CONTACT";
+    if (!organizationId && (tenantOwnedEntity || record.context?.eventId)) {
+      apiLogger.warn({
+        msg: "email-log:unattributed-tenant-row",
+        entityType: record.context?.entityType,
+        entityId: record.context?.entityId,
+        eventId: record.context?.eventId,
+        to: record.to,
+      });
     }
     const data = {
       organizationId,
@@ -157,6 +196,12 @@ export async function logEmail(record: EmailLogRecord): Promise<void> {
  * silently filtered. The 8-caller fix (commit B) sets organizationId
  * properly going forward, but A alone makes ALL historical rows
  * visible immediately.
+ *
+ * Domain #18 (Aug 3, 2026): the missing-org class is now closed at the
+ * logEmail choke point (org resolved + stamped for every tenant send), so
+ * the OR-null branch survives only for pre-sweep historical rows on master.
+ * Under platform RLS it is a DEAD branch by design — USING appends the org
+ * predicate, so null rows can never match; do not rely on it there.
  */
 export async function getEmailLogsFor(
   entityType: EmailLogEntityType,

@@ -22,7 +22,14 @@ import { apiLogger } from "@/lib/logger";
  * app role it would silently see zero rows and STOP PRUNING (unbounded
  * htmlBody growth) — the documented cross-sweep worker precondition
  * (MULTI_TENANCY.md §13): the platform must run this job on a privileged
- * maintenance lane. No-op concern on master (RLS never enabled there).
+ * maintenance lane. For THIS table that lane is MANDATORY, not a nicety:
+ * NULL-org rows are unreadable/undeletable from every tenant lane by design
+ * (the asymmetric policy), so this job is the ONLY reaper the null pool has —
+ * and tenant offboarding compounds it (EmailLog's org FK is SetNull, so a
+ * deleted org's whole email log — recipient addresses + stored htmlBody —
+ * falls into that pool; the purge-vs-Cascade decision is recorded in
+ * ROADMAP §"Comms-log sweep — deferred decisions"). No-op concern on master
+ * (RLS never enabled there).
  */
 
 export const EMAIL_BODY_RETENTION_DAYS = 180;

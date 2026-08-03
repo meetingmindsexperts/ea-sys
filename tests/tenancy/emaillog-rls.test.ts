@@ -124,6 +124,49 @@ describe("Comms-log RLS (prisma/rls/emaillog.sql) via the SET LOCAL extension", 
     ).rejects.toThrow(/row-level security|denied/i);
   });
 
+  it("WITH CHECK strict disjunct proven via createMany (no RETURNING — only WITH CHECK can reject it)", async () => {
+    // Review Aug 3: the create() smuggle above is ALSO rejected by USING on
+    // its RETURNING clause, so on this — the one ASYMMETRIC policy in the
+    // sweep — it cannot distinguish a real WITH CHECK from a permissive
+    // `WITH CHECK (true)`. Verified empirically: with WITH CHECK loosened to
+    // (true), every other assertion in this file still passes and ONLY this
+    // one fails. createMany emits a plain INSERT, so this rejection can come
+    // from nothing but the strict disjunct of WITH CHECK.
+    await expect(
+      runWithTenant(ORG_A_ID, () =>
+        db.emailLog.createMany({
+          data: [
+            {
+              id: "tenancy-elog-smuggled-many",
+              organizationId: ORG_B_ID,
+              to: "smuggle-many@example.com",
+              subject: "smuggled",
+              provider: "ses",
+              status: "SENT",
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow(/row-level security|denied/i);
+  });
+
+  it("org-re-homing UPDATE on EmailLog is blocked (A cannot move its OWN row to B); nulling is by-design permitted but untested-in-place", async () => {
+    // USING admits A's own row; WITH CHECK rejects the new org-B version.
+    // NOTE: `SET organizationId = NULL` from the owning lane IS permitted by
+    // the asymmetric policy (a tenant hiding its own audit row) — accepted:
+    // any principal that can update its row can already DELETE it (USING
+    // alone gates deletes). Not asserted here because it would mutate the
+    // fixture and make the file more order-dependent.
+    await expect(
+      runWithTenant(ORG_A_ID, () =>
+        db.emailLog.update({
+          where: { id: EMAIL_LOG_A_ID },
+          data: { organizationId: ORG_B_ID },
+        }),
+      ),
+    ).rejects.toThrow(/row-level security|denied/i);
+  });
+
   it("fail-closed: no tenant store → zero readable rows on both tables (incl. the existing null-org row)", async () => {
     // Runs AFTER the null-org insert above, so this also proves the bare
     // read does NOT surface null-org rows (write-only from app contexts).

@@ -982,7 +982,22 @@ async function main() {
   // ScheduledEmail.createdBy → User has no onDelete (Restrict default), so it
   // must go BEFORE the uploader-user delete below.
   await db.emailLog.deleteMany({
-    where: { id: { in: [EMAIL_LOG_A_ID, EMAIL_LOG_B_ID, EMAIL_LOG_NULLORG_ID] } },
+    where: {
+      id: {
+        in: [
+          EMAIL_LOG_A_ID,
+          EMAIL_LOG_B_ID,
+          EMAIL_LOG_NULLORG_ID,
+          // The test's rejection-probe ids. They never persist while the
+          // policy holds — cleaned anyway so a future policy REGRESSION that
+          // lets one through surfaces on the next run as a clean assertion
+          // failure, not a confusing P2002 on a row app_user can't read.
+          "tenancy-elog-nullorg-returning",
+          "tenancy-elog-smuggled",
+          "tenancy-elog-smuggled-many",
+        ],
+      },
+    },
   });
   await db.scheduledEmail.deleteMany({
     where: { id: { in: [SCHED_EMAIL_A_ID, SCHED_EMAIL_B_ID] } },

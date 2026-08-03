@@ -30,12 +30,21 @@ const { mockDb } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
-vi.mock("@/lib/logger", () => ({
-  apiLogger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+const { mockApiLogger } = vi.hoisted(() => ({
+  mockApiLogger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
+
 import { getEmailLogsFor, logEmail } from "@/lib/email-log";
+// Real module (not mocked): lets the tests observe the ACTUAL tenant lane the
+// insert runs on — pinning the wrap's ORG ARGUMENT, not just the stamped
+// column (review Aug 3: the gate catches a deleted wrap, not a wrong org).
+import { getTenantOrgId, runWithTenant } from "@/lib/tenant-context";
+
+/** Tenant lane observed at the moment of each emailLog write. */
+const lanesAtWrite: (string | null)[] = [];
 
 beforeEach(() => {
   mockDb.emailLog.findMany.mockClear();
@@ -43,6 +52,16 @@ beforeEach(() => {
   mockDb.emailLog.createMany.mockClear();
   mockDb.event.findUnique.mockClear();
   mockDb.event.findUnique.mockResolvedValue(null);
+  mockApiLogger.warn.mockClear();
+  lanesAtWrite.length = 0;
+  mockDb.emailLog.create.mockImplementation(async () => {
+    lanesAtWrite.push(getTenantOrgId());
+    return {};
+  });
+  mockDb.emailLog.createMany.mockImplementation(async () => {
+    lanesAtWrite.push(getTenantOrgId());
+    return { count: 1 };
+  });
 });
 
 describe("getEmailLogsFor — relaxed organizationId filter", () => {
@@ -180,29 +199,44 @@ describe("logEmail — org resolution + write-path routing (tenancy Domain #18)"
     status: "SENT" as const,
   };
 
-  it("explicit context org wins: stamped + written via create (no event lookup)", async () => {
+  it("explicit context org wins: stamped + written via create ON that org's lane (no event lookup)", async () => {
     await logEmail({ ...BASE, context: { organizationId: "org-1", eventId: "evt-1" } });
     expect(mockDb.event.findUnique).not.toHaveBeenCalled();
     expect(mockDb.emailLog.create.mock.calls[0][0].data.organizationId).toBe("org-1");
+    expect(lanesAtWrite).toEqual(["org-1"]);
     expect(mockDb.emailLog.createMany).not.toHaveBeenCalled();
   });
 
-  it("missing org + tagged event: resolves the org 1-hop from the Event and stamps it", async () => {
+  it("missing org + tagged event: resolves the org 1-hop from the Event, stamps it, and rides ITS lane", async () => {
     // The historical class this closes: transactional senders threading
     // eventId but not organizationId minted NULL-org rows for tenant emails.
     mockDb.event.findUnique.mockResolvedValue({ organizationId: "org-evt" });
     await logEmail({ ...BASE, context: { eventId: "evt-1", entityType: "REGISTRATION" } });
     expect(mockDb.event.findUnique.mock.calls[0][0].where).toEqual({ id: "evt-1" });
     expect(mockDb.emailLog.create.mock.calls[0][0].data.organizationId).toBe("org-evt");
+    expect(lanesAtWrite).toEqual(["org-evt"]);
     expect(mockDb.emailLog.createMany).not.toHaveBeenCalled();
   });
 
-  it("genuinely org-less (no org, no event): NULL-org row via createMany, never create", async () => {
+  it("no org, no event, but an AMBIENT tenant lane: stamps the ambient org (never a null row on a tenant's behalf)", async () => {
+    await runWithTenant("org-ambient", () =>
+      logEmail({ ...BASE, context: { entityType: "REGISTRATION", entityId: "reg-1" } }),
+    );
+    expect(mockDb.emailLog.create.mock.calls[0][0].data.organizationId).toBe("org-ambient");
+    expect(lanesAtWrite).toEqual(["org-ambient"]);
+    expect(mockDb.emailLog.createMany).not.toHaveBeenCalled();
+  });
+
+  it("genuinely org-less (no org, no event, no lane): NULL-org row via createMany, never create", async () => {
     await logEmail({ ...BASE, context: { entityType: "USER", entityId: "user-1" } });
     expect(mockDb.emailLog.create).not.toHaveBeenCalled();
     const row = mockDb.emailLog.createMany.mock.calls[0][0].data[0];
     expect(row.organizationId).toBeNull();
     expect(row.entityType).toBe("USER");
+    // createMany (plain INSERT) is load-bearing: Prisma create() emits
+    // INSERT..RETURNING, which the platform's strict USING would reject for a
+    // row no lane can read.
+    expect(lanesAtWrite).toEqual([null]);
   });
 
   it("never throws: a failed event lookup degrades to the null-org write (row kept, un-attributed)", async () => {
@@ -212,5 +246,17 @@ describe("logEmail — org resolution + write-path routing (tenancy Domain #18)"
     ).resolves.toBeUndefined();
     // The row is NOT lost — it lands via the null-org path.
     expect(mockDb.emailLog.createMany.mock.calls[0][0].data[0].organizationId).toBeNull();
+  });
+
+  it("event-not-found (stale/deleted eventId) is a LOGGED failure path, then falls back", async () => {
+    mockDb.event.findUnique.mockResolvedValue(null);
+    await logEmail({ ...BASE, context: { eventId: "evt-gone", entityType: "REGISTRATION" } });
+    // Row kept (null-org path) — and both warn paths fired: event-not-found
+    // + the unattributed-tenant-row alarm (a REGISTRATION row landing NULL-org
+    // is lost attribution, never the intended auth-email class).
+    expect(mockDb.emailLog.createMany.mock.calls[0][0].data[0].organizationId).toBeNull();
+    const warns = mockApiLogger.warn.mock.calls.map((c) => c[0]?.msg);
+    expect(warns).toContain("email-log:event-not-found; falling back to ambient org");
+    expect(warns).toContain("email-log:unattributed-tenant-row");
   });
 });

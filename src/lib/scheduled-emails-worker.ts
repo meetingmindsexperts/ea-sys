@@ -170,9 +170,10 @@ async function processRow(
       onBatchEmailed: async (keys) => {
         // Deliberately NOT token-scoped: "these ids were emailed" is true
         // regardless of who owns the row now, and recording it is what lets
-        // a retry resume instead of double-sending. Harmless union.
+        // a retry resume instead of double-sending. Harmless union. Org-bound
+        // for defence-#1 parity with the MCP cancel executor (review Aug 3).
         await db.scheduledEmail.update({
-          where: { id: row.id },
+          where: { id: row.id, organizationId: row.organizationId },
           data: { emailedKeys: { push: keys } },
         });
       },

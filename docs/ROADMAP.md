@@ -240,6 +240,41 @@ shipped same day. Deferred:
   server-side cap would read `badgePrintCount` / audit rows — do this if badge farming is
   ever actually observed.
 
+### Comms-log sweep (Domain #18) — deferred decisions (Aug 3, 2026)
+
+The adversarial review of the EmailLog/ScheduledEmail sweep (`37337b6e`) closed every
+code-level finding same day (record: MULTI_TENANCY.md §13 #18). Two items are OWNER
+DECISIONS, platform-only, deliberately not implemented as code:
+
+1. **Tenant offboarding vs `EmailLog.organization` `onDelete: SetNull`.** Deleting an
+   org converts its entire email log — recipient addresses, subjects, and stored
+   `htmlBody` — into NULL-org rows that are unreadable/undeletable from every tenant
+   lane (the asymmetric policy) and reachable only by the platform owner role. Options:
+   flip the FK to `Cascade` (schema migration; matches ScheduledEmail), or add an
+   explicit offboarding purge step to the platform's tenant-deletion runbook. Decide
+   before the platform onboards its first real tenant; irrelevant on single-org master.
+2. **A NULL-org retention/purge job.** The email-log-prune worker only nulls `htmlBody`
+   and keeps rows forever; NULL-org rows (auth emails + any lost-attribution residue,
+   plus unauthenticated forgot-password writes at up to the rate-limit ceiling) have no
+   reaper and no reader. Fold a NULL-org row deletion window into the privileged
+   maintenance lane work (the same lane the prune job already requires).
+
+3. **The `runWithTenant(session.user.organizationId ?? "")` class — 16 instances**
+   (Invoice + Reg-core sweeps: invoices detail/pdf/send/export, clone, cancel,
+   check-in ×2, activity, payments, …). For an org-null SUPER_ADMIN the lane is `""`
+   → under platform RLS every swept read fail-closes to 404/empty on those routes.
+   Fail-CLOSED direction (no leak), master-inert, and consistent — so it is deferred
+   as its OWN pass (convert each to the resource-org shape: load the un-swept Event
+   first, wrap with `event.organizationId`) rather than point-fixed one file at a
+   time. Do it before the platform gives SUPER_ADMIN an org-null console.
+
+Also parked (LOW, no action): the migration-DDL-ordering pattern (put `CREATE INDEX`
+after backfill UPDATEs so the ACCESS EXCLUSIVE lock isn't held across them — the #18
+migration is already applied and was a no-op at prod's table sizes, so it stays as-is;
+apply the ordering in FUTURE sweep migrations), and the `reimbursements/send` double
+narrow wrap being past the gate's first-op read-placement check (both wraps verified
+correct by hand).
+
 ### Certificates tenancy-sweep review — LOWs (Aug 3, 2026) — ✅ ALL SHIPPED same day
 
 Adversarial review of the Domain #13 Certificates sweep (`46af5714`): 0 BLOCKER / 2 HIGH /

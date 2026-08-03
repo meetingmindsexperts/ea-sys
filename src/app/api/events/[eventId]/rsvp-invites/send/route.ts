@@ -100,8 +100,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    // Resource-org lane: the swept RsvpInvite/RsvpDinner reads below (and the
-    // EmailLog resume-read, which is unswept and passes through) run here.
+    // Resource-org lane: the swept RsvpInvite/RsvpDinner reads below AND the
+    // EmailLog resume-read (swept as of Domain #18, Aug 3 2026 — under
+    // platform RLS a lane-less dedup read would fail-close to [] and re-mail
+    // the whole batch) all run here.
     return await runWithTenant(event.organizationId, async () => {
     const [invites, tpl, sender, dinnerCount] = await Promise.all([
       db.rsvpInvite.findMany({
