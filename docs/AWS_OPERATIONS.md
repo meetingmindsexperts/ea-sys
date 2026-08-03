@@ -707,6 +707,10 @@ belt-and-braces (it still reaps the pulled-image churn / dangling layers).
 
 ## 4. Security — DDoS / bot posture
 
+> **Under attack right now?** This section is the *static posture*; the
+> during-the-incident runbook (triage commands, response ladder, live-event
+> rules, stand-down) is **[DDOS_RESPONSE_PLAN.md](DDOS_RESPONSE_PLAN.md)**.
+
 **Verified state (June 2026).** EA-SYS runs on a single directly-exposed EC2.
 There is **no CDN, no AWS WAF, and no host WAF**. Defense is entirely
 origin-side:
