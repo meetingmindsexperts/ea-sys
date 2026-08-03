@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { denyReviewer } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import {
   getEventTemplate,
@@ -61,37 +62,60 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId } = parsed.data;
 
-    // Verify event access (org-scoped for team members). The caller's
-    // profile signature + the event's real session/abstract/speaker data are
-    // fetched in parallel so tokens preview as ACTUAL data, not samples.
-    const [event, previewUser, realOverrides] = await Promise.all([
+    // Verify event access (org-scoped for team members; org-null SUPER_ADMIN
+    // passes with no org filter, so the tenant wrap below uses the RESOURCE
+    // org, not the session's). Event is unswept → this lookup runs un-wrapped.
+    const [eventRow, previewUser] = await Promise.all([
       db.event.findFirst({
         where: {
           id: eventId,
           ...(session.user.organizationId ? { organizationId: session.user.organizationId } : {}),
         },
         select: {
-          id: true,
+          id: true, organizationId: true,
           // Real event data so the preview reflects the actual event.
           name: true, startDate: true, endDate: true, venue: true, address: true, city: true,
           timezone: true, supportEmail: true,
           organization: { select: { name: true } },
-          ticketTypes: { where: { isActive: true }, select: { name: true }, orderBy: { sortOrder: "asc" }, take: 1 },
-          // One real registration so {{registrationId}} shows a real
-          // confirmation number (falls back to "9999" if none exist).
-          registrations: { select: { id: true, serialId: true }, orderBy: { createdAt: "desc" }, take: 1 },
         },
       }),
       db.user.findUnique({
         where: { id: session.user.id },
         select: { emailSignature: true },
       }),
-      buildRealPreviewOverrides(eventId),
     ]);
 
-    if (!event) {
+    if (!eventRow) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    // Tenancy (Certificates-sweep review L1): everything below reads swept
+    // tables — CertificateTemplate (cert-cover branch), Speaker/Registration
+    // (target overrides + the sample ticket/serial lookups), and
+    // buildRealPreviewOverrides' Session/Speaker/Abstract/Registration reads —
+    // so the whole body runs in the event's org.
+    return await runWithTenant(eventRow.organizationId, async () => {
+    // Swept-relation samples + the real-data layer, now inside the wrap (they
+    // used to ride the event lookup / the initial Promise.all — under RLS the
+    // nested selects fail-closed to [] and the preview silently degraded to
+    // canned samples).
+    const [eventExtras, realOverrides] = await Promise.all([
+      db.event.findFirst({
+        where: { id: eventId },
+        select: {
+          ticketTypes: { where: { isActive: true }, select: { name: true }, orderBy: { sortOrder: "asc" }, take: 1 },
+          // One real registration so {{registrationId}} shows a real
+          // confirmation number (falls back to "9999" if none exist).
+          registrations: { select: { id: true, serialId: true }, orderBy: { createdAt: "desc" }, take: 1 },
+        },
+      }),
+      buildRealPreviewOverrides(eventId),
+    ]);
+    const event = {
+      ...eventRow,
+      ticketTypes: eventExtras?.ticketTypes ?? [],
+      registrations: eventExtras?.registrations ?? [],
+    };
 
     // Certificate cover-email preview — renders through the cert bundle
     // pipeline (per-template saved cover → system defaults, cert tokens,
@@ -276,6 +300,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const wrappedHtml = inlineCss(wrapWithBranding(renderedBody, eventTemplate.branding));
 
     return NextResponse.json({ subject: renderedSubject, htmlContent: wrappedHtml });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error previewing email by slug" });
     return NextResponse.json({ error: "Failed to generate preview" }, { status: 500 });

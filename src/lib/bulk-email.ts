@@ -1136,7 +1136,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       templates: certTemplates,
       customSubject,
       customMessage,
-      organizationId,
+      // Required downstream (review L5) — normalize this input's optionality
+      // at the boundary; both real callers (worker + MCP) thread a real org.
+      organizationId: organizationId ?? null,
       triggeredByUserId,
       // A4 (July 16, 2026): the cert send previously had NO email-level
       // idempotency (issue-or-reuse dedups the cert ROW, not the email) — a

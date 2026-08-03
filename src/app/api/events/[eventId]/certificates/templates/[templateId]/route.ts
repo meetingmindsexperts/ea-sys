@@ -197,8 +197,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     // tenancy: swept CertificateTemplate delete runs inside the session org.
+    // Compound-where (review L3, defence #1 — the MediaFile/BillingAccount
+    // pattern): the org bind is atomic with the delete itself, not just the
+    // findFirst above, so a raced/mis-scoped id P2025s instead of deleting.
     await runWithTenant(orgGuard.orgId, () =>
-      db.certificateTemplate.delete({ where: { id: templateId } }),
+      db.certificateTemplate.delete({ where: { id: templateId, organizationId: orgGuard.orgId } }),
     );
 
     apiLogger.info({

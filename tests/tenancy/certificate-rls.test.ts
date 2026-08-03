@@ -201,6 +201,27 @@ describe("Certificate RLS (prisma/rls/certificate.sql) via the SET LOCAL extensi
     ).rejects.toMatchObject({ code: "P2025" });
   });
 
+  it("defence #1 in isolation (review L3): the compound-where template delete alone blocks cross-tenant — owner client bypasses the policy", async () => {
+    // The route/MCP delete shape is { id, organizationId: <caller org> }. Run
+    // it as the OWNER (RLS bypassed), so ONLY the compound-where is doing the
+    // work — a wrong-org id must P2025, never delete.
+    const owner = ownerClient();
+    try {
+      await expect(
+        owner.certificateTemplate.delete({
+          where: { id: CERT_TEMPLATE_B_ID, organizationId: ORG_A_ID },
+        }),
+      ).rejects.toMatchObject({ code: "P2025" });
+      const still = await owner.certificateTemplate.findUnique({
+        where: { id: CERT_TEMPLATE_B_ID },
+        select: { id: true },
+      });
+      expect(still?.id).toBe(CERT_TEMPLATE_B_ID);
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
   it("scoped IssuedCertificate by-registration read returns the tenant's own cert", async () => {
     const rows = await runWithTenant(ORG_A_ID, () =>
       db.issuedCertificate.findMany({ where: { registrationId: REG_A_ID }, select: { id: true } }),

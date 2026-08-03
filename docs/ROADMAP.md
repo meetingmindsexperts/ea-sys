@@ -212,37 +212,36 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
-### Certificates tenancy-sweep review — deferred LOWs (Aug 3, 2026)
+### Certificates tenancy-sweep review — LOWs (Aug 3, 2026) — ✅ ALL SHIPPED same day
 
 Adversarial review of the Domain #13 Certificates sweep (`46af5714`): 0 BLOCKER / 2 HIGH /
-4 MED / 7 LOW — no cross-tenant leak anywhere; every finding is fail-closed-direction and
-inert on master (RLS off). HIGHs + MEDs fixed same day (see MULTI_TENANCY.md §13 #13).
-The 7 LOWs, all platform-readiness polish:
+4 MED / 7 LOW — no cross-tenant leak anywhere; every finding was fail-closed-direction and
+inert on master (RLS off). HIGHs + MEDs fixed same day, and the owner then opted to close
+the LOWs immediately too (rather than wait for a platform-bringup issue — L2/L5/L6's whole
+failure mode is *silence*, which "wait for an issue" can't detect). Record of what shipped:
 
-- **L1 — email-preview cert-cover read unwrapped**: `email-preview/route.ts` reads
-  `CertificateTemplate` (cert-cover previews) with no `runWithTenant` — 404s under RLS.
-  Same class: the file's `buildRealPreviewOverrides` swept Speaker/Registration/Abstract
-  reads have been unwrapped since those sweeps. Wrap the handler body (session org is
-  already resolved).
-- **L2 — NULL-org run stalls silently**: `issue-worker.ts` `processRun`'s `if (!run) return`
-  has no log — under RLS a NULL-org run (missed backfill) is scanned but invisible to the
-  tenant-scoped re-read, no-oping tick after tick with zero signal. Add a warn.
-- **L3 — template DELETEs are check-then-act**: `templates/[templateId]/route.ts` + MCP
-  `delete_certificate_template` do `delete({ where: { id } })` after an org-bound findFirst;
-  other sweeps compound-where `{ id, organizationId }` (defence #1) and assert it
-  in-isolation in the harness. Do both here.
-- **L4 — `auto-issue.ts` listed twice** in `check-tenant-als.sh` SWEPT_MODULES (the
-  July-29 Reg-core block + the July-31 cert block) — dedupe to one entry with a
-  cross-reference.
-- **L5 — `CertificateBulkSendInput.organizationId` is optional** (`?:`) where every sibling
-  (DeliverContext, findOrIssueCertificate, allocateSerial) made it required — a future
-  caller omitting it compiles clean and mints NULL-org certs. Drop the `?`.
-- **L6 — no unit test pins the `issuedCertificate.create` org stamp** (only the
-  `allocateSerial` arg is pinned) — one `expect(createData.organizationId).toBe("org-1")`
-  in the bundle + issue-worker suites.
-- **L7 — doc/comment drift**: the gate's "runs-inside-wraps, by design — not listed" roster
-  now names bulk-issue/eligibility (fixed in the H2 round), but sweep-era commit messages
-  still say "22 handlers"; nothing further to do beyond the corrected §13 entry.
+- ~~**L1 — email-preview swept reads unwrapped**~~ ✅ the whole handler body now wraps in the
+  **resource org** (`event.organizationId` — the route serves org-null SUPER_ADMIN, so
+  session-org would've been wrong), covering the cert-cover branch, the target
+  speaker/registration overrides, AND `buildRealPreviewOverrides` + the sample
+  ticket/serial nested selects (moved inside the wrap — they previously fail-closed to
+  silent canned-sample degradation).
+- ~~**L2 — NULL-org run stalls silently**~~ ✅ `processRun`'s `!run` early-return now warns
+  `cert-issue:run-invisible-to-tenant-read` with the org-mismatch hint.
+- ~~**L3 — template DELETEs check-then-act**~~ ✅ both the route + MCP
+  `delete_certificate_template` compound-where `{ id, organizationId }` (defence #1), and
+  the harness gained the defence-#1-in-isolation assertion (owner client bypasses the
+  policy → the where-shape alone P2025s a cross-tenant delete). Harness 256 → 257.
+- ~~**L4 — `auto-issue.ts` listed twice in the gate**~~ ✅ deduped to the Certificates block
+  with a cross-reference note at the July-29 slot.
+- ~~**L5 — `CertificateBulkSendInput.organizationId` optional**~~ ✅ now required
+  `string | null` — omitting it no longer compiles.
+- ~~**L6 — no unit test pins the cert-row org stamp**~~ ✅ pinned in
+  `certificates-bundle.test.ts` (findOrIssueCertificate — the choke point for
+  bundle/bulk-issue/worker) + `certificates-deliver.test.ts` (issueSingleCertificate's own
+  create).
+- ~~**L7 — doc/comment drift**~~ ✅ closed in the HIGH/MED round (§13 handler count + gate
+  roster).
 
 ### Custom session roles — organizer-managed role list (July 30, 2026, owner decision: PARKED, design recorded)
 

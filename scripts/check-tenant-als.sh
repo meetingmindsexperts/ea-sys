@@ -231,7 +231,8 @@ SWEPT_MODULES=(
   "src/lib/webinar-provisioner.ts"      # Webinar (July 28, 2026)
   # Registration-core sweep (July 29, 2026) — MCP executors + per-row workers.
   "src/lib/agent/tools/registrations.ts"   # registration agent / MCP executors (July 29, 2026)
-  "src/lib/certificates/auto-issue.ts"     # per-row cert auto-issue worker (July 29, 2026)
+  # NOTE: src/lib/certificates/auto-issue.ts (first gated here July 29) is
+  # listed ONCE, under the Certificates block below (review L4 dedupe).
   "src/lib/refund-reconciliation.ts"       # per-row refund sweep worker (July 29, 2026)
   "src/lib/checkout-session-cleanup.ts"    # per-row checkout-session cleanup (July 29, 2026)
   # CRM full-domain sweep (July 29, 2026) — MCP executors + the 2 CRM workers.

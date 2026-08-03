@@ -147,6 +147,8 @@ describe("issueSingleCertificate", () => {
     expect(mockRender).toHaveBeenCalledTimes(1);
     expect(mockUpload).toHaveBeenCalledTimes(1);
     expect(mockDb.issuedCertificate.create).toHaveBeenCalledTimes(1);
+    // Tenancy (sweep review L6): the cert row stamps the caller's org.
+    expect(mockDb.issuedCertificate.create.mock.calls[0][0].data.organizationId).toBe("org-1");
     expect(mockSend).toHaveBeenCalledTimes(1);
     // attachment present
     expect(mockSend.mock.calls[0][0].attachments[0].contentType).toBe("application/pdf");

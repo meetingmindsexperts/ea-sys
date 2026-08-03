@@ -138,6 +138,10 @@ describe("findOrIssueCertificate", () => {
     expect(createData.speakerId).toBeNull();
     expect(createData.pdfUrl).toBe("/uploads/certificates/evt/fresh.pdf");
     expect(createData.cmeHoursSnapshot).toBe(4); // template null → event cmeHours
+    // Tenancy (sweep review L6): the cert ROW itself must stamp the org —
+    // pinning only the allocateSerial arg let a refactor drop the create's
+    // stamp and pass the whole suite.
+    expect(createData.organizationId).toBe("org-1");
   });
 
   it("reuses an existing cert's PDF without minting a new record or serial", async () => {

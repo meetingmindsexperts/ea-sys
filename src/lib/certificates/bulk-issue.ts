@@ -65,7 +65,13 @@ export interface CertificateBulkSendInput {
   templates: LoadedCertTemplate[];
   customSubject?: string;
   customMessage?: string;
-  organizationId?: string | null;
+  /**
+   * Tenancy: REQUIRED (review L5) — every sibling (DeliverContext,
+   * findOrIssueCertificate, allocateSerial) makes the org explicit so tsc
+   * forces threading; `null` is a deliberate legacy/master choice, never an
+   * accidental omission that silently mints NULL-org certs.
+   */
+  organizationId: string | null;
   triggeredByUserId?: string | null;
   /**
    * Per-recipient EMAIL idempotency (review A4, July 16, 2026). The

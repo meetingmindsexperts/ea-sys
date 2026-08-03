@@ -500,8 +500,9 @@ async function deleteCertificateTemplate(input: Record<string, unknown>, ctx: Ag
   }
 
   // tenancy: swept CertificateTemplate delete runs inside the caller's org.
+  // Compound-where (review L3, defence #1): org bind atomic with the delete.
   await runWithTenant(ctx.organizationId, () =>
-    db.certificateTemplate.delete({ where: { id: templateId } }),
+    db.certificateTemplate.delete({ where: { id: templateId, organizationId: ctx.organizationId } }),
   );
 
   db.auditLog

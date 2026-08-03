@@ -184,6 +184,17 @@ async function processRun(runId: string): Promise<RunTickResult> {
     },
   });
   if (!run) {
+    // Loud, not silent (Certificates-sweep review L2): the caller just SAW
+    // this run in its candidate scan, so a null re-read here means either the
+    // row vanished mid-tick (rare, benign) or — under RLS — the run's
+    // organizationId is NULL/mismatched and the tenant-scoped re-read
+    // fail-closed. The latter no-ops tick after tick forever; without this
+    // warn a permanently-stuck run is indistinguishable from an idle worker.
+    apiLogger.warn({
+      msg: "cert-issue:run-invisible-to-tenant-read",
+      runId,
+      hint: "run was in the candidate scan but the scoped re-read returned null — check the run's organizationId (NULL/mismatch fail-closes under RLS)",
+    });
     return { renderedThisTick: 0, emailedThisTick: 0, transitionedTo: null };
   }
 
