@@ -158,6 +158,7 @@ export async function PUT(req: Request) {
     await db.auditLog.create({
       data: {
         userId: session.user.id,
+        organizationId: organization.id,
         action: "UPDATE",
         entityType: "Organization",
         entityId: organization.id,

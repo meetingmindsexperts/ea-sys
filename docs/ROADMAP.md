@@ -275,6 +275,32 @@ apply the ordering in FUTURE sweep migrations), and the `reimbursements/send` do
 narrow wrap being past the gate's first-op read-placement check (both wraps verified
 correct by hand).
 
+### AuditLog sweep (Domain #19) — deferred decisions (Aug 3, 2026)
+
+Record: MULTI_TENANCY.md §13 #19. Platform-only items, deliberately not implemented:
+
+1. **Org-null audit writes are LOST on the platform (owner decision needed before the
+   first real tenant).** ALL 163 AuditLog writers use Prisma `create()`
+   (INSERT..RETURNING), and RETURNING must pass the strict USING — so from an
+   app-role lane with no ambient org, a NULL-org audit write (the org-null
+   registrant/reviewer password-flow audits) is REJECTED at the DB; every writer's
+   fire-and-forget catch logs it, so the loss is loud but real. Options: a privileged
+   write lane for the auth routes, a createMany-based null-safe path in the
+   withAuditOrgStamp extension (risky: create()'s return value would need
+   synthesizing), or acceptance. Master (no RLS) unaffected — org-bound users' auth
+   audits are already explicitly stamped and unaffected either way.
+2. **AuditLog has no retention/offboarding story** (pre-existing, now sharper): no
+   prune job, no delete surface, and the new org scalar has NO FK — deleting an org
+   leaves its audit rows stamped with a dangling org id (correct for audit-trail
+   durability; the platform's tenant-offboarding runbook must decide whether to purge
+   them, same decision family as the EmailLog SetNull item above).
+
+Resolved by this sweep (previously tracked here): ~~"AuditLog has no flat
+`organizationId` column (org id lives in `changes` JSON, which can't back an RLS
+policy)"~~ ✅ — flat column + `[organizationId, createdAt]` index + 9-source backfill
+shipped in migration `20260803180000`; the global `/api/activity` feed now reads the
+flat column and surfaces the previously-invisible Contact/CRM/org-admin audits.
+
 ### Certificates tenancy-sweep review — LOWs (Aug 3, 2026) — ✅ ALL SHIPPED same day
 
 Adversarial review of the Domain #13 Certificates sweep (`46af5714`): 0 BLOCKER / 2 HIGH /

@@ -155,6 +155,7 @@ export async function createNote(input: CreateNoteInput): Promise<NoteResult> {
     });
 
     void writeAudit({
+      organizationId: input.organizationId,
       userId: input.userId,
       action: "CREATE",
       entityId: note.id,
@@ -242,6 +243,7 @@ export async function updateNote(input: UpdateNoteInput): Promise<NoteResult> {
     const note = await db.crmNote.findUniqueOrThrow({ where: { id: input.noteId } });
 
     void writeAudit({
+      organizationId: input.organizationId,
       userId: input.userId,
       action: "UPDATE",
       entityId: note.id,
@@ -293,6 +295,7 @@ export async function deleteNote(input: {
     }
 
     void writeAudit({
+      organizationId: input.organizationId,
       userId: input.userId,
       action: "DELETE",
       entityId: existing.id,
@@ -319,6 +322,7 @@ export async function deleteNote(input: {
 }
 
 function writeAudit(entry: {
+  organizationId: string;
   userId: string | null;
   action: string;
   entityId: string;
@@ -328,6 +332,7 @@ function writeAudit(entry: {
   return db.auditLog
     .create({
       data: {
+        organizationId: entry.organizationId,
         userId: entry.userId,
         action: entry.action,
         entityType: "CrmNote",

@@ -133,6 +133,11 @@ import {
   SHARED_EMAIL_TO,
   SCHED_EMAIL_A_ID,
   SCHED_EMAIL_B_ID,
+  AUDIT_LOG_A_ID,
+  AUDIT_LOG_B_ID,
+  AUDIT_LOG_NULLORG_ID,
+  SHARED_AUDIT_ENTITY_TYPE,
+  SHARED_AUDIT_ENTITY_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -305,6 +310,14 @@ async function seedOrg(
     registrationId: string;
     to: string;
     createdById: string;
+  },
+  // AuditLog sweep (Domain #19): one audit row per org, both on the SHARED
+  // entityType/entityId pair (no per-org unique field on AuditLog — the
+  // shared entity reference is the lane-scoping proof). NO org FK at all, so
+  // rows always survive the org cascade — cleaned explicitly in main().
+  audit?: {
+    auditLogId: string;
+    eventId: string;
   },
 ) {
   await db.organization.create({
@@ -835,6 +848,19 @@ async function seedOrg(
       },
     });
   }
+  if (audit) {
+    await db.auditLog.create({
+      data: {
+        id: audit.auditLogId,
+        organizationId: orgId,
+        eventId: audit.eventId,
+        action: "TENANCY_TEST",
+        entityType: SHARED_AUDIT_ENTITY_TYPE,
+        entityId: SHARED_AUDIT_ENTITY_ID,
+        changes: { fixture: orgId },
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -981,6 +1007,24 @@ async function main() {
   // explicitly, including the null-org row the asymmetry test mints.
   // ScheduledEmail.createdBy → User has no onDelete (Restrict default), so it
   // must go BEFORE the uploader-user delete below.
+  // AuditLog fixtures (Domain #19): NO org FK at all, so rows ALWAYS survive
+  // the org cascade — delete explicitly, incl. the null-org row + the test's
+  // rejection-probe ids (same reasoning as the EmailLog probe cleanup below).
+  await db.auditLog.deleteMany({
+    where: {
+      id: {
+        in: [
+          AUDIT_LOG_A_ID,
+          AUDIT_LOG_B_ID,
+          AUDIT_LOG_NULLORG_ID,
+          "tenancy-audit-nullorg-returning",
+          "tenancy-audit-ambient-stamped",
+          "tenancy-audit-smuggled",
+          "tenancy-audit-smuggled-many",
+        ],
+      },
+    },
+  });
   await db.emailLog.deleteMany({
     where: {
       id: {
@@ -1120,6 +1164,10 @@ async function main() {
       registrationId: REG_A_ID,
       to: SHARED_EMAIL_TO,
       createdById: UPLOADER_A_ID,
+    },
+    {
+      auditLogId: AUDIT_LOG_A_ID,
+      eventId: EVENT_A_SHARED_ID,
     },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
@@ -1265,6 +1313,10 @@ async function main() {
       registrationId: REG_B_ID,
       to: SHARED_EMAIL_TO,
       createdById: UPLOADER_B_ID,
+    },
+    {
+      auditLogId: AUDIT_LOG_B_ID,
+      eventId: EVENT_B_SHARED_ID,
     },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

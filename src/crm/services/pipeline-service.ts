@@ -24,6 +24,7 @@ import { apiLogger } from "@/lib/logger";
  * auditing only 2 of 9 mutation paths. Not repeating that here.)
  */
 function writeAudit(entry: {
+  organizationId: string;
   userId: string | null;
   action: string;
   entityId: string;
@@ -32,6 +33,7 @@ function writeAudit(entry: {
   return db.auditLog
     .create({
       data: {
+        organizationId: entry.organizationId,
         userId: entry.userId,
         action: entry.action,
         entityType: "CrmPipelineStage",
@@ -228,6 +230,7 @@ export async function createStage(input: {
     });
 
     void writeAudit({
+      organizationId: input.organizationId,
       userId: input.userId,
       action: "CREATE",
       entityId: stage.id,
@@ -326,6 +329,7 @@ export async function updateStage(input: {
     const updated = await db.crmPipelineStage.findUniqueOrThrow({ where: { id: stage.id } });
 
     void writeAudit({
+      organizationId: input.organizationId,
       userId: input.userId,
       action: "UPDATE",
       entityId: stage.id,
@@ -401,6 +405,7 @@ export async function reorderStages(input: {
     });
 
     void writeAudit({
+      organizationId: input.organizationId,
       userId: input.userId,
       action: "REORDER",
       entityId: `org:${input.organizationId}`,
@@ -473,6 +478,7 @@ export async function deleteStage(input: {
     }
 
     void writeAudit({
+      organizationId: input.organizationId,
       userId: input.userId,
       action: "DELETE",
       entityId: stage.id,

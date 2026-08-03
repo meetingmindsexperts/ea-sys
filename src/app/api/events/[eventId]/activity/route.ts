@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string }>;
@@ -25,7 +26,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Verify event access
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
 
     if (!event) {
@@ -35,22 +36,26 @@ export async function GET(req: Request, { params }: RouteParams) {
     const url = new URL(req.url);
     const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 50);
 
-    const logs = await db.auditLog.findMany({
-      where: { eventId },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      select: {
-        id: true,
-        action: true,
-        entityType: true,
-        entityId: true,
-        changes: true,
-        createdAt: true,
-        user: {
-          select: { firstName: true, lastName: true, email: true },
+    // RESOURCE-org tenant lane (the event's org, resolved through the access
+    // guard above) — inert on master, the RLS backstop on the platform.
+    const logs = await runWithTenant(event.organizationId, () =>
+      db.auditLog.findMany({
+        where: { eventId },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          action: true,
+          entityType: true,
+          entityId: true,
+          changes: true,
+          createdAt: true,
+          user: {
+            select: { firstName: true, lastName: true, email: true },
+          },
         },
-      },
-    });
+      }),
+    );
 
     return NextResponse.json(logs);
   } catch (error) {

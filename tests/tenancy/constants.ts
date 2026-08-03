@@ -308,6 +308,22 @@ export const SCHED_EMAIL_A_ID = "tenancy-sched-a";
 export const SCHED_EMAIL_B_ID = "tenancy-sched-b";
 
 /**
+ * AuditLog sweep (Domain #19): one audit row per org, both carrying the SAME
+ * entityType/entityId pair (AuditLog has no per-org unique field, so the
+ * shared entity reference is what proves lane-scoping — an unscoped
+ * per-entity timeline query must return only the caller's lane's rows).
+ * AUDIT_LOG_NULLORG_ID is minted BY THE TEST via a bare app_user createMany
+ * (the asymmetric WITH CHECK write-half proof); AuditLog has NO org FK at
+ * all, so every row survives the org cascade and is cleaned explicitly in
+ * the seed's main().
+ */
+export const AUDIT_LOG_A_ID = "tenancy-audit-a";
+export const AUDIT_LOG_B_ID = "tenancy-audit-b";
+export const AUDIT_LOG_NULLORG_ID = "tenancy-audit-nullorg";
+export const SHARED_AUDIT_ENTITY_TYPE = "TenancyAuditFixture";
+export const SHARED_AUDIT_ENTITY_ID = "tenancy-shared-audit-entity";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

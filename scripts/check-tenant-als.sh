@@ -247,6 +247,9 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/emails/schedule/[id]/route.ts"                         # Comms-log (Aug 3, 2026)
   "src/app/api/events/[eventId]/emails/schedule/[id]/retry/route.ts"                   # Comms-log (Aug 3, 2026)
   "src/app/api/events/[eventId]/email-activity/route.ts"                               # Comms-log (Aug 3, 2026)
+  "src/app/api/activity/route.ts"                                                      # AuditLog sweep (Aug 3, 2026)
+  "src/app/api/events/[eventId]/activity/route.ts"                                     # AuditLog sweep (Aug 3, 2026)
+  "src/app/api/events/[eventId]/analytics/route.ts"                                    # AuditLog sweep (Aug 3, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors

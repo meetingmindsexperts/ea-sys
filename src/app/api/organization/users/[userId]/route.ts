@@ -112,6 +112,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     await db.auditLog.create({
       data: {
         userId: session.user.id,
+        organizationId: session.user.organizationId ?? null,
         action: "UPDATE",
         entityType: "User",
         entityId: userId,
@@ -189,6 +190,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     await db.auditLog.create({
       data: {
         userId: session.user.id,
+        organizationId: session.user.organizationId ?? null,
         action: "DELETE",
         entityType: "User",
         entityId: userId,

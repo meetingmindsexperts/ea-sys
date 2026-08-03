@@ -305,6 +305,103 @@ function withTenantIsolation(base: ReturnType<typeof createPrismaClient>) {
 }
 
 /**
+ * Resolve the tenant org for an AuditLog row about to be written (Domain #19
+ * sweep, Aug 3 2026 — owner decision: central auto-stamp over migrating all
+ * 163 write sites). Resolution order:
+ *   1. explicit `organizationId` already in the data (the ~18 org-scoped
+ *      writers that stamp directly — auth, org-admin, CRM config helpers,
+ *      audit-data-transfer, billing-account-service),
+ *   2. the ambient tenant lane (`getTenantOrgId()` — covers every write made
+ *      inside a `runWithTenant` wrap, including service-layer writes called
+ *      from wrapped handlers; `""` from the legacy `?? ""` wrap class is
+ *      falsy and correctly skipped),
+ *   3. a 1-hop Event lookup when the data carries an `eventId` (heals writes
+ *      from not-yet-swept domains; audit volume is low enough that one
+ *      indexed PK read per write is negligible).
+ * Returns null when none resolve — org-null actors (registrant/reviewer auth
+ * flows) legitimately produce unattributable rows. NEVER throws: a stamping
+ * failure degrades to an unstamped row, never a lost audit write.
+ *
+ * The lookup runs on the RAW base client deliberately: under platform RLS
+ * this path only executes when the ambient lane is absent, where an
+ * app-role read fails closed anyway — on master (no RLS) it resolves
+ * normally. Platform residue is documented in prisma/rls/auditlog.sql.
+ *
+ * Exported for unit tests only (the extension is the sole production caller).
+ */
+export async function resolveAuditOrganizationId(
+  data: Record<string, unknown>,
+  base: ReturnType<typeof createPrismaClient>,
+): Promise<string | null> {
+  const explicit = data.organizationId;
+  if (typeof explicit === "string" && explicit) return explicit;
+  const ambient = getTenantOrgId();
+  if (ambient) return ambient;
+  const eventId = data.eventId;
+  if (typeof eventId === "string" && eventId) {
+    try {
+      const event = await base.event.findUnique({
+        where: { id: eventId },
+        select: { organizationId: true },
+      });
+      return event?.organizationId ?? null;
+    } catch (err) {
+      dbLogger.warn({
+        err,
+        eventId,
+        msg: "audit-org-stamp:event-lookup-failed; row will be unstamped",
+      });
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Central org-stamp for AuditLog writes (the ONE choke point all 163 call
+ * sites — including the 10 `tx.auditLog.create` sites — flow through).
+ * Mutates `args.data` before execution; a pure args enrichment, so it adds
+ * no queries when the org resolves synchronously.
+ *
+ * Composition notes (load-bearing):
+ *   - Applied AFTER (i.e. OUTER to) `tenant-set-local`, so by the time that
+ *     extension batches `query(args)` into its SET LOCAL transaction the
+ *     args are already stamped and its `query(args)` is the raw engine
+ *     PrismaPromise (an inner async handler would break the batch form).
+ *   - Deliberately NOT gated on RLS_SET_LOCAL — the column must populate on
+ *     master now, ahead of any platform RLS rollout.
+ *   - Deliberately does NOT copy tenant-set-local's `inTenantTx` skip guard —
+ *     writes inside `tenantTransaction` must be stamped too.
+ */
+function withAuditOrgStamp(
+  client: ReturnType<typeof withTenantIsolation>,
+  base: ReturnType<typeof createPrismaClient>,
+) {
+  return client.$extends({
+    name: "audit-org-stamp",
+    query: {
+      auditLog: {
+        async create({ args, query }) {
+          const data = args.data as Record<string, unknown> | undefined;
+          if (data) {
+            data.organizationId = await resolveAuditOrganizationId(data, base);
+          }
+          return query(args);
+        },
+        async createMany({ args, query }) {
+          const raw = args.data as Record<string, unknown> | Record<string, unknown>[] | undefined;
+          const rows = Array.isArray(raw) ? raw : raw ? [raw] : [];
+          for (const row of rows) {
+            row.organizationId = await resolveAuditOrganizationId(row, base);
+          }
+          return query(args);
+        },
+      },
+    },
+  });
+}
+
+/**
  * The extension changes the client's TYPE to Prisma's DynamicClientExtension
  * shape, whose interactive-`$transaction` `tx` is structurally incompatible
  * with the `Prisma.TransactionClient` parameter type used by ~50 existing
@@ -314,9 +411,12 @@ function withTenantIsolation(base: ReturnType<typeof createPrismaClient>) {
  * PrismaClient (the pre-agreed fallback in the Phase-0 plan) instead of
  * rippling `TransactionClient` generics through the codebase.
  */
-export const db =
-  globalForPrisma.prisma ??
-  (withTenantIsolation(createPrismaClient()) as unknown as PrismaClient);
+function buildDb(): PrismaClient {
+  const base = createPrismaClient();
+  return withAuditOrgStamp(withTenantIsolation(base), base) as unknown as PrismaClient;
+}
+
+export const db = globalForPrisma.prisma ?? buildDb();
 
 /**
  * The sanctioned interactive-transaction entry point once tenancy is live:

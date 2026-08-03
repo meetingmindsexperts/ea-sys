@@ -1918,6 +1918,17 @@ model AuditLog {
   id         String   @id @default(cuid())
   eventId    String?
   userId     String?
+  // Denormalized tenant key (Domain #19 sweep, Aug 3 2026). Deliberately a
+  // bare scalar with NO FK (sweep convention): the audit trail must survive
+  // org deletion with its attribution intact — an FK SetNull would erase
+  // exactly the column RLS scopes on (the same failure mode eventId already
+  // exhibits: deleting an Event nulls eventId on its audit rows). Stamped
+  // centrally by the withAuditOrgStamp client extension in src/lib/db.ts
+  // (explicit-in-data → ambient tenant lane → eventId 1-hop), plus explicit
+  // stamps at the org-scoped writers that have neither. Nullable: org-null
+  // actors (registrant/reviewer auth flows) legitimately produce
+  // unattributable rows — see prisma/rls/auditlog.sql for the NULL policy.
+  organizationId String?
   action     String
   entityType String
   entityId   String
@@ -1936,6 +1947,8 @@ model AuditLog {
   // Analytics time-series: "all CHECK_IN / BADGE_PRINTED actions for event E,
   // bucketed by time" — without this the histogram queries full-scan.
   @@index([eventId, action, createdAt])
+  // Serves the global /api/activity feed's org-scoped, createdAt-desc query.
+  @@index([organizationId, createdAt])
 }
 
 model SystemLog {

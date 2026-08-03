@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import type { Prisma } from "@prisma/client";
 
 export async function GET(req: Request) {
@@ -38,25 +39,20 @@ export async function GET(req: Request) {
 
     const orgId = session.user.organizationId!;
 
-    // `event: { organizationId }` on a NULLABLE relation means "event is
-    // non-null AND matches" — so it silently excluded every org-scoped audit
-    // row (`eventId: null`). That hid the contacts / invoices / CRM
-    // import+export audits from the only UI that reads `AuditLog`, which
-    // defeated half the point of recording them. Those rows carry their org
-    // inside `changes.organizationId` (there is no flat column yet — see
-    // ROADMAP), so match on either shape.
-    const where: Prisma.AuditLogWhereInput = {
-      OR: [
-        { event: { organizationId: orgId } },
-        { eventId: null, changes: { path: ["organizationId"], equals: orgId } },
-      ],
-    };
+    // Flat tenant predicate (Domain #19, Aug 3 2026): AuditLog now carries a
+    // denormalized `organizationId` — backfilled for the whole history and
+    // stamped centrally on every new write (withAuditOrgStamp in db.ts) — so
+    // this replaces the old dual-shape OR (`event: { organizationId }` +
+    // `changes.organizationId` JSON match). The flat column is a strict
+    // SUPERSET of both legs, and it makes previously-invisible rows appear:
+    // Contact audits, the CRM config helpers, and org-admin user audits
+    // carried no org marker anywhere and never showed in this feed before.
+    // Backed by @@index([organizationId, createdAt]).
+    const where: Prisma.AuditLogWhereInput = { organizationId: orgId };
 
     if (eventId) {
-      // An explicit event filter is inherently event-scoped — drop the
-      // org-scoped leg so it can't leak rows from other events.
-      delete where.OR;
-      where.event = { organizationId: orgId };
+      // An explicit event filter narrows within the org (the org predicate
+      // stays — a foreign eventId yields zero rows, not a leak).
       where.eventId = eventId;
     }
     if (userId) {
@@ -82,25 +78,28 @@ export async function GET(req: Request) {
       }
     }
 
-    const logs = await db.auditLog.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      select: {
-        id: true,
-        action: true,
-        entityType: true,
-        entityId: true,
-        changes: true,
-        createdAt: true,
-        user: {
-          select: { firstName: true, lastName: true, email: true },
+    // Session-org tenant lane (inert on master; the platform's RLS backstop).
+    const logs = await runWithTenant(orgId, () =>
+      db.auditLog.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          action: true,
+          entityType: true,
+          entityId: true,
+          changes: true,
+          createdAt: true,
+          user: {
+            select: { firstName: true, lastName: true, email: true },
+          },
+          event: {
+            select: { id: true, name: true },
+          },
         },
-        event: {
-          select: { id: true, name: true },
-        },
-      },
-    });
+      }),
+    );
 
     return NextResponse.json(logs);
   } catch (error) {

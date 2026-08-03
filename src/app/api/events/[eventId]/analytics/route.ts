@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -67,7 +68,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Event access scoped to the caller's role (org membership / assignment).
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -75,7 +76,12 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     // Revenue is finance data — omitted entirely for MEMBER.
     const includeFinance = canViewFinance(session.user.role);
-    const analytics = await computeEventAnalytics(eventId, { includeFinance });
+    // RESOURCE-org tenant lane (Domain #19): computeEventAnalytics reads
+    // AuditLog CHECK_IN rows (+ swept Registration/TicketType tables) — under
+    // platform RLS an unwrapped read fails closed to an all-zero dashboard.
+    const analytics = await runWithTenant(event.organizationId, () =>
+      computeEventAnalytics(eventId, { includeFinance }),
+    );
     if (!analytics) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }

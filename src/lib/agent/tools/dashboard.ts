@@ -5,6 +5,7 @@ import { EXCLUDE_FACULTY_WHERE } from "@/lib/faculty-filter";
 import { BREAK_SESSION_TYPES } from "@/lib/session-enums";
 import { getEventStatsRow, refreshEventStats } from "@/lib/event-stats";
 import { computeEventAnalytics } from "@/lib/event-analytics";
+import { runWithTenant } from "@/lib/tenant-context";
 import type { ToolExecutor } from "./_shared";
 
 const getEventDashboard: ToolExecutor = async (_input, ctx) => {
@@ -311,7 +312,11 @@ const searchEvent: ToolExecutor = async (input, ctx) => {
 // FINANCE_ONLY_AGENT_TOOLS; MCP/API-key callers are admin-equivalent.
 const getEventAnalytics: ToolExecutor = async (_input, ctx) => {
   try {
-    const analytics = await computeEventAnalytics(ctx.eventId, { includeFinance: true });
+    // ctx-org tenant lane (Domain #19): the analytics read includes AuditLog
+    // CHECK_IN rows — fails closed unwrapped under platform RLS.
+    const analytics = await runWithTenant(ctx.organizationId, () =>
+      computeEventAnalytics(ctx.eventId, { includeFinance: true }),
+    );
     if (!analytics) return { error: "Event not found" };
     return analytics;
   } catch (err) {

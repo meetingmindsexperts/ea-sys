@@ -114,6 +114,8 @@ export async function POST(req: Request) {
       await tx.auditLog.create({
         data: {
           userId: user.id,
+          // org-null actors (registrants/reviewers) correctly stamp null here
+          organizationId: user.organizationId,
           action: "ACCEPT_INVITATION",
           entityType: "User",
           entityId: user.id,

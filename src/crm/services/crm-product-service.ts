@@ -44,10 +44,11 @@ function reject(code: CrmProductErrorCode, message: string, ctx: Record<string, 
   return { ok: false, code, message };
 }
 
-function writeAudit(entry: { userId: string | null; action: string; entityId: string; changes: Record<string, unknown> }) {
+function writeAudit(entry: { organizationId: string; userId: string | null; action: string; entityId: string; changes: Record<string, unknown> }) {
   return db.auditLog
     .create({
       data: {
+        organizationId: entry.organizationId,
         userId: entry.userId,
         action: entry.action,
         entityType: "CrmProduct",
@@ -145,7 +146,7 @@ export async function createCrmProduct(input: {
         },
       });
     });
-    void writeAudit({ userId: input.userId, action: "CREATE", entityId: product.id, changes: { name, category, sku: product.sku } });
+    void writeAudit({ organizationId: input.organizationId, userId: input.userId, action: "CREATE", entityId: product.id, changes: { name, category, sku: product.sku } });
     return { ok: true, product };
   } catch (err) {
     apiLogger.error({ msg: "crm-product:create-failed", organizationId: input.organizationId, err: err instanceof Error ? err.message : String(err) });
@@ -186,7 +187,7 @@ export async function updateCrmProduct(input: {
     const res = await db.crmProduct.updateMany({ where: { id: input.productId, organizationId: input.organizationId }, data });
     if (res.count === 0) return reject("PRODUCT_NOT_FOUND", "Product not found", { organizationId: input.organizationId, productId: input.productId });
     const product = await db.crmProduct.findUniqueOrThrow({ where: { id: input.productId } });
-    void writeAudit({ userId: input.userId, action: "UPDATE", entityId: product.id, changes: { fields: Object.keys(data) } });
+    void writeAudit({ organizationId: input.organizationId, userId: input.userId, action: "UPDATE", entityId: product.id, changes: { fields: Object.keys(data) } });
     return { ok: true, product };
   } catch (err) {
     apiLogger.error({ msg: "crm-product:update-failed", productId: input.productId, err: err instanceof Error ? err.message : String(err) });
@@ -207,7 +208,7 @@ export async function setCrmProductArchived(input: {
     });
     if (res.count === 0) return reject("PRODUCT_NOT_FOUND", "Product not found", { organizationId: input.organizationId, productId: input.productId });
     const product = await db.crmProduct.findUniqueOrThrow({ where: { id: input.productId } });
-    void writeAudit({ userId: input.userId, action: input.archived ? "ARCHIVE" : "RESTORE", entityId: product.id, changes: { name: product.name } });
+    void writeAudit({ organizationId: input.organizationId, userId: input.userId, action: input.archived ? "ARCHIVE" : "RESTORE", entityId: product.id, changes: { name: product.name } });
     return { ok: true, product };
   } catch (err) {
     apiLogger.error({ msg: "crm-product:archive-failed", productId: input.productId, err: err instanceof Error ? err.message : String(err) });

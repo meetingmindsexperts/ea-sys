@@ -123,6 +123,7 @@ export async function createBillingAccount(
     db.auditLog
       .create({
         data: {
+          organizationId,
           userId,
           action: "CREATE",
           entityType: "BillingAccount",
@@ -263,6 +264,7 @@ export async function updateBillingAccount(
     db.auditLog
       .create({
         data: {
+          organizationId,
           userId,
           action: "UPDATE",
           entityType: "BillingAccount",
@@ -419,6 +421,7 @@ export async function mergeBillingAccounts(
     db.auditLog
       .create({
         data: {
+          organizationId,
           userId,
           action: "MERGE",
           entityType: "BillingAccount",

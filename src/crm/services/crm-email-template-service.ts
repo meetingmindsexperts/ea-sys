@@ -28,6 +28,7 @@ type Fail = { ok: false; code: CrmEmailTemplateErrorCode; message: string };
 
 /** Fire-and-forget audit with a logged catch (a blip must never 500 a committed write). */
 function writeAudit(entry: {
+  organizationId: string;
   userId: string | null;
   action: string;
   entityId: string;
@@ -36,6 +37,7 @@ function writeAudit(entry: {
   return db.auditLog
     .create({
       data: {
+        organizationId: entry.organizationId,
         userId: entry.userId,
         action: entry.action,
         entityType: "CrmEmailTemplate",
@@ -134,7 +136,7 @@ export async function createCrmEmailTemplate(input: {
       });
     });
 
-    void writeAudit({ userId: input.userId, action: "CREATE", entityId: template.id, changes: { name, subject } });
+    void writeAudit({ organizationId: input.organizationId, userId: input.userId, action: "CREATE", entityId: template.id, changes: { name, subject } });
     apiLogger.info({ msg: "crm-email-template:created", templateId: template.id, organizationId: input.organizationId });
     return { ok: true, template };
   } catch (err) {
@@ -189,7 +191,7 @@ export async function updateCrmEmailTemplate(input: {
       return { ok: false, code: "TEMPLATE_NOT_FOUND", message: "Template not found" };
     }
     const template = await db.crmEmailTemplate.findUniqueOrThrow({ where: { id: input.templateId } });
-    void writeAudit({ userId: input.userId, action: "UPDATE", entityId: template.id, changes: { fields: Object.keys(data) } });
+    void writeAudit({ organizationId: input.organizationId, userId: input.userId, action: "UPDATE", entityId: template.id, changes: { fields: Object.keys(data) } });
     apiLogger.info({ msg: "crm-email-template:updated", templateId: template.id, organizationId: input.organizationId });
     return { ok: true, template };
   } catch (err) {
@@ -218,7 +220,7 @@ export async function setCrmEmailTemplateArchived(input: {
       return { ok: false, code: "TEMPLATE_NOT_FOUND", message: "Template not found" };
     }
     const template = await db.crmEmailTemplate.findUniqueOrThrow({ where: { id: input.templateId } });
-    void writeAudit({ userId: input.userId, action: input.archived ? "ARCHIVE" : "RESTORE", entityId: template.id, changes: { name: template.name } });
+    void writeAudit({ organizationId: input.organizationId, userId: input.userId, action: input.archived ? "ARCHIVE" : "RESTORE", entityId: template.id, changes: { name: template.name } });
     return { ok: true, template };
   } catch (err) {
     apiLogger.error({

@@ -47,6 +47,7 @@ function reject(code: CrmPurgeErrorCode, message: string, ctx: Record<string, un
 
 /** Fire-and-forget with a logged catch — the delete already committed. */
 function writeAudit(entry: {
+  organizationId: string;
   userId: string | null;
   entityType: "CrmDeal" | "CrmCompany" | "CrmContact";
   entityId: string;
@@ -55,6 +56,7 @@ function writeAudit(entry: {
   return db.auditLog
     .create({
       data: {
+        organizationId: entry.organizationId,
         userId: entry.userId,
         action: "CRM_PURGE",
         entityType: entry.entityType,
@@ -102,6 +104,7 @@ export async function purgeDeal(input: PurgeCtx & { dealId: string }): Promise<{
   }
 
   void writeAudit({
+    organizationId: input.organizationId,
     userId: input.userId,
     entityType: "CrmDeal",
     entityId: deal.id,
@@ -159,6 +162,7 @@ export async function purgeCompany(input: PurgeCtx & { companyId: string }): Pro
   }
 
   void writeAudit({
+    organizationId: input.organizationId,
     userId: input.userId,
     entityType: "CrmCompany",
     entityId: company.id,
@@ -198,6 +202,7 @@ export async function purgeCrmContact(input: PurgeCtx & { crmContactId: string }
   }
 
   void writeAudit({
+    organizationId: input.organizationId,
     userId: input.userId,
     entityType: "CrmContact",
     entityId: contact.id,

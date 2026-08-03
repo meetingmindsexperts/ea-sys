@@ -127,6 +127,7 @@ export function recordExport(req: Request | null, args: ExportArgs): void {
       data: {
         // Event-scoped exports also land on the event's activity feed.
         eventId: args.eventId ?? null,
+        organizationId: args.organizationId ?? null,
         userId: args.userId ?? null,
         action: "EXPORT",
         entityType: args.entityType,
@@ -174,6 +175,7 @@ export function recordImport(req: Request | null, args: ImportArgs): void {
     .create({
       data: {
         eventId: args.eventId ?? null,
+        organizationId: args.organizationId ?? null,
         userId: args.userId ?? null,
         action: "IMPORT",
         entityType: args.entityType,

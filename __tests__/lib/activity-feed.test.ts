@@ -141,35 +141,33 @@ describe("GET /api/activity", () => {
     expect(res.status).toBe(403);
   });
 
-  // `event: { organizationId }` alone means "event is non-null AND matches" on a
-  // nullable relation, so it silently excluded every ORG-scoped audit row
-  // (eventId: null) — which is where the contacts / invoices / CRM
-  // import+export audits land. Both legs must be present, and both must be
-  // org-bound so neither can leak another org's rows.
-  it("scopes activity to the organization, including org-scoped (event-less) rows", async () => {
+  // Domain #19 (Aug 3, 2026): AuditLog carries a flat, backfilled + centrally
+  // stamped `organizationId`, so the feed's predicate is the single flat
+  // column — a strict SUPERSET of the old dual-shape OR (event-relation leg +
+  // changes-JSON leg), and it surfaces the previously-invisible rows (Contact
+  // audits, the CRM config helpers, org-admin user audits) that carried no
+  // org marker anywhere.
+  it("scopes activity to the organization via the flat organizationId column", async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.auditLog.findMany.mockResolvedValue([]);
 
     await GET(makeRequest());
 
     const where = mockDb.auditLog.findMany.mock.calls[0][0].where;
-    expect(where.OR).toEqual([
-      { event: { organizationId: "org-1" } },
-      { eventId: null, changes: { path: ["organizationId"], equals: "org-1" } },
-    ]);
+    expect(where.organizationId).toBe("org-1");
+    expect(where.OR).toBeUndefined();
   });
 
-  it("drops the org-scoped leg when an explicit event filter is given", async () => {
+  it("an explicit event filter narrows WITHIN the org (the org predicate stays)", async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.auditLog.findMany.mockResolvedValue([]);
 
     await GET(makeRequest("eventId=evt-9"));
 
     const where = mockDb.auditLog.findMany.mock.calls[0][0].where;
-    expect(where.OR).toBeUndefined();
     expect(where.eventId).toBe("evt-9");
-    // Still org-bound — an event filter must not become a cross-org read.
-    expect(where.event).toEqual({ organizationId: "org-1" });
+    // Still org-bound — a foreign eventId yields zero rows, not a leak.
+    expect(where.organizationId).toBe("org-1");
   });
 
   it("respects limit param", async () => {

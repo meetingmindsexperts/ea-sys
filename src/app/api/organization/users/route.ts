@@ -208,6 +208,7 @@ export async function POST(req: Request) {
         .create({
           data: {
             userId: session.user.id,
+            organizationId: session.user.organizationId ?? null,
             action: "PROMOTE_USER",
             entityType: "User",
             entityId: promoted.id,
@@ -250,6 +251,7 @@ export async function POST(req: Request) {
         await tx.auditLog.create({
           data: {
             userId: session.user.id,
+            organizationId: session.user.organizationId ?? null,
             action: "CREATE_USER",
             entityType: "User",
             entityId: newUser.id,
@@ -373,6 +375,7 @@ export async function POST(req: Request) {
       await tx.auditLog.create({
         data: {
           userId: session.user.id,
+          organizationId: session.user.organizationId ?? null,
           action: "INVITE_USER",
           entityType: "User",
           entityId: newUser.id,
