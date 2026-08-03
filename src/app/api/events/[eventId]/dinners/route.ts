@@ -13,6 +13,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { rsvpDinnerInputSchema, isDeadlineAfterDinner } from "@/lib/rsvp/rsvp";
 
@@ -32,20 +33,25 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
+    // Resource-org: load the (un-swept) Event first for its org, then run the
+    // swept RsvpDinner read on that tenant's lane. Resource org (not session
+    // org) so the org-null SUPER_ADMIN buildEventAccessWhere serves still works.
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "dinners:list-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const dinners = await db.rsvpDinner.findMany({
-      where: { eventId },
-      orderBy: [{ sortOrder: "asc" }, { dinnerAt: "asc" }],
+    return await runWithTenant(event.organizationId, async () => {
+      const dinners = await db.rsvpDinner.findMany({
+        where: { eventId },
+        orderBy: [{ sortOrder: "asc" }, { dinnerAt: "asc" }],
+      });
+      return NextResponse.json({ dinners });
     });
-    return NextResponse.json({ dinners });
   } catch (err) {
     apiLogger.error({ err }, "dinners:list-failed");
     return NextResponse.json({ error: "Failed to load dinners" }, { status: 500 });
@@ -91,7 +97,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // buildEventAccessWhere (R2 L9): org-scoped for staff AND correct for
       // an org-null SUPER_ADMIN, which the bare organizationId! 404'd.
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "dinners:create-event-not-found");
@@ -106,33 +112,37 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    const dinner = await db.rsvpDinner.create({
-      data: {
-        eventId,
-        name: d.name,
-        dinnerAt: new Date(d.dinnerAt),
-        location: d.location || null,
-        description: d.description || null,
-        rsvpDeadline: d.rsvpDeadline ? new Date(d.rsvpDeadline) : null,
-        sortOrder: d.sortOrder ?? 0,
-        isActive: d.isActive ?? true,
-      },
-    });
 
-    db.auditLog
-      .create({
+    return await runWithTenant(event.organizationId, async () => {
+      const dinner = await db.rsvpDinner.create({
         data: {
           eventId,
-          userId: session.user.id,
-          action: "CREATE",
-          entityType: "RSVP_DINNER",
-          entityId: dinner.id,
-          changes: { name: dinner.name, dinnerAt: dinner.dinnerAt },
+          organizationId: event.organizationId,
+          name: d.name,
+          dinnerAt: new Date(d.dinnerAt),
+          location: d.location || null,
+          description: d.description || null,
+          rsvpDeadline: d.rsvpDeadline ? new Date(d.rsvpDeadline) : null,
+          sortOrder: d.sortOrder ?? 0,
+          isActive: d.isActive ?? true,
         },
-      })
-      .catch((err) => apiLogger.error({ err }, "dinners:audit-failed"));
+      });
 
-    return NextResponse.json({ dinner }, { status: 201 });
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "CREATE",
+            entityType: "RSVP_DINNER",
+            entityId: dinner.id,
+            changes: { name: dinner.name, dinnerAt: dinner.dinnerAt },
+          },
+        })
+        .catch((err) => apiLogger.error({ err }, "dinners:audit-failed"));
+
+      return NextResponse.json({ dinner }, { status: 201 });
+    });
   } catch (err) {
     apiLogger.error({ err }, "dinners:create-failed");
     return NextResponse.json({ error: "Failed to create dinner" }, { status: 500 });

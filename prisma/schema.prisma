@@ -2729,6 +2729,10 @@ enum RsvpStatus {
 model RsvpDinner {
   id           String    @id @default(cuid())
   eventId      String
+  // Denormalized tenant key (multi-tenancy Phase-2, Domain #15). Nullable +
+  // no FK; backfilled 1-hop from Event; stamped at create. Drives the RLS
+  // policy in prisma/rls/rsvp.sql. Inert on master (RLS_SET_LOCAL off).
+  organizationId String?
   name         String
   dinnerAt     DateTime
   location     String?
@@ -2743,11 +2747,15 @@ model RsvpDinner {
   responses RsvpDinnerResponse[]
 
   @@index([eventId])
+  @@index([organizationId])
 }
 
 model RsvpInvite {
   id             String     @id @default(cuid())
   eventId        String
+  // Denormalized tenant key (Domain #15). Nullable, no FK; backfilled 1-hop
+  // from Event; stamped at create. See prisma/rls/rsvp.sql.
+  organizationId String?
   token          String     @unique
   inviteeName    String
   inviteeEmail   String
@@ -2768,12 +2776,16 @@ model RsvpInvite {
   @@unique([eventId, inviteeEmail])
   @@index([eventId])
   @@index([eventId, status])
+  @@index([organizationId])
 }
 
 model RsvpDinnerResponse {
   id         String   @id @default(cuid())
   inviteId   String
   dinnerId   String
+  // Denormalized tenant key (Domain #15). Nullable, no FK; backfilled 2-hop
+  // via RsvpInvite → Event; stamped at create from the invite's org.
+  organizationId String?
   attending  Boolean  @default(false)
   guestCount Int      @default(0)
   createdAt  DateTime @default(now())
@@ -2785,6 +2797,7 @@ model RsvpDinnerResponse {
   @@unique([inviteId, dinnerId])
   @@index([dinnerId])
   @@index([inviteId])
+  @@index([organizationId])
 }
 
 // ── Speaker reimbursement (July 20, 2026) ──────────────────────────

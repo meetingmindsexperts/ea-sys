@@ -110,6 +110,15 @@ import {
   SESSION_PROPOSAL_THEME_B_ID,
   SESSION_PROPOSAL_A_ID,
   SESSION_PROPOSAL_B_ID,
+  SHARED_RSVP_INVITEE_EMAIL,
+  RSVP_DINNER_A_ID,
+  RSVP_DINNER_B_ID,
+  RSVP_INVITE_A_ID,
+  RSVP_INVITE_B_ID,
+  RSVP_INVITE_A_TOKEN,
+  RSVP_INVITE_B_TOKEN,
+  RSVP_RESPONSE_A_ID,
+  RSVP_RESPONSE_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -239,6 +248,18 @@ async function seedOrg(
     proposalId: string;
     eventId: string;
     speakerId: string;
+  },
+  // Dinner RSVP sweep (Domain #15): a dinner + an invite (SHARED invitee email
+  // across orgs; UNIQUE token) + a response on that invite (the 2-hop chain).
+  // All three born with organizationId; RsvpDinner/RsvpInvite cascade from
+  // Event, RsvpDinnerResponse from both — the org cascade wipes them.
+  rsvp?: {
+    dinnerId: string;
+    inviteId: string;
+    inviteToken: string;
+    inviteeEmail: string;
+    responseId: string;
+    eventId: string;
   },
 ) {
   await db.organization.create({
@@ -668,6 +689,42 @@ async function seedOrg(
       },
     });
   }
+  // Dinner RSVP sweep fixtures. Dinner + invite (shared email / unique token) +
+  // a response on that invite. RsvpDinner/RsvpInvite cascade from Event;
+  // RsvpDinnerResponse from both — the org cascade removes the whole chain.
+  if (rsvp) {
+    await db.rsvpDinner.create({
+      data: {
+        id: rsvp.dinnerId,
+        eventId: rsvp.eventId,
+        organizationId: orgId,
+        name: "Tenancy Gala Dinner",
+        dinnerAt: new Date("2027-01-11T19:00:00Z"),
+      },
+    });
+    await db.rsvpInvite.create({
+      data: {
+        id: rsvp.inviteId,
+        eventId: rsvp.eventId,
+        organizationId: orgId,
+        token: rsvp.inviteToken,
+        inviteeName: "Tenancy VIP",
+        inviteeEmail: rsvp.inviteeEmail,
+        status: "RESPONDED",
+        respondedAt: new Date("2027-01-06T09:00:00Z"),
+      },
+    });
+    await db.rsvpDinnerResponse.create({
+      data: {
+        id: rsvp.responseId,
+        inviteId: rsvp.inviteId,
+        dinnerId: rsvp.dinnerId,
+        organizationId: orgId,
+        attending: true,
+        guestCount: 1,
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -900,6 +957,14 @@ async function main() {
       eventId: EVENT_A_SHARED_ID,
       speakerId: SPEAKER_A_ID,
     },
+    {
+      dinnerId: RSVP_DINNER_A_ID,
+      inviteId: RSVP_INVITE_A_ID,
+      inviteToken: RSVP_INVITE_A_TOKEN,
+      inviteeEmail: SHARED_RSVP_INVITEE_EMAIL,
+      responseId: RSVP_RESPONSE_A_ID,
+      eventId: EVENT_A_SHARED_ID,
+    },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -1016,6 +1081,14 @@ async function main() {
       proposalId: SESSION_PROPOSAL_B_ID,
       eventId: EVENT_B_SHARED_ID,
       speakerId: SPEAKER_B_ID,
+    },
+    {
+      dinnerId: RSVP_DINNER_B_ID,
+      inviteId: RSVP_INVITE_B_ID,
+      inviteToken: RSVP_INVITE_B_TOKEN,
+      inviteeEmail: SHARED_RSVP_INVITEE_EMAIL,
+      responseId: RSVP_RESPONSE_B_ID,
+      eventId: EVENT_B_SHARED_ID,
     },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

@@ -249,6 +249,26 @@ export const SESSION_PROPOSAL_A_ID = "tenancy-sprop-a";
 export const SESSION_PROPOSAL_B_ID = "tenancy-sprop-b";
 
 /**
+ * Dinner RSVP sweep (Domain #15). RsvpDinner + RsvpInvite (1-hop) +
+ * RsvpDinnerResponse (2-hop). The invitee EMAIL is SHARED across both orgs
+ * (@@unique is [eventId, inviteeEmail] — no per-org-unique on email alone), so
+ * an unscoped by-email lookup returning only the caller's row proves lane
+ * scoping. The token is GLOBALLY unique, so a cross-tenant findUnique({ token })
+ * returning null proves the public-route bootstrap (a token minted for A is
+ * invisible on B's lane — exactly why the route resolves org from Event first).
+ * Each org gets a dinner + invite + a response on that invite (2-hop chain).
+ */
+export const SHARED_RSVP_INVITEE_EMAIL = "vip@tenancy.test";
+export const RSVP_DINNER_A_ID = "tenancy-rdin-a";
+export const RSVP_DINNER_B_ID = "tenancy-rdin-b";
+export const RSVP_INVITE_A_ID = "tenancy-rinv-a";
+export const RSVP_INVITE_B_ID = "tenancy-rinv-b";
+export const RSVP_INVITE_A_TOKEN = "tenancy-rtok-a-0000000000000000";
+export const RSVP_INVITE_B_TOKEN = "tenancy-rtok-b-0000000000000000";
+export const RSVP_RESPONSE_A_ID = "tenancy-rresp-a";
+export const RSVP_RESPONSE_B_ID = "tenancy-rresp-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

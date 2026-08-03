@@ -10,10 +10,17 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { runWithTenant } from "@/lib/tenant-context";
 import { rsvpDinnerInputSchema, isDeadlineAfterDinner } from "@/lib/rsvp/rsvp";
 
 type RouteParams = { params: Promise<{ eventId: string; dinnerId: string }> };
 
+/**
+ * Resource-org loader: resolve the (un-swept) Event for its org, then read the
+ * swept RsvpDinner on that tenant's lane. Returns the org so the caller can
+ * run its swept write in the same lane. Resource org (not session org) keeps
+ * the org-null SUPER_ADMIN buildEventAccessWhere serves working.
+ */
 async function loadDinner(
   eventId: string,
   dinnerId: string,
@@ -23,26 +30,30 @@ async function loadDinner(
     // buildEventAccessWhere (R2 L9): assignment-aware + org-null-SUPER_ADMIN
     // correct, replacing the bare organizationId! scope.
     where: buildEventAccessWhere(user, eventId),
-    select: { id: true },
+    select: { id: true, organizationId: true },
   });
   if (!event) return null;
   // Full row — the PUT validates the effective deadline/dinnerAt pair against
   // stored values, and both mutations audit a before-snapshot (review R2 L13:
   // "fields-only" UPDATE audits and `{}` DELETE audits couldn't answer what
   // changed or what was deleted).
-  return db.rsvpDinner.findFirst({
-    where: { id: dinnerId, eventId },
-    select: {
-      id: true,
-      name: true,
-      dinnerAt: true,
-      location: true,
-      description: true,
-      rsvpDeadline: true,
-      sortOrder: true,
-      isActive: true,
-    },
-  });
+  const dinner = await runWithTenant(event.organizationId, () =>
+    db.rsvpDinner.findFirst({
+      where: { id: dinnerId, eventId },
+      select: {
+        id: true,
+        name: true,
+        dinnerAt: true,
+        location: true,
+        description: true,
+        rsvpDeadline: true,
+        sortOrder: true,
+        isActive: true,
+      },
+    }),
+  );
+  if (!dinner) return null;
+  return { organizationId: event.organizationId, dinner };
 }
 
 export async function PUT(req: Request, { params }: RouteParams) {
@@ -62,11 +73,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const dinner = await loadDinner(eventId, dinnerId, session.user);
-    if (!dinner) {
+    const loaded = await loadDinner(eventId, dinnerId, session.user);
+    if (!loaded) {
       apiLogger.warn({ eventId, dinnerId, userId: session.user.id }, "dinners:update-not-found");
       return NextResponse.json({ error: "Dinner not found" }, { status: 404 });
     }
+    const { dinner, organizationId } = loaded;
 
     const d = parsed.data;
     // Effective (merged) cross-field check — the PUT is partial, so either
@@ -80,35 +92,38 @@ export async function PUT(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    const updated = await db.rsvpDinner.update({
-      where: { id: dinnerId },
-      data: {
-        ...(d.name !== undefined && { name: d.name }),
-        ...(d.dinnerAt !== undefined && { dinnerAt: new Date(d.dinnerAt) }),
-        ...(d.location !== undefined && { location: d.location || null }),
-        ...(d.description !== undefined && { description: d.description || null }),
-        ...(d.rsvpDeadline !== undefined && {
-          rsvpDeadline: d.rsvpDeadline ? new Date(d.rsvpDeadline) : null,
-        }),
-        ...(d.sortOrder !== undefined && { sortOrder: d.sortOrder }),
-        ...(d.isActive !== undefined && { isActive: d.isActive }),
-      },
-    });
 
-    db.auditLog
-      .create({
+    return await runWithTenant(organizationId, async () => {
+      const updated = await db.rsvpDinner.update({
+        where: { id: dinnerId },
         data: {
-          eventId,
-          userId: session.user.id,
-          action: "UPDATE",
-          entityType: "RSVP_DINNER",
-          entityId: dinnerId,
-          changes: { before: dinner, after: d },
+          ...(d.name !== undefined && { name: d.name }),
+          ...(d.dinnerAt !== undefined && { dinnerAt: new Date(d.dinnerAt) }),
+          ...(d.location !== undefined && { location: d.location || null }),
+          ...(d.description !== undefined && { description: d.description || null }),
+          ...(d.rsvpDeadline !== undefined && {
+            rsvpDeadline: d.rsvpDeadline ? new Date(d.rsvpDeadline) : null,
+          }),
+          ...(d.sortOrder !== undefined && { sortOrder: d.sortOrder }),
+          ...(d.isActive !== undefined && { isActive: d.isActive }),
         },
-      })
-      .catch((err) => apiLogger.error({ err }, "dinners:audit-failed"));
+      });
 
-    return NextResponse.json({ dinner: updated });
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "UPDATE",
+            entityType: "RSVP_DINNER",
+            entityId: dinnerId,
+            changes: { before: dinner, after: d },
+          },
+        })
+        .catch((err) => apiLogger.error({ err }, "dinners:audit-failed"));
+
+      return NextResponse.json({ dinner: updated });
+    });
   } catch (err) {
     apiLogger.error({ err }, "dinners:update-failed");
     return NextResponse.json({ error: "Failed to update dinner" }, { status: 500 });
@@ -122,28 +137,31 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const dinner = await loadDinner(eventId, dinnerId, session.user);
-    if (!dinner) {
+    const loaded = await loadDinner(eventId, dinnerId, session.user);
+    if (!loaded) {
       apiLogger.warn({ eventId, dinnerId, userId: session.user.id }, "dinners:delete-not-found");
       return NextResponse.json({ error: "Dinner not found" }, { status: 404 });
     }
+    const { dinner, organizationId } = loaded;
 
-    await db.rsvpDinner.delete({ where: { id: dinnerId } });
+    return await runWithTenant(organizationId, async () => {
+      await db.rsvpDinner.delete({ where: { id: dinnerId } });
 
-    db.auditLog
-      .create({
-        data: {
-          eventId,
-          userId: session.user.id,
-          action: "DELETE",
-          entityType: "RSVP_DINNER",
-          entityId: dinnerId,
-          changes: { deleted: dinner },
-        },
-      })
-      .catch((err) => apiLogger.error({ err }, "dinners:audit-failed"));
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "DELETE",
+            entityType: "RSVP_DINNER",
+            entityId: dinnerId,
+            changes: { deleted: dinner },
+          },
+        })
+        .catch((err) => apiLogger.error({ err }, "dinners:audit-failed"));
 
-    return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true });
+    });
   } catch (err) {
     apiLogger.error({ err }, "dinners:delete-failed");
     return NextResponse.json({ error: "Failed to delete dinner" }, { status: 500 });

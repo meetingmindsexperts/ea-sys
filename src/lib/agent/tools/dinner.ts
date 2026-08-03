@@ -5,6 +5,7 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import { computeDinnerHeadcounts } from "@/lib/rsvp/rsvp";
 import type { ToolExecutor } from "./_shared";
 
@@ -16,6 +17,8 @@ const listDinnerRsvps: ToolExecutor = async (input, ctx) => {
       return { error: `Invalid status "${statusFilter}". Must be PENDING or RESPONDED.` };
     }
 
+    // Session (API-key) org lane for the swept RsvpDinner/RsvpInvite reads.
+    return await runWithTenant(ctx.organizationId, async () => {
     const event = await db.event.findFirst({
       where: { id: ctx.eventId, organizationId: ctx.organizationId },
       select: { id: true, name: true },
@@ -118,6 +121,7 @@ const listDinnerRsvps: ToolExecutor = async (input, ctx) => {
           .map((r) => ({ dinner: dinnerName.get(r.dinnerId) ?? r.dinnerId, guests: r.guestCount })),
       })),
     };
+    });
   } catch (err) {
     apiLogger.error({ err, eventId: ctx.eventId }, "agent:list_dinner_rsvps-failed");
     return { error: "Failed to load dinner RSVPs" };

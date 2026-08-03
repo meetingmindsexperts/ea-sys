@@ -19,6 +19,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import {
   brandingCc,
@@ -88,6 +89,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       where: buildEventAccessWhere(session.user, eventId),
       select: {
         id: true,
+        organizationId: true,
         name: true,
         slug: true,
         organization: { select: { name: true } },
@@ -98,6 +100,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Resource-org lane: the swept RsvpInvite/RsvpDinner reads below (and the
+    // EmailLog resume-read, which is unswept and passes through) run here.
+    return await runWithTenant(event.organizationId, async () => {
     const [invites, tpl, sender, dinnerCount] = await Promise.all([
       db.rsvpInvite.findMany({
         // inviteId → exactly that invitee (event-scoped); else the target batch.
@@ -257,6 +262,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       "rsvp-send:done",
     );
     return NextResponse.json({ sent, failed, skippedRecentlyInvited });
+    });
   } catch (err) {
     apiLogger.error({ err }, "rsvp-send:failed");
     return NextResponse.json({ error: "Failed to send invitations" }, { status: 500 });

@@ -19,9 +19,10 @@
  * Docs: docs/DINNER_RSVP.md.
  */
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { eventMatchesRequestTenant } from "@/lib/public-event";
+import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
+import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rsvpSubmitSchema } from "@/lib/rsvp/rsvp";
 
@@ -75,6 +76,23 @@ async function loadInviteForSlug(req: Request, slug: string, token: string) {
   return invite;
 }
 
+/**
+ * Resolve the tenant org from the (un-swept) Event by request host + slug. The
+ * swept RsvpInvite token lookup below must run inside runWithTenant(this org):
+ * under RLS a token read with NO tenant context fail-closes to null, so every
+ * link would look invalid. publicEventWhere binds the host's org (unscoped /
+ * behavior-preserving on master); the invite's own slug + tenant asserts inside
+ * loadInviteForSlug stay as defense-in-depth. Returns null when the slug maps
+ * to no accessible event on this host.
+ */
+async function resolveEventOrg(req: Request, slug: string): Promise<string | null> {
+  const event = await db.event.findFirst({
+    where: await publicEventWhere(req, slug),
+    select: { organizationId: true },
+  });
+  return event?.organizationId ?? null;
+}
+
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     const { slug, token } = await params;
@@ -92,35 +110,43 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
-    const invite = await loadInviteForSlug(req, slug, token);
-    if (!invite) {
+    const org = await resolveEventOrg(req, slug);
+    if (!org) {
       apiLogger.warn({ slug, stage: "load" }, "rsvp-public:invalid-token");
       return NextResponse.json({ error: "This RSVP link is invalid." }, { status: 404 });
     }
 
-    const dinners = await db.rsvpDinner.findMany({
-      where: { eventId: invite.eventId, isActive: true },
-      orderBy: [{ sortOrder: "asc" }, { dinnerAt: "asc" }],
-      select: { id: true, name: true, dinnerAt: true, location: true, description: true, rsvpDeadline: true },
-    });
-    const now = Date.now();
-    const selection = new Map(invite.responses.map((r) => [r.dinnerId, r]));
+    return await runWithTenant(org, async () => {
+      const invite = await loadInviteForSlug(req, slug, token);
+      if (!invite) {
+        apiLogger.warn({ slug, stage: "load" }, "rsvp-public:invalid-token");
+        return NextResponse.json({ error: "This RSVP link is invalid." }, { status: 404 });
+      }
 
-    return NextResponse.json({
-      event: invite.event,
-      invitee: { name: invite.inviteeName, email: invite.inviteeEmail, dietary: invite.dietary ?? "" },
-      status: invite.status,
-      dinners: dinners.map((d) => ({
-        id: d.id,
-        name: d.name,
-        dinnerAt: d.dinnerAt,
-        location: d.location,
-        description: d.description,
-        rsvpDeadline: d.rsvpDeadline,
-        closed: !isDinnerOpen(d, now),
-        attending: selection.get(d.id)?.attending ?? false,
-        guestCount: selection.get(d.id)?.guestCount ?? 0,
-      })),
+      const dinners = await db.rsvpDinner.findMany({
+        where: { eventId: invite.eventId, isActive: true },
+        orderBy: [{ sortOrder: "asc" }, { dinnerAt: "asc" }],
+        select: { id: true, name: true, dinnerAt: true, location: true, description: true, rsvpDeadline: true },
+      });
+      const now = Date.now();
+      const selection = new Map(invite.responses.map((r) => [r.dinnerId, r]));
+
+      return NextResponse.json({
+        event: invite.event,
+        invitee: { name: invite.inviteeName, email: invite.inviteeEmail, dietary: invite.dietary ?? "" },
+        status: invite.status,
+        dinners: dinners.map((d) => ({
+          id: d.id,
+          name: d.name,
+          dinnerAt: d.dinnerAt,
+          location: d.location,
+          description: d.description,
+          rsvpDeadline: d.rsvpDeadline,
+          closed: !isDinnerOpen(d, now),
+          attending: selection.get(d.id)?.attending ?? false,
+          guestCount: selection.get(d.id)?.guestCount ?? 0,
+        })),
+      });
     });
   } catch (err) {
     apiLogger.error({ err }, "rsvp-public:load-failed");
@@ -164,6 +190,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
 
+    const org = await resolveEventOrg(req, slug);
+    if (!org) {
+      apiLogger.warn({ slug, stage: "submit-load" }, "rsvp-public:invalid-token");
+      return NextResponse.json({ error: "This RSVP link is invalid." }, { status: 404 });
+    }
+
+    return await runWithTenant(org, async () => {
     const invite = await loadInviteForSlug(req, slug, token);
     if (!invite) {
       apiLogger.warn({ slug, stage: "submit-load" }, "rsvp-public:invalid-token");
@@ -219,7 +252,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     // can't leave ghost attendance. Closed dinners are left untouched (a
     // response captured before the deadline stays valid).
     const attendingRows = accepted.filter((d) => d.attending);
-    await db.$transaction(async (tx) => {
+    // tenantTransaction (not db.$transaction): the interactive tx opens its own
+    // pooled backend session, so it must issue its own SET LOCAL app.current_org
+    // — a plain $transaction inside the runWithTenant scope would run un-scoped
+    // and fail-close under RLS. It reads the ALS store set by the wrap above.
+    await tenantTransaction(async (tx) => {
       // Serialize concurrent submits for THIS invite (double-click / retry /
       // two tabs / direct API): a row lock makes each replace-all run cleanly
       // and last-write-wins, instead of two delete-then-insert transactions
@@ -235,6 +272,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           data: attendingRows.map((d) => ({
             inviteId: invite.id,
             dinnerId: d.dinnerId,
+            organizationId: org,
             attending: true,
             guestCount: d.guestCount,
           })),
@@ -290,6 +328,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       "rsvp-public:submitted",
     );
     return NextResponse.json({ ok: true, ignoredDinnerIds });
+    });
   } catch (err) {
     apiLogger.error({ err }, "rsvp-public:submit-failed");
     return NextResponse.json({ error: "Failed to submit RSVP" }, { status: 500 });

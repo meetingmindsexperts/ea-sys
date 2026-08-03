@@ -37,7 +37,14 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// tenantTransaction passthrough (Domain #15 sweep): the public submit now runs
+// its replace-all through tenantTransaction — delegate to the mock's
+// $transaction so the existing `tx` wiring (FOR UPDATE + deleteMany/createMany/
+// update) is unchanged.
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  tenantTransaction: (fn: (tx: unknown) => unknown) => mockDb.$transaction(fn),
+}));
 vi.mock("@/lib/security", () => ({
   getClientIp: () => "127.0.0.1",
   checkRateLimit: mockRateLimit,
@@ -126,6 +133,9 @@ describe("POST /rsvp-invites — created count is the DB's real insert count (M2
 // ── M3 ──────────────────────────────────────────────────────────────
 describe("POST public rsvp — server-authoritative replace-all over open dinners (M3)", () => {
   function wireInvite() {
+    // resolveEventOrg (Domain #15) resolves the tenant org from the Event by
+    // host+slug BEFORE the swept token lookup — give it an org.
+    mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1" });
     mockDb.rsvpInvite.findUnique.mockResolvedValue({
       id: "inv1",
       eventId: "ev1",
@@ -180,7 +190,7 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
     // Recreates ONLY the attending dinner (B), not the declined A.
     expect(tx.rsvpDinnerResponse.createMany).toHaveBeenCalledTimes(1);
     expect(tx.rsvpDinnerResponse.createMany.mock.calls[0][0].data).toEqual([
-      { inviteId: "inv1", dinnerId: "B", attending: true, guestCount: 3 },
+      { inviteId: "inv1", dinnerId: "B", organizationId: "org1", attending: true, guestCount: 3 },
     ]);
     expect(tx.rsvpInvite.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "RESPONDED", dietary: "veg" }) }),
@@ -232,7 +242,7 @@ describe("POST public rsvp — server-authoritative replace-all over open dinner
     // The replace-all only touches the open dinner.
     expect(tx.rsvpDinnerResponse.deleteMany.mock.calls[0][0].where.dinnerId.in).toEqual(["B"]);
     expect(tx.rsvpDinnerResponse.createMany.mock.calls[0][0].data).toEqual([
-      { inviteId: "inv1", dinnerId: "B", attending: true, guestCount: 1 },
+      { inviteId: "inv1", dinnerId: "B", organizationId: "org1", attending: true, guestCount: 1 },
     ]);
   });
 

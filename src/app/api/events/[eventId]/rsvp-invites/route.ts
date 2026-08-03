@@ -18,6 +18,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
+import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import {
   computeDinnerHeadcounts,
@@ -58,13 +59,15 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "rsvp-invites:list-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Resource-org lane for the swept RsvpDinner/RsvpInvite reads below.
+    return await runWithTenant(event.organizationId, async () => {
     const [dinners, invites] = await Promise.all([
       db.rsvpDinner.findMany({
         where: { eventId },
@@ -159,6 +162,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ dinners, invites, headcounts });
+    });
   } catch (err) {
     apiLogger.error({ err }, "rsvp-invites:list-failed");
     return NextResponse.json({ error: "Failed to load RSVP roster" }, { status: 500 });
@@ -198,7 +202,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const event = await db.event.findFirst({
       // buildEventAccessWhere (R2 L9) — parity with this file's GET.
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "rsvp-invites:add-event-not-found");
@@ -213,49 +217,54 @@ export async function POST(req: Request, { params }: RouteParams) {
       seen.add(email);
       return true;
     });
-    const existing = await db.rsvpInvite.findMany({
-      where: { eventId, inviteeEmail: { in: [...seen] } },
-      select: { inviteeEmail: true },
-    });
-    const already = new Set(existing.map((e) => e.inviteeEmail));
 
-    const toCreate = deduped.filter((i) => !already.has(normalizeRsvpEmail(i.email)));
-    let created = 0;
-    if (toCreate.length > 0) {
-      // Read the DB's actual insert count — `skipDuplicates` silently drops any
-      // row that lost a race to a concurrent add (unique on eventId+email), so
-      // `toCreate.length` would over-report. This is the honest number.
-      const result = await db.rsvpInvite.createMany({
-        data: toCreate.map((i) => ({
-          eventId,
-          token: generateRsvpToken(),
-          inviteeName: i.name.trim(),
-          inviteeEmail: normalizeRsvpEmail(i.email),
-          registrationId: i.registrationId || null,
-          speakerId: i.speakerId || null,
-        })),
-        skipDuplicates: true,
+    // Resource-org lane for the swept RsvpInvite existing-read + createMany.
+    return await runWithTenant(event.organizationId, async () => {
+      const existing = await db.rsvpInvite.findMany({
+        where: { eventId, inviteeEmail: { in: [...seen] } },
+        select: { inviteeEmail: true },
       });
-      created = result.count;
-    }
+      const already = new Set(existing.map((e) => e.inviteeEmail));
 
-    db.auditLog
-      .create({
-        data: {
-          eventId,
-          userId: session.user.id,
-          action: "CREATE",
-          entityType: "RSVP_INVITE",
-          entityId: `bulk:${created}`,
-          changes: { created, skipped: deduped.length - created, bulk: true },
-        },
-      })
-      .catch((err) => apiLogger.error({ err }, "rsvp-invites:audit-failed"));
+      const toCreate = deduped.filter((i) => !already.has(normalizeRsvpEmail(i.email)));
+      let created = 0;
+      if (toCreate.length > 0) {
+        // Read the DB's actual insert count — `skipDuplicates` silently drops any
+        // row that lost a race to a concurrent add (unique on eventId+email), so
+        // `toCreate.length` would over-report. This is the honest number.
+        const result = await db.rsvpInvite.createMany({
+          data: toCreate.map((i) => ({
+            eventId,
+            organizationId: event.organizationId,
+            token: generateRsvpToken(),
+            inviteeName: i.name.trim(),
+            inviteeEmail: normalizeRsvpEmail(i.email),
+            registrationId: i.registrationId || null,
+            speakerId: i.speakerId || null,
+          })),
+          skipDuplicates: true,
+        });
+        created = result.count;
+      }
 
-    return NextResponse.json(
-      { created, skipped: deduped.length - created },
-      { status: 201 },
-    );
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "CREATE",
+            entityType: "RSVP_INVITE",
+            entityId: `bulk:${created}`,
+            changes: { created, skipped: deduped.length - created, bulk: true },
+          },
+        })
+        .catch((err) => apiLogger.error({ err }, "rsvp-invites:audit-failed"));
+
+      return NextResponse.json(
+        { created, skipped: deduped.length - created },
+        { status: 201 },
+      );
+    });
   } catch (err) {
     apiLogger.error({ err }, "rsvp-invites:add-failed");
     return NextResponse.json({ error: "Failed to add invitees" }, { status: 500 });
