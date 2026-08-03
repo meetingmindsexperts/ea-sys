@@ -7,7 +7,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { formatSerialId } from "@/lib/registration-serial";
-import { renderBarcodePng, entryBarcodeValue } from "@/lib/barcode";
+import { renderBarcodePng, renderQrPng, entryBarcodeValue } from "@/lib/barcode";
 import { isPaymentAdmissible } from "@/lib/check-in";
 import { mapWithConcurrency } from "@/lib/concurrency";
 import PDFDocument from "pdfkit";
@@ -51,7 +51,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // only print badges for events they're assigned to (badge PDFs carry entry
       // barcodes). Org-scoped (unchanged) for admin/organizer.
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, badgeVerticalOffset: true },
+      select: { id: true, badgeVerticalOffset: true, requiresDtcmBarcode: true },
     });
 
     if (!event) {
@@ -136,7 +136,20 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     // Use event's saved vertical offset, clamped to reasonable range
     const vOffset = Math.max(-200, Math.min(200, event.badgeVerticalOffset || 0));
-    const pdfBuffer = await generateBadgePDF(registrations, vOffset);
+    // DTCM QRs render only on flagged (Dubai) events — a stale dtcmBarcode
+    // value on an unflagged event must not change its badge output.
+    const includeDtcm = !!event.requiresDtcmBarcode;
+    const dtcmCount = includeDtcm ? registrations.filter((r) => !!r.dtcmBarcode).length : 0;
+    const pdfBuffer = await generateBadgePDF(registrations, vOffset, includeDtcm);
+    if (includeDtcm) {
+      apiLogger.info({
+        msg: "badges:dtcm-rendered",
+        eventId,
+        badges: registrations.length,
+        withDtcmQr: dtcmCount,
+        missingDtcm: registrations.length - dtcmCount,
+      }, "DTCM-flagged event — QR codes rendered on badges carrying a DTCM barcode");
+    }
 
     // Record the print for analytics ("badges printed vs registered" +
     // reprints). Awaited but failure-isolated — a tracking error must never
@@ -167,7 +180,14 @@ export async function POST(req: Request, { params }: RouteParams) {
             entityId: `bulk:${printedIds.length}`,
             // Cap the id list so a 1000-badge print doesn't bloat the row;
             // the count is the headline figure for analytics.
-            changes: { count: printedIds.length, all: !!all, registrationIds: printedIds.slice(0, 200) },
+            changes: {
+              count: printedIds.length,
+              all: !!all,
+              // DTCM audit trail (Badge=Faculty-style): how many printed badges
+              // carried the Dubai compliance QR vs were still missing a code.
+              dtcmQrCount: dtcmCount,
+              registrationIds: printedIds.slice(0, 200),
+            },
             ipAddress: getClientIp(req),
           },
         });
@@ -205,12 +225,13 @@ interface BadgeRegistration {
 async function generateBadgePDF(
   registrations: BadgeRegistration[],
   verticalOffset: number,
+  includeDtcm: boolean,
 ): Promise<Buffer> {
   // Pre-render all barcodes (async) before drawing. H4: bounded concurrency,
   // NOT `Promise.all` over every row — each render is a CPU-bound
   // bwip-js.toBuffer, and firing thousands at once pins the event loop on the
   // box that also serves the live scanner. Dedup first so shared codes render
-  // once. Entry barcode = qrCode only (the DTCM code is never on the badge).
+  // once. Entry barcode = qrCode only, Code 128.
   // Encoded value is `{qrCode}-{serialId}` (entryBarcodeValue) so a raw
   // scanner dump identifies the person; check-in accepts both forms.
   const barcodeBuffers = new Map<string, Buffer>();
@@ -232,6 +253,35 @@ async function generateBadgePDF(
     }
   });
 
+  // DTCM compliance QR (Dubai-flagged events only): the externally-issued
+  // 36-char UUID renders as a QR — as Code 128 the bars would be ~0.19mm at
+  // badge width and unscannable in print (see renderQrPng). Separate buffer
+  // map so a hypothetical value collision with an entry code can't serve the
+  // wrong symbology. Same bounded-concurrency pool; a failed render logs and
+  // that badge simply omits the QR (the import/detail sheet remain the
+  // recovery path), never fails the whole print.
+  const dtcmQrBuffers = new Map<string, Buffer>();
+  if (includeDtcm) {
+    const uniqueDtcm = [
+      ...new Set(
+        registrations.map((r) => r.dtcmBarcode).filter((c): c is string => !!c)
+      ),
+    ];
+    await mapWithConcurrency(uniqueDtcm, BARCODE_RENDER_CONCURRENCY, async (dtcmValue) => {
+      try {
+        const png = await renderQrPng(dtcmValue);
+        dtcmQrBuffers.set(dtcmValue, png);
+      } catch (err) {
+        apiLogger.warn({
+          msg: "badges:dtcm-qr-render-failed",
+          // Truncated — the full value is a compliance credential.
+          dtcmPrefix: dtcmValue.slice(0, 8),
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+      }
+    });
+  }
+
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];
     const doc = new PDFDocument({ size: "A4", margin: 0 });
@@ -246,7 +296,7 @@ async function generateBadgePDF(
 
     for (let i = 0; i < registrations.length; i++) {
       if (i > 0) doc.addPage();
-      drawBadge(doc, registrations[i], x, baseY, i + 1, barcodeBuffers);
+      drawBadge(doc, registrations[i], x, baseY, i + 1, barcodeBuffers, dtcmQrBuffers);
     }
 
     doc.end();
@@ -254,7 +304,7 @@ async function generateBadgePDF(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, _regIndex: number, barcodeBuffers: Map<string, Buffer>) {
+function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, _regIndex: number, barcodeBuffers: Map<string, Buffer>, dtcmQrBuffers: Map<string, Buffer>) {
   const badgeType = (reg.badgeType || "DELEGATE").toUpperCase();
 
   // Badge border (dashed for cutting guide)
@@ -319,6 +369,31 @@ function drawBadge(doc: any, reg: BadgeRegistration, x: number, y: number, _regI
     align: "center",
     lineBreak: false,
   });
+
+  // ── DTCM compliance QR (Dubai-flagged events only) ──
+  // Occupies the previously-unused band below the bottom row (y+170..212)
+  // inside the 216pt badge, so NOTHING above moves: non-DTCM events and
+  // DTCM regs without an imported code print byte-identical badges to
+  // before this feature (badgeVerticalOffset calibration untouched).
+  // QR at the right; "DTCM" label + human-readable UUID at the left so
+  // an inspector can fall back to reading the value if a scan fails.
+  const dtcmPng = reg.dtcmBarcode ? dtcmQrBuffers.get(reg.dtcmBarcode) : undefined;
+  if (dtcmPng) {
+    const qrSize = 40; // ≈14mm — QR v3 modules ~0.48mm, comfortably scannable
+    const qrX = x + BADGE_W - MARGIN - qrSize;
+    const qrY = y + 172;
+    doc.image(dtcmPng, qrX, qrY, { fit: [qrSize, qrSize] });
+
+    const labelW = contentW - qrSize - 10;
+    doc.font("Helvetica-Bold").fontSize(6).fillColor("#000000");
+    doc.text("DTCM", x + MARGIN, qrY + 12, { width: labelW, align: "left", lineBreak: false });
+    doc.font("Courier").fontSize(5).fillColor("#000000");
+    doc.text(reg.dtcmBarcode as string, x + MARGIN, qrY + 20, {
+      width: labelW,
+      align: "left",
+      lineBreak: false,
+    });
+  }
 
   doc.restore();
 }

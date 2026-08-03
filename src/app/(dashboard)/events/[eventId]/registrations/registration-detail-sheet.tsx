@@ -2494,9 +2494,10 @@ export function RegistrationDetailSheet({
                   </h3>
                   {/* Scannable Code 128 image (byte-identical to the printed
                       badge). Rendered server-side via bwip-js; the endpoint
-                      prefers qrCode, falls back to dtcmBarcode. Gated on the
-                      value so the endpoint is only hit when a barcode exists. */}
-                  {(selectedRegistration.qrCode || selectedRegistration.dtcmBarcode) && (
+                      serves the qrCode ONLY (no DTCM fallback — DTCM has its
+                      own ?code=dtcm QR below). Gated on the value so the
+                      endpoint is only hit when a barcode exists. */}
+                  {selectedRegistration.qrCode && (
                     <div className="flex justify-center rounded-lg bg-white border border-slate-200 p-3">
                       {/* `unoptimized` — barcode PNG must bypass Next's image
                           optimizer; re-encoding could blur the bars and break
@@ -2533,9 +2534,26 @@ export function RegistrationDetailSheet({
                           <Barcode className="h-4 w-4" />
                           DTCM Barcode
                         </div>
-                        <div className="bg-muted p-3 rounded-lg text-center">
+                        <div className="bg-muted p-3 rounded-lg text-center space-y-2">
                           {selectedRegistration.dtcmBarcode ? (
-                            <p className="font-mono text-sm break-all">{selectedRegistration.dtcmBarcode}</p>
+                            <>
+                              {/* Scannable DTCM QR — same render the badge
+                                  prints (?code=dtcm), so the desk can
+                                  test-scan without printing. `unoptimized`
+                                  for the same no-re-encode reason as the
+                                  entry barcode above. */}
+                              <div className="flex justify-center rounded-lg bg-white border border-slate-200 p-2">
+                                <Image
+                                  src={`/api/events/${eventId}/registrations/${selectedRegistration.id}/barcode?code=dtcm`}
+                                  alt="DTCM barcode QR"
+                                  width={96}
+                                  height={96}
+                                  unoptimized
+                                  className="h-24 w-24"
+                                />
+                              </div>
+                              <p className="font-mono text-xs break-all">{selectedRegistration.dtcmBarcode}</p>
+                            </>
                           ) : (
                             <p className="text-sm text-muted-foreground italic">Not set — usually CSV-imported</p>
                           )}

@@ -81,3 +81,31 @@ export async function renderBarcodePng(
     ...(includetext ? { textxalign: "center", textsize: 11 } : {}),
   });
 }
+
+/**
+ * Render `text` as a QR code PNG. Used for the DTCM compliance barcode on the
+ * badge + detail sheet: DTCM values are externally-issued 36-char UUIDs, which
+ * as Code 128 would need ~430 bar modules (~0.19mm bars at badge width —
+ * unscannable on a 300-dpi print), while a QR holds them comfortably at
+ * 14mm square. The ENTRY barcode stays Code 128 (`renderBarcodePng`) so
+ * existing desk laser scanners keep working; DTCM is scanned by inspectors'
+ * 2D imagers/phones and by our camera check-in scanner (html5-qrcode decodes
+ * both symbologies).
+ *
+ * Throws if bwip-js can't encode the value (e.g. empty string) — callers
+ * should guard against empty/whitespace input first.
+ */
+export async function renderQrPng(
+  text: string,
+  opts: { scale?: number } = {},
+): Promise<Buffer> {
+  const { scale = 3 } = opts;
+  return bwipjs.toBuffer({
+    bcid: "qrcode",
+    text,
+    scale,
+    // Error-correction M — standard print redundancy without inflating the
+    // module count for a 36-char payload.
+    eclevel: "M",
+  });
+}

@@ -49,6 +49,14 @@ describe("scannedEntryCodeCandidates", () => {
     expect(scannedEntryCodeCandidates("123456-A7")).toEqual(["123456-A7"]);
   });
 
+  it("a real DTCM UUID passes through exactly (matches Registration.dtcmBarcode as-is)", () => {
+    // The externally-issued DTCM shape — hex + hyphens. Must never be
+    // serial-stripped or the check-in `dtcmBarcode = scanned` match breaks.
+    expect(scannedEntryCodeCandidates("f83dc515-ade6-46e8-b846-1f216f694b44")).toEqual([
+      "f83dc515-ade6-46e8-b846-1f216f694b44",
+    ]);
+  });
+
   it("round-trip: candidates of a rendered value always include the stored code", () => {
     const stored = "1753791234567123456";
     for (const serial of [1, 99, 100, 4321]) {
