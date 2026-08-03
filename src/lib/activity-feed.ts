@@ -142,6 +142,7 @@ async function collect(
         templateSlug: r.templateSlug,
         errorMessage: r.errorMessage,
         hasBody: r.hasBody,
+        ...(r.attachmentNames.length ? { attachmentNames: r.attachmentNames } : {}),
       });
     }
   };

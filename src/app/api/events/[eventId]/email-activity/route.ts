@@ -104,6 +104,7 @@ export async function GET(
           status: true,
           errorMessage: true,
           htmlBody: true, // presence flag only — mapped to hasBody + stripped
+          attachmentNames: true,
           createdAt: true,
           triggeredBy: { select: { id: true, firstName: true, lastName: true, email: true } },
         },

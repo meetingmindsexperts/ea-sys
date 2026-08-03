@@ -2700,6 +2700,12 @@ model EmailLog {
   // Final rendered HTML of the sent email — audit copy, populated only for
   // opt-in senders (certificate deliveries; see EmailLogContext.storeBody).
   htmlBody          String?             @db.Text
+  // Filenames of the attachments that rode on this send (e.g. the paid
+  // invoice + receipt PDFs on a payment confirmation). NAMES ONLY, never the
+  // bytes — the documents themselves stay re-downloadable from their own
+  // surfaces. Captured centrally in sendEmail, so every sender is covered.
+  // Empty for rows logged before Aug 3, 2026 (not backfillable).
+  attachmentNames   String[]            @default([])
   triggeredByUserId String?
   createdAt         DateTime            @default(now())
 

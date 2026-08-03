@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, formatDistanceToNow, isToday, isYesterday } from "date-fns";
-import { Mail, AlertCircle, Loader2, Award, Eye } from "lucide-react";
+import { Mail, AlertCircle, Loader2, Award, Eye, Paperclip } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
 import { formatTemplateLabel } from "@/lib/email-template-slugs";
@@ -22,6 +22,8 @@ interface EmailLogRow {
   errorMessage: string | null;
   createdAt: string;
   hasBody: boolean;
+  /** Attachment filenames on this send (empty for pre-Aug-2026 rows). */
+  attachmentNames?: string[];
   triggeredBy: { firstName: string; lastName: string; email: string } | null;
 }
 
@@ -146,6 +148,12 @@ export function EmailLogCard({ entityType, entityId, title = "Email History" }: 
                         </span>
                       )}
                     </div>
+                    {(log.attachmentNames?.length ?? 0) > 0 && (
+                      <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+                        <Paperclip className="mt-0.5 h-3 w-3 shrink-0" />
+                        <span className="break-all">{log.attachmentNames!.join(", ")}</span>
+                      </p>
+                    )}
                     {log.status === "FAILED" && log.errorMessage && (
                       <p className="mt-1 text-xs text-red-500">{log.errorMessage}</p>
                     )}

@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { Activity, Eye, Loader2, Mail, Search, Users } from "lucide-react";
+import { Activity, Eye, Loader2, Mail, Paperclip, Search, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +49,8 @@ interface ActivityRow {
   errorMessage: string | null;
   createdAt: string;
   hasBody: boolean;
+  /** Attachment filenames on this send (empty for pre-Aug-2026 rows). */
+  attachmentNames?: string[];
   triggeredBy: { id: string; firstName: string; lastName: string; email: string } | null;
 }
 
@@ -265,6 +267,15 @@ export function EmailActivityCard({ eventId }: { eventId: string }) {
                 <TableRow key={row.id}>
                   <TableCell className="max-w-[260px]">
                     <span className="block truncate font-medium">{row.subject}</span>
+                    {(row.attachmentNames?.length ?? 0) > 0 && (
+                      <span
+                        className="mt-0.5 flex items-start gap-1 text-xs text-muted-foreground"
+                        title={row.attachmentNames!.join(", ")}
+                      >
+                        <Paperclip className="mt-0.5 h-3 w-3 shrink-0" />
+                        <span className="truncate">{row.attachmentNames!.join(", ")}</span>
+                      </span>
+                    )}
                     {row.status === "FAILED" && row.errorMessage && (
                       <span className="block truncate text-xs text-red-500">{row.errorMessage}</span>
                     )}

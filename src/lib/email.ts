@@ -622,6 +622,11 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
   const providerName = resolveProviderName();
   const toEmails = params.to.map((r) => r.email);
   const primaryTo = toEmails[0] ?? "";
+  // Attachment FILENAMES for the EmailLog audit row — captured here (the one
+  // choke point every sender goes through) so the history answers "what was
+  // attached?" (e.g. invoice + receipt PDFs on a payment confirmation)
+  // without any per-caller wiring. Names only; the bytes never reach the log.
+  const attachmentNames = params.attachments?.map((a) => a.name) ?? [];
 
   // Surface any sendEmail caller that forgot to pass logContext — the row
   // still gets written (as entityType=OTHER) but won't link to a detail
@@ -672,6 +677,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
       status: "FAILED",
       errorMessage: "circuit_open: email provider breaker is open (SES appears down); send skipped",
       htmlBody: params.htmlContent,
+      attachmentNames,
       context: params.logContext,
     });
     return { success: false, error: "circuit_open" };
@@ -697,6 +703,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
       providerMessageId: result.messageId ?? null,
       status: "SENT",
       htmlBody: params.htmlContent,
+      attachmentNames,
       context: params.logContext,
     });
 
@@ -767,6 +774,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
       status: "FAILED",
       errorMessage: errorMessageForLog,
       htmlBody: params.htmlContent,
+      attachmentNames,
       context: params.logContext,
     });
     // Fire admin alert (dedup'd, fire-and-forget). Does NOT block the

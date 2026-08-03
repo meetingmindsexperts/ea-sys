@@ -39,6 +39,10 @@ export interface ActivityItem {
   /** True when the final rendered HTML was stored (certificate deliveries)
    *  — unlocks the "View email" action (GET /api/email-logs/[id]/body). */
   hasBody?: boolean;
+  /** Filenames of the attachments that rode on this send (invoice/receipt
+   *  PDFs, agreement docs, certificates …). Absent when there were none —
+   *  and always absent on rows logged before Aug 3, 2026 (not backfillable). */
+  attachmentNames?: string[];
   // certificate
   serial?: string;
   certType?: string;

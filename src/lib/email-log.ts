@@ -40,6 +40,12 @@ export interface EmailLogRecord {
   errorMessage?: string | null;
   /** Final rendered HTML — persisted unless context.storeBody === false. */
   htmlBody?: string | null;
+  /**
+   * Filenames of the attachments on this send (invoice/receipt PDFs, agreement
+   * docs, certificates, …). Captured centrally in sendEmail so no caller has
+   * to remember; names only — the bytes never touch the log.
+   */
+  attachmentNames?: string[];
   context?: EmailLogContext;
 }
 
@@ -67,6 +73,7 @@ export async function logEmail(record: EmailLogRecord): Promise<void> {
         // Store-by-default (opt-out with storeBody: false). A caller with no
         // logContext at all still stores — "all sent emails" is the contract.
         htmlBody: record.context?.storeBody === false ? null : (record.htmlBody ?? null),
+        attachmentNames: record.attachmentNames ?? [],
         triggeredByUserId: record.context?.triggeredByUserId ?? null,
       },
     });
@@ -134,6 +141,7 @@ export async function getEmailLogsFor(
       // Presence flag only — mapped to `hasBody` below and stripped so the
       // (potentially large) audit HTML never rides along in list payloads.
       htmlBody: true,
+      attachmentNames: true,
       createdAt: true,
       triggeredBy: { select: { firstName: true, lastName: true, email: true } },
     },

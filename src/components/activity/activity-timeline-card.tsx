@@ -18,6 +18,7 @@ import {
   LogIn,
   Link2,
   ExternalLink,
+  Paperclip,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ViewEmailDialog } from "@/components/communications/view-email-dialog";
@@ -232,6 +233,12 @@ export function ActivityTimelineCard({ endpoint, anchor, queryKey, title = "Acti
                         </li>
                       ))}
                     </ul>
+                  )}
+                  {item.kind === "email" && (item.attachmentNames?.length ?? 0) > 0 && (
+                    <p className="mt-1 flex items-start gap-1 text-xs text-slate-500">
+                      <Paperclip className="mt-0.5 h-3 w-3 shrink-0 text-slate-400" />
+                      <span className="break-all">{item.attachmentNames!.join(", ")}</span>
+                    </p>
                   )}
                   {item.kind === "email" && item.status !== "SENT" && item.errorMessage && (
                     <p className="text-xs text-red-500 mt-1">{item.errorMessage}</p>

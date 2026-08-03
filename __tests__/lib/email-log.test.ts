@@ -130,3 +130,34 @@ describe("logEmail — htmlBody audit copy (store-by-default since July 16, 2026
     ]);
   });
 });
+
+describe("logEmail — attachmentNames (Aug 3, 2026)", () => {
+  const BASE = {
+    to: "jane@x.com",
+    subject: "Payment Confirmation",
+    provider: "ses",
+    status: "SENT" as const,
+  };
+
+  it("persists the attachment filenames (the payment invoice+receipt case)", async () => {
+    await logEmail({
+      ...BASE,
+      attachmentNames: ["INV-2026-001.pdf", "REC-2026-001.pdf"],
+      context: { organizationId: "org-1" },
+    });
+    expect(mockDb.emailLog.create.mock.calls[0][0].data.attachmentNames).toEqual([
+      "INV-2026-001.pdf",
+      "REC-2026-001.pdf",
+    ]);
+  });
+
+  it("defaults to [] when the send carried no attachments", async () => {
+    await logEmail({ ...BASE });
+    expect(mockDb.emailLog.create.mock.calls[0][0].data.attachmentNames).toEqual([]);
+  });
+
+  it("getEmailLogsFor selects attachmentNames for the history surfaces", async () => {
+    await getEmailLogsFor("REGISTRATION", "reg-1", "org-1");
+    expect(mockDb.emailLog.findMany.mock.calls[0][0].select.attachmentNames).toBe(true);
+  });
+});
