@@ -212,6 +212,34 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Self-service check-in kiosk review — deferred LOWs (Aug 3, 2026)
+
+Adversarial review of the kiosk feature: 0 BLOCKER / 3 HIGH / 4 MED / 7 LOW. H1 (PIN-gated
+staff exit), H2 (honest badge-print failure after a committed check-in), H3 (401/5xx no
+longer masquerade as "code not recognised" — persistent staff-needed screen), M1 (input
+residue on debounce), M2 (busy-scan feedback beep), M3 (3 reprints/registration/hour
+kiosk-local cap), M4 (route test pinning the ALREADY_CHECKED_IN body shape), L1
+(defensive already-checked-in wording), L2 (shared `src/lib/scan-feedback.ts` beep) all
+shipped same day. Deferred:
+
+- **L3 — no focus trap under the kiosk overlay**: the dashboard layout DOM beneath the
+  `z-50` overlay is Tab-reachable with an attached keyboard (or a crafted barcode emitting
+  Tab/Enter). Largely mitigated by the H1 exit PIN + 1s refocus interval; a `inert`
+  attribute on the layout while the kiosk mounts would close it fully.
+- **L4 — kiosk print failures are client-console only**: a "badges not printing" incident
+  isn't visible in `/logs`. Candidate: a fire-and-forget beacon endpoint, or fold a
+  `printFailed` flag into a follow-up request.
+- **L5 — the kiosk page loads the full staff event payload** (via `useEvent`) to render
+  just the event name; ONSITE is finance-capable so tax/bank fields sit in JS memory on an
+  attendee-facing machine. A minimal name-only lookup would be cleaner.
+- **L6 — no rate limit on the check-in PUT / badges POST** (pre-existing, deliberate:
+  venue-NAT desk traffic). Revisit only with a product call.
+- **L7 — the `--kiosk-printing` dialog heuristic** (print() blocking >1.5s) misses a
+  dialog dismissed faster; acceptable, documented in the user guide.
+- **M3 residual**: the reprint cap is kiosk-LOCAL (in-memory; resets on reload). A durable
+  server-side cap would read `badgePrintCount` / audit rows — do this if badge farming is
+  ever actually observed.
+
 ### Certificates tenancy-sweep review — LOWs (Aug 3, 2026) — ✅ ALL SHIPPED same day
 
 Adversarial review of the Domain #13 Certificates sweep (`46af5714`): 0 BLOCKER / 2 HIGH /

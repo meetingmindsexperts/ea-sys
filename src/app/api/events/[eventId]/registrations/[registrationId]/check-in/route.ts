@@ -165,6 +165,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     const body = await req.json();
     const { qrCode } = body;
+    // Self-service kiosk scans tag themselves so the audit trail distinguishes
+    // an attendee-driven kiosk check-in from a staff scanner check-in.
+    const isKiosk = body.kiosk === true;
 
     if (!qrCode) {
       apiLogger.warn({ msg: "check-in-qr:missing-code", eventId, userId: session.user.id });
@@ -195,7 +198,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       // H5: the unknown-barcode scan is the single highest-value line to trace
       // at a live door ("why didn't that badge scan?") — a wrong-event badge, a
       // mis-print, or a probing/forged code. It logged nothing before.
-      apiLogger.warn({ msg: "check-in:qr-unknown-code", eventId, userId: session.user.id }, "Scanned code matched no registration");
+      apiLogger.warn({ msg: "check-in:qr-unknown-code", eventId, userId: session.user.id, kiosk: isKiosk }, "Scanned code matched no registration");
       return NextResponse.json({ error: "Invalid code — not found" }, { status: 404 });
     }
 
@@ -207,7 +210,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       pricingTierPrice: registration.pricingTier?.price,
     });
     if (gate) {
-      apiLogger.warn({ msg: "check-in:qr-rejected", eventId, registrationId: registration.id, code: gate.code });
+      apiLogger.warn({ msg: "check-in:qr-rejected", eventId, registrationId: registration.id, code: gate.code, kiosk: isKiosk });
       return NextResponse.json(
         {
           // The QR handler's historical wording for the cancelled case.
@@ -228,7 +231,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       actorUserId: session.user.id,
       attendeeName: `${registration.attendee.firstName} ${registration.attendee.lastName}`,
       source: "rest-qr",
-      auditExtras: { qrCode, ip: getClientIp(req) },
+      auditExtras: { qrCode, ip: getClientIp(req), ...(isKiosk && { kiosk: true }) },
     });
 
     return NextResponse.json(updatedRegistration);

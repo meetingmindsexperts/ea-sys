@@ -5,13 +5,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, mockUndo } = vi.hoisted(() => ({
+const { mockDb, mockAuth, mockUndo, mockExecute, mockGate } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn() },
   },
   mockAuth: vi.fn(),
   mockUndo: vi.fn(),
+  mockExecute: vi.fn(),
+  mockGate: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -24,8 +26,8 @@ vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null, REGISTRATION_DES
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/event-access", () => ({ buildEventAccessWhere: (_u: unknown, id: string) => ({ id }) }));
 vi.mock("@/lib/check-in", () => ({
-  checkInGate: vi.fn(),
-  executeCheckIn: vi.fn(),
+  checkInGate: (...a: unknown[]) => mockGate(...a),
+  executeCheckIn: (a: unknown) => mockExecute(a),
   undoCheckIn: (a: unknown) => mockUndo(a),
 }));
 
@@ -109,5 +111,68 @@ describe("PUT (scan check-in) — accepts bare AND serial-suffixed codes", () =>
     expect(res.status).toBe(200);
     const where = mockDb.registration.findFirst.mock.calls[0][0].where as { OR: Array<Record<string, unknown>> };
     expect(where.OR[0]).toEqual({ qrCode: { in: ["1753791234567123456"] } });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT — self-service kiosk tagging (Aug 3, 2026): a kiosk scan sends
+// `kiosk: true` and the audit trail must distinguish it from a staff scan.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const kioskReq = (body: Record<string, unknown>) =>
+  new Request("http://localhost/x", { method: "PUT", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+
+describe("PUT (scan check-in) — kiosk audit tagging", () => {
+  beforeEach(() => {
+    mockDb.registration.findFirst.mockResolvedValue({
+      id: "reg1",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+      checkedInAt: null,
+      ticketType: { name: "Standard", price: 100 },
+      pricingTier: null,
+      attendee: { firstName: "A", lastName: "B" },
+    });
+  });
+
+  it("kiosk: true lands in the audit extras", async () => {
+    const res = await PUT(kioskReq({ qrCode: "123", kiosk: true }), params);
+    expect(res.status).toBe(200);
+    expect(mockExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "rest-qr",
+        auditExtras: expect.objectContaining({ kiosk: true }),
+      }),
+    );
+  });
+
+  it("a staff scan (no flag) carries NO kiosk key", async () => {
+    const res = await PUT(kioskReq({ qrCode: "123" }), params);
+    expect(res.status).toBe(200);
+    const args = mockExecute.mock.calls[0][0] as { auditExtras: Record<string, unknown> };
+    expect("kiosk" in args.auditExtras).toBe(false);
+  });
+
+  it("a non-boolean kiosk value is not trusted", async () => {
+    const res = await PUT(kioskReq({ qrCode: "123", kiosk: "yes" }), params);
+    expect(res.status).toBe(200);
+    const args = mockExecute.mock.calls[0][0] as { auditExtras: Record<string, unknown> };
+    expect("kiosk" in args.auditExtras).toBe(false);
+  });
+
+  // The kiosk's REPRINT path depends on this exact 400 body shape (code +
+  // the full registration + checkedInAt) — pin it so a route refactor can't
+  // silently regress the kiosk into "Code not recognised" for every
+  // already-checked-in attendee (review M4).
+  it("ALREADY_CHECKED_IN 400 carries code + registration + checkedInAt", async () => {
+    const checkedInAt = new Date("2026-08-03T09:00:00.000Z");
+    mockGate.mockReturnValue({ code: "ALREADY_CHECKED_IN", message: "Already checked in", checkedInAt });
+    const res = await PUT(kioskReq({ qrCode: "123", kiosk: true }), params);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("ALREADY_CHECKED_IN");
+    expect(body.checkedInAt).toEqual(checkedInAt);
+    expect(body.registration).toMatchObject({ id: "reg1", attendee: { firstName: "A", lastName: "B" } });
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });

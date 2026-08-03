@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -19,10 +19,21 @@ import {
   ScanBarcode,
   Volume2,
   VolumeX,
+  MonitorCheck,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEvent, useRegistrations, queryKeys } from "@/hooks/use-api";
 import { formatPersonName } from "@/lib/utils";
+import { playBeep } from "@/lib/scan-feedback";
+import { readKioskExitPin, writeKioskExitPin } from "@/lib/kiosk-exit-pin";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 // Lazy-load camera scanner (heavy library)
@@ -44,26 +55,10 @@ interface ScanResult {
   timestamp: Date;
 }
 
-// Audio feedback using Web Audio API
-function playBeep(success: boolean) {
-  try {
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = success ? 800 : 300;
-    osc.type = success ? "sine" : "square";
-    gain.gain.value = 0.3;
-    osc.start();
-    osc.stop(ctx.currentTime + (success ? 0.15 : 0.3));
-  } catch {
-    // Audio not supported
-  }
-}
 
 export default function CheckInPage() {
   const params = useParams();
+  const router = useRouter();
   const eventId = params.eventId as string;
   const queryClient = useQueryClient();
   const { data: event } = useEvent(eventId);
@@ -71,6 +66,8 @@ export default function CheckInPage() {
 
   const [mode, setMode] = useState<"camera" | "manual">("manual");
   const [manualInput, setManualInput] = useState("");
+  const [kioskDialogOpen, setKioskDialogOpen] = useState(false);
+  const [kioskPin, setKioskPin] = useState("");
   const [scanning, setScanning] = useState(false);
   const [recentScans, setRecentScans] = useState<ScanResult[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -228,6 +225,22 @@ export default function CheckInPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Self-service kiosk: attendee scans their emailed barcode →
+                check-in + silent badge print (chrome --kiosk --kiosk-printing).
+                The launch dialog sets this machine's exit PIN (review H1) —
+                leaving kiosk view = 5 rapid taps bottom-right + the PIN. */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => {
+                setKioskPin(readKioskExitPin());
+                setKioskDialogOpen(true);
+              }}
+            >
+              <MonitorCheck className="h-4 w-4" />
+              Kiosk mode
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -382,6 +395,56 @@ export default function CheckInPage() {
           </div>
         )}
       </div>
+
+      {/* Kiosk launch dialog — sets this machine's exit PIN, then enters
+          kiosk view. The PIN is machine-local (localStorage): it protects the
+          EXIT from the attendee-facing kiosk back into the staff surfaces. */}
+      <Dialog open={kioskDialogOpen} onOpenChange={setKioskDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Launch kiosk mode</DialogTitle>
+            <DialogDescription>
+              Full-screen self-service check-in: attendees scan the barcode from their
+              confirmation email and their badge prints automatically. For silent printing,
+              run Chrome with <code className="font-mono">--kiosk --kiosk-printing</code> and
+              set the badge printer as this machine&apos;s default.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="kiosk-exit-pin" className="text-sm font-medium">
+              Exit PIN for this machine
+            </label>
+            <Input
+              id="kiosk-exit-pin"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={8}
+              placeholder="e.g. 4732"
+              value={kioskPin}
+              onChange={(e) => setKioskPin(e.target.value.replace(/\D/g, ""))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Leaving kiosk view takes 5 quick taps on the bottom-right corner plus this PIN
+              — it keeps attendees out of the staff pages. Leave empty to allow exit only by
+              closing the kiosk window (Alt+F4 / Cmd+Q).
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setKioskDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="btn-gradient"
+              onClick={() => {
+                writeKioskExitPin(kioskPin);
+                router.push(`/events/${eventId}/check-in/kiosk`);
+              }}
+            >
+              Launch kiosk
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
