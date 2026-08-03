@@ -30,7 +30,8 @@ import {
   formatClaimTotals,
   type ClaimLine,
 } from "@/lib/reimbursement/constants";
-import { loadReimbursementForSlug } from "@/lib/reimbursement/server";
+import { loadReimbursementForSlug, resolveReimbursementEventOrg } from "@/lib/reimbursement/server";
+import { runWithTenant } from "@/lib/tenant-context";
 import { escapeHtml } from "@/lib/html";
 import {
   brandingCc,
@@ -59,6 +60,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Tenancy (Domain #17): resolve the tenant org from the un-swept Event by
+    // host+slug FIRST — the swept token lookup below fail-closes without it.
+    const org = await resolveReimbursementEventOrg(req, slug);
+    if (!org) {
+      apiLogger.warn({ slug, stage: "load-org" }, "reimbursement-public:invalid-token");
+      return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
+    }
+    return await runWithTenant(org, async () => {
     const row = await loadReimbursementForSlug(req, slug, token);
     if (!row) {
       apiLogger.warn({ slug, stage: "load" }, "reimbursement-public:invalid-token");
@@ -98,6 +107,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         signedName: row.signedName ?? "",
       },
       documents: row.documents,
+    });
     });
   } catch (err) {
     apiLogger.error({ err }, "reimbursement-public:load-failed");
@@ -141,6 +151,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Tenancy (Domain #17): org bootstrap first (see GET) — the swept token
+    // read + the conditional-claim updateMany below run on this org's lane.
+    const org = await resolveReimbursementEventOrg(req, slug);
+    if (!org) {
+      apiLogger.warn({ slug, stage: "submit-load-org" }, "reimbursement-public:invalid-token");
+      return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
+    }
+    return await runWithTenant(org, async () => {
     const row = await loadReimbursementForSlug(req, slug, token);
     if (!row) {
       apiLogger.warn({ slug, stage: "submit-load" }, "reimbursement-public:invalid-token");
@@ -319,6 +337,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ slug, reimbursementId: row.id, totals }, "reimbursement-public:submitted");
     return NextResponse.json({ ok: true });
+    });
   } catch (err) {
     apiLogger.error({ err }, "reimbursement-public:submit-failed");
     return NextResponse.json({ error: "Failed to submit the form" }, { status: 500 });

@@ -8,7 +8,7 @@
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { eventMatchesRequestTenant } from "@/lib/public-event";
+import { eventMatchesRequestTenant, publicEventWhere } from "@/lib/public-event";
 
 /**
  * 24 random bytes → 32-char base64url token. Unguessable, URL-safe.
@@ -18,6 +18,26 @@ import { eventMatchesRequestTenant } from "@/lib/public-event";
  */
 export function generateReimbursementToken(): string {
   return crypto.randomBytes(24).toString("base64url");
+}
+
+/**
+ * Tenancy bootstrap for the public token routes (Domain #17, the RSVP/webinar
+ * public precedent): SpeakerReimbursement is a swept table, so the token
+ * `findUnique` below FAIL-CLOSES under platform RLS with no tenant store —
+ * every link would look invalid. Resolve the tenant org from the UN-swept
+ * Event by host+slug FIRST (publicEventWhere), then run the token lookup +
+ * all swept reads/writes inside `runWithTenant(<this org>)` at the route.
+ * Returns null when the slug doesn't resolve on this host (route 404s).
+ */
+export async function resolveReimbursementEventOrg(
+  req: Request,
+  slug: string,
+): Promise<string | null> {
+  const event = await db.event.findFirst({
+    where: await publicEventWhere(req, slug),
+    select: { organizationId: true },
+  });
+  return event?.organizationId ?? null;
 }
 
 /**

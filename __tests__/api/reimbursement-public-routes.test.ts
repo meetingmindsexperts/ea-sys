@@ -15,6 +15,9 @@ const { mockDb, mockRateLimit, mockNotify, mockSendEmail, mockGetEventTemplate }
     speakerReimbursement: { findUnique: vi.fn(), updateMany: vi.fn() },
     speakerReimbursementDocument: { findFirst: vi.fn(), delete: vi.fn(), create: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
+    // Tenancy (Domain #17): resolveReimbursementEventOrg resolves the tenant
+    // org from the Event by host+slug before any swept read.
+    event: { findFirst: vi.fn() },
   },
   mockRateLimit: vi.fn(() => ({ allowed: true, retryAfterSeconds: 0 })),
   mockNotify: vi.fn().mockResolvedValue(undefined),
@@ -159,6 +162,8 @@ const jsonReq = (body: unknown) =>
 beforeEach(() => {
   vi.clearAllMocks();
   mockRateLimit.mockReturnValue({ allowed: true, retryAfterSeconds: 0 });
+  // Org bootstrap for the public routes (Domain #17) — matches baseRow's event.
+  mockDb.event.findFirst.mockResolvedValue({ organizationId: "org1" });
   mockGetEventTemplate.mockResolvedValue({
     subject: "s",
     htmlContent: "<p>{{claimSummary}}</p>",

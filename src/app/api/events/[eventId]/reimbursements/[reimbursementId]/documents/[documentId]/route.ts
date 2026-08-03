@@ -13,6 +13,7 @@ import { readFile, realpath } from "fs/promises";
 import path from "path";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -37,7 +38,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "reimbursement-doc:event-not-found");
@@ -45,11 +46,14 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     // Atomic binding: the document must belong to THIS reimbursement on THIS
-    // event — a foreign documentId 404s.
-    const doc = await db.speakerReimbursementDocument.findFirst({
-      where: { id: documentId, reimbursement: { id: reimbursementId, eventId } },
-      select: { url: true, filename: true, mimeType: true },
-    });
+    // event — a foreign documentId 404s. Tenancy (Domain #17): swept 2-hop
+    // read in the resource org.
+    const doc = await runWithTenant(event.organizationId, () =>
+      db.speakerReimbursementDocument.findFirst({
+        where: { id: documentId, reimbursement: { id: reimbursementId, eventId } },
+        select: { url: true, filename: true, mimeType: true },
+      }),
+    );
     if (!doc) {
       apiLogger.warn(
         { eventId, reimbursementId, documentId, userId: session.user.id },

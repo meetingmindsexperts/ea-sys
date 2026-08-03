@@ -64,6 +64,15 @@ SWEPT_ROUTE_DIRS=(
   # only unswept Event and is deliberately not swept; the public submit route
   # is already gated under the Reg-core SWEPT_ROUTE_FILES entry.
   "src/app/api/events/[eventId]/survey/responses"         # Survey sweep — reporting + export (Aug 3, 2026)
+  # Reimbursement sweep (Domain #17, Aug 3, 2026) — the dashboard console
+  # (list/add + detail/reopen/delete + doc stream + send) wraps in the
+  # RESOURCE org (buildEventAccessWhere serves org-null SUPER_ADMIN); the 3
+  # public token routes bootstrap the org from the un-swept Event by
+  # host+slug (resolveReimbursementEventOrg — the RSVP pattern) then wrap.
+  # src/lib/reimbursement/server.ts is a runs-inside-wraps lib (its loader
+  # opens no runWithTenant of its own, by design — not listed).
+  "src/app/api/events/[eventId]/reimbursements"           # Reimbursement sweep — console (Aug 3, 2026)
+  "src/app/api/public/events/[slug]/reimbursement"        # Reimbursement sweep — public token routes (Aug 3, 2026)
 )
 # Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
@@ -313,7 +322,7 @@ HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|
 # name means a plain property chain like `payment.registration.event` never
 # matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
 # session) are the ONLY reads allowed before the wrap (org resolution).
-SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|sessionProposal|sessionProposalTheme|rsvpDinner|rsvpInvite|rsvpDinnerResponse|surveyResponse'
+SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|sessionProposal|sessionProposalTheme|rsvpDinner|rsvpInvite|rsvpDinnerResponse|surveyResponse|speakerReimbursement|speakerReimbursementDocument'
 # `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
 SWEPT_OP_RE="[.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)"
 

@@ -278,6 +278,20 @@ export const SURVEY_RESPONSE_A_ID = "tenancy-srsp-a";
 export const SURVEY_RESPONSE_B_ID = "tenancy-srsp-b";
 
 /**
+ * Reimbursement sweep (Domain #17). One SpeakerReimbursement per org on the
+ * org's own speaker (speakerId is GLOBALLY unique — one form per speaker) with
+ * a GLOBALLY-unique plaintext token (the public link — a cross-tenant
+ * findUnique({ token }) must miss, the RSVP-token bootstrap proof) + one
+ * document each (the 2-hop chain).
+ */
+export const REIMB_A_ID = "tenancy-reimb-a";
+export const REIMB_B_ID = "tenancy-reimb-b";
+export const REIMB_A_TOKEN = "tenancy-rmtok-a-000000000000000";
+export const REIMB_B_TOKEN = "tenancy-rmtok-b-000000000000000";
+export const REIMB_DOC_A_ID = "tenancy-rmdoc-a";
+export const REIMB_DOC_B_ID = "tenancy-rmdoc-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

@@ -2838,6 +2838,10 @@ enum ReimbursementStatus {
 model SpeakerReimbursement {
   id        String              @id @default(cuid())
   eventId   String
+  /// Multi-tenancy Phase-2 (Domain #17, Aug 3 2026): denormalized tenant key
+  /// (nullable, no FK), backfilled 1-hop from Event; the dashboard add-speakers
+  /// createMany stamps it. Backs prisma/rls/reimbursement.sql (platform-only).
+  organizationId String?
   speakerId String              @unique
   token     String              @unique
   status    ReimbursementStatus @default(PENDING)
@@ -2883,11 +2887,15 @@ model SpeakerReimbursement {
 
   @@index([eventId])
   @@index([eventId, status])
+  @@index([organizationId])
 }
 
 model SpeakerReimbursementDocument {
   id              String   @id @default(cuid())
   reimbursementId String
+  /// Multi-tenancy Phase-2 (Domain #17): 2-hop tenant key via
+  /// SpeakerReimbursement; the public upload stamps it from the loaded row.
+  organizationId  String?
   // PASSPORT | FLIGHT_RECEIPT | HOTEL_INVOICE | TRANSPORT_RECEIPT | OTHER —
   // a string (not an enum) so adding a kind never needs a migration.
   kind            String
@@ -2902,6 +2910,7 @@ model SpeakerReimbursementDocument {
   reimbursement SpeakerReimbursement @relation(fields: [reimbursementId], references: [id], onDelete: Cascade)
 
   @@index([reimbursementId])
+  @@index([organizationId])
 }
 
 // ── Worker job runs ────────────────────────────────────────────────

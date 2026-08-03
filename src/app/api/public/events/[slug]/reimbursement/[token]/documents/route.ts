@@ -17,7 +17,8 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { documentKindSchema, MAX_REIMBURSEMENT_DOCUMENTS } from "@/lib/reimbursement/constants";
-import { loadReimbursementForSlug } from "@/lib/reimbursement/server";
+import { loadReimbursementForSlug, resolveReimbursementEventOrg } from "@/lib/reimbursement/server";
+import { runWithTenant } from "@/lib/tenant-context";
 
 type RouteParams = { params: Promise<{ slug: string; token: string }> };
 
@@ -55,6 +56,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Tenancy (Domain #17): org bootstrap first — the swept token read + the
+    // document create below run on this org's lane, rows stamped.
+    const org = await resolveReimbursementEventOrg(req, slug);
+    if (!org) {
+      apiLogger.warn({ slug, stage: "upload-org" }, "reimbursement-upload:invalid-token");
+      return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
+    }
+    return await runWithTenant(org, async () => {
     const row = await loadReimbursementForSlug(req, slug, token);
     if (!row) {
       apiLogger.warn({ slug, stage: "upload" }, "reimbursement-upload:invalid-token");
@@ -120,6 +129,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     const document = await db.speakerReimbursementDocument.create({
       data: {
         reimbursementId: row.id,
+        // tenancy (Domain #17): 2-hop org stamp from the loaded row's event.
+        organizationId: row.event.organizationId,
         kind: kindParsed.data,
         url,
         filename: file.name.slice(0, 255),
@@ -164,6 +175,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       "reimbursement-upload:uploaded",
     );
     return NextResponse.json({ document }, { status: 201 });
+    });
   } catch (err) {
     apiLogger.error({ err }, "reimbursement-upload:failed");
     return NextResponse.json({ error: "Failed to upload document" }, { status: 500 });

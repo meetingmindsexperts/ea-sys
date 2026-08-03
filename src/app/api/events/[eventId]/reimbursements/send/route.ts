@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -76,25 +77,29 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, name: true, slug: true, organization: { select: { name: true } } },
+      select: { id: true, name: true, slug: true, organizationId: true, organization: { select: { name: true } } },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "reimbursements-send:event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Tenancy (Domain #17): the reimbursement rows (+ nested swept Speaker)
+    // read in the resource org; the template/sender reads are unswept.
     const [rows, tpl, sender] = await Promise.all([
-      db.speakerReimbursement.findMany({
-        where: parsed.data.reimbursementId
-          ? { id: parsed.data.reimbursementId, eventId }
-          : { eventId, ...(parsed.data.target === "pending" ? { status: "PENDING" } : {}) },
-        select: {
-          id: true,
-          token: true,
-          speakerId: true,
-          speaker: { select: { title: true, firstName: true, lastName: true, email: true } },
-        },
-      }),
+      runWithTenant(event.organizationId, () =>
+        db.speakerReimbursement.findMany({
+          where: parsed.data.reimbursementId
+            ? { id: parsed.data.reimbursementId, eventId }
+            : { eventId, ...(parsed.data.target === "pending" ? { status: "PENDING" } : {}) },
+          select: {
+            id: true,
+            token: true,
+            speakerId: true,
+            speaker: { select: { title: true, firstName: true, lastName: true, email: true } },
+          },
+        }),
+      ),
       getEventTemplate(eventId, TEMPLATE_SLUG),
       db.user.findUnique({
         where: { id: session.user.id },

@@ -121,6 +121,12 @@ import {
   RSVP_RESPONSE_B_ID,
   SURVEY_RESPONSE_A_ID,
   SURVEY_RESPONSE_B_ID,
+  REIMB_A_ID,
+  REIMB_B_ID,
+  REIMB_A_TOKEN,
+  REIMB_B_TOKEN,
+  REIMB_DOC_A_ID,
+  REIMB_DOC_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -271,6 +277,16 @@ async function seedOrg(
     responseId: string;
     eventId: string;
     registrationId: string;
+  },
+  // Reimbursement sweep (Domain #17): one SpeakerReimbursement on this org's
+  // speaker (speakerId GLOBALLY unique) with a GLOBALLY-unique plaintext token
+  // + one document (2-hop). Cascades: Event/Speaker → reimbursement → doc.
+  reimbursement?: {
+    id: string;
+    token: string;
+    documentId: string;
+    eventId: string;
+    speakerId: string;
   },
 ) {
   await db.organization.create({
@@ -747,6 +763,30 @@ async function seedOrg(
       },
     });
   }
+  if (reimbursement) {
+    await db.speakerReimbursement.create({
+      data: {
+        id: reimbursement.id,
+        eventId: reimbursement.eventId,
+        organizationId: orgId,
+        speakerId: reimbursement.speakerId,
+        token: reimbursement.token,
+        status: "PENDING",
+      },
+    });
+    await db.speakerReimbursementDocument.create({
+      data: {
+        id: reimbursement.documentId,
+        reimbursementId: reimbursement.id,
+        organizationId: orgId,
+        kind: "PASSPORT",
+        url: `/uploads/reimbursements/${reimbursement.eventId}/${reimbursement.documentId}.pdf`,
+        filename: "passport.pdf",
+        mimeType: "application/pdf",
+        size: 1024,
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -992,6 +1032,13 @@ async function main() {
       eventId: EVENT_A_SHARED_ID,
       registrationId: REG_A_ID,
     },
+    {
+      id: REIMB_A_ID,
+      token: REIMB_A_TOKEN,
+      documentId: REIMB_DOC_A_ID,
+      eventId: EVENT_A_SHARED_ID,
+      speakerId: SPEAKER_A_ID,
+    },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -1121,6 +1168,13 @@ async function main() {
       responseId: SURVEY_RESPONSE_B_ID,
       eventId: EVENT_B_SHARED_ID,
       registrationId: REG_B_ID,
+    },
+    {
+      id: REIMB_B_ID,
+      token: REIMB_B_TOKEN,
+      documentId: REIMB_DOC_B_ID,
+      eventId: EVENT_B_SHARED_ID,
+      speakerId: SPEAKER_B_ID,
     },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

@@ -18,6 +18,7 @@ import path from "path";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -31,17 +32,25 @@ async function loadInEvent(
   eventId: string,
   reimbursementId: string,
 ) {
+  // Tenancy (Domain #17): Event is un-swept → resolved first; the swept
+  // reimbursement read runs in the RESOURCE org (buildEventAccessWhere serves
+  // org-null SUPER_ADMIN, so session-org would fail-close). Callers reuse the
+  // returned org for their own swept writes.
   const event = await db.event.findFirst({
     where: buildEventAccessWhere(user, eventId),
-    select: { id: true },
+    select: { id: true, organizationId: true },
   });
   if (!event) return null;
   // Bound through the event so a mis-scoped id can't reach a sibling event's
   // row (the atomic primary-query-binding rule).
-  return db.speakerReimbursement.findFirst({
-    where: { id: reimbursementId, eventId },
-    select: { id: true, status: true },
-  });
+  const row = await runWithTenant(event.organizationId, () =>
+    db.speakerReimbursement.findFirst({
+      where: { id: reimbursementId, eventId },
+      select: { id: true, status: true },
+    }),
+  );
+  if (!row) return null;
+  return { organizationId: event.organizationId, row };
 }
 
 export async function GET(_req: Request, { params }: RouteParams) {
@@ -53,25 +62,29 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "reimbursement:detail-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const reimbursement = await db.speakerReimbursement.findFirst({
-      where: { id: reimbursementId, eventId },
-      include: {
-        speaker: {
-          select: { id: true, title: true, firstName: true, lastName: true, email: true },
+    // Tenancy (Domain #17): swept reimbursement (+ nested swept Speaker /
+    // 2-hop documents) read in the resource org.
+    const reimbursement = await runWithTenant(event.organizationId, () =>
+      db.speakerReimbursement.findFirst({
+        where: { id: reimbursementId, eventId },
+        include: {
+          speaker: {
+            select: { id: true, title: true, firstName: true, lastName: true, email: true },
+          },
+          documents: {
+            select: { id: true, kind: true, filename: true, mimeType: true, size: true, createdAt: true },
+            orderBy: { createdAt: "asc" },
+          },
         },
-        documents: {
-          select: { id: true, kind: true, filename: true, mimeType: true, size: true, createdAt: true },
-          orderBy: { createdAt: "asc" },
-        },
-      },
-    });
+      }),
+    );
     if (!reimbursement) {
       apiLogger.warn({ eventId, reimbursementId, userId: session.user.id }, "reimbursement:detail-not-found");
       return NextResponse.json({ error: "Reimbursement not found" }, { status: 404 });
@@ -100,18 +113,21 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
     }
 
-    const row = await loadInEvent(session.user, eventId, reimbursementId);
-    if (!row) {
+    const loaded = await loadInEvent(session.user, eventId, reimbursementId);
+    if (!loaded) {
       apiLogger.warn({ eventId, reimbursementId, userId: session.user.id }, "reimbursement:patch-not-found");
       return NextResponse.json({ error: "Reimbursement not found" }, { status: 404 });
     }
+    const { organizationId, row } = loaded;
 
     // Conditional claim on the expected prior status: two concurrent reopens
     // (or a reopen racing a delete) can't both "win" — the loser gets a 409.
-    const { count } = await db.speakerReimbursement.updateMany({
-      where: { id: reimbursementId, eventId, status: "SUBMITTED" },
-      data: { status: "PENDING" },
-    });
+    const { count } = await runWithTenant(organizationId, () =>
+      db.speakerReimbursement.updateMany({
+        where: { id: reimbursementId, eventId, status: "SUBMITTED" },
+        data: { status: "PENDING" },
+      }),
+    );
     if (count === 0) {
       apiLogger.warn({ eventId, reimbursementId, status: row.status }, "reimbursement:reopen-not-submitted");
       return NextResponse.json(
@@ -148,20 +164,25 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const row = await loadInEvent(session.user, eventId, reimbursementId);
-    if (!row) {
+    const loaded = await loadInEvent(session.user, eventId, reimbursementId);
+    if (!loaded) {
       apiLogger.warn({ eventId, reimbursementId, userId: session.user.id }, "reimbursement:delete-not-found");
       return NextResponse.json({ error: "Reimbursement not found" }, { status: 404 });
     }
+    const { organizationId, row } = loaded;
 
     // Capture file urls before the cascade removes the rows, then unlink
     // best-effort after the delete (an orphaned file is a cleanup nit; a
-    // dangling DB row would be worse).
-    const docs = await db.speakerReimbursementDocument.findMany({
-      where: { reimbursementId },
-      select: { url: true },
+    // dangling DB row would be worse). Delete compound-where'd { id, eventId }
+    // so the org bind is atomic with the write, not just the load above.
+    const docs = await runWithTenant(organizationId, async () => {
+      const rows = await db.speakerReimbursementDocument.findMany({
+        where: { reimbursementId },
+        select: { url: true },
+      });
+      await db.speakerReimbursement.delete({ where: { id: reimbursementId, eventId } });
+      return rows;
     });
-    await db.speakerReimbursement.delete({ where: { id: reimbursementId } });
 
     for (const doc of docs) {
       if (!doc.url.startsWith("/uploads/reimbursements/")) continue;

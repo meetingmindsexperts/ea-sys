@@ -9,7 +9,8 @@ import path from "path";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { loadReimbursementForSlug } from "@/lib/reimbursement/server";
+import { loadReimbursementForSlug, resolveReimbursementEventOrg } from "@/lib/reimbursement/server";
+import { runWithTenant } from "@/lib/tenant-context";
 
 type RouteParams = { params: Promise<{ slug: string; token: string; documentId: string }> };
 
@@ -30,6 +31,14 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Tenancy (Domain #17): org bootstrap first — the swept token read + the
+    // document findFirst/delete below run on this org's lane.
+    const org = await resolveReimbursementEventOrg(req, slug);
+    if (!org) {
+      apiLogger.warn({ slug, stage: "doc-delete-org" }, "reimbursement-doc-delete:invalid-token");
+      return NextResponse.json({ error: "This reimbursement link is invalid." }, { status: 404 });
+    }
+    return await runWithTenant(org, async () => {
     const row = await loadReimbursementForSlug(req, slug, token);
     if (!row) {
       apiLogger.warn({ slug, stage: "doc-delete" }, "reimbursement-doc-delete:invalid-token");
@@ -72,6 +81,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ slug, reimbursementId: row.id, documentId }, "reimbursement-doc-delete:deleted");
     return NextResponse.json({ ok: true });
+    });
   } catch (err) {
     apiLogger.error({ err }, "reimbursement-doc-delete:failed");
     return NextResponse.json({ error: "Failed to remove document" }, { status: 500 });

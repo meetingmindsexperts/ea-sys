@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -69,7 +70,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "reimbursements:list-event-not-found");
@@ -80,11 +81,16 @@ export async function GET(req: Request, { params }: RouteParams) {
     // ?speakerId= narrows to one speaker's row — used by the speaker-profile
     // Reimbursement card (same staff gate as the full list).
     const speakerIdFilter = url.searchParams.get("speakerId");
-    const reimbursements = await db.speakerReimbursement.findMany({
-      where: { eventId, ...(speakerIdFilter ? { speakerId: speakerIdFilter } : {}) },
-      orderBy: { createdAt: "asc" },
-      select: LIST_SELECT,
-    });
+    // Tenancy (Domain #17): swept read in the RESOURCE org —
+    // buildEventAccessWhere serves org-null SUPER_ADMIN, so session-org
+    // would fail-close for them.
+    const reimbursements = await runWithTenant(event.organizationId, () =>
+      db.speakerReimbursement.findMany({
+        where: { eventId, ...(speakerIdFilter ? { speakerId: speakerIdFilter } : {}) },
+        orderBy: { createdAt: "asc" },
+        select: LIST_SELECT,
+      }),
+    );
     if (url.searchParams.get("export") === "csv") {
       // A bulk extraction of wire-transfer PII must leave a trace of who
       // pulled it and when (same rule as the RSVP roster export).
@@ -200,13 +206,16 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ eventId, userId: session.user.id }, "reimbursements:add-event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Tenancy (Domain #17): the Speaker read + reimbursement dedup/createMany
+    // are all on swept tables — run in the resource org, rows stamped.
+    const { created, validIds, toCreate } = await runWithTenant(event.organizationId, async () => {
     // Only THIS event's speakers — a foreign speakerId is silently dropped
     // (it can't be acted on, and reporting it would leak existence).
     const speakers = await db.speaker.findMany({
@@ -230,6 +239,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       const result = await db.speakerReimbursement.createMany({
         data: toCreate.map((speakerId) => ({
           eventId,
+          organizationId: event.organizationId, // tenancy (Domain #17)
           speakerId,
           token: generateReimbursementToken(),
           createdById: session.user.id,
@@ -238,6 +248,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
       created = result.count;
     }
+    return { created, validIds, toCreate };
+    });
 
     db.auditLog
       .create({
