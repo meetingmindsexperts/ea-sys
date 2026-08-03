@@ -31,6 +31,7 @@
  */
 
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { notifyEventAdmins } from "@/lib/notifications";
 import {
@@ -132,7 +133,14 @@ async function processRow(
   heartbeat.unref?.();
 
   try {
-    const result = await executeBulkEmail({
+    // Tenancy (Certificates-sweep review H2): executeBulkEmail reads swept
+    // Registration/Speaker/Abstract for recipient resolution and — for
+    // certificate sends — reads CertificateTemplate + writes IssuedCertificate
+    // and the serial counter via executeCertificateBulkSend. All of that must
+    // run in the row's org or it fail-closes under RLS. ScheduledEmail itself
+    // is unswept, so the claim/heartbeat/terminal writes outside this wrap are
+    // unaffected (and the callbacks below run inside it harmlessly).
+    const result = await runWithTenant(row.organizationId, () => executeBulkEmail({
       eventId: row.eventId,
       recipientType: row.recipientType as BulkEmailRecipientType,
       // Empty array = filter-based send; executeBulkEmail keys off
@@ -175,7 +183,7 @@ async function processRow(
         });
         return current?.status === "PROCESSING" && current.claimToken === claimToken;
       },
-    });
+    }));
 
     if (result.aborted) {
       // Cancelled mid-send or superseded by a re-claim — whoever owns the row

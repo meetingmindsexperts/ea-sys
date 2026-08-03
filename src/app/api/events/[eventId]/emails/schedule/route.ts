@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -95,15 +96,21 @@ export async function POST(req: Request, { params }: RouteParams) {
     // failing silently when it fires. The worker re-checks at fire time as the
     // backstop (config can change between now and the scheduled time).
     try {
-      await precheckBulkEmailViability({
-        eventId,
-        recipientType: data.recipientType,
-        emailType: data.emailType,
-        customSubject: data.customSubject,
-        customMessage: data.customMessage,
-        attachments: data.attachments,
-        filters: data.filters,
-      });
+      // Tenancy: NARROW cross-domain wrap (Invoice-C2b pattern) — the precheck
+      // reads swept CertificateTemplate for certificate sends (loadCertTemplate);
+      // everything else it touches (Event, EmailTemplate) is unswept. This
+      // route's own domain (ScheduledEmail) is unswept, so only this call wraps.
+      await runWithTenant(orgGuard.orgId, () =>
+        precheckBulkEmailViability({
+          eventId,
+          recipientType: data.recipientType,
+          emailType: data.emailType,
+          customSubject: data.customSubject,
+          customMessage: data.customMessage,
+          attachments: data.attachments,
+          filters: data.filters,
+        }),
+      );
     } catch (err) {
       if (err instanceof BulkEmailError) {
         apiLogger.warn({

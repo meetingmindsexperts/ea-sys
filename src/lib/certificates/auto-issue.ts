@@ -185,12 +185,26 @@ export async function runAutoIssueSweep(
   if (candidates.length === 0) return result;
 
   // Load each event's auto-issue templates once (the batch may span events).
+  // Tenancy (Certificates-sweep review M2): CertificateTemplate is swept — an
+  // unwrapped load here fail-closes to [] under RLS, and processRow's
+  // "no templates" branch then TERMINALLY stamps certAutoIssueCheckedAt on
+  // every candidate (their certs silently lost; rows are swept once by
+  // design). A fail-closed read must never feed a terminal stamp, so the load
+  // runs in the event's org, resolved from its own candidate rows (null =
+  // pre-backfill row → unwrapped, master behavior, matching the per-row wrap).
+  const orgByEvent = new Map<string, string | null>();
+  for (const c of candidates) {
+    if (!orgByEvent.get(c.eventId)) orgByEvent.set(c.eventId, c.organizationId);
+  }
   const templatesByEvent = new Map<string, AutoIssueTemplate[]>();
   for (const eventId of new Set(candidates.map((c) => c.eventId))) {
-    const templates = await db.certificateTemplate.findMany({
-      where: { eventId, autoIssueOnSurvey: true },
-      select: { id: true, category: true, autoIssueTag: true, emailSubject: true, emailBody: true },
-    });
+    const eventOrg = orgByEvent.get(eventId) ?? null;
+    const loadTemplates = () =>
+      db.certificateTemplate.findMany({
+        where: { eventId, autoIssueOnSurvey: true },
+        select: { id: true, category: true, autoIssueTag: true, emailSubject: true, emailBody: true },
+      });
+    const templates = eventOrg ? await runWithTenant(eventOrg, loadTemplates) : await loadTemplates();
     templatesByEvent.set(eventId, templates);
     // Surface a misconfiguration: auto-issue ON but no tag → nothing matches.
     const taglessCount = templates.filter((t) => !t.autoIssueTag?.trim()).length;

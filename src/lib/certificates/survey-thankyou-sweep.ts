@@ -27,6 +27,7 @@
 
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import {
   brandingCc,
@@ -152,6 +153,10 @@ export async function runSurveyThankYouSweep(
     thankedRows.map((r) => r.entityId).filter((id): id is string => !!id),
   );
 
+  // Tenancy: this candidate scan is deliberately ORG-BLIND (Registration is a
+  // swept table — under RLS this fail-closes; the known cross-sweep worker
+  // precondition, see MULTI_TENANCY.md §13). Per-row processing below wraps in
+  // the row's own event org.
   const candidates = await db.registration.findMany({
     where: {
       surveyCompletedAt: { not: null, gte: windowStart },
@@ -175,7 +180,14 @@ export async function runSurveyThankYouSweep(
   for (const reg of candidates) {
     if (thanked.has(reg.id)) continue;
     try {
-      const outcome = await processOne(reg, now);
+      // Per-row tenant context (multi-tenancy Certificates-sweep review H1):
+      // the candidate scan above stays org-blind (the documented worker
+      // precondition — same as auto-issue/issue-worker), but everything
+      // processOne touches (Speaker resolution, IssuedCertificate,
+      // CertificateIssueRunItem reads + the cover-suppression writes) is on
+      // swept tables, so it runs in the row's own event org. Event.organizationId
+      // is non-nullable, so the wrap always carries a real org.
+      const outcome = await runWithTenant(reg.event.organizationId, () => processOne(reg, now));
       switch (outcome) {
         case "deferred":
           result.deferred++;

@@ -168,12 +168,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     // closest single-address equivalent.
     const anchorRegistrationId = registrationId ?? null;
     const anchorSpeakerId = speakerId ?? null;
-    const [recipientEmail, recipient] = await Promise.all([
-      resolveRecipientEmail(anchorRegistrationId, anchorSpeakerId).then(
-        (email) => email ?? resolveRecipientEmail(linkedRegistrationId, linkedSpeakerId),
-      ),
-      loadRecipient(linkedRegistrationId, linkedSpeakerId),
-    ]);
+    // Tenancy (sweep review M1): these helpers read swept Registration/Speaker
+    // — they sat between the two wraps above/below, unwrapped, so under RLS
+    // both fail-closed and every resend 409'd NO_RECIPIENT_EMAIL.
+    const [recipientEmail, recipient] = await runWithTenant(orgId, () =>
+      Promise.all([
+        resolveRecipientEmail(anchorRegistrationId, anchorSpeakerId).then(
+          (email) => email ?? resolveRecipientEmail(linkedRegistrationId, linkedSpeakerId),
+        ),
+        loadRecipient(linkedRegistrationId, linkedSpeakerId),
+      ]),
+    );
     if (!recipientEmail) {
       apiLogger.warn({
         msg: "cert-resend-bundle:no-recipient-email",

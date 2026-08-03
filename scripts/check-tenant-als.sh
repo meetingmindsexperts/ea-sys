@@ -252,14 +252,27 @@ SWEPT_MODULES=(
   # Sessions/Tracks sweep (July 31, 2026) — the session + track/event MCP executors.
   "src/lib/agent/tools/sessions.ts"         # session agent / MCP executors (July 31, 2026)
   "src/lib/agent/tools/events.ts"           # events/tracks agent / MCP executors (July 31, 2026)
-  # Certificates sweep (July 31, 2026) — the cert-template MCP executors + the two
-  # cert workers whose OWN wrap is load-bearing: issue-worker.tickAllRuns wraps each
-  # run in runWithTenant(run.organizationId); auto-issue's per-registration wrap
-  # (from the Reg-core sweep) drives the survey-gated path. deliver/bundle/
-  # cert-context run INSIDE those wraps (no own runWithTenant, by design — not listed).
+  # Certificates sweep (July 31, 2026; review round Aug 3, 2026) — the
+  # cert-template MCP executors + the THREE cert workers whose OWN wrap is
+  # load-bearing: issue-worker.tickAllRuns wraps each run in
+  # runWithTenant(run.organizationId); auto-issue wraps per-registration (+ the
+  # per-event template load, review M2); survey-thankyou-sweep wraps per-row in
+  # the event org (review H1). deliver/bundle/bulk-issue/cert-context/eligibility
+  # run INSIDE those wraps (no own runWithTenant, by design — not listed;
+  # bulk-issue's bulk-send caller is wrapped at scheduled-emails-worker + the
+  # MCP communications executor, review H2).
   "src/lib/agent/tools/certificates.ts"     # certificate agent / MCP executors (July 31, 2026)
   "src/lib/certificates/issue-worker.ts"    # cert worker — per-run runWithTenant wrap (July 31, 2026)
   "src/lib/certificates/auto-issue.ts"      # cert survey-gated sweep — per-reg runWithTenant wrap (July 31, 2026)
+  "src/lib/certificates/survey-thankyou-sweep.ts" # thank-you sweep — per-row wrap (review H1, Aug 3, 2026)
+  # Bulk-email execution contexts (Certificates-sweep review H2, Aug 3, 2026) —
+  # executeBulkEmail reads swept Registration/Speaker/Abstract + (certificate
+  # sends) CertificateTemplate/IssuedCertificate/serial counter via
+  # executeCertificateBulkSend; the wrap lives at its two callers. The two
+  # enqueue routes' precheck wraps (emails/bulk + emails/schedule) are NARROW
+  # cross-domain wraps (Invoice-C2b pattern) — gated when ScheduledEmail sweeps.
+  "src/lib/scheduled-emails-worker.ts"      # bulk-email worker — per-row org wrap (Aug 3, 2026)
+  "src/lib/agent/tools/communications.ts"   # MCP send_bulk_email — ctx-org wrap (Aug 3, 2026)
   # MCP-resource-handlers follow-on (July 31, 2026) — register-mcp-tools.ts has
   # inline server.tool / server.resource handlers that read swept tables directly
   # (NOT via the wrapped tools/*.ts executors): list_contacts (Contact),

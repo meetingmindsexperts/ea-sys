@@ -147,7 +147,13 @@ export async function allocateSerial(
   const counter = await db.certificateSerialCounter.upsert({
     where: { eventId_type: { eventId, type } },
     create: { eventId, type, lastSerial: 1, organizationId },
-    update: { lastSerial: { increment: 1 } },
+    // Self-heal on the update branch (sweep review M3 — the
+    // registration-serial.ts precedent): a counter row born NULL-org (old
+    // container during the blue-green window) is forever-lived and would
+    // otherwise never heal. Conditional, unlike the precedent, because this
+    // param is nullable (legacy callers thread null) — an unconditional
+    // re-stamp would null out an already-backfilled value.
+    update: { lastSerial: { increment: 1 }, ...(organizationId ? { organizationId } : {}) },
     select: { lastSerial: true },
   });
   const code = await db.event.findUnique({ where: { id: eventId }, select: { code: true } });

@@ -1,5 +1,6 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { checkRateLimit } from "@/lib/security";
 import { apiLogger } from "@/lib/logger";
 import { sanitizeHtml } from "@/lib/sanitize";
@@ -60,6 +61,10 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
       ...(paymentStatusFilter && { paymentStatus: paymentStatusFilter }),
     };
 
+    // Tenancy (Certificates-sweep review H2): the count reads below hit swept
+    // Registration/Speaker, and executeBulkEmail reads swept recipients + (for
+    // certificate sends) swept cert tables — all must run in the caller's org.
+    return await runWithTenant(ctx.organizationId, async () => {
     // Inline-send size cap (the shared pipeline itself is uncapped — the REST
     // path is drained by the worker; this JSON-RPC call blocks until done).
     // MCP exposes exactly the two filters below, so this count == the send.
@@ -128,6 +133,7 @@ const sendBulkEmail: ToolExecutor = async (input, ctx) => {
       total: result.total,
       errors: result.errors.slice(0, 5).map((e) => `Failed to send to ${e.email}`),
     };
+    });
   } catch (err) {
     // Business rejections from the shared pipeline (no recipients, invalid
     // filter, missing viability prerequisite) come back coded, not opaque.

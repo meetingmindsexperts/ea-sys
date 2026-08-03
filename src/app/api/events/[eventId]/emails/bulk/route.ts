@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -97,15 +98,21 @@ export async function POST(req: Request, { params }: RouteParams) {
     // returns a real 4xx now instead of a green "queued" toast followed by a
     // FAILED ScheduledEmail row a minute later.
     try {
-      await precheckBulkEmailViability({
-        eventId,
-        recipientType,
-        emailType,
-        customSubject,
-        customMessage,
-        attachments,
-        filters,
-      });
+      // Tenancy: NARROW cross-domain wrap (Invoice-C2b pattern) — the precheck
+      // reads swept CertificateTemplate for certificate sends (loadCertTemplate);
+      // everything else it touches (Event, EmailTemplate) is unswept. This
+      // route's own domain (ScheduledEmail) is unswept, so only this call wraps.
+      await runWithTenant(orgGuard.orgId, () =>
+        precheckBulkEmailViability({
+          eventId,
+          recipientType,
+          emailType,
+          customSubject,
+          customMessage,
+          attachments,
+          filters,
+        }),
+      );
     } catch (err) {
       if (err instanceof BulkEmailError) {
         apiLogger.warn({

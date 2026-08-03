@@ -212,6 +212,38 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Certificates tenancy-sweep review — deferred LOWs (Aug 3, 2026)
+
+Adversarial review of the Domain #13 Certificates sweep (`46af5714`): 0 BLOCKER / 2 HIGH /
+4 MED / 7 LOW — no cross-tenant leak anywhere; every finding is fail-closed-direction and
+inert on master (RLS off). HIGHs + MEDs fixed same day (see MULTI_TENANCY.md §13 #13).
+The 7 LOWs, all platform-readiness polish:
+
+- **L1 — email-preview cert-cover read unwrapped**: `email-preview/route.ts` reads
+  `CertificateTemplate` (cert-cover previews) with no `runWithTenant` — 404s under RLS.
+  Same class: the file's `buildRealPreviewOverrides` swept Speaker/Registration/Abstract
+  reads have been unwrapped since those sweeps. Wrap the handler body (session org is
+  already resolved).
+- **L2 — NULL-org run stalls silently**: `issue-worker.ts` `processRun`'s `if (!run) return`
+  has no log — under RLS a NULL-org run (missed backfill) is scanned but invisible to the
+  tenant-scoped re-read, no-oping tick after tick with zero signal. Add a warn.
+- **L3 — template DELETEs are check-then-act**: `templates/[templateId]/route.ts` + MCP
+  `delete_certificate_template` do `delete({ where: { id } })` after an org-bound findFirst;
+  other sweeps compound-where `{ id, organizationId }` (defence #1) and assert it
+  in-isolation in the harness. Do both here.
+- **L4 — `auto-issue.ts` listed twice** in `check-tenant-als.sh` SWEPT_MODULES (the
+  July-29 Reg-core block + the July-31 cert block) — dedupe to one entry with a
+  cross-reference.
+- **L5 — `CertificateBulkSendInput.organizationId` is optional** (`?:`) where every sibling
+  (DeliverContext, findOrIssueCertificate, allocateSerial) made it required — a future
+  caller omitting it compiles clean and mints NULL-org certs. Drop the `?`.
+- **L6 — no unit test pins the `issuedCertificate.create` org stamp** (only the
+  `allocateSerial` arg is pinned) — one `expect(createData.organizationId).toBe("org-1")`
+  in the bundle + issue-worker suites.
+- **L7 — doc/comment drift**: the gate's "runs-inside-wraps, by design — not listed" roster
+  now names bulk-issue/eligibility (fixed in the H2 round), but sweep-era commit messages
+  still say "22 handlers"; nothing further to do beyond the corrected §13 entry.
+
 ### Custom session roles — organizer-managed role list (July 30, 2026, owner decision: PARKED, design recorded)
 
 Owner asked whether the static `SessionRole` enum (SPEAKER / MODERATOR / CHAIRPERSON / PANELIST)

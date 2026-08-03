@@ -25,6 +25,7 @@
  * Session/CRM precedent).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import {
@@ -119,6 +120,46 @@ describe("Certificate RLS (prisma/rls/certificate.sql) via the SET LOCAL extensi
     expect(leaked).toBeNull();
   });
 
+  it("serial counter UPSERT (the flat-column payoff, review M4): own-org increment works; a cross-tenant upsert is REJECTED, not misrouted", async () => {
+    // Own org — the exact allocateSerial shape (create stamps org, update
+    // increments + conditionally re-stamps) increments the visible row.
+    const own = await runWithTenant(ORG_A_ID, () =>
+      db.certificateSerialCounter.upsert({
+        where: { eventId_type: { eventId: EVENT_A_SHARED_ID, type: "ATTENDANCE" } },
+        create: { eventId: EVENT_A_SHARED_ID, type: "ATTENDANCE", lastSerial: 1, organizationId: ORG_A_ID },
+        update: { lastSerial: { increment: 1 }, organizationId: ORG_A_ID },
+        select: { lastSerial: true },
+      }),
+    );
+    expect(own.lastSerial).toBeGreaterThan(1);
+
+    // Cross-tenant: B's counter is invisible under A → the upsert takes the
+    // INSERT path into an existing composite PK / or the row fails the policy.
+    // Either way it must REJECT — never silently increment B's counter.
+    await expect(
+      runWithTenant(ORG_A_ID, () =>
+        db.certificateSerialCounter.upsert({
+          where: { eventId_type: { eventId: EVENT_B_SHARED_ID, type: "ATTENDANCE" } },
+          create: { eventId: EVENT_B_SHARED_ID, type: "ATTENDANCE", lastSerial: 99, organizationId: ORG_A_ID },
+          update: { lastSerial: { increment: 1 } },
+        }),
+      ),
+    ).rejects.toBeTruthy();
+
+    // ...and B's counter is untouched (owner view — bypasses the policy).
+    const owner = ownerClient();
+    try {
+      const row = await owner.certificateSerialCounter.findUnique({
+        where: { eventId_type: { eventId: EVENT_B_SHARED_ID, type: "ATTENDANCE" } },
+        select: { lastSerial: true, organizationId: true },
+      });
+      expect(row?.lastSerial).toBe(1);
+      expect(row?.organizationId).toBe(ORG_B_ID);
+    } finally {
+      await owner.$disconnect();
+    }
+  });
+
   it("fail-closed: flag on but NO tenant store → zero rows on all 5 tables", async () => {
     expect(await db.certificateTemplate.findMany({ select: { id: true } })).toHaveLength(0);
     expect(await db.issuedCertificate.findMany({ select: { id: true } })).toHaveLength(0);
@@ -174,3 +215,9 @@ describe("Certificate RLS (prisma/rls/certificate.sql) via the SET LOCAL extensi
     expect(run?.organizationId).toBe(ORG_A_ID);
   });
 });
+
+function ownerClient(): PrismaClient {
+  const url = process.env.TENANCY_DIRECT_URL;
+  if (!url) throw new Error("TENANCY_DIRECT_URL must be set — owner-view assertions require the OWNER connection");
+  return new PrismaClient({ datasourceUrl: url });
+}
