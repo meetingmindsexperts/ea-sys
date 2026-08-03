@@ -58,6 +58,12 @@ SWEPT_ROUTE_DIRS=(
   "src/app/api/events/[eventId]/session-proposal-themes"  # Session Proposals sweep — theme CRUD (Aug 3, 2026)
   "src/app/api/events/[eventId]/dinners"                  # Dinner RSVP sweep — dinners CRUD (Aug 3, 2026)
   "src/app/api/events/[eventId]/rsvp-invites"             # Dinner RSVP sweep — roster/add/delete/send (Aug 3, 2026)
+  # Survey sweep (Domain #16, Aug 3, 2026) — the responses reporting pair
+  # (list/aggregate + CSV export), RESOURCE-org wraps (buildEventAccessWhere
+  # serves org-null SUPER_ADMIN). The sibling survey/share-link route touches
+  # only unswept Event and is deliberately not swept; the public submit route
+  # is already gated under the Reg-core SWEPT_ROUTE_FILES entry.
+  "src/app/api/events/[eventId]/survey/responses"         # Survey sweep — reporting + export (Aug 3, 2026)
 )
 # Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
@@ -307,7 +313,7 @@ HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|
 # name means a plain property chain like `payment.registration.event` never
 # matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
 # session) are the ONLY reads allowed before the wrap (org resolution).
-SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|sessionProposal|sessionProposalTheme|rsvpDinner|rsvpInvite|rsvpDinnerResponse'
+SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|sessionProposal|sessionProposalTheme|rsvpDinner|rsvpInvite|rsvpDinnerResponse|surveyResponse'
 # `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
 SWEPT_OP_RE="[.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)"
 

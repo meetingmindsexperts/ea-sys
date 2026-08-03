@@ -29,6 +29,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -83,7 +84,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // (question id → label) on the reporting page.
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, name: true, surveyConfig: true },
+      select: { id: true, name: true, surveyConfig: true, organizationId: true },
     });
 
     if (!event) {
@@ -118,7 +119,11 @@ export async function GET(req: Request, { params }: RouteParams) {
     // jsonb scans and the operator needs the full picture) + the
     // page slice for the table view.
     const skip = (page - 1) * pageSize;
-    const [totalCount, allResponsesForAggregate, pageResponses] = await Promise.all([
+    // Tenancy (Domain #16): SurveyResponse (+ the nested swept
+    // Registration/Attendee selects) read in the RESOURCE org — this route
+    // authorizes via buildEventAccessWhere, so an org-null SUPER_ADMIN
+    // legitimately reaches it and a session-org wrap would fail-close.
+    const [totalCount, allResponsesForAggregate, pageResponses] = await runWithTenant(event.organizationId, () => Promise.all([
       db.surveyResponse.count({ where: { eventId } }),
       // For aggregates we only need id + submittedAt + answers; avoids
       // dragging registration relations through for the histogram math.
@@ -149,7 +154,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           },
         },
       }),
-    ]);
+    ]));
 
     // Aggregate input: SurveyResponseLike[]. `answers` comes back as
     // Prisma's JsonValue — cast through unknown to our Record type;

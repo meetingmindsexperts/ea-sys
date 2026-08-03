@@ -269,6 +269,15 @@ export const RSVP_RESPONSE_A_ID = "tenancy-rresp-a";
 export const RSVP_RESPONSE_B_ID = "tenancy-rresp-b";
 
 /**
+ * Survey sweep (Domain #16). One SurveyResponse per org, hung on the org's own
+ * registration (registrationId is GLOBALLY unique — the one-response dedup
+ * gate) on the SHARED event slug. A cross-tenant findUnique({ registrationId })
+ * must miss (the IssuedCertificate-serial / RSVP-token proof shape).
+ */
+export const SURVEY_RESPONSE_A_ID = "tenancy-srsp-a";
+export const SURVEY_RESPONSE_B_ID = "tenancy-srsp-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

@@ -119,6 +119,8 @@ import {
   RSVP_INVITE_B_TOKEN,
   RSVP_RESPONSE_A_ID,
   RSVP_RESPONSE_B_ID,
+  SURVEY_RESPONSE_A_ID,
+  SURVEY_RESPONSE_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -260,6 +262,15 @@ async function seedOrg(
     inviteeEmail: string;
     responseId: string;
     eventId: string;
+  },
+  // Survey sweep (Domain #16): one SurveyResponse on this org's registration
+  // (registrationId is GLOBALLY unique — the one-response dedup gate) on the
+  // shared event. Born with organizationId; cascades from Event/Registration.
+  // Runs after the invoicing block (needs the registration).
+  survey?: {
+    responseId: string;
+    eventId: string;
+    registrationId: string;
   },
 ) {
   await db.organization.create({
@@ -725,6 +736,17 @@ async function seedOrg(
       },
     });
   }
+  if (survey) {
+    await db.surveyResponse.create({
+      data: {
+        id: survey.responseId,
+        eventId: survey.eventId,
+        registrationId: survey.registrationId,
+        organizationId: orgId,
+        answers: { q1: 5, q2: "Great event" },
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -965,6 +987,11 @@ async function main() {
       responseId: RSVP_RESPONSE_A_ID,
       eventId: EVENT_A_SHARED_ID,
     },
+    {
+      responseId: SURVEY_RESPONSE_A_ID,
+      eventId: EVENT_A_SHARED_ID,
+      registrationId: REG_A_ID,
+    },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -1089,6 +1116,11 @@ async function main() {
       inviteeEmail: SHARED_RSVP_INVITEE_EMAIL,
       responseId: RSVP_RESPONSE_B_ID,
       eventId: EVENT_B_SHARED_ID,
+    },
+    {
+      responseId: SURVEY_RESPONSE_B_ID,
+      eventId: EVENT_B_SHARED_ID,
+      registrationId: REG_B_ID,
     },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

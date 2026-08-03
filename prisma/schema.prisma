@@ -770,6 +770,11 @@ enum EventType {
 model SurveyResponse {
   id             String   @id @default(cuid())
   eventId        String
+  /// Multi-tenancy Phase-2 (Domain #16, Aug 3 2026): denormalized tenant key
+  /// (nullable, no FK), backfilled 1-hop from Event; the public submit stamps
+  /// it from the registration's event. Backs the flat RLS policy in
+  /// prisma/rls/survey.sql (platform-only; master ignores it).
+  organizationId String?
   /// One response per registration — enforced by `@unique`. The 1:1
   /// relation requires this on the FK side; conceptually it's also
   /// the dedup gate (a second POST returns 200 no-op via P2002).
@@ -791,6 +796,7 @@ model SurveyResponse {
   registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
 
   @@index([eventId, submittedAt])
+  @@index([organizationId])
 }
 
 // ==================== REGISTRATION & TICKETING ====================

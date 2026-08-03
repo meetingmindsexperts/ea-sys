@@ -192,6 +192,8 @@ async function finalizeSubmission(
         data: {
           eventId,
           registrationId,
+          // tenancy (Domain #16): stamp the event's org on the response row.
+          organizationId: registration.event.organizationId,
           answers: answerResult.answers as Prisma.InputJsonValue,
           ipHash,
           submittedAt: now,

@@ -19,6 +19,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -57,7 +58,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, name: true, surveyConfig: true },
+      select: { id: true, name: true, surveyConfig: true, organizationId: true },
     });
 
     if (!event) {
@@ -85,22 +86,27 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
     const config = configParsed.data;
 
-    const responses = await db.surveyResponse.findMany({
-      where: { eventId },
-      orderBy: { submittedAt: "asc" }, // ascending = chronological export
-      select: {
-        id: true,
-        submittedAt: true,
-        answers: true,
-        registration: {
-          select: {
-            attendee: {
-              select: { firstName: true, lastName: true, email: true },
+    // Tenancy (Domain #16): swept SurveyResponse (+ nested swept
+    // Registration/Attendee) read in the RESOURCE org — buildEventAccessWhere
+    // serves org-null SUPER_ADMIN, so session-org would fail-close for them.
+    const responses = await runWithTenant(event.organizationId, () =>
+      db.surveyResponse.findMany({
+        where: { eventId },
+        orderBy: { submittedAt: "asc" }, // ascending = chronological export
+        select: {
+          id: true,
+          submittedAt: true,
+          answers: true,
+          registration: {
+            select: {
+              attendee: {
+                select: { firstName: true, lastName: true, email: true },
+              },
             },
           },
         },
-      },
-    });
+      }),
+    );
 
     const csv = toCsv(
       config,
