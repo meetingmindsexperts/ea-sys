@@ -354,6 +354,11 @@ describe("POST /api/public/events/[slug]/survey", () => {
       q2: "Academia",
       q3: "Great!",
     });
+    // Tenancy (Domain #16 review): the response ROW must stamp the event's
+    // org — a refactor dropping the stamp would mint org-NULL rows that are
+    // invisible under platform RLS while the suite stays green (the
+    // certificates-review L6 lesson, carried forward).
+    expect(mockDb.surveyResponse.create.mock.calls[0][0].data.organizationId).toBe("org-1");
     expect(mockDb.registration.update).toHaveBeenCalledWith({
       where: { id: "reg-1" },
       data: { surveyCompletedAt: expect.any(Date) },
