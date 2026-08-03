@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Platform Data-Isolation Decision — EA-SYS</title>
+<style>
+  :root {
+    --paper:#f6f7f9; --surface:#ffffff; --ink:#161c24; --muted:#5a6472;
+    --hair:#e2e6eb; --slate:#1d2a38; --slate-2:#26374a;
+    --accent:#0093c4; --accent-soft:#e6f4fa;
+    --good:#158a5e; --good-soft:#e4f3ec;
+    --warn:#b5791a; --warn-soft:#f7eede;
+    --risk:#c33f36; --risk-soft:#f7e6e4;
+    --shadow:0 1px 2px rgba(20,30,45,.04), 0 6px 20px rgba(20,30,45,.06);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#0f141a; --surface:#161d26; --ink:#e7ebf0; --muted:#9aa6b3;
+      --hair:#26313d; --slate:#0b1117; --slate-2:#16212c;
+      --accent:#39b6e0; --accent-soft:#123040;
+      --good:#3bbd86; --good-soft:#12291f;
+      --warn:#d6a24a; --warn-soft:#2c2412;
+      --risk:#e0665c; --risk-soft:#2c1a18;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper:#f6f7f9; --surface:#ffffff; --ink:#161c24; --muted:#5a6472;
+    --hair:#e2e6eb; --slate:#1d2a38; --slate-2:#26374a;
+    --accent:#0093c4; --accent-soft:#e6f4fa;
+    --good:#158a5e; --good-soft:#e4f3ec; --warn:#b5791a; --warn-soft:#f7eede;
+    --risk:#c33f36; --risk-soft:#f7e6e4;
+    --shadow:0 1px 2px rgba(20,30,45,.04), 0 6px 20px rgba(20,30,45,.06);
+  }
+  :root[data-theme="dark"] {
+    --paper:#0f141a; --surface:#161d26; --ink:#e7ebf0; --muted:#9aa6b3;
+    --hair:#26313d; --slate:#0b1117; --slate-2:#16212c;
+    --accent:#39b6e0; --accent-soft:#123040;
+    --good:#3bbd86; --good-soft:#12291f; --warn:#d6a24a; --warn-soft:#2c2412;
+    --risk:#e0665c; --risk-soft:#2c1a18;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans);
+    line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:880px; margin:0 auto; padding:0 24px 96px; }
+
+  header.band { background:var(--slate); color:#eef2f6; margin-bottom:40px;
+    border-bottom:3px solid var(--accent); }
+  header.band .inner { max-width:880px; margin:0 auto; padding:44px 24px 40px; }
+  .eyebrow { font-size:12.5px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--accent); font-weight:700; margin:0 0 14px; }
+  header.band h1 { font-size:clamp(28px,4.4vw,40px); line-height:1.14; font-weight:800;
+    letter-spacing:-.02em; margin:0 0 14px; text-wrap:balance; max-width:20ch; color:#fff; }
+  header.band p.lede { font-size:17px; line-height:1.55; color:#c3ced9; margin:0; max-width:60ch; }
+  .metarow { display:flex; flex-wrap:wrap; gap:8px 28px; margin-top:26px;
+    padding-top:20px; border-top:1px solid rgba(255,255,255,.12); font-size:13.5px; color:#aab7c4; }
+  .metarow b { color:#e7edf3; font-weight:600; }
+
+  h2 { font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent);
+    font-weight:700; margin:52px 0 4px; }
+  h2 + .h2sub { font-size:22px; font-weight:750; letter-spacing:-.015em; margin:0 0 20px;
+    color:var(--ink); text-wrap:balance; }
+  section > p { max-width:68ch; margin:0 0 16px; }
+  strong { font-weight:680; }
+  .muted { color:var(--muted); }
+
+  .decision { background:var(--surface); border:1px solid var(--hair); border-radius:14px;
+    box-shadow:var(--shadow); padding:26px 28px; margin:0 0 8px; position:relative;
+    border-left:5px solid var(--good); }
+  .decision .tag { display:inline-flex; align-items:center; gap:7px; font-size:12px;
+    font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--good);
+    background:var(--good-soft); border-radius:999px; padding:5px 12px; margin-bottom:14px; }
+  .decision h3 { font-size:20px; line-height:1.35; font-weight:700; margin:0 0 10px;
+    letter-spacing:-.01em; text-wrap:balance; }
+  .decision p { margin:0; color:var(--muted); max-width:64ch; }
+  .decision .accent { color:var(--accent); font-weight:680; }
+
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:8px 0 4px; }
+  .card { background:var(--surface); border:1px solid var(--hair); border-radius:14px;
+    padding:24px; box-shadow:var(--shadow); display:flex; flex-direction:column; }
+  .card.rec { border-color:color-mix(in srgb, var(--good) 45%, var(--hair)); }
+  .card .kicker { display:flex; align-items:center; justify-content:space-between; gap:10px;
+    margin-bottom:6px; }
+  .card .kicker .opt { font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); }
+  .pill { font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+    padding:4px 10px; border-radius:999px; }
+  .pill.rec { color:var(--good); background:var(--good-soft); }
+  .pill.alt { color:var(--warn); background:var(--warn-soft); }
+  .card h4 { font-size:19px; font-weight:750; letter-spacing:-.01em; margin:2px 0 8px; text-wrap:balance; }
+  .card .desc { font-size:15px; color:var(--muted); margin:0 0 16px; }
+  .card ul { list-style:none; padding:0; margin:auto 0 0; display:flex; flex-direction:column; gap:9px; }
+  .card li { position:relative; padding-left:22px; font-size:14px; line-height:1.5; }
+  .card li::before { content:""; position:absolute; left:3px; top:9px; width:7px; height:7px;
+    border-radius:2px; }
+  .card.rec li::before { background:var(--good); }
+  .card.alt li::before { background:var(--warn); }
+
+  .tablewrap { overflow-x:auto; margin:8px 0 6px; border:1px solid var(--hair);
+    border-radius:14px; box-shadow:var(--shadow); background:var(--surface); }
+  table { border-collapse:collapse; width:100%; min-width:640px; font-size:14.5px;
+    font-variant-numeric:tabular-nums; }
+  thead th { text-align:left; font-size:12px; letter-spacing:.06em; text-transform:uppercase;
+    font-weight:700; padding:16px 18px; background:var(--slate-2); color:#e7edf3; }
+  thead th:first-child { background:var(--slate); }
+  tbody td { padding:16px 18px; border-top:1px solid var(--hair); vertical-align:top; }
+  tbody tr td:first-child { font-weight:650; color:var(--ink); width:150px; }
+  td .verdict { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700;
+    letter-spacing:.05em; text-transform:uppercase; padding:3px 9px; border-radius:6px; margin-bottom:8px; }
+  .verdict.g { color:var(--good); background:var(--good-soft); }
+  .verdict.w { color:var(--warn); background:var(--warn-soft); }
+  .verdict.r { color:var(--risk); background:var(--risk-soft); }
+  td .line { font-size:13.5px; line-height:1.5; color:var(--muted); }
+  .col-rec { background:color-mix(in srgb, var(--good-soft) 40%, transparent); }
+
+  .note { background:var(--accent-soft); border:1px solid color-mix(in srgb,var(--accent) 30%,var(--hair));
+    border-radius:12px; padding:20px 22px; margin:6px 0; }
+  .note h4 { margin:0 0 8px; font-size:16px; font-weight:700; color:var(--ink); }
+  .note p { margin:0; color:var(--ink); max-width:66ch; font-size:15px; }
+  .risks { display:flex; flex-direction:column; gap:12px; margin:6px 0; }
+  .risk-item { display:grid; grid-template-columns:130px 1fr; gap:16px; padding:16px 18px;
+    background:var(--surface); border:1px solid var(--hair); border-radius:12px; }
+  .risk-item .rk { font-weight:650; font-size:14px; }
+  .risk-item .mt { font-size:14px; color:var(--muted); }
+  .risk-item .mt b { color:var(--ink); font-weight:650; }
+  ol.ask { counter-reset:step; list-style:none; padding:0; margin:8px 0; display:flex;
+    flex-direction:column; gap:12px; }
+  ol.ask li { position:relative; padding:16px 18px 16px 58px; background:var(--surface);
+    border:1px solid var(--hair); border-radius:12px; font-size:15px; line-height:1.5; }
+  ol.ask li::before { counter-increment:step; content:counter(step); position:absolute; left:16px; top:15px;
+    width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff;
+    font-weight:700; font-size:14px; display:flex; align-items:center; justify-content:center; }
+  ol.ask li b { font-weight:680; }
+
+  dl.glossary { display:grid; grid-template-columns:auto 1fr; gap:12px 22px; margin:8px 0;
+    align-items:baseline; }
+  dl.glossary dt { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--accent);
+    white-space:nowrap; }
+  dl.glossary dd { margin:0; font-size:14.5px; color:var(--muted); }
+  dl.glossary dd b { color:var(--ink); font-weight:600; }
+
+  footer { margin-top:56px; padding-top:22px; border-top:1px solid var(--hair);
+    font-size:13px; color:var(--muted); display:flex; flex-wrap:wrap; gap:6px 24px; justify-content:space-between; }
+
+  @media (max-width:680px) {
+    .cols { grid-template-columns:1fr; }
+    .risk-item { grid-template-columns:1fr; gap:6px; }
+    tbody tr td:first-child { width:auto; }
+  }
+  @media print {
+    body { background:#fff; }
+    .card,.decision,.tablewrap,.risk-item,ol.ask li,.note { box-shadow:none; }
+    header.band { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
+</style>
+</head>
+<body>
+
+<header class="band">
+  <div class="inner">
+    <p class="eyebrow">EA-SYS Platform · Architecture Decision Brief</p>
+    <h1>How we keep each customer's data separate on the new platform</h1>
+    <p class="lede">As we extend EA-SYS from Meeting Minds' own event system into a product other
+      organizations can use, we must decide how their data is kept apart — from one another, and from
+      Meeting Minds' own. This brief presents the two options and our recommendation.</p>
+    <div class="metarow">
+      <span><b>Prepared for</b> · MMG Leadership</span>
+      <span><b>From</b> · Development (Krishna)</span>
+      <span><b>Date</b> · August 2026</span>
+      <span><b>Status</b> · Decision requested</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <div class="decision">
+      <span class="tag">● Recommendation</span>
+      <h3>Adopt the <span class="accent">two-silo</span> model: keep Meeting Minds' event system on its
+        own dedicated platform, and host external customers on a separate multi-tenant platform.</h3>
+      <p>One product, two homes. It protects Meeting Minds' live data through physical separation, contains
+        the impact of any incident, and lets us launch for the first customer without ever putting a live
+        MMG conference at risk. We ask leadership to endorse this direction so the build proceeds on the safe path.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Context</h2>
+    <p class="h2sub">Why this decision, and why now</p>
+    <p>EA-SYS today runs Meeting Minds' own conferences — registrations, speakers, schedules, finances.
+      We are extending it into a platform that <strong>other organizations can use for their own events</strong>.</p>
+    <p>The moment we host another company's data, we take on a duty: their records must be invisible to
+      every other customer, and Meeting Minds' own records must be held to the same standard. <strong>How we
+      separate that data is a foundational choice</strong> — it shapes our security posture, our reliability,
+      and our operating cost for years. There are two credible ways to do it.</p>
+  </section>
+
+  <section>
+    <h2>The options</h2>
+    <p class="h2sub">Two separate systems, or one shared system</p>
+    <div class="cols">
+      <div class="card rec">
+        <div class="kicker"><span class="opt">Option A</span><span class="pill rec">Recommended</span></div>
+        <h4>Two separate systems <span class="muted">(“two-silo”)</span></h4>
+        <p class="desc">Meeting Minds' data stays on its own system, in its own database. External customers
+          live on a new, separate platform. The same product, running in two isolated homes.</p>
+        <ul>
+          <li>MMG data is physically apart from customers' — not just filtered</li>
+          <li>An incident on one system cannot touch the other</li>
+          <li>Meeting Minds keeps running exactly as it does today</li>
+          <li>More infrastructure to operate</li>
+        </ul>
+      </div>
+      <div class="card alt">
+        <div class="kicker"><span class="opt">Option B</span><span class="pill alt">Alternative</span></div>
+        <h4>One shared system <span class="muted">(“single pool”)</span></h4>
+        <p class="desc">Everyone — Meeting Minds and every customer — lives in one system and one database,
+          with software rules keeping each organization's records apart.</p>
+        <ul>
+          <li>One system, one plane over everything — simplest to operate</li>
+          <li>Separation depends entirely on a software “wall” we are still building</li>
+          <li>Requires converting Meeting Minds' live system to the shared model</li>
+          <li>A single fault can affect Meeting Minds and all customers together</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What's actually at stake</h2>
+    <p class="h2sub">The separation “wall,” in plain terms</p>
+    <p>In a <strong>shared system</strong>, the wall between customers is enforced by software — a strict
+      filter that shows each organization only its own rows of data (in the industry this is called
+      <em>row-level access control</em>). It is powerful, but it is only as strong as its coverage, and we
+      are <strong>still extending that coverage across the system</strong> — roughly 14 of the data areas are
+      done so far. Until it is complete and proven, any gap is a real exposure.</p>
+    <p>In <strong>two separate systems</strong>, Meeting Minds' protection does not depend on that wall at all.
+      Its data simply <strong>isn't in the same database</strong> as any customer's. Even a total failure of the
+      software wall on the customer platform leaves Meeting Minds untouched.</p>
+  </section>
+
+  <section>
+    <h2>The trade-off</h2>
+    <p class="h2sub">Four dimensions leadership should weigh</p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Dimension</th><th>Two-silo &nbsp;(recommended)</th><th>Single pool</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Data security</td>
+            <td class="col-rec">
+              <span class="verdict g">Stronger</span>
+              <div class="line">MMG data physically separate. Worst case is bounded to “external customers
+                see one another” — MMG is never in the blast radius.</div>
+            </td>
+            <td>
+              <span class="verdict r">Weaker</span>
+              <div class="line">Everyone shares one database. A single gap in the software wall can expose any
+                organization — including Meeting Minds.</div>
+            </td>
+          </tr>
+          <tr>
+            <td>Business continuity</td>
+            <td class="col-rec">
+              <span class="verdict g">Stronger</span>
+              <div class="line">Two independent systems. An incident, bad update, or outage on one never
+                touches the other; MMG's live events keep running.</div>
+            </td>
+            <td>
+              <span class="verdict r">Weaker</span>
+              <div class="line">One system is one point of failure. A single bad change can take down
+                Meeting Minds and every customer together.</div>
+            </td>
+          </tr>
+          <tr>
+            <td>Operations &amp; cost</td>
+            <td class="col-rec">
+              <span class="verdict w">Trade-off</span>
+              <div class="line">More infrastructure to run — but MMG stays exactly as today (no migration
+                risk), and unified monitoring is still possible.</div>
+            </td>
+            <td>
+              <span class="verdict w">Trade-off</span>
+              <div class="line">Less infrastructure and one support plane — but requires converting MMG's
+                live production into the shared model.</div>
+            </td>
+          </tr>
+          <tr>
+            <td>Rollout risk</td>
+            <td class="col-rec">
+              <span class="verdict g">Lower</span>
+              <div class="line">Launch for the first customer incrementally. We never bet a live MMG
+                conference on the new security being flawless.</div>
+            </td>
+            <td>
+              <span class="verdict r">Higher</span>
+              <div class="line">All-or-nothing: the entire security layer must be complete and switched on
+                for MMG's live data before it is safe.</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The support question</h2>
+    <p class="h2sub">“If something breaks for a customer, can our team see in and fix it?”</p>
+    <p>Yes — under either model, and this was the question that prompted the review. Under the recommended
+      two-silo model, our support team keeps full ability to diagnose:</p>
+    <div class="note">
+      <h4>Two capabilities, both preserved</h4>
+      <p><strong>System-wide monitoring</strong> — logs, health, and activity across the whole platform stay
+        unified in one place. And <strong>step-into-a-customer support</strong> — an authorized super-admin can
+        enter any customer's view to diagnose their issue, one customer at a time, fully controlled and audited.
+        The only thing two-silo does not offer is a <em>single login that also reaches into Meeting Minds' own
+        records</em> — and Meeting Minds we already operate directly. Operationally, we give up almost nothing.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recommendation</h2>
+    <p class="h2sub">Two-silo — and the reasoning in one paragraph</p>
+    <p>The operational convenience of a single shared system is <strong>not worth placing Meeting Minds' live
+      production data in the same database as external customers while the separation wall is still being built.</strong>
+      Two-silo delivers roughly 90% of that convenience — unified monitoring plus step-into-any-customer support —
+      while keeping our most valuable data physically out of harm's way and every change's impact contained. The
+      one convenience we forgo, we already have another way.</p>
+    <div class="note">
+      <h4>A middle path, kept open</h4>
+      <p>Once the customer platform is proven, we can run a Meeting Minds event <em>on</em> it as a trial —
+        gaining a presence there without moving our live production system. It gives us the best of both,
+        deferred until the risk is low. The door to a unified model is not closed; it is simply not the bet to make now.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Risks &amp; mitigations</h2>
+    <p class="h2sub">Being honest about the cost of the recommendation</p>
+    <div class="risks">
+      <div class="risk-item">
+        <div class="rk">More infrastructure</div>
+        <div class="mt">Two systems cost more to run than one. <b>Mitigation:</b> the same software runs on
+          both, deployed automatically — the added cost is incremental, not a second team.</div>
+      </div>
+      <div class="risk-item">
+        <div class="rk">Two support contexts</div>
+        <div class="mt">Meeting Minds and the platform are operated separately. <b>Mitigation:</b> unified
+          monitoring plus the step-into-a-customer console keep day-to-day support simple.</div>
+      </div>
+      <div class="risk-item">
+        <div class="rk">Why not single-pool now</div>
+        <div class="mt">Its appeal is real, but it would put MMG's live data behind a wall that is
+          <b>~14 areas complete, not finished</b> — an exposure we should not accept today. Revisit when the
+          wall is proven and the middle path has been trialed.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What we're asking for</h2>
+    <p class="h2sub">The decision, and what follows it</p>
+    <ol class="ask">
+      <li><b>Endorse the two-silo topology</b> as the direction for the platform.</li>
+      <li>Then we <b>stand up the customer platform</b> as a fresh, isolated system — never touching MMG's
+        production — and continue the security-hardening program already underway.</li>
+      <li>We <b>build the step-into-a-customer support console</b> so our team can diagnose any customer issue
+        safely and on demand.</li>
+      <li>We <b>revisit a unified model only if a compelling reason emerges</b>, using the low-risk middle path
+        (trialing an MMG event on the platform) as the bridge.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Glossary</h2>
+    <p class="h2sub">Plain definitions for the terms above</p>
+    <dl class="glossary">
+      <dt>Tenant</dt>
+      <dd>A single customer organization on the platform, with its own data and users. <b>Keeping tenants
+        separate</b> is the whole challenge.</dd>
+      <dt>Two-silo</dt>
+      <dd>The recommendation: <b>two separate systems</b> — one for Meeting Minds, one for customers —
+        each with its own database.</dd>
+      <dt>Single pool</dt>
+      <dd>The alternative: <b>one shared system and database</b> for everyone, with software keeping records apart.</dd>
+      <dt>Row-level access control</dt>
+      <dd>The software “wall” in a shared system — a database-enforced filter so each organization sees
+        <b>only its own rows</b>. Strong, but only as good as its coverage.</dd>
+      <dt>Blast radius</dt>
+      <dd>How far the damage spreads when something goes wrong. Two-silo <b>contains it</b>; single-pool widens it.</dd>
+      <dt>Dogfooding</dt>
+      <dd>Running our own event on the customer platform to prove it before customers rely on it — the
+        <b>middle path</b>.</dd>
+    </dl>
+  </section>
+
+  <footer>
+    <span>EA-SYS · Platform Architecture · Internal — prepared for discussion</span>
+    <span>Meeting Minds Group · Development</span>
+  </footer>
+</div>
+</body>
+</html>
