@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
+import { runWithTenant } from "@/lib/tenant-context";
 import type { Prisma } from "@prisma/client";
 
 /**
@@ -72,6 +73,10 @@ export async function GET(
       return NextResponse.json({ error: "Invalid query" }, { status: 400 });
     }
     const { senderId, status, templateSlug, q, page = 1 } = parsed.data;
+
+    // Tenancy (Domain #18): every EmailLog read below rides the caller's org
+    // lane (the event is already bound to it). Passthrough on master.
+    return await runWithTenant(orgId, async () => {
 
     // Row filter for the table (respects every control).
     const rowWhere: Prisma.EmailLogWhereInput = {
@@ -176,6 +181,7 @@ export async function GET(
       senderOptions: summary
         .filter((s) => s.userId)
         .map((s) => ({ id: s.userId as string, name: s.name })),
+    });
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "email-activity:failed" });

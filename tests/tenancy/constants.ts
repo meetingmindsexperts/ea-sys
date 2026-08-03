@@ -292,6 +292,22 @@ export const REIMB_DOC_A_ID = "tenancy-rmdoc-a";
 export const REIMB_DOC_B_ID = "tenancy-rmdoc-b";
 
 /**
+ * Comms-log sweep (Domain #18): one EmailLog row per org — both tagged with
+ * the SAME recipient address (EmailLog has no per-org unique field, so the
+ * shared `to` is what proves lane-scoping, the MediaFile shape) — plus one
+ * ScheduledEmail per org (non-null org since birth). EMAIL_LOG_NULLORG_ID is
+ * minted BY THE TEST via a bare (store-less) app_user insert — the asymmetric
+ * WITH CHECK write-half proof; it's cleaned up in the seed's main() because
+ * EmailLog's org FK is SetNull (rows survive the org cascade).
+ */
+export const EMAIL_LOG_A_ID = "tenancy-elog-a";
+export const EMAIL_LOG_B_ID = "tenancy-elog-b";
+export const EMAIL_LOG_NULLORG_ID = "tenancy-elog-nullorg";
+export const SHARED_EMAIL_TO = "tenancy-shared-recipient@example.com";
+export const SCHED_EMAIL_A_ID = "tenancy-sched-a";
+export const SCHED_EMAIL_B_ID = "tenancy-sched-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

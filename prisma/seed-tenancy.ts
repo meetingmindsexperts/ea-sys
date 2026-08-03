@@ -127,6 +127,12 @@ import {
   REIMB_B_TOKEN,
   REIMB_DOC_A_ID,
   REIMB_DOC_B_ID,
+  EMAIL_LOG_A_ID,
+  EMAIL_LOG_B_ID,
+  EMAIL_LOG_NULLORG_ID,
+  SHARED_EMAIL_TO,
+  SCHED_EMAIL_A_ID,
+  SCHED_EMAIL_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -287,6 +293,18 @@ async function seedOrg(
     documentId: string;
     eventId: string;
     speakerId: string;
+  },
+  // Comms-log sweep (Domain #18): one EmailLog row (SAME `to` in both orgs —
+  // no per-org unique field, so the shared address proves lane-scoping) + one
+  // PENDING ScheduledEmail (non-null org + createdBy FK on the uploader user).
+  // EmailLog's org FK is SetNull → cleaned explicitly in main().
+  comms?: {
+    emailLogId: string;
+    scheduledEmailId: string;
+    eventId: string;
+    registrationId: string;
+    to: string;
+    createdById: string;
   },
 ) {
   await db.organization.create({
@@ -787,6 +805,36 @@ async function seedOrg(
       },
     });
   }
+
+  if (comms) {
+    await db.emailLog.create({
+      data: {
+        id: comms.emailLogId,
+        organizationId: orgId,
+        eventId: comms.eventId,
+        entityType: "REGISTRATION",
+        entityId: comms.registrationId,
+        to: comms.to,
+        subject: `Tenancy comms fixture (${orgId})`,
+        templateSlug: "registration-confirmation",
+        provider: "ses",
+        status: "SENT",
+      },
+    });
+    await db.scheduledEmail.create({
+      data: {
+        id: comms.scheduledEmailId,
+        eventId: comms.eventId,
+        organizationId: orgId,
+        createdById: comms.createdById,
+        recipientType: "registrations",
+        emailType: "custom",
+        customSubject: `Tenancy scheduled fixture (${orgId})`,
+        scheduledFor: new Date("2099-01-01T00:00:00Z"),
+        status: "PENDING",
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -928,6 +976,17 @@ async function seedCrmGroup2(
 }
 
 async function main() {
+  // Comms fixtures (Domain #18): EmailLog's org FK is SetNull, so rows SURVIVE
+  // the org cascade (orphaned org-null) and re-runs would P2002 — delete them
+  // explicitly, including the null-org row the asymmetry test mints.
+  // ScheduledEmail.createdBy → User has no onDelete (Restrict default), so it
+  // must go BEFORE the uploader-user delete below.
+  await db.emailLog.deleteMany({
+    where: { id: { in: [EMAIL_LOG_A_ID, EMAIL_LOG_B_ID, EMAIL_LOG_NULLORG_ID] } },
+  });
+  await db.scheduledEmail.deleteMany({
+    where: { id: { in: [SCHED_EMAIL_A_ID, SCHED_EMAIL_B_ID] } },
+  });
   // MediaFile → User is a cross-child FK (not org-cascade-ordered), so wipe the
   // media + uploader users explicitly before the org cascade handles the rest.
   await db.mediaFile.deleteMany({
@@ -1038,6 +1097,14 @@ async function main() {
       documentId: REIMB_DOC_A_ID,
       eventId: EVENT_A_SHARED_ID,
       speakerId: SPEAKER_A_ID,
+    },
+    {
+      emailLogId: EMAIL_LOG_A_ID,
+      scheduledEmailId: SCHED_EMAIL_A_ID,
+      eventId: EVENT_A_SHARED_ID,
+      registrationId: REG_A_ID,
+      to: SHARED_EMAIL_TO,
+      createdById: UPLOADER_A_ID,
     },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
@@ -1175,6 +1242,14 @@ async function main() {
       documentId: REIMB_DOC_B_ID,
       eventId: EVENT_B_SHARED_ID,
       speakerId: SPEAKER_B_ID,
+    },
+    {
+      emailLogId: EMAIL_LOG_B_ID,
+      scheduledEmailId: SCHED_EMAIL_B_ID,
+      eventId: EVENT_B_SHARED_ID,
+      registrationId: REG_B_ID,
+      to: SHARED_EMAIL_TO,
+      createdById: UPLOADER_B_ID,
     },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

@@ -99,6 +99,17 @@ async function processRow(
     | { firstName: string; lastName: string; email: string; emailSignature: string | null }
     | null,
 ): Promise<TickResult> {
+  // Tenancy (Domain #18): ScheduledEmail is swept, so the ENTIRE row lifecycle
+  // — claim, heartbeat, onBatchEmailed/shouldContinue callbacks, terminal
+  // SENT/FAILED writes, and executeBulkEmail's swept recipient/certificate
+  // reads — runs on the row's own org lane (ALS propagates into the heartbeat
+  // timer + fire-and-forget chains created inside the wrap). Supersedes the
+  // earlier narrow wrap around executeBulkEmail alone. The tick-level due-row
+  // scan + stuck sweep in runScheduledEmailsTick stay deliberately ORG-BLIND —
+  // the documented cross-sweep worker precondition (MULTI_TENANCY.md §13): on
+  // the platform the scanner needs a privileged read lane before this worker
+  // does any work. Passthrough on master.
+  return await runWithTenant(row.organizationId, async () => {
   // Atomic claim — only proceed if we flipped PENDING→PROCESSING. The claim
   // stamps a per-claim ownership token (review C1): `status = PROCESSING`
   // alone proves the row is live, not that WE own it — after a DB-write
@@ -133,14 +144,7 @@ async function processRow(
   heartbeat.unref?.();
 
   try {
-    // Tenancy (Certificates-sweep review H2): executeBulkEmail reads swept
-    // Registration/Speaker/Abstract for recipient resolution and — for
-    // certificate sends — reads CertificateTemplate + writes IssuedCertificate
-    // and the serial counter via executeCertificateBulkSend. All of that must
-    // run in the row's org or it fail-closes under RLS. ScheduledEmail itself
-    // is unswept, so the claim/heartbeat/terminal writes outside this wrap are
-    // unaffected (and the callbacks below run inside it harmlessly).
-    const result = await runWithTenant(row.organizationId, () => executeBulkEmail({
+    const result = await executeBulkEmail({
       eventId: row.eventId,
       recipientType: row.recipientType as BulkEmailRecipientType,
       // Empty array = filter-based send; executeBulkEmail keys off
@@ -183,7 +187,7 @@ async function processRow(
         });
         return current?.status === "PROCESSING" && current.claimToken === claimToken;
       },
-    }));
+    });
 
     if (result.aborted) {
       // Cancelled mid-send or superseded by a re-claim — whoever owns the row
@@ -352,6 +356,7 @@ async function processRow(
   } finally {
     clearInterval(heartbeat);
   }
+  });
 }
 
 /**

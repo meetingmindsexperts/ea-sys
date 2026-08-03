@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 import type { EmailLogEntityType } from "@prisma/client";
 
 /**
@@ -52,31 +53,75 @@ export interface EmailLogRecord {
 /**
  * Persist one row to EmailLog. Never throws — a DB failure here must not
  * break the outer send flow, so errors get logged via Pino and swallowed.
+ *
+ * Tenancy (Domain #18, Aug 3 2026) — this is the ONE writer for EmailLog, so
+ * the org attribution + RLS lane are established HERE for every sender:
+ *   1. Org resolution: explicit `context.organizationId` wins; else, when the
+ *      caller tagged an event, the org is derived 1-hop from the (un-swept)
+ *      Event — several transactional senders historically threaded eventId but
+ *      not org, minting NULL-org rows for tenant emails that then leaned on
+ *      the OR-null read fallbacks. Only genuinely org-less sends (auth emails
+ *      to org-null accounts) stay NULL.
+ *   2. Self-wrap: the insert runs inside `runWithTenant(resolvedOrg)` so a
+ *      stamped row always rides its own lane regardless of caller context
+ *      (auth routes and other unwrapped callers included). NULL-org rows
+ *      insert bare — the asymmetric WITH CHECK in prisma/rls/emaillog.sql
+ *      admits them while USING keeps them invisible to every tenant lane
+ *      (owner decision Aug 3, 2026: keep-them-hidden).
+ * Both are passthrough/no-op on master (RLS_SET_LOCAL unset; resolution only
+ * fills a column that reads already fall back around).
  */
 export async function logEmail(record: EmailLogRecord): Promise<void> {
   try {
-    await db.emailLog.create({
-      data: {
-        organizationId: record.context?.organizationId ?? null,
-        eventId: record.context?.eventId ?? null,
-        entityType: record.context?.entityType ?? "OTHER",
-        entityId: record.context?.entityId ?? null,
-        to: record.to,
-        cc: record.cc ?? null,
-        bcc: record.bcc ?? null,
-        subject: record.subject,
-        templateSlug: record.context?.templateSlug ?? null,
-        provider: record.provider,
-        providerMessageId: record.providerMessageId ?? null,
-        status: record.status,
-        errorMessage: record.errorMessage ?? null,
-        // Store-by-default (opt-out with storeBody: false). A caller with no
-        // logContext at all still stores — "all sent emails" is the contract.
-        htmlBody: record.context?.storeBody === false ? null : (record.htmlBody ?? null),
-        attachmentNames: record.attachmentNames ?? [],
-        triggeredByUserId: record.context?.triggeredByUserId ?? null,
-      },
-    });
+    let organizationId = record.context?.organizationId ?? null;
+    if (!organizationId && record.context?.eventId) {
+      // Failure-isolated: a blip on this lookup degrades to the null-org
+      // write below (row kept, just un-attributed) instead of losing the row.
+      try {
+        const event = await db.event.findUnique({
+          where: { id: record.context.eventId },
+          select: { organizationId: true },
+        });
+        organizationId = event?.organizationId ?? null;
+      } catch (lookupErr) {
+        apiLogger.warn({
+          err: lookupErr,
+          msg: "email-log:org-resolution-failed; writing un-attributed row",
+          eventId: record.context.eventId,
+        });
+      }
+    }
+    const data = {
+      organizationId,
+      eventId: record.context?.eventId ?? null,
+      entityType: record.context?.entityType ?? "OTHER",
+      entityId: record.context?.entityId ?? null,
+      to: record.to,
+      cc: record.cc ?? null,
+      bcc: record.bcc ?? null,
+      subject: record.subject,
+      templateSlug: record.context?.templateSlug ?? null,
+      provider: record.provider,
+      providerMessageId: record.providerMessageId ?? null,
+      status: record.status,
+      errorMessage: record.errorMessage ?? null,
+      // Store-by-default (opt-out with storeBody: false). A caller with no
+      // logContext at all still stores — "all sent emails" is the contract.
+      htmlBody: record.context?.storeBody === false ? null : (record.htmlBody ?? null),
+      attachmentNames: record.attachmentNames ?? [],
+      triggeredByUserId: record.context?.triggeredByUserId ?? null,
+    };
+    if (organizationId) {
+      await runWithTenant(organizationId, () => db.emailLog.create({ data }));
+    } else {
+      // NULL-org (genuinely org-less auth emails): `createMany`, NOT `create`
+      // — Prisma's create() emits INSERT..RETURNING, and under the platform's
+      // asymmetric policy RETURNING must pass the SELECT-side USING check,
+      // which deliberately hides null-org rows ("keep them, hidden"). A plain
+      // INSERT (createMany) is admitted by the WITH CHECK null carve-out.
+      // Identical behavior on master; the returned row was never used.
+      await db.emailLog.createMany({ data: [data] });
+    }
   } catch (err) {
     apiLogger.warn({
       err,

@@ -19,6 +19,13 @@ const { mockDb } = vi.hoisted(() => ({
     emailLog: {
       findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockResolvedValue({}),
+      // Domain #18: NULL-org rows write via createMany (plain INSERT — no
+      // RETURNING, which the asymmetric RLS policy would reject).
+      createMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    event: {
+      // Domain #18: logEmail resolves a missing org 1-hop from a tagged event.
+      findUnique: vi.fn().mockResolvedValue(null),
     },
   },
 }));
@@ -33,6 +40,9 @@ import { getEmailLogsFor, logEmail } from "@/lib/email-log";
 beforeEach(() => {
   mockDb.emailLog.findMany.mockClear();
   mockDb.emailLog.create.mockClear();
+  mockDb.emailLog.createMany.mockClear();
+  mockDb.event.findUnique.mockClear();
+  mockDb.event.findUnique.mockResolvedValue(null);
 });
 
 describe("getEmailLogsFor — relaxed organizationId filter", () => {
@@ -108,9 +118,9 @@ describe("logEmail — htmlBody audit copy (store-by-default since July 16, 2026
     expect(mockDb.emailLog.create.mock.calls[0][0].data.htmlBody).toBe(BASE.htmlBody);
   });
 
-  it("persists htmlBody even with NO logContext at all", async () => {
+  it("persists htmlBody even with NO logContext at all (null-org → createMany path)", async () => {
     await logEmail({ ...BASE });
-    expect(mockDb.emailLog.create.mock.calls[0][0].data.htmlBody).toBe(BASE.htmlBody);
+    expect(mockDb.emailLog.createMany.mock.calls[0][0].data[0].htmlBody).toBe(BASE.htmlBody);
   });
 
   it("drops htmlBody only on the explicit opt-out (storeBody: false)", async () => {
@@ -151,13 +161,56 @@ describe("logEmail — attachmentNames (Aug 3, 2026)", () => {
     ]);
   });
 
-  it("defaults to [] when the send carried no attachments", async () => {
+  it("defaults to [] when the send carried no attachments (null-org → createMany path)", async () => {
     await logEmail({ ...BASE });
-    expect(mockDb.emailLog.create.mock.calls[0][0].data.attachmentNames).toEqual([]);
+    expect(mockDb.emailLog.createMany.mock.calls[0][0].data[0].attachmentNames).toEqual([]);
   });
 
   it("getEmailLogsFor selects attachmentNames for the history surfaces", async () => {
     await getEmailLogsFor("REGISTRATION", "reg-1", "org-1");
     expect(mockDb.emailLog.findMany.mock.calls[0][0].select.attachmentNames).toBe(true);
+  });
+});
+
+describe("logEmail — org resolution + write-path routing (tenancy Domain #18)", () => {
+  const BASE = {
+    to: "jane@x.com",
+    subject: "Confirmation",
+    provider: "ses",
+    status: "SENT" as const,
+  };
+
+  it("explicit context org wins: stamped + written via create (no event lookup)", async () => {
+    await logEmail({ ...BASE, context: { organizationId: "org-1", eventId: "evt-1" } });
+    expect(mockDb.event.findUnique).not.toHaveBeenCalled();
+    expect(mockDb.emailLog.create.mock.calls[0][0].data.organizationId).toBe("org-1");
+    expect(mockDb.emailLog.createMany).not.toHaveBeenCalled();
+  });
+
+  it("missing org + tagged event: resolves the org 1-hop from the Event and stamps it", async () => {
+    // The historical class this closes: transactional senders threading
+    // eventId but not organizationId minted NULL-org rows for tenant emails.
+    mockDb.event.findUnique.mockResolvedValue({ organizationId: "org-evt" });
+    await logEmail({ ...BASE, context: { eventId: "evt-1", entityType: "REGISTRATION" } });
+    expect(mockDb.event.findUnique.mock.calls[0][0].where).toEqual({ id: "evt-1" });
+    expect(mockDb.emailLog.create.mock.calls[0][0].data.organizationId).toBe("org-evt");
+    expect(mockDb.emailLog.createMany).not.toHaveBeenCalled();
+  });
+
+  it("genuinely org-less (no org, no event): NULL-org row via createMany, never create", async () => {
+    await logEmail({ ...BASE, context: { entityType: "USER", entityId: "user-1" } });
+    expect(mockDb.emailLog.create).not.toHaveBeenCalled();
+    const row = mockDb.emailLog.createMany.mock.calls[0][0].data[0];
+    expect(row.organizationId).toBeNull();
+    expect(row.entityType).toBe("USER");
+  });
+
+  it("never throws: a failed event lookup degrades to the null-org write (row kept, un-attributed)", async () => {
+    mockDb.event.findUnique.mockRejectedValue(new Error("pool blip"));
+    await expect(
+      logEmail({ ...BASE, context: { eventId: "evt-1" } }),
+    ).resolves.toBeUndefined();
+    // The row is NOT lost — it lands via the null-org path.
+    expect(mockDb.emailLog.createMany.mock.calls[0][0].data[0].organizationId).toBeNull();
   });
 });

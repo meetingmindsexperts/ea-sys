@@ -73,6 +73,9 @@ SWEPT_ROUTE_DIRS=(
   # opens no runWithTenant of its own, by design — not listed).
   "src/app/api/events/[eventId]/reimbursements"           # Reimbursement sweep — console (Aug 3, 2026)
   "src/app/api/public/events/[slug]/reimbursement"        # Reimbursement sweep — public token routes (Aug 3, 2026)
+  # Comms-log sweep (Domain #18, Aug 3, 2026) — the EmailLog read surface
+  # (entity Email History list + stored-body fetch), SESSION-org wraps.
+  "src/app/api/email-logs"                                # Comms-log sweep — EmailLog reads (Aug 3, 2026)
 )
 # Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
@@ -233,6 +236,17 @@ SWEPT_ROUTE_FILES=(
   # by its globally-unique token inside runWithTenant — RLS would otherwise
   # fail-close the token lookup to null.
   "src/app/api/public/events/[slug]/rsvp/[token]/route.ts"                             # Dinner RSVP — public resource-org (Aug 3, 2026)
+  # Comms-log sweep (Domain #18, Aug 3, 2026) — the ScheduledEmail enqueue +
+  # management routes (SESSION org via requireOrgId) + the event Email
+  # Activity rollup. src/lib/email-log.ts self-wraps at the logEmail choke
+  # point (listed in SWEPT_MODULES); webinar-email-sequence.ts is a
+  # runs-inside-wraps lib (its callers — the sequence route, the provisioner,
+  # the public register route — all wrap; not listed).
+  "src/app/api/events/[eventId]/emails/bulk/route.ts"                                  # Comms-log (Aug 3, 2026)
+  "src/app/api/events/[eventId]/emails/schedule/route.ts"                              # Comms-log (Aug 3, 2026)
+  "src/app/api/events/[eventId]/emails/schedule/[id]/route.ts"                         # Comms-log (Aug 3, 2026)
+  "src/app/api/events/[eventId]/emails/schedule/[id]/retry/route.ts"                   # Comms-log (Aug 3, 2026)
+  "src/app/api/events/[eventId]/email-activity/route.ts"                               # Comms-log (Aug 3, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
@@ -287,8 +301,15 @@ SWEPT_MODULES=(
   # executeCertificateBulkSend; the wrap lives at its two callers. The two
   # enqueue routes' precheck wraps (emails/bulk + emails/schedule) are NARROW
   # cross-domain wraps (Invoice-C2b pattern) — gated when ScheduledEmail sweeps.
-  "src/lib/scheduled-emails-worker.ts"      # bulk-email worker — per-row org wrap (Aug 3, 2026)
-  "src/lib/agent/tools/communications.ts"   # MCP send_bulk_email — ctx-org wrap (Aug 3, 2026)
+  "src/lib/scheduled-emails-worker.ts"      # bulk-email worker — whole processRow on the row org (Domain #18, Aug 3, 2026)
+  "src/lib/agent/tools/communications.ts"   # MCP send_bulk_email + list/cancel_scheduled_email — ctx-org wraps (Aug 3, 2026)
+  # Comms-log sweep (Domain #18): logEmail is the ONE EmailLog writer — it
+  # resolves the org (explicit context, else 1-hop from the tagged event) and
+  # self-wraps the insert, so every sender rides the right lane by construction;
+  # NULL-org auth emails insert bare (asymmetric WITH CHECK). The org-blind
+  # email-log-prune worker + the SUPER_ADMIN ops reads in infra/aws-ops.ts are
+  # the documented worker/ops preconditions, not module entries.
+  "src/lib/email-log.ts"                    # EmailLog choke-point writer — self-wrap on resolved org (Aug 3, 2026)
   # MCP-resource-handlers follow-on (July 31, 2026) — register-mcp-tools.ts has
   # inline server.tool / server.resource handlers that read swept tables directly
   # (NOT via the wrapped tools/*.ts executors): list_contacts (Contact),
@@ -322,7 +343,7 @@ HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|
 # name means a plain property chain like `payment.registration.event` never
 # matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
 # session) are the ONLY reads allowed before the wrap (org resolution).
-SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|sessionProposal|sessionProposalTheme|rsvpDinner|rsvpInvite|rsvpDinnerResponse|surveyResponse|speakerReimbursement|speakerReimbursementDocument'
+SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|sessionProposal|sessionProposalTheme|rsvpDinner|rsvpInvite|rsvpDinnerResponse|surveyResponse|speakerReimbursement|speakerReimbursementDocument|emailLog|scheduledEmail'
 # `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
 SWEPT_OP_RE="[.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)"
 

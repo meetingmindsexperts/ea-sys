@@ -15,6 +15,14 @@ import { apiLogger } from "@/lib/logger";
  *
  * Self-healing: each tick prunes ALL rows past the cutoff (batched), so a
  * missed run catches up on the next one.
+ *
+ * Tenancy (Domain #18): this maintenance sweep is deliberately ORG-BLIND —
+ * retention applies to every tenant's rows plus the NULL-org auth-email rows,
+ * so per-tenant lanes are the wrong shape here. Under platform RLS as the
+ * app role it would silently see zero rows and STOP PRUNING (unbounded
+ * htmlBody growth) — the documented cross-sweep worker precondition
+ * (MULTI_TENANCY.md §13): the platform must run this job on a privileged
+ * maintenance lane. No-op concern on master (RLS never enabled there).
  */
 
 export const EMAIL_BODY_RETENTION_DAYS = 180;

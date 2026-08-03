@@ -24,6 +24,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { denyReviewer } from "@/lib/auth-guards";
 import { apiLogger } from "@/lib/logger";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ emailLogId: string }>;
@@ -41,20 +42,29 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ msg: "email-log-body:no-org", userId: session.user.id, emailLogId });
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    // Captured as a const so the narrowing survives into the closure below
+    // (the Contacts-pilot TS gotcha).
+    const orgId = session.user.organizationId;
 
-    const row = await db.emailLog.findFirst({
-      where: {
-        id: emailLogId,
-        OR: [
-          { organizationId: session.user.organizationId },
-          // Historical null-org rows: readable only when the row's event
-          // provably belongs to the caller's org. A null-org row with no
-          // event never matches (fail closed).
-          { organizationId: null, event: { organizationId: session.user.organizationId } },
-        ],
-      },
-      select: { subject: true, to: true, createdAt: true, htmlBody: true },
-    });
+    // Tenancy (Domain #18): swept EmailLog read rides the caller's org lane.
+    // The OR-null branch stays for master's historical rows; under platform
+    // RLS it simply never matches (USING hides null-org rows) — and the
+    // Domain #18 backfill stamps every event-derivable row anyway.
+    const row = await runWithTenant(orgId, () =>
+      db.emailLog.findFirst({
+        where: {
+          id: emailLogId,
+          OR: [
+            { organizationId: orgId },
+            // Historical null-org rows: readable only when the row's event
+            // provably belongs to the caller's org. A null-org row with no
+            // event never matches (fail closed).
+            { organizationId: null, event: { organizationId: orgId } },
+          ],
+        },
+        select: { subject: true, to: true, createdAt: true, htmlBody: true },
+      }),
+    );
     if (!row) {
       apiLogger.warn({ msg: "email-log-body:not-found", emailLogId, userId: session.user.id });
       return NextResponse.json({ error: "Email not found" }, { status: 404 });

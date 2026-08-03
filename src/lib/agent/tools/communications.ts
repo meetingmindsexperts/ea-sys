@@ -182,6 +182,8 @@ const listEmailTemplates: ToolExecutor = async (_input, ctx) => {
 
 const listScheduledEmails: ToolExecutor = async (_input, ctx) => {
   try {
+    // Tenancy (Domain #18): swept ScheduledEmail read on the caller's org lane.
+    return await runWithTenant(ctx.organizationId, async () => {
     const event = await db.event.findFirst({
       where: { id: ctx.eventId, organizationId: ctx.organizationId },
       select: { id: true },
@@ -209,6 +211,7 @@ const listScheduledEmails: ToolExecutor = async (_input, ctx) => {
     });
 
     return { scheduledEmails: rows, total: rows.length };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:list_scheduled_emails failed");
     return { error: "Failed to list scheduled emails" };
@@ -220,6 +223,10 @@ const cancelScheduledEmail: ToolExecutor = async (input, ctx) => {
     const scheduledEmailId = String(input.scheduledEmailId ?? "").trim();
     if (!scheduledEmailId) return { error: "scheduledEmailId is required" };
 
+    // Tenancy (Domain #18): swept ScheduledEmail cancel on the caller's org
+    // lane; the update also org-binds atomically (defence #1 — the bare
+    // update-by-id after a findFirst was the compound-where class).
+    return await runWithTenant(ctx.organizationId, async () => {
     const existing = await db.scheduledEmail.findFirst({
       where: { id: scheduledEmailId, event: { organizationId: ctx.organizationId } },
       select: { id: true, status: true, eventId: true },
@@ -231,7 +238,7 @@ const cancelScheduledEmail: ToolExecutor = async (input, ctx) => {
     }
 
     const updated = await db.scheduledEmail.update({
-      where: { id: scheduledEmailId },
+      where: { id: scheduledEmailId, organizationId: ctx.organizationId },
       data: { status: "CANCELLED" },
       select: { id: true, status: true, scheduledFor: true },
     });
@@ -248,6 +255,7 @@ const cancelScheduledEmail: ToolExecutor = async (input, ctx) => {
     }).catch((err) => apiLogger.error({ err }, "agent:cancel_scheduled_email audit-log-failed"));
 
     return { success: true, scheduledEmail: updated };
+    });
   } catch (err) {
     apiLogger.error({ err }, "agent:cancel_scheduled_email failed");
     return { error: err instanceof Error ? err.message : "Failed to cancel scheduled email" };

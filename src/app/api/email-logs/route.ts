@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getEmailLogsFor } from "@/lib/email-log";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const querySchema = z.object({
   entityType: z.enum(["REGISTRATION", "SPEAKER", "CONTACT", "USER", "OTHER"]),
@@ -39,6 +40,11 @@ export async function GET(req: Request) {
     if (!orgId) {
       return NextResponse.json({ logs: [] });
     }
+
+    // Tenancy (Domain #18): the ownership lookups read swept Registration /
+    // Speaker / Contact and the log read is on swept EmailLog — all ride the
+    // caller's org lane. Passthrough on master.
+    return await runWithTenant(orgId, async () => {
 
     let ownershipOk = false;
     switch (entityType) {
@@ -78,6 +84,7 @@ export async function GET(req: Request) {
 
     const logs = await getEmailLogsFor(entityType, entityId, orgId);
     return NextResponse.json({ logs });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Failed to fetch email logs" });
     return NextResponse.json({ error: "Failed to fetch email logs" }, { status: 500 });

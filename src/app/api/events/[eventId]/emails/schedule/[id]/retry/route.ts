@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
   params: Promise<{ eventId: string; id: string }>;
@@ -22,6 +23,9 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const denied = denyReviewer(session);
     if (denied) return denied;
+
+    // Tenancy (Domain #18): swept ScheduledEmail retry rides the org lane.
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     // Atomic retry — only succeeds if the row is still FAILED.
     const result = await db.scheduledEmail.updateMany({
@@ -87,6 +91,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     return NextResponse.json({ success: true, scheduledEmail: updated });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error retrying scheduled email" });
     return NextResponse.json({ error: "Failed to retry scheduled email" }, { status: 500 });

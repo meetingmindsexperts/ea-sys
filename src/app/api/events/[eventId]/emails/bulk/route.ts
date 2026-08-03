@@ -92,27 +92,27 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Tenancy (Domain #18): ScheduledEmail is now swept, so the whole enqueue
+    // path — the certificate-template precheck reads, the dedup lookup, and
+    // the row create — rides the caller's org lane. Supersedes the earlier
+    // narrow Invoice-C2b wrap around the precheck alone. Passthrough on master.
+    return await runWithTenant(orgGuard.orgId, async () => {
+
     // M2: validate send viability SYNCHRONOUSLY here (same checks the worker
     // runs at fire time) so a misconfigured send — untagged cert template,
     // missing agreement template, deactivated custom slug, unbuilt survey —
     // returns a real 4xx now instead of a green "queued" toast followed by a
     // FAILED ScheduledEmail row a minute later.
     try {
-      // Tenancy: NARROW cross-domain wrap (Invoice-C2b pattern) — the precheck
-      // reads swept CertificateTemplate for certificate sends (loadCertTemplate);
-      // everything else it touches (Event, EmailTemplate) is unswept. This
-      // route's own domain (ScheduledEmail) is unswept, so only this call wraps.
-      await runWithTenant(orgGuard.orgId, () =>
-        precheckBulkEmailViability({
-          eventId,
-          recipientType,
-          emailType,
-          customSubject,
-          customMessage,
-          attachments,
-          filters,
-        }),
-      );
+      await precheckBulkEmailViability({
+        eventId,
+        recipientType,
+        emailType,
+        customSubject,
+        customMessage,
+        attachments,
+        filters,
+      });
     } catch (err) {
       if (err instanceof BulkEmailError) {
         apiLogger.warn({
@@ -230,6 +230,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       },
       { status: 202 }
     );
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error queueing bulk emails" });
     return NextResponse.json({ error: "Failed to queue bulk emails" }, { status: 500 });

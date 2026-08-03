@@ -2587,6 +2587,9 @@ model ScheduledEmail {
 
   @@index([status, scheduledFor])
   @@index([eventId, status])
+  // Multi-tenancy (Domain #18): indexable RLS predicate — the column itself
+  // has existed (non-null, FK'd) since the model was born.
+  @@index([organizationId])
 }
 
 // ==================== MCP OAUTH 2.1 (RFC 7591 DCR + PKCE) ====================

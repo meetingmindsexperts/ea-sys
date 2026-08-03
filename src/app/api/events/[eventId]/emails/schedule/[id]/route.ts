@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
+import { runWithTenant } from "@/lib/tenant-context";
 
 const MIN_LEAD_MS = 5 * 60 * 1000;
 
@@ -78,6 +79,10 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Tenancy (Domain #18): swept ScheduledEmail writes/reads ride the
+    // caller's org lane (the compound-where org bind stays as defence #1).
+    return await runWithTenant(orgGuard.orgId, async () => {
+
     // Atomic conditional update — only mutate if still PENDING. This races
     // safely against the cron worker which atomically claims rows by flipping
     // PENDING → PROCESSING.
@@ -135,6 +140,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       );
 
     return NextResponse.json({ success: true, scheduledEmail: updated });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating scheduled email" });
     return NextResponse.json({ error: "Failed to update scheduled email" }, { status: 500 });
@@ -153,6 +159,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     const denied = denyReviewer(session);
     if (denied) return denied;
+
+    // Tenancy (Domain #18): swept ScheduledEmail cancel rides the org lane.
+    return await runWithTenant(orgGuard.orgId, async () => {
 
     // Atomic cancel. PENDING rows cancel outright. PROCESSING rows can now be
     // cancelled too (review C5, July 16 2026): the sender re-checks
@@ -206,6 +215,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       );
 
     return NextResponse.json({ success: true });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error cancelling scheduled email" });
     return NextResponse.json({ error: "Failed to cancel scheduled email" }, { status: 500 });

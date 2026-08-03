@@ -126,16 +126,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     let skippedRecentlySent = 0;
     let toSend = rows;
     if (!parsed.data.reimbursementId) {
-      const recentLogs = await db.emailLog.findMany({
-        where: {
-          eventId,
-          templateSlug: TEMPLATE_SLUG,
-          status: "SENT",
-          entityId: { in: rows.map((r) => r.speakerId) },
-          createdAt: { gt: new Date(Date.now() - 10 * 60_000) },
-        },
-        select: { entityId: true },
-      });
+      // Tenancy (Domain #18): EmailLog is swept — this dedup read must ride
+      // the resource org like the reimbursement read above, or under platform
+      // RLS it fail-closes to [] while the candidate read succeeds and the
+      // batch RE-MAILS everyone (a fail-closed read feeding a terminal action
+      // — the Certificates-review lesson).
+      const recentLogs = await runWithTenant(event.organizationId, () =>
+        db.emailLog.findMany({
+          where: {
+            eventId,
+            templateSlug: TEMPLATE_SLUG,
+            status: "SENT",
+            entityId: { in: rows.map((r) => r.speakerId) },
+            createdAt: { gt: new Date(Date.now() - 10 * 60_000) },
+          },
+          select: { entityId: true },
+        }),
+      );
       const recentlySent = new Set(recentLogs.map((l) => l.entityId));
       toSend = rows.filter((r) => !recentlySent.has(r.speakerId));
       skippedRecentlySent = rows.length - toSend.length;

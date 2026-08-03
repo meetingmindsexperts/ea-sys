@@ -90,27 +90,26 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
+    // Tenancy (Domain #18): ScheduledEmail is now swept — precheck reads,
+    // dedup lookup, and the row create all ride the caller's org lane.
+    // Supersedes the earlier narrow Invoice-C2b wrap. Passthrough on master.
+    return await runWithTenant(orgGuard.orgId, async () => {
+
     // M2: validate send viability now, at schedule time, so a misconfigured
     // send (untagged cert template, missing agreement template, deactivated
     // custom slug, unbuilt survey) is rejected synchronously rather than
     // failing silently when it fires. The worker re-checks at fire time as the
     // backstop (config can change between now and the scheduled time).
     try {
-      // Tenancy: NARROW cross-domain wrap (Invoice-C2b pattern) — the precheck
-      // reads swept CertificateTemplate for certificate sends (loadCertTemplate);
-      // everything else it touches (Event, EmailTemplate) is unswept. This
-      // route's own domain (ScheduledEmail) is unswept, so only this call wraps.
-      await runWithTenant(orgGuard.orgId, () =>
-        precheckBulkEmailViability({
-          eventId,
-          recipientType: data.recipientType,
-          emailType: data.emailType,
-          customSubject: data.customSubject,
-          customMessage: data.customMessage,
-          attachments: data.attachments,
-          filters: data.filters,
-        }),
-      );
+      await precheckBulkEmailViability({
+        eventId,
+        recipientType: data.recipientType,
+        emailType: data.emailType,
+        customSubject: data.customSubject,
+        customMessage: data.customMessage,
+        attachments: data.attachments,
+        filters: data.filters,
+      });
     } catch (err) {
       if (err instanceof BulkEmailError) {
         apiLogger.warn({
@@ -203,6 +202,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
 
     return NextResponse.json({ success: true, scheduledEmail: created });
+    });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error creating scheduled email" });
     return NextResponse.json({ error: "Failed to schedule email" }, { status: 500 });
@@ -235,7 +235,9 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const scheduledEmails = await db.scheduledEmail.findMany({
+    // Tenancy (Domain #18): swept ScheduledEmail read on the caller's org lane.
+    const scheduledEmails = await runWithTenant(orgGuard.orgId, () =>
+      db.scheduledEmail.findMany({
       where: { eventId },
       orderBy: { scheduledFor: "desc" },
       select: {
@@ -259,7 +261,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         createdAt: true,
         createdBy: { select: { firstName: true, lastName: true, email: true } },
       },
-    });
+    }));
 
     return NextResponse.json({ scheduledEmails });
   } catch (error) {

@@ -140,6 +140,14 @@ export async function runSurveyThankYouSweep(
   // A SENT survey-thankyou EmailLog row is the "already thanked" marker. The
   // window bounds the list (thanks land minutes after completion, and completions
   // are themselves inside the window).
+  //
+  // Tenancy (Domain #18): EmailLog is swept, so this dedup read is part of the
+  // SAME org-blind candidate scan as the Registration query below — under
+  // platform RLS both fail-close TOGETHER (empty candidates gate everything,
+  // so no duplicate-send risk). When the platform gives the worker its
+  // privileged scan lane, BOTH reads must ride it — never split their lanes,
+  // or a succeeding candidate read + a fail-closed dedup read would re-thank
+  // (and re-attach certificates for) everyone in the window.
   const thankedRows = await db.emailLog.findMany({
     where: {
       entityType: "REGISTRATION",
