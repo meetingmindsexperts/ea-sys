@@ -635,6 +635,7 @@ export type BulkEmailViabilityInput = Pick<
 // so the send loads the event exactly once.
 const VIABILITY_EVENT_SELECT = {
   id: true,
+  organizationId: true,
   slug: true,
   name: true,
   startDate: true,
@@ -924,6 +925,13 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
   // event + cert templates + agreement mode for the send below.
   const { event, certTemplates, agreementMode } = await precheckBulkEmailViability(input);
 
+  // EmailLog org stamp — callers that omit organizationId (the automated
+  // webinar confirmation, payment reminders) used to write org-NULL rows,
+  // which the strictly org-scoped body route then refused ("Email not found"
+  // on the Email Activity View button, Aug 3 2026). The event is already
+  // loaded here, so default from it — ONE fix covering every caller.
+  const resolvedOrganizationId = organizationId ?? event.organizationId ?? null;
+
   // App URL for building public links — same fallback chain as the
   // send-completion-emails route so behavior is identical on EC2 +
   // dev. Used to construct {{surveyLink}} per recipient.
@@ -1137,8 +1145,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       customSubject,
       customMessage,
       // Required downstream (review L5) — normalize this input's optionality
-      // at the boundary; both real callers (worker + MCP) thread a real org.
-      organizationId: organizationId ?? null,
+      // at the boundary; defaults from the loaded event when a caller omits it.
+      organizationId: resolvedOrganizationId,
       triggeredByUserId,
       // A4 (July 16, 2026): the cert send previously had NO email-level
       // idempotency (issue-or-reuse dedups the cert ROW, not the email) — a
@@ -1789,7 +1797,7 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             emailType: emailType.replace(/-/g, "_"),
             stream: "bulk",
             logContext: {
-              organizationId: organizationId ?? null,
+              organizationId: resolvedOrganizationId,
               eventId,
               entityType: bulkEntityType,
               entityId: recipient.id,

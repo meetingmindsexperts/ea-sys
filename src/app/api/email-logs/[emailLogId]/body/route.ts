@@ -7,9 +7,16 @@
  * Backs the "View email" action on the activity timeline.
  *
  * Auth: session + denyReviewer (same policy as the email-logs list route).
- * Org-scoped: the row's organizationId must match the caller's — rows
- * written without an org (some legacy transactional senders) are NOT
- * exposed here, which is fine: every body-storing sender stamps the org.
+ * Org-scoped with the null-org fallback (Aug 3, 2026): some automated
+ * senders (webinar confirmation, payment reminders) historically wrote
+ * org-NULL rows — the LIST surfaces (entity Email History, the event
+ * Email Activity table) showed them via their own entity/event ownership
+ * checks, but this route's strict org match then 404'd the View button
+ * ("Email not found"). A null-org row is now readable IFF its event
+ * belongs to the caller's org (ownership by construction — same reasoning
+ * as getEmailLogsFor's fallback). Null-org rows with NO event stay hidden
+ * (fail closed). New rows are org-stamped at the executeBulkEmail choke
+ * point, so the fallback only carries the historical rows.
  */
 
 import { NextResponse } from "next/server";
@@ -36,7 +43,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     const row = await db.emailLog.findFirst({
-      where: { id: emailLogId, organizationId: session.user.organizationId },
+      where: {
+        id: emailLogId,
+        OR: [
+          { organizationId: session.user.organizationId },
+          // Historical null-org rows: readable only when the row's event
+          // provably belongs to the caller's org. A null-org row with no
+          // event never matches (fail closed).
+          { organizationId: null, event: { organizationId: session.user.organizationId } },
+        ],
+      },
       select: { subject: true, to: true, createdAt: true, htmlBody: true },
     });
     if (!row) {
