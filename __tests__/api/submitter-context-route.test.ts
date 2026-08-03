@@ -7,7 +7,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockDb, mockAuth } = vi.hoisted(() => ({
-  mockDb: { speaker: { findFirst: vi.fn() } },
+  mockDb: {
+    // event.findUnique resolves the resource org before the (tenant-wrapped)
+    // speaker read — the Session Proposals sweep (Aug 2026) added this.
+    event: { findUnique: vi.fn() },
+    speaker: { findFirst: vi.fn() },
+  },
   mockAuth: vi.fn(),
 }));
 
@@ -28,6 +33,7 @@ const req = new Request("http://test/api/events/ev1/submitter-context");
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue({ user: { id: "u1", role: "SUBMITTER" } });
+  mockDb.event.findUnique.mockResolvedValue({ organizationId: "org1" });
   mockDb.speaker.findFirst.mockResolvedValue({
     submitterSource: "proposal",
     _count: { abstracts: 0, sessionProposals: 2 },

@@ -237,6 +237,18 @@ export const CERT_RUN_ITEM_A_ID = "tenancy-critem-a";
 export const CERT_RUN_ITEM_B_ID = "tenancy-critem-b";
 
 /**
+ * Session Proposals sweep (Domain #14). SessionProposal + SessionProposalTheme.
+ * The theme NAME is SHARED across both orgs (only @@unique([eventId, name]) — no
+ * per-org-unique field), so an unscoped by-name lookup returning only the
+ * caller's row proves lane-scoping. Each proposal hangs on the org's own speaker.
+ */
+export const SHARED_SESSION_PROPOSAL_THEME_NAME = "Clinical Innovations";
+export const SESSION_PROPOSAL_THEME_A_ID = "tenancy-spt-a";
+export const SESSION_PROPOSAL_THEME_B_ID = "tenancy-spt-b";
+export const SESSION_PROPOSAL_A_ID = "tenancy-sprop-a";
+export const SESSION_PROPOSAL_B_ID = "tenancy-sprop-b";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event

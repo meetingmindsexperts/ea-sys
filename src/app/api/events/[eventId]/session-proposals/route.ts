@@ -3,6 +3,7 @@ import { z } from "zod";
 import { SessionProposalStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -112,23 +113,28 @@ export async function GET(req: Request, { params }: RouteParams) {
       if (denied) return denied;
     }
 
-    const [event, proposals] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, organizationId: true },
-      }),
+    // Resolve the event (+ resource org) FIRST, un-wrapped — Event is not yet a
+    // swept table, and its org is the tenant lane for the SessionProposal read.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
+
+    if (!event) {
+      apiLogger.warn({ msg: "session-proposals:event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Resource org: correct for org-null SUBMITTERs too (the Abstract dual-route
+    // pattern). The SessionProposal read (swept) rides the tenant lane.
+    const proposals = await runWithTenant(event.organizationId, () =>
       db.sessionProposal.findMany({
         where,
         include: PROPOSAL_INCLUDE,
         orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }],
         take: 500,
       }),
-    ]);
-
-    if (!event) {
-      apiLogger.warn({ msg: "session-proposals:event-not-found", eventId, userId: session.user.id });
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
-    }
+    );
 
     if (wantsCsv) {
       const header = toCsvRow([
@@ -203,79 +209,86 @@ export async function POST(req: Request, { params }: RouteParams) {
         ? { id: speakerId, eventId, userId: session.user.id }
         : { id: speakerId, eventId };
 
-    const [event, speaker, theme] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, organizationId: true },
-      }),
-      db.speaker.findFirst({ where: speakerWhere, select: { id: true } }),
-      themeId
-        ? db.sessionProposalTheme.findFirst({ where: { id: themeId, eventId }, select: { id: true } })
-        : Promise.resolve(null),
-    ]);
+    // Event (+ resource org) FIRST, un-wrapped (Event is not swept); its org is
+    // the tenant lane for the Speaker (swept #9), theme, and proposal writes.
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
 
     if (!event) {
       apiLogger.warn({ msg: "session-proposals:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-    if (!speaker) {
-      apiLogger.warn({ msg: "session-proposals:speaker-not-found", eventId, speakerId, userId: session.user.id });
-      return NextResponse.json(
-        { error: session.user.role === "SUBMITTER" ? "Forbidden" : "Speaker not found" },
-        { status: session.user.role === "SUBMITTER" ? 403 : 404 },
-      );
-    }
-    if (themeId && !theme) {
-      apiLogger.warn({ msg: "session-proposals:theme-not-found", eventId, themeId });
-      return NextResponse.json({ error: "Theme not found" }, { status: 404 });
-    }
 
-    const proposal = await db.sessionProposal.create({
-      data: {
-        eventId,
-        organizationId: event.organizationId,
-        speakerId,
-        title,
-        description,
-        themeId: themeId || null,
-        proposedFormat: proposedFormat || null,
-        durationMinutes: durationMinutes ?? null,
-        status,
-        submittedAt: status === "SUBMITTED" ? new Date() : undefined,
-      },
-      include: {
-        ...PROPOSAL_INCLUDE,
-        speaker: { select: { ...PROPOSAL_INCLUDE.speaker.select, additionalEmail: true } },
-      },
-    });
+    // Everything that reads/writes a swept table rides the resource-org lane.
+    return await runWithTenant(event.organizationId, async () => {
+      const [speaker, theme] = await Promise.all([
+        db.speaker.findFirst({ where: speakerWhere, select: { id: true } }),
+        themeId
+          ? db.sessionProposalTheme.findFirst({ where: { id: themeId, eventId }, select: { id: true } })
+          : Promise.resolve(null),
+      ]);
 
-    // Confirmation email + admin notify — only on a real submission, never a
-    // DRAFT save. Failure-isolated in the helper.
-    if (status === "SUBMITTED") {
-      notifySessionProposalSubmitted({
-        eventId,
-        organizationId: event.organizationId,
-        triggeredByUserId: session.user.id,
-        isResubmission: false,
-        proposal,
-      });
-    }
+      if (!speaker) {
+        apiLogger.warn({ msg: "session-proposals:speaker-not-found", eventId, speakerId, userId: session.user.id });
+        return NextResponse.json(
+          { error: session.user.role === "SUBMITTER" ? "Forbidden" : "Speaker not found" },
+          { status: session.user.role === "SUBMITTER" ? 403 : 404 },
+        );
+      }
+      if (themeId && !theme) {
+        apiLogger.warn({ msg: "session-proposals:theme-not-found", eventId, themeId });
+        return NextResponse.json({ error: "Theme not found" }, { status: 404 });
+      }
 
-    db.auditLog
-      .create({
+      const proposal = await db.sessionProposal.create({
         data: {
           eventId,
-          userId: session.user.id,
-          action: "CREATE",
-          entityType: "SessionProposal",
-          entityId: proposal.id,
-          changes: { title, status, themeId: themeId ?? null, proposedFormat: proposedFormat ?? null },
-          ipAddress: getClientIp(req),
+          organizationId: event.organizationId,
+          speakerId,
+          title,
+          description,
+          themeId: themeId || null,
+          proposedFormat: proposedFormat || null,
+          durationMinutes: durationMinutes ?? null,
+          status,
+          submittedAt: status === "SUBMITTED" ? new Date() : undefined,
         },
-      })
-      .catch((err) => apiLogger.error({ err, msg: "session-proposals:audit-failed", proposalId: proposal.id }));
+        include: {
+          ...PROPOSAL_INCLUDE,
+          speaker: { select: { ...PROPOSAL_INCLUDE.speaker.select, additionalEmail: true } },
+        },
+      });
 
-    return NextResponse.json(proposal, { status: 201 });
+      // Confirmation email + admin notify — only on a real submission, never a
+      // DRAFT save. Failure-isolated in the helper (touches no swept table).
+      if (status === "SUBMITTED") {
+        notifySessionProposalSubmitted({
+          eventId,
+          organizationId: event.organizationId,
+          triggeredByUserId: session.user.id,
+          isResubmission: false,
+          proposal,
+        });
+      }
+
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "CREATE",
+            entityType: "SessionProposal",
+            entityId: proposal.id,
+            changes: { title, status, themeId: themeId ?? null, proposedFormat: proposedFormat ?? null },
+            ipAddress: getClientIp(req),
+          },
+        })
+        .catch((err) => apiLogger.error({ err, msg: "session-proposals:audit-failed", proposalId: proposal.id }));
+
+      return NextResponse.json(proposal, { status: 201 });
+    });
   } catch (err) {
     apiLogger.error({ err }, "session-proposals:POST failed");
     return NextResponse.json({ error: "Failed to create session proposal" }, { status: 500 });

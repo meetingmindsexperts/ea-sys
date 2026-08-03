@@ -105,6 +105,11 @@ import {
   CERT_RUN_B_ID,
   CERT_RUN_ITEM_A_ID,
   CERT_RUN_ITEM_B_ID,
+  SHARED_SESSION_PROPOSAL_THEME_NAME,
+  SESSION_PROPOSAL_THEME_A_ID,
+  SESSION_PROPOSAL_THEME_B_ID,
+  SESSION_PROPOSAL_A_ID,
+  SESSION_PROPOSAL_B_ID,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -224,6 +229,16 @@ async function seedOrg(
     runItemId: string;
     eventId: string;
     registrationId: string;
+  },
+  // Session Proposals sweep (Domain #14): a theme (SHARED name across orgs) + a
+  // proposal hung on this org's speaker + shared event. Both were born with a
+  // denormalized organizationId (stamped at create). Runs after the speaker.
+  sessionProposal?: {
+    themeId: string;
+    themeName: string;
+    proposalId: string;
+    eventId: string;
+    speakerId: string;
   },
 ) {
   await db.organization.create({
@@ -627,6 +642,32 @@ async function seedOrg(
       },
     });
   }
+  // Session Proposals sweep fixtures. SessionProposalTheme + SessionProposal
+  // cascade from Event; the proposal references this org's speaker (seeded
+  // above) + the shared theme. Both born with organizationId stamped at create.
+  if (sessionProposal) {
+    await db.sessionProposalTheme.create({
+      data: {
+        id: sessionProposal.themeId,
+        eventId: sessionProposal.eventId,
+        organizationId: orgId,
+        name: sessionProposal.themeName,
+      },
+    });
+    await db.sessionProposal.create({
+      data: {
+        id: sessionProposal.proposalId,
+        eventId: sessionProposal.eventId,
+        organizationId: orgId,
+        speakerId: sessionProposal.speakerId,
+        themeId: sessionProposal.themeId,
+        title: "Tenancy Session Proposal",
+        description: "Proposal body for the tenancy harness.",
+        status: "SUBMITTED",
+        submittedAt: new Date("2027-01-05T09:00:00Z"),
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -852,6 +893,13 @@ async function main() {
       eventId: EVENT_A_SHARED_ID,
       registrationId: REG_A_ID,
     },
+    {
+      themeId: SESSION_PROPOSAL_THEME_A_ID,
+      themeName: SHARED_SESSION_PROPOSAL_THEME_NAME,
+      proposalId: SESSION_PROPOSAL_A_ID,
+      eventId: EVENT_A_SHARED_ID,
+      speakerId: SPEAKER_A_ID,
+    },
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -961,6 +1009,13 @@ async function main() {
       runItemId: CERT_RUN_ITEM_B_ID,
       eventId: EVENT_B_SHARED_ID,
       registrationId: REG_B_ID,
+    },
+    {
+      themeId: SESSION_PROPOSAL_THEME_B_ID,
+      themeName: SHARED_SESSION_PROPOSAL_THEME_NAME,
+      proposalId: SESSION_PROPOSAL_B_ID,
+      eventId: EVENT_B_SHARED_ID,
+      speakerId: SPEAKER_B_ID,
     },
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {

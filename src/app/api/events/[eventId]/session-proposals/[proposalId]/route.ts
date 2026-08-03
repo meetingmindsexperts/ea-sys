@@ -3,6 +3,7 @@ import { z } from "zod";
 import { SessionProposalStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -70,16 +71,20 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const [event, proposal] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true },
-      }),
-      db.sessionProposal.findFirst({
-        where: { id: proposalId, eventId },
-        include: PROPOSAL_INCLUDE,
-      }),
-    ]);
+    // Event (+ resource org) first, un-wrapped; its org is the lane for the
+    // SessionProposal read (whose nested `speaker` include is swept too).
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
+    const proposal = event
+      ? await runWithTenant(event.organizationId, () =>
+          db.sessionProposal.findFirst({
+            where: { id: proposalId, eventId },
+            include: PROPOSAL_INCLUDE,
+          }),
+        )
+      : null;
 
     if (!event || !proposal) {
       apiLogger.warn({ msg: "session-proposals:not-found", eventId, proposalId, userId: session.user.id });
@@ -118,97 +123,104 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
     const data = validated.data;
 
-    const [event, existing] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, organizationId: true },
-      }),
-      db.sessionProposal.findFirst({
-        where: { id: proposalId, eventId },
-        select: { id: true, status: true, speaker: { select: { userId: true } } },
-      }),
-    ]);
-
-    if (!event || !existing) {
+    // Event (+ resource org) first, un-wrapped; its org is the tenant lane for
+    // the existing-proposal read, the theme read, and the update (all swept).
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
+    if (!event) {
       apiLogger.warn({ msg: "session-proposals:not-found", eventId, proposalId, userId: session.user.id });
       return NextResponse.json({ error: "Session proposal not found" }, { status: 404 });
     }
 
-    if (session.user.role === "SUBMITTER") {
-      if (existing.speaker.userId !== session.user.id) {
-        apiLogger.warn({ msg: "session-proposals:foreign-submitter-write", eventId, proposalId, userId: session.user.id });
+    return await runWithTenant(event.organizationId, async () => {
+      const existing = await db.sessionProposal.findFirst({
+        where: { id: proposalId, eventId },
+        select: { id: true, status: true, speaker: { select: { userId: true } } },
+      });
+
+      if (!existing) {
+        apiLogger.warn({ msg: "session-proposals:not-found", eventId, proposalId, userId: session.user.id });
         return NextResponse.json({ error: "Session proposal not found" }, { status: 404 });
       }
-      // Submitters act only while DRAFT (the abstracts SUBMITTED_LOCKED rule).
-      if (existing.status !== "DRAFT") {
-        apiLogger.warn({ msg: "session-proposals:submitted-locked", eventId, proposalId, userId: session.user.id });
-        return NextResponse.json(
-          {
-            error: "This proposal has been submitted and can no longer be edited. Contact the organizers for changes.",
-            code: "SUBMITTED_LOCKED",
-          },
-          { status: 403 },
-        );
+
+      if (session.user.role === "SUBMITTER") {
+        if (existing.speaker.userId !== session.user.id) {
+          apiLogger.warn({ msg: "session-proposals:foreign-submitter-write", eventId, proposalId, userId: session.user.id });
+          return NextResponse.json({ error: "Session proposal not found" }, { status: 404 });
+        }
+        // Submitters act only while DRAFT (the abstracts SUBMITTED_LOCKED rule).
+        if (existing.status !== "DRAFT") {
+          apiLogger.warn({ msg: "session-proposals:submitted-locked", eventId, proposalId, userId: session.user.id });
+          return NextResponse.json(
+            {
+              error: "This proposal has been submitted and can no longer be edited. Contact the organizers for changes.",
+              code: "SUBMITTED_LOCKED",
+            },
+            { status: 403 },
+          );
+        }
+        // A submitter may keep DRAFT or submit — never any other status.
+        if (data.status && data.status !== "DRAFT" && data.status !== "SUBMITTED") {
+          apiLogger.warn({ msg: "session-proposals:submitter-status-refused", eventId, proposalId, status: data.status });
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
       }
-      // A submitter may keep DRAFT or submit — never any other status.
-      if (data.status && data.status !== "DRAFT" && data.status !== "SUBMITTED") {
-        apiLogger.warn({ msg: "session-proposals:submitter-status-refused", eventId, proposalId, status: data.status });
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+      if (data.themeId) {
+        const theme = await db.sessionProposalTheme.findFirst({
+          where: { id: data.themeId, eventId },
+          select: { id: true },
+        });
+        if (!theme) {
+          apiLogger.warn({ msg: "session-proposals:theme-not-found", eventId, themeId: data.themeId });
+          return NextResponse.json({ error: "Theme not found" }, { status: 404 });
+        }
       }
-    }
 
-    if (data.themeId) {
-      const theme = await db.sessionProposalTheme.findFirst({
-        where: { id: data.themeId, eventId },
-        select: { id: true },
-      });
-      if (!theme) {
-        apiLogger.warn({ msg: "session-proposals:theme-not-found", eventId, themeId: data.themeId });
-        return NextResponse.json({ error: "Theme not found" }, { status: 404 });
-      }
-    }
+      const isSubmission = data.status === "SUBMITTED" && existing.status !== "SUBMITTED";
 
-    const isSubmission = data.status === "SUBMITTED" && existing.status !== "SUBMITTED";
-
-    const proposal = await db.sessionProposal.update({
-      where: { id: proposalId },
-      data: {
-        ...(data.title !== undefined ? { title: data.title } : {}),
-        ...(data.description !== undefined ? { description: data.description } : {}),
-        ...(data.themeId !== undefined ? { themeId: data.themeId } : {}),
-        ...(data.proposedFormat !== undefined ? { proposedFormat: data.proposedFormat } : {}),
-        ...(data.durationMinutes !== undefined ? { durationMinutes: data.durationMinutes } : {}),
-        ...(data.status !== undefined ? { status: data.status } : {}),
-        ...(isSubmission ? { submittedAt: new Date() } : {}),
-      },
-      include: PROPOSAL_INCLUDE,
-    });
-
-    if (isSubmission) {
-      notifySessionProposalSubmitted({
-        eventId,
-        organizationId: event.organizationId,
-        triggeredByUserId: session.user.id,
-        isResubmission: existing.status === "WITHDRAWN",
-        proposal,
-      });
-    }
-
-    db.auditLog
-      .create({
+      const proposal = await db.sessionProposal.update({
+        where: { id: proposalId },
         data: {
-          eventId,
-          userId: session.user.id,
-          action: "UPDATE",
-          entityType: "SessionProposal",
-          entityId: proposalId,
-          changes: { before: { status: existing.status }, after: { status: proposal.status }, fields: Object.keys(data) },
-          ipAddress: getClientIp(req),
+          ...(data.title !== undefined ? { title: data.title } : {}),
+          ...(data.description !== undefined ? { description: data.description } : {}),
+          ...(data.themeId !== undefined ? { themeId: data.themeId } : {}),
+          ...(data.proposedFormat !== undefined ? { proposedFormat: data.proposedFormat } : {}),
+          ...(data.durationMinutes !== undefined ? { durationMinutes: data.durationMinutes } : {}),
+          ...(data.status !== undefined ? { status: data.status } : {}),
+          ...(isSubmission ? { submittedAt: new Date() } : {}),
         },
-      })
-      .catch((err) => apiLogger.error({ err, msg: "session-proposals:audit-failed", proposalId }));
+        include: PROPOSAL_INCLUDE,
+      });
 
-    return NextResponse.json(proposal);
+      if (isSubmission) {
+        notifySessionProposalSubmitted({
+          eventId,
+          organizationId: event.organizationId,
+          triggeredByUserId: session.user.id,
+          isResubmission: existing.status === "WITHDRAWN",
+          proposal,
+        });
+      }
+
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "UPDATE",
+            entityType: "SessionProposal",
+            entityId: proposalId,
+            changes: { before: { status: existing.status }, after: { status: proposal.status }, fields: Object.keys(data) },
+            ipAddress: getClientIp(req),
+          },
+        })
+        .catch((err) => apiLogger.error({ err, msg: "session-proposals:audit-failed", proposalId }));
+
+      return NextResponse.json(proposal);
+    });
   } catch (err) {
     apiLogger.error({ err }, "session-proposals:PUT failed");
     return NextResponse.json({ error: "Failed to update session proposal" }, { status: 500 });
@@ -228,39 +240,46 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    const [event, existing] = await Promise.all([
-      db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true },
-      }),
-      db.sessionProposal.findFirst({
-        where: { id: proposalId, eventId },
-        select: { id: true, title: true, status: true },
-      }),
-    ]);
-
-    if (!event || !existing) {
+    // Event (+ resource org) first, un-wrapped; its org is the lane for the
+    // existing-proposal read + delete (swept).
+    const event = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
+    });
+    if (!event) {
       apiLogger.warn({ msg: "session-proposals:not-found", eventId, proposalId, userId: session.user.id });
       return NextResponse.json({ error: "Session proposal not found" }, { status: 404 });
     }
 
-    await db.sessionProposal.delete({ where: { id: proposalId } });
+    return await runWithTenant(event.organizationId, async () => {
+      const existing = await db.sessionProposal.findFirst({
+        where: { id: proposalId, eventId },
+        select: { id: true, title: true, status: true },
+      });
 
-    db.auditLog
-      .create({
-        data: {
-          eventId,
-          userId: session.user.id,
-          action: "DELETE",
-          entityType: "SessionProposal",
-          entityId: proposalId,
-          changes: { title: existing.title, status: existing.status },
-          ipAddress: getClientIp(req),
-        },
-      })
-      .catch((err) => apiLogger.error({ err, msg: "session-proposals:audit-failed", proposalId }));
+      if (!existing) {
+        apiLogger.warn({ msg: "session-proposals:not-found", eventId, proposalId, userId: session.user.id });
+        return NextResponse.json({ error: "Session proposal not found" }, { status: 404 });
+      }
 
-    return NextResponse.json({ success: true });
+      await db.sessionProposal.delete({ where: { id: proposalId } });
+
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "DELETE",
+            entityType: "SessionProposal",
+            entityId: proposalId,
+            changes: { title: existing.title, status: existing.status },
+            ipAddress: getClientIp(req),
+          },
+        })
+        .catch((err) => apiLogger.error({ err, msg: "session-proposals:audit-failed", proposalId }));
+
+      return NextResponse.json({ success: true });
+    });
   } catch (err) {
     apiLogger.error({ err }, "session-proposals:DELETE failed");
     return NextResponse.json({ error: "Failed to delete session proposal" }, { status: 500 });

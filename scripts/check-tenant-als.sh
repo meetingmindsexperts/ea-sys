@@ -54,6 +54,8 @@ SWEPT_ROUTE_DIRS=(
   "src/app/api/crm"               # CRM full-domain sweep — all 42 CRM routes (July 29, 2026)
   "src/app/api/events/[eventId]/speakers"  # Speaker sweep — the whole speakers/** route family (July 30, 2026)
   "src/app/api/events/[eventId]/certificates"  # Certificates sweep — the whole certificates/** route family (July 31, 2026)
+  "src/app/api/events/[eventId]/session-proposals"        # Session Proposals sweep — proposals list/create + detail (Aug 3, 2026)
+  "src/app/api/events/[eventId]/session-proposal-themes"  # Session Proposals sweep — theme CRUD (Aug 3, 2026)
 )
 # Specific swept route files whose DIR can't be swept wholesale — e.g. a domain
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
@@ -205,6 +207,10 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/events/[eventId]/tracks/[trackId]/route.ts"                             # Sessions (July 31, 2026)
   "src/app/api/events/[eventId]/import/sessions/route.ts"                              # Sessions (July 31, 2026)
   "src/app/api/public/events/[slug]/sessions/[sessionId]/lobby-status/route.ts"        # Sessions — public resource-org (July 31, 2026)
+  # Session Proposals sweep (Aug 3, 2026): submitter-context reads Speaker (swept
+  # #9) + counts of Abstract (#11) + SessionProposal (#14) — a pre-existing
+  # unwrapped reader this sweep closed.
+  "src/app/api/events/[eventId]/submitter-context/route.ts"                            # Session Proposals — resource-org (Aug 3, 2026)
 )
 SWEPT_MODULES=(
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
@@ -279,7 +285,7 @@ HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|
 # name means a plain property chain like `payment.registration.event` never
 # matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
 # session) are the ONLY reads allowed before the wrap (org resolution).
-SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter'
+SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|sessionProposal|sessionProposalTheme'
 # `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
 SWEPT_OP_RE="[.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)"
 

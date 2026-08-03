@@ -1474,6 +1474,7 @@ model SessionProposalTheme {
 
   @@unique([eventId, name])
   @@index([eventId])
+  @@index([organizationId])
 }
 
 model ReviewCriterion {

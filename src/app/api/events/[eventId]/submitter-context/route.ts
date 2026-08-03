@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 
 /**
@@ -34,13 +35,28 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const speaker = await db.speaker.findFirst({
-      where: { eventId, userId: session.user.id },
-      select: {
-        submitterSource: true,
-        _count: { select: { abstracts: true, sessionProposals: true } },
-      },
+    // Resolve the event's org first (Event un-swept), then read the SUBMITTER's
+    // Speaker (swept #9) + its abstract/proposal counts (swept #11/#14) on the
+    // resource-org lane — this route was a pre-existing unwrapped reader of
+    // those swept tables (fail-closed to empty once RLS turns on).
+    const event = await db.event.findUnique({
+      where: { id: eventId },
+      select: { organizationId: true },
     });
+    if (!event) {
+      apiLogger.warn({ msg: "submitter-context:event-not-found", eventId, userId: session.user.id });
+      return NextResponse.json({ error: "Not linked to this event" }, { status: 404 });
+    }
+
+    const speaker = await runWithTenant(event.organizationId, () =>
+      db.speaker.findFirst({
+        where: { eventId, userId: session.user.id },
+        select: {
+          submitterSource: true,
+          _count: { select: { abstracts: true, sessionProposals: true } },
+        },
+      }),
+    );
 
     if (!speaker) {
       // A SUBMITTER with no speaker on this event has no surface here at all —

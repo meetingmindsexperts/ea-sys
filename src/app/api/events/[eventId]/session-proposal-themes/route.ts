@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { denyReviewer } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 
@@ -35,20 +36,24 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Resource org: org-null SUBMITTERs read the theme picker too (the dual-route
+    // rule). Event resolved first, un-wrapped, for its org.
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!event) {
       apiLogger.warn({ msg: "session-proposal-themes:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const themes = await db.sessionProposalTheme.findMany({
-      where: { eventId },
-      select: { id: true, name: true, sortOrder: true, _count: { select: { proposals: true } } },
-      orderBy: { sortOrder: "asc" },
-    });
+    const themes = await runWithTenant(event.organizationId, () =>
+      db.sessionProposalTheme.findMany({
+        where: { eventId },
+        select: { id: true, name: true, sortOrder: true, _count: { select: { proposals: true } } },
+        orderBy: { sortOrder: "asc" },
+      }),
+    );
 
     const response = NextResponse.json(themes);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
@@ -88,21 +93,24 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     }
 
-    const maxOrder = await db.sessionProposalTheme.findFirst({
-      where: { eventId },
-      orderBy: { sortOrder: "desc" },
-      select: { sortOrder: true },
-    });
-    const sortOrder = parsed.data.sortOrder ?? (maxOrder?.sortOrder ?? -1) + 1;
+    // Staff-only write: session-org lane (event is already bound to it above).
+    const theme = await runWithTenant(orgGuard.orgId, async () => {
+      const maxOrder = await db.sessionProposalTheme.findFirst({
+        where: { eventId },
+        orderBy: { sortOrder: "desc" },
+        select: { sortOrder: true },
+      });
+      const sortOrder = parsed.data.sortOrder ?? (maxOrder?.sortOrder ?? -1) + 1;
 
-    const theme = await db.sessionProposalTheme.create({
-      data: {
-        eventId,
-        organizationId: event.organizationId,
-        name: parsed.data.name,
-        sortOrder,
-      },
-      select: { id: true, name: true, sortOrder: true },
+      return db.sessionProposalTheme.create({
+        data: {
+          eventId,
+          organizationId: event.organizationId,
+          name: parsed.data.name,
+          sortOrder,
+        },
+        select: { id: true, name: true, sortOrder: true },
+      });
     });
 
     return NextResponse.json(theme, { status: 201 });
