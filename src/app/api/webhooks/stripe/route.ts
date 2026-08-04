@@ -31,7 +31,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
     }
 
-    const stripe = getStripe();
+    // Legacy env-scoped route (master/MMG): env secret + env client.
+    // Per-org accounts use /api/webhooks/stripe/[orgId] instead.
+    const stripe = await getStripe(null);
     event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
   } catch (err) {
     apiLogger.error({ err, msg: "Stripe webhook signature verification failed" });
@@ -160,7 +162,7 @@ export async function POST(req: Request) {
       let paidAt: Date | null = null;
       if (paymentIntentId) {
         try {
-          const stripe = getStripe();
+          const stripe = await getStripe(registration.event.organizationId);
           const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
           const chargeId = typeof paymentIntent.latest_charge === "string"
             ? paymentIntent.latest_charge

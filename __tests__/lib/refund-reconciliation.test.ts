@@ -56,12 +56,12 @@ describe("findStripeRefundForAttempt", () => {
         { id: "re_mine", metadata: { refundAttemptId: "att1" } },
       ],
     });
-    expect(await findStripeRefundForAttempt("pi_1", "att1")).toEqual({ verified: true, found: true, refundId: "re_mine" });
+    expect(await findStripeRefundForAttempt("pi_1", "att1", null)).toEqual({ verified: true, found: true, refundId: "re_mine" });
   });
 
   it("returns verified:false (not found:false) when Stripe is unreachable", async () => {
     refundsList.mockRejectedValue(new Error("network"));
-    expect(await findStripeRefundForAttempt("pi_1", "att1")).toEqual({ verified: false });
+    expect(await findStripeRefundForAttempt("pi_1", "att1", null)).toEqual({ verified: false });
     expect(mockApiLogger.warn).toHaveBeenCalledWith(expect.objectContaining({ msg: "refund-verify:stripe-list-failed" }));
   });
 });

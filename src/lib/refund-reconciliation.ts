@@ -30,13 +30,19 @@ export type StripeRefundVerification =
   | { verified: true; found: boolean; refundId: string | null }
   | { verified: false };
 
-/** Ground-truth check against Stripe: does a refund tagged with this attempt id exist? */
+/**
+ * Ground-truth check against Stripe: does a refund tagged with this attempt id
+ * exist? `organizationId` picks the Stripe account to ask (per-org keys) —
+ * pass the registration's org; null falls back to the env account, which is
+ * correct for every pre-feature row.
+ */
 export async function findStripeRefundForAttempt(
   paymentIntentId: string,
   attemptId: string,
+  organizationId: string | null,
 ): Promise<StripeRefundVerification> {
   try {
-    const stripe = getStripe();
+    const stripe = await getStripe(organizationId);
     const refunds = await stripe.refunds.list({ payment_intent: paymentIntentId, limit: 100 });
     const match = refunds.data.find((r) => r.metadata?.refundAttemptId === attemptId);
     return { verified: true, found: !!match, refundId: match?.id ?? null };
@@ -111,7 +117,7 @@ export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSwee
         return;
       }
 
-      const outcome = await findStripeRefundForAttempt(attempt.stripePaymentIntentId, attempt.id);
+      const outcome = await findStripeRefundForAttempt(attempt.stripePaymentIntentId, attempt.id, attemptOrg);
       if (!outcome.verified) {
         // Stripe unreachable — try again next tick.
         result.unverifiable++;

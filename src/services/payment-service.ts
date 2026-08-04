@@ -480,7 +480,9 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
       const attemptId = attempts[i].id;
       let sliceRefundId: string | null = null;
       try {
-        const stripe = getStripe();
+        // Per-org Stripe: the event's org key when configured, env fallback —
+        // the same account that took the original charge for every legacy row.
+        const stripe = await getStripe(registration.event.organizationId);
         const refund = await stripe.refunds.create(
           {
             payment_intent: slice.payment.stripePaymentId!,
@@ -499,7 +501,7 @@ export async function refundRegistration(input: RefundRegistrationInput): Promis
         // timeouts). VERIFY against Stripe before deciding — rolling back a
         // refund that actually went through would erase real money movement
         // (and a webhook that already delta-skipped will never redeliver).
-        const outcome = await findStripeRefundForAttempt(slice.payment.stripePaymentId!, attemptId);
+        const outcome = await findStripeRefundForAttempt(slice.payment.stripePaymentId!, attemptId, registration.event.organizationId);
 
         if (outcome.verified && outcome.found) {
           // This slice's refund exists at Stripe — treat as success.

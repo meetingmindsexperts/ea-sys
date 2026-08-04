@@ -179,7 +179,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
     }
 
-    const stripe = getStripe();
+    // Per-org Stripe: the event's org key when configured, env fallback.
+    const stripe = await getStripe(registration.event.organizationId);
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: lineItems,

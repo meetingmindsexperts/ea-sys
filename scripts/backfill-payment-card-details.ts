@@ -30,6 +30,9 @@ import Stripe from "stripe";
 const write = process.argv.includes("--write");
 const db = new PrismaClient();
 
+// Master-scope admin CLI: deliberately env-only (NOT the per-org accessor in
+// src/lib/stripe.ts). If this backfill is ever run for a tenant with its own
+// Stripe account, add an --org flag that resolves that org's key instead.
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_SECRET_KEY is required");

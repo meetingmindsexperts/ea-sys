@@ -33,7 +33,8 @@ export async function expireOpenCheckoutSessionOnCancel(
     if (!row || !sessionId) return;
 
     try {
-      const stripe = getStripe();
+      // Per-org Stripe: the session was created on this event's org account.
+      const stripe = await getStripe(row.event.organizationId);
       await stripe.checkout.sessions.expire(sessionId);
       apiLogger.info({ msg: "checkout-session:expired-on-cancel", registrationId, sessionId, ctx });
     } catch (err) {
