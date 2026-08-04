@@ -271,6 +271,12 @@ shipped same day. Deferred:
 
 ### Comms-log sweep (Domain #18) — deferred decisions (Aug 3, 2026)
 
+> **✅ RULED ON — Aug 4, 2026.** The owner decided both items (offboarding =
+> archive-to-S3 then remove; NULL-org purge = archive + delete) plus the
+> `?? ""` class (stamp default/operator org id + tenant identifier). Full
+> record + build-time items: [docs/PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md)
+> §1/§2/§4. The text below is the original problem statement, kept for context.
+
 The adversarial review of the EmailLog/ScheduledEmail sweep (`37337b6e`) closed every
 code-level finding same day (record: MULTI_TENANCY.md §13 #18). Two items are OWNER
 DECISIONS, platform-only, deliberately not implemented as code:
@@ -305,6 +311,12 @@ narrow wrap being past the gate's first-op read-placement check (both wraps veri
 correct by hand).
 
 ### AuditLog sweep (Domain #19) — deferred decisions (Aug 3, 2026)
+
+> **✅ RULED ON — Aug 4, 2026.** The owner decided the org-null audit-write
+> item: stamp the default/operator (MMG) org id + a tenant-identifier field
+> instead of losing the row (one operator-visibility nuance to confirm in the
+> privileged-lane discussion). Full record:
+> [docs/PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md) §3.
 
 Record: MULTI_TENANCY.md §13 #19. Platform-only items, deliberately not implemented:
 
