@@ -20,7 +20,6 @@ import {
   useCreateSessionProposal,
   useUpdateSessionProposal,
 } from "@/hooks/use-api";
-import { SESSION_TYPE_KIND, SESSION_TYPE_LABELS } from "@/lib/session-enums";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,10 +31,6 @@ import {
 import { ArrowLeft, Lightbulb, Loader2 } from "lucide-react";
 
 const NONE = "__none__";
-
-const PROGRAM_FORMATS = (Object.keys(SESSION_TYPE_KIND) as Array<keyof typeof SESSION_TYPE_KIND>).filter(
-  (t) => SESSION_TYPE_KIND[t] === "program",
-);
 
 interface SpeakerRow {
   id: string;
@@ -262,20 +257,9 @@ function ProposalForm() {
                     </Select>
                   </div>
                 )}
-                <div className="space-y-1.5">
-                  <Label>Format</Label>
-                  <Select value={format} onValueChange={setFormat}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Format" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NONE}>Not sure yet</SelectItem>
-                      {PROGRAM_FORMATS.map((f) => (
-                        <SelectItem key={f} value={f}>{SESSION_TYPE_LABELS[f]}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* Format picker removed (owner, Aug 4 2026 — "no need for
+                    format"). The `format` state stays so editing an older
+                    proposal preserves its stored value instead of wiping it. */}
                 <div className="space-y-1.5">
                   <Label htmlFor="proposal-duration">Duration (minutes)</Label>
                   <Input

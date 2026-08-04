@@ -9,7 +9,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
-import { SESSION_TYPE_KIND, SESSION_TYPE_LABELS } from "@/lib/session-enums";
+import { SESSION_TYPE_KIND } from "@/lib/session-enums";
 import { formatPersonName } from "@/lib/utils";
 import { toCsvRow } from "@/lib/csv-escape";
 import { recordExport } from "@/lib/audit-data-transfer";
@@ -138,9 +138,10 @@ export async function GET(req: Request, { params }: RouteParams) {
     );
 
     if (wantsCsv) {
+      // "Format" column removed (owner, Aug 4 2026 — proposals don't use one).
       const header = toCsvRow([
         "Proposal #", "Title", "Proposer", "Email", "Organization", "Country",
-        "Theme", "Format", "Duration (min)", "Status", "Submitted At",
+        "Theme", "Duration (min)", "Status", "Submitted At",
       ]);
       const rows = proposals.map((p) =>
         toCsvRow([
@@ -151,7 +152,6 @@ export async function GET(req: Request, { params }: RouteParams) {
           p.speaker.organization ?? "",
           p.speaker.country ?? "",
           p.theme?.name ?? "",
-          p.proposedFormat ? SESSION_TYPE_LABELS[p.proposedFormat] : "",
           p.durationMinutes ?? "",
           p.status,
           p.submittedAt ? p.submittedAt.toISOString() : "",

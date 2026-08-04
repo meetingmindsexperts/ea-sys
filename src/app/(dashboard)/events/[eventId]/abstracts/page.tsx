@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
+import { SubmitterProfileNudge } from "@/components/abstracts/submitter-profile-nudge";
 import { useSession } from "next-auth/react";
 import { canWrite } from "@/lib/can-write";
 import Link from "next/link";
@@ -364,6 +365,8 @@ export default function AbstractsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Incomplete-profile nudge for submitters (renders nothing otherwise). */}
+      <SubmitterProfileNudge />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

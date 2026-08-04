@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
+import { SubmitterProfileNudge } from "@/components/abstracts/submitter-profile-nudge";
 import { useSession } from "next-auth/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -278,6 +279,8 @@ export default function SessionProposalsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Incomplete-profile nudge for submitters (renders nothing otherwise). */}
+      <SubmitterProfileNudge />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -418,7 +421,6 @@ export default function SessionProposalsPage() {
                 <TableHead>Title</TableHead>
                 {!isSubmitter && <TableHead>Proposer</TableHead>}
                 <TableHead>Theme</TableHead>
-                <TableHead>Format</TableHead>
                 <TableHead>Duration</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Submitted</TableHead>
@@ -440,7 +442,6 @@ export default function SessionProposalsPage() {
                   <TableCell>
                     {p.theme ? <Badge variant="outline">{p.theme.name}</Badge> : <span className="text-muted-foreground">—</span>}
                   </TableCell>
-                  <TableCell>{p.proposedFormat ? SESSION_TYPE_LABELS[p.proposedFormat] : "—"}</TableCell>
                   <TableCell>{p.durationMinutes ? `${p.durationMinutes} min` : "—"}</TableCell>
                   <TableCell>
                     <Badge className={STATUS_COLORS[p.status]} variant="outline">
@@ -561,14 +562,11 @@ export default function SessionProposalsPage() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-3 text-sm">
+                {/* Format hidden (owner, Aug 4 2026 — proposals don't need one). */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Theme</div>
                     <div>{selected.theme?.name ?? "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Format</div>
-                    <div>{selected.proposedFormat ? SESSION_TYPE_LABELS[selected.proposedFormat] : "—"}</div>
                   </div>
                   <div>
                     <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Duration</div>
