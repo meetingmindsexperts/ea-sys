@@ -60,6 +60,7 @@ export async function GET() {
         },
         select: {
           id: true,
+          serialId: true,
           title: true,
           status: true,
           submittedAt: true,
@@ -76,6 +77,7 @@ export async function GET() {
           abstract: {
             select: {
               id: true,
+              serialId: true,
               title: true,
               status: true,
               submittedAt: true,
@@ -91,6 +93,7 @@ export async function GET() {
     // the role + conflictFlag metadata attached.
     type Row = {
       abstractId: string;
+      serialId: number | null;
       title: string;
       status: string;
       submittedAt: Date;
@@ -103,6 +106,7 @@ export async function GET() {
     for (const a of abstractsFromPool) {
       merged.set(a.id, {
         abstractId: a.id,
+        serialId: a.serialId,
         title: a.title,
         status: a.status,
         submittedAt: a.submittedAt,
@@ -115,6 +119,7 @@ export async function GET() {
     for (const row of explicitAssignments) {
       merged.set(row.abstract.id, {
         abstractId: row.abstract.id,
+        serialId: row.abstract.serialId,
         title: row.abstract.title,
         status: row.abstract.status,
         submittedAt: row.abstract.submittedAt,

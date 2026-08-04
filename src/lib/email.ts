@@ -1285,6 +1285,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "firstName", description: "Speaker first name" },
     { key: "lastName", description: "Speaker last name" },
     { key: "eventName", description: "Event name" },
+    { key: "abstractNumber", description: "Abstract number (e.g. A-007) — blank on legacy abstracts without one" },
     { key: "abstractTitle", description: "Abstract title" },
     { key: "presentationType", description: "Presentation type (e.g. Oral, Poster) — blank if not set" },
     { key: "theme", description: "Abstract theme name — blank if none" },
@@ -1298,6 +1299,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "firstName", description: "Proposer first name" },
     { key: "lastName", description: "Proposer last name" },
     { key: "eventName", description: "Event name" },
+    { key: "proposalNumber", description: "Proposal number (e.g. S-007) — blank on legacy proposals without one" },
     { key: "proposalTitle", description: "Session proposal title" },
     { key: "proposalTheme", description: "Proposal theme name — blank if none" },
     { key: "proposalFormat", description: "Proposed session format (e.g. Session, Workshop, Symposium) — blank if not set" },
@@ -1715,6 +1717,7 @@ We look forward to seeing you!
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Submission Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 8px 0; color: #6b7280;">Abstract #:</td><td style="padding: 8px 0; font-weight: 500;">{{abstractNumber}}</td></tr>
         <tr><td style="padding: 8px 0; color: #6b7280;">Title:</td><td style="padding: 8px 0; font-weight: 500;">{{abstractTitle}}</td></tr>
         <tr><td style="padding: 8px 0; color: #6b7280;">Status:</td><td style="padding: 8px 0; font-weight: 500;">Submitted</td></tr>
       </table>
@@ -1733,6 +1736,7 @@ Dear {{title}} {{lastName}},
 Your abstract has been successfully submitted for {{eventName}}.
 
 Submission Details:
+- Abstract #: {{abstractNumber}}
 - Title: {{abstractTitle}}
 - Status: Submitted
 
@@ -1756,6 +1760,7 @@ Important: Save this email! The link above is your personal access link to manag
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Proposal Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 8px 0; color: #6b7280;">Proposal #:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalNumber}}</td></tr>
         <tr><td style="padding: 8px 0; color: #6b7280;">Title:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalTitle}}</td></tr>
         <tr><td style="padding: 8px 0; color: #6b7280;">Theme:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalTheme}}</td></tr>
         <tr><td style="padding: 8px 0; color: #6b7280;">Format:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalFormat}}</td></tr>
@@ -1775,6 +1780,7 @@ Dear {{title}} {{lastName}},
 Thank you for proposing a session for {{eventName}}. Your proposal has been received and the organizing team will review it.
 
 Proposal Details:
+- Proposal #: {{proposalNumber}}
 - Title: {{proposalTitle}}
 - Theme: {{proposalTheme}}
 - Format: {{proposalFormat}}
@@ -2871,7 +2877,9 @@ export function getSamplePreviewVariables(
     // {{agreementAttachment}} is an invisible marker (drives the PDF
     // attachment only) — it renders as nothing everywhere, previews included.
     agreementAttachment: "",
+    abstractNumber: "A-007",
     abstractTitle: "Sample Abstract Title",
+    proposalNumber: "S-007",
     proposalTitle: "Sample Session Proposal Title",
     proposalTheme: "Interventional Cardiology",
     proposalFormat: "Workshop",

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { SessionProposalStatus, SessionType } from "@prisma/client";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { getNextSessionProposalSerialId, formatSessionProposalSerial } from "@/lib/session-proposal-serial";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -138,11 +139,12 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     if (wantsCsv) {
       const header = toCsvRow([
-        "Title", "Proposer", "Email", "Organization", "Country",
+        "Proposal #", "Title", "Proposer", "Email", "Organization", "Country",
         "Theme", "Format", "Duration (min)", "Status", "Submitted At",
       ]);
       const rows = proposals.map((p) =>
         toCsvRow([
+          formatSessionProposalSerial(p.serialId),
           p.title,
           formatPersonName(p.speaker.title, p.speaker.firstName, p.speaker.lastName),
           p.speaker.email,
@@ -242,23 +244,29 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "Theme not found" }, { status: 404 });
       }
 
-      const proposal = await db.sessionProposal.create({
-        data: {
-          eventId,
-          organizationId: event.organizationId,
-          speakerId,
-          title,
-          description,
-          themeId: themeId || null,
-          proposedFormat: proposedFormat || null,
-          durationMinutes: durationMinutes ?? null,
-          status,
-          submittedAt: status === "SUBMITTED" ? new Date() : undefined,
-        },
-        include: {
-          ...PROPOSAL_INCLUDE,
-          speaker: { select: { ...PROPOSAL_INCLUDE.speaker.select, additionalEmail: true } },
-        },
+      // Serial + create share one transaction so a failed insert rolls the
+      // counter back (registration/abstract-serial pattern).
+      const proposal = await tenantTransaction(async (tx) => {
+        const serialId = await getNextSessionProposalSerialId(tx, eventId, event.organizationId);
+        return tx.sessionProposal.create({
+          data: {
+            eventId,
+            organizationId: event.organizationId,
+            speakerId,
+            title,
+            description,
+            themeId: themeId || null,
+            proposedFormat: proposedFormat || null,
+            durationMinutes: durationMinutes ?? null,
+            status,
+            serialId,
+            submittedAt: status === "SUBMITTED" ? new Date() : undefined,
+          },
+          include: {
+            ...PROPOSAL_INCLUDE,
+            speaker: { select: { ...PROPOSAL_INCLUDE.speaker.select, additionalEmail: true } },
+          },
+        });
       });
 
       // Confirmation email + admin notify — only on a real submission, never a

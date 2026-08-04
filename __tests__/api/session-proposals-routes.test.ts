@@ -61,7 +61,17 @@ vi.mock("next/server", () => {
   return { NextResponse };
 });
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // Flag-off tenantTransaction IS db.$transaction — run the callback against
+  // the same mock client so tx.sessionProposal.create === mockDb create.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb),
+}));
+vi.mock("@/lib/session-proposal-serial", () => ({
+  getNextSessionProposalSerialId: vi.fn().mockResolvedValue(7),
+  formatSessionProposalSerial: (n: number | null | undefined) =>
+    n == null ? "—" : `S-${String(n).padStart(3, "0")}`,
+}));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   authLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

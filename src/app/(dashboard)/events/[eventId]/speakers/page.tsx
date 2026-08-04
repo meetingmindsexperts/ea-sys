@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Mic, Plus, RefreshCw, ChevronLeft, ChevronRight, Send, X, Search, Filter, Tag } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
+import { formatSerialId } from "@/lib/registration-serial";
 import { formatAttendeeRole } from "@/lib/schemas";
 import { ImportRegistrationsButton } from "@/components/speakers/import-registrations-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
@@ -60,6 +61,9 @@ interface Speaker {
   tags: string[];
   status: string;
   agreementAcceptedAt: string | null;
+  /** Companion/linked registration (Speaker.sourceRegistrationId) — the
+   * speaker's attendee facet. Null for speakers without one. */
+  sourceRegistration: { serialId: number | null } | null;
   _count: { sessions: number; abstracts: number };
 }
 
@@ -364,6 +368,7 @@ export default function SpeakersPage() {
                       />
                     </TableHead>
                   )}
+                  <TableHead className="w-20">Reg #</TableHead>
                   <TableHead>Speaker</TableHead>
                   <TableHead>Organization</TableHead>
                   <TableHead>Role</TableHead>
@@ -390,6 +395,9 @@ export default function SpeakersPage() {
                         />
                       </TableCell>
                     )}
+                    <TableCell className="font-mono text-sm text-muted-foreground">
+                      {formatSerialId(speaker.sourceRegistration?.serialId)}
+                    </TableCell>
                     <TableCell>
                       <div>
                         <div className="font-medium">

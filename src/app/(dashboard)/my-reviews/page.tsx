@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ClipboardCheck, ArrowRight, Loader2 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { formatAbstractSerial } from "@/lib/abstract-serial";
 
 interface Row {
   abstractId: string;
+  serialId: number | null;
   title: string;
   status: string;
   submittedAt: string;
@@ -131,7 +133,14 @@ export default function MyReviewsPage() {
                         </Badge>
                       </div>
 
-                      <h3 className="text-base font-medium truncate">{row.title}</h3>
+                      <h3 className="text-base font-medium truncate">
+                        {row.serialId != null && (
+                          <span className="font-mono text-sm text-muted-foreground mr-2">
+                            {formatAbstractSerial(row.serialId)}
+                          </span>
+                        )}
+                        {row.title}
+                      </h3>
 
                       <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
                         <span>Abstract submitted {formatDate(row.submittedAt)}</span>

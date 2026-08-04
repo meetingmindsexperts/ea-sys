@@ -190,6 +190,10 @@ export interface Registration {
   // financials so tier-priced (base 0) + VIRTUAL rows don't read as free.
   originalPrice?: string | number | null;
   promoCode?: { code: string } | null;
+  // Speakers whose badge/barcode facet is backed by THIS registration
+  // (Speaker.sourceRegistrationId → SetNull on delete). Returned by the
+  // detail GET only; drives the delete-confirm warning.
+  importedSpeakers?: { id: string; firstName: string; lastName: string }[];
   // Server-computed on the LIST route only, for cancelled-but-PAID rows:
   // true while the collected money has no covering credit note. Absent for
   // non-finance roles (redacted) and on non-cancelled rows.

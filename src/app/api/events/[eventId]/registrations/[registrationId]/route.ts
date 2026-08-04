@@ -184,6 +184,13 @@ export async function GET(req: Request, { params }: RouteParams) {
           // Applied promo code — organizer can apply/remove one on the
           // Billing tab while payment is still outstanding.
           promoCode: { select: { code: true } },
+          // Speakers whose badge/barcode facet is backed by THIS registration
+          // (Speaker.sourceRegistrationId). Drives the delete-confirm warning:
+          // deleting the registration SetNulls the link and silently strips
+          // the speaker's badge/entry-barcode/check-in facet.
+          importedSpeakers: {
+            select: { id: true, firstName: true, lastName: true },
+          },
           payments: {
             orderBy: { createdAt: "desc" },
           },
@@ -484,11 +491,27 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         id: registrationId,
         eventId,
       },
-      include: { attendee: { select: { id: true, photo: true } } },
+      include: {
+        attendee: { select: { id: true, photo: true } },
+        // Speakers backed by this registration (badge/barcode facet). The FK
+        // is SetNull, so the delete strands them silently — the UI warns via
+        // the detail GET; this log keeps a server-side trail of the strand.
+        importedSpeakers: { select: { id: true, firstName: true, lastName: true } },
+      },
     });
 
     if (!registration) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
+
+    if (registration.importedSpeakers.length > 0) {
+      apiLogger.warn({
+        msg: "registration-delete:linked-speakers-stranded",
+        eventId,
+        registrationId,
+        userId: session.user.id,
+        speakerIds: registration.importedSpeakers.map((s) => s.id),
+      });
     }
 
     // ── Data-loss guard: never cascade-delete financial records ──────────

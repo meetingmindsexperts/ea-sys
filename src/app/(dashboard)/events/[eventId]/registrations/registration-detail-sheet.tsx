@@ -510,7 +510,18 @@ export function RegistrationDetailSheet({
   // the handler form just lets us name the intent at the call site.
   const handleDeleteClick = () => {
     if (!selectedRegistration) return;
-    if (confirm("Are you sure you want to delete this registration?")) {
+    // Linked-speaker warning (organizer request Aug 4, 2026): a speaker whose
+    // badge/entry-barcode facet is backed by this registration silently loses
+    // it on delete (the FK is SetNull) — say so, and point at the Speakers
+    // page for the other half of the removal.
+    const linked = selectedRegistration.importedSpeakers ?? [];
+    const message =
+      linked.length > 0
+        ? `This registration backs the speaker profile of ${linked
+            .map((s) => `${s.firstName} ${s.lastName}`)
+            .join(", ")}.\n\nDeleting it removes their badge, entry barcode and check-in record. The speaker profile itself stays — if this person should be fully removed, delete them from the Speakers page too.\n\nDelete this registration?`
+        : "Are you sure you want to delete this registration?";
+    if (confirm(message)) {
       deleteRegistration.mutate(selectedRegistration.id);
     }
   };

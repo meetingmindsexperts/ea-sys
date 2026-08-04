@@ -71,6 +71,7 @@ beforeEach(() => {
     promoCodeId: null,
     attendeeId: "att1",
     attendee: { id: "att1", photo: null },
+    importedSpeakers: [],
   });
   mockDb.invoice.findMany.mockResolvedValue([]);
   mockDb.payment.findMany.mockResolvedValue([]);
@@ -123,5 +124,30 @@ describe("registration DELETE — financial-records guard", () => {
     expect(mockDb.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: "DELETE" }) }),
     );
+  });
+
+  it("warn-logs stranded linked speakers but still deletes (SetNull strands the facet)", async () => {
+    mockDb.registration.findFirst.mockResolvedValue({
+      id: "reg1",
+      eventId: "ev1",
+      status: "CONFIRMED",
+      attendanceMode: "IN_PERSON",
+      promoCodeId: null,
+      attendeeId: "att1",
+      attendee: { id: "att1", photo: null },
+      importedSpeakers: [{ id: "spk1", firstName: "Dina", lastName: "Ortiz" }],
+    });
+
+    const res = await DELETE(delReq(), { params });
+
+    expect(res.status).toBe(200);
+    const { apiLogger } = await import("@/lib/logger");
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        msg: "registration-delete:linked-speakers-stranded",
+        speakerIds: ["spk1"],
+      }),
+    );
+    expect(mockDb._tx.registration.delete).toHaveBeenCalledWith({ where: { id: "reg1" } });
   });
 });

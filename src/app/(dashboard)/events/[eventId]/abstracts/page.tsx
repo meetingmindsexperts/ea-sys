@@ -48,6 +48,7 @@ import {
   X,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { formatAttendeeRole } from "@/lib/schemas";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
 import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
@@ -89,6 +90,8 @@ interface Speaker {
 
 interface Abstract {
   id: string;
+  /** Per-event abstract number, displayed "A-001" (null only on pre-migration rows). */
+  serialId: number | null;
   title: string;
   content: string;
   specialty: string | null;
@@ -913,6 +916,11 @@ export default function AbstractsPage() {
                       )}
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
+                        {abstract.serialId != null && (
+                          <span className="font-mono text-sm text-muted-foreground shrink-0">
+                            {formatAbstractSerial(abstract.serialId)}
+                          </span>
+                        )}
                         <h3 className="text-lg font-semibold">{abstract.title}</h3>
                         <Badge
                           className={abstractStatusColor(abstract.status)}

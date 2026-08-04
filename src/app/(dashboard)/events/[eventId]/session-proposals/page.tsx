@@ -27,6 +27,7 @@ import {
 } from "@/hooks/use-api";
 import { canWrite } from "@/lib/can-write";
 import { formatPersonName } from "@/lib/utils";
+import { formatSessionProposalSerial } from "@/lib/session-proposal-serial";
 import { SESSION_TYPE_LABELS } from "@/lib/session-enums";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,6 +71,8 @@ interface ProposalTheme {
 
 interface ProposalRow {
   id: string;
+  /** Per-event proposal number, displayed "S-001" (null on pre-migration rows). */
+  serialId: number | null;
   title: string;
   description: string;
   status: ProposalStatus;
@@ -401,6 +404,7 @@ export default function SessionProposalsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-20">#</TableHead>
                 <TableHead>Title</TableHead>
                 {!isSubmitter && <TableHead>Proposer</TableHead>}
                 <TableHead>Theme</TableHead>
@@ -413,6 +417,9 @@ export default function SessionProposalsPage() {
             <TableBody>
               {filtered.map((p) => (
                 <TableRow key={p.id} className="cursor-pointer" onClick={() => setSelected(p)}>
+                  <TableCell className="font-mono text-sm text-muted-foreground">
+                    {formatSessionProposalSerial(p.serialId)}
+                  </TableCell>
                   <TableCell className="font-medium max-w-[320px] truncate">{p.title}</TableCell>
                   {!isSubmitter && (
                     <TableCell>
@@ -444,7 +451,14 @@ export default function SessionProposalsPage() {
           {selected && (
             <>
               <SheetHeader>
-                <SheetTitle className="pr-8">{selected.title}</SheetTitle>
+                <SheetTitle className="pr-8">
+                  {selected.serialId != null && (
+                    <span className="font-mono text-sm text-muted-foreground mr-2">
+                      {formatSessionProposalSerial(selected.serialId)}
+                    </span>
+                  )}
+                  {selected.title}
+                </SheetTitle>
                 <SheetDescription asChild>
                   <span>
                     <Badge className={STATUS_COLORS[selected.status]} variant="outline">

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
+import { getNextAbstractSerialId } from "@/lib/abstract-serial";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
@@ -156,21 +157,27 @@ export async function POST(req: Request, { params }: RouteParams) {
       const presentationType = ptRaw && PRESENTATION_TYPES.has(ptRaw) ? ptRaw : null;
 
       try {
-        await db.abstract.create({
-          data: {
-            eventId,
-            organizationId: orgGuard.orgId,
-            speakerId,
-            title,
-            content,
-            specialty: getField(fields, idx.specialty) || null,
-            trackId,
-            themeId,
-            presentationType: presentationType as "ORAL" | "POSTER" | "VIDEO" | "WORKSHOP" | null,
-            status: status as "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "REVISION_REQUESTED",
-            managementToken: crypto.randomBytes(32).toString("hex"),
-            submittedAt: status === "SUBMITTED" ? new Date() : undefined,
-          },
+        // Serial + create in one tx so a failed row rolls the counter back
+        // (per-row tx keeps one bad row from killing the batch).
+        await tenantTransaction(async (tx) => {
+          const serialId = await getNextAbstractSerialId(tx, eventId, orgGuard.orgId);
+          await tx.abstract.create({
+            data: {
+              eventId,
+              organizationId: orgGuard.orgId,
+              speakerId,
+              title,
+              content,
+              specialty: getField(fields, idx.specialty) || null,
+              trackId,
+              themeId,
+              presentationType: presentationType as "ORAL" | "POSTER" | "VIDEO" | "WORKSHOP" | null,
+              status: status as "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "REVISION_REQUESTED",
+              serialId,
+              managementToken: crypto.randomBytes(32).toString("hex"),
+              submittedAt: status === "SUBMITTED" ? new Date() : undefined,
+            },
+          });
         });
         created++;
       } catch (err) {

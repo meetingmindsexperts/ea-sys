@@ -28,7 +28,17 @@ vi.mock("next/server", () => ({
   NextResponse: { json: (b: unknown, i?: { status?: number }) => ({ status: i?.status ?? 200, json: async () => b }) },
 }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+vi.mock("@/lib/db", () => ({
+  db: mockDb,
+  // Flag-off tenantTransaction IS db.$transaction — run the callback against
+  // the same mock client so tx.abstract.create === mockDb.abstract.create.
+  tenantTransaction: (fn: (tx: unknown) => unknown) => fn(mockDb),
+}));
+vi.mock("@/lib/abstract-serial", () => ({
+  getNextAbstractSerialId: vi.fn().mockResolvedValue(7),
+  formatAbstractSerial: (n: number | null | undefined) =>
+    n == null ? "—" : `A-${String(n).padStart(3, "0")}`,
+}));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));

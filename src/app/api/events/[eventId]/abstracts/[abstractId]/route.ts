@@ -17,6 +17,7 @@ import {
 import { optimisticLockField } from "@/lib/optimistic-lock";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
+import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 
@@ -465,6 +466,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         firstName: abstract.speaker.firstName,
         lastName: abstract.speaker.lastName,
         eventName: abstract.event?.name || "",
+        abstractNumber: abstract.serialId != null ? formatAbstractSerial(abstract.serialId) : "",
         abstractTitle: abstract.title,
         managementLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`,
       };

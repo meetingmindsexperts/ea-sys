@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AbstractStatus, PresentationType } from "@prisma/client";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
+import { getNextAbstractSerialId, formatAbstractSerial } from "@/lib/abstract-serial";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
@@ -250,27 +251,33 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const abstract = await db.abstract.create({
-      data: {
-        eventId,
-        organizationId: event.organizationId, // tenancy: the event's org (resource)
-        speakerId,
-        title,
-        content,
-        specialty: specialty || null,
-        presentationType: presentationType || null,
-        trackId: trackId || null,
-        themeId: themeId || null,
-        coAuthors: normalizeCoAuthors(coAuthors),
-        status,
-        managementToken: crypto.randomBytes(32).toString("hex"),
-        submittedAt: status === "SUBMITTED" ? new Date() : undefined,
-      },
-      include: {
-        speaker: true,
-        track: true,
-        theme: { select: { name: true } },
-      },
+    // Serial + create share one transaction so a failed insert rolls the
+    // counter back (registration-serial pattern — no gaps from failures).
+    const abstract = await tenantTransaction(async (tx) => {
+      const serialId = await getNextAbstractSerialId(tx, eventId, event.organizationId);
+      return tx.abstract.create({
+        data: {
+          eventId,
+          organizationId: event.organizationId, // tenancy: the event's org (resource)
+          speakerId,
+          title,
+          content,
+          specialty: specialty || null,
+          presentationType: presentationType || null,
+          trackId: trackId || null,
+          themeId: themeId || null,
+          coAuthors: normalizeCoAuthors(coAuthors),
+          status,
+          serialId,
+          managementToken: crypto.randomBytes(32).toString("hex"),
+          submittedAt: status === "SUBMITTED" ? new Date() : undefined,
+        },
+        include: {
+          speaker: true,
+          track: true,
+          theme: { select: { name: true } },
+        },
+      });
     });
 
     // Send abstract submission confirmation email (non-blocking). Only on an
@@ -284,6 +291,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         firstName: abstract.speaker.firstName,
         lastName: abstract.speaker.lastName,
         eventName: "",
+        abstractNumber: abstract.serialId != null ? formatAbstractSerial(abstract.serialId) : "",
         abstractTitle: abstract.title,
         presentationType: abstract.presentationType
           ? PRESENTATION_TYPE_LABELS[abstract.presentationType] ?? abstract.presentationType

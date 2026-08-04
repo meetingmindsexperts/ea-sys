@@ -3,6 +3,7 @@ import { apiLogger } from "./logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "./email";
 import { getTitleLabel, formatPersonName } from "./utils";
 import { SESSION_TYPE_LABELS } from "./session-enums";
+import { formatSessionProposalSerial } from "./session-proposal-serial";
 import { notifyEventAdmins } from "./notifications";
 
 /**
@@ -22,6 +23,7 @@ export function notifySessionProposalSubmitted(args: {
   isResubmission: boolean;
   proposal: {
     id: string;
+    serialId?: number | null;
     title: string;
     proposedFormat: string | null;
     theme: { name: string } | null;
@@ -55,6 +57,7 @@ export function notifySessionProposalSubmitted(args: {
         firstName: speaker.firstName,
         lastName: speaker.lastName,
         eventName: ev?.name ?? "",
+        proposalNumber: proposal.serialId != null ? formatSessionProposalSerial(proposal.serialId) : "",
         proposalTitle: proposal.title,
         proposalTheme: proposal.theme?.name ?? "",
         proposalFormat: proposal.proposedFormat

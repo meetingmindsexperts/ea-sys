@@ -30,6 +30,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { formatDate } from "@/lib/utils";
+import { formatAbstractSerial } from "@/lib/abstract-serial";
 import Link from "next/link";
 import {
   enabledPresentationTypeOptions,
@@ -194,6 +195,11 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
             {canEdit ? "Edit Abstract" : "View Abstract"}
           </h1>
           <div className="flex items-center gap-2 mt-1">
+            {abstract.serialId != null && (
+              <span className="font-mono text-sm text-muted-foreground">
+                {formatAbstractSerial(abstract.serialId as number)}
+              </span>
+            )}
             <Badge className={abstractStatusColor(status)} variant="outline">
               {abstractStatusLabel(status)}
             </Badge>

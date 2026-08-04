@@ -134,6 +134,13 @@ export async function GET(req: Request, { params }: RouteParams) {
           accommodation: {
             select: { id: true },
           },
+          // Companion/linked registration — the speakers table shows its
+          // Registration # so a speaker's attendee facet is findable from
+          // the list (organizer request Aug 4, 2026). serialId is not a
+          // credential (unlike qrCode — never select that here).
+          sourceRegistration: {
+            select: { serialId: true },
+          },
         },
         orderBy: { createdAt: "desc" },
       }),

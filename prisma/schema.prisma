@@ -398,6 +398,8 @@ model Event {
   invoices                  Invoice[]
   invoiceCounters           InvoiceCounter[]
   registrationSerialCounter RegistrationSerialCounter?
+  abstractSerialCounter     AbstractSerialCounter?
+  sessionProposalSerialCounter SessionProposalSerialCounter?
   billingAccounts           EventBillingAccount[]
   zoomMeetings              ZoomMeeting[]
   zoomAttendances           ZoomAttendance[]
@@ -1340,6 +1342,12 @@ model Abstract {
   // { name, email, phone, jobTitle, organization, country }. Stored as JSON
   // (contact info only, not accounts). See src/lib/abstract-coauthors.ts.
   coAuthors        Json?
+  // Human-readable per-event abstract number (displayed as "A-001" via
+  // formatAbstractSerial). Assigned atomically from AbstractSerialCounter at
+  // create (src/lib/abstract-serial.ts); existing rows backfilled in createdAt
+  // order by migration 20260804120000. Nullable only for blue-green safety —
+  // every create path assigns it.
+  serialId         Int?
   status           AbstractStatus    @default(SUBMITTED)
   managementToken  String?           @unique
   submittedAt      DateTime          @default(now())
@@ -1356,6 +1364,7 @@ model Abstract {
   reviewers    AbstractReviewer[]
   submissions  AbstractReviewSubmission[]
 
+  @@unique([eventId, serialId])
   @@index([eventId])
   @@index([speakerId])
   @@index([status])
@@ -1463,6 +1472,12 @@ model SessionProposal {
   // convert-to-session pre-fill free.
   proposedFormat  SessionType?
   durationMinutes Int?
+  // Human-readable per-event proposal number (displayed "S-001" via
+  // formatSessionProposalSerial). Assigned atomically from
+  // SessionProposalSerialCounter at create (src/lib/session-proposal-serial.ts);
+  // existing rows backfilled by migration 20260804120000. Nullable only for
+  // blue-green safety — every create path assigns it.
+  serialId        Int?
 
   status      SessionProposalStatus @default(SUBMITTED)
   submittedAt DateTime?
@@ -1473,9 +1488,25 @@ model SessionProposal {
   speaker Speaker               @relation(fields: [speakerId], references: [id], onDelete: Cascade)
   theme   SessionProposalTheme? @relation(fields: [themeId], references: [id], onDelete: SetNull)
 
+  @@unique([eventId, serialId])
   @@index([eventId, status])
   @@index([organizationId])
   @@index([speakerId])
+}
+
+// One row per event holding the last-assigned session-proposal serialId
+// (displayed "S-001"). Same atomic upsert+increment pattern as
+// RegistrationSerialCounter / AbstractSerialCounter.
+model SessionProposalSerialCounter {
+  eventId        String  @id
+  // Denormalized tenant key — flat-policy convention (see the sibling
+  // counters for the INSERT … ON CONFLICT under-RLS rationale).
+  organizationId String?
+  lastSerial     Int     @default(0)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 // Proposal themes are the event's OWN list (owner: "same like abstract it
@@ -2187,6 +2218,22 @@ model RegistrationSerialCounter {
   // INSERT … ON CONFLICT against a policy-invisible row raises a unique
   // violation misread as "already registered" (the exact bug this counter
   // was introduced to fix). Stamped on the upsert's create branch.
+  organizationId String?
+  lastSerial     Int     @default(0)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// One row per event holding the last-assigned abstract serialId (displayed
+// "A-001"). Same atomic upsert+increment pattern as RegistrationSerialCounter
+// (see src/lib/abstract-serial.ts) so concurrent submissions can't collide on
+// @@unique([eventId, serialId]).
+model AbstractSerialCounter {
+  eventId        String  @id
+  // Denormalized tenant key — flat-policy convention, mirrors
+  // RegistrationSerialCounter (same INSERT … ON CONFLICT under-RLS rationale).
   organizationId String?
   lastSerial     Int     @default(0)
 
