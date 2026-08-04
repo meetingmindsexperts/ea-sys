@@ -588,6 +588,13 @@ export default function SessionProposalsPage() {
 
                 {canManage && (
                   <div className="flex flex-wrap items-center gap-2 border-t pt-4">
+                    {/* Organizer edit (Aug 4, 2026): the form's staff-edit mode
+                        saves WITHOUT changing the proposal's status. */}
+                    <Button asChild variant="outline" size="sm">
+                      <Link href={`/events/${eventId}/session-proposals/new?edit=${selected.id}`}>
+                        <Pencil className="h-4 w-4 mr-1" /> Edit
+                      </Link>
+                    </Button>
                     {selected.status === "SUBMITTED" ? (
                       <Button
                         variant="outline"

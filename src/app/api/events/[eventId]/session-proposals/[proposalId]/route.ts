@@ -137,7 +137,18 @@ export async function PUT(req: Request, { params }: RouteParams) {
     return await runWithTenant(event.organizationId, async () => {
       const existing = await db.sessionProposal.findFirst({
         where: { id: proposalId, eventId },
-        select: { id: true, status: true, speaker: { select: { userId: true } } },
+        select: {
+          id: true,
+          status: true,
+          // Full pre-edit values so the audit row records WHAT changed
+          // (before→after per field), not just which field names were sent.
+          title: true,
+          description: true,
+          themeId: true,
+          proposedFormat: true,
+          durationMinutes: true,
+          speaker: { select: { userId: true } },
+        },
       });
 
       if (!existing) {
@@ -205,6 +216,20 @@ export async function PUT(req: Request, { params }: RouteParams) {
         });
       }
 
+      // Audit with per-field before→after snapshots (only the fields this
+      // request touched), so "who edited what, when" is answerable from the
+      // Activity feed — createdAt stamps the when, userId the who. The long
+      // description is truncated to keep the JSON row bounded.
+      const clip = (s: string | null | undefined) =>
+        s != null && s.length > 500 ? `${s.slice(0, 500)}…` : s ?? null;
+      const snapshot = (row: { status: string; title: string; description: string | null; themeId: string | null; proposedFormat: string | null; durationMinutes: number | null }) => ({
+        status: row.status,
+        ...(data.title !== undefined ? { title: row.title } : {}),
+        ...(data.description !== undefined ? { description: clip(row.description) } : {}),
+        ...(data.themeId !== undefined ? { themeId: row.themeId } : {}),
+        ...(data.proposedFormat !== undefined ? { proposedFormat: row.proposedFormat } : {}),
+        ...(data.durationMinutes !== undefined ? { durationMinutes: row.durationMinutes } : {}),
+      });
       db.auditLog
         .create({
           data: {
@@ -213,7 +238,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
             action: "UPDATE",
             entityType: "SessionProposal",
             entityId: proposalId,
-            changes: { before: { status: existing.status }, after: { status: proposal.status }, fields: Object.keys(data) },
+            changes: { before: snapshot(existing), after: snapshot(proposal), fields: Object.keys(data) },
             ipAddress: getClientIp(req),
           },
         })

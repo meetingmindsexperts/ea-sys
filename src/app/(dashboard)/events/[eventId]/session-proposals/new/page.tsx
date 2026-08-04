@@ -103,9 +103,14 @@ function ProposalForm() {
   }, [editId, eventId]);
 
   const editLocked = !!editId && isSubmitter && loadedStatus !== null && loadedStatus !== "DRAFT";
+  // Organizer/admin editing an existing proposal (Aug 4, 2026): saves KEEP the
+  // current status — "Save as Draft" here would flip a SUBMITTED proposal to
+  // DRAFT and make it vanish from the organizer list (drafts are
+  // submitter-only by design).
+  const isStaffEdit = !!editId && !isSubmitter;
   const saving = createProposal.isPending || updateProposal.isPending;
 
-  const save = (status: "DRAFT" | "SUBMITTED") => {
+  const save = (status: "DRAFT" | "SUBMITTED" | "KEEP") => {
     const resolvedSpeakerId = isSubmitter ? mySpeaker?.id : speakerId;
     if (!resolvedSpeakerId) {
       toast.error(isSubmitter ? "Your speaker profile couldn't be found for this event." : "Select a proposer.");
@@ -126,7 +131,9 @@ function ProposalForm() {
       toast.error(err instanceof Error ? err.message : "Failed to save proposal");
     };
     const onSuccess = () => {
-      toast.success(status === "SUBMITTED" ? "Proposal submitted!" : "Draft saved");
+      toast.success(
+        status === "SUBMITTED" ? "Proposal submitted!" : status === "DRAFT" ? "Draft saved" : "Proposal updated",
+      );
       router.push(`/events/${eventId}/session-proposals`);
     };
 
@@ -139,11 +146,13 @@ function ProposalForm() {
           themeId: themeId === NONE ? null : themeId,
           proposedFormat: format === NONE ? null : format,
           durationMinutes: durationMinutes ?? null,
-          status,
+          // KEEP (staff edit) omits status entirely so the PUT preserves it.
+          ...(status !== "KEEP" ? { status } : {}),
         },
         { onSuccess, onError },
       );
     } else {
+      if (status === "KEEP") return; // unreachable — create always picks a status
       createProposal.mutate(
         {
           speakerId: resolvedSpeakerId,
@@ -283,19 +292,36 @@ function ProposalForm() {
             </CardContent>
           </Card>
 
-          <div className="flex items-center gap-2">
-            <Button onClick={() => save("SUBMITTED")} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-              Submit Proposal
-            </Button>
-            <Button variant="outline" onClick={() => save("DRAFT")} disabled={saving}>
-              Save as Draft
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            After you submit, the proposal is locked for editing — the organizing team will contact you about changes
-            and next steps.
-          </p>
+          {isStaffEdit ? (
+            <>
+              <div className="flex items-center gap-2">
+                <Button onClick={() => save("KEEP")} disabled={saving}>
+                  {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                  Save Changes
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Saves your edits without changing the proposal&apos;s status
+                {loadedStatus ? ` (currently ${loadedStatus.toLowerCase()})` : ""}.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <Button onClick={() => save("SUBMITTED")} disabled={saving}>
+                  {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                  Submit Proposal
+                </Button>
+                <Button variant="outline" onClick={() => save("DRAFT")} disabled={saving}>
+                  Save as Draft
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                After you submit, the proposal is locked for editing — the organizing team will contact you about changes
+                and next steps.
+              </p>
+            </>
+          )}
         </>
       )}
     </div>

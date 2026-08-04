@@ -288,6 +288,30 @@ describe("PUT /session-proposals/[id] — submitter lifecycle", () => {
     expect(res.status).toBe(200);
     expect(notifySpy).not.toHaveBeenCalled();
   });
+
+  it("organizer edit audits per-field before→after with the actor (createdAt stamps the when)", async () => {
+    mockDb.sessionProposal.findFirst.mockResolvedValue({
+      id: "sp1", status: "SUBMITTED", title: "Old title", description: "Long description",
+      themeId: "th1", proposedFormat: null, durationMinutes: 60,
+      speaker: { userId: "u-sub" },
+    });
+    mockDb.sessionProposal.update.mockResolvedValue({
+      ...CREATED_PROPOSAL, status: "SUBMITTED", title: "New title",
+      description: "Long description", themeId: "th1", proposedFormat: null, durationMinutes: 90,
+    });
+    const res = await PUT(req("PUT", { title: "New title", durationMinutes: 90 }), oneParams);
+    expect(res.status).toBe(200);
+    const audit = mockDb.auditLog.create.mock.calls[0][0].data;
+    expect(audit.action).toBe("UPDATE");
+    expect(audit.entityType).toBe("SessionProposal");
+    expect(audit.userId).toBeTruthy(); // WHO — the editing organizer
+    // WHAT — before→after values for exactly the touched fields.
+    expect(audit.changes.before).toEqual({ status: "SUBMITTED", title: "Old title", durationMinutes: 60 });
+    expect(audit.changes.after).toEqual({ status: "SUBMITTED", title: "New title", durationMinutes: 90 });
+    // Untouched fields stay out of the snapshot (bounded audit rows).
+    expect(audit.changes.before.description).toBeUndefined();
+    expect(audit.changes.fields).toEqual(["title", "durationMinutes"]);
+  });
 });
 
 describe("GET/DELETE /session-proposals/[id]", () => {
