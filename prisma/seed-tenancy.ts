@@ -138,6 +138,10 @@ import {
   AUDIT_LOG_NULLORG_ID,
   SHARED_AUDIT_ENTITY_TYPE,
   SHARED_AUDIT_ENTITY_ID,
+  HELP_QUERY_A_ID,
+  HELP_QUERY_B_ID,
+  HELP_QUERY_NULLORG_ID,
+  SHARED_HELP_QUESTION,
   SHARED_CRM_EMAIL_KEY,
   CRM_CT_A_SHARED_ID,
   CRM_CT_B_SHARED_ID,
@@ -319,6 +323,9 @@ async function seedOrg(
     auditLogId: string;
     eventId: string;
   },
+  // HelpChatQuery sweep (Domain #20): one captured Q&A per org on the SHARED
+  // question text (no per-org unique field). NO FKs — cleaned in main().
+  helpQueryId?: string,
 ) {
   await db.organization.create({
     data: {
@@ -861,6 +868,18 @@ async function seedOrg(
       },
     });
   }
+  if (helpQueryId) {
+    await db.helpChatQuery.create({
+      data: {
+        id: helpQueryId,
+        organizationId: orgId,
+        organizationName: `Tenancy ${orgId}`,
+        role: "ADMIN",
+        question: SHARED_HELP_QUESTION,
+        answer: `Sample answer for ${orgId}.`,
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -1010,6 +1029,23 @@ async function main() {
   // AuditLog fixtures (Domain #19): NO org FK at all, so rows ALWAYS survive
   // the org cascade — delete explicitly, incl. the null-org row + the test's
   // rejection-probe ids (same reasoning as the EmailLog probe cleanup below).
+  // HelpChatQuery fixtures (Domain #20): NO FKs at all — rows always survive
+  // the org cascade; delete explicitly, incl. the null-org + probe ids.
+  await db.helpChatQuery.deleteMany({
+    where: {
+      id: {
+        in: [
+          HELP_QUERY_A_ID,
+          HELP_QUERY_B_ID,
+          HELP_QUERY_NULLORG_ID,
+          "tenancy-helpq-nullorg-returning",
+          "tenancy-helpq-writer-probe",
+          "tenancy-helpq-smuggled",
+          "tenancy-helpq-smuggled-many",
+        ],
+      },
+    },
+  });
   await db.auditLog.deleteMany({
     where: {
       id: {
@@ -1169,6 +1205,7 @@ async function main() {
       auditLogId: AUDIT_LOG_A_ID,
       eventId: EVENT_A_SHARED_ID,
     },
+    HELP_QUERY_A_ID,
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -1318,6 +1355,7 @@ async function main() {
       auditLogId: AUDIT_LOG_B_ID,
       eventId: EVENT_B_SHARED_ID,
     },
+    HELP_QUERY_B_ID,
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {
     companyId: CRM_CO_B_ID,

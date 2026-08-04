@@ -36,6 +36,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
 import { getDefaultAiProvider } from "@/lib/ai";
@@ -211,27 +212,39 @@ export async function POST(req: NextRequest) {
             // Persist the Q&A for the SUPER_ADMIN help-queries view.
             // Fire-and-forget: a write failure must never surface to the
             // user or interrupt the stream we already delivered.
-            db.helpChatQuery
-              .create({
-                data: {
-                  userId,
-                  userEmail: session.user.email ?? null,
-                  userName:
-                    [session.user.firstName, session.user.lastName]
-                      .filter(Boolean)
-                      .join(" ") ||
-                    session.user.name ||
-                    null,
-                  role,
-                  organizationId: session.user.organizationId ?? null,
-                  organizationName,
-                  question,
-                  answer: answerText,
-                },
-              })
-              .catch((err) => {
-                apiLogger.error({ msg: "help-chat:persist-failed", userId, err });
-              });
+            //
+            // Tenancy (Domain #20): org-bound askers write on their tenant
+            // lane (runWithTenant → SET LOCAL under platform RLS); org-null
+            // askers (REVIEWER/SUBMITTER/REGISTRANT) write via createMany —
+            // Prisma create() emits INSERT..RETURNING, whose returned row
+            // must pass the strict USING half of the asymmetric policy, so
+            // a NULL-org create() would be rejected and the row LOST (the
+            // Domain-#18/#19 lesson); createMany's plain INSERT rides the
+            // WITH CHECK null carve-out. Inert on master (no RLS).
+            const askerOrgId = session.user.organizationId ?? null;
+            const queryData = {
+              userId,
+              userEmail: session.user.email ?? null,
+              userName:
+                [session.user.firstName, session.user.lastName]
+                  .filter(Boolean)
+                  .join(" ") ||
+                session.user.name ||
+                null,
+              role,
+              organizationId: askerOrgId,
+              organizationName,
+              question,
+              answer: answerText,
+            };
+            (askerOrgId
+              ? runWithTenant(askerOrgId, () =>
+                  db.helpChatQuery.create({ data: queryData }),
+                )
+              : db.helpChatQuery.createMany({ data: [queryData] })
+            ).catch((err) => {
+              apiLogger.error({ msg: "help-chat:persist-failed", userId, err });
+            });
           }
         }
       } catch (err) {

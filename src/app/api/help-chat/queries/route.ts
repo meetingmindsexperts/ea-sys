@@ -13,6 +13,16 @@
  *
  *   response: { queries: HelpChatQuery[], total, page, limit }
  *   errors: 401 no session · 403 not SUPER_ADMIN
+ *
+ *   Tenancy (Domain #20, owner decision Aug 4 2026: operator-global): this
+ *   read is deliberately CROSS-TENANT — the captured questions are the
+ *   platform operator's product signal, so the route is NOT wrapped in a
+ *   tenant lane. Under platform RLS an app-role query here fail-closes to
+ *   zero rows — the platform must serve this route (and only this route)
+ *   from the privileged maintenance lane, the same documented precondition
+ *   class as the email-log-prune job and the aws-ops queue reads
+ *   (MULTI_TENANCY.md §13). The RLS policy on HelpChatQuery still backstops
+ *   every other app-lane query. Inert on master (no RLS; single org).
  */
 
 import { NextResponse, type NextRequest } from "next/server";

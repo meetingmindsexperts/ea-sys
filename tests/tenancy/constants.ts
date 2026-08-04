@@ -324,6 +324,20 @@ export const SHARED_AUDIT_ENTITY_TYPE = "TenancyAuditFixture";
 export const SHARED_AUDIT_ENTITY_ID = "tenancy-shared-audit-entity";
 
 /**
+ * HelpChatQuery sweep (Domain #20 — the final domain): one captured Q&A per
+ * org, both carrying the SAME question text (no per-org unique field — the
+ * shared literal proves lane-scoping, the MediaFile shape). No FKs at all
+ * (scalar snapshot by design), so rows always survive the org cascade and
+ * are cleaned explicitly in the seed's main(). HELP_QUERY_NULLORG_ID is
+ * minted BY THE TEST via bare createMany (the asymmetric write-half proof —
+ * the org-null REVIEWER/SUBMITTER/REGISTRANT asker path).
+ */
+export const HELP_QUERY_A_ID = "tenancy-helpq-a";
+export const HELP_QUERY_B_ID = "tenancy-helpq-b";
+export const HELP_QUERY_NULLORG_ID = "tenancy-helpq-nullorg";
+export const SHARED_HELP_QUESTION = "How do I print badges? (tenancy fixture)";
+
+/**
  * CrmContact policy pass (Phase 2, domain pass #5 — policy-only, like
  * MediaFile's first pass; unblocked July 24 when the CRM deployed).
  * CrmContact is `@@unique([organizationId, emailKey])`, so — like the event
