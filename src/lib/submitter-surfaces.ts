@@ -7,9 +7,11 @@
  * security boundary).
  *
  * The signal is `Speaker.submitterSource` ("abstract" | "proposal" | null),
- * stamped at self-signup, FIRST FLOW WINS. `null` (legacy speakers, organizer-
- * added) counts as "abstract" — every pre-existing submitter came through the
- * abstract flow.
+ * stamped at self-signup — LATEST DOOR WINS (owner decision Aug 4, 2026,
+ * superseding first-flow-wins: each use of a signup door re-stamps, so the
+ * link the organizer sent decides the surface). `null` (legacy speakers,
+ * organizer-added) counts as "abstract" — every pre-existing submitter came
+ * through the abstract flow.
  *
  * Content overrides source in BOTH directions: someone who actually HAS rows
  * on the other surface (e.g. an organizer later invites a proposer to submit

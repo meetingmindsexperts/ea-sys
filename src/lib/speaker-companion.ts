@@ -287,8 +287,12 @@ export interface EventSpeakerProfile {
   sourceRegistrationId?: string | null;
   /**
    * Which self-signup flow this upsert comes from ("abstract" | "proposal").
-   * Stamped on CREATE, and on UPDATE only when the speaker doesn't already
-   * carry one (FIRST FLOW WINS — see src/lib/submitter-surfaces.ts).
+   * Stamped on CREATE and RE-stamped on every door use — LATEST DOOR WINS
+   * (owner decision Aug 4, 2026, superseding July 30's first-flow-wins:
+   * sending someone the abstract link must let them submit an abstract even
+   * if they first arrived through the proposal link). Surfaces where the
+   * person already HAS submissions stay visible via the content override in
+   * src/lib/submitter-surfaces.ts, so a flip never hides their own rows.
    */
   submitterSource?: string | null;
 }
@@ -328,13 +332,13 @@ export async function upsertEventSpeaker(
   });
 
   if (existing) {
-    // submitterSource: FIRST FLOW WINS — stamp only when not already set, on
-    // both the sign-up and sign-in branches (an existing abstract submitter
-    // signing in through the proposal page keeps "abstract").
-    const sourceStamp =
-      profile.submitterSource && !existing.submitterSource
-        ? { submitterSource: profile.submitterSource }
-        : {};
+    // submitterSource: LATEST DOOR WINS (Aug 4, 2026) — using a signup door
+    // re-stamps the source on both the sign-up and sign-in branches, so the
+    // link the organizer sent decides which surface the person lands on.
+    // Their other-surface submissions stay visible via the content override.
+    const sourceStamp = profile.submitterSource
+      ? { submitterSource: profile.submitterSource }
+      : {};
     await tx.speaker.update({
       where: { id: existing.id },
       // Sign-in flow: only ensure the link. Sign-up flow: refresh the profile

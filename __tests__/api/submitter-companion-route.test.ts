@@ -114,7 +114,7 @@ describe("submitter route — companion registration", () => {
   });
 });
 
-describe("submitter route — submitterSource stamping (first flow wins)", () => {
+describe("submitter route — submitterSource stamping (LATEST door wins, Aug 4 2026)", () => {
   it("stamps the source on speaker CREATE", async () => {
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
     expect(mockDb._tx.speaker.create).toHaveBeenCalledWith(
@@ -129,7 +129,7 @@ describe("submitter route — submitterSource stamping (first flow wins)", () =>
     );
   });
 
-  it("stamps an EXISTING speaker only when their source is null", async () => {
+  it("stamps an EXISTING speaker whose source is null", async () => {
     mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: null });
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
     expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
@@ -137,11 +137,15 @@ describe("submitter route — submitterSource stamping (first flow wins)", () =>
     );
   });
 
-  it("NEVER overwrites an existing source (abstract person using the proposal flow stays abstract)", async () => {
-    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: "abstract" });
-    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
-    const updateData = mockDb._tx.speaker.update.mock.calls[0][0].data;
-    expect(updateData).not.toHaveProperty("submitterSource");
+  it("RE-stamps an existing source — the door the organizer sent decides (supersedes July 30 first-flow-wins; MEHF2026 abstract-link bounce)", async () => {
+    // A proposal-source person using /abstract/register must land on (and be
+    // able to submit) Abstracts. Their existing proposals stay visible via
+    // the content override in submitter-surfaces.
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: "proposal" });
+    await POST(makeReq({ ...validBody, source: "abstract" }), { params });
+    expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ submitterSource: "abstract" }) }),
+    );
   });
 });
 

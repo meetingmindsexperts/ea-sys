@@ -46,7 +46,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Lightbulb, Download, Tags, Plus, Pencil, Trash2, Check, X, Loader2, Copy,
+  Lightbulb, Download, Tags, Plus, Pencil, Trash2, Check, X, Loader2, Copy, UserRound,
 } from "lucide-react";
 
 type ProposalStatus = "DRAFT" | "SUBMITTED" | "WITHDRAWN";
@@ -291,6 +291,16 @@ export default function SessionProposalsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* My Details (Aug 4, 2026 — proposal submitters previously had no
+              profile page at all; the shared My Details page is now
+              surface-neutral). */}
+          {isSubmitter && (
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/events/${eventId}/abstracts/profile`}>
+                <UserRound className="h-4 w-4 mr-1" /> My Details
+              </Link>
+            </Button>
+          )}
           {canManage && (
             <>
               <Button

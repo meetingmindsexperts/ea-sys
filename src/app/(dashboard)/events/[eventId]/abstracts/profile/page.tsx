@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,12 +18,14 @@ import {
   Stethoscope,
   BadgeCheck,
   FileText,
+  Lightbulb,
   Plus,
   AlertCircle,
 } from "lucide-react";
 import { formatPersonName } from "@/lib/utils";
 import { formatAttendeeRole } from "@/lib/schemas";
-import { useEvent } from "@/hooks/use-api";
+import { useEvent, useSubmitterContext } from "@/hooks/use-api";
+import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
 import { abstractStatusColor, abstractStatusLabel, PRESENTATION_TYPE_LABELS } from "../abstract-enums";
 import {
@@ -95,8 +97,15 @@ export default function SubmitterProfilePage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.eventId as string;
-  // Surface separation: bounce a proposal-only submitter to Session Proposals.
-  useSubmitterSurfaceGuard(eventId, "abstracts");
+  // My Details is SURFACE-NEUTRAL (Aug 4, 2026 — organizer-reported: proposal
+  // submitters had no My Details at all). No surface guard here; instead the
+  // abstract-specific blocks below gate on the submitter's surfaces, and a
+  // proposal person gets a "My Session Proposals" button.
+  const { data: session } = useSession();
+  const isSubmitter = session?.user?.role === "SUBMITTER";
+  const { data: surfaceCtx } = useSubmitterContext(isSubmitter ? eventId : "");
+  const seesAbstracts = surfaceCtx ? submitterSeesAbstracts(surfaceCtx) : true;
+  const seesProposals = surfaceCtx ? submitterSeesProposals(surfaceCtx) : false;
 
   const { data: event } = useEvent(eventId);
   const [profile, setProfile] = useState<MyProfile | null>(null);
@@ -176,17 +185,28 @@ export default function SubmitterProfilePage() {
           </h1>
           <p className="text-sm text-muted-foreground">Your submission profile for this event</p>
         </div>
-        <div className="flex gap-2">
-          <Button asChild variant="outline">
-            <Link href={`/events/${eventId}/abstracts`}>
-              <FileText className="h-4 w-4 mr-1.5" /> My Abstracts
-            </Link>
-          </Button>
-          <Button asChild className="btn-gradient">
-            <Link href={`/events/${eventId}/abstracts/new`}>
-              <Plus className="h-4 w-4 mr-1.5" /> Submit Abstract
-            </Link>
-          </Button>
+        <div className="flex flex-wrap gap-2">
+          {seesProposals && (
+            <Button asChild variant="outline">
+              <Link href={`/events/${eventId}/session-proposals`}>
+                <Lightbulb className="h-4 w-4 mr-1.5" /> My Session Proposals
+              </Link>
+            </Button>
+          )}
+          {seesAbstracts && (
+            <>
+              <Button asChild variant="outline">
+                <Link href={`/events/${eventId}/abstracts`}>
+                  <FileText className="h-4 w-4 mr-1.5" /> My Abstracts
+                </Link>
+              </Button>
+              <Button asChild className="btn-gradient">
+                <Link href={`/events/${eventId}/abstracts/new`}>
+                  <Plus className="h-4 w-4 mr-1.5" /> Submit Abstract
+                </Link>
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -283,7 +303,9 @@ export default function SubmitterProfilePage() {
         </Card>
       </div>
 
-      {/* Abstracts summary */}
+      {/* Abstracts summary — hidden for proposal-surface submitters (their
+          submissions live on the Session Proposals page). */}
+      {seesAbstracts && (
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -326,12 +348,16 @@ export default function SubmitterProfilePage() {
           )}
         </CardContent>
       </Card>
+      )}
 
-      {/* Submission guidelines (per-event editable; default fallback) */}
-      <AbstractGuidelines
-        html={event?.abstractGuidelinesHtml}
-        contactEmail={event?.emailFromAddress}
-      />
+      {/* Submission guidelines (per-event editable; default fallback) —
+          abstract-surface only. */}
+      {seesAbstracts && (
+        <AbstractGuidelines
+          html={event?.abstractGuidelinesHtml}
+          contactEmail={event?.emailFromAddress}
+        />
+      )}
     </div>
   );
 }
