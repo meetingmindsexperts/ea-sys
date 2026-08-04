@@ -12,6 +12,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { db } from "@/lib/db";
 import { getTitleLabel, formatPersonName } from "@/lib/utils";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
+import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
 
 const REVIEW_STATUSES = new Set(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]);
@@ -23,6 +24,119 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+export interface SendAbstractSubmissionConfirmationParams {
+  eventId: string;
+  /** Organization that owns the event — threaded into the EmailLog row. */
+  organizationId?: string | null;
+  eventName: string;
+  abstractId: string;
+  abstractTitle: string;
+  /** Per-event serial (A-###); null on pre-migration legacy rows → renders blank. */
+  serialId: number | null;
+  speaker: {
+    id: string;
+    email: string | null;
+    additionalEmail?: string | null;
+    firstName: string;
+    lastName: string;
+    title?: string | null;
+  };
+  triggeredByUserId?: string;
+  /**
+   * Manual-resend only: the resending organizer's saved signature HTML
+   * ({{organizerSignature}} renders empty on the automated sends, per the
+   * July-16 rule — automated paths never fabricate a signature).
+   */
+  organizerSignature?: string | null;
+}
+
+/**
+ * Sends the `abstract-submission-confirmation` email to the submitting
+ * speaker. ONE implementation for all three callers (create POST, resubmit
+ * PUT, manual resend route) — the create/resubmit pair used to carry two
+ * inline copies that had already drifted (the resubmit copy silently dropped
+ * presentationType/theme/authorName/coAuthorNames, so those tokens rendered
+ * blank on resubmission emails).
+ *
+ * Self-fetches presentationType / theme / co-authors by abstractId (the
+ * notifyAbstractStatusChange pattern) so callers don't thread them through.
+ * Never throws; returns false on any failure so a manual-resend caller can
+ * surface a 502 while the automated callers stay fire-and-forget.
+ */
+export async function sendAbstractSubmissionConfirmation(
+  params: SendAbstractSubmissionConfirmationParams,
+): Promise<boolean> {
+  const { eventId, organizationId, eventName, abstractId, abstractTitle, serialId, speaker } = params;
+
+  if (!speaker.email) {
+    apiLogger.warn({ msg: "abstract-submission-confirmation:no-speaker-email", eventId, abstractId });
+    return false;
+  }
+
+  try {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+    const details = await db.abstract
+      .findUnique({
+        where: { id: abstractId },
+        select: { presentationType: true, coAuthors: true, theme: { select: { name: true } } },
+      })
+      .catch(() => null);
+
+    const vars: Record<string, string> = {
+      title: getTitleLabel(speaker.title),
+      firstName: speaker.firstName,
+      lastName: speaker.lastName,
+      eventName,
+      // "" (not "—") on legacy serial-less rows — the template hides the row.
+      abstractNumber: serialId != null ? formatAbstractSerial(serialId) : "",
+      abstractTitle,
+      presentationType: details?.presentationType
+        ? PRESENTATION_TYPE_LABELS[details.presentationType] ?? details.presentationType
+        : "",
+      theme: details?.theme?.name ?? "",
+      authorName: formatPersonName(speaker.title, speaker.firstName, speaker.lastName),
+      coAuthorNames: normalizeCoAuthors(details?.coAuthors)
+        .map((c) => `${c.firstName} ${c.lastName}`)
+        .join(", "),
+      managementLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`,
+      ...(params.organizerSignature ? { organizerSignature: params.organizerSignature } : {}),
+    };
+
+    const eventTpl = await getEventTemplate(eventId, "abstract-submission-confirmation");
+    const tpl = eventTpl || getDefaultTemplate("abstract-submission-confirmation");
+    if (!tpl) {
+      apiLogger.warn({ msg: "No template found for abstract-submission-confirmation", eventId, abstractId });
+      return false;
+    }
+    const branding = eventTpl?.branding || { eventName };
+    const rendered = renderAndWrap(tpl, vars, branding);
+    const result = await sendEmail({
+      to: [{ email: speaker.email, name: `${speaker.firstName} ${speaker.lastName}` }],
+      cc: brandingCc(branding, [{ email: speaker.email }], [speaker.additionalEmail]),
+      ...rendered,
+      from: brandingFrom(branding),
+      emailType: "abstract_submission_confirmation",
+      stream: "transactional",
+      logContext: {
+        organizationId: organizationId ?? null,
+        eventId,
+        entityType: "SPEAKER",
+        entityId: speaker.id,
+        templateSlug: "abstract-submission-confirmation",
+        triggeredByUserId: params.triggeredByUserId,
+      },
+    });
+    if (!result.success) {
+      apiLogger.error({ msg: "abstract-submission-confirmation:send-failed", eventId, abstractId, error: result.error });
+      return false;
+    }
+    return true;
+  } catch (err) {
+    apiLogger.error({ err, msg: "Failed to send abstract submission confirmation email", eventId, abstractId });
+    return false;
+  }
 }
 
 export interface NotifyAbstractStatusChangeParams {

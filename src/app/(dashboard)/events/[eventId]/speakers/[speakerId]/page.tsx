@@ -81,6 +81,7 @@ import { SpeakerReimbursementCard } from "@/components/speakers/speaker-reimburs
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
 import { cn, formatPersonName, formatDateTime } from "@/lib/utils";
+import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { toast } from "sonner";
 
 const statusColors: Record<string, string> = {
@@ -143,6 +144,7 @@ interface Speaker {
     id: string;
     title: string;
     status: string;
+    serialId: number | null;
     track?: { name: string };
   }>;
   // The speaker's "attendee facet" — the linked companion (or email-matched)
@@ -215,6 +217,9 @@ export default function SpeakerDetailPage() {
   const [bccInput, setBccInput] = useState("");
   const [bccSelf, setBccSelf] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
+  // Per-abstract "Resend confirmation" (Aug 4, 2026 organizer request) —
+  // re-fires the abstract-submission-confirmation email for one abstract.
+  const [resendingAbstractId, setResendingAbstractId] = useState<string | null>(null);
   const [updatingAgreement, setUpdatingAgreement] = useState(false);
   const [grantingCompanion, setGrantingCompanion] = useState(false);
   const [showAgreementHelp, setShowAgreementHelp] = useState(false);
@@ -237,6 +242,26 @@ export default function SpeakerDetailPage() {
   const formatSessionWhen = (value: string | Date) => {
     const d = new Date(value);
     return `${formatDateInTz(d, eventTz)}, ${formatTimeInTz(d, eventTz)} ${tzLabel(d, eventTz)}`;
+  };
+
+  const handleResendAbstractConfirmation = async (abstractId: string) => {
+    setResendingAbstractId(abstractId);
+    try {
+      const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}/resend-confirmation`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Failed to resend the confirmation email");
+        return;
+      }
+      toast.success(`Submission confirmation resent to ${data.sentTo}`);
+    } catch (err) {
+      console.error("Failed to resend abstract confirmation", err);
+      toast.error("Failed to resend the confirmation email");
+    } finally {
+      setResendingAbstractId(null);
+    }
   };
 
   const handlePreviewEmail = async () => {
@@ -1011,12 +1036,40 @@ export default function SpeakerDetailPage() {
               ) : (
                 <div className="space-y-2">
                   {speaker.abstracts.map((abstract) => (
-                    <div key={abstract.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                      <div>
-                        <p className="font-medium text-sm">{abstract.title}</p>
+                    <div key={abstract.id} className="flex items-center justify-between gap-3 p-3 bg-muted rounded-lg">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm">
+                          {abstract.serialId != null && (
+                            <span className="mr-2 font-mono text-xs text-muted-foreground">
+                              {formatAbstractSerial(abstract.serialId)}
+                            </span>
+                          )}
+                          {abstract.title}
+                        </p>
                         <p className="text-sm text-muted-foreground">{abstract.track?.name || "No track assigned"}</p>
                       </div>
-                      <Badge variant="outline">{abstract.status}</Badge>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Badge variant="outline">{abstract.status}</Badge>
+                        {/* No confirmation exists for a DRAFT; a WITHDRAWN
+                            "your abstract was submitted" would mislead. */}
+                        {!["DRAFT", "WITHDRAWN"].includes(abstract.status) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            disabled={resendingAbstractId === abstract.id}
+                            onClick={() => handleResendAbstractConfirmation(abstract.id)}
+                            title="Resend the submission confirmation email to this author"
+                          >
+                            {resendingAbstractId === abstract.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Send className="h-3.5 w-3.5" />
+                            )}
+                            <span className="ml-1">Resend confirmation</span>
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

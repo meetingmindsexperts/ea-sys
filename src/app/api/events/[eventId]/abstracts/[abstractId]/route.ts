@@ -15,9 +15,7 @@ import {
   type ChangeAbstractStatusErrorCode,
 } from "@/services/abstract-service";
 import { optimisticLockField } from "@/lib/optimistic-lock";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
-import { getTitleLabel } from "@/lib/utils";
-import { formatAbstractSerial } from "@/lib/abstract-serial";
+import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 
@@ -459,40 +457,20 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // POST: confirm to the submitter + notify organizers the abstract is back
     // for review. Both non-blocking.
     if (isSubmission && abstract.speaker) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
       const isResubmit = existingAbstract.status === "REVISION_REQUESTED";
-      const vars = {
-        title: getTitleLabel(abstract.speaker.title),
-        firstName: abstract.speaker.firstName,
-        lastName: abstract.speaker.lastName,
+      // Shared helper (also used by the create POST + the manual resend route)
+      // — fixes the drift where this path's inline copy dropped
+      // presentationType/theme/authorName/coAuthorNames from the email vars.
+      sendAbstractSubmissionConfirmation({
+        eventId,
+        organizationId: session.user.organizationId ?? null,
         eventName: abstract.event?.name || "",
-        abstractNumber: abstract.serialId != null ? formatAbstractSerial(abstract.serialId) : "",
+        abstractId: abstract.id,
         abstractTitle: abstract.title,
-        managementLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`,
-      };
-      (async () => {
-        const tpl = await getEventTemplate(eventId, "abstract-submission-confirmation")
-          || getDefaultTemplate("abstract-submission-confirmation");
-        if (!tpl) { apiLogger.warn({ msg: "No template found for abstract-submission-confirmation" }); return; }
-        const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName };
-        const rendered = renderAndWrap(tpl, vars, branding);
-        await sendEmail({
-          to: [{ email: abstract.speaker!.email, name: `${abstract.speaker!.firstName} ${abstract.speaker!.lastName}` }],
-          cc: brandingCc(branding, [{ email: abstract.speaker!.email }], [abstract.speaker!.additionalEmail]),
-          ...rendered,
-          from: brandingFrom(branding),
-          emailType: "abstract_submission_confirmation",
-          stream: "transactional",
-          logContext: {
-            organizationId: session.user.organizationId ?? null,
-            eventId,
-            entityType: "SPEAKER",
-            entityId: abstract.speaker!.id,
-            templateSlug: "abstract-submission-confirmation",
-            triggeredByUserId: session.user.id,
-          },
-        });
-      })().catch((err) => apiLogger.error({ err, msg: "Failed to send abstract resubmission confirmation email" }));
+        serialId: abstract.serialId,
+        speaker: abstract.speaker,
+        triggeredByUserId: session.user.id,
+      }).catch((err) => apiLogger.error({ err, msg: "Failed to send abstract resubmission confirmation email" }));
 
       notifyEventAdmins(eventId, {
         type: "ABSTRACT",

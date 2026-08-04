@@ -5,15 +5,13 @@ import { AbstractStatus, PresentationType } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
-import { getNextAbstractSerialId, formatAbstractSerial } from "@/lib/abstract-serial";
+import { getNextAbstractSerialId } from "@/lib/abstract-serial";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { abstractListStatusFilter } from "@/lib/abstract-draft-visibility";
 import { getClientIp } from "@/lib/security";
 import { meanOverallScore } from "@/lib/abstract-review";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
-import { getTitleLabel, formatPersonName } from "@/lib/utils";
-import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abstracts/abstract-enums";
+import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
@@ -283,54 +281,22 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Send abstract submission confirmation email (non-blocking). Only on an
     // actual SUBMITTED — a DRAFT save must NOT email "your abstract was
     // submitted" (it isn't yet, and it's invisible to reviewers).
+    // ONE implementation shared with the resubmit PUT + the manual resend
+    // route: sendAbstractSubmissionConfirmation (never throws).
     if (abstract.speaker && status === "SUBMITTED") {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-      const managementLink = `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
-      const vars = {
-        title: getTitleLabel(abstract.speaker.title),
-        firstName: abstract.speaker.firstName,
-        lastName: abstract.speaker.lastName,
-        eventName: "",
-        abstractNumber: abstract.serialId != null ? formatAbstractSerial(abstract.serialId) : "",
-        abstractTitle: abstract.title,
-        presentationType: abstract.presentationType
-          ? PRESENTATION_TYPE_LABELS[abstract.presentationType] ?? abstract.presentationType
-          : "",
-        theme: abstract.theme?.name ?? "",
-        authorName: formatPersonName(abstract.speaker.title, abstract.speaker.firstName, abstract.speaker.lastName),
-        coAuthorNames: normalizeCoAuthors(abstract.coAuthors).map((c) => `${c.firstName} ${c.lastName}`).join(", "),
-        managementLink,
-      };
-      // Fetch event name for the email
       db.event.findUnique({ where: { id: eventId }, select: { name: true } })
-        .then(async (ev) => {
-          vars.eventName = ev?.name || "";
-          const tpl = await getEventTemplate(eventId, "abstract-submission-confirmation")
-            || getDefaultTemplate("abstract-submission-confirmation");
-          if (!tpl) { apiLogger.warn({ msg: "No template found for abstract-submission-confirmation" }); return; }
-          const branding = tpl && "branding" in tpl ? tpl.branding : { eventName: vars.eventName as string };
-          const rendered = renderAndWrap(tpl, vars, branding);
-          return sendEmail({
-            to: [{ email: abstract.speaker!.email, name: `${abstract.speaker!.firstName} ${abstract.speaker!.lastName}` }],
-            cc: brandingCc(
-              branding,
-              [{ email: abstract.speaker!.email }],
-              [abstract.speaker!.additionalEmail],
-            ),
-            ...rendered,
-            from: brandingFrom(branding),
-            emailType: "abstract_submission_confirmation",
-            stream: "transactional",
-            logContext: {
-              organizationId: session.user.organizationId ?? null,
-              eventId,
-              entityType: "SPEAKER",
-              entityId: abstract.speaker!.id,
-              templateSlug: "abstract-submission-confirmation",
-              triggeredByUserId: session.user.id,
-            },
-          });
-        })
+        .then((ev) =>
+          sendAbstractSubmissionConfirmation({
+            eventId,
+            organizationId: session.user.organizationId ?? null,
+            eventName: ev?.name || "",
+            abstractId: abstract.id,
+            abstractTitle: abstract.title,
+            serialId: abstract.serialId,
+            speaker: abstract.speaker!,
+            triggeredByUserId: session.user.id,
+          }),
+        )
         .catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission confirmation email" }));
     }
 
