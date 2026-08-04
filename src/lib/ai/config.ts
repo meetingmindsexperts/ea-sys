@@ -35,11 +35,29 @@ export interface ModelConfig {
 /** Code defaults. Surfaced as named constants so test assertions stay
  *  stable across env changes. */
 export const HELP_CHAT_MODEL_DEFAULT = "claude-sonnet-4-6";
+export const HELP_CHAT_MODEL_OPENAI_DEFAULT = "gpt-4o";
 export const AGENT_MODEL_DEFAULT = "claude-sonnet-4-6";
 
-export function getModelConfig(feature: AiFeature): ModelConfig {
+/**
+ * `provider` (default anthropic) picks the model id lane for features that
+ * support per-org provider choice (Help Chat). Token caps + temperature are
+ * provider-independent — they're the cost/quality levers, not vendor knobs.
+ */
+export function getModelConfig(
+  feature: AiFeature,
+  provider: "anthropic" | "openai" = "anthropic",
+): ModelConfig {
   switch (feature) {
     case "helpChat":
+      if (provider === "openai") {
+        return {
+          // gpt-4o — the broadly-available OpenAI tier for KB Q&A; env
+          // override lets prod pin a successor without a deploy.
+          model: process.env.HELP_CHAT_MODEL_OPENAI || HELP_CHAT_MODEL_OPENAI_DEFAULT,
+          maxTokens: 1500,
+          temperature: 0.3,
+        };
+      }
       return {
         // Sonnet 4.6 — best refusal + role-aware reasoning at the right
         // cost tier for KB Q&A (Opus overkill, Haiku misses RBAC /

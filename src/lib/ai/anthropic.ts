@@ -16,26 +16,30 @@ import Anthropic from "@anthropic-ai/sdk";
 import { apiLogger } from "@/lib/logger";
 import type { AiProvider, StreamChatOptions, StreamEvent } from "./index";
 
-// Client cache keyed by API key — most processes only see one key in
-// their lifetime, but keying on the key means env changes between calls
-// (rare; mostly in tests) rebuild the client instead of returning stale
-// state. Construction is cheap (no network), so this is a small win for
-// HTTP-agent reuse, not a hot-path optimization.
-let _client: Anthropic | null = null;
-let _clientKey: string | undefined;
+// Bounded client cache keyed by the API key string (per-tenant AI keys:
+// several orgs' keys can be live in one process). The cache key IS the
+// credential, so a changed org key naturally misses — no invalidation hook
+// needed. Construction is cheap (no network); this only buys HTTP-agent
+// reuse, not a hot-path optimization.
+const clients = new Map<string, Anthropic>();
+const MAX_CLIENTS = 20;
 
-function client(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+function client(apiKey?: string): Anthropic {
+  const key = apiKey ?? process.env.ANTHROPIC_API_KEY;
+  if (!key) {
     throw new Error(
       "ANTHROPIC_API_KEY is not set — cannot use the Anthropic AI provider.",
     );
   }
-  if (!_client || _clientKey !== apiKey) {
-    _client = new Anthropic({ apiKey });
-    _clientKey = apiKey;
+  const cached = clients.get(key);
+  if (cached) return cached;
+  if (clients.size >= MAX_CLIENTS) {
+    const oldest = clients.keys().next().value;
+    if (oldest !== undefined) clients.delete(oldest);
   }
-  return _client;
+  const created = new Anthropic({ apiKey: key });
+  clients.set(key, created);
+  return created;
 }
 
 export const anthropicProvider: AiProvider = {
@@ -52,7 +56,7 @@ export const anthropicProvider: AiProvider = {
       ...(block.cache ? { cache_control: { type: "ephemeral" as const } } : {}),
     }));
 
-    const stream = client().messages.stream({
+    const stream = client(opts.apiKey).messages.stream({
       model: opts.model,
       max_tokens: opts.maxTokens,
       ...(opts.temperature !== undefined && { temperature: opts.temperature }),

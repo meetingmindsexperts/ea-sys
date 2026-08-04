@@ -44,6 +44,13 @@ export interface StreamChatOptions {
   maxTokens: number;
   /** Optional sampling temperature (provider default if omitted). */
   temperature?: number;
+  /**
+   * Server-resolved credential override (per-tenant AI keys): the org's own
+   * decrypted API key. Omitted → the provider's env-var key. NEVER accept
+   * this from client input — it is resolved server-side from
+   * `Organization.settings` (see ./credentials.ts).
+   */
+  apiKey?: string;
 }
 
 /**
@@ -85,7 +92,19 @@ export interface AiProvider {
 // case if the Anthropic adapter ever pulls types from this file.
 
 import { anthropicProvider } from "./anthropic";
+import { openAiProvider } from "./openai";
+
+export type AiProviderName = "anthropic" | "openai";
 
 export function getDefaultAiProvider(): AiProvider {
   return anthropicProvider;
+}
+
+/**
+ * Provider lookup by name (per-org Help Chat provider choice). Unknown
+ * values fall back to Anthropic — the org-settings write path validates the
+ * enum, so this only guards stale/hand-edited settings JSON.
+ */
+export function getAiProvider(provider: AiProviderName): AiProvider {
+  return provider === "openai" ? openAiProvider : anthropicProvider;
 }

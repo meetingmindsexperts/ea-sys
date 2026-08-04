@@ -39,7 +39,8 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
-import { getDefaultAiProvider } from "@/lib/ai";
+import { getAiProvider } from "@/lib/ai";
+import { aiConfigFromSettings } from "@/lib/ai/credentials";
 import { getModelConfig } from "@/lib/ai/config";
 import { buildSystemPrompt } from "@/lib/help-chat/system-prompt";
 
@@ -139,20 +140,32 @@ export async function POST(req: NextRequest) {
   // ── 4. Build role-aware system prompt ────────────────────────────
   // REVIEWER / SUBMITTER / REGISTRANT have organizationId: null per the
   // RBAC architecture — they're org-independent. For those we skip the
-  // DB lookup and let the role tail fall back to "their organization".
+  // DB lookup and let the role tail fall back to "their organization"
+  // (and the AI config below resolves to anthropic + env by construction).
   let organizationName: string | null = null;
+  let orgSettings: unknown = null;
   if (session.user.organizationId) {
     try {
+      // `settings` rides the SAME lookup as the org name (zero extra
+      // queries) — it feeds the per-org AI provider/key resolution below.
       const org = await db.organization.findUnique({
         where: { id: session.user.organizationId },
-        select: { name: true },
+        select: { name: true, settings: true },
       });
       organizationName = org?.name ?? null;
+      orgSettings = org?.settings ?? null;
     } catch (err) {
       // Org name is non-critical — log + continue with the fallback.
       apiLogger.warn({ msg: "help-chat:org-lookup-failed", userId, err });
     }
   }
+
+  // Per-org AI provider + key (item 7): the org's Help Chat provider choice
+  // and its own key, resolved from the settings blob loaded above; org-null
+  // roles get anthropic + env by construction.
+  const aiConfig = aiConfigFromSettings(orgSettings, {
+    organizationId: session.user.organizationId,
+  });
 
   const inputCharCount = messages.reduce((n, m) => n + m.content.length, 0);
   apiLogger.info({
@@ -162,15 +175,17 @@ export async function POST(req: NextRequest) {
     organizationId: session.user.organizationId,
     messageCount: messages.length,
     inputCharCount,
+    aiProvider: aiConfig.provider,
+    aiKeySource: aiConfig.source,
   });
 
-  const config = getModelConfig("helpChat");
+  const config = getModelConfig("helpChat", aiConfig.provider);
   const system = buildSystemPrompt({
     role,
     organizationName,
     firstName: session.user.firstName ?? null,
   });
-  const provider = getDefaultAiProvider();
+  const provider = getAiProvider(aiConfig.provider);
 
   // The question we capture is the turn the bot is answering (guaranteed
   // to be a user turn by the check above). Snapshot the asker now so the
@@ -194,6 +209,7 @@ export async function POST(req: NextRequest) {
           messages,
           maxTokens: config.maxTokens,
           temperature: config.temperature,
+          apiKey: aiConfig.apiKey,
         })) {
           send(event);
           if (event.type === "text") {

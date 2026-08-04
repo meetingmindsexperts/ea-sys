@@ -9,6 +9,7 @@ import { rateLimited } from "@/lib/api-errors";
 import { db } from "@/lib/db";
 import { AGENT_TOOL_DEFINITIONS, TOOL_EXECUTOR_MAP } from "@/lib/agent/event-tools";
 import { buildSystemPrompt } from "@/lib/agent/system-prompt";
+import { resolveAnthropicApiKey } from "@/lib/ai/credentials";
 import { isReadOnlyTool, ROSTER_PII_AGENT_TOOLS } from "@/lib/agent/tools/_shared";
 import { canViewFinance, FINANCE_ONLY_AGENT_TOOLS, redactFinancialFields } from "@/lib/finance-visibility";
 import type { AgentContext } from "@/lib/agent/event-tools";
@@ -46,8 +47,15 @@ const WEB_SEARCH_TOOL: WebSearchTool20250305 = {
 
 const AGENT_TOOLS: ToolUnion[] = [...AGENT_TOOL_DEFINITIONS, WEB_SEARCH_TOOL];
 
-function getAnthropic() {
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// Per-request client on a SERVER-RESOLVED key (per-tenant AI keys, item 7):
+// the org's own Anthropic key when configured, else the env fallback — the
+// caller resolves it via resolveAnthropicApiKey(orgId). The Event Agent is
+// Anthropic-only this round (its tool loop + the server-side web_search tool
+// are Anthropic-specific). NOTE for tenants on their own key: web_search must
+// be enabled in THAT org's Anthropic Console, or sponsor-research/web lookups
+// degrade to { error_code: "unavailable" } (the agent handles it gracefully).
+function getAnthropic(apiKey: string) {
+  return new Anthropic({ apiKey });
 }
 
 type SSEEvent =
@@ -80,7 +88,10 @@ async function runAgentLoop(
     { role: "user", content: userMessage },
   ];
 
-  const anthropic = getAnthropic();
+  // Org-resolved key: context.organizationId comes from the route's
+  // requireOrgId guard, so the agent bills the org's own Anthropic account
+  // when one is configured (env fallback otherwise — master unchanged).
+  const anthropic = getAnthropic(await resolveAnthropicApiKey(context.organizationId));
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const stream = anthropic.messages.stream({
