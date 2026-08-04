@@ -147,13 +147,15 @@ function EventLoginForm() {
           router.push(`/e/${slug}/abstract/register`);
         }
       } else if (redirectParam === "session-proposals") {
-        // Same fail-safe shape as "abstracts": SUBMITTER → their proposals
-        // page; staff → /events; REGISTRANT / not-yet-propagated session →
-        // back to the public proposal-register upgrade flow (never dead-ends
-        // at /my-registration).
+        // Same fail-safe shape as "abstracts": SUBMITTER → My Details (ONE
+        // shared landing for both flows, owner decision Aug 4 2026 — the
+        // page adapts to the person's surfaces); staff → /events;
+        // REGISTRANT / not-yet-propagated session → back to the public
+        // proposal-register upgrade flow (never dead-ends at
+        // /my-registration).
         const role = await getSession().then((s) => s?.user?.role).catch(() => undefined);
         if (role === "SUBMITTER") {
-          router.push(event?.id ? `/events/${event.id}/session-proposals` : "/events");
+          router.push(event?.id ? `/events/${event.id}/abstracts/profile` : "/events");
         } else if (role && role !== "REGISTRANT") {
           router.push("/events");
         } else {

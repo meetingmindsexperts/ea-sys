@@ -47,10 +47,9 @@ describe("submitter surface truth table", () => {
     expect(submitterSeesProposals(ctx(null, 0, 2))).toBe(true);
   });
 
-  it("home path follows the visible surface", () => {
+  it("home path is My Details for EVERYONE — one shared landing (Aug 4, 2026)", () => {
     expect(submitterHomePath("ev1", ctx("abstract"))).toBe("/events/ev1/abstracts/profile");
-    expect(submitterHomePath("ev1", ctx("proposal"))).toBe("/events/ev1/session-proposals");
-    // Proposal-only person with an abstract → abstracts is visible → home is abstracts.
-    expect(submitterHomePath("ev1", ctx("proposal", 1, 0))).toBe("/events/ev1/abstracts/profile");
+    expect(submitterHomePath("ev1", ctx("proposal"))).toBe("/events/ev1/abstracts/profile");
+    expect(submitterHomePath("ev1", ctx("both"))).toBe("/events/ev1/abstracts/profile");
   });
 });

@@ -38,9 +38,15 @@ export function submitterSeesProposals(ctx: SubmitterSurfaceContext): boolean {
   return ctx.submitterSource === "proposal" || ctx.submitterSource === "both" || ctx.proposalCount > 0;
 }
 
-/** Where to send a submitter who landed on a surface they can't see. */
-export function submitterHomePath(eventId: string, ctx: SubmitterSurfaceContext): string {
-  return submitterSeesAbstracts(ctx)
-    ? `/events/${eventId}/abstracts/profile`
-    : `/events/${eventId}/session-proposals`;
+/**
+ * Where to send a submitter who landed on a surface they can't see: My
+ * Details — ONE shared landing for both flows (owner decision Aug 4, 2026).
+ * The page is surface-neutral and adapts its actions to the person's
+ * surfaces, so it's a safe home for everyone.
+ */
+// The ctx param is kept for call-site compatibility (the guard passes it) —
+// deliberately unused since the home no longer depends on surfaces.
+export function submitterHomePath(eventId: string, ctx?: SubmitterSurfaceContext): string {
+  void ctx;
+  return `/events/${eventId}/abstracts/profile`;
 }
