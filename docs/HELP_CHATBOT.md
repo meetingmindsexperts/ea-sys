@@ -567,6 +567,16 @@ Six commits, each independently revertable, each gated by tsc + lint + vitest + 
 
 ## 17. Future Work (v1.1+)
 
+> **✅ PARTIALLY DELIVERED — Aug 4, 2026 (per-tenant AI keys, Platform item 7):**
+> the `AiProvider` abstraction paid off — a second provider now exists
+> (`src/lib/ai/openai.ts`), and Help Chat is **per-org configurable**: each org
+> can store its own encrypted Anthropic/OpenAI key and pick its Help Chat
+> provider under Settings → Integrations → AI Assistant
+> (`settings.ai.helpChatProvider`; resolution in `src/lib/ai/credentials.ts`,
+> org key → env fallback, org-null roles always anthropic+env). The Event
+> Agent retrofit below is still open — it stays on the raw Anthropic SDK but
+> now resolves the org's key via `resolveAnthropicApiKey()`.
+
 - 👍 / 👎 feedback per assistant message → routed to a Slack/email/db table → tells us where the guide is weak.
 - Event-context awareness (the bot knows which event you're on, and can answer "in this event" questions).
 - Surface usage stats on `/logs` (per-user, per-day question counts).

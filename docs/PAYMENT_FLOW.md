@@ -278,7 +278,36 @@ This is the self‑service path: a stranger fills the public form and pays by ca
 
 **Key files:** [checkout/route.ts](../src/app/api/public/events/%5Bslug%5D/checkout/route.ts),
 [webhooks/stripe/route.ts](../src/app/api/webhooks/stripe/route.ts),
+[stripe-webhook-handler.ts](../src/lib/stripe-webhook-handler.ts),
 [stripe.ts](../src/lib/stripe.ts).
+
+**Per-organization Stripe keys (Aug 4, 2026 — Platform decision item 7).**
+`getStripe(organizationId?)` is async and resolves **org key → env fallback**:
+the org's AES-256-GCM-encrypted key from `Organization.settings.stripe` (set
+under Settings → Integrations → Stripe Payments) when configured, else the env
+`STRIPE_SECRET_KEY`. An org with *no* key gets the identical env client, so a
+deployment with nothing configured behaves exactly as before and every
+historical PaymentIntent stays reachable through the same account. Clients are
+cached (bounded, 5-min TTL) with `invalidateStripeClientCache(orgId)` called
+from the credentials PUT/DELETE.
+
+**Webhooks are now TWO entry points, ONE dispatcher.** The event-dispatch body
+lives in [stripe-webhook-handler.ts](../src/lib/stripe-webhook-handler.ts)
+`handleStripeEvent()`; each route only verifies a signature and delegates:
+- `/api/webhooks/stripe` — the legacy route, verifies against the env
+  `STRIPE_WEBHOOK_SECRET` (master / the platform-default Stripe account).
+- `/api/webhooks/stripe/[orgId]` — the per-org route, verifies against that
+  org's encrypted `webhookSecret`. The org id in the path solves the
+  chicken-and-egg (the signing secret must be known before the payload can be
+  parsed). Each Stripe account's dashboard points at exactly one of the two
+  URLs — the Settings card displays the org's URL with a copy button and the
+  event list to enable.
+
+**Account-switch caveat:** a PaymentIntent can only be refunded from the
+Stripe account that created it. If an org changes Stripe accounts after
+payments exist, older payments refund only from the old account — there is
+deliberately NO silent fallback retry on the env key (that would cross
+accounts). The Settings card warns about this.
 
 **Why the amount is split into two Stripe line items** (ticket + VAT) instead of
 using Stripe's automatic tax: we control the VAT number ourselves so it exactly

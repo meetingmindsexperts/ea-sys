@@ -226,7 +226,34 @@ can exist independently in two tenants, as two separate accounts.
 
 ---
 
-## 7. Per-tenant API keys (Stripe, Zoom, Anthropic — and MMG's own) — ✅ DECIDED, next build priority
+## 7. Per-tenant API keys (Stripe, Zoom, Anthropic — and MMG's own) — ✅ IMPLEMENTED (Aug 4, 2026)
+
+> **Status update — BUILT + shipped Aug 4, 2026** (commits `14173797..96d9436e`,
+> six phases). What shipped, beyond the original decision:
+> - **Stripe**: `getStripe(orgId)` resolves org key → env; per-org webhook
+>   endpoint `/api/webhooks/stripe/[orgId]` verifying against the org's own
+>   signing secret, both routes delegating to ONE shared dispatcher
+>   (`src/lib/stripe-webhook-handler.ts`). The Stripe *publishable* key turned
+>   out to be dead code (checkout is a server-side redirect) — only the secret
+>   key + webhook secret went per-org. **Direct keys confirmed over Connect.**
+> - **AI**: per-org Anthropic AND **OpenAI** keys (owner scope addition during
+>   planning), plus a per-org **Help Chat provider choice**
+>   (`settings.ai.helpChatProvider`). The Event Agent stays Anthropic-only
+>   this round (tool loop + web_search are Anthropic-specific — porting is a
+>   recorded follow-up; a tenant's own key also needs web search enabled in
+>   that tenant's Anthropic Console).
+> - **Zoom/EventsAir** were already per-org (the template) — untouched.
+> - Storage: AES-256-GCM in `Organization.settings.{stripe,anthropic,openai,ai}`;
+>   Settings → Integrations gains Stripe Payments + AI Assistant cards
+>   (masked, blank-keeps-existing, test-connection with `source: org|env`).
+> - Fallback chain everywhere: org key → env — master with nothing configured
+>   is byte-identical (pinned by test: an org without a key gets the IDENTICAL
+>   env client instance).
+> - Known accepted edge (documented in UI + PAYMENT_FLOW.md): switching Stripe
+>   accounts after payments exist leaves old PaymentIntents refundable only
+>   from the old account; no silent env-key retry.
+
+*(Original decision record below.)*
 
 **Owner decision:** *"Stripe, Zoom and Anthropic all should be tenant's own
 keys, including our own — in fact that is our next immediate priority. We
