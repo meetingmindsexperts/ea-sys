@@ -858,10 +858,37 @@ async function fetchErrorTrend(): Promise<InfraSnapshot["errorTrend"]> {
 async function fetchAbuse(): Promise<InfraSnapshot["abuse"]> {
   try {
     const dayAgo = new Date(Date.now() - 24 * 3600_000);
+    // Substrings match the codebase's REAL log-message taxonomy (Aug 4, 2026
+    // — the originals counted "invalid-credentials"/"forbidden", strings our
+    // messages never contain, so two of three counters were structurally 0):
+    //  - every rate-limit rejection logs `<route>:rate-limited` (the
+    //    rateLimited() helper + the hand-rolled sites);
+    //  - failed logins log `auth:login-bad-password` / `auth:login-unknown-email`
+    //    / `auth:login-throttled` (src/lib/auth.ts authorize());
+    //  - 403s log with `-denied` / `-refused` suffixes (auth-guard:write-denied,
+    //    *:event-access-denied, *:role-refused, …).
     const [rateLimited, authFailures, forbidden] = await Promise.all([
-      db.systemLog.count({ where: { timestamp: { gte: dayAgo }, message: { contains: "rate-limit", mode: "insensitive" } } }),
-      db.systemLog.count({ where: { timestamp: { gte: dayAgo }, message: { contains: "invalid-credentials", mode: "insensitive" } } }),
-      db.systemLog.count({ where: { timestamp: { gte: dayAgo }, message: { contains: "forbidden", mode: "insensitive" } } }),
+      db.systemLog.count({ where: { timestamp: { gte: dayAgo }, message: { contains: "rate-limited", mode: "insensitive" } } }),
+      db.systemLog.count({
+        where: {
+          timestamp: { gte: dayAgo },
+          OR: [
+            { message: { contains: "auth:login-bad-password" } },
+            { message: { contains: "auth:login-unknown-email" } },
+            { message: { contains: "auth:login-throttled" } },
+          ],
+        },
+      }),
+      db.systemLog.count({
+        where: {
+          timestamp: { gte: dayAgo },
+          OR: [
+            { message: { contains: "-denied", mode: "insensitive" } },
+            { message: { contains: "-refused", mode: "insensitive" } },
+            { message: { contains: "forbidden", mode: "insensitive" } },
+          ],
+        },
+      }),
     ]);
     return {
       status: "ok",

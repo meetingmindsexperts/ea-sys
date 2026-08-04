@@ -217,6 +217,15 @@ function initLogger(): pino.Logger {
       { stream: process.stdout },
       { stream: appDest },
       { level: "error", stream: errDest },
+      // WARN+ also lands in the SystemLog table (Aug 4, 2026). The DB stream
+      // was historically Vercel-only, so on EC2 — actual production — the
+      // table was NEVER written and everything reading it showed zero
+      // forever: the /admin/infra "Error rate" + "Abuse & auth" cards, and
+      // the /logs database source. warn+ (not info) keeps the write volume
+      // small; retention via the system-log-prune worker job (30 days).
+      // Both web AND worker containers run this branch, so worker errors
+      // finally surface on the dashboard too.
+      { level: "warn", stream: createDbLogStream() },
     ])
   );
 }
