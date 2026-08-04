@@ -230,6 +230,53 @@ Variables: `{{joinUrl}}`, `{{passcode}}`, `{{webinarDate}}`, `{{webinarTime}}`, 
 
 **Enqueueing** — `enqueueWebinarSequenceForEvent()` creates 4 future `ScheduledEmail` rows (the immediate confirmation is sent directly from the register route). Past-dated phases are dropped; re-enqueue is idempotent.
 
+### Retime cascade + email reschedule (Aug 4, 2026 — organizer-reported)
+
+Retiming the webinar now moves EVERYTHING, from every surface:
+
+- **Session retime** (Agenda page, REST session PUT, MCP `update_session`) — the
+  one choke point in `session-service.updateSession()`: pushes the new
+  start/duration to the linked Zoom webinar (`zoomSync: "synced" | "failed"` on
+  the response; a Zoom outage never fails the save — the dashboard toasts
+  "save again to retry") **and**, when the retimed session is the ANCHOR, calls
+  `rescheduleWebinarSequenceForEvent()` (`sequenceSync` on the response).
+- **Event Settings date change** (event PUT) — when a WEBINAR event's start
+  date/timezone moves the start instant, the route pre-validates the anchor
+  fits the new window (400 `ANCHOR_OUTSIDE_NEW_DATES` — validated BEFORE the
+  event save so the M9 sessions-outside-dates exemption can't diverge), then
+  cascades through the same `updateSession()` service call, so Zoom + emails
+  move too. The response carries `webinarTimeCascade` and the Settings page
+  toasts exactly what moved (or couldn't).
+- **`rescheduleWebinarSequenceForEvent()`** ([src/lib/webinar-email-sequence.ts](../src/lib/webinar-email-sequence.ts))
+  runs clear + force re-enqueue atomically inside one `tenantTransaction`
+  holding a per-event `pg_advisory_xact_lock` (pooler-safe — session-scoped
+  advisory locks are NOT safe through pgbouncer transaction mode). Semantics:
+  a phase that already **SENT/PROCESSING is never re-created** (no duplicate
+  reminders); an operator-**CANCELLED** phase stays cancelled (only the
+  console's explicit Re-enqueue passes `resurrectCancelled`); a **FAILED**
+  phase with partial deliveries keeps its row (resume state for Retry);
+  manually-composed rows (custom subject/message or explicit recipients) are
+  never touched — only the 4 auto-minted phase rows move.
+
+### Single-room guard + stale-link auto-heal (same round)
+
+- On a WEBINAR event, creating a Zoom meeting on any session **other than the
+  anchor is refused** — REST `sessions/[id]/zoom` POST and MCP
+  `create_zoom_meeting` both 409 `WEBINAR_ANCHOR_ONLY` with the
+  `anchorSessionId` (shared guard `webinarSecondRoomViolation()` in
+  [src/lib/webinar.ts](../src/lib/webinar.ts)). This closes the "new session
+  minted a second billable webinar attendees couldn't see" bug at the source.
+- The public session **detail** API returns `{ redirectToSessionId }` for a
+  non-anchor session on a webinar event (org staff exempt — they may need the
+  real detail), and the public session page `window.location.replace`s to the
+  anchor — so an attendee holding a stale non-anchor URL still lands in the
+  room.
+- `provisionWebinar()` re-run with an anchor that lost its ZoomMeeting now
+  **re-attaches** (creates the webinar at the session's own times) under the
+  provisioning sentinel; a row-create loss discriminates P2002 (already
+  attached — benign race) from transient failure, tearing down the just-minted
+  remote webinar either way.
+
 **Cron worker reuse** — webinar emails piggyback on the existing `/api/cron/scheduled-emails` worker; no new cron needed. `executeBulkEmail()` detects `webinarEmailType.startsWith('webinar-')` and enriches `vars` with the anchor Zoom meeting's fields in **one extra query per scheduled row**, not per recipient.
 
 ---
