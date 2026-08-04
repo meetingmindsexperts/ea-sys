@@ -23,7 +23,37 @@ import { captureStripeReceipt } from "@/lib/stripe-receipt";
  * no-cross-caller-duplication rule). Signature verification stays in the
  * routes; everything after a verified `Stripe.Event` lives here.
  */
-export async function handleStripeEvent(event: Stripe.Event): Promise<NextResponse> {
+export interface HandleStripeEventOptions {
+  /**
+   * Review HIGH-1 (Aug 4, 2026): the org whose webhook secret verified this
+   * event (set ONLY by the per-org route). A tenant's signing secret proves
+   * control of THAT TENANT'S Stripe account — nothing more — so an event
+   * whose RESOLVED registration/payment belongs to a different org is a
+   * forgery attempt (or gross misconfiguration), never legitimate routing.
+   * When set, such events are REFUSED before any write: acked with 200 (a
+   * forged event must not earn a Stripe retry storm) + an error-level log.
+   * The legacy env route passes nothing — its secret is the platform's own.
+   */
+  expectedOrgId?: string;
+}
+
+function orgMismatchResponse(args: {
+  expectedOrgId: string;
+  resolvedOrgId: string;
+  eventType: string;
+  entityId: string;
+}): NextResponse {
+  apiLogger.error({
+    msg: "stripe-webhook:cross-org-event-refused — event verified with one org's secret but resolves to another org's records",
+    ...args,
+  });
+  return NextResponse.json({ received: true, ignored: true });
+}
+
+export async function handleStripeEvent(
+  event: Stripe.Event,
+  opts?: HandleStripeEventOptions,
+): Promise<NextResponse> {
   // Handle checkout.session.completed
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
@@ -57,6 +87,17 @@ export async function handleStripeEvent(event: Stripe.Event): Promise<NextRespon
       if (!registration) {
         apiLogger.warn({ msg: "Stripe webhook: registration not found", registrationId, sessionId: session.id });
         return NextResponse.json({ received: true });
+      }
+
+      // Review HIGH-1: on the per-org route, the RESOLVED registration must
+      // belong to the org whose secret verified this event.
+      if (opts?.expectedOrgId && registration.event.organizationId !== opts.expectedOrgId) {
+        return orgMismatchResponse({
+          expectedOrgId: opts.expectedOrgId,
+          resolvedOrgId: registration.event.organizationId,
+          eventType: event.type,
+          entityId: registrationId,
+        });
       }
 
       // Money block rides the tenant lane (multi-tenancy sweep): org resolved
@@ -363,6 +404,15 @@ export async function handleStripeEvent(event: Stripe.Event): Promise<NextRespon
         where: { id: registrationId },
         select: { event: { select: { organizationId: true } } },
         }));
+      // Review HIGH-1: same resolved-org enforcement as the completed branch.
+      if (opts?.expectedOrgId && expiredReg && expiredReg.event.organizationId !== opts.expectedOrgId) {
+        return orgMismatchResponse({
+          expectedOrgId: opts.expectedOrgId,
+          resolvedOrgId: expiredReg.event.organizationId,
+          eventType: event.type,
+          entityId: registrationId,
+        });
+      }
       const updated = await runWithTenant(expiredReg?.event.organizationId ?? "", async () =>
         db.registration.updateMany({
           where: { id: registrationId, paymentStatus: "PENDING" },
@@ -431,6 +481,16 @@ export async function handleStripeEvent(event: Stripe.Event): Promise<NextRespon
         }
         apiLogger.warn({ msg: "charge.refunded: no Payment record found", paymentIntentId });
         return NextResponse.json({ received: true });
+      }
+
+      // Review HIGH-1: same resolved-org enforcement as the completed branch.
+      if (opts?.expectedOrgId && payment.registration.event.organizationId !== opts.expectedOrgId) {
+        return orgMismatchResponse({
+          expectedOrgId: opts.expectedOrgId,
+          resolvedOrgId: payment.registration.event.organizationId,
+          eventType: event.type,
+          entityId: payment.registrationId,
+        });
       }
 
       // Write portion rides the tenant lane (multi-tenancy sweep): org resolved

@@ -82,9 +82,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, source, provider });
   } catch (error) {
+    // Review L7: the SDK's error message can embed a (masked) key fragment —
+    // log the real error, return static text.
     apiLogger.warn({ err: error }, "ai:test-connection-failed");
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : "Connection failed" },
+      { success: false, error: "Connection failed — check the key and try again" },
       { status: 400 },
     );
   }

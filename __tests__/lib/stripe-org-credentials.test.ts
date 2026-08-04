@@ -83,14 +83,25 @@ describe("getStripe resolution chain", () => {
     await expect(getStripe(ORG)).rejects.toThrow("STRIPE_SECRET_KEY is not configured");
   });
 
-  it("org-settings read failure → env fallback + error log (a DB blip must not break a charge)", async () => {
+  it("org-settings read failure retries ONCE, then THROWS — never guesses env (review HIGH-2 cross-account guard)", async () => {
     orgFindUnique.mockRejectedValue(new Error("pool timeout"));
-    const client = await getStripe(ORG);
-    expect((client as unknown as { key: string }).key).toBe("sk_test_env");
+    await expect(getStripe(ORG)).rejects.toThrow(
+      "Stripe credentials could not be resolved for this organization — try again",
+    );
+    expect(orgFindUnique).toHaveBeenCalledTimes(2);
     expect(mockApiLogger.error).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: ORG }),
-      expect.stringContaining("org-settings-read-failed"),
+      expect.stringContaining("REFUSING env fallback"),
     );
+  });
+
+  it("transient first read failure recovers on the in-call retry", async () => {
+    orgFindUnique
+      .mockRejectedValueOnce(new Error("pool blip"))
+      .mockResolvedValueOnce({ settings: {} });
+    const client = await getStripe(ORG);
+    expect((client as unknown as { key: string }).key).toBe("sk_test_env");
+    expect(orgFindUnique).toHaveBeenCalledTimes(2);
   });
 
   it("org key configured but decryption fails → HARD throw (never silently cross Stripe accounts)", async () => {
@@ -143,9 +154,20 @@ describe("client cache", () => {
 });
 
 describe("getOrgStripeWebhookSecret", () => {
-  it("returns the decrypted secret when configured", async () => {
-    orgWithStripe({ stripe: { webhookSecretEncrypted: encryptSecret("whsec_abc") } });
-    expect(await getOrgStripeWebhookSecret(ORG)).toBe("whsec_abc");
+  it("returns the decrypted secret + stored keyMode when configured", async () => {
+    orgWithStripe({ stripe: { webhookSecretEncrypted: encryptSecret("whsec_abc"), keyMode: "live" } });
+    expect(await getOrgStripeWebhookSecret(ORG)).toEqual({
+      webhookSecret: "whsec_abc",
+      keyMode: "live",
+    });
+  });
+
+  it("keyMode absent/garbage maps to null (livemode check skipped)", async () => {
+    orgWithStripe({ stripe: { webhookSecretEncrypted: encryptSecret("whsec_abc"), keyMode: "weird" } });
+    expect(await getOrgStripeWebhookSecret(ORG)).toEqual({
+      webhookSecret: "whsec_abc",
+      keyMode: null,
+    });
   });
 
   it("returns null for an unknown org", async () => {

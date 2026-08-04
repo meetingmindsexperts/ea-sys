@@ -46,19 +46,27 @@ export async function POST() {
     const stripe = await getStripe(orgId);
     const account = await stripe.accounts.retrieve();
 
+    // Review L4: account identity is returned ONLY for the org's own key —
+    // the env fallback belongs to the platform, and its account details are
+    // not the tenant admin's to see (the success + source pair still tells
+    // them everything actionable).
     return NextResponse.json({
       success: true,
       source,
-      account: {
-        name: account.business_profile?.name || account.settings?.dashboard?.display_name || null,
-        email: account.email || null,
-        id: account.id,
-      },
+      ...(source === "org" && {
+        account: {
+          name: account.business_profile?.name || account.settings?.dashboard?.display_name || null,
+          email: account.email || null,
+          id: account.id,
+        },
+      }),
     });
   } catch (error) {
+    // Review L7: the SDK's error message can embed a (masked) key fragment —
+    // log the real error, return static text.
     apiLogger.warn({ err: error }, "stripe:test-connection-failed");
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : "Connection failed" },
+      { success: false, error: "Connection failed — check the key and try again" },
       { status: 400 },
     );
   }

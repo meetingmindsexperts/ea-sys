@@ -81,12 +81,21 @@ function envClient(): Stripe {
  * key when present, else the env fallback. Pass null/undefined for
  * explicitly env-scoped call sites (e.g. the legacy webhook route).
  *
- * A failed org-settings read falls back to the env client with an error
- * log rather than failing the payment operation — for master (no org keys)
- * the fallback IS the correct client, and a DB blip must not break a
- * charge. If the org HAS a key configured but decryption fails, we throw:
- * silently charging through the platform's env account instead of the
- * tenant's would cross Stripe accounts.
+ * Failure semantics (review HIGH-2): a failed org-settings read is retried
+ * once and then THROWS — the read is the only way to know whether this org
+ * has its own key, and guessing "no key → env" for a tenant that DOES have
+ * one would collect money into the platform's Stripe account instead of the
+ * tenant's (cross-account money is unrecoverable; a failed charge retries).
+ * Same rule for a stored key that fails to decrypt. Successful resolutions
+ * are cached (5-min TTL) so this only bites on a cold cache during a DB
+ * outage — a window where the surrounding payment operation would fail on
+ * its own DB reads anyway.
+ *
+ * NEXTAUTH_SECRET rotation note: stored keys are encrypted under
+ * sha256(NEXTAUTH_SECRET). When rotating, set NEXTAUTH_SECRET_FALLBACK to
+ * the OLD secret (decrypt-only support in decryptSecret) or re-save every
+ * org's Stripe/AI keys — otherwise keyed tenants' payments hard-fail (the
+ * intended direction: never silently cross into the env account).
  */
 export async function getStripe(organizationId?: string | null): Promise<Stripe> {
   if (!organizationId) return envClient();
@@ -96,18 +105,15 @@ export async function getStripe(organizationId?: string | null): Promise<Stripe>
 
   let stripeSettings: StripeOrgSettings | null = null;
   try {
-    const db = await getDb();
-    const org = await db.organization.findUnique({
-      where: { id: organizationId },
-      select: { settings: true },
-    });
-    stripeSettings = readStripeSettings(org?.settings);
+    stripeSettings = await readOrgStripeSettingsWithRetry(organizationId);
   } catch (err) {
     apiLogger.error(
       { err, organizationId },
-      "stripe:org-settings-read-failed; falling back to env client",
+      "stripe:org-settings-read-failed; REFUSING env fallback (cross-account guard)",
     );
-    return envClient();
+    throw new Error(
+      "Stripe credentials could not be resolved for this organization — try again",
+    );
   }
 
   if (!stripeSettings?.secretKeyEncrypted) {
@@ -127,35 +133,70 @@ export async function getStripe(organizationId?: string | null): Promise<Stripe>
   return client;
 }
 
+/** One retry on the settings read — transient pooler blips are common; a
+ *  second consecutive failure propagates to the caller (see getStripe). */
+async function readOrgStripeSettingsWithRetry(
+  organizationId: string,
+): Promise<StripeOrgSettings | null> {
+  const db = await getDb();
+  const read = async () => {
+    const org = await db.organization.findUnique({
+      where: { id: organizationId },
+      select: { settings: true },
+    });
+    return readStripeSettings(org?.settings);
+  };
+  try {
+    return await read();
+  } catch {
+    return await read();
+  }
+}
+
 /**
- * Drop the cached client for an org (and the env entry, which the org may
- * have been falling back to). Called by the credentials PUT/DELETE so the
- * saving process applies the new key immediately; other processes converge
- * within the cache TTL.
+ * Drop the cached client for an org. Called by the credentials PUT/DELETE so
+ * the saving process applies the new key immediately; other processes
+ * converge within the cache TTL. (The "__env__" entry is deliberately NOT
+ * touched — the env key is immutable at runtime.)
  */
 export function invalidateStripeClientCache(organizationId: string): void {
   clientCache.delete(organizationId);
 }
 
+export interface OrgWebhookSecretInfo {
+  webhookSecret: string;
+  /** Plain recognition hint stored at save time — "live" | "test" | null.
+   *  Used by the per-org webhook route's livemode cross-check (review M2). */
+  keyMode: "live" | "test" | null;
+}
+
 /**
- * The org's webhook signing secret (decrypted), or null when the org is
- * unknown or has no webhook secret configured. Used by the per-org webhook
- * route /api/webhooks/stripe/[orgId]; the legacy route keeps the env
- * STRIPE_WEBHOOK_SECRET. Deliberately NOT cached — webhook volume is low
- * and a stale signing secret would reject real payment events.
+ * The org's webhook signing secret (decrypted) + stored keyMode, or null
+ * when the org is unknown or has no webhook secret configured. Used by the
+ * per-org webhook route /api/webhooks/stripe/[orgId]; the legacy route keeps
+ * the env STRIPE_WEBHOOK_SECRET. Deliberately NOT cached — webhook volume is
+ * low and a stale signing secret would reject real payment events.
  */
 export async function getOrgStripeWebhookSecret(
   organizationId: string,
-): Promise<string | null> {
+): Promise<OrgWebhookSecretInfo | null> {
   try {
     const db = await getDb();
     const org = await db.organization.findUnique({
       where: { id: organizationId },
       select: { settings: true },
     });
-    const stripeSettings = readStripeSettings(org?.settings);
+    const stripeSettings = readStripeSettings(org?.settings) as
+      | (StripeOrgSettings & { keyMode?: unknown })
+      | null;
     if (!stripeSettings?.webhookSecretEncrypted) return null;
-    return decryptSecret(stripeSettings.webhookSecretEncrypted);
+    return {
+      webhookSecret: decryptSecret(stripeSettings.webhookSecretEncrypted),
+      keyMode:
+        stripeSettings.keyMode === "live" || stripeSettings.keyMode === "test"
+          ? stripeSettings.keyMode
+          : null,
+    };
   } catch (err) {
     apiLogger.error(
       { err, organizationId },

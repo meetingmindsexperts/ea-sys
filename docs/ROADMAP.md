@@ -212,7 +212,41 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
-### WEBINARS role review — deferred LOWs (Aug 4, 2026)
+### Per-tenant API keys (item 7) — deferred finding M1 (Aug 4, 2026)
+
+Adversarial review of the per-tenant Stripe/AI keys feature (commits
+`14173797..96d9436e`; two lenses — money-path correctness + security):
+0 BLOCKER / 2 HIGH / 3 MED / 7 LOW. **Everything except M1 shipped same day**
+(follow-up commit after the feature push): HIGH-1 cross-org forged-payment —
+the shared dispatcher now takes `expectedOrgId` from the per-org webhook route
+and refuses any event whose RESOLVED registration/payment belongs to another
+org (200-ack + error log, so a forged event earns no Stripe retry storm;
+metadata claiming a foreign org is also rejected up front); HIGH-2 —
+`getStripe(orgId)` retries a failed org-settings read once then THROWS instead
+of guessing the env fallback (a keyed tenant must never silently charge
+through the platform's account); M2 — `event.livemode` cross-checked against
+the org's stored `keyMode` (test-mode events can't flip real registrations
+PAID); M3 — per-IP rate limit on the unauthenticated per-org webhook ahead of
+its DB read; LOWs — one generic 400 body for every webhook refusal (no
+config-state oracle), test-connection returns static error text (SDK messages
+can embed masked key fragments) and hides the platform's account identity on
+the env fallback, AuditLog rows on Stripe credential save/delete, corrected
+cache comment, NEXTAUTH_SECRET-rotation note in stripe.ts, the deliberate
+AI-vs-Stripe decrypt-failure asymmetry documented in ai/credentials.ts.
+
+**M1 — DEFERRED (platform precondition, owner-scoped out of the same-day
+batch): refund clients resolve by ORG, not by the PAYMENT that took the
+money.** An org can legitimately take payments on the env fallback and later
+save its own key; every refund path then asks the NEW account about
+PaymentIntents that live in the OLD one — app-level refunds for that cohort
+fail forever (`STRIPE_FAILED`; Stripe-dashboard only) and a stale
+`RefundAttempt` for such a payment makes the reconciliation sweep churn it as
+`unverifiable` every tick. Fix shape: stamp the charging account on the
+`Payment` row at create (`keySource: "org"|"env"` or the Stripe account id)
+and resolve refund/verification clients from the payment; minimally, warn on
+the credentials PUT when the org already has env-account Payment rows.
+Latent on master (MMG never switches accounts mid-stream); must land before
+any org that took env-fallback payments configures its own Stripe key.
 
 Adversarial review of the WEBINARS role (webinar team): 0 BLOCKER / 2 HIGH / 3 MED / 5 LOW.
 H-1 (org invoice ledger refused + proxy block), H-2 (schedule-mutation primary writes

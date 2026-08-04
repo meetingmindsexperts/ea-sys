@@ -141,6 +141,26 @@ export async function PUT(req: Request) {
     // Same-process immediacy; other processes converge within the 5-min TTL.
     invalidateStripeClientCache(orgId);
 
+    // Review L5: a Stripe key swap redirects MONEY — unlike the Zoom/EventsAir
+    // siblings this write earns an AuditLog row (fire-and-forget; never keys).
+    db.auditLog
+      .create({
+        data: {
+          organizationId: orgId,
+          userId: session!.user.id,
+          action: "UPDATE",
+          entityType: "OrganizationStripeCredentials",
+          entityId: orgId,
+          changes: {
+            savedSecretKey: !!validated.data.secretKey,
+            savedWebhookSecret: !!validated.data.webhookSecret,
+            keyMode: (clean.keyMode as string) ?? null,
+            secretKeyLast4: (clean.secretKeyLast4 as string) ?? null,
+          },
+        },
+      })
+      .catch((err) => apiLogger.warn({ err }, "stripe:credentials-audit-failed"));
+
     apiLogger.info({ userId: session!.user.id }, "stripe:credentials-saved");
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -162,6 +182,19 @@ export async function DELETE() {
       return next;
     });
     invalidateStripeClientCache(orgId);
+
+    db.auditLog
+      .create({
+        data: {
+          organizationId: orgId,
+          userId: session!.user.id,
+          action: "DELETE",
+          entityType: "OrganizationStripeCredentials",
+          entityId: orgId,
+          changes: { removed: true },
+        },
+      })
+      .catch((err) => apiLogger.warn({ err }, "stripe:credentials-audit-failed"));
 
     apiLogger.info({ userId: session!.user.id }, "stripe:credentials-deleted");
     return NextResponse.json({ success: true });

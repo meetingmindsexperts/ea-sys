@@ -1,31 +1,63 @@
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 import { getStripe, getOrgStripeWebhookSecret } from "@/lib/stripe";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import type Stripe from "stripe";
 import { handleStripeEvent } from "@/lib/stripe-webhook-handler";
 
 /**
- * PER-ORG Stripe webhook endpoint (per-tenant Stripe keys, item 7 phase 2).
+ * PER-ORG Stripe webhook endpoint (per-tenant Stripe keys, item 7 phase 2;
+ * hardened per the Aug 4 adversarial review — HIGH-1/M2/M3/L6).
  *
  * A tenant with its own Stripe account points its Stripe Dashboard webhook at
  *   {appUrl}/api/webhooks/stripe/{orgId}
- * (the URL is displayed with a copy button in Settings → Integrations →
- * Stripe). The org id in the path solves the chicken-and-egg of webhook
- * verification: the signing secret must be known BEFORE the payload can be
- * parsed, and a Stripe event carries no org identity until it's verified.
+ * (displayed with a copy button in Settings → Integrations → Stripe). The org
+ * id in the path solves the chicken-and-egg of webhook verification: the
+ * signing secret must be known BEFORE the payload can be parsed.
  *
- * Verification uses the org's encrypted webhookSecret from
- * Organization.settings.stripe; everything after a verified event delegates
- * to the SAME shared dispatcher as the legacy env route — one implementation,
- * zero drift. The legacy /api/webhooks/stripe route (env secret) continues to
- * serve master/MMG; each Stripe account is configured with exactly one of the
- * two URLs, so the routes never overlap.
+ * Trust model: a valid signature proves the event came from the Stripe
+ * account THIS ORG registered — an account the org's own admin controls. It
+ * proves nothing about other orgs, so:
+ *  - metadata claiming a different org is refused up front (400), and
+ *  - the shared dispatcher additionally enforces that every RESOLVED
+ *    registration/payment belongs to this org (`expectedOrgId` — covers
+ *    events whose metadata omits the org key entirely).
+ * Livemode is cross-checked against the org's stored keyMode (M2) so a
+ * test-mode webhook can't flip real registrations PAID with fake cards.
+ *
+ * The legacy /api/webhooks/stripe route (env secret) continues to serve
+ * master/MMG; each Stripe account is configured with exactly one of the two
+ * URLs, so the routes never overlap.
  */
+
+// One generic 400 for every pre-verification refusal (secret missing, bad
+// signature, livemode mismatch, foreign metadata) — an unauthenticated
+// caller must not be able to distinguish an org's configuration state (L6).
+function genericRefusal(): NextResponse {
+  return NextResponse.json({ error: "Webhook request rejected" }, { status: 400 });
+}
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ orgId: string }> },
 ) {
   const { orgId } = await params;
+
+  // M3: this endpoint is unauthenticated and each request costs a DB read —
+  // cap per-IP ahead of it. Generous (real Stripe delivery bursts are far
+  // below this); nginx's global per-IP limit sits in front of it too.
+  const rl = checkRateLimit({
+    key: `stripe-org-webhook:${getClientIp(req)}`,
+    limit: 300,
+    windowMs: 60_000,
+  });
+  if (!rl.allowed) {
+    apiLogger.warn({ msg: "stripe-org-webhook:rate-limited", orgId });
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+    );
+  }
 
   let event: Stripe.Event;
   try {
@@ -35,42 +67,59 @@ export async function POST(
 
     if (!sig) {
       apiLogger.warn({ msg: "stripe-org-webhook:missing-signature-header", orgId });
-      return NextResponse.json({ error: "Missing stripe-signature header" }, { status: 400 });
+      return genericRefusal();
     }
 
-    // Unknown org and org-without-a-configured-secret both return the SAME
-    // generic 400 — this endpoint is unauthenticated, so it must not act as
-    // an org-id existence oracle.
-    const webhookSecret = await getOrgStripeWebhookSecret(orgId);
-    if (!webhookSecret) {
+    const secretInfo = await getOrgStripeWebhookSecret(orgId);
+    if (!secretInfo) {
+      // Unknown org and org-without-a-configured-secret both land here —
+      // same response as every other refusal (no config-state oracle).
       apiLogger.warn({ msg: "stripe-org-webhook:secret-not-configured", orgId });
-      return NextResponse.json({ error: "Webhook not configured" }, { status: 400 });
+      return genericRefusal();
     }
 
     // constructEvent is static crypto — only the secret argument matters.
-    // getStripe(orgId) is the natural client here and falls back to env when
-    // the org has a webhook secret but no API key saved yet.
+    // getStripe(orgId) is the natural client here (org key, env fallback
+    // when only the webhook secret is saved so far).
     const stripe = await getStripe(orgId);
-    event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+    event = stripe.webhooks.constructEvent(body, sig, secretInfo.webhookSecret);
+
+    // M2: livemode must match the org's stored key mode. A live-keyed org
+    // receiving test-mode events (or vice versa) means someone pointed the
+    // wrong-mode webhook here — test-mode "payments" are fake money and must
+    // never flip real registrations PAID. keyMode null (no API key saved
+    // yet) skips the check.
+    if (
+      (secretInfo.keyMode === "live" && event.livemode === false) ||
+      (secretInfo.keyMode === "test" && event.livemode === true)
+    ) {
+      apiLogger.error({
+        msg: "stripe-org-webhook:livemode-mismatch-refused",
+        orgId,
+        keyMode: secretInfo.keyMode,
+        eventLivemode: event.livemode,
+        eventType: event.type,
+      });
+      return genericRefusal();
+    }
   } catch (err) {
     apiLogger.error({ err, orgId, msg: "stripe-org-webhook:signature-verification-failed" });
-    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+    return genericRefusal();
   }
 
-  // Defense-in-depth observability, NOT a rejection: the signature already
-  // proved the event comes from the account this org registered. A metadata
-  // org mismatch (e.g. a checkout session minted while the event belonged to
-  // a different org) is logged so cross-wiring is visible in /logs; the
-  // shared handler still resolves the true org from metadata/payment lookups.
+  // HIGH-1 (first layer): metadata claiming a different org is refused up
+  // front. The dispatcher's expectedOrgId enforcement below is the real
+  // guard (metadata can simply be omitted); this is the cheap early exit.
   const objectMeta = (event.data.object as { metadata?: Record<string, string> }).metadata;
   if (objectMeta?.organizationId && objectMeta.organizationId !== orgId) {
-    apiLogger.warn({
-      msg: "stripe-org-webhook:metadata-org-mismatch",
+    apiLogger.error({
+      msg: "stripe-org-webhook:metadata-org-mismatch-refused",
       orgId,
       metadataOrganizationId: objectMeta.organizationId,
       eventType: event.type,
     });
+    return genericRefusal();
   }
 
-  return handleStripeEvent(event);
+  return handleStripeEvent(event, { expectedOrgId: orgId });
 }

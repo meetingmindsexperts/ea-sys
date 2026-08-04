@@ -28,7 +28,13 @@ const {
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
-vi.mock("@/lib/db", () => ({ db: { organization: { findUnique: orgFindUnique } } }));
+vi.mock("@/lib/db", () => ({
+  db: {
+    organization: { findUnique: orgFindUnique },
+    // Review L5: the stripe creds PUT/DELETE write fire-and-forget audit rows.
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
+  },
+}));
 vi.mock("@/lib/event-settings", () => ({ updateOrganizationSettings: mockUpdateOrgSettings }));
 vi.mock("@/lib/security", () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));

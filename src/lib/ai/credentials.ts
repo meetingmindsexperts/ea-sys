@@ -93,7 +93,14 @@ export function aiConfigFromSettings(
   return { provider: "anthropic", apiKey: undefined, source: "env" };
 }
 
-/** Decryption failure degrades to "no org key" (env fallback) with an error log. */
+/**
+ * Decryption failure degrades to "no org key" (env fallback) with an error
+ * log. DELIBERATE ASYMMETRY vs the Stripe accessor (src/lib/stripe.ts),
+ * which HARD-THROWS on the same condition: a mis-lane AI call only means the
+ * platform's env key pays for a tenant's chat (a bounded cost leak, and Help
+ * Chat must never brick), whereas a mis-lane Stripe call collects money into
+ * the wrong legal entity (unrecoverable — so payments fail closed instead).
+ */
 function safeOrgKey(
   settings: unknown,
   provider: AiProviderName,

@@ -90,6 +90,7 @@ vi.mock("@/lib/event-stats", () => ({
 
 import { Prisma } from "@prisma/client";
 import { POST } from "@/app/api/webhooks/stripe/route";
+import { handleStripeEvent } from "@/lib/stripe-webhook-handler";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
 
@@ -725,5 +726,121 @@ describe("Webhook: unhandled event types", () => {
     const res = await POST(makeWebhookRequest());
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ received: true });
+  });
+});
+
+// ── Tests: dispatcher expectedOrgId enforcement (review HIGH-1, Aug 4 2026) ──
+//
+// The per-org route passes { expectedOrgId } — a tenant's signing secret
+// proves control of THEIR Stripe account only, so an event whose RESOLVED
+// registration/payment belongs to a different org is refused before any
+// write (acked 200 so a forged event never earns a Stripe retry storm).
+
+describe("Dispatcher: expectedOrgId enforcement (HIGH-1)", () => {
+  const foreignRegistration = {
+    id: "reg-victim",
+    paymentStatus: "UNPAID",
+    status: "CONFIRMED",
+    attendee: { firstName: "Vic", lastName: "Tim", email: "v@test.com", additionalEmail: null, title: null },
+    ticketType: { name: "Standard", price: 150, currency: "USD" },
+    pricingTier: null,
+    event: { id: "evt-victim", organizationId: "org-victim", name: "Conf", slug: "conf", startDate: new Date(), venue: null, city: null, taxRate: 0, taxLabel: null },
+  };
+
+  const completedEvent = makeStripeEvent("checkout.session.completed", {
+    id: "cs_forged",
+    metadata: { registrationId: "reg-victim" },
+    currency: "usd",
+    amount_total: 100,
+    payment_intent: "pi_forged",
+    customer: null,
+  }) as Parameters<typeof handleStripeEvent>[0];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStripeInstance.paymentIntents.retrieve.mockResolvedValue({ latest_charge: null });
+  });
+
+  it("checkout.session.completed resolving to ANOTHER org is refused: 200 ack + ignored + error log, ZERO writes", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(foreignRegistration);
+    mockDb.payment.findUnique.mockResolvedValue(null);
+
+    const res = await handleStripeEvent(completedEvent, { expectedOrgId: "org-attacker" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true, ignored: true });
+    expect(mockApiLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        msg: expect.stringContaining("cross-org-event-refused"),
+        expectedOrgId: "org-attacker",
+        resolvedOrgId: "org-victim",
+      })
+    );
+    expect(mockDb.$transaction).not.toHaveBeenCalled();
+    expect(mockDb.payment.create).not.toHaveBeenCalled();
+    expect(notifyEventAdmins).not.toHaveBeenCalled();
+  });
+
+  it("a MATCHING expectedOrgId passes the gate (reaches the idempotency check)", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(foreignRegistration);
+    // Intent already recorded → the skip path proves we got PAST the org gate.
+    mockDb.payment.findUnique.mockResolvedValue({ id: "pay-existing" });
+
+    const res = await handleStripeEvent(completedEvent, { expectedOrgId: "org-victim" });
+    expect(res.status).toBe(200);
+    expect(mockApiLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "Stripe webhook: payment intent already recorded, skipping" })
+    );
+    expect(mockApiLogger.error).not.toHaveBeenCalled();
+  });
+
+  it("NO expectedOrgId (the legacy env route) keeps today's behavior — no org gate", async () => {
+    mockDb.registration.findUnique.mockResolvedValue(foreignRegistration);
+    mockDb.payment.findUnique.mockResolvedValue({ id: "pay-existing" });
+
+    const res = await handleStripeEvent(completedEvent);
+    expect(res.status).toBe(200);
+    expect(mockApiLogger.error).not.toHaveBeenCalled();
+  });
+
+  it("checkout.session.expired resolving to ANOTHER org is refused before the status reset", async () => {
+    const expiredEvent = makeStripeEvent("checkout.session.expired", {
+      id: "cs_forged",
+      metadata: { registrationId: "reg-victim" },
+    }) as Parameters<typeof handleStripeEvent>[0];
+    mockDb.registration.findUnique.mockResolvedValue({ event: { organizationId: "org-victim" } });
+
+    const res = await handleStripeEvent(expiredEvent, { expectedOrgId: "org-attacker" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true, ignored: true });
+    expect(mockDb.registration.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("charge.refunded resolving to ANOTHER org is refused before any counter moves", async () => {
+    const chargeEvent = makeStripeEvent("charge.refunded", {
+      id: "ch_forged",
+      payment_intent: "pi_victim",
+      refunded: true,
+      amount_refunded: 10000,
+      currency: "usd",
+    }) as Parameters<typeof handleStripeEvent>[0];
+    mockDb.payment.findUnique.mockResolvedValue({
+      id: "pay-victim",
+      amount: 100,
+      refundedAmount: 0,
+      registrationId: "reg-victim",
+      registration: {
+        eventId: "evt-victim",
+        refundedAmount: 0,
+        attendee: { firstName: "Vic", lastName: "Tim" },
+        event: { organizationId: "org-victim" },
+      },
+    });
+
+    const res = await handleStripeEvent(chargeEvent, { expectedOrgId: "org-attacker" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true, ignored: true });
+    expect(mockDb.payment.updateMany).not.toHaveBeenCalled();
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
+    expect(issueCreditNoteSpy).not.toHaveBeenCalled();
   });
 });
