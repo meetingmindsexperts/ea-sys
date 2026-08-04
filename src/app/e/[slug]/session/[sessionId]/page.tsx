@@ -240,6 +240,14 @@ export default function PublicSessionPage() {
 
         if (detailRes.ok) {
           const detailData = await detailRes.json();
+          // Webinar auto-heal (Aug 4, 2026): a stale or non-anchor session URL
+          // on a WEBINAR event resolves to the anchor — the one room the
+          // producer actually opens/streams. Hard replace so every fetch on
+          // this page re-keys to the right session id.
+          if (detailData.redirectToSessionId && detailData.redirectToSessionId !== sessionId) {
+            window.location.replace(`/e/${slug}/session/${detailData.redirectToSessionId}`);
+            return;
+          }
           setSession(detailData.session);
           setEvent(detailData.event);
           if (Array.isArray(detailData.sponsors)) {
@@ -498,17 +506,21 @@ export default function PublicSessionPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Event banner / header */}
       <div className="bg-white border-b">
-        {event?.bannerImage && (
-          <div className="w-full h-32 md:h-48 relative overflow-hidden">
+        {(event?.bannerImage || event?.bannerImageMobile) && (
+          // Mobile: natural aspect (block w-full h-auto) so the portrait mobile
+          // banner shows in full — the old fixed h-32 cover band cropped it to
+          // a thin center slice (organizer-reported, Aug 4 2026). Desktop keeps
+          // the h-48 cover hero band.
+          <div className="w-full relative overflow-hidden md:h-48">
             {/* Art-directed: serves the mobile banner below 576px. */}
             <EventBanner
               banner={event.bannerImage}
               bannerMobile={event.bannerImageMobile}
               name={event.name}
-              className="absolute inset-0 h-full w-full object-cover"
+              className="block w-full h-auto md:absolute md:inset-0 md:h-full md:w-full md:object-cover"
               priority
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent hidden md:block" />
           </div>
         )}
         <div className="max-w-5xl mx-auto px-4 py-4">
@@ -651,6 +663,7 @@ export default function PublicSessionPage() {
                 lobbyVideoUrl={lobby.lobbyVideoUrl}
                 lobbyMessage={lobby.lobbyMessage}
                 posterUrl={lobby.lobbyImageUrl ?? event?.bannerImage}
+                posterMobileUrl={lobby.lobbyImageUrl ? null : event?.bannerImageMobile}
               />
             ) : (
               <>

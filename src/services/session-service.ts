@@ -167,6 +167,15 @@ export type UpdateSessionResult =
        * Absent when the times didn't change or there is no Zoom meeting.
        */
       zoomSync?: "synced" | "failed";
+      /**
+       * Aug 4, 2026: outcome of rescheduling the webinar email sequence
+       * (reminder-24h / 1h / live-now / thank-you) after retiming the WEBINAR
+       * ANCHOR session. "failed" means the session saved but the reminder
+       * emails may still fire on the OLD clock — the operator should use the
+       * console's Re-enqueue button. Absent when the times didn't change or
+       * the session isn't a webinar anchor.
+       */
+      sequenceSync?: "rescheduled" | "failed";
     }
   | { ok: false; code: SessionServiceErrorCode; message: string; meta?: Record<string, unknown> };
 
@@ -755,7 +764,32 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
     });
   }
 
-  apiLogger.info({ sessionId, eventId, userId, source, ...(zoomSync ? { zoomSync } : {}) }, "session:updated");
+  // A retime of the WEBINAR ANCHOR must also move the reminder-email clock —
+  // the ScheduledEmail rows carry fire times computed at provisioning and
+  // nothing else reschedules them (organizer-reported Aug 4, 2026: emails
+  // kept firing per the ORIGINAL webinar time after a retime). Failure-
+  // isolated like the Zoom sync: the save already committed.
+  let sequenceSync: "rescheduled" | "failed" | undefined;
+  if (timesChanged) {
+    sequenceSync = await rescheduleSequenceIfAnchor(
+      eventId,
+      sessionId,
+      userId,
+      existing.zoomMeeting != null,
+    );
+  }
+
+  apiLogger.info(
+    {
+      sessionId,
+      eventId,
+      userId,
+      source,
+      ...(zoomSync ? { zoomSync } : {}),
+      ...(sequenceSync ? { sequenceSync } : {}),
+    },
+    "session:updated",
+  );
 
   refreshEventStats(eventId);
 
@@ -780,7 +814,64 @@ export async function updateSession(input: UpdateSessionInput): Promise<UpdateSe
     })
     .catch((err) => apiLogger.error({ err, eventId, sessionId }, "session-update:audit-log-failed"));
 
-  return { ok: true, session, ...(zoomSync ? { zoomSync } : {}) };
+  return {
+    ok: true,
+    session,
+    ...(zoomSync ? { zoomSync } : {}),
+    ...(sequenceSync ? { sequenceSync } : {}),
+  };
+}
+
+/**
+ * If the retimed session is the webinar's ANCHOR, reschedule the 4-phase
+ * email sequence off the new times. Never throws — the local save already
+ * committed; outcome surfaces as `sequenceSync` and is always logged.
+ * Returns undefined (no flag) when the session isn't a webinar anchor, or
+ * when the event is CANCELLED (a cancelled webinar must not re-mint reminder
+ * rows that would email the audience).
+ */
+async function rescheduleSequenceIfAnchor(
+  eventId: string,
+  sessionId: string,
+  userId: string | undefined,
+  hasZoomMeeting: boolean,
+): Promise<"rescheduled" | "failed" | undefined> {
+  try {
+    const event = await db.event.findUnique({
+      where: { id: eventId },
+      select: { status: true, settings: true },
+    });
+    if (!event || readWebinarSettings(event.settings)?.sessionId !== sessionId) return undefined;
+
+    if (!hasZoomMeeting) {
+      // The webinar ANCHOR was retimed but carries no linked ZoomMeeting —
+      // scoped to anchors so conference agenda edits don't spam the log
+      // (review L-1); this IS the tell for an anchor whose Zoom was created
+      // outside EA-SYS or deleted.
+      apiLogger.info(
+        { sessionId, eventId, userId },
+        "session:zoom-sync-skipped-no-linked-meeting",
+      );
+    }
+
+    if (event.status === "CANCELLED") {
+      apiLogger.info(
+        { eventId, sessionId },
+        "session:sequence-reschedule-skipped-cancelled-event",
+      );
+      return undefined;
+    }
+
+    const { rescheduleWebinarSequenceForEvent } = await import("@/lib/webinar-email-sequence");
+    const result = await rescheduleWebinarSequenceForEvent(eventId, userId);
+    return result.ok ? "rescheduled" : "failed";
+  } catch (err) {
+    apiLogger.error(
+      { err, eventId, sessionId },
+      "session:webinar-sequence-reschedule-failed",
+    );
+    return "failed";
+  }
 }
 
 /**
@@ -814,6 +905,15 @@ async function syncZoomMeetingTimes(args: {
       await updateZoomMeeting(event.organizationId, zoomMeeting.zoomMeetingId, params);
     } else {
       // WEBINAR + WEBINAR_SERIES both live on the /webinars endpoint.
+      if (zoomMeeting.meetingType === "WEBINAR_SERIES") {
+        // Known gap (Aug 4, 2026): the PATCH carries no recurrence/occurrence_id,
+        // so Zoom accepts it but a recurring series' occurrences may keep the
+        // old times. Logged loudly so a "synced" flag on a series is suspect.
+        apiLogger.warn(
+          { eventId, sessionId, zoomMeetingId: zoomMeeting.zoomMeetingId },
+          "session:zoom-series-retime-may-not-move-occurrences",
+        );
+      }
       await updateZoomWebinar(event.organizationId, zoomMeeting.zoomMeetingId, params);
     }
     // Compound-where binds the row to the (caller-org-verified) event, and the

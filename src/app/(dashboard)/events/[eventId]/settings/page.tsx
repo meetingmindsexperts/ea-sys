@@ -355,7 +355,34 @@ export default function EventSettingsPage() {
       });
 
       if (res.ok) {
-        toast.success("General settings saved");
+        // WEBINAR retime cascade outcome (Aug 4, 2026): a start-time change on
+        // a webinar also moves the webinar session, its Zoom webinar, and the
+        // reminder-email schedule. Surface honestly — the anchor staying on
+        // the OLD clock while the event row moved must never look like a
+        // clean save.
+        const saved = await res.json().catch(() => ({}));
+        const cascade = saved?.webinarTimeCascade;
+        if (cascade?.anchorMoved) {
+          const zoomNote =
+            cascade.zoomSync === "failed"
+              ? " Zoom still shows the old time — retime the session from the Agenda to retry."
+              : "";
+          const seqNote =
+            cascade.sequenceSync === "failed"
+              ? " Reminder emails may still be on the old schedule — use the Webinar Console's Re-enqueue."
+              : "";
+          if (zoomNote || seqNote) {
+            toast.warning(`Saved. Webinar session moved, but:${zoomNote}${seqNote}`);
+          } else {
+            toast.success("Saved — webinar session, Zoom and reminder emails moved to the new time");
+          }
+        } else if (cascade && !cascade.anchorMoved) {
+          toast.warning(
+            "Event dates saved, but the webinar session could NOT be moved — retime it from the Agenda page (Zoom + reminder emails follow from there).",
+          );
+        } else {
+          toast.success("General settings saved");
+        }
         fetchEvent();
       } else {
         const data = await res.json().catch(() => ({}));

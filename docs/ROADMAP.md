@@ -212,6 +212,41 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Webinar retime / anchor round — deferred LOWs (Aug 4, 2026)
+
+Adversarial review (two lenses) of the webinar retime cascade + email-sequence
+reschedule + second-webinar guard/auto-heal + mobile-banner round: 0 BLOCKER /
+2 HIGH / 8 MED / 10 LOW. **Both HIGHs, all 8 MEDs and 4 quick LOWs shipped
+same day in-band** (shared `webinarSecondRoomViolation` guard for REST + MCP;
+per-event `pg_advisory_xact_lock` around the clear+create reschedule; clear
+scoped to sequence-minted phase rows only with CANCELLED respected +
+partial-FAILED resume state preserved; anchor window pre-validated before the
+event save (`ANCHOR_OUTSIDE_NEW_DATES`) + cascade/`sequenceSync` failure
+toasts on Settings + Agenda; cascade tenant-wrapped; re-attach P2002
+discrimination + provisioning sentinel; org-staff exempt from the anchor
+redirect; cancelled-event + log-spam gates; banner gates widened on 9 pages).
+Remaining LOWs, none email-affecting:
+
+- **WEBINAR_SERIES retime doesn't move occurrences** — the Zoom PATCH carries
+  no `recurrence`/`occurrence_id`; a warn logs on every series sync. Fix when
+  a recurring series is actually used (none live today).
+- Public session redirect drops query params (utm only; the page reads none)
+  and burns one zoom-join rate unit per stale-link visit (double fetch before
+  the replace).
+- Provisioner re-attach enqueues the sequence NON-force, so legacy stale
+  PENDING rows survive a re-attach (every retime path now reschedules, so
+  only pre-Aug-4 rows are exposed).
+- Natural-height banners: a very tall desktop banner (~square) now renders
+  full height on desktop login/agreement pages (register has used this
+  pattern since June without complaint); at 576–767px the session hero uses
+  the desktop source with the mobile (natural-height, no-gradient) layout.
+- `rescheduleSequenceIfAnchor` adds one `event.findUnique` per times-changed
+  session update (validate() loaded the event moments earlier — thread it
+  through if it ever shows up in traces).
+- API-only edge: an event PUT that changes `startDate` AND repoints
+  `settings.webinar.sessionId` in the same request cascades the OLD anchor
+  (the dashboard never sends both).
+
 ### Per-tenant API keys (item 7) — deferred finding M1 (Aug 4, 2026)
 
 Adversarial review of the per-tenant Stripe/AI keys feature (commits

@@ -325,7 +325,7 @@ export default function AgendaPage() {
       }
       return res.json();
     },
-    onSuccess: (data: { zoomSync?: "synced" | "failed" }) => {
+    onSuccess: (data: { zoomSync?: "synced" | "failed"; sequenceSync?: "rescheduled" | "failed" }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions(eventId) });
       setIsSessionDialogOpen(false);
       resetSessionForm();
@@ -335,6 +335,13 @@ export default function AgendaPage() {
       if (data?.zoomSync === "failed") {
         toast.warning(
           "Session saved, but updating the linked Zoom meeting's time failed — Zoom still shows the old time. Save again to retry, or update it in Zoom.",
+        );
+      }
+      // Aug 4, 2026: a retimed webinar anchor also reschedules the reminder
+      // emails; a failure here means they may still fire on the OLD clock.
+      if (data?.sequenceSync === "failed") {
+        toast.warning(
+          "Session saved, but rescheduling the webinar's reminder emails failed — they may still fire on the old schedule. Use the Webinar Console's Re-enqueue button.",
         );
       }
     },

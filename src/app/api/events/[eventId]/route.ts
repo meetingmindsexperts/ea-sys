@@ -18,6 +18,8 @@ import {
 import { getClientIp } from "@/lib/security";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { surveyConfigSchema } from "@/lib/survey/schema";
+import { readWebinarSettings } from "@/lib/webinar";
+import { updateSession as updateSessionService } from "@/services/session-service";
 
 const updateEventSchema = z.object({
   name: z.string().min(2).max(255).optional(),
@@ -159,6 +161,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         id: true,
         slug: true,
         status: true,
+        eventType: true,
         settings: true,
         startDate: true,
         endDate: true,
@@ -283,6 +286,70 @@ export async function PUT(req: Request, { params }: RouteParams) {
       (effectiveStart.getTime() !== existingEvent.startDate?.getTime() ||
         effectiveEnd.getTime() !== existingEvent.endDate?.getTime() ||
         effectiveTz !== resolveTimezone(existingEvent.timezone));
+
+    // WEBINAR retime cascade (owner decision, Aug 4 2026): changing the event's
+    // Start Date & Time in Settings → General on a WEBINAR event used to move
+    // ONLY the Event row — the anchor session, the Zoom webinar, and the
+    // reminder-email schedule all silently kept the old time. When the start
+    // instant changes we now retime the ANCHOR session through the session
+    // service after the save, which carries the Zoom sync + email-sequence
+    // reschedule with it.
+    //
+    // The anchor is fetched + its NEW window validated BEFORE the save (review
+    // M4): the M9 exemption below and the post-save cascade must not diverge —
+    // an exemption granted for a cascade that then fails validation would
+    // strand the anchor outside the committed event dates, blocking every
+    // later Settings save. Wrapped in runWithTenant: EventSession is a swept
+    // table (review M5 — the read would fail-close on the platform).
+    const webinarAnchorId = readWebinarSettings(existingEvent.settings)?.sessionId ?? null;
+    const startInstantChanged = Boolean(
+      startDate && new Date(startDate).getTime() !== existingEvent.startDate?.getTime(),
+    );
+    let cascadeAnchor: { id: string; startTime: Date; endTime: Date; updatedAt: Date } | null =
+      null;
+    if (
+      (eventType ?? existingEvent.eventType) === "WEBINAR" &&
+      startInstantChanged &&
+      webinarAnchorId &&
+      startDate
+    ) {
+      cascadeAnchor = await runWithTenant(orgGuard.orgId, () =>
+        db.eventSession.findFirst({
+          where: { id: webinarAnchorId, eventId },
+          select: { id: true, startTime: true, endTime: true, updatedAt: true },
+        }),
+      );
+      if (!cascadeAnchor) {
+        // Dangling pointer — no exemption, no cascade; the M9 guard applies
+        // normally and the provisioner heals the pointer on its next run.
+        apiLogger.warn({ msg: "event-update:webinar-anchor-missing", eventId, webinarAnchorId });
+      } else {
+        const durationMs = Math.max(
+          60_000,
+          cascadeAnchor.endTime.getTime() - cascadeAnchor.startTime.getTime(),
+        );
+        const newStart = new Date(startDate);
+        const newEnd = new Date(newStart.getTime() + durationMs);
+        if (!isSessionWithinEventDates(newStart, newEnd, effectiveStart, effectiveEnd, effectiveTz)) {
+          apiLogger.warn({
+            msg: "event-update:webinar-anchor-outside-new-dates",
+            eventId,
+            webinarAnchorId,
+            newStart: newStart.toISOString(),
+            newEnd: newEnd.toISOString(),
+          });
+          return NextResponse.json(
+            {
+              error:
+                "The webinar session would end outside the new event dates (it keeps its current duration). Extend the event's end date, or shorten the session first.",
+              code: "ANCHOR_OUTSIDE_NEW_DATES",
+            },
+            { status: 400 },
+          );
+        }
+      }
+    }
+    const willCascadeAnchor = Boolean(cascadeAnchor);
     if (datesOrTzChanged) {
       // CANCELLED sessions are excluded — they no longer render on the agenda
       // and must not block a legitimate date change.
@@ -299,6 +366,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       );
       const outOfRange = eventSessions.filter(
         (s) =>
+          // The webinar anchor is about to be cascaded to the new start —
+          // it must not block the very date change that will move it.
+          !(willCascadeAnchor && s.id === webinarAnchorId) &&
           !isSessionWithinEventDates(
             s.startTime,
             s.endTime,
@@ -470,6 +540,73 @@ export async function PUT(req: Request, { params }: RouteParams) {
 
     apiLogger.info({ msg: "Event updated", eventId, userId: session.user.id, fields: Object.keys(validated.data) });
 
+    // The WEBINAR anchor cascade (see the block above the M9 guard). Runs after
+    // the event row is saved; goes through the session SERVICE so the Zoom
+    // webinar sync + the reminder-email reschedule ride along automatically.
+    // Failure-isolated: the event save already committed — a failed cascade is
+    // reported in the response + logged loudly, never a 500.
+    let webinarTimeCascade:
+      | { anchorMoved: true; zoomSync?: string; sequenceSync?: string }
+      | { anchorMoved: false; reason: string }
+      | undefined;
+    if (cascadeAnchor && startDate) {
+      try {
+        const durationMs = Math.max(
+          60_000,
+          cascadeAnchor.endTime.getTime() - cascadeAnchor.startTime.getTime(),
+        );
+        const newStart = new Date(startDate);
+        // runWithTenant (M5): the service reads/writes swept tables
+        // (EventSession + ScheduledEmail) — both sibling callers (sessions
+        // PUT, MCP update_session) wrap it the same way.
+        const cascade = await runWithTenant(orgGuard.orgId, () =>
+          updateSessionService({
+            eventId,
+            sessionId: cascadeAnchor.id,
+            organizationId: orgGuard.orgId,
+            userId: session.user.id,
+            source: "rest",
+            requestIp: getClientIp(req),
+            expectedUpdatedAt: cascadeAnchor.updatedAt,
+            startTime: newStart,
+            endTime: new Date(newStart.getTime() + durationMs),
+          }),
+        );
+        if (cascade.ok) {
+          webinarTimeCascade = {
+            anchorMoved: true,
+            ...(cascade.zoomSync ? { zoomSync: cascade.zoomSync } : {}),
+            ...(cascade.sequenceSync ? { sequenceSync: cascade.sequenceSync } : {}),
+          };
+          apiLogger.info({
+            msg: "event-update:webinar-anchor-cascaded",
+            eventId,
+            webinarAnchorId,
+            newStart: newStart.toISOString(),
+            zoomSync: cascade.zoomSync ?? null,
+            sequenceSync: cascade.sequenceSync ?? null,
+          });
+        } else {
+          webinarTimeCascade = { anchorMoved: false, reason: cascade.code };
+          apiLogger.error({
+            msg: "event-update:webinar-anchor-cascade-failed",
+            eventId,
+            webinarAnchorId,
+            code: cascade.code,
+            detail: cascade.message,
+          });
+        }
+      } catch (cascadeErr) {
+        webinarTimeCascade = { anchorMoved: false, reason: "UNKNOWN" };
+        apiLogger.error({
+          err: cascadeErr,
+          msg: "event-update:webinar-anchor-cascade-failed",
+          eventId,
+          webinarAnchorId,
+        });
+      }
+    }
+
     // Log the action
     await db.auditLog.create({
       data: {
@@ -492,7 +629,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }).catch((err) => apiLogger.error({ err, msg: "Failed to send event status notification" }));
     }
 
-    return NextResponse.json(event);
+    return NextResponse.json(
+      webinarTimeCascade ? { ...event, webinarTimeCascade } : event,
+    );
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error updating event" });
     return NextResponse.json(

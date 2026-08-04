@@ -16,6 +16,7 @@ const {
   mockRefreshStats,
   mockUpdateZoomMeeting,
   mockUpdateZoomWebinar,
+  mockReschedule,
 } = vi.hoisted(() => {
   const mockTx = {
     eventSession: { updateMany: vi.fn() },
@@ -40,6 +41,7 @@ const {
     mockRefreshStats: vi.fn(),
     mockUpdateZoomMeeting: vi.fn(),
     mockUpdateZoomWebinar: vi.fn(),
+    mockReschedule: vi.fn(),
   };
 });
 
@@ -56,6 +58,10 @@ vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: mockNotify }));
 vi.mock("@/lib/zoom", () => ({
   updateZoomMeeting: (...a: unknown[]) => mockUpdateZoomMeeting(...a),
   updateZoomWebinar: (...a: unknown[]) => mockUpdateZoomWebinar(...a),
+}));
+// Intercepts the service's DYNAMIC import of the sequence lib too.
+vi.mock("@/lib/webinar-email-sequence", () => ({
+  rescheduleWebinarSequenceForEvent: (...a: unknown[]) => mockReschedule(...a),
 }));
 
 import { createSession, updateSession } from "@/services/session-service";
@@ -653,5 +659,95 @@ describe("updateSession — M6: retime re-syncs the linked Zoom meeting", () => 
     if (res.ok) expect(res.zoomSync).toBeUndefined();
     expect(mockUpdateZoomWebinar).not.toHaveBeenCalled();
     expect(mockUpdateZoomMeeting).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateSession — webinar anchor retime reschedules the email sequence (Aug 4, 2026)", () => {
+  const NEW_START = new Date("2026-09-02T09:00:00Z");
+  const NEW_END = new Date("2026-09-02T10:00:00Z");
+
+  beforeEach(() => {
+    mockReschedule.mockResolvedValue({ ok: true, created: 4, cleared: 4, skipped: null });
+  });
+
+  it("retiming the ANCHOR session reschedules the sequence and reports sequenceSync", async () => {
+    mockDb.event.findUnique.mockResolvedValue({
+      ...EVENT,
+      settings: { webinar: { sessionId: "s1" } },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.sequenceSync).toBe("rescheduled");
+    expect(mockReschedule).toHaveBeenCalledWith("ev1", "u1");
+  });
+
+  it("retiming a NON-anchor session never touches the sequence", async () => {
+    mockDb.event.findUnique.mockResolvedValue({
+      ...EVENT,
+      settings: { webinar: { sessionId: "some-other-anchor" } },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.sequenceSync).toBeUndefined();
+    expect(mockReschedule).not.toHaveBeenCalled();
+  });
+
+  it("a name-only edit (no time change) never reschedules", async () => {
+    mockDb.event.findUnique.mockResolvedValue({
+      ...EVENT,
+      settings: { webinar: { sessionId: "s1" } },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, name: "Renamed" });
+    expect(res.ok).toBe(true);
+    expect(mockReschedule).not.toHaveBeenCalled();
+  });
+
+  it("a reschedule failure is isolated: session saves, sequenceSync = failed", async () => {
+    mockDb.event.findUnique.mockResolvedValue({
+      ...EVENT,
+      settings: { webinar: { sessionId: "s1" } },
+    });
+    mockReschedule.mockRejectedValue(new Error("db blip"));
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.sequenceSync).toBe("failed");
+    expect(mockApiLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: "ev1", sessionId: "s1" }),
+      "session:webinar-sequence-reschedule-failed",
+    );
+  });
+
+  it("retiming the ANCHOR with no linked Zoom meeting logs the skip (was a silent blind spot)", async () => {
+    mockDb.event.findUnique.mockResolvedValue({
+      ...EVENT,
+      settings: { webinar: { sessionId: "s1" } },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    expect(mockApiLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1", eventId: "ev1" }),
+      "session:zoom-sync-skipped-no-linked-meeting",
+    );
+  });
+
+  it("a NON-anchor retime with no Zoom meeting does NOT log the skip (conference log spam, L-1)", async () => {
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    expect(mockApiLogger.info).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "session:zoom-sync-skipped-no-linked-meeting",
+    );
+  });
+
+  it("a CANCELLED event's anchor retime never re-mints reminder rows (L-3)", async () => {
+    mockDb.event.findUnique.mockResolvedValue({
+      ...EVENT,
+      status: "CANCELLED",
+      settings: { webinar: { sessionId: "s1" } },
+    });
+    const res = await updateSession({ ...BASE_UPDATE, startTime: NEW_START, endTime: NEW_END });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.sequenceSync).toBeUndefined();
+    expect(mockReschedule).not.toHaveBeenCalled();
   });
 });

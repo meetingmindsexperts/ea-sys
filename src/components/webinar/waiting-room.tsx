@@ -13,6 +13,12 @@ interface WaitingRoomProps {
   lobbyMessage?: string | null;
   /** Event banner — used as a branded poster when no holding video is set. */
   posterUrl?: string | null;
+  /**
+   * Mobile-art-directed poster (Event.bannerImageMobile) served below 576px —
+   * the poster is a 16:9 cover crop, and the desktop banner cropped on phones
+   * was the last surface ignoring the mobile asset (Aug 4, 2026).
+   */
+  posterMobileUrl?: string | null;
 }
 
 function useNow(intervalMs = 1000): number {
@@ -66,7 +72,7 @@ function formatRemaining(ms: number): string {
 // ("Starting any moment") — the host is simply running late (review #6).
 const OVERDUE_AFTER_MS = 10 * 60_000;
 
-export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl }: WaitingRoomProps) {
+export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl, posterMobileUrl }: WaitingRoomProps) {
   const now = useNow();
   const remaining = new Date(startsAt).getTime() - now;
   const started = remaining <= 0;
@@ -111,16 +117,23 @@ export function WaitingRoom({ startsAt, lobbyVideoUrl, lobbyMessage, posterUrl }
         </div>
       ) : (
         <div className="relative flex aspect-video w-full flex-col items-center justify-center gap-3 overflow-hidden rounded-lg bg-gradient-to-br from-slate-900 to-slate-700 text-white">
-          {posterUrl && (
+          {(posterUrl || posterMobileUrl) && (
             // Dimmed decorative poster behind a "waiting…" overlay. Plain <img>
             // (not next/image) — the banner is a user-uploaded absolute/relative
-            // URL and optimization isn't worth it for a background image.
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={posterUrl}
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover opacity-40"
-            />
+            // URL and optimization isn't worth it for a background image. The
+            // <picture> serves the mobile banner below 576px (EventBanner's
+            // art-direction breakpoint) so phones aren't shown a wide banner
+            // cover-cropped to a sliver.
+            <picture className="absolute inset-0">
+              {posterMobileUrl && posterUrl && (
+                <source media="(max-width: 575.98px)" srcSet={posterMobileUrl} />
+              )}
+              <img
+                src={posterUrl || posterMobileUrl || undefined}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover opacity-40"
+              />
+            </picture>
           )}
           <Loader2 className="relative h-8 w-8 animate-spin opacity-90" />
           <p className="relative text-sm font-medium opacity-90">

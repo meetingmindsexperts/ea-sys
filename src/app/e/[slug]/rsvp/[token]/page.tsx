@@ -189,7 +189,7 @@ export default function RsvpPage() {
           banner={data.event.bannerImage}
           bannerMobile={data.event.bannerImageMobile}
           name={data.event.name}
-          className="w-full h-40 sm:h-56 object-cover"
+          className="block w-full h-auto"
         />
         <div className="max-w-2xl mx-auto px-4 py-12 text-center">
           <div className="h-14 w-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
@@ -216,7 +216,7 @@ export default function RsvpPage() {
         banner={data.event.bannerImage}
         bannerMobile={data.event.bannerImageMobile}
         name={data.event.name}
-        className="w-full h-40 sm:h-56 object-cover"
+        className="block w-full h-auto"
       />
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

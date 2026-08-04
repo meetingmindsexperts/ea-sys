@@ -313,10 +313,10 @@ function CompleteRegistrationContent() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
       {/* Banner */}
-      {event.bannerImage ? (
+      {event.bannerImage || event.bannerImageMobile ? (
         <div className="relative w-full bg-white">
           <div className="max-w-[1400px] mx-auto">
-            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="w-full h-auto max-h-[240px] object-contain" priority />
+            <EventBanner banner={event.bannerImage} bannerMobile={event.bannerImageMobile} name={event.name} className="block w-full h-auto" priority />
           </div>
         </div>
       ) : (

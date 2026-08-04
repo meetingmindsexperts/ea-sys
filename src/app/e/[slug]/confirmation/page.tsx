@@ -292,17 +292,19 @@ function ConfirmationContent() {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 to-white">
       {/* ── Banner ─────────────────────────────────────────────────────────── */}
-      {branding?.bannerImage ? (
+      {branding?.bannerImage || branding?.bannerImageMobile ? (
         <div className="w-full max-w-4xl mx-auto px-4">
           {/* Wide hero — the banner graphic carries its own branding, so no
               dark overlay or event-name bar over it. */}
-          <div className="relative w-full h-40 sm:h-56 overflow-hidden rounded-2xl">
-            {/* Art-directed: serves the mobile banner below 576px. */}
+          <div className="relative w-full overflow-hidden rounded-2xl">
+            {/* Art-directed: serves the mobile banner below 576px. Natural
+                aspect (block w-full h-auto) — a fixed-height band letterboxed
+                the portrait mobile banner (Aug 4, 2026). */}
             <EventBanner
               banner={branding.bannerImage}
               bannerMobile={branding.bannerImageMobile}
               name={branding.name || "Event banner"}
-              className="w-full h-full object-contain object-center"
+              className="block w-full h-auto"
               priority
             />
           </div>

@@ -68,6 +68,29 @@ export function readWebinarSettings(
   return w as WebinarSettings;
 }
 
+/**
+ * WEBINAR events run in ONE Zoom room (owner decision, Aug 4 2026): every
+ * attendee link, the console's Open-the-room, panelists, attendance and the
+ * stream are bound to the ANCHOR session. Returns the anchor session id when
+ * creating a Zoom meeting on `sessionId` would mint a SECOND room (i.e. the
+ * event is a WEBINAR with an anchor that isn't this session) — callers refuse
+ * with WEBINAR_ANCHOR_ONLY. Returns null when creation is fine (anchor
+ * itself, no anchor yet, or a non-webinar event).
+ *
+ * ONE implementation for BOTH the REST zoom POST and the MCP
+ * create_zoom_meeting executor (the no-cross-caller-duplication rule) — the
+ * original guard shipped REST-only and the agent path bypassed it.
+ */
+export function webinarSecondRoomViolation(
+  eventType: string | null | undefined,
+  settings: unknown,
+  sessionId: string,
+): string | null {
+  if (eventType !== "WEBINAR") return null;
+  const anchorSessionId = readWebinarSettings(settings)?.sessionId;
+  return anchorSessionId && anchorSessionId !== sessionId ? anchorSessionId : null;
+}
+
 // ── Sponsors / exhibitors ─────────────────────────────────────────
 // Stored as a JSON array on `Event.settings.sponsors`. No dedicated
 // Prisma model — this is the escape hatch for rapid iteration. If

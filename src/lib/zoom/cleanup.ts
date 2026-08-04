@@ -27,7 +27,11 @@ export async function deleteRemoteZoomMeeting(args: {
   meetingType: string;
   zoomMeetingId: string;
   /** Where the teardown was triggered from — shows up in the log line. */
-  reason: "zoom-route-delete" | "create-conflict-rollback" | "session-delete";
+  reason:
+    | "zoom-route-delete"
+    | "create-conflict-rollback"
+    | "session-delete"
+    | "provision-reattach-conflict-rollback";
 }): Promise<boolean> {
   const { organizationId, meetingType, zoomMeetingId, reason } = args;
   try {

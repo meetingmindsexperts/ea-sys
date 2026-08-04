@@ -1,3 +1,4 @@
+import * as PrismaLib from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -85,7 +86,12 @@ export async function provisionWebinar(
     if (existingWebinar.sessionId) {
       const existingSession = await db.eventSession.findFirst({
         where: { id: existingWebinar.sessionId, eventId: event.id },
-        select: { id: true, zoomMeeting: { select: { id: true, zoomMeetingId: true } } },
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+          zoomMeeting: { select: { id: true, zoomMeetingId: true } },
+        },
       });
       if (existingSession) {
         if (existingSession.zoomMeeting) {
@@ -95,17 +101,82 @@ export async function provisionWebinar(
               "webinar:sequence-enqueue-failed",
             ),
           );
+          const durationMs = Date.now() - startedAt;
+          apiLogger.info(
+            { eventId, sessionId: existingSession.id, durationMs },
+            "webinar:provision-idempotent-noop",
+          );
+          return {
+            ok: true,
+            sessionId: existingSession.id,
+            zoomMeetingId: existingSession.zoomMeeting.zoomMeetingId,
+            zoomStatus: "already-attached",
+            durationMs,
+          };
         }
+        // RE-ATTACH (Aug 4, 2026): the anchor session exists but has NO Zoom
+        // webinar — the organizer deleted it (e.g. to recreate it with live
+        // streaming) or the original provision failed at the Zoom step. This
+        // branch used to return early with "not-configured", making "Run
+        // provisioner" a silent no-op exactly when the console tells the
+        // organizer to click it.
+        //
+        // Claims the same provisioning sentinel as a fresh provision (review
+        // M7): without it, two concurrent "Run provisioner" clicks both call
+        // Zoom's create API — the row-unique race resolves correctness, but
+        // the loser's remote teardown is best-effort and a failed teardown
+        // orphans a billable webinar.
+        const reattachClaim: { outcome: "won" | "in-progress" } = { outcome: "won" };
+        await updateEventSettings(event.id, (cur) => {
+          const webinar = asWebinarObject(cur);
+          const claimedAtMs =
+            typeof webinar.provisioningAt === "string" ? Date.parse(webinar.provisioningAt) : NaN;
+          if (Number.isFinite(claimedAtMs) && Date.now() - claimedAtMs < PROVISIONING_STALE_MS) {
+            reattachClaim.outcome = "in-progress";
+            return cur;
+          }
+          return { ...cur, webinar: { ...webinar, provisioningAt: new Date().toISOString() } };
+        });
+        if (reattachClaim.outcome === "in-progress") {
+          const durationMs = Date.now() - startedAt;
+          apiLogger.warn({ eventId, durationMs }, "webinar:provision-claim-contended");
+          return { ok: false, reason: "provision-already-in-progress", durationMs };
+        }
+
+        let zoomStatus: ZoomProvisionStatus;
+        try {
+          zoomStatus = await attachZoomWebinarToAnchor(
+            { id: event.id, name: event.name, timezone: event.timezone, description: event.description, organizationId: event.organizationId },
+            existingSession,
+            existingWebinar,
+            options?.actorUserId,
+          );
+        } finally {
+          // Release the sentinel on success AND failure — a crashed re-attach
+          // must not force the next attempt to wait out the stale window.
+          await updateEventSettings(event.id, (cur) => {
+            const webinar = asWebinarObject(cur);
+            delete webinar.provisioningAt;
+            return { ...cur, webinar };
+          }).catch((cleanupErr) =>
+            apiLogger.error({ err: cleanupErr, eventId }, "webinar:provision-claim-cleanup-failed"),
+          );
+        }
+
         const durationMs = Date.now() - startedAt;
+        const reattached = await db.zoomMeeting.findUnique({
+          where: { sessionId: existingSession.id },
+          select: { zoomMeetingId: true },
+        });
         apiLogger.info(
-          { eventId, sessionId: existingSession.id, durationMs },
-          "webinar:provision-idempotent-noop",
+          { eventId, sessionId: existingSession.id, zoomStatus, durationMs },
+          "webinar:provision-reattach",
         );
         return {
           ok: true,
           sessionId: existingSession.id,
-          zoomMeetingId: existingSession.zoomMeeting?.zoomMeetingId ?? null,
-          zoomStatus: existingSession.zoomMeeting ? "already-attached" : "not-configured",
+          zoomMeetingId: reattached?.zoomMeetingId ?? null,
+          zoomStatus,
           durationMs,
         };
       }
@@ -330,4 +401,106 @@ export async function provisionWebinar(
       durationMs,
     };
   }
+}
+
+/**
+ * Create a fresh Zoom webinar for an EXISTING anchor session that lost (or
+ * never got) one — the "Run provisioner" recovery path. Uses the SESSION's own
+ * times (the anchor may have been retimed since the event was created). Never
+ * throws; a concurrent create losing the `sessionId @unique` race tears down
+ * its just-created remote webinar (the H2 pattern) and reports
+ * "already-attached".
+ */
+async function attachZoomWebinarToAnchor(
+  event: {
+    id: string;
+    name: string;
+    timezone: string | null;
+    description: string | null;
+    organizationId: string;
+  },
+  anchor: { id: string; startTime: Date; endTime: Date },
+  webinarSettings: WebinarSettings,
+  actorUserId?: string,
+): Promise<ZoomProvisionStatus> {
+  const zoomReady = await isZoomConfigured(event.organizationId);
+  if (!zoomReady) {
+    apiLogger.info({ eventId: event.id }, "webinar:reattach-zoom-not-configured");
+    return "not-configured";
+  }
+
+  const duration = Math.max(
+    1,
+    Math.ceil((anchor.endTime.getTime() - anchor.startTime.getTime()) / 60_000),
+  );
+
+  let zoomResponse: Awaited<ReturnType<typeof createZoomWebinar>>;
+  try {
+    zoomResponse = await createZoomWebinar(event.organizationId, {
+      topic: event.name,
+      startTime: anchor.startTime.toISOString(),
+      duration,
+      timezone: event.timezone ?? undefined,
+      agenda: event.description ?? undefined,
+      autoRecording: webinarSettings.autoRecording ?? "cloud",
+    });
+  } catch (err) {
+    apiLogger.error({ err, eventId: event.id, sessionId: anchor.id }, "webinar:reattach-zoom-create-failed");
+    return "failed";
+  }
+
+  try {
+    await db.zoomMeeting.create({
+      data: {
+        sessionId: anchor.id,
+        eventId: event.id,
+        organizationId: event.organizationId,
+        zoomMeetingId: String(zoomResponse.id),
+        meetingType: "WEBINAR",
+        joinUrl: zoomResponse.join_url,
+        startUrl: zoomResponse.start_url,
+        passcode: zoomResponse.password,
+        duration,
+        zoomResponse: JSON.parse(JSON.stringify(zoomResponse)),
+      },
+    });
+  } catch (err) {
+    // Either we lost the sessionId-unique race to a concurrent attach, or the
+    // row insert failed transiently (pool timeout, connection closed). In BOTH
+    // cases the just-minted remote webinar has no local row → tear it down so
+    // it isn't an orphaned billable room. But only a genuine P2002 means "a
+    // sibling won" (review M6) — a transient failure must report "failed", not
+    // masquerade as already-attached.
+    const { deleteRemoteZoomMeeting } = await import("@/lib/zoom/cleanup");
+    const tornDown = await deleteRemoteZoomMeeting({
+      organizationId: event.organizationId,
+      meetingType: "WEBINAR",
+      zoomMeetingId: String(zoomResponse.id),
+      reason: "provision-reattach-conflict-rollback",
+    });
+    const isUniqueRace =
+      err instanceof PrismaLib.Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+    if (isUniqueRace) {
+      apiLogger.warn({ err, eventId: event.id, sessionId: anchor.id }, "webinar:reattach-lost-race");
+      return "already-attached";
+    }
+    apiLogger.error(
+      { err, eventId: event.id, sessionId: anchor.id, remoteTornDown: tornDown },
+      "webinar:reattach-row-create-failed",
+    );
+    return "failed";
+  }
+
+  apiLogger.info(
+    { eventId: event.id, sessionId: anchor.id, zoomMeetingId: String(zoomResponse.id) },
+    "webinar:zoom-webinar-reattached",
+  );
+
+  // The sequence emails need a joinUrl to render — now that one exists,
+  // (re-)enqueue. Idempotent inside; fire-and-forget.
+  enqueueWebinarSequenceForEvent(event.id, actorUserId).catch((err) =>
+    apiLogger.error({ err, eventId: event.id }, "webinar:sequence-enqueue-failed"),
+  );
+
+  return "created";
 }

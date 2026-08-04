@@ -1,4 +1,5 @@
-import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { readWebinarSettings } from "@/lib/webinar";
 import { WEBINAR_EMAIL_TYPES, executeBulkEmail } from "@/lib/bulk-email";
@@ -12,6 +13,16 @@ export type WebinarPhase =
   | "webinar-reminder-1h"
   | "webinar-live-now"
   | "webinar-thank-you";
+
+/** The 4 auto-sequence phases. Deliberately NOT WEBINAR_EMAIL_TYPES — that
+ * list also carries webinar-confirmation, which organizers schedule MANUALLY
+ * (send join links at 9am); the sequence machinery must never touch it. */
+export const WEBINAR_SEQUENCE_PHASES: readonly WebinarPhase[] = [
+  "webinar-reminder-24h",
+  "webinar-reminder-1h",
+  "webinar-live-now",
+  "webinar-thank-you",
+];
 
 interface PhaseTiming {
   phase: WebinarPhase;
@@ -37,16 +48,17 @@ function computePhases(startTime: Date, endTime: Date): PhaseTiming[] {
  */
 async function resolveSequenceActor(
   organizationId: string,
-  preferredUserId?: string,
+  preferredUserId: string | undefined,
+  client: Prisma.TransactionClient | typeof db,
 ): Promise<string | null> {
   if (preferredUserId) {
-    const user = await db.user.findFirst({
+    const user = await client.user.findFirst({
       where: { id: preferredUserId, organizationId },
       select: { id: true },
     });
     if (user) return user.id;
   }
-  const fallback = await db.user.findFirst({
+  const fallback = await client.user.findFirst({
     where: {
       organizationId,
       role: { in: ["ADMIN", "SUPER_ADMIN", "ORGANIZER"] },
@@ -67,14 +79,23 @@ export interface EnqueueSequenceResult {
  * Create the 4 future-phase ScheduledEmail rows (reminder-24h, reminder-1h,
  * live-now, thank-you) for a webinar event. Idempotent: if ANY webinar-* row
  * already exists for this event, returns { skipped: "already-enqueued" } and
- * creates nothing. To re-enqueue after a schedule change, delete existing rows
- * via the /webinar/sequence POST route first.
+ * creates nothing.
+ *
+ * `force: true` (Aug 4, 2026 — the retime-reschedule fix) skips that guard so
+ * the sequence can be re-created after a schedule change; phases that already
+ * fired (SENT/PROCESSING), were deliberately CANCELLED by an operator (unless
+ * `resurrectCancelled`), or FAILED mid-send with some emails delivered are
+ * still excluded so no recipient ever gets a phase twice and no operator
+ * decision is silently undone. Callers must clear pending rows first — use
+ * rescheduleWebinarSequenceForEvent, which does both under a per-event lock.
  */
 export async function enqueueWebinarSequenceForEvent(
   eventId: string,
   actorUserId?: string,
+  opts?: { force?: boolean; resurrectCancelled?: boolean; tx?: Prisma.TransactionClient },
 ): Promise<EnqueueSequenceResult> {
-  const event = await db.event.findUnique({
+  const client = opts?.tx ?? db;
+  const event = await client.event.findUnique({
     where: { id: eventId },
     select: { id: true, organizationId: true, settings: true },
   });
@@ -89,19 +110,23 @@ export async function enqueueWebinarSequenceForEvent(
   }
 
   // Idempotency: look up any existing webinar-* row for this event.
-  const existing = await db.scheduledEmail.findFirst({
-    where: {
-      eventId,
-      emailType: { in: [...WEBINAR_EMAIL_TYPES] },
-    },
-    select: { id: true },
-  });
-  if (existing) {
-    apiLogger.info({ eventId }, "webinar-sequence:already-enqueued");
-    return { ok: true, created: 0, skipped: "already-enqueued" };
+  // Skipped under force — the reschedule path clears pending rows first and
+  // relies on the per-phase fired/cancelled exclusion below instead.
+  if (!opts?.force) {
+    const existing = await client.scheduledEmail.findFirst({
+      where: {
+        eventId,
+        emailType: { in: [...WEBINAR_EMAIL_TYPES] },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      apiLogger.info({ eventId }, "webinar-sequence:already-enqueued");
+      return { ok: true, created: 0, skipped: "already-enqueued" };
+    }
   }
 
-  const anchorSession = await db.eventSession.findFirst({
+  const anchorSession = await client.eventSession.findFirst({
     where: { id: anchorSessionId, eventId },
     select: { startTime: true, endTime: true },
   });
@@ -109,13 +134,50 @@ export async function enqueueWebinarSequenceForEvent(
     return { ok: false, created: 0, skipped: "no-anchor-session" };
   }
 
-  const phases = computePhases(anchorSession.startTime, anchorSession.endTime);
+  let phases = computePhases(anchorSession.startTime, anchorSession.endTime);
+
+  if (opts?.force && phases.length > 0) {
+    // Never duplicate or resurrect a phase:
+    //  - SENT/PROCESSING: it fired (or is firing) — re-creating would double-
+    //    email the audience.
+    //  - CANCELLED: an operator deliberately killed it (dashboard cancel /
+    //    MCP) — an automatic retime must not undo that decision (review M1).
+    //    The console's explicit Re-enqueue passes resurrectCancelled.
+    //  - FAILED with some emails already delivered: the row carries the
+    //    emailedKeys resume state; a fresh row would re-email the delivered
+    //    portion (review M2). Operators resume it via Retry instead.
+    const firedRows = await client.scheduledEmail.findMany({
+      where: {
+        eventId,
+        emailType: { in: phases.map((p) => p.phase) },
+        status: { in: ["SENT", "PROCESSING", "CANCELLED", "FAILED"] },
+      },
+      select: { emailType: true, status: true, emailedKeys: true },
+    });
+    const fired = new Set(
+      firedRows
+        .filter((r) => {
+          if (r.status === "SENT" || r.status === "PROCESSING") return true;
+          if (r.status === "CANCELLED") return !opts?.resurrectCancelled;
+          return r.emailedKeys.length > 0; // FAILED
+        })
+        .map((r) => r.emailType),
+    );
+    if (fired.size > 0) {
+      apiLogger.info(
+        { eventId, skippedFiredPhases: [...fired] },
+        "webinar-sequence:reschedule-skips-fired-phases",
+      );
+      phases = phases.filter((p) => !fired.has(p.phase));
+    }
+  }
+
   if (phases.length === 0) {
     apiLogger.info({ eventId }, "webinar-sequence:no-future-phases");
     return { ok: true, created: 0, skipped: "no-future-phases" };
   }
 
-  const createdById = await resolveSequenceActor(event.organizationId, actorUserId);
+  const createdById = await resolveSequenceActor(event.organizationId, actorUserId, client);
   if (!createdById) {
     apiLogger.warn({ eventId }, "webinar-sequence:no-actor-user-found");
     return { ok: false, created: 0, skipped: "no-actor" };
@@ -124,7 +186,7 @@ export async function enqueueWebinarSequenceForEvent(
   // Create one ScheduledEmail per phase. Recipients re-evaluated at fire time
   // via filter { status: CONFIRMED }, so cancellations + late registrations
   // are handled correctly.
-  await db.scheduledEmail.createMany({
+  await client.scheduledEmail.createMany({
     data: phases.map((p) => ({
       eventId,
       organizationId: event.organizationId,
@@ -178,16 +240,83 @@ export async function sendWebinarConfirmationForRegistration(args: {
 }
 
 /**
- * Delete all webinar sequence rows for an event that haven't been sent yet.
- * Used by the /webinar/sequence POST route to re-enqueue after schedule changes.
+ * Reschedule the webinar sequence off the anchor session's CURRENT times:
+ * clears re-creatable rows, then re-enqueues under force. The one call every
+ * retime path uses — session-service on an anchor retime, the event PUT
+ * cascade, and the console's Re-enqueue button — so they can't drift.
+ *
+ * SERIALIZED per event (review H-1): clear + create run inside ONE
+ * tenantTransaction holding a transaction-scoped advisory lock keyed on the
+ * eventId. ScheduledEmail has no unique on (eventId, emailType), so two
+ * interleaved reschedules (Settings cascade racing an Agenda retime, a
+ * double-clicked Re-enqueue) would otherwise each create a full phase set —
+ * every reminder firing twice to the whole audience. pg_advisory_xact_lock is
+ * the pooler-safe variant: the lock and the statements share one backend for
+ * the transaction's lifetime (unlike session-scoped locks, which pgbouncer's
+ * transaction mode can strand on another backend — the P3 lesson).
+ *
+ * `resurrectCancelled` is the console Re-enqueue's explicit-operator-action
+ * semantics: it may re-create phases an operator cancelled; the automatic
+ * retime hooks never do (review M1).
+ *
+ * A failure between clear and create leaves ZERO pending rows (loud, visible
+ * in the console's sequence card) rather than rows at the wrong time — and
+ * under the transaction the clear rolls back with the failed create anyway.
+ */
+export async function rescheduleWebinarSequenceForEvent(
+  eventId: string,
+  actorUserId?: string,
+  opts?: { resurrectCancelled?: boolean },
+): Promise<EnqueueSequenceResult & { cleared: number }> {
+  const out = await tenantTransaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`webinar-seq:${eventId}`}))`;
+    const cleared = await clearPendingWebinarSequence(eventId, {
+      resurrectCancelled: opts?.resurrectCancelled,
+      tx,
+    });
+    const result = await enqueueWebinarSequenceForEvent(eventId, actorUserId, {
+      force: true,
+      resurrectCancelled: opts?.resurrectCancelled,
+      tx,
+    });
+    return { ...result, cleared };
+  });
+  apiLogger.info(
+    { eventId, cleared: out.cleared, created: out.created, skipped: out.skipped },
+    "webinar-sequence:rescheduled",
+  );
+  return out;
+}
+
+/**
+ * Delete the AUTO-SEQUENCE rows that are safe to re-create (review M1/M2/M3):
+ *  - only the 4 phase types — never webinar-confirmation, which organizers
+ *    schedule manually ("send join links at 9am");
+ *  - only sequence-minted rows (no custom subject/message, no explicit
+ *    recipient list) — a manually composed reminder is the organizer's own
+ *    scheduled send, not ours to delete;
+ *  - PENDING always; FAILED only when nothing was delivered yet (a partial
+ *    send's emailedKeys resume state must survive for Retry); CANCELLED only
+ *    under the console's explicit resurrectCancelled.
  * Returns count of rows deleted.
  */
-export async function clearPendingWebinarSequence(eventId: string): Promise<number> {
-  const result = await db.scheduledEmail.deleteMany({
+export async function clearPendingWebinarSequence(
+  eventId: string,
+  opts?: { resurrectCancelled?: boolean; tx?: Prisma.TransactionClient },
+): Promise<number> {
+  const client = opts?.tx ?? db;
+  const result = await client.scheduledEmail.deleteMany({
     where: {
       eventId,
-      emailType: { in: [...WEBINAR_EMAIL_TYPES] },
-      status: { in: ["PENDING", "FAILED", "CANCELLED"] },
+      emailType: { in: [...WEBINAR_SEQUENCE_PHASES] },
+      customSubject: null,
+      customMessage: null,
+      recipientIds: { isEmpty: true },
+      OR: [
+        { status: "PENDING" },
+        { status: "FAILED", emailedKeys: { isEmpty: true } },
+        ...(opts?.resurrectCancelled ? [{ status: "CANCELLED" as const }] : []),
+      ],
     },
   });
   return result.count;

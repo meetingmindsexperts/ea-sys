@@ -6,7 +6,7 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { isBreakSessionType } from "@/lib/session-enums";
-import { readSponsors } from "@/lib/webinar";
+import { readSponsors, readWebinarSettings } from "@/lib/webinar";
 
 type RouteParams = { params: Promise<{ slug: string; sessionId: string }> };
 
@@ -87,6 +87,41 @@ export async function GET(req: Request, { params }: RouteParams) {
         "session-detail:draft-event-denied",
       );
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Auto-heal (owner decision, Aug 4 2026): a WEBINAR event runs in ONE room
+    // — the anchor session. Any other session id in a public URL (a stale
+    // emailed link after a re-provision, a link to a mistakenly-created second
+    // session, or a deleted session id) is redirected to the anchor so
+    // attendees always land where the producer's Open-the-room / stream /
+    // panelists actually operate. Runs BEFORE the session lookup so even a
+    // dead session id heals instead of 404ing.
+    //
+    // Org STAFF are exempt (review M8): they may need to inspect a
+    // non-anchor session page — e.g. a pre-existing orphaned second Zoom
+    // room this redirect would otherwise make unreachable.
+    if (event.eventType === "WEBINAR" && !isOrgStaff) {
+      const anchorSessionId = readWebinarSettings(event.settings)?.sessionId;
+      if (anchorSessionId && anchorSessionId !== sessionId) {
+        const anchor = await db.eventSession.findFirst({
+          where: { id: anchorSessionId, eventId: event.id },
+          select: { id: true },
+        });
+        if (anchor) {
+          apiLogger.info(
+            { slug, sessionId, anchorSessionId, eventId: event.id },
+            "session-detail:webinar-redirect-to-anchor",
+          );
+          return NextResponse.json({ redirectToSessionId: anchorSessionId });
+        }
+        // Dangling anchor pointer — fall through to the normal lookup so a
+        // legitimate URL session still renders; the provisioner heals the
+        // pointer on its next run.
+        apiLogger.warn(
+          { slug, sessionId, anchorSessionId, eventId: event.id },
+          "session-detail:webinar-anchor-dangling",
+        );
+      }
     }
 
     // Topics + session metadata + speakers fetched together. Each topic

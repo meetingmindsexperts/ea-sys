@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, state } =
+const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, mockDeleteRemote, state } =
   vi.hoisted(() => {
     const state: { settings: Record<string, unknown> } = { settings: {} };
     return {
@@ -20,12 +20,13 @@ const { mockDb, mockApiLogger, mockUpdateEventSettings, mockZoom, mockEnqueue, s
       mockDb: {
         event: { findUnique: vi.fn() },
         eventSession: { findFirst: vi.fn(), create: vi.fn() },
-        zoomMeeting: { create: vi.fn() },
+        zoomMeeting: { create: vi.fn(), findUnique: vi.fn() },
       },
       mockApiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
       mockUpdateEventSettings: vi.fn(),
       mockZoom: { isZoomConfigured: vi.fn(), createZoomWebinar: vi.fn() },
       mockEnqueue: vi.fn(async (...args: unknown[]) => void args),
+      mockDeleteRemote: vi.fn(async (...args: unknown[]) => (void args, true)),
     };
   });
 
@@ -39,8 +40,19 @@ vi.mock("@/lib/zoom", () => ({
 vi.mock("@/lib/webinar-email-sequence", () => ({
   enqueueWebinarSequenceForEvent: (...a: unknown[]) => mockEnqueue(...a),
 }));
+vi.mock("@/lib/zoom/cleanup", () => ({
+  deleteRemoteZoomMeeting: (...a: unknown[]) => mockDeleteRemote(...a),
+}));
 
+import { Prisma } from "@prisma/client";
 import { provisionWebinar } from "@/lib/webinar-provisioner";
+
+function p2002(): Error {
+  return new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+    code: "P2002",
+    clientVersion: "test",
+  });
+}
 
 const EVENT = {
   id: "ev1",
@@ -78,6 +90,7 @@ beforeEach(() => {
   }));
   mockDb.eventSession.create.mockResolvedValue({ id: "anchor1" });
   mockDb.eventSession.findFirst.mockResolvedValue(null);
+  mockDb.zoomMeeting.findUnique.mockResolvedValue(null);
   mockZoom.isZoomConfigured.mockResolvedValue(false); // Zoom off ⇒ shorter happy path
 });
 
@@ -183,5 +196,152 @@ describe("provisionWebinar — M1 sentinel claim", () => {
     const webinar = webinarSettings();
     expect(webinar?.lobbyMessage).toBe("saved mid-provision");
     expect(webinar?.sessionId).toBe("anchor1");
+  });
+});
+
+describe("provisionWebinar — anchor Zoom re-attach (Aug 4, 2026)", () => {
+  const ANCHOR = {
+    id: "anchor1",
+    startTime: new Date("2026-09-01T10:00:00Z"),
+    endTime: new Date("2026-09-01T11:30:00Z"),
+    zoomMeeting: null,
+  };
+
+  it("anchor without a Zoom webinar + Zoom configured → creates one on the ANCHOR (no new session)", async () => {
+    state.settings = { webinar: { sessionId: "anchor1" } };
+    mockDb.eventSession.findFirst.mockResolvedValue(ANCHOR);
+    mockZoom.isZoomConfigured.mockResolvedValue(true);
+    mockZoom.createZoomWebinar.mockResolvedValue({
+      id: 555,
+      join_url: "https://zoom.us/j/555",
+      start_url: "https://zoom.us/s/555",
+      password: "pw",
+    });
+    mockDb.zoomMeeting.create.mockResolvedValue({});
+    mockDb.zoomMeeting.findUnique.mockResolvedValue({ zoomMeetingId: "555" });
+
+    const res = await provisionWebinar("ev1");
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.sessionId).toBe("anchor1");
+      expect(res.zoomStatus).toBe("created");
+      expect(res.zoomMeetingId).toBe("555");
+    }
+    // NO second anchor session — the whole point of the fix.
+    expect(mockDb.eventSession.create).not.toHaveBeenCalled();
+    // The webinar is created with the ANCHOR's own times (90 min), not the
+    // event's default window.
+    expect(mockZoom.createZoomWebinar).toHaveBeenCalledWith(
+      "org1",
+      expect.objectContaining({
+        startTime: ANCHOR.startTime.toISOString(),
+        duration: 90,
+      }),
+    );
+    expect(mockDb.zoomMeeting.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ sessionId: "anchor1", meetingType: "WEBINAR" }),
+      }),
+    );
+    // Sequence enqueued now that a joinUrl exists.
+    expect(mockEnqueue).toHaveBeenCalledWith("ev1", undefined);
+  });
+
+  it("anchor without Zoom + org has no Zoom configured → not-configured, nothing created", async () => {
+    state.settings = { webinar: { sessionId: "anchor1" } };
+    mockDb.eventSession.findFirst.mockResolvedValue(ANCHOR);
+    mockZoom.isZoomConfigured.mockResolvedValue(false);
+
+    const res = await provisionWebinar("ev1");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomStatus).toBe("not-configured");
+    expect(mockZoom.createZoomWebinar).not.toHaveBeenCalled();
+    expect(mockDb.zoomMeeting.create).not.toHaveBeenCalled();
+    expect(mockDb.eventSession.create).not.toHaveBeenCalled();
+  });
+
+  it("lost the sessionId-unique race → tears down its remote webinar, reports already-attached", async () => {
+    state.settings = { webinar: { sessionId: "anchor1" } };
+    mockDb.eventSession.findFirst.mockResolvedValue(ANCHOR);
+    mockZoom.isZoomConfigured.mockResolvedValue(true);
+    mockZoom.createZoomWebinar.mockResolvedValue({
+      id: 777,
+      join_url: "j",
+      start_url: "s",
+      password: "p",
+    });
+    mockDb.zoomMeeting.create.mockRejectedValue(p2002());
+    mockDb.zoomMeeting.findUnique.mockResolvedValue({ zoomMeetingId: "666" });
+
+    const res = await provisionWebinar("ev1");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomStatus).toBe("already-attached");
+    expect(mockDeleteRemote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        zoomMeetingId: "777",
+        reason: "provision-reattach-conflict-rollback",
+      }),
+    );
+  });
+
+  it("anchor WITH a Zoom webinar keeps the pure idempotent no-op (no re-attach, no create)", async () => {
+    state.settings = { webinar: { sessionId: "anchor1" } };
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      ...ANCHOR,
+      zoomMeeting: { id: "zm1", zoomMeetingId: "111" },
+    });
+
+    const res = await provisionWebinar("ev1");
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.zoomStatus).toBe("already-attached");
+      expect(res.zoomMeetingId).toBe("111");
+    }
+    expect(mockZoom.createZoomWebinar).not.toHaveBeenCalled();
+    expect(mockDb.eventSession.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("provisionWebinar — re-attach failure discrimination (review M6)", () => {
+  it("a TRANSIENT row-create failure reports failed (not already-attached) and still tears down", async () => {
+    state.settings = { webinar: { sessionId: "anchor1" } };
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "anchor1",
+      startTime: new Date("2026-09-01T10:00:00Z"),
+      endTime: new Date("2026-09-01T11:00:00Z"),
+      zoomMeeting: null,
+    });
+    mockZoom.isZoomConfigured.mockResolvedValue(true);
+    mockZoom.createZoomWebinar.mockResolvedValue({ id: 888, join_url: "j", start_url: "s", password: "p" });
+    mockDb.zoomMeeting.create.mockRejectedValue(new Error("Timed out fetching a new connection"));
+    mockDb.zoomMeeting.findUnique.mockResolvedValue(null);
+
+    const res = await provisionWebinar("ev1");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.zoomStatus).toBe("failed");
+    // The just-minted remote webinar has no local row either way — torn down.
+    expect(mockDeleteRemote).toHaveBeenCalledWith(
+      expect.objectContaining({ zoomMeetingId: "888" }),
+    );
+    // The sentinel was released (next attempt doesn't wait out the stale window).
+    expect((state.settings.webinar as Record<string, unknown>)?.provisioningAt).toBeUndefined();
+  });
+
+  it("a fresh concurrent claim makes the re-attach back off (review M7)", async () => {
+    state.settings = {
+      webinar: { sessionId: "anchor1", provisioningAt: new Date().toISOString() },
+    };
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "anchor1",
+      startTime: new Date("2026-09-01T10:00:00Z"),
+      endTime: new Date("2026-09-01T11:00:00Z"),
+      zoomMeeting: null,
+    });
+    mockZoom.isZoomConfigured.mockResolvedValue(true);
+
+    const res = await provisionWebinar("ev1");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("provision-already-in-progress");
+    expect(mockZoom.createZoomWebinar).not.toHaveBeenCalled();
   });
 });

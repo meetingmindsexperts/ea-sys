@@ -188,6 +188,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
     return NextResponse.json({
       ...result.session,
       ...(result.zoomSync ? { zoomSync: result.zoomSync } : {}),
+      // sequenceSync (Aug 4, 2026): "failed" ⇒ the webinar reminder emails may
+      // still fire on the OLD schedule — the agenda page surfaces a toast.
+      ...(result.sequenceSync ? { sequenceSync: result.sequenceSync } : {}),
     });
     });
   } catch (error) {

@@ -7,7 +7,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { safeFetchHtml, safeFetchImage } from "@/lib/safe-fetch";
 import { uploadMedia } from "@/lib/storage";
 import { updateEventSettings } from "@/lib/event-settings";
-import { readWebinarSettings, readSponsors, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
+import { readWebinarSettings, readSponsors, webinarSecondRoomViolation, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
 import type { ToolExecutor } from "./_shared";
 
 const listZoomMeetings: ToolExecutor = async (_input, ctx) => {
@@ -91,11 +91,33 @@ const createZoomMeetingTool: ToolExecutor = async (input, ctx) => {
     if (!session) return { error: "Session not found in this event" };
     if (existing) return { error: `Session "${session.name}" already has a Zoom meeting linked (ID: ${existing.zoomMeetingId})` };
 
-    // Get event timezone
+    // Get event timezone + the second-room guard inputs
     const event = await db.event.findFirst({
       where: { id: ctx.eventId },
-      select: { timezone: true },
+      select: { timezone: true, eventType: true, settings: true },
     });
+
+    // Shared second-room guard (webinarSecondRoomViolation — same rule as the
+    // REST zoom POST): a WEBINAR event runs in ONE room on its anchor
+    // session; an agent-created second Zoom meeting would split attendees
+    // (whose links all point at the anchor) from the broadcast.
+    const anchorViolation = webinarSecondRoomViolation(
+      event?.eventType,
+      event?.settings,
+      sessionId,
+    );
+    if (anchorViolation) {
+      apiLogger.warn(
+        { eventId: ctx.eventId, sessionId, anchorSessionId: anchorViolation },
+        "zoom:webinar-non-anchor-create-refused",
+      );
+      return {
+        error:
+          "This is a Webinar event — it runs in a single Zoom webinar on its main session. Creating a second Zoom meeting would split attendees from the broadcast. Manage the webinar from the Webinar Console instead.",
+        code: "WEBINAR_ANCHOR_ONLY",
+        anchorSessionId: anchorViolation,
+      };
+    }
 
     const duration = Math.ceil(
       (session.endTime.getTime() - session.startTime.getTime()) / 60000

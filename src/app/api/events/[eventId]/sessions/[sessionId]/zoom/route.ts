@@ -7,6 +7,7 @@ import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
+import { webinarSecondRoomViolation } from "@/lib/webinar";
 import {
   isZoomConfigured,
   createZoomMeeting,
@@ -130,7 +131,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const [event, eventSession, existingZoom] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, organizationId: true, timezone: true, slug: true },
+        select: { id: true, organizationId: true, timezone: true, slug: true, eventType: true, settings: true },
       }),
       db.eventSession.findFirst({
         where: { id: sessionId, eventId },
@@ -147,6 +148,27 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
     if (existingZoom) {
       return NextResponse.json({ error: "Session already has a Zoom meeting" }, { status: 409 });
+    }
+
+    // Shared second-room guard (see webinarSecondRoomViolation): a Zoom
+    // meeting on any session but the anchor splits attendees from the
+    // producer. Creation on the anchor itself stays allowed (that's the
+    // delete-and-recreate path, e.g. to enable live streaming).
+    const anchorSessionId = webinarSecondRoomViolation(event.eventType, event.settings, sessionId);
+    if (anchorSessionId) {
+      apiLogger.warn(
+        { eventId, sessionId, anchorSessionId, userId: session.user.id },
+        "zoom:webinar-non-anchor-create-refused",
+      );
+      return NextResponse.json(
+        {
+          error:
+            "This is a Webinar event — it runs in a single Zoom webinar on its main session. Creating a second Zoom meeting here would split attendees from the broadcast. Manage the webinar from the Webinar Console; to change its Zoom setup, delete and recreate the Zoom webinar on the main session.",
+          code: "WEBINAR_ANCHOR_ONLY",
+          anchorSessionId,
+        },
+        { status: 409 },
+      );
     }
 
     // Check org has Zoom configured

@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockAuth, mockDb, mockUpdateEventSettings } = vi.hoisted(() => ({
+const { mockAuth, mockDb, mockUpdateEventSettings, mockCascadeUpdateSession } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
+  mockCascadeUpdateSession: vi.fn(),
   mockDb: {
     event: {
       findFirst: vi.fn(),
@@ -20,7 +21,7 @@ const { mockAuth, mockDb, mockUpdateEventSettings } = vi.hoisted(() => ({
     payment: { count: vi.fn().mockResolvedValue(0) },
     // M9 date-narrowing guard on PUT — default to "no sessions" so tests
     // that change dates proceed unless they set this up explicitly.
-    eventSession: { findMany: vi.fn().mockResolvedValue([]) },
+    eventSession: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn() },
   },
   // Settings now merge through the atomic helper (its own test covers the merge);
   // here we just assert the route hands it the right patch.
@@ -61,6 +62,13 @@ vi.mock("@/lib/event-access", () => ({
 
 vi.mock("@/lib/security", () => ({
   getClientIp: vi.fn(() => "127.0.0.1"),
+}));
+
+// The WEBINAR anchor cascade delegates to the session service (which carries
+// the Zoom sync + email-sequence reschedule) — mocked here; its own behavior
+// is covered in __tests__/services/session-service.test.ts.
+vi.mock("@/services/session-service", () => ({
+  updateSession: (...a: unknown[]) => mockCascadeUpdateSession(...a),
 }));
 
 // Import route AFTER mocks
@@ -525,5 +533,127 @@ describe("DELETE /api/events/[eventId]", () => {
 
     const res = await DELETE(makeDeleteRequest(), makeParams("evt-1"));
     expect(res.status).toBe(500);
+  });
+});
+
+// ── WEBINAR anchor cascade (Aug 4, 2026) ─────────────────────────────────────
+
+describe("PUT /api/events/[eventId] — WEBINAR Settings date change cascades to the anchor", () => {
+  const ANCHOR = {
+    id: "anchor1",
+    startTime: new Date("2026-06-01T10:00:00Z"),
+    endTime: new Date("2026-06-01T11:30:00Z"), // 90 min
+    updatedAt: new Date("2026-05-01T00:00:00Z"),
+  };
+  const webinarEvent = {
+    ...sampleEvent,
+    eventType: "WEBINAR",
+    startDate: new Date("2026-06-01T10:00:00Z"),
+    endDate: new Date("2026-06-01T11:30:00Z"),
+    timezone: "Asia/Dubai",
+    settings: { webinar: { sessionId: "anchor1" } },
+  };
+
+  beforeEach(() => {
+    // This suite has no global clearAllMocks — reset the state these tests
+    // depend on explicitly so calls/fixtures don't leak between cases.
+    mockCascadeUpdateSession.mockReset();
+    mockDb.event.update.mockClear();
+    mockDb.eventSession.findMany.mockResolvedValue([]);
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue(webinarEvent);
+    mockDb.event.update.mockResolvedValue({ ...webinarEvent, id: "evt-1" });
+    mockDb.eventSession.findFirst.mockResolvedValue(ANCHOR);
+    mockCascadeUpdateSession.mockResolvedValue({ ok: true, session: { id: "anchor1" }, zoomSync: "synced", sequenceSync: "rescheduled" });
+  });
+
+  it("moves the anchor to the new start (duration preserved) and reports the cascade", async () => {
+    const newStart = "2026-06-05T14:00:00.000Z";
+    const res = await PUT(makePutRequest({ startDate: newStart, endDate: "2026-06-05T15:30:00.000Z" }), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.webinarTimeCascade).toEqual({ anchorMoved: true, zoomSync: "synced", sequenceSync: "rescheduled" });
+    expect(mockCascadeUpdateSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: "evt-1",
+        sessionId: "anchor1",
+        startTime: new Date(newStart),
+        // 90-minute anchor duration preserved at the new start.
+        endTime: new Date(new Date(newStart).getTime() + 90 * 60_000),
+        expectedUpdatedAt: ANCHOR.updatedAt,
+        source: "rest",
+      }),
+    );
+  });
+
+  it("the anchor is exempt from the M9 out-of-range guard (it is about to be moved)", async () => {
+    // The anchor still sits at the OLD date — without the exemption the guard
+    // would 400 SESSIONS_OUTSIDE_NEW_DATES and the retime would be impossible.
+    mockDb.eventSession.findMany.mockResolvedValue([
+      { id: "anchor1", name: "Webinar", startTime: ANCHOR.startTime, endTime: ANCHOR.endTime },
+    ]);
+    const res = await PUT(
+      makePutRequest({ startDate: "2026-06-05T14:00:00.000Z", endDate: "2026-06-05T15:30:00.000Z" }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("OTHER out-of-range sessions still block the date change (guard intact)", async () => {
+    mockDb.eventSession.findMany.mockResolvedValue([
+      { id: "rogue-2", name: "Second Session", startTime: ANCHOR.startTime, endTime: ANCHOR.endTime },
+    ]);
+    const res = await PUT(
+      makePutRequest({ startDate: "2026-06-05T14:00:00.000Z", endDate: "2026-06-05T15:30:00.000Z" }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("SESSIONS_OUTSIDE_NEW_DATES");
+    expect(mockCascadeUpdateSession).not.toHaveBeenCalled();
+  });
+
+  it("a CONFERENCE date change never cascades", async () => {
+    mockDb.event.findFirst.mockResolvedValue({ ...webinarEvent, eventType: "CONFERENCE" });
+    mockDb.event.update.mockResolvedValue({ ...webinarEvent, eventType: "CONFERENCE" });
+    const res = await PUT(
+      makePutRequest({ startDate: "2026-06-05T14:00:00.000Z", endDate: "2026-06-05T15:30:00.000Z" }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+    expect(mockCascadeUpdateSession).not.toHaveBeenCalled();
+    expect((await res.json()).webinarTimeCascade).toBeUndefined();
+  });
+
+  it("an unchanged start instant never cascades (General saves echo the same dates)", async () => {
+    const res = await PUT(
+      makePutRequest({ name: "Renamed", startDate: "2026-06-01T10:00:00.000Z", endDate: "2026-06-01T11:30:00.000Z" }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+    expect(mockCascadeUpdateSession).not.toHaveBeenCalled();
+  });
+
+  it("400s ANCHOR_OUTSIDE_NEW_DATES BEFORE saving when the anchor's new window crosses past the new end date", async () => {
+    // New start 23:30 Dubai on the event's last day; the anchor's preserved
+    // 90-min duration ends it on the NEXT local day → the exemption + cascade
+    // must not diverge, so the save is refused up front (review M4).
+    const res = await PUT(
+      makePutRequest({ startDate: "2026-06-05T19:30:00.000Z", endDate: "2026-06-05T19:59:00.000Z" }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("ANCHOR_OUTSIDE_NEW_DATES");
+    expect(mockDb.event.update).not.toHaveBeenCalled();
+    expect(mockCascadeUpdateSession).not.toHaveBeenCalled();
+  });
+
+  it("a failed cascade is isolated: event saves, response reports anchorMoved false", async () => {
+    mockCascadeUpdateSession.mockResolvedValue({ ok: false, code: "STALE_WRITE", message: "conflict" });
+    const res = await PUT(
+      makePutRequest({ startDate: "2026-06-05T14:00:00.000Z", endDate: "2026-06-05T15:30:00.000Z" }),
+      makeParams("evt-1"),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).webinarTimeCascade).toEqual({ anchorMoved: false, reason: "STALE_WRITE" });
   });
 });

@@ -126,7 +126,7 @@ function PresenterAgreementContent() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f8f9fb] text-base">
       {/* Banner */}
-      {data.event.bannerImage ? (
+      {data.event.bannerImage || data.event.bannerImageMobile ? (
         <div className="relative w-full bg-white">
           <div className="max-w-[1400px] mx-auto">
             {/* Art-directed: serves the mobile banner below 576px. */}
@@ -134,7 +134,7 @@ function PresenterAgreementContent() {
               banner={data.event.bannerImage}
               bannerMobile={data.event.bannerImageMobile}
               name={data.event.name}
-              className="w-full h-auto max-h-[240px] object-contain"
+              className="block w-full h-auto"
               priority
             />
           </div>

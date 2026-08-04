@@ -45,7 +45,12 @@ vi.mock("@/lib/security", () => ({
 vi.mock("@/lib/event-access", () => ({
   buildEventAccessWhere: (_u: unknown, id: string) => ({ id }),
 }));
-vi.mock("@/lib/webinar", () => ({ readSponsors: () => [] }));
+vi.mock("@/lib/webinar", () => ({
+  readSponsors: () => [],
+  // Real-shaped: the detail route's webinar anchor redirect reads this.
+  readWebinarSettings: (settings: unknown) =>
+    (settings as { webinar?: unknown } | null)?.webinar ?? null,
+}));
 
 import { GET as SESSIONS_GET } from "@/app/api/events/[eventId]/sessions/route";
 import { GET as DETAIL_GET } from "@/app/api/public/events/[slug]/sessions/[sessionId]/detail/route";
@@ -185,5 +190,87 @@ describe("B2 — public session detail must not leak recording credentials or DR
     const res = await DETAIL_GET(req(), detailParams);
     expect(res.status).toBe(429);
     expect(mockDb.event.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("webinar anchor auto-heal — non-anchor session URLs redirect (Aug 4, 2026)", () => {
+  const detailParams = { params: Promise.resolve({ slug: "ev", sessionId: "s1" }) };
+
+  beforeEach(() => {
+    mockAuth.mockResolvedValue(null);
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "Ev", slug: "ev", status: "PUBLISHED", eventType: "WEBINAR",
+      bannerImage: null, timezone: "Asia/Dubai",
+      settings: { webinar: { sessionId: "anchor9" } },
+      organizationId: "org1", organization: { name: "Org" },
+    });
+  });
+
+  it("a non-anchor (or stale/deleted) session id resolves to the anchor", async () => {
+    // First findFirst = the anchor existence check.
+    mockDb.eventSession.findFirst.mockResolvedValueOnce({ id: "anchor9" });
+    const res = await DETAIL_GET(req(), detailParams);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ redirectToSessionId: "anchor9" });
+  });
+
+  it("a DANGLING anchor pointer falls through to the normal lookup (no redirect loop)", async () => {
+    mockDb.eventSession.findFirst
+      .mockResolvedValueOnce(null) // anchor check: anchor9 doesn't exist
+      .mockResolvedValueOnce({
+        id: "s1", name: "Keynote", description: null, startTime: new Date(0), endTime: new Date(0),
+        location: null, capacity: null, status: "COMPLETED", track: null,
+        speakers: [], topics: [], zoomMeeting: null,
+      });
+    const res = await DETAIL_GET(req(), detailParams);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.redirectToSessionId).toBeUndefined();
+    expect(body.session.id).toBe("s1");
+  });
+
+  it("the ANCHOR's own URL serves normally (no self-redirect)", async () => {
+    const anchorParams = { params: Promise.resolve({ slug: "ev", sessionId: "anchor9" }) };
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "anchor9", name: "Webinar", description: null, startTime: new Date(0), endTime: new Date(0),
+      location: null, capacity: null, status: "SCHEDULED", track: null,
+      speakers: [], topics: [], zoomMeeting: null,
+    });
+    const res = await DETAIL_GET(req(), anchorParams);
+    expect(res.status).toBe(200);
+    expect((await res.json()).redirectToSessionId).toBeUndefined();
+  });
+
+  it("org STAFF are exempt — they can still inspect a non-anchor session page (review M8)", async () => {
+    mockAuth.mockResolvedValue({
+      user: { id: "u1", role: "ADMIN", organizationId: "org1" },
+    });
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", name: "Second Session", description: null, startTime: new Date(0), endTime: new Date(0),
+      location: null, capacity: null, status: "SCHEDULED", track: null,
+      speakers: [], topics: [], zoomMeeting: null,
+    });
+    const res = await DETAIL_GET(req(), detailParams);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.redirectToSessionId).toBeUndefined();
+    expect(body.session.id).toBe("s1");
+  });
+
+  it("CONFERENCE events never redirect (multi-session by design)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "Ev", slug: "ev", status: "PUBLISHED", eventType: "CONFERENCE",
+      bannerImage: null, timezone: "Asia/Dubai",
+      settings: { webinar: { sessionId: "anchor9" } },
+      organizationId: "org1", organization: { name: "Org" },
+    });
+    mockDb.eventSession.findFirst.mockResolvedValue({
+      id: "s1", name: "Talk", description: null, startTime: new Date(0), endTime: new Date(0),
+      location: null, capacity: null, status: "SCHEDULED", track: null,
+      speakers: [], topics: [], zoomMeeting: null,
+    });
+    const res = await DETAIL_GET(req(), detailParams);
+    expect(res.status).toBe(200);
+    expect((await res.json()).redirectToSessionId).toBeUndefined();
   });
 });
