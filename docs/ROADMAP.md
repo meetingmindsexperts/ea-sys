@@ -212,6 +212,35 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### WEBINARS role review — deferred LOWs (Aug 4, 2026)
+
+Adversarial review of the WEBINARS role (webinar team): 0 BLOCKER / 2 HIGH / 3 MED / 5 LOW.
+H-1 (org invoice ledger refused + proxy block), H-2 (schedule-mutation primary writes
+builder-bound), M-1 (email-logs desk-confined + CONTACT/USER/OTHER refused), M-2
+(eventType flip refused on event PUT), M-3 (desk-limited UI on assigned conferences),
+L-4 (registration DELETE reverted to ADMIN/ORGANIZER — owner-acked: no refund powers ⇒
+no row deletion) all shipped same day, plus a route-level regression matrix
+([webinars-role-regression-matrix.test.ts](../__tests__/api/webinars-role-regression-matrix.test.ts)).
+Deferred:
+
+- **L-1 — `resolveAnchorZoomMeeting` is org-scoped, not builder-scoped**
+  (webinar/panelists + resend). Benign: conferences have no `settings.webinar.sessionId`
+  anchor → natural 404, and M-2 now prevents the type-flip that could mint one.
+  Belt-and-braces option: clear `settings.webinar` on any admin-performed type flip.
+- **L-2 — contact-PII side door via the two import-contacts routes**: WEBINARS (builder-
+  confined to webinars ✓) can copy a Contact's full shape into a registration/speaker by
+  guessing a contact cuid (list 403s, so no enumeration). Accept or refuse the role on
+  those two routes.
+- **L-5 — `GET /api/organization/users` readable by every org-bound role** (pre-existing;
+  ONSITE/MEMBER/CRM_USER too): staff names/emails/roles by direct API call. Tighten to
+  ADMIN+ if the owner wants (the Settings UI is already proxy-blocked for all of them).
+- **CI grep-gate** (reviewer suggestion, check-tenant-als.sh style): "every handler
+  containing `WEBINAR_STAFF_ALLOW` must contain `buildEventAccessWhere`" — would have
+  caught the email-logs pair and makes the pairing invariant self-enforcing.
+- Dead sidebar entries on webinar events (Certificates / Reimbursements / AI Agent /
+  Dinner) whose APIs 403 the role — cosmetic; hide via role-aware filtering if it
+  generates confusion.
+
 ### Self-service check-in kiosk review — deferred LOWs (Aug 3, 2026)
 
 Adversarial review of the kiosk feature: 0 BLOCKER / 3 HIGH / 4 MED / 7 LOW. H1 (PIN-gated

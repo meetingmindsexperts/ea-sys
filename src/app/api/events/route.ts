@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { slugify, deriveEventCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { validateApiKey } from "@/lib/api-key";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 import { DEFAULT_REG_TYPES, DEFAULT_TIER_NAMES } from "@/app/api/events/[eventId]/tickets/route";
@@ -54,7 +54,9 @@ export async function GET(req: Request) {
       }
 
       const events = await db.event.findMany({
-        where: { ...buildEventAccessWhere(user), ...(slug && { slug }) },
+        // Desk surface: for the WEBINARS role the events LIST must show its
+        // assigned conferences (desk duty) alongside all org webinars.
+        where: { ...buildEventAccessWhere(user, undefined, { surface: "desk" }), ...(slug && { slug }) },
         orderBy,
         include: {
           _count: { select: { registrations: true, speakers: true } },
@@ -107,7 +109,7 @@ export async function POST(req: Request) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const body = await req.json();
@@ -123,6 +125,21 @@ export async function POST(req: Request) {
 
     const { name, description, eventType, tag, specialty, code, startDate, endDate, venue, address, city, country } =
       validated.data;
+
+    // The WEBINARS role may ONLY create webinar events — that's its whole
+    // remit. Anything else (or an omitted type, which defaults to null) is a
+    // hard refusal, not a silent coercion.
+    if (session.user.role === "WEBINARS" && eventType !== "WEBINAR") {
+      apiLogger.warn({
+        msg: "events:webinars-role-non-webinar-create-refused",
+        userId: session.user.id,
+        requestedType: eventType ?? null,
+      });
+      return NextResponse.json(
+        { error: "Your role can only create Webinar events", code: "WEBINAR_ONLY" },
+        { status: 403 },
+      );
+    }
 
     // Create event slug
     let slug = slugify(name);

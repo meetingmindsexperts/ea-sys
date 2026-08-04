@@ -51,6 +51,12 @@ export async function GET(req: Request) {
     }
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
+    // WEBINARS is finance-capable for desk duties only — the org-wide invoice
+    // export is an org-level surface it's blocked from (review H-1).
+    if (session.user.role === "WEBINARS") {
+      apiLogger.warn({ msg: "org-invoices:export-webinars-role-refused", userId: session.user.id });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const organizationId = session.user.organizationId;
     if (!organizationId) {

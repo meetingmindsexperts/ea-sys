@@ -28,7 +28,9 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null }));
+vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"], denyReviewer: () => null }));
 vi.mock("@/lib/email-preview-data", () => ({
   // The representative-speaker layer — deliberately returns ANOTHER speaker's
   // blocks so the test proves the target speaker wins.

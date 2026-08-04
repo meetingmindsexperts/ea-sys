@@ -186,7 +186,7 @@ export function RegistrationDetailSheet({
   // (those stay admin/organizer; the API enforces it too).
   const isOnsite = userSession?.user?.role === "ONSITE";
   const isMember = userSession?.user?.role === "MEMBER";
-  const isDeskOperator = isOnsite || isMember;
+  const isBaseDeskOperator = isOnsite || isMember;
   // ONSITE + MEMBER now SEE money (they record payments) — canViewFinance
   // includes them, so the Billing tab + Payment Summary + amounts show.
   const showFinance = canViewFinance(userSession?.user?.role);
@@ -440,6 +440,13 @@ export function RegistrationDetailSheet({
   const eventTagsQuery = useEventTags(eventId);
   // For the hybrid attendance-mode toggle (only meaningful on HYBRID events).
   const { data: eventForMode } = useEvent(eventId);
+  // WEBINARS on a NON-webinar event is desk-limited too (review M-3): its
+  // conference tier is ONSITE-equivalent, so hide the organizer-only actions
+  // whose APIs would 403/404 anyway. While the event is loading, WEBINARS
+  // gets the safe desk-limited view.
+  const isDeskOperator =
+    isBaseDeskOperator ||
+    (userSession?.user?.role === "WEBINARS" && eventForMode?.eventType !== "WEBINAR");
   const isHybridEvent = (eventForMode as { eventType?: string } | undefined)?.eventType === "HYBRID";
   const previewMutation = usePreviewEmailBySlug(eventId);
 

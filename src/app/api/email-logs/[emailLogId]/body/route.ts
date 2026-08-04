@@ -22,7 +22,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -36,7 +37,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const [session, p] = await Promise.all([auth(), params]);
     emailLogId = p.emailLogId;
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
     if (!session.user.organizationId) {
       apiLogger.warn({ msg: "email-log-body:no-org", userId: session.user.id, emailLogId });
@@ -50,18 +51,25 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // The OR-null branch stays for master's historical rows; under platform
     // RLS it simply never matches (USING hides null-org rows) — and the
     // Domain #18 backfill stamps every event-derivable row anyway.
+    // WEBINARS (review M-1): stored bodies only for rows on ITS events —
+    // bind through the role-aware event where (desk surface) instead of the
+    // bare org scope. Rows with no event never match for this role (fail
+    // closed); other roles keep the historical org + null-org-fallback shape.
+    const scope =
+      session.user.role === "WEBINARS"
+        ? { event: buildEventAccessWhere(session.user, undefined, { surface: "desk" }) }
+        : {
+            OR: [
+              { organizationId: orgId },
+              // Historical null-org rows: readable only when the row's event
+              // provably belongs to the caller's org. A null-org row with no
+              // event never matches (fail closed).
+              { organizationId: null, event: { organizationId: orgId } },
+            ],
+          };
     const row = await runWithTenant(orgId, () =>
       db.emailLog.findFirst({
-        where: {
-          id: emailLogId,
-          OR: [
-            { organizationId: orgId },
-            // Historical null-org rows: readable only when the row's event
-            // provably belongs to the caller's org. A null-org row with no
-            // event never matches (fail closed).
-            { organizationId: null, event: { organizationId: orgId } },
-          ],
-        },
+        where: { id: emailLogId, ...scope },
         select: { subject: true, to: true, createdAt: true, htmlBody: true },
       }),
     );

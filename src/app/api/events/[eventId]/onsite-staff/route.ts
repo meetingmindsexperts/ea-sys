@@ -90,7 +90,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         select: { id: true },
       }),
       db.user.findFirst({
-        where: { id: userId, organizationId: orgGuard.orgId, role: "ONSITE" },
+        where: { id: userId, organizationId: orgGuard.orgId, role: { in: ["ONSITE", "WEBINARS"] } },
         select: { id: true },
       }),
     ]);

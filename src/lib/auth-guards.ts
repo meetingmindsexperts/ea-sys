@@ -10,18 +10,39 @@ import { apiLogger } from "@/lib/logger";
  */
 // CRM_USER is restricted from writes on the general (non-CRM) routes — it can only
 // write inside /api/crm/* (which gate via requireCrmWrite → canOwnDeals, not this).
-const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE", "CRM_USER"];
+// WEBINARS (webinar team, Aug 3 2026) is restricted by DEFAULT too — its full
+// control of WEBINAR-type events is opt-in per route via WEBINAR_STAFF_ALLOW,
+// always paired with a buildEventAccessWhere lookup (which resolves ONLY
+// webinar events for this role), so a missed route fails closed.
+const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS"];
 
 /**
  * Roles permitted to operate the REGISTRATION DESK — create a registration,
  * check attendees in, edit a registration, record a payment, print badges.
- * MEMBER + ONSITE are otherwise restricted from writes, so the registration-
- * domain write routes opt them back in via `denyReviewer(session, { allow:
- * REGISTRATION_DESK_ALLOW })`. Deliberately NOT including: deleting a
- * registration, bulk operations, or any non-registration domain — those stay
- * admin/organizer-only.
+ * MEMBER + ONSITE (+ WEBINARS, which carries ONSITE-equivalent desk powers on
+ * its assigned conferences) are otherwise restricted from writes, so the
+ * registration-domain write routes opt them back in via
+ * `denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW })`. Deliberately
+ * NOT including: deleting a registration, bulk operations, or any
+ * non-registration domain — those stay admin/organizer-only (WEBINARS gets
+ * them on WEBINAR events only, via WEBINAR_STAFF_ALLOW + the access where).
  */
-export const REGISTRATION_DESK_ALLOW = ["ONSITE", "MEMBER"] as const;
+export const REGISTRATION_DESK_ALLOW = ["ONSITE", "MEMBER", "WEBINARS"] as const;
+
+/**
+ * The WEBINARS role's full-control opt-in (Aug 3, 2026). Routes in the
+ * webinar-relevant modules (webinar console, sessions/agenda, communications,
+ * registrations, speakers, tickets, media, sponsors, survey, event PUT/create)
+ * pass this so the webinar team can run webinar events end-to-end.
+ *
+ * INVARIANT — every route that opts WEBINARS in via this list MUST resolve
+ * its event through `buildEventAccessWhere` (default surface), which for
+ * WEBINARS matches ONLY `eventType: WEBINAR` events in its org. That pairing
+ * is what confines the role: the guard says "this OPERATION is allowed", the
+ * where says "…but only on a webinar". An org-scoped hand-rolled event lookup
+ * next to this allow would open the operation on conferences — never do that.
+ */
+export const WEBINAR_STAFF_ALLOW = ["WEBINARS"] as const;
 
 /**
  * Org-bound "team member" roles — the ones shown under Settings → Users and
@@ -29,7 +50,7 @@ export const REGISTRATION_DESK_ALLOW = ["ONSITE", "MEMBER"] as const;
  * roles (an internal registrant can be org-bound but is NOT a team member),
  * so they're excluded.
  */
-export const TEAM_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "CRM_USER"] as const;
+export const TEAM_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS"] as const;
 
 /** True when a role is an org team-member role (vs an attendee/reviewer role). */
 export function isTeamRole(role: string | null | undefined): boolean {

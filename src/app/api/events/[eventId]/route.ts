@@ -8,7 +8,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { updateEventSettings } from "@/lib/event-settings";
 import {
   isSessionWithinEventDates,
@@ -97,7 +97,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if ("error" in orgGuard) return orgGuard.error;
 
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
       include: {
         _count: {
           select: {
@@ -149,7 +149,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     // Verify event belongs to user's organization (use select for minimal data)
@@ -177,6 +177,27 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json(
         { error: "Invalid input", details },
         { status: 400 }
+      );
+    }
+
+    // Review M-2: the WEBINARS role must not flip an event's TYPE — a
+    // webinar re-typed to CONFERENCE would be a conference minted end-to-end
+    // by the webinar team, a two-step bypass of the create route's
+    // WEBINAR_ONLY gate. Same 403 shape as that gate.
+    if (
+      session.user.role === "WEBINARS" &&
+      validated.data.eventType !== undefined &&
+      validated.data.eventType !== "WEBINAR"
+    ) {
+      apiLogger.warn({
+        msg: "events:webinars-role-event-type-flip-refused",
+        eventId,
+        userId: session.user.id,
+        requestedType: validated.data.eventType,
+      });
+      return NextResponse.json(
+        { error: "Your role can only manage Webinar events", code: "WEBINAR_ONLY" },
+        { status: 403 },
       );
     }
 

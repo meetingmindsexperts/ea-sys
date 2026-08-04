@@ -38,6 +38,8 @@ vi.mock("@/lib/media-references", () => ({
   mediaInUseMessage: (refs: { label: string }[]) => `This image is still in use: ${refs.map((r) => r.label).join("; ")}.`,
 }));
 vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"],
   denyReviewer: vi.fn((session: { user: { role: string } }) => {
     if (["REVIEWER", "SUBMITTER"].includes(session.user.role)) {
       return { status: 403, json: async () => ({ error: "Forbidden" }) };

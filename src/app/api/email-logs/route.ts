@@ -3,7 +3,8 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { getEmailLogsFor } from "@/lib/email-log";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const { searchParams } = new URL(req.url);
@@ -41,6 +42,22 @@ export async function GET(req: Request) {
       return NextResponse.json({ logs: [] });
     }
 
+    // WEBINARS (review M-1): email history only for entities on ITS events
+    // (webinars + desk-assigned conferences, via the role-aware where below).
+    // CONTACT is a straight side-door around its contacts exclusion
+    // (canViewContacts=false) and USER/OTHER have no per-entity owner to
+    // confine by — refuse all three for this role.
+    const isWebinarsRole = session.user.role === "WEBINARS";
+    if (isWebinarsRole && entityType !== "REGISTRATION" && entityType !== "SPEAKER") {
+      apiLogger.warn({ msg: "email-logs:webinars-entity-type-refused", entityType, userId: session.user.id });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // For WEBINARS the ownership lookup binds through buildEventAccessWhere
+    // (desk surface) instead of bare org scope; identical for other roles.
+    const entityEventWhere = isWebinarsRole
+      ? buildEventAccessWhere(session.user, undefined, { surface: "desk" })
+      : { organizationId: orgId };
+
     // Tenancy (Domain #18): the ownership lookups read swept Registration /
     // Speaker / Contact and the log read is on swept EmailLog — all ride the
     // caller's org lane. Passthrough on master.
@@ -50,7 +67,7 @@ export async function GET(req: Request) {
     switch (entityType) {
       case "REGISTRATION": {
         const row = await db.registration.findFirst({
-          where: { id: entityId, event: { organizationId: orgId } },
+          where: { id: entityId, event: entityEventWhere },
           select: { id: true },
         });
         ownershipOk = !!row;
@@ -58,7 +75,7 @@ export async function GET(req: Request) {
       }
       case "SPEAKER": {
         const row = await db.speaker.findFirst({
-          where: { id: entityId, event: { organizationId: orgId } },
+          where: { id: entityId, event: entityEventWhere },
           select: { id: true },
         });
         ownershipOk = !!row;

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { updateEventSettings } from "@/lib/event-settings";
 import { readSponsors, SPONSOR_TIERS, type SponsorEntry } from "@/lib/webinar";
@@ -79,7 +80,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true, settings: true },
     });
     if (!event) {
@@ -109,7 +110,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     // Defence in depth: denyReviewer already blocks the null-org roles, but
@@ -153,7 +154,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true, settings: true },
     });
     if (!event) {

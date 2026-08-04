@@ -269,6 +269,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         where: buildEventAccessWhere(
           { id: orgCtx.userId ?? "", role: orgCtx.role ?? "", organizationId: orgCtx.organizationId },
           eventId,
+          // Desk surface: WEBINARS reads its ASSIGNED conferences' lists too
+          // (its ONSITE-equivalent tier); no-op for every other role.
+          { surface: "desk" },
         ),
         // taxRate feeds the hand-flipped-PAID fallback in the cancelled
         // "needs credit note" computation below (mirrors the detail route).
@@ -580,7 +583,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // events they're assigned to (settings.onsiteUserIds), not every event in the
     // org. buildEventAccessWhere is org-scoped (no-op) for admin/organizer.
     const accessibleEvent = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
       select: { id: true },
     });
     if (!accessibleEvent) {

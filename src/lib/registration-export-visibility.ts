@@ -47,7 +47,7 @@
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 
-const EXPORT_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "ONSITE"]);
+const EXPORT_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "ONSITE", "WEBINARS"]);
 
 /**
  * True when the caller may download the registrations list as a file.

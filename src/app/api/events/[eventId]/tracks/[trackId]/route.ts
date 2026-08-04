@@ -3,7 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -133,7 +133,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return unauthorized;
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const access = await validateEventAccess(eventId, session.user);
@@ -221,7 +221,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return unauthorized;
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const access = await validateEventAccess(eventId, session.user);

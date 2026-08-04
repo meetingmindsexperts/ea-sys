@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
@@ -50,7 +51,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const body = await req.json();
@@ -67,10 +68,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     // org, not the session's). Event is unswept → this lookup runs un-wrapped.
     const [eventRow, previewUser] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          ...(session.user.organizationId ? { organizationId: session.user.organizationId } : {}),
-        },
+        // buildEventAccessWhere keeps the historical semantics (org-scoped for
+        // team members, unscoped org-null SUPER_ADMIN) AND confines the
+        // WEBINARS role to webinar events like every route it's allowed on.
+        where: buildEventAccessWhere(session.user, eventId),
         select: {
           id: true, organizationId: true,
           // Real event data so the preview reflects the actual event.

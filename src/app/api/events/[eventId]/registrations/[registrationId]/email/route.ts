@@ -8,7 +8,8 @@ import { apiLogger } from "@/lib/logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc, sendRegistrationConfirmation } from "@/lib/email";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "@/lib/email-barcode";
 import { getTitleLabel } from "@/lib/utils";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp, checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { normalizeEmail, repointOrgContactEmail } from "@/lib/email-change";
@@ -43,7 +44,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const emailLimit = checkRateLimit({
@@ -62,7 +63,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: buildEventAccessWhere(session.user, eventId),
         // Company block + logo needed for the confirmation delegation's quote PDF.
         include: {
           organization: {
@@ -471,7 +472,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const changeLimit = checkRateLimit({
@@ -505,7 +506,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true, organizationId: true },
       }),
       db.registration.findFirst({

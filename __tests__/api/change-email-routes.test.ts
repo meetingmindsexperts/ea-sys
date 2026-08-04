@@ -61,6 +61,8 @@ vi.mock("@/lib/security", () => ({
 }));
 
 vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"],
   denyReviewer: (session: { user?: { role?: string } } | null) => {
     const role = session?.user?.role;
     // Mirror the real guard exactly — MEMBER must be blocked too (the

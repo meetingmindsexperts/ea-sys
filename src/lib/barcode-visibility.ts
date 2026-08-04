@@ -30,7 +30,7 @@
  * not this helper.
  */
 
-const BARCODE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "ONSITE"]);
+const BARCODE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "ONSITE", "WEBINARS"]);
 
 /** True when the role may see entry / DTCM barcodes on a registration payload.
  *  Fails closed. Pass `isApiKey` for programmatic callers (admin-equivalent). */

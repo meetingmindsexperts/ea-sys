@@ -50,7 +50,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only print badges for events they're assigned to (badge PDFs carry entry
       // barcodes). Org-scoped (unchanged) for admin/organizer.
-      where: buildEventAccessWhere(session.user, eventId),
+      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
       select: { id: true, badgeVerticalOffset: true, requiresDtcmBarcode: true },
     });
 

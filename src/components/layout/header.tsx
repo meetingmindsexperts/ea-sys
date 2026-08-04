@@ -19,6 +19,7 @@ import {
   X,
   Ticket,
   ScanBarcode,
+  Video,
   Handshake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -128,6 +129,18 @@ const ROLE_META: Record<string, RoleMeta> = {
       { label: "Check attendees in",       allowed: true },
       { label: "Print badges",             allowed: true },
       { label: "View prices & payments",   allowed: false },
+    ],
+  },
+  WEBINARS: {
+    label: "Webinars",
+    description: "Webinar team",
+    color: "bg-violet-100 text-violet-700",
+    icon: Video,
+    permissions: [
+      { label: "Run webinar events",        allowed: true },
+      { label: "Registration desk (assigned)", allowed: true },
+      { label: "Manage conferences",        allowed: false },
+      { label: "Organization settings",     allowed: false },
     ],
   },
   CRM_USER: {

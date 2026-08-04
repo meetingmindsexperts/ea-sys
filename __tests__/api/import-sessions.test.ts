@@ -41,7 +41,9 @@ vi.mock("@/lib/db", () => ({
     (mockDb.$transaction as (cb: (tx: unknown) => unknown, opts?: unknown) => unknown)(cb, opts),
 }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
-vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null }));
+vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"], denyReviewer: () => null }));
 vi.mock("@/lib/security", () => ({
   checkRateLimit: () => ({ allowed: true }),
   getClientIp: () => "1.2.3.4",

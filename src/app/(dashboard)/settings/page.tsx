@@ -407,6 +407,7 @@ export default function SettingsPage() {
     MEMBER: "bg-amber-100 text-amber-800",
     REVIEWER: "bg-green-100 text-green-800",
     ONSITE: "bg-cyan-100 text-cyan-800",
+    WEBINARS: "bg-violet-100 text-violet-800",
     CRM_USER: "bg-green-100 text-green-800",
   };
 
@@ -881,6 +882,7 @@ export default function SettingsPage() {
                               <SelectItem value="MEMBER">Member</SelectItem>
                               <SelectItem value="REVIEWER">Reviewer</SelectItem>
                               <SelectItem value="ONSITE">Onsite Staff</SelectItem>
+                              <SelectItem value="WEBINARS">Webinars</SelectItem>
                               <SelectItem value="CRM_USER">CRM User</SelectItem>
                             </SelectContent>
                           </Select>

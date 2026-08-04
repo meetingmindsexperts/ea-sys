@@ -48,6 +48,8 @@ vi.mock("@/lib/event-access", () => ({
   buildEventAccessWhere: (_user: unknown, eventId: string) => ({ id: eventId }),
 }));
 vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"],
   denyReviewer: (session: { user?: { role?: string } } | null) => {
     const role = session?.user?.role;
     if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT") {

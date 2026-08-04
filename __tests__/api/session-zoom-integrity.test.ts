@@ -31,7 +31,9 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
-vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null }));
+vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"], denyReviewer: () => null }));
 vi.mock("@/lib/security", () => ({ getClientIp: () => "1.2.3.4" }));
 vi.mock("@/lib/event-stats", () => ({ refreshEventStats: vi.fn() }));
 vi.mock("@/lib/zoom/cleanup", () => ({ deleteRemoteZoomMeeting: mockDeleteRemote }));

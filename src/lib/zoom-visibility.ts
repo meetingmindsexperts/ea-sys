@@ -34,7 +34,7 @@
  * redaction treats them.
  */
 
-const ZOOM_HOST_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER"]);
+const ZOOM_HOST_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "WEBINARS"]);
 
 /** True when the role may see Zoom host credentials. Fails closed — an unknown
  *  or missing role gets `false`. Pass `isApiKey` for programmatic callers,

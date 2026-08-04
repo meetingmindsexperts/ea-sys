@@ -34,7 +34,9 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/require-org", () => ({
   requireOrgId: () => ({ orgId: "org1" }),
 }));
-vi.mock("@/lib/auth-guards", () => ({ denyReviewer: () => null }));
+vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"], denyReviewer: () => null }));
 vi.mock("@/lib/security", () => ({
   checkRateLimit: () => ({ allowed: true }),
   getClientIp: () => "127.0.0.1",

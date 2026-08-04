@@ -44,7 +44,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
     return await runWithTenant(session.user.organizationId ?? "", async () => {
     const event = await db.event.findFirst({
-      where: buildEventAccessWhere(session.user, eventId),
+      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
       select: { id: true },
     });
     if (!event) {

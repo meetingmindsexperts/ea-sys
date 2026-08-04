@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { updateEventSettings } from "@/lib/event-settings";
 import { z } from "zod";
 
@@ -42,7 +43,7 @@ export async function GET(
     // without depending on the admin-only credentials route.
     const [event, org] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true, settings: true },
       }),
       db.organization.findUnique({
@@ -83,7 +84,7 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const organizationId = session.user.organizationId;
@@ -102,7 +103,7 @@ export async function PUT(
     }
 
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true, settings: true },
     });
 

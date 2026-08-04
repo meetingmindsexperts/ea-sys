@@ -147,7 +147,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const data = parsed.data;
 
     const event = await db.event.findFirst({
-      where: { id: eventId, ...buildEventAccessWhere(session.user) },
+      where: { id: eventId, ...buildEventAccessWhere(session.user, undefined, { surface: "desk" }) },
       select: { id: true, organizationId: true, name: true, taxRate: true, taxLabel: true },
     });
     if (!event) {

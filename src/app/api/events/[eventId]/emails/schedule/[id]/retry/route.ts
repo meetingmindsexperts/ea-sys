@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 
@@ -21,7 +22,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     // Tenancy (Domain #18): swept ScheduledEmail retry rides the org lane.
@@ -32,7 +33,10 @@ export async function POST(req: Request, { params }: RouteParams) {
       where: {
         id,
         eventId,
-        organizationId: orgGuard.orgId,
+        // Review H-2: the PRIMARY write must carry the role-aware event
+        // resolution, not just org scope — for WEBINARS this confines the
+        // mutation to webinar events (the fallback read already did).
+        event: buildEventAccessWhere(session.user, eventId),
         status: "FAILED",
       },
       data: {
@@ -49,7 +53,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (result.count === 0) {
       const existing = await db.scheduledEmail.findFirst({
-        where: { id, eventId, organizationId: orgGuard.orgId },
+        where: { id, eventId, event: buildEventAccessWhere(session.user, eventId) },
         select: { status: true },
       });
       if (!existing) {

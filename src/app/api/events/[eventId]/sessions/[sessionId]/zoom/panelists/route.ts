@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { addWebinarPanelists, listWebinarPanelists, removeWebinarPanelist } from "@/lib/zoom";
@@ -21,7 +22,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
@@ -40,7 +41,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting, sessionSpeakers] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true, organizationId: true },
       }),
       db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),
@@ -105,7 +106,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true, organizationId: true },
       }),
       db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),
@@ -141,7 +142,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const url = new URL(req.url);
@@ -153,7 +154,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true, organizationId: true },
       }),
       db.zoomMeeting.findFirst({ where: { sessionId, eventId } }),

@@ -33,6 +33,8 @@ vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/auth", () => ({ auth: () => mockAuth() }));
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"],
   denyReviewer: (s: { user?: { role?: string } } | null) =>
     ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER"].includes(s?.user?.role ?? "")
       ? { status: 403, json: async () => ({ error: "Forbidden" }) }

@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -171,12 +171,25 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = orgGuard.orgId;
     return await runWithTenant(orgId, async () => {
+    // Access pre-check BEFORE the service: createSpeaker's internal event
+    // lookup is org-scoped only, which is fine for ADMIN/ORGANIZER but would
+    // let the WEBINARS role (allowed above) create speakers on a CONFERENCE.
+    // buildEventAccessWhere confines it to webinar events.
+    const accessibleEvent = await db.event.findFirst({
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true },
+    });
+    if (!accessibleEvent) {
+      apiLogger.warn({ msg: "speaker-create:event-not-found", eventId, userId: session.user.id, role: session.user.role });
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
     const validated = createSpeakerSchema.safeParse(body);
 
     if (!validated.success) {

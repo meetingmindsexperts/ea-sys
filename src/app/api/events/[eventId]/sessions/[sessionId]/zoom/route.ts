@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import {
@@ -64,7 +65,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true },
       }),
       // eventId in the where binds the session to THIS event — without it a
@@ -102,7 +103,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const { allowed, retryAfterSeconds } = checkRateLimit({
@@ -128,7 +129,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Verify event access and get session details
     const [event, eventSession, existingZoom] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true, organizationId: true, timezone: true, slug: true },
       }),
       db.eventSession.findFirst({
@@ -298,7 +299,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     const validated = updateZoomSchema.safeParse(body);
@@ -310,7 +311,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true, organizationId: true },
       }),
       // eventId binds the session to THIS event — without it a caller who owns
@@ -372,13 +373,13 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const [event, zoomMeeting] = await Promise.all([
       db.event.findFirst({
-        where: { id: eventId, organizationId: orgGuard.orgId },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true, organizationId: true },
       }),
       // eventId binds the session to THIS event — without it a caller who owns

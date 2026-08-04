@@ -37,7 +37,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
       // (unchanged) for admin/organizer.
-      where: buildEventAccessWhere(session.user, eventId),
+      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
       select: { id: true },
     });
 
@@ -154,7 +154,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
       // (unchanged) for admin/organizer.
-      where: buildEventAccessWhere(session.user, eventId),
+      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
       select: { id: true },
     });
 
@@ -266,7 +266,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE — an ONSITE user may only act on events
       // they're assigned to. Org-scoped (unchanged) for admin/organizer.
-      where: buildEventAccessWhere(session.user, eventId),
+      where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
       select: { id: true },
     });
     if (!event) {

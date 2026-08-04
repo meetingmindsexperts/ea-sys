@@ -8,7 +8,19 @@ type SessionUser = {
 
 export function buildEventAccessWhere(
   user: SessionUser,
-  eventId?: string
+  eventId?: string,
+  opts?: {
+    /**
+     * "desk" widens the WEBINARS role's resolution to ALSO include
+     * conferences it's been assigned to via Event.settings.onsiteUserIds
+     * (its ONSITE-equivalent surface). Pass it ONLY from the registration-
+     * desk routes (list/create/detail/check-in/badges/payments/activity).
+     * The default ("manage") resolves ONLY WEBINAR-type events for that
+     * role, so full-control routes fail closed on conferences. Other roles
+     * ignore this flag entirely.
+     */
+    surface?: "manage" | "desk";
+  }
 ): Prisma.EventWhereInput {
   if (user.role === "REVIEWER") {
     // Reviewers are org-independent — scoped only by event assignment
@@ -57,6 +69,28 @@ export function buildEventAccessWhere(
       ...(eventId && { id: eventId }),
       organizationId: user.organizationId!,
       settings: { path: ["onsiteUserIds"], array_contains: user.id },
+    };
+  }
+
+  // WEBINARS: the webinar team (Aug 3, 2026). Org-bound, TWO-TIER:
+  //  - manage surface (default): ALL of the org's WEBINAR-type events —
+  //    full-control routes pair this with `denyReviewer(..., { allow:
+  //    WEBINAR_STAFF_ALLOW })`, so conferences are unreachable there.
+  //  - desk surface (opt-in flag): webinars PLUS conferences assigned via the
+  //    SAME Event.settings.onsiteUserIds list ONSITE uses — the registration-
+  //    desk routes pass { surface: "desk" }.
+  if (user.role === "WEBINARS") {
+    return {
+      ...(eventId && { id: eventId }),
+      organizationId: user.organizationId!,
+      ...(opts?.surface === "desk"
+        ? {
+            OR: [
+              { eventType: "WEBINAR" },
+              { settings: { path: ["onsiteUserIds"], array_contains: user.id } },
+            ],
+          }
+        : { eventType: "WEBINAR" as const }),
     };
   }
 

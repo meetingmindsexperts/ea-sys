@@ -13,9 +13,15 @@ import { runWithTenant } from "@/lib/tenant-context";
  * Organization-wide invoice hub — every Invoice-model document (invoices,
  * receipts, credit notes) across ALL of the org's events, filterable by
  * year / month / event / type / status. Powers the org-level Invoices page
- * in the sidebar. Finance-gated (invoices are financial → MEMBER/ONSITE and
- * restricted roles are barred by denyFinance), org-scoped via
- * `organizationId` so it never crosses tenants.
+ * in the sidebar. Finance-gated via denyFinance — NOTE (doc-drift fixed
+ * Aug 4, 2026): MEMBER and ONSITE are finance-CAPABLE (FINANCE_ROLES, June 17
+ * decision), so denyFinance does NOT bar them here; it bars the org-null
+ * attendee roles. Org-scoped via `organizationId` so it never crosses tenants.
+ *
+ * WEBINARS (webinar team) is explicitly refused: it is finance-capable for
+ * its DESK duties (payment amounts on its own events), but this is an
+ * ORG-WIDE ledger covering every conference — an org-level surface the role
+ * is blocked from by spec (review H-1).
  *
  * Query params (all optional): year, month (1-12), eventId, type, status, search.
  * Returns `{ invoices, earliestYear }` — earliestYear seeds the page's Year filter.
@@ -26,10 +32,14 @@ export async function GET(req: Request) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    // Invoices are financial — MEMBER (read-only viewer), ONSITE, and the
-    // restricted roles are barred (same gate as the per-event invoice routes).
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
+    // Finance-capable ≠ org-ledger access: WEBINARS sees payment amounts on
+    // its own events, never the org-wide invoice book (review H-1).
+    if (session.user.role === "WEBINARS") {
+      apiLogger.warn({ msg: "org-invoices:webinars-role-refused", userId: session.user.id });
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const organizationId = session.user.organizationId;
     if (!organizationId) {

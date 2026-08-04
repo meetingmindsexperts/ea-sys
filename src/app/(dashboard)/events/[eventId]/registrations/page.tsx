@@ -98,9 +98,14 @@ export default function RegistrationsPage() {
   // the bulk/import/share write actions on this list (those stay admin/
   // organizer). MEMBER additionally has full read elsewhere; ONSITE is
   // nav-restricted. On this list both get the same (no-bulk) treatment.
-  const isOnsite = userSession?.user?.role === "ONSITE";
-  const isMember = userSession?.user?.role === "MEMBER";
-  const isDeskOperator = isOnsite || isMember;
+  // Desk-limited UI: ONSITE always; WEBINARS on NON-webinar events (its
+  // conference tier is ONSITE-equivalent — review M-3: without this the full
+  // organizer chrome renders and every non-desk action dies 403/404 at the
+  // API). `event` loads below; while undefined, WEBINARS gets the safe
+  // desk-limited view rather than a flash of organizer chrome.
+  const roleName = userSession?.user?.role;
+  const isOnsite = roleName === "ONSITE";
+  const isMember = roleName === "MEMBER";
 
   // Tag filter state declared up here so useRegistrations can read it.
   // Empty array = no filter (URL omits the `tags=` param).
@@ -123,6 +128,11 @@ export default function RegistrationsPage() {
   const { data: ticketTypes = [] } = ticketsQuery;
   const { data: event } = useEvent(eventId);
   const eventIsWebinar = isWebinar(event ?? undefined);
+  // WEBINARS on a NON-webinar event is desk-limited too (its conference tier
+  // is ONSITE-equivalent). While `event` is still loading, WEBINARS gets the
+  // safe desk-limited view rather than a flash of organizer chrome.
+  const isDeskOperator =
+    isOnsite || isMember || (roleName === "WEBINARS" && event?.eventType !== "WEBINAR");
   const tagsQuery = useEventTags(eventId);
 
   const handleRefresh = () => {

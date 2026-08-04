@@ -212,6 +212,20 @@ enum UserRole {
   // 2026-06-17 "desk staff record payments" decision) — it SEES payment amounts
   // for its assigned events. Do not assume money is hidden from it.
   ONSITE
+  // Webinars team — org-bound internal staff (added 2026-08-03, owner spec:
+  // "ONSITE role + webinar full control, not organizer"). TWO-TIER access:
+  //  (1) ALL of the org's WEBINAR-type events: FULL organizer-grade control
+  //      (create webinars, registrations, communications, console, content,
+  //      event settings) — automatic, no per-event assignment.
+  //  (2) Non-webinar events: ONSITE-equivalent registration desk ONLY, via the
+  //      SAME per-event assignment list (Event.settings.onsiteUserIds).
+  // Blocked from org-level surfaces (org settings/users/API keys, CRM,
+  // invoices, reimbursements, refunds/credit-notes, certificates v1, agent).
+  // Enforcement is opt-in per route (denyReviewer restricted set + allow
+  // lists) with event resolution through buildEventAccessWhere — a missed
+  // route fails CLOSED. Finance-capable (desk records payments) and holds
+  // Zoom HOST credentials for webinar events (the producer role).
+  WEBINARS
 }
 
 enum Title {

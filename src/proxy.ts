@@ -200,6 +200,33 @@ export default auth((req) => {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // WEBINARS: the webinar team (Aug 3, 2026). Full UI access to the events
+  // area (their event LIST + APIs resolve only webinars + assigned-conference
+  // desk via buildEventAccessWhere — the API layer is the authoritative gate;
+  // the Edge can't read eventType). Blocked from org-level surfaces. /events/new
+  // is ALLOWED (they create webinar events; the POST forces eventType=WEBINAR).
+  if (role === "WEBINARS") {
+    if (pathname.startsWith("/api/")) {
+      return addCorsHeaders(NextResponse.next(), origin);
+    }
+    if (
+      pathname.startsWith("/dashboard") ||
+      pathname.startsWith("/settings") ||
+      pathname.startsWith("/logs") ||
+      pathname.startsWith("/contacts") ||
+      pathname.startsWith("/crm") ||
+      pathname.startsWith("/admin") ||
+      // Org-wide invoice ledger — WEBINARS is finance-capable for its desk
+      // duties but blocked from org-level finance surfaces (review H-1).
+      pathname.startsWith("/invoices")
+    ) {
+      const redirectUrl = req.nextUrl.clone();
+      redirectUrl.pathname = "/events";
+      return NextResponse.redirect(redirectUrl);
+    }
+    return addCorsHeaders(NextResponse.next(), origin);
+  }
+
   const isRestricted = role === "REVIEWER" || role === "SUBMITTER";
 
   if (!isRestricted) {
@@ -260,6 +287,10 @@ export const config = {
     "/contacts/:path*",
     "/profile/:path*",
     "/logs/:path*",
+    // Org-wide invoice ledger — needed so the WEBINARS (and CRM_USER)
+    // confinement branches actually run on it (review H-1: it was outside
+    // the matcher, so NO role branch ever executed there).
+    "/invoices/:path*",
     "/my-registration/:path*",
     "/api/:path*",
   ],

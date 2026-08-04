@@ -201,6 +201,7 @@ export function Sidebar() {
   const isRegistrant  = session?.user?.role === "REGISTRANT";
   const isOnsite      = session?.user?.role === "ONSITE";
   const isCrmUser     = session?.user?.role === "CRM_USER";
+  const isWebinars    = session?.user?.role === "WEBINARS";
   const isRestricted  = isReviewer || isSubmitter;
   const canFinance    = canViewFinance(session?.user?.role);
   const canCrm        = canViewCrm(session?.user?.role);
@@ -267,7 +268,7 @@ export function Sidebar() {
 //this section to be reviewed, to much nesting, maybe can be simplified start
   const baseNavigation = isCrmUser
     ? crmOnlyNavigation
-    : isOnsite
+    : isOnsite || isWebinars
     ? eventsOnlyNavigation
     : isRestricted
       ? restrictedNavigation
@@ -279,8 +280,24 @@ export function Sidebar() {
           return true;
         });
 
-  // Build sections for event nav
-  const visibleEventSections = isOnsite
+  // Build sections for event nav.
+  // WEBINARS (webinar team, Aug 3 2026) is TWO-TIER: on a WEBINAR event it
+  // gets the full organizer-style module set (the webinarFilter hides the
+  // conference-only modules anyway); on a conference it gets the ONSITE desk
+  // pair. While the event is still loading, show NOTHING — a brief blank
+  // beats flashing modules the role may not have (the submitter pattern).
+  const visibleEventSections = isWebinars
+    ? currentEvent === undefined
+      ? []
+      : currentEvent?.eventType === "WEBINAR"
+        ? eventNavigationSections
+            .map((section) => ({
+              ...section,
+              items: section.items.filter(webinarFilter),
+            }))
+            .filter((section) => section.items.length > 0)
+        : [{ label: "Manage", items: onsiteEventItems }]
+    : isOnsite
     ? [{ label: "Manage", items: onsiteEventItems }]
     : isRestricted
       ? [{ label: "Abstracts", items: restrictedEventItems }]

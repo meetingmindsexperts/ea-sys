@@ -53,6 +53,8 @@ vi.mock("@/lib/security", () => ({
   getClientIp: () => "127.0.0.1",
 }));
 vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"],
   denyReviewer: (session: { user?: { role?: string } } | null) => {
     const role = session?.user?.role;
     if (role === "REVIEWER" || role === "SUBMITTER" || role === "REGISTRANT") {

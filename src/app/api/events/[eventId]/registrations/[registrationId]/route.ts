@@ -151,7 +151,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Parallelize event check, registration fetch, and the credited-so-far sum.
     const [event, registration, creditedAgg] = await Promise.all([
       db.event.findFirst({
-        where: buildEventAccessWhere(session.user, eventId),
+        where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
         // taxRate/taxLabel feed the `financials` block so the Payment
         // block + Payment Summary match the quote/invoice VAT math.
         select: { id: true, taxRate: true, taxLabel: true },
@@ -311,7 +311,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user
         // may only edit registrations for events they're assigned to. Org-scoped
         // (unchanged) for admin/organizer. Mirrors the GET above.
-        where: buildEventAccessWhere(session.user, eventId),
+        where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),
         // taxRate/taxLabel feed the recomputed `financials` attached to the
         // PUT response so the detail sheet's Payment Summary refreshes after an
         // inline edit (e.g. a pricing-tier re-classification) without a
@@ -463,15 +463,16 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
+    // Registration DELETE stays ADMIN/ORGANIZER-only — WEBINARS is
+    // deliberately NOT allowed (review L-4, owner-acked): the role is blocked
+    // from refunds/credit-notes, and deleting a PAID registration destroys
+    // the row with no money movement. Cancellation/refund is an admin action.
     const denied = denyReviewer(session);
     if (denied) return denied;
 
     return await runWithTenant(orgGuard.orgId, async () => {
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: orgGuard.orgId,
-      },
+      where: buildEventAccessWhere(session.user, eventId),
     });
 
     if (!event) {

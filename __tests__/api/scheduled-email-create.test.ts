@@ -41,6 +41,8 @@ vi.mock("@/lib/security", () => ({
   getClientIp: () => "127.0.0.1",
 }));
 vi.mock("@/lib/auth-guards", () => ({
+  WEBINAR_STAFF_ALLOW: ["WEBINARS"],
+  REGISTRATION_DESK_ALLOW: ["ONSITE", "MEMBER", "WEBINARS"],
   // Mirror the real guard's restricted set — MEMBER/ONSITE/CRM_USER must be
   // blocked too (the schedule GET now routes through denyReviewer per review
   // R1; a mock that omits them would let a regression slip past this suite).

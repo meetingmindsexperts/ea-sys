@@ -16,7 +16,7 @@
  * guard all derive from `canViewFinance()` so the boundary can't drift.
  */
 
-const FINANCE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE"]);
+const FINANCE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "WEBINARS"]);
 
 /** True when the role is permitted to see financial data. Fails closed —
  *  an unknown / missing role gets `false`. */

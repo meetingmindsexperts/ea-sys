@@ -6,7 +6,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
-import { denyReviewer } from "@/lib/auth-guards";
+import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
@@ -179,7 +179,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
@@ -189,10 +189,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // binds the speaker to {id, eventId} — it does not re-check that the event
     // belongs to the caller's org). 404, not 403, to avoid existence leaks.
     const event = await db.event.findFirst({
-      where: {
-        id: eventId,
-        organizationId: orgGuard.orgId,
-      },
+      where: buildEventAccessWhere(session.user, eventId),
       select: { id: true },
     });
 
@@ -307,7 +304,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const orgGuard = requireOrgId(session);
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session);
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
@@ -315,10 +312,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return await runWithTenant(orgId, async () => {
     const [event, speaker] = await Promise.all([
       db.event.findFirst({
-        where: {
-          id: eventId,
-          organizationId: orgGuard.orgId,
-        },
+        where: buildEventAccessWhere(session.user, eventId),
         select: { id: true },
       }),
       db.speaker.findFirst({
