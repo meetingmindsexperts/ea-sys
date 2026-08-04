@@ -34,6 +34,11 @@ const ALLOWED: Record<string, { ext: string; magic: number[][] }> = {
     ext: "doc",
     magic: [[0xd0, 0xcf, 0x11, 0xe0]], // OLE compound file
   },
+  // Images (Aug 4, 2026 — speaker profile form parity): a passport photocopy
+  // is often a phone photo, and the docs slots can be filled by EITHER the
+  // organizer here OR the speaker via their public form.
+  "image/jpeg": { ext: "jpg", magic: [[0xff, 0xd8, 0xff]] },
+  "image/png": { ext: "png", magic: [[0x89, 0x50, 0x4e, 0x47]] },
 };
 
 function magicMatches(buf: Buffer, magics: number[][]): boolean {
@@ -161,7 +166,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!allowed) {
       apiLogger.warn({ msg: "speaker-documents:invalid-mime", claimedType: file.type, userId: session.user.id });
       return NextResponse.json(
-        { error: "Only PDF and DOC/DOCX files are allowed" },
+        { error: "Only PDF, DOC/DOCX, JPG and PNG files are allowed" },
         { status: 400 },
       );
     }

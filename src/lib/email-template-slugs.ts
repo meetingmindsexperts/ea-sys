@@ -37,6 +37,7 @@ export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
   "dinner-rsvp-invitation",
   "speaker-reimbursement-invitation",
   "speaker-reimbursement-received",
+  "speaker-profile-form-request",
   "webinar-confirmation",
   "webinar-live-now",
   "webinar-panelist-invitation",
@@ -84,6 +85,7 @@ const TEMPLATE_LABEL_OVERRIDES: Readonly<Record<string, string>> = {
   "dinner-rsvp-invitation": "Dinner RSVP Invitation",
   "speaker-reimbursement-invitation": "Reimbursement Invitation",
   "speaker-reimbursement-received": "Reimbursement Received",
+  "speaker-profile-form-request": "Speaker Profile Form Request",
   "webinar-reminder-1h": "Webinar Reminder (1h)",
   "webinar-reminder-24h": "Webinar Reminder (24h)",
 };

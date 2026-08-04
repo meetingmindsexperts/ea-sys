@@ -77,6 +77,7 @@ import { fileToBase64 } from "@/lib/file-to-base64";
 import { resolveAttachmentMime } from "@/lib/email-attachment-limits";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { SpeakerDocumentsCard } from "@/components/speakers/speaker-documents-card";
+import { SpeakerProfileFormCard } from "@/components/speakers/speaker-profile-form-card";
 import { SpeakerReimbursementCard } from "@/components/speakers/speaker-reimbursement-card";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
@@ -1263,6 +1264,10 @@ export default function SpeakerDetailPage() {
           </Card>
 
           <SpeakerDocumentsCard eventId={eventId} speakerId={speakerId} />
+
+          {/* Photo & Documents form — send the speaker their public link to
+              upload photo/passport/cover letter + review bio. Staff-only. */}
+          <SpeakerProfileFormCard eventId={eventId} speakerId={speakerId} />
 
           {/* Reimbursement (wire-transfer claim) — self-hides for roles
               outside the SUPER_ADMIN/ADMIN/ORGANIZER boundary. */}

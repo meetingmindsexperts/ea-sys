@@ -170,8 +170,8 @@ describe("POST /documents — validation", () => {
     expect(res.status).toBe(400);
   });
 
-  it("400 for a disallowed MIME type", async () => {
-    const res = await POST(makeUploadRequest({ fileType: "image/png" }), makeParams());
+  it("400 for a disallowed MIME type (images ARE allowed since the profile form — GIF is not)", async () => {
+    const res = await POST(makeUploadRequest({ fileType: "image/gif" }), makeParams());
     expect(res.status).toBe(400);
     expect(mockFs.writeFile).not.toHaveBeenCalled();
   });

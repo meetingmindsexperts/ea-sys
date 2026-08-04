@@ -38,7 +38,7 @@ interface SpeakerDocumentRow {
 }
 
 const ACCEPT =
-  "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -174,7 +174,14 @@ export function SpeakerDocumentsCard({
                     </p>
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <a href={signedAgreement.url} target="_blank" rel="noopener noreferrer">
+                    {/* Streams via the authed file route — /uploads/speaker-docs/
+                        is blocked on the public catch-all (passports live
+                        there since the speaker profile form, Aug 4 2026). */}
+                    <a
+                      href={`/api/events/${eventId}/speakers/${speakerId}/documents/${signedAgreement.id}/file`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <Button variant="ghost" size="icon" className="h-7 w-7" title="Download">
                         <Download className="h-3.5 w-3.5" />
                       </Button>
@@ -260,7 +267,11 @@ export function SpeakerDocumentsCard({
                         </p>
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <a href={doc.url} target="_blank" rel="noopener noreferrer">
+                        <a
+                          href={`/api/events/${eventId}/speakers/${speakerId}/documents/${doc.id}/file`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
                           <Button variant="ghost" size="icon" className="h-7 w-7" title="Download">
                             <Download className="h-3.5 w-3.5" />
                           </Button>
@@ -287,10 +298,14 @@ export function SpeakerDocumentsCard({
               <Input
                 value={otherLabel}
                 onChange={(e) => setOtherLabel(e.target.value)}
-                placeholder="Label (optional, e.g. Bio)"
+                placeholder='Label (optional, e.g. "Passport copy", "Cover letter", Bio)'
                 className="h-8 text-sm mb-2"
                 maxLength={200}
               />
+              <p className="text-[11px] text-muted-foreground mb-2">
+                Label a file &ldquo;Passport copy&rdquo; or &ldquo;Cover letter&rdquo; and it also
+                fills that slot on the speaker&rsquo;s Photo &amp; Documents form.
+              </p>
               <input
                 ref={otherInputRef}
                 type="file"

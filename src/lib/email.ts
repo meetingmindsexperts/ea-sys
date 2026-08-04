@@ -1428,6 +1428,17 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "organizerName", description: "Organizing team / organization name" },
     { key: "organizerSignature", description: "The sending user's email signature (from their profile)" },
   ],
+  "speaker-profile-form-request": [
+    { key: "firstName", description: "Speaker first name" },
+    { key: "lastName", description: "Speaker last name" },
+    { key: "speakerName", description: "Speaker full name with title prefix (e.g. Dr. Jane Doe)" },
+    { key: "email", description: "Speaker email address" },
+    { key: "eventName", description: "Event name" },
+    { key: "profileFormLink", description: "The speaker's personalized photo & documents form link (unique per recipient)" },
+    { key: "personalMessage", description: "Optional note typed by the organizer at send time" },
+    { key: "organizerName", description: "Organizing team / organization name" },
+    { key: "organizerSignature", description: "The sending user's email signature (from their profile)" },
+  ],
   "speaker-reimbursement-received": [
     { key: "firstName", description: "Speaker first name" },
     { key: "speakerName", description: "Full name as submitted on the form" },
@@ -2512,6 +2523,45 @@ Best regards,
   },
 
   {
+    slug: "speaker-profile-form-request",
+    name: "Speaker Profile Form Request",
+    // Sent from the speaker page with the speaker's personalized
+    // {{profileFormLink}} — asks for their photo, passport photocopy,
+    // optional cover letter and bio. Editable per-event under
+    // Communications → Email Templates.
+    subject: "Your photo & documents — {{eventName}}",
+    htmlContent: `<div style="padding: 24px 0;">
+    <p>Dear <strong>{{speakerName}}</strong>,</p>
+    <p>To complete your speaker profile for <strong>{{eventName}}</strong>, please use the secure form below to upload your <strong>photo</strong> and <strong>passport photocopy</strong> (and a cover letter if applicable), and review your bio.</p>
+    {{personalMessage}}
+    <div style="text-align: center; margin: 28px 0;">
+      <a href="{{profileFormLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600;">Complete your speaker profile</a>
+    </div>
+    <p style="color: #6b7280; font-size: 13px; margin: 0 0 16px 0;">Or copy this link into your browser:<br><span style="word-break: break-all; color: #00aade;">{{profileFormLink}}</span></p>
+    <div style="background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin: 0 0 16px 0;">
+      <p style="margin: 0; font-size: 14px;">Please have ready: a recent headshot photo (JPG/PNG, under 500KB) and a scan or clear phone photo of your passport photo page (PDF/JPG/PNG). The passport copy is required.</p>
+    </div>
+    <p style="margin-bottom: 0;">Best regards,<br><strong>{{organizerName}}</strong></p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Your photo & documents — {{eventName}}
+
+Dear {{speakerName}},
+
+To complete your speaker profile for {{eventName}}, please use the secure form to upload your photo and passport photocopy (and a cover letter if applicable), and review your bio:
+{{profileFormLink}}
+
+{{personalMessage}}
+
+Please have ready: a recent headshot photo (JPG/PNG, under 500KB) and a scan or clear phone photo of your passport photo page (PDF/JPG/PNG). The passport copy is required.
+
+Best regards,
+{{organizerName}}
+
+{{organizerSignature}}`,
+  },
+
+  {
     slug: "speaker-reimbursement-received",
     name: "Reimbursement Form Received",
     // Automated confirmation to the speaker right after they submit —
@@ -2903,6 +2953,8 @@ export function getSamplePreviewVariables(
     // Speaker-reimbursement placeholders — real sends use each speaker's
     // token link; the claim summary renders from the actual submission.
     reimbursementLink: "#",
+    // Speaker profile form placeholder — real sends use the speaker's token.
+    profileFormLink: "#",
     claimSummary:
       '<table style="width:100%;border-collapse:collapse;margin:12px 0;"><tr><td style="padding:6px 0;color:#6b7280;">Speaker Fee</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 1,000.00</td></tr><tr><td style="padding:6px 0;color:#6b7280;">Flight Reimbursement</td><td style="padding:6px 0;text-align:right;font-weight:500;">USD 850.00</td></tr><tr><td style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:600;">Total</td><td style="padding:8px 0;border-top:1px solid #e5e7eb;text-align:right;font-weight:600;">USD 1,850.00</td></tr></table>',
     claimSummaryText: "Speaker Fee: USD 1000.00\nFlight Reimbursement: USD 850.00",

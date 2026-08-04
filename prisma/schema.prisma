@@ -416,6 +416,7 @@ model Event {
   rsvpDinners               RsvpDinner[]
   rsvpInvites               RsvpInvite[]
   speakerReimbursements     SpeakerReimbursement[]
+  speakerProfileForms       SpeakerProfileForm[]
 
   // CRM module — SetNull, so a sponsorship deal (revenue history) outlives the
   // event it was sold against.
@@ -1272,6 +1273,7 @@ model Speaker {
   certificateIssueRunItems CertificateIssueRunItem[]
   documents                SpeakerDocument[]
   reimbursement            SpeakerReimbursement?
+  profileForm              SpeakerProfileForm?
   sessionProposals         SessionProposal[]
 
   @@unique([eventId, email])
@@ -2987,6 +2989,48 @@ model SpeakerReimbursementDocument {
   reimbursement SpeakerReimbursement @relation(fields: [reimbursementId], references: [id], onDelete: Cascade)
 
   @@index([reimbursementId])
+  @@index([organizationId])
+}
+
+// ── Speaker profile form (Aug 4, 2026) ─────────────────────────────
+// Public token form where a speaker submits their own PHOTO (→ Speaker.photo),
+// a PASSPORT photocopy (required) + COVER LETTER (optional) — both stored as
+// SpeakerDocument rows (kind OTHER with fixed labels) so they surface on the
+// existing Documents card — and their BIO (→ Speaker.bio). The organizer
+// mints + emails the personalized link from the speaker page
+// (speaker-profile-form-request template). Mirrors the SpeakerReimbursement
+// token pattern: plaintext unique token (dashboard re-displays the link),
+// PENDING → SUBMITTED conditional claim, organizer may reopen (audited).
+// Uploaded files live under /uploads/speaker-docs/{eventId}/ which is
+// BLOCKED in the public /uploads catch-all (passport = sensitive PII) —
+// staff stream them via the authed documents file route.
+
+enum SpeakerProfileFormStatus {
+  PENDING // link minted / reopened — the speaker can (re)submit
+  SUBMITTED // locked; organizer may reopen
+}
+
+model SpeakerProfileForm {
+  id      String @id @default(cuid())
+  eventId String
+  /// Denormalized tenant key (sweep convention): nullable, no FK, stamped by
+  /// every writer from the event's org.
+  organizationId String?
+  speakerId      String                   @unique
+  token          String                   @unique
+  status         SpeakerProfileFormStatus @default(PENDING)
+  submittedAt    DateTime?
+  submittedIp    String?
+  // Soft ref (no FK) to the staff user who minted the link — the audit log
+  // is the authoritative trail (RsvpInvite soft-ref pattern).
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  speaker Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
   @@index([organizationId])
 }
 

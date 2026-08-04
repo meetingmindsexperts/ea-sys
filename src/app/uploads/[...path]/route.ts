@@ -61,6 +61,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
+  // Per-speaker documents (signed agreements, and — since the public speaker
+  // profile form, Aug 4 2026 — PASSPORT photocopies) are PRIVATE. Previously
+  // served here behind UUID obscurity only; now they stream exclusively
+  // through the authed route
+  // /api/events/[eventId]/speakers/[speakerId]/documents/[documentId]/file.
+  if (path[0] === "speaker-docs") {
+    apiLogger.warn({ msg: "Private speaker document blocked on public route", path: path.join("/") });
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
   // Only serve from /uploads/ — no other subdirectory of public
   const uploadsRoot = resolve(process.cwd(), "public", "uploads");
   const filePath = join(uploadsRoot, ...path);
