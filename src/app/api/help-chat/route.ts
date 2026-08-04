@@ -59,7 +59,28 @@ const MessageSchema = z.object({
 });
 
 const RequestBodySchema = z.object({
-  messages: z.array(MessageSchema).min(1).max(MAX_MESSAGES),
+  // EMPTY messages are FILTERED OUT before validation, not rejected (Aug 4,
+  // 2026 bug fix): the client persists its streaming placeholder — an
+  // assistant turn with content "" — whenever a stream dies before the first
+  // text delta (in-stream provider error), and because the client re-sends
+  // the FULL history, one stored empty message used to fail min(1) here and
+  // brick every subsequent question with "Invalid input" until the user
+  // found Clear chat. History is client-supplied state; junk entries are
+  // dropped server-side so poisoned localStorage self-heals. The client-side
+  // half of the fix stops creating them (use-help-chat.ts).
+  messages: z.preprocess(
+    (v) =>
+      Array.isArray(v)
+        ? v.filter(
+            (m) =>
+              !(
+                typeof (m as { content?: unknown })?.content === "string" &&
+                ((m as { content: string }).content.trim() === "")
+              ),
+          )
+        : v,
+    z.array(MessageSchema).min(1).max(MAX_MESSAGES),
+  ),
 });
 
 export async function POST(req: NextRequest) {

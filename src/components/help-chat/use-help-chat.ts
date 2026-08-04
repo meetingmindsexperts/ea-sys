@@ -48,6 +48,16 @@ interface StoredPayload {
   messages: ChatMessage[];
 }
 
+/** An empty/whitespace message is streaming-placeholder residue (a stream
+ *  that died before its first delta) — never legitimate history. One stored
+ *  empty turn used to fail the server's min(1) validation and brick every
+ *  subsequent question with "Invalid input" (Aug 4, 2026 bug). */
+function dropEmptyMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter(
+    (m) => typeof m.content === "string" && m.content.trim() !== "",
+  );
+}
+
 function readStoredMessages(userId: string): ChatMessage[] {
   if (typeof window === "undefined") return [];
   try {
@@ -55,7 +65,8 @@ function readStoredMessages(userId: string): ChatMessage[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StoredPayload;
     if (parsed?.v === 1 && Array.isArray(parsed.messages)) {
-      return parsed.messages.slice(-PERSIST_CAP);
+      // Self-heal histories poisoned before the fix.
+      return dropEmptyMessages(parsed.messages).slice(-PERSIST_CAP);
     }
   } catch {
     // Corrupt JSON or unavailable storage — fall through to empty.
@@ -139,7 +150,9 @@ export function useHelpChat(userId: string | undefined): UseHelpChatReturn {
       // Optimistically append both the user turn AND an empty assistant
       // placeholder. The placeholder gets filled by streamed deltas.
       // Doing both in one setState keeps the UI from flickering.
-      const historyForRequest = [...messages, userTurn];
+      // History is defensively filtered of empty turns (in-memory state can
+      // still hold a dead placeholder from an earlier in-stream error).
+      const historyForRequest = [...dropEmptyMessages(messages), userTurn];
       setMessages([
         ...historyForRequest,
         { role: "assistant", content: "", ts: Date.now() },
@@ -226,17 +239,22 @@ export function useHelpChat(userId: string | undefined): UseHelpChatReturn {
         const message =
           e instanceof Error ? e.message : "Help chat failed";
         setError(message);
-        // Drop the empty assistant placeholder so the user can retry
-        // without a phantom bubble in the conversation.
+      } finally {
+        // Drop a still-empty assistant placeholder UNCONDITIONALLY — not
+        // just on throw. A stream can end without any text delta and
+        // without throwing (the server's in-stream {type:"error"} event,
+        // or an empty stream), and the old catch-only cleanup let that
+        // empty bubble persist to localStorage, where it failed the
+        // server's min-length validation on EVERY later request
+        // ("Invalid input" until Clear chat — Aug 4, 2026 bug).
         setMessages((prev) => {
           if (prev.length === 0) return prev;
           const last = prev[prev.length - 1];
-          if (last.role === "assistant" && last.content === "") {
+          if (last.role === "assistant" && last.content.trim() === "") {
             return prev.slice(0, -1);
           }
           return prev;
         });
-      } finally {
         setIsStreaming(false);
       }
     },
