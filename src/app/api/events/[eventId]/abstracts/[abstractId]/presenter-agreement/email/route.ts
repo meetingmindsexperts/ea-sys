@@ -219,7 +219,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       cc: brandingCc(branding, [{ email: speaker.email }], [speaker.additionalEmail]),
       ...rendered,
       from: brandingFrom(branding),
-      replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,
+      // Deliberately NO Reply-To (owner rule, Aug 4 2026): replies go to the
+      // From address — the event's Email-Branding sender — for ALL emails,
+      // never the individual organizer who clicked send.
       attachments,
       emailType: "presenter_agreement",
       stream: "transactional",

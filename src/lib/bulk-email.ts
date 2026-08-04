@@ -1784,10 +1784,10 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
             textContent: emailContent.textContent,
             attachments: recipientAttachments,
             from: brandingFrom(branding),
-            replyTo:
-              (recipientType === "speakers" || recipientType === "reviewers") && organizerEmail
-                ? { email: organizerEmail, name: organizerName }
-                : undefined,
+            // Deliberately NO Reply-To (owner rule, Aug 4 2026): replies go
+            // to the From address — the event's Email-Branding sender — for
+            // ALL audiences, never the organizer who triggered the send.
+            // (Speaker/reviewer sends used to reply-to the organizer.)
             // CloudWatch metric keys: emailType picks up whatever the
             // Communications-page send chose (registration_confirmation /
             // payment_reminder / speaker_invitation / abstract_reminder /

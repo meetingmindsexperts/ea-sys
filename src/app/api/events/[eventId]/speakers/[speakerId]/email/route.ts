@@ -409,7 +409,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       bcc: bccSet.size ? [...bccSet].map((email) => ({ email })) : undefined,
       ...rendered,
       from: brandingFrom(branding),
-      replyTo: organizerEmail ? { email: organizerEmail, name: organizerName } : undefined,
+      // Deliberately NO Reply-To (owner rule, Aug 4 2026): replies go to the
+      // From address — the event's Email-Branding sender — for ALL emails,
+      // never the individual organizer who clicked send.
       attachments: attachments.length ? attachments : undefined,
       emailType: `speaker_${type.replace(/-/g, "_")}`,
       stream: "transactional",

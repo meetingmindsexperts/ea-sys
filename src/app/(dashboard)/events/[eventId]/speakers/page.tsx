@@ -370,7 +370,7 @@ export default function SpeakersPage() {
                   )}
                   <TableHead className="w-20">Reg #</TableHead>
                   <TableHead>Speaker</TableHead>
-                  <TableHead>Organization</TableHead>
+                  <TableHead className="w-48 max-w-48">Organization</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead>Sessions</TableHead>
@@ -408,11 +408,15 @@ export default function SpeakersPage() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="max-w-48">
                       <div className="text-sm">
-                        {speaker.organization || "—"}
+                        <div className="truncate" title={speaker.organization || undefined}>
+                          {speaker.organization || "—"}
+                        </div>
                         {speaker.jobTitle && (
-                          <div className="text-muted-foreground text-xs">{speaker.jobTitle}</div>
+                          <div className="text-muted-foreground text-xs truncate" title={speaker.jobTitle}>
+                            {speaker.jobTitle}
+                          </div>
                         )}
                       </div>
                     </TableCell>
