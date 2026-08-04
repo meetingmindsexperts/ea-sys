@@ -160,7 +160,13 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/public/events/[slug]/survey/route.ts"                                   # Reg-core (July 29, 2026)
   # Registration-core sweep — the Stripe webhook (unauthenticated-by-design;
   # org resolved per event object; wraps the money-transaction blocks).
-  "src/app/api/webhooks/stripe/route.ts"                                               # Reg-core (July 29, 2026)
+  # RELOCATED Aug 4, 2026 (per-tenant keys, item 7 phase 2): the whole
+  # post-verification dispatch body — including every runWithTenant wrap —
+  # was extracted VERBATIM to src/lib/stripe-webhook-handler.ts so the
+  # legacy env route AND the per-org /api/webhooks/stripe/[orgId] route
+  # share ONE implementation. The routes are now thin verify-and-delegate
+  # shells with no db access of their own; the wraps are gated at the
+  # handler module (SWEPT_MODULES below). Coverage moved, NOT removed.
   # Ticketing follow-on sweep (July 30, 2026) — the management CRUD routes for
   # ticket types, pricing tiers, and promo codes. (The narrow cross-domain
   # ticketType-create wraps in events/route.ts + clone/route.ts live in
@@ -309,6 +315,12 @@ SWEPT_MODULES=(
   # enqueue routes' precheck wraps (emails/bulk + emails/schedule) are NARROW
   # cross-domain wraps (Invoice-C2b pattern) — gated when ScheduledEmail sweeps.
   "src/lib/scheduled-emails-worker.ts"      # bulk-email worker — whole processRow on the row org (Domain #18, Aug 3, 2026)
+  # The shared Stripe webhook dispatcher (item 7 phase 2, Aug 4 2026): the
+  # Reg-core sweep's webhook wraps live HERE now — the dispatch body (with
+  # every runWithTenant) was extracted verbatim from
+  # src/app/api/webhooks/stripe/route.ts, which both webhook routes (legacy
+  # env + per-org [orgId]) now delegate to as thin verify-only shells.
+  "src/lib/stripe-webhook-handler.ts"       # Stripe webhook money blocks — event/payment-resolved org wraps (Reg-core, relocated Aug 4, 2026)
   "src/lib/agent/tools/communications.ts"   # MCP send_bulk_email + list/cancel_scheduled_email — ctx-org wraps (Aug 3, 2026)
   # Comms-log sweep (Domain #18): logEmail is the ONE EmailLog writer — it
   # resolves the org (explicit context, else 1-hop from the tagged event) and
