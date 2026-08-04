@@ -85,6 +85,8 @@ export const queryKeys = {
   invoices: (eventId: string) => ["events", eventId, "invoices"] as const,
   registrationInvoices: (registrationId: string) => ["registrations", registrationId, "invoices"] as const,
   zoomCredentials: ["zoom", "credentials"] as const,
+  stripeCredentials: ["stripe", "credentials"] as const,
+  aiCredentials: ["ai", "credentials"] as const,
   zoomSettings: (eventId: string) => ["zoom", "settings", eventId] as const,
   zoomMeeting: (sessionId: string) => ["zoom", "meeting", sessionId] as const,
   webinar: (eventId: string) => ["events", eventId, "webinar"] as const,
@@ -1751,6 +1753,129 @@ export function useTestZoomConnection() {
         error?: string;
         account?: { email: string; firstName: string; lastName: string; accountId: string };
       }>("/api/organization/zoom/test-connection", { method: "POST" }),
+  });
+}
+
+// ============ ORG STRIPE + AI CREDENTIALS (per-tenant keys, item 7) ============
+
+export function useStripeCredentials() {
+  return useQuery({
+    queryKey: queryKeys.stripeCredentials,
+    queryFn: () =>
+      fetchApi<{
+        configured: boolean;
+        hasSecretKey: boolean;
+        hasWebhookSecret: boolean;
+        secretKeyLast4: string | null;
+        keyMode: "live" | "test" | null;
+        configuredAt: string | null;
+        webhookUrl: string;
+      }>("/api/organization/stripe/credentials"),
+  });
+}
+
+export function useSaveStripeCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { secretKey?: string; webhookSecret?: string }) =>
+      fetchApi("/api/organization/stripe/credentials", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.stripeCredentials });
+    },
+  });
+}
+
+export function useDeleteStripeCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchApi("/api/organization/stripe/credentials", { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.stripeCredentials });
+    },
+  });
+}
+
+export function useTestStripeConnection() {
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{
+        success: boolean;
+        source?: "org" | "env";
+        error?: string;
+        account?: { name: string | null; email: string | null; id: string };
+      }>("/api/organization/stripe/test-connection", { method: "POST" }),
+  });
+}
+
+export interface AiProviderCredentialState {
+  configured: boolean;
+  apiKeyLast4: string | null;
+  configuredAt: string | null;
+  envFallbackAvailable: boolean;
+}
+
+export function useAiCredentials() {
+  return useQuery({
+    queryKey: queryKeys.aiCredentials,
+    queryFn: () =>
+      fetchApi<{
+        helpChatProvider: "anthropic" | "openai";
+        anthropic: AiProviderCredentialState;
+        openai: AiProviderCredentialState;
+      }>("/api/organization/ai/credentials"),
+  });
+}
+
+export function useSaveAiCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      helpChatProvider?: "anthropic" | "openai";
+      anthropicApiKey?: string;
+      openaiApiKey?: string;
+    }) =>
+      fetchApi("/api/organization/ai/credentials", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.aiCredentials });
+    },
+  });
+}
+
+export function useDeleteAiCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { provider: "anthropic" | "openai" }) =>
+      fetchApi("/api/organization/ai/credentials", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.aiCredentials });
+    },
+  });
+}
+
+export function useTestAiConnection() {
+  return useMutation({
+    mutationFn: (data: { provider: "anthropic" | "openai" }) =>
+      fetchApi<{ success: boolean; source?: "org" | "env"; provider?: string; error?: string }>(
+        "/api/organization/ai/test-connection",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        },
+      ),
   });
 }
 
