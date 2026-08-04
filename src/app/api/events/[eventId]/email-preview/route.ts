@@ -18,6 +18,7 @@ import {
 import { buildCertCoverEmailPreview } from "@/lib/certificates/bundle";
 import { buildRealPreviewOverrides } from "@/lib/email-preview-data";
 import { buildSpeakerEmailContext } from "@/lib/speaker-agreement";
+import { buildAbstractConfirmationVars } from "@/lib/abstract-notifications";
 import { getTitleLabel, formatPersonName } from "@/lib/utils";
 
 type RouteParams = { params: Promise<{ eventId: string }> };
@@ -36,6 +37,10 @@ const previewSchema = z.object({
   // Target registration — same idea for the registration detail sheet's
   // preview: greet the actual registrant with their real Registration #.
   registrationId: z.string().min(1).max(100).optional(),
+  // Target abstract — the speaker surfaces' "Abstract Confirmation" resend
+  // preview: render THAT abstract's A-### number / title / theme / type /
+  // co-authors, not representative samples (same builder as the send).
+  abstractId: z.string().min(1).max(100).optional(),
   // slug === "certificate" only — the CertificateTemplate ids the send
   // would carry. The cert cover email isn't an EmailTemplate slug (it
   // lives on the template row / system defaults), so it renders through
@@ -61,7 +66,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId } = parsed.data;
+    const { slug, customSubject, customMessage, certificateTemplateIds, speakerId, registrationId, abstractId } = parsed.data;
 
     // Verify event access (org-scoped for team members; org-null SUPER_ADMIN
     // passes with no org filter, so the tenant wrap below uses the RESOURCE
@@ -233,6 +238,39 @@ export async function POST(req: Request, { params }: RouteParams) {
           ? { registrationId: String(registration.serialId).padStart(3, "0") }
           : {}),
         ...(registration.ticketType?.name ? { ticketType: registration.ticketType.name } : {}),
+      };
+    }
+
+    // Target-abstract overrides — the "Abstract Confirmation" resend preview
+    // renders THAT abstract's real number/title/theme/type/co-authors via the
+    // SAME var builder the send uses (buildAbstractConfirmationVars), so
+    // preview == send by construction.
+    if (abstractId) {
+      const abstract = await db.abstract.findFirst({
+        where: { id: abstractId, eventId },
+        select: {
+          title: true,
+          serialId: true,
+          presentationType: true,
+          coAuthors: true,
+          theme: { select: { name: true } },
+          speaker: { select: { title: true, firstName: true, lastName: true } },
+        },
+      });
+      if (!abstract) {
+        apiLogger.warn({ msg: "email-preview:abstract-not-found", eventId, abstractId });
+        return NextResponse.json({ error: "Abstract not found" }, { status: 404 });
+      }
+      speakerVars = {
+        ...speakerVars,
+        ...buildAbstractConfirmationVars({
+          abstractTitle: abstract.title,
+          serialId: abstract.serialId,
+          presentationType: abstract.presentationType,
+          themeName: abstract.theme?.name ?? null,
+          coAuthors: abstract.coAuthors,
+          speaker: abstract.speaker,
+        }),
       };
     }
 

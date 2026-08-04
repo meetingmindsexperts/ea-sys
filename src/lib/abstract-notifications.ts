@@ -52,6 +52,41 @@ export interface SendAbstractSubmissionConfirmationParams {
   organizerSignature?: string | null;
 }
 
+export interface AbstractConfirmationVarInput {
+  abstractTitle: string;
+  serialId: number | null;
+  presentationType: string | null;
+  themeName: string | null;
+  coAuthors: unknown;
+  speaker: { title?: string | null; firstName: string; lastName: string };
+}
+
+/**
+ * The abstract-scoped variable set of the `abstract-submission-confirmation`
+ * email. Shared by the sender below AND the email-preview route's
+ * `abstractId` override, so preview == send by construction (the July-29
+ * preview-accuracy rule).
+ */
+export function buildAbstractConfirmationVars(input: AbstractConfirmationVarInput): Record<string, string> {
+  return {
+    title: getTitleLabel(input.speaker.title),
+    firstName: input.speaker.firstName,
+    lastName: input.speaker.lastName,
+    // "" (not "—") on legacy serial-less rows — the template hides the row.
+    abstractNumber: input.serialId != null ? formatAbstractSerial(input.serialId) : "",
+    abstractTitle: input.abstractTitle,
+    presentationType: input.presentationType
+      ? PRESENTATION_TYPE_LABELS[input.presentationType as keyof typeof PRESENTATION_TYPE_LABELS] ??
+        input.presentationType
+      : "",
+    theme: input.themeName ?? "",
+    authorName: formatPersonName(input.speaker.title, input.speaker.firstName, input.speaker.lastName),
+    coAuthorNames: normalizeCoAuthors(input.coAuthors)
+      .map((c) => `${c.firstName} ${c.lastName}`)
+      .join(", "),
+  };
+}
+
 /**
  * Sends the `abstract-submission-confirmation` email to the submitting
  * speaker. ONE implementation for all three callers (create POST, resubmit
@@ -85,21 +120,15 @@ export async function sendAbstractSubmissionConfirmation(
       .catch(() => null);
 
     const vars: Record<string, string> = {
-      title: getTitleLabel(speaker.title),
-      firstName: speaker.firstName,
-      lastName: speaker.lastName,
+      ...buildAbstractConfirmationVars({
+        abstractTitle,
+        serialId,
+        presentationType: details?.presentationType ?? null,
+        themeName: details?.theme?.name ?? null,
+        coAuthors: details?.coAuthors,
+        speaker,
+      }),
       eventName,
-      // "" (not "—") on legacy serial-less rows — the template hides the row.
-      abstractNumber: serialId != null ? formatAbstractSerial(serialId) : "",
-      abstractTitle,
-      presentationType: details?.presentationType
-        ? PRESENTATION_TYPE_LABELS[details.presentationType] ?? details.presentationType
-        : "",
-      theme: details?.theme?.name ?? "",
-      authorName: formatPersonName(speaker.title, speaker.firstName, speaker.lastName),
-      coAuthorNames: normalizeCoAuthors(details?.coAuthors)
-        .map((c) => `${c.firstName} ${c.lastName}`)
-        .join(", "),
       managementLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`,
       ...(params.organizerSignature ? { organizerSignature: params.organizerSignature } : {}),
     };

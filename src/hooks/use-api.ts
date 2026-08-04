@@ -1156,6 +1156,8 @@ export function usePreviewEmailBySlug(eventId: string) {
       speakerId?: string;
       /** Target registration — preview greets the registrant (title-prefixed) with their Registration #. */
       registrationId?: string;
+      /** Target abstract — the resend-confirmation preview renders that abstract's real number/title/theme. */
+      abstractId?: string;
     }) =>
       fetchApi<{ subject: string; htmlContent: string }>(
         `/api/events/${eventId}/email-preview`,

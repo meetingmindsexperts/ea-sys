@@ -16,6 +16,7 @@ const { mockDb, mockAuth, mockCtx, mockRender } = vi.hoisted(() => ({
     user: { findUnique: vi.fn() },
     speaker: { findFirst: vi.fn() },
     registration: { findFirst: vi.fn() },
+    abstract: { findFirst: vi.fn() },
   },
   mockAuth: vi.fn(),
   mockCtx: vi.fn(),
@@ -206,5 +207,67 @@ describe("email-preview with speakerId", () => {
     const body = await res.json() as { htmlContent: string };
     expect(body.htmlContent).toContain("Dear Ops Casison");
     expect(mockDb.speaker.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("email-preview with abstractId (Abstract Confirmation resend, Aug 4 2026)", () => {
+  // The route calls the REAL buildAbstractConfirmationVars — the same builder
+  // the send helper uses — so these assertions pin preview == send.
+  const abstractRow = {
+    title: "AI in Cardiology",
+    serialId: 7,
+    presentationType: "ORAL" as const,
+    coAuthors: [{ firstName: "Co", lastName: "Author" }],
+    theme: { name: "Cardiology" },
+    speaker: { title: "DR", firstName: "Amina", lastName: "Khan" },
+  };
+
+  it("renders THAT abstract's real number/title/theme/author (event-bound lookup)", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(abstractRow);
+    const { getEventTemplate } = await import("@/lib/email");
+    (getEventTemplate as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      subject: "Abstract Submitted - {{eventName}}",
+      htmlContent: "<p>Dear {{title}} {{lastName}},</p><p>#{{abstractNumber}} {{abstractTitle}} ({{theme}}) by {{authorName}} with {{coAuthorNames}}</p>",
+      textContent: "",
+      branding: { eventName: "Ev" },
+    });
+    const res = await POST(req({ slug: "abstract-submission-confirmation", abstractId: "ab1" }), params);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { htmlContent: string };
+    expect(body.htmlContent).toContain("Dear Dr. Khan");
+    expect(body.htmlContent).toContain("#A-007 AI in Cardiology (Cardiology) by Dr. Amina Khan with Co Author");
+    expect(mockDb.abstract.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "ab1", eventId: "ev1" } }),
+    );
+  });
+
+  it("a legacy serial-less abstract renders abstractNumber as EMPTY, not '—' (the send's convention)", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue({ ...abstractRow, serialId: null });
+    const res = await POST(req({ slug: "abstract-submission-confirmation", abstractId: "ab1" }), params);
+    expect(res.status).toBe(200);
+    const vars = mockRender.mock.calls[0][1] as Record<string, string>;
+    expect(vars.abstractNumber).toBe("");
+    expect(vars.abstractTitle).toBe("AI in Cardiology");
+  });
+
+  it("404s an abstractId from another event", async () => {
+    mockDb.abstract.findFirst.mockResolvedValue(null);
+    const res = await POST(req({ slug: "abstract-submission-confirmation", abstractId: "foreign" }), params);
+    expect(res.status).toBe(404);
+  });
+
+  it("combines with speakerId — the abstract vars win where they overlap", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "sp1", title: "PROF", firstName: "Other", lastName: "Person", email: "o@x.com" });
+    mockCtx.mockResolvedValue(null);
+    mockDb.abstract.findFirst.mockResolvedValue(abstractRow);
+    const res = await POST(
+      req({ slug: "abstract-submission-confirmation", speakerId: "sp1", abstractId: "ab1" }),
+      params,
+    );
+    expect(res.status).toBe(200);
+    const vars = mockRender.mock.calls[0][1] as Record<string, string>;
+    // The abstract's own author identity wins (applied after speaker vars).
+    expect(vars.firstName).toBe("Amina");
+    expect(vars.authorName).toBe("Dr. Amina Khan");
   });
 });

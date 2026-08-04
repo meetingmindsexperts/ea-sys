@@ -204,7 +204,9 @@ export default function SpeakerDetailPage() {
     },
   });
   const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
-  const [emailType, setEmailType] = useState<"invitation" | "agreement" | "custom" | "template">("invitation");
+  const [emailType, setEmailType] = useState<"invitation" | "agreement" | "custom" | "template" | "abstract-confirmation">("invitation");
+  // Which abstract the "Abstract Confirmation" resend targets.
+  const [selectedAbstractId, setSelectedAbstractId] = useState("");
   // Saved-template single-send (July 31, 2026): the active custom templates
   // (Communications → Email Templates) are pickable here, like the bulk
   // dialog's "Your saved template" option.
@@ -232,6 +234,11 @@ export default function SpeakerDetailPage() {
     (emailTemplatesData as { templates?: Array<{ slug: string; name: string; isActive: boolean }> } | undefined)
       ?.templates ?? []
   ).filter((t) => t.isActive && isCustomTemplateSlug(t.slug));
+  // Abstracts whose submission confirmation can be resent — a DRAFT never
+  // received one; a WITHDRAWN "your abstract was submitted" would mislead.
+  const resendableAbstracts = (speaker?.abstracts ?? []).filter(
+    (a) => !["DRAFT", "WITHDRAWN"].includes(a.status),
+  );
   // Existing tags for the in-page edit autocomplete.
   const speakerTagsQuery = useEventSpeakerTags(eventId);
   // Event timezone — session times on this page render in the EVENT's clock
@@ -244,7 +251,7 @@ export default function SpeakerDetailPage() {
     return `${formatDateInTz(d, eventTz)}, ${formatTimeInTz(d, eventTz)} ${tzLabel(d, eventTz)}`;
   };
 
-  const handleResendAbstractConfirmation = async (abstractId: string) => {
+  const handleResendAbstractConfirmation = async (abstractId: string): Promise<boolean> => {
     setResendingAbstractId(abstractId);
     try {
       const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}/resend-confirmation`, {
@@ -253,12 +260,14 @@ export default function SpeakerDetailPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast.error(data.error || "Failed to resend the confirmation email");
-        return;
+        return false;
       }
       toast.success(`Submission confirmation resent to ${data.sentTo}`);
+      return true;
     } catch (err) {
       console.error("Failed to resend abstract confirmation", err);
       toast.error("Failed to resend the confirmation email");
+      return false;
     } finally {
       setResendingAbstractId(null);
     }
@@ -269,9 +278,14 @@ export default function SpeakerDetailPage() {
       invitation: "speaker-invitation",
       agreement: "speaker-agreement",
       custom: "custom-notification",
+      "abstract-confirmation": "abstract-submission-confirmation",
     };
     if (emailType === "template" && !selectedTemplateSlug) {
       toast.error("Pick a saved template first");
+      return;
+    }
+    if (emailType === "abstract-confirmation" && !selectedAbstractId) {
+      toast.error("Pick an abstract first");
       return;
     }
     try {
@@ -281,6 +295,9 @@ export default function SpeakerDetailPage() {
         customMessage: emailType === "custom" ? customEmailMessage.trim() || undefined : undefined,
         // Preview greets THIS speaker with THEIR sessions, matching the send.
         speakerId,
+        // Abstract-confirmation preview renders THAT abstract's real
+        // number/title/theme (same var builder as the send).
+        abstractId: emailType === "abstract-confirmation" ? selectedAbstractId : undefined,
       });
       setPreviewData(result);
       setPreviewOpen(true);
@@ -532,6 +549,22 @@ export default function SpeakerDetailPage() {
 
   const handleSendEmail = async () => {
     if (sendingEmail) return;
+    // Abstract-confirmation goes through the dedicated resend route (per
+    // abstract, audited, 502 on send failure) — not the speaker email route.
+    if (emailType === "abstract-confirmation") {
+      if (!selectedAbstractId) {
+        toast.error("Pick an abstract first");
+        return;
+      }
+      setSendingEmail(true);
+      try {
+        const ok = await handleResendAbstractConfirmation(selectedAbstractId);
+        if (ok) setIsEmailDialogOpen(false);
+      } finally {
+        setSendingEmail(false);
+      }
+      return;
+    }
     if (emailType === "template" && !selectedTemplateSlug) {
       toast.error("Pick a saved template first");
       return;
@@ -667,6 +700,17 @@ export default function SpeakerDetailPage() {
                       <DropdownMenuItem onClick={() => { setEmailType("agreement"); setIsEmailDialogOpen(true); }}>
                         <FileText className="mr-2 h-4 w-4" /> Speaker Agreement
                       </DropdownMenuItem>
+                      {resendableAbstracts.length > 0 && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setEmailType("abstract-confirmation");
+                            setSelectedAbstractId(resendableAbstracts[0]?.id ?? "");
+                            setIsEmailDialogOpen(true);
+                          }}
+                        >
+                          <FileCheck className="mr-2 h-4 w-4" /> Abstract Confirmation
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem onClick={() => { setEmailType("template"); setIsEmailDialogOpen(true); }}>
                         <Mail className="mr-2 h-4 w-4" /> Send Saved Template
                       </DropdownMenuItem>
@@ -1430,6 +1474,7 @@ export default function SpeakerDetailPage() {
               {emailType === "agreement" && "Send Speaker Agreement"}
               {emailType === "custom" && "Send Custom Email"}
               {emailType === "template" && "Send Saved Template"}
+              {emailType === "abstract-confirmation" && "Resend Abstract Confirmation"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1505,6 +1550,28 @@ export default function SpeakerDetailPage() {
                 </div>
               </>
             )}
+            {emailType === "abstract-confirmation" && (
+              <div className="space-y-2">
+                <Label>Abstract</Label>
+                <Select value={selectedAbstractId} onValueChange={setSelectedAbstractId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose an abstract" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {resendableAbstracts.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.serialId != null ? `${formatAbstractSerial(a.serialId)} — ` : ""}{a.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Resends the submission confirmation email for the selected abstract
+                  (its number, title, theme and co-authors), with your saved signature.
+                </p>
+              </div>
+            )}
+            {emailType !== "abstract-confirmation" && (
             <div className="space-y-1.5">
               <Label>BCC (optional)</Label>
               <Input
@@ -1524,13 +1591,17 @@ export default function SpeakerDetailPage() {
                 Send me a copy (BCC)
               </label>
             </div>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)} disabled={sendingEmail}>Cancel</Button>
               <Button variant="outline" onClick={handlePreviewEmail} disabled={previewMutation.isPending || sendingEmail}>
                 {previewMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
                 Preview
               </Button>
-              <Button onClick={handleSendEmail} disabled={sendingEmail}>
+              <Button
+                onClick={handleSendEmail}
+                disabled={sendingEmail || (emailType === "abstract-confirmation" && !selectedAbstractId)}
+              >
                 {sendingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {sendingEmail ? "Sending..." : "Send Email"}
               </Button>
