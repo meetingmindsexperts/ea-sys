@@ -789,8 +789,9 @@ export default function EventMyRegistrationPage() {
       {/* Footer — use configured event footer when set, otherwise a minimal
           org-attribution bar so the page always has a bottom edge. */}
       {event?.footerHtml ? (
-        <div className="w-full border-t border-slate-200/60 bg-white text-center px-4 py-6">
-          <div className="prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
+        <div className="w-full border-t border-slate-200/60 bg-white text-center py-6">
+          {/* Footer content constrained to the BODY's width (max-w-5xl). */}
+          <div className="prose prose-slate max-w-5xl mx-auto px-4 sm:px-6 [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
             dangerouslySetInnerHTML={{ __html: sanitizeHtml(event.footerHtml) }} />
         </div>
       ) : event ? (

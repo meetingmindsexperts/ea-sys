@@ -666,8 +666,9 @@ function ConfirmationContent() {
 
       {/* ── Custom Footer ──────────────────────────────────────────────────── */}
       {branding?.footerHtml && (
-        <div className="w-full border-t border-slate-100 bg-white text-center px-4 py-6">
-          <div className="prose prose-slate max-w-none mx-auto [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
+        <div className="w-full border-t border-slate-100 bg-white text-center py-6">
+          {/* Footer content constrained to this page's BODY width (max-w-4xl). */}
+          <div className="prose prose-slate max-w-4xl mx-auto px-4 [&>*]:mb-4 [&>*:last-child]:mb-0 [&_a]:text-primary [&_a]:underline"
             dangerouslySetInnerHTML={{ __html: sanitizeHtml(branding.footerHtml) }} />
         </div>
       )}
