@@ -287,12 +287,10 @@ export interface EventSpeakerProfile {
   sourceRegistrationId?: string | null;
   /**
    * Which self-signup flow this upsert comes from ("abstract" | "proposal").
-   * Stamped on CREATE and RE-stamped on every door use — LATEST DOOR WINS
-   * (owner decision Aug 4, 2026, superseding July 30's first-flow-wins:
-   * sending someone the abstract link must let them submit an abstract even
-   * if they first arrived through the proposal link). Surfaces where the
-   * person already HAS submissions stay visible via the content override in
-   * src/lib/submitter-surfaces.ts, so a flip never hides their own rows.
+   * Each door GRANTS its surface and never removes the other — a person who
+   * has used both doors is stamped "both" (owner decision Aug 4, 2026: the
+   * two registers are independent; someone can submit abstracts AND session
+   * proposals, each through its own link). See src/lib/submitter-surfaces.ts.
    */
   submitterSource?: string | null;
 }
@@ -332,13 +330,16 @@ export async function upsertEventSpeaker(
   });
 
   if (existing) {
-    // submitterSource: LATEST DOOR WINS (Aug 4, 2026) — using a signup door
-    // re-stamps the source on both the sign-up and sign-in branches, so the
-    // link the organizer sent decides which surface the person lands on.
-    // Their other-surface submissions stay visible via the content override.
-    const sourceStamp = profile.submitterSource
-      ? { submitterSource: profile.submitterSource }
-      : {};
+    // submitterSource: a door GRANTS its surface, never narrows (Aug 4,
+    // 2026) — first door stamps it; using the OTHER door later widens to
+    // "both" (the surfaces are independent: a person can submit abstracts
+    // AND session proposals, each via its own register link).
+    const sourceStamp =
+      profile.submitterSource
+        ? existing.submitterSource && existing.submitterSource !== profile.submitterSource
+          ? { submitterSource: "both" }
+          : { submitterSource: profile.submitterSource }
+        : {};
     await tx.speaker.update({
       where: { id: existing.id },
       // Sign-in flow: only ensure the link. Sign-up flow: refresh the profile

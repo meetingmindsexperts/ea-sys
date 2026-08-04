@@ -33,6 +33,11 @@ describe("submitter surface truth table", () => {
     expect(submitterSeesProposals(ctx(null))).toBe(false);
   });
 
+  it("'both' (used both doors) sees BOTH surfaces — the registers are independent (Aug 4, 2026)", () => {
+    expect(submitterSeesAbstracts(ctx("both"))).toBe(true);
+    expect(submitterSeesProposals(ctx("both"))).toBe(true);
+  });
+
   it("content overrides source in BOTH directions — owned rows are never hidden", () => {
     // Proposal person who was later given an abstract:
     expect(submitterSeesAbstracts(ctx("proposal", 1, 0))).toBe(true);

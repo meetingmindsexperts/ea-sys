@@ -6,12 +6,12 @@
  * — these are people the organizer invited, this is product separation, not a
  * security boundary).
  *
- * The signal is `Speaker.submitterSource` ("abstract" | "proposal" | null),
- * stamped at self-signup — LATEST DOOR WINS (owner decision Aug 4, 2026,
- * superseding first-flow-wins: each use of a signup door re-stamps, so the
- * link the organizer sent decides the surface). `null` (legacy speakers,
- * organizer-added) counts as "abstract" — every pre-existing submitter came
- * through the abstract flow.
+ * The signal is `Speaker.submitterSource` ("abstract" | "proposal" | "both"
+ * | null), stamped at self-signup — a door GRANTS its surface and never
+ * removes the other (owner decision Aug 4, 2026: the two registers are
+ * independent; a person who has used both doors is "both" and sees both
+ * surfaces). `null` (legacy speakers, organizer-added) counts as "abstract"
+ * — every pre-existing submitter came through the abstract flow.
  *
  * Content overrides source in BOTH directions: someone who actually HAS rows
  * on the other surface (e.g. an organizer later invites a proposer to submit
@@ -22,18 +22,20 @@
  */
 
 export interface SubmitterSurfaceContext {
-  /** "abstract" | "proposal" | null (null = legacy → abstract). */
+  /** "abstract" | "proposal" | "both" | null (null = legacy → abstract). */
   submitterSource: string | null;
   abstractCount: number;
   proposalCount: number;
 }
 
 export function submitterSeesAbstracts(ctx: SubmitterSurfaceContext): boolean {
+  // "abstract", "both" and null (legacy) all see abstracts; a proposal-only
+  // person sees them only once they actually HAVE one (content override).
   return ctx.submitterSource !== "proposal" || ctx.abstractCount > 0;
 }
 
 export function submitterSeesProposals(ctx: SubmitterSurfaceContext): boolean {
-  return ctx.submitterSource === "proposal" || ctx.proposalCount > 0;
+  return ctx.submitterSource === "proposal" || ctx.submitterSource === "both" || ctx.proposalCount > 0;
 }
 
 /** Where to send a submitter who landed on a surface they can't see. */

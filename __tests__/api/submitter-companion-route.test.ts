@@ -114,7 +114,7 @@ describe("submitter route — companion registration", () => {
   });
 });
 
-describe("submitter route — submitterSource stamping (LATEST door wins, Aug 4 2026)", () => {
+describe("submitter route — submitterSource stamping (a door WIDENS, never narrows — Aug 4 2026)", () => {
   it("stamps the source on speaker CREATE", async () => {
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
     expect(mockDb._tx.speaker.create).toHaveBeenCalledWith(
@@ -137,14 +137,29 @@ describe("submitter route — submitterSource stamping (LATEST door wins, Aug 4 
     );
   });
 
-  it("RE-stamps an existing source — the door the organizer sent decides (supersedes July 30 first-flow-wins; MEHF2026 abstract-link bounce)", async () => {
-    // A proposal-source person using /abstract/register must land on (and be
-    // able to submit) Abstracts. Their existing proposals stay visible via
-    // the content override in submitter-surfaces.
+  it("using the OTHER door widens to 'both' (surfaces are independent — MEHF2026 abstract-link bounce)", async () => {
+    // A proposal person using /abstract/register gains the Abstracts surface
+    // AND keeps Session Proposals — the registers are two separate flows.
     mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: "proposal" });
     await POST(makeReq({ ...validBody, source: "abstract" }), { params });
     expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ submitterSource: "abstract" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ submitterSource: "both" }) }),
+    );
+  });
+
+  it("re-using the SAME door keeps the source unchanged (no spurious widen)", async () => {
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: "proposal" });
+    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ submitterSource: "proposal" }) }),
+    );
+  });
+
+  it("'both' stays 'both' whichever door is used next", async () => {
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: "both" });
+    await POST(makeReq({ ...validBody, source: "abstract" }), { params });
+    expect(mockDb._tx.speaker.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ submitterSource: "both" }) }),
     );
   });
 });
