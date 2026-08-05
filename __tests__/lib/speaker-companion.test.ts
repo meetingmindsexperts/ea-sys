@@ -82,6 +82,21 @@ describe("ensureSpeakerCompanionRegistration", () => {
     expect(txRegistrationCreate).not.toHaveBeenCalled();
   });
 
+  it("linkOnly SKIPS the create (proposal signups — owner decision Aug 5, 2026)", async () => {
+    registrationFindFirst.mockResolvedValueOnce(null); // nothing to link
+    const res = await ensureSpeakerCompanionRegistration(base, { linkOnly: true });
+    expect(res).toEqual({ status: "link-only-no-create", registrationId: null });
+    expect(txRegistrationCreate).not.toHaveBeenCalled();
+    expect(ticketTypeFindFirst).not.toHaveBeenCalled(); // never touches the Faculty type
+  });
+
+  it("linkOnly still LINKS an existing same-email registration", async () => {
+    registrationFindFirst.mockResolvedValueOnce({ id: "reg_match" });
+    const res = await ensureSpeakerCompanionRegistration(base, { linkOnly: true });
+    expect(res).toEqual({ status: "linked-by-email", registrationId: "reg_match" });
+    expect(txRegistrationCreate).not.toHaveBeenCalled();
+  });
+
   it("never links a CANCELLED registration as the companion (review H3)", async () => {
     // The email-match query must exclude CANCELLED rows — a cancelled reg
     // hard-fails check-in, so linking it hands the speaker a dead barcode

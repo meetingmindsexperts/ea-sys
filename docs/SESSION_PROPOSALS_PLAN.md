@@ -20,6 +20,14 @@
 > - **ONE neutral My Details landing** for both flows at `/events/[eventId]/my-details`
 >   (moved out of `/abstracts/profile`; old path redirects) — self-editable profile
 >   (+photo/bio), "Please complete your details" nudge, no registration bookkeeping shown.
+> - **Proposal signups mint NO registration** (Aug 5 — reverses the July-30 auto-comp+revoke
+>   model; last year: 14 proposers = 9 comp / 3 paid / 2 no-shows). The organizer decides per
+>   person via the **Grant registration dialog** (proposal detail + speaker page): *Complimentary
+>   (Faculty)* = the one-click comp companion (badge "Faculty"), or *Payable* = a real
+>   registration on a chosen type + tier minted from the details already provided
+>   (registration-service → auto-emails quote + Pay Now; badge falls back to "DELEGATE").
+>   An existing same-email registration is linked, never duplicated. Abstract submitters
+>   keep auto-comp, unchanged.
 
 ---
 

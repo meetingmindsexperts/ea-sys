@@ -49,6 +49,7 @@ import {
 import {
   Lightbulb, Download, Tags, Plus, Pencil, Trash2, Check, X, Loader2, Copy, UserRound,
 } from "lucide-react";
+import { GrantRegistrationDialog } from "@/components/speakers/grant-registration-dialog";
 
 type ProposalStatus = "DRAFT" | "SUBMITTED" | "WITHDRAWN";
 
@@ -131,56 +132,35 @@ export default function SessionProposalsPage() {
   const [selected, setSelected] = useState<ProposalRow | null>(null);
   const [themesOpen, setThemesOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [granting, setGranting] = useState(false);
+  const [grantOpen, setGrantOpen] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const queryClient = useQueryClient();
 
-  // Re-grant a revoked proposer (or recover a signup whose auto-provisioning
-  // hiccuped) — proposers normally get their comp registration at signup.
-  const handleGrantCompanion = async (proposal: ProposalRow) => {
-    setGranting(true);
-    try {
-      const res = await fetch(
-        `/api/events/${eventId}/speakers/${proposal.speaker.id}/grant-companion`,
-        { method: "POST" },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.error("[session-proposals] grant-companion failed:", res.status, data.error);
-        toast.error(data.error || "Failed to grant registration");
-        return;
-      }
-      toast.success(
-        data.outcome === "linked-by-email"
-          ? "Linked this person's existing registration"
-          : "Complimentary registration granted",
-      );
-      setSelected((prev) =>
-        prev
-          ? {
-              ...prev,
-              speaker: {
-                ...prev.speaker,
-                sourceRegistrationId: data.registrationId,
-                sourceRegistration: {
-                  id: data.registrationId,
-                  // Serial unknown until the list refetch — a re-grant mints a
-                  // FRESH registration, so the old serial would be wrong here.
-                  serialId: null,
-                  status: "CONFIRMED",
-                  paymentStatus: "COMPLIMENTARY",
-                },
+  // Grant a registration to a proposer — proposal signups no longer auto-mint
+  // one (owner decision Aug 5, 2026); the organizer decides per person via the
+  // GrantRegistrationDialog (comp Faculty OR a payable registration on a
+  // chosen type, which auto-emails the quote + Pay Now link).
+  const handleGranted = (data: { outcome: string; registrationId: string; paymentStatus?: string }) => {
+    setSelected((prev) =>
+      prev
+        ? {
+            ...prev,
+            speaker: {
+              ...prev.speaker,
+              sourceRegistrationId: data.registrationId,
+              sourceRegistration: {
+                id: data.registrationId,
+                // Serial unknown until the list refetch — a grant mints a
+                // FRESH registration, so the old serial would be wrong here.
+                serialId: null,
+                status: "CONFIRMED",
+                paymentStatus: data.paymentStatus ?? "COMPLIMENTARY",
               },
-            }
-          : prev,
-      );
-      queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposals(eventId) });
-    } catch (err) {
-      console.error("[session-proposals] grant-companion failed:", err);
-      toast.error("Failed to grant registration");
-    } finally {
-      setGranting(false);
-    }
+            },
+          }
+        : prev,
+    );
+    queryClient.invalidateQueries({ queryKey: queryKeys.sessionProposals(eventId) });
   };
 
   // Organizer removes the free entry a proposer got at signup: cancels the
@@ -539,20 +519,15 @@ export default function SessionProposalsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={granting}
-                            onClick={() => handleGrantCompanion(selected)}
+                            onClick={() => setGrantOpen(true)}
                           >
-                            {granting ? (
-                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                            ) : (
-                              <Check className="h-4 w-4 mr-1" />
-                            )}
+                            <Check className="h-4 w-4 mr-1" />
                             {selected.speaker.sourceRegistration?.status === "CANCELLED"
-                              ? "Re-grant complimentary registration"
-                              : "Grant complimentary registration"}
+                              ? "Re-grant registration"
+                              : "Grant registration"}
                           </Button>
                           <p className="text-xs text-muted-foreground">
-                            Comp Faculty registration (badge + entry barcode + check-in).
+                            Complimentary (Faculty) or payable — payable emails them the quote + Pay Now link.
                           </p>
                         </>
                       ) : (
@@ -647,6 +622,17 @@ export default function SessionProposalsPage() {
 
       {canManage && (
         <ThemesDialog eventId={eventId} open={themesOpen} onOpenChange={setThemesOpen} themes={themes as ProposalTheme[]} />
+      )}
+
+      {canManage && selected && (
+        <GrantRegistrationDialog
+          eventId={eventId}
+          speakerId={selected.speaker.id}
+          open={grantOpen}
+          onOpenChange={setGrantOpen}
+          onGranted={handleGranted}
+          regrant={selected.speaker.sourceRegistration?.status === "CANCELLED"}
+        />
       )}
     </div>
   );

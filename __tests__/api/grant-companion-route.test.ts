@@ -12,14 +12,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, ensureCompanionSpy } = vi.hoisted(() => ({
+const { mockDb, mockAuth, ensureCompanionSpy, createRegistrationSpy } = vi.hoisted(() => ({
   mockDb: {
     event: { findFirst: vi.fn() },
-    speaker: { findFirst: vi.fn() },
+    speaker: { findFirst: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
   mockAuth: vi.fn(),
   ensureCompanionSpy: vi.fn(),
+  createRegistrationSpy: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -42,6 +43,9 @@ vi.mock("@/lib/security", () => ({
 }));
 vi.mock("@/lib/speaker-companion", () => ({
   ensureSpeakerCompanionRegistration: ensureCompanionSpy,
+}));
+vi.mock("@/services/registration-service", () => ({
+  createRegistration: createRegistrationSpy,
 }));
 
 import { POST } from "@/app/api/events/[eventId]/speakers/[speakerId]/grant-companion/route";
@@ -203,5 +207,134 @@ describe("grant-companion behavior", () => {
     ensureCompanionSpy.mockRejectedValue(new Error("db down"));
     const res = await POST(req, routeParams);
     expect(res.status).toBe(500);
+  });
+});
+
+// ── Payable mode (owner decision Aug 5, 2026) ────────────────────────────────
+// Proposal signups no longer auto-mint anything; the organizer grants comp OR
+// a payable registration on a chosen type — the latter delegates to
+// registration-service.createRegistration (seat claim, UNASSIGNED payment
+// default, confirmation email + quote + Pay Now link) and links the new
+// registration as the speaker's attendee facet.
+const payableReq = (body: Record<string, unknown>) =>
+  new Request("http://test/api/events/ev1/speakers/sp1/grant-companion", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+describe("grant-companion payable mode", () => {
+  beforeEach(() => {
+    createRegistrationSpy.mockResolvedValue({
+      ok: true,
+      registration: { id: "reg-pay", paymentStatus: "UNASSIGNED" },
+    });
+    mockDb.speaker.update.mockResolvedValue({});
+  });
+
+  it("400 TICKET_TYPE_REQUIRED without a ticketTypeId", async () => {
+    const res = await POST(payableReq({ mode: "payable" }), routeParams);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("TICKET_TYPE_REQUIRED");
+    expect(createRegistrationSpy).not.toHaveBeenCalled();
+  });
+
+  it("mints via registration-service from the SPEAKER's details, links the facet, audits mode=payable", async () => {
+    const res = await POST(
+      payableReq({ mode: "payable", ticketTypeId: "tt1", pricingTierId: "tier1" }),
+      routeParams,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      ok: true,
+      outcome: "payable-created",
+      registrationId: "reg-pay",
+      paymentStatus: "UNASSIGNED",
+    });
+    // Service input carries the speaker's own details — no re-registration.
+    expect(createRegistrationSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: "ev1",
+        ticketTypeId: "tt1",
+        pricingTierId: "tier1",
+        source: "rest",
+        attendee: expect.objectContaining({
+          email: "prop@x.com",
+          firstName: "Pat",
+          lastName: "Proposer",
+          organization: "Uni",
+        }),
+      }),
+    );
+    expect(mockDb.speaker.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "sp1" }, data: { sourceRegistrationId: "reg-pay" } }),
+    );
+    expect(mockDb.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "COMPANION_GRANTED",
+          changes: expect.objectContaining({ mode: "payable", ticketTypeId: "tt1" }),
+        }),
+      }),
+    );
+    expect(ensureCompanionSpy).not.toHaveBeenCalled(); // payable never runs the comp path
+  });
+
+  it("409 ALREADY_HAS_REGISTRATION when a LIVE registration is already linked", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({
+      ...SPEAKER_ROW,
+      sourceRegistrationId: "reg-live",
+      sourceRegistration: { status: "CONFIRMED" },
+    });
+    const res = await POST(payableReq({ mode: "payable", ticketTypeId: "tt1" }), routeParams);
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("ALREADY_HAS_REGISTRATION");
+    expect(createRegistrationSpy).not.toHaveBeenCalled();
+  });
+
+  it("a CANCELLED link does NOT block a payable grant (revoked → grant payable works)", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({
+      ...SPEAKER_ROW,
+      sourceRegistrationId: "reg-dead",
+      sourceRegistration: { status: "CANCELLED" },
+    });
+    const res = await POST(payableReq({ mode: "payable", ticketTypeId: "tt1" }), routeParams);
+    expect(res.status).toBe(200);
+    expect(createRegistrationSpy).toHaveBeenCalled();
+  });
+
+  it("ALREADY_REGISTERED from the service → links the existing registration instead of failing", async () => {
+    createRegistrationSpy.mockResolvedValue({
+      ok: false,
+      code: "ALREADY_REGISTERED",
+      message: "already registered",
+      meta: { existingRegistrationId: "reg-prior" },
+    });
+    const res = await POST(payableReq({ mode: "payable", ticketTypeId: "tt1" }), routeParams);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ outcome: "linked-existing", registrationId: "reg-prior" });
+    expect(mockDb.speaker.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { sourceRegistrationId: "reg-prior" } }),
+    );
+  });
+
+  it("service rejections surface with their code (e.g. the Faculty-type guard)", async () => {
+    createRegistrationSpy.mockResolvedValue({
+      ok: false,
+      code: "TICKET_TYPE_IS_FACULTY",
+      message: "Faculty types are granted as complimentary, not payable",
+    });
+    const res = await POST(payableReq({ mode: "payable", ticketTypeId: "tt-fac" }), routeParams);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("TICKET_TYPE_IS_FACULTY");
+    expect(mockDb.speaker.update).not.toHaveBeenCalled();
+  });
+
+  it("an empty body still means the historical comp grant (backward compat)", async () => {
+    const res = await POST(req, routeParams);
+    expect(res.status).toBe(200);
+    expect(ensureCompanionSpy).toHaveBeenCalled();
+    expect(createRegistrationSpy).not.toHaveBeenCalled();
   });
 });

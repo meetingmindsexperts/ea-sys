@@ -151,7 +151,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     });
 
     // Companion registration (badge / check-in parity) — failure-isolated, and
-    // a no-op when the speaker already points at a registration.
+    // a no-op when the speaker already points at a registration. SESSION-
+    // PROPOSAL sign-ins are linkOnly (owner decision Aug 5, 2026): NO auto
+    // comp — the organizer grants comp or payable per person; an existing
+    // same-email registration is still linked.
     try {
       await ensureSpeakerCompanionRegistration({
         id: speakerId,
@@ -170,7 +173,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         zipCode: att?.zipCode ?? null,
         country: att?.country ?? null,
         specialty: att?.specialty ?? null,
-      });
+      }, { linkOnly: parsed.data.source === "proposal" });
     } catch (err) {
       apiLogger.warn({ msg: "public/abstract-start:companion-failed", eventId: event.id, speakerId, err });
     }

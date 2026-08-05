@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -8,29 +9,48 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
+import {
+  createRegistration,
+  type RegistrationTitle,
+  type RegistrationAttendeeRole,
+} from "@/services/registration-service";
 
 /**
- * POST — grant (or RE-grant) this speaker a complimentary companion
- * registration (the "attendee facet": comp Faculty registration → badge /
- * entry barcode / check-in / survey), by explicit organizer action.
+ * POST — grant this speaker a registration by explicit organizer action, in
+ * one of two modes (owner decision Aug 5, 2026 — session-proposal signups no
+ * longer auto-mint anything; the organizer decides per person):
  *
- * Model (owner decision, July 30 2026): self-signup (abstract submitters +
- * session proposers) auto-mints the comp registration at account creation, and
- * the organizer REVOKES per person when someone shouldn't attend free (cancel
- * the companion registration — the proposal sheet's Revoke button / the
- * registrations list). This route is the counterpart: re-grant a revoked
- * person, or recover a signup whose auto-provisioning hiccuped.
+ *   mode "comp" (default) — complimentary Faculty companion (badge / entry
+ *   barcode / check-in / survey). Idempotent via
+ *   ensureSpeakerCompanionRegistration:
+ *     already linked                        → no-op (`already-linked`)
+ *     same-email NON-CANCELLED registration → link it (`linked-by-email`)
+ *     otherwise (incl. only-cancelled ones) → create a fresh comp Faculty
+ *                                             companion (`created`)
  *
- * Idempotent — delegates to ensureSpeakerCompanionRegistration:
- *   already linked                        → no-op (`already-linked`)
- *   same-email NON-CANCELLED registration → link it (`linked-by-email`)
- *   otherwise (incl. only-cancelled ones) → create a fresh comp Faculty
- *                                           companion (`created`)
+ *   mode "payable" — a REAL registration on a chosen ticket type (+ optional
+ *   pricing tier), minted from the details the speaker already provided, via
+ *   registration-service.createRegistration — which owns seat claim, payment
+ *   defaulting (UNASSIGNED for paid) and the confirmation email + quote PDF
+ *   with the Pay Now link, so the person is asked for payment automatically.
+ *   The new registration is linked as the speaker's attendee facet. A
+ *   same-email existing registration is linked instead of duplicated
+ *   (`linked-existing`).
+ *
+ * History: the July 30, 2026 model auto-comped proposal signups with a
+ * per-person REVOKE; reversed Aug 5, 2026 (most proposers are invited faculty,
+ * some must pay, some get comped — grant is now the explicit action).
  */
 
 interface RouteParams {
   params: Promise<{ eventId: string; speakerId: string }>;
 }
+
+const grantBodySchema = z.object({
+  mode: z.enum(["comp", "payable"]).default("comp"),
+  ticketTypeId: z.string().optional(),
+  pricingTierId: z.string().optional(),
+});
 
 export async function POST(req: Request, { params }: RouteParams) {
   try {
@@ -38,6 +58,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Lenient body parse — the historical comp grant POSTs an empty body.
+    const rawBody = await req.json().catch(() => ({}));
+    const parsedBody = grantBodySchema.safeParse(rawBody ?? {});
+    if (!parsedBody.success) {
+      apiLogger.warn({
+        msg: "grant-companion:invalid-body",
+        eventId,
+        speakerId,
+        errors: parsedBody.error.flatten().fieldErrors,
+      });
+      return NextResponse.json(
+        { error: "Invalid input", details: parsedBody.error.flatten() },
+        { status: 400 },
+      );
+    }
+    const body = parsedBody.data;
 
     // Granting free entry is an organizer decision — ADMIN/ORGANIZER only
     // (default denyReviewer set: no MEMBER/ONSITE/REVIEWER/SUBMITTER/REGISTRANT).
@@ -108,6 +145,136 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Speaker not found" }, { status: 404 });
     }
 
+    // ── Payable mode ─────────────────────────────────────────────────────
+    if (body.mode === "payable") {
+      if (!body.ticketTypeId) {
+        apiLogger.warn({ msg: "grant-companion:ticket-type-required", eventId, speakerId });
+        return NextResponse.json(
+          { error: "Pick a registration type for a payable registration", code: "TICKET_TYPE_REQUIRED" },
+          { status: 400 },
+        );
+      }
+      // A live linked registration means they already have their facet —
+      // granting a second (payable) one would double-register them.
+      if (speaker.sourceRegistrationId && speaker.sourceRegistration?.status !== "CANCELLED") {
+        apiLogger.warn({ msg: "grant-companion:already-has-registration", eventId, speakerId });
+        return NextResponse.json(
+          {
+            error: "This speaker already has a linked registration",
+            code: "ALREADY_HAS_REGISTRATION",
+            registrationId: speaker.sourceRegistrationId,
+          },
+          { status: 409 },
+        );
+      }
+
+      const created = await createRegistration({
+        eventId,
+        organizationId: session.user.organizationId ?? "",
+        userId: session.user.id,
+        ticketTypeId: body.ticketTypeId,
+        pricingTierId: body.pricingTierId ?? null,
+        attendee: {
+          // Speaker's Title/AttendeeRole enums are value-identical to the
+          // service's narrowed string unions.
+          title: (speaker.title as RegistrationTitle | null) ?? null,
+          role: (speaker.role as RegistrationAttendeeRole | null) ?? null,
+          email: speaker.email,
+          additionalEmail: speaker.additionalEmail,
+          firstName: speaker.firstName,
+          lastName: speaker.lastName,
+          organization: speaker.organization,
+          jobTitle: speaker.jobTitle,
+          phone: speaker.phone,
+          photo: speaker.photo,
+          city: speaker.city,
+          state: speaker.state,
+          zipCode: speaker.zipCode,
+          country: speaker.country,
+          specialty: speaker.specialty,
+        },
+        source: "rest",
+        requestIp: getClientIp(req),
+        actorFirstName: session.user.firstName ?? null,
+      });
+
+      if (!created.ok) {
+        // Same-email registration already exists → link it as the facet
+        // instead of failing (the service's dup check excludes CANCELLED,
+        // so the row is live).
+        const existingId =
+          created.code === "ALREADY_REGISTERED"
+            ? (created.meta?.existingRegistrationId as string | undefined)
+            : undefined;
+        if (existingId) {
+          await db.speaker.update({
+            where: { id: speaker.id },
+            data: { sourceRegistrationId: existingId },
+          });
+          apiLogger.info({
+            msg: "grant-companion:linked-existing-payable",
+            eventId,
+            speakerId,
+            registrationId: existingId,
+          });
+          return NextResponse.json({ ok: true, outcome: "linked-existing", registrationId: existingId });
+        }
+        apiLogger.warn({
+          msg: "grant-companion:payable-rejected",
+          eventId,
+          speakerId,
+          code: created.code,
+          detail: created.message,
+        });
+        return NextResponse.json(
+          { error: created.message, code: created.code },
+          { status: created.code === "UNKNOWN" ? 500 : 400 },
+        );
+      }
+
+      await db.speaker.update({
+        where: { id: speaker.id },
+        data: { sourceRegistrationId: created.registration.id },
+      });
+      db.auditLog
+        .create({
+          data: {
+            eventId,
+            userId: session.user.id,
+            action: "COMPANION_GRANTED",
+            entityType: "Speaker",
+            entityId: speaker.id,
+            changes: {
+              mode: "payable",
+              registrationId: created.registration.id,
+              ticketTypeId: body.ticketTypeId,
+              pricingTierId: body.pricingTierId ?? null,
+              paymentStatus: created.registration.paymentStatus,
+              outcome: "payable-created",
+            },
+            ipAddress: getClientIp(req),
+          },
+        })
+        .catch((err) =>
+          apiLogger.warn({ err, msg: "grant-companion:audit-failed", speakerId }),
+        );
+      apiLogger.info({
+        msg: "grant-companion:payable-created",
+        eventId,
+        speakerId,
+        registrationId: created.registration.id,
+        paymentStatus: created.registration.paymentStatus,
+        userId: session.user.id,
+      });
+      return NextResponse.json({
+        ok: true,
+        outcome: "payable-created",
+        registrationId: created.registration.id,
+        paymentStatus: created.registration.paymentStatus,
+      });
+    }
+
+    // ── Comp mode (default) ──────────────────────────────────────────────
     // RE-grant after a revoke: the cancel keeps `sourceRegistrationId` pointing
     // at the CANCELLED row (audit/timeline continuity), which would make the
     // ensure helper short-circuit "already-linked" against a dead registration.

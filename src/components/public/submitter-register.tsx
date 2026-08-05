@@ -13,8 +13,10 @@
  * The variant only flips copy, the welcome HTML source, the abstract-only
  * gate/deadline, and where the person lands after signing in.
  *
- * NOTE (owner decision, July 30 2026): signup does NOT auto-create a
- * complimentary registration — the organizer grants attendance per person.
+ * NOTE (owner decision, Aug 5 2026): a PROPOSAL signup does NOT auto-create a
+ * complimentary registration — the organizer grants attendance per person
+ * (comp or payable) from the proposal detail / speaker page. ABSTRACT signups
+ * still auto-mint the comp Faculty companion (badge/barcode), unchanged.
  */
 
 import { useState, useEffect, type ReactNode } from "react";

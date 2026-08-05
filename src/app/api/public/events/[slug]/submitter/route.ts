@@ -313,6 +313,9 @@ export async function POST(req: Request, { params }: RouteParams) {
     // check-in / survey / certificate via the normal registration machinery —
     // mirroring createSpeaker + the import paths. Without this the submitter
     // route's raw speaker.create left these faculty with no scannable code.
+    // SESSION-PROPOSAL signups are linkOnly (owner decision Aug 5, 2026): NO
+    // auto comp registration — the organizer grants comp or payable per
+    // person; an existing same-email registration is still linked.
     // Failure-isolated: a hiccup must NOT fail the account create; the backfill
     // script recovers any that fail.
     if (speakerRow) {
@@ -336,7 +339,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           registrationType: data.registrationType || null,
           role: data.role ?? null,
           sourceRegistrationId: speakerRow.sourceRegistrationId,
-        });
+        }, { linkOnly: data.source === "proposal" });
       } catch (err) {
         apiLogger.error({ err, speakerId: speakerRow.id, eventId: event.id }, "submitter:companion-failed");
       }

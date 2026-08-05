@@ -78,6 +78,7 @@ import { resolveAttachmentMime } from "@/lib/email-attachment-limits";
 import { IssuedCertificatesCard } from "@/components/certificates/issued-certificates-card";
 import { SpeakerDocumentsCard } from "@/components/speakers/speaker-documents-card";
 import { SpeakerProfileFormCard } from "@/components/speakers/speaker-profile-form-card";
+import { GrantRegistrationDialog } from "@/components/speakers/grant-registration-dialog";
 import { SpeakerReimbursementCard } from "@/components/speakers/speaker-reimbursement-card";
 import { ChangeEmailDialog } from "@/components/change-email-dialog";
 import { ActivityTimelineCard } from "@/components/activity/activity-timeline-card";
@@ -224,7 +225,7 @@ export default function SpeakerDetailPage() {
   // re-fires the abstract-submission-confirmation email for one abstract.
   const [resendingAbstractId, setResendingAbstractId] = useState<string | null>(null);
   const [updatingAgreement, setUpdatingAgreement] = useState(false);
-  const [grantingCompanion, setGrantingCompanion] = useState(false);
+  const [grantDialogOpen, setGrantDialogOpen] = useState(false);
   const [showAgreementHelp, setShowAgreementHelp] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<{ subject: string; htmlContent: string } | null>(null);
@@ -307,33 +308,9 @@ export default function SpeakerDetailPage() {
     }
   };
 
-  // Organizer decision: give this speaker/proposer their complimentary Faculty
-  // companion registration (self-signup no longer auto-mints it — July 30 2026).
-  const handleGrantCompanion = async () => {
-    setGrantingCompanion(true);
-    try {
-      const res = await fetch(`/api/events/${eventId}/speakers/${speakerId}/grant-companion`, {
-        method: "POST",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.error("[speaker] grant-companion failed:", res.status, data.error);
-        toast.error(data.error || "Failed to grant registration");
-        return;
-      }
-      toast.success(
-        data.outcome === "linked-by-email"
-          ? "Linked this person's existing registration"
-          : "Complimentary registration granted",
-      );
-      fetchSpeaker();
-    } catch (err) {
-      console.error("[speaker] grant-companion failed:", err);
-      toast.error("Failed to grant registration");
-    } finally {
-      setGrantingCompanion(false);
-    }
-  };
+  // Organizer decision: grant this speaker/proposer a registration — comp
+  // Faculty OR payable on a chosen type (Aug 5, 2026) — via the shared
+  // GrantRegistrationDialog. Proposal signups no longer auto-mint anything.
 
   const fetchSpeaker = useCallback(async () => {
     try {
@@ -1369,22 +1346,17 @@ export default function SpeakerDetailPage() {
                       : "Linked to an existing registration for this person."}
                   </p>
 
-                  {/* Revoked (cancelled) companion → offer a one-click re-grant
-                      (mints a fresh comp registration; the cancelled one stays
-                      for audit). */}
+                  {/* Revoked (cancelled) companion → offer a re-grant via the
+                      dialog (comp or payable; mints a fresh registration —
+                      the cancelled one stays for audit). */}
                   {speaker.sourceRegistration.status === "CANCELLED" && (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={handleGrantCompanion}
-                      disabled={grantingCompanion}
+                      onClick={() => setGrantDialogOpen(true)}
                     >
-                      {grantingCompanion ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                      )}
-                      Re-grant complimentary registration
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      Re-grant registration
                     </Button>
                   )}
 
@@ -1399,24 +1371,19 @@ export default function SpeakerDetailPage() {
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    No linked registration — the automatic provisioning may have hiccuped
-                    for this speaker.
+                    No linked registration yet.
                   </p>
                   <Button
                     size="sm"
-                    onClick={handleGrantCompanion}
-                    disabled={grantingCompanion}
+                    onClick={() => setGrantDialogOpen(true)}
                   >
-                    {grantingCompanion ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="mr-2 h-4 w-4" />
-                    )}
-                    Grant complimentary registration
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Grant registration
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    Creates a comp Faculty registration (badge + entry barcode + check-in),
-                    or links an existing registration if this person already registered.
+                    Complimentary (Faculty) or payable on a registration type you pick —
+                    payable emails them the quote + Pay Now link. Links an existing
+                    registration if this person already registered.
                   </p>
                 </div>
               )}
@@ -1623,6 +1590,15 @@ export default function SpeakerDetailPage() {
           htmlContent={previewData.htmlContent}
         />
       )}
+
+      <GrantRegistrationDialog
+        eventId={eventId}
+        speakerId={speakerId}
+        open={grantDialogOpen}
+        onOpenChange={setGrantDialogOpen}
+        onGranted={() => fetchSpeaker()}
+        regrant={speaker?.sourceRegistration?.status === "CANCELLED"}
+      />
 
       <SessionDetailSheet
         eventId={eventId}

@@ -112,6 +112,16 @@ describe("submitter route — companion registration", () => {
     expect(res.status).toBeLessThan(400); // account still created
     expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("ABSTRACT signups still auto-mint (linkOnly false)", async () => {
+    await POST(makeReq(validBody), { params });
+    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: false });
+  });
+
+  it("PROPOSAL signups are linkOnly — NO auto comp registration (owner decision Aug 5, 2026)", async () => {
+    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: true });
+  });
 });
 
 describe("submitter route — submitterSource stamping (a door WIDENS, never narrows — Aug 4 2026)", () => {

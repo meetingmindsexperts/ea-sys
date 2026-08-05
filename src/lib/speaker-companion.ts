@@ -87,7 +87,8 @@ export interface CompanionSpeakerInput {
 export type CompanionResult =
   | { status: "already-linked"; registrationId: string }
   | { status: "linked-by-email"; registrationId: string }
-  | { status: "created"; registrationId: string };
+  | { status: "created"; registrationId: string }
+  | { status: "link-only-no-create"; registrationId: null };
 
 /**
  * Ensure the speaker has a companion registration, idempotently:
@@ -101,6 +102,15 @@ export type CompanionResult =
  */
 export async function ensureSpeakerCompanionRegistration(
   speaker: CompanionSpeakerInput,
+  /**
+   * `linkOnly: true` skips the create step (owner decision Aug 5, 2026 —
+   * SESSION-PROPOSAL signups must NOT auto-mint a complimentary registration:
+   * most proposers are invited faculty, some must register and pay, some get
+   * comped — the organizer decides per person via the Grant-registration
+   * dialog, comp or payable). Steps 1–2 still run so a proposer who already
+   * registered themselves gets their real registration linked.
+   */
+  opts?: { linkOnly?: boolean },
 ): Promise<CompanionResult> {
   if (speaker.sourceRegistrationId) {
     return { status: "already-linked", registrationId: speaker.sourceRegistrationId };
@@ -134,6 +144,15 @@ export async function ensureSpeakerCompanionRegistration(
       });
       return { status: "linked-by-email", registrationId: existing.id };
     }
+  }
+
+  if (opts?.linkOnly) {
+    apiLogger.info({
+      msg: "speaker-companion:link-only-skip-create",
+      speakerId: speaker.id,
+      eventId: speaker.eventId,
+    });
+    return { status: "link-only-no-create", registrationId: null };
   }
 
   const facultyTypeId = await ensureFacultyTicketType(speaker.eventId);
