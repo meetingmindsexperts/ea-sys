@@ -262,11 +262,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           // ("abstract" | "proposal"; a door widens to "both" on an existing
           // speaker).
           submitterSource: data.source,
-          // A fresh PROPOSER is NOT a confirmed speaker — the team reviews the
-          // proposal and confirms by hand (owner decision Aug 5, 2026). Only
-          // applies on CREATE; an existing (invited) speaker keeps their
-          // organizer-set status.
-          status: data.source === "proposal" ? "INVITED" : "CONFIRMED",
+          // A fresh self-signup (abstract presenter OR proposer) is NOT a
+          // confirmed speaker — the team reviews the submission and confirms
+          // by hand (owner decision Aug 5, 2026). Only applies on CREATE; an
+          // existing (invited) speaker keeps their organizer-set status.
+          status: "INVITED",
         },
       });
     });

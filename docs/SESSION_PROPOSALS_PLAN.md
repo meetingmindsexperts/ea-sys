@@ -28,8 +28,9 @@
 >   (registration-service → auto-emails quote + Pay Now; badge falls back to "DELEGATE").
 >   An existing same-email registration is linked, never duplicated. Abstract submitters
 >   keep auto-comp, unchanged.
-> - **Fresh proposers start as speaker status INVITED** (Aug 5 — submitting a proposal ≠
->   confirmed speaker; the team reviews then flips to CONFIRMED by hand). An EXISTING
+> - **ALL fresh self-signups (abstract + proposal) start as speaker status INVITED**
+>   (Aug 5 — submitting ≠ confirmed speaker; the team reviews then flips to CONFIRMED by
+>   hand; the abstract door was included by owner follow-up the same day). An EXISTING
 >   speaker's status is never touched by the signup upsert (invited faculty inherit).
 >   Option A (reuse INVITED) chosen over Option B (a dedicated PENDING enum value) —
 >   B may come later if "Invited" confuses; noted on `EventSpeakerProfile.status`.

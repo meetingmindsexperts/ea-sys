@@ -308,11 +308,12 @@ export interface EventSpeakerProfile {
    * Speaker status for a NEWLY-CREATED speaker only — an EXISTING speaker's
    * status is NEVER touched by the upsert (an invited/confirmed speaker who
    * signs in keeps the status the organizer set — inheritance, owner decision
-   * Aug 5, 2026). Defaults to CONFIRMED (abstract self-signups). The proposal
-   * door passes "INVITED": a fresh proposer is NOT a confirmed speaker — the
-   * team reviews the proposal and flips the status by hand. If "Invited"
-   * proves confusing for uninvited proposers, Option B is a dedicated
-   * PENDING enum value (additive migration + label maps + MCP whitelists).
+   * Aug 5, 2026). BOTH self-signup doors (abstract + proposal) pass "INVITED":
+   * a fresh self-signup is NOT a confirmed speaker — the team reviews the
+   * submission and flips the status by hand. If "Invited" proves confusing
+   * for uninvited people, Option B is a dedicated PENDING enum value
+   * (additive migration + label maps + MCP whitelists). Defaults to CONFIRMED
+   * for any future caller that doesn't specify.
    */
   status?: SpeakerStatus;
   /**

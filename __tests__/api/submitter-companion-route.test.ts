@@ -132,10 +132,10 @@ describe("submitter route — speaker status default (owner decision Aug 5, 2026
     );
   });
 
-  it("a fresh ABSTRACT signup stays CONFIRMED (unchanged)", async () => {
+  it("a fresh ABSTRACT signup is ALSO created INVITED (owner follow-up, same day)", async () => {
     await POST(makeReq(validBody), { params });
     expect(mockDb._tx.speaker.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "CONFIRMED" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ status: "INVITED" }) }),
     );
   });
 

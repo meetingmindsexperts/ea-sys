@@ -146,10 +146,10 @@ export async function POST(req: Request, { params }: RouteParams) {
           registrationType: att?.registrationType ?? null,
           sourceRegistrationId: registration?.id ?? null,
           submitterSource: parsed.data.source,
-          // Fresh proposer via the sign-in shortcut → INVITED (team confirms
-          // after review); abstract signups stay CONFIRMED. CREATE only — an
-          // existing speaker's status is never touched.
-          status: parsed.data.source === "proposal" ? "INVITED" : "CONFIRMED",
+          // Any fresh self-signup (abstract OR proposal) → INVITED; the team
+          // confirms after review (owner decision Aug 5, 2026). CREATE only —
+          // an existing speaker's status is never touched.
+          status: "INVITED",
         },
       });
     });
