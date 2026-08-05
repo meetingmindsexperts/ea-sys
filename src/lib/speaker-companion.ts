@@ -14,7 +14,7 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
-import { Prisma, type Title, type AttendeeRole } from "@prisma/client";
+import { Prisma, type Title, type AttendeeRole, type SpeakerStatus } from "@prisma/client";
 
 /**
  * Find-or-create the event's hidden Faculty ticket type. Comp (price 0),
@@ -305,6 +305,17 @@ export interface EventSpeakerProfile {
   /** Only applied on CREATE (links the speaker to an existing registration). */
   sourceRegistrationId?: string | null;
   /**
+   * Speaker status for a NEWLY-CREATED speaker only — an EXISTING speaker's
+   * status is NEVER touched by the upsert (an invited/confirmed speaker who
+   * signs in keeps the status the organizer set — inheritance, owner decision
+   * Aug 5, 2026). Defaults to CONFIRMED (abstract self-signups). The proposal
+   * door passes "INVITED": a fresh proposer is NOT a confirmed speaker — the
+   * team reviews the proposal and flips the status by hand. If "Invited"
+   * proves confusing for uninvited proposers, Option B is a dedicated
+   * PENDING enum value (additive migration + label maps + MCP whitelists).
+   */
+  status?: SpeakerStatus;
+  /**
    * Which self-signup flow this upsert comes from ("abstract" | "proposal").
    * Each door GRANTS its surface and never removes the other — a person who
    * has used both doors is stamped "both" (owner decision Aug 4, 2026: the
@@ -414,7 +425,10 @@ export async function upsertEventSpeaker(
       registrationType: profile.registrationType ?? null,
       sourceRegistrationId: profile.sourceRegistrationId ?? null,
       submitterSource: profile.submitterSource ?? null,
-      status: "CONFIRMED",
+      // CREATE only — see EventSpeakerProfile.status: abstract signups default
+      // CONFIRMED; the proposal door passes INVITED (team confirms after
+      // reviewing the proposal). Existing speakers keep their status above.
+      status: profile.status ?? "CONFIRMED",
     },
     select: { id: true },
   });

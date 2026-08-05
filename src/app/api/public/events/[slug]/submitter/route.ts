@@ -259,8 +259,14 @@ export async function POST(req: Request, { params }: RouteParams) {
           customSpecialty: data.customSpecialty || null,
           registrationType: data.registrationType || undefined,
           // Surface separation: which flow this signup came through
-          // ("abstract" | "proposal"; first flow wins on an existing speaker).
+          // ("abstract" | "proposal"; a door widens to "both" on an existing
+          // speaker).
           submitterSource: data.source,
+          // A fresh PROPOSER is NOT a confirmed speaker — the team reviews the
+          // proposal and confirms by hand (owner decision Aug 5, 2026). Only
+          // applies on CREATE; an existing (invited) speaker keeps their
+          // organizer-set status.
+          status: data.source === "proposal" ? "INVITED" : "CONFIRMED",
         },
       });
     });

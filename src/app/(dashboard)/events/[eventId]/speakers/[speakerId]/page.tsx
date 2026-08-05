@@ -697,6 +697,18 @@ export default function SpeakerDetailPage() {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  {/* Grant Registration in the header for anyone who still
+                      needs one (no linked registration, or a revoked one) —
+                      owner request Aug 5, 2026. */}
+                  {(!speaker.sourceRegistration ||
+                    speaker.sourceRegistration.status === "CANCELLED") && (
+                    <Button size="sm" variant="secondary" onClick={() => setGrantDialogOpen(true)}>
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      {speaker.sourceRegistration?.status === "CANCELLED"
+                        ? "Re-grant Registration"
+                        : "Grant Registration"}
+                    </Button>
+                  )}
                   <Button size="sm" variant="secondary" className="text-red-600 hover:text-red-700" onClick={handleDelete}>
                     <Trash2 className="mr-2 h-4 w-4" /> Delete
                   </Button>
@@ -1346,18 +1358,13 @@ export default function SpeakerDetailPage() {
                       : "Linked to an existing registration for this person."}
                   </p>
 
-                  {/* Revoked (cancelled) companion → offer a re-grant via the
-                      dialog (comp or payable; mints a fresh registration —
-                      the cancelled one stays for audit). */}
+                  {/* Revoked (cancelled) companion → the Re-grant Registration
+                      button lives in the header next to Delete (Aug 5, 2026). */}
                   {speaker.sourceRegistration.status === "CANCELLED" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setGrantDialogOpen(true)}
-                    >
-                      <CheckCircle2 className="mr-2 h-4 w-4" />
-                      Re-grant registration
-                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Registration revoked — use <strong>Re-grant Registration</strong> above to
+                      issue a new one (complimentary or payable).
+                    </p>
                   )}
 
                   <a
@@ -1369,21 +1376,14 @@ export default function SpeakerDetailPage() {
                   </a>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">
                     No linked registration yet.
                   </p>
-                  <Button
-                    size="sm"
-                    onClick={() => setGrantDialogOpen(true)}
-                  >
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                    Grant registration
-                  </Button>
                   <p className="text-xs text-muted-foreground">
-                    Complimentary (Faculty) or payable on a registration type you pick —
-                    payable emails them the quote + Pay Now link. Links an existing
-                    registration if this person already registered.
+                    Use <strong>Grant Registration</strong> above — complimentary (Faculty) or
+                    payable on a registration type you pick; payable emails them the quote +
+                    Pay Now link. An existing registration is linked automatically.
                   </p>
                 </div>
               )}

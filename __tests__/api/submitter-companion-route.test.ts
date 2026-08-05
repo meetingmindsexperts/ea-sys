@@ -124,6 +124,29 @@ describe("submitter route — companion registration", () => {
   });
 });
 
+describe("submitter route — speaker status default (owner decision Aug 5, 2026)", () => {
+  it("a fresh PROPOSER is created INVITED — the team confirms after reviewing the proposal", async () => {
+    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    expect(mockDb._tx.speaker.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "INVITED" }) }),
+    );
+  });
+
+  it("a fresh ABSTRACT signup stays CONFIRMED (unchanged)", async () => {
+    await POST(makeReq(validBody), { params });
+    expect(mockDb._tx.speaker.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "CONFIRMED" }) }),
+    );
+  });
+
+  it("an EXISTING speaker's status is NEVER touched (invited/confirmed speakers inherit)", async () => {
+    mockDb._tx.speaker.findUnique.mockResolvedValue({ id: "sp1", submitterSource: null });
+    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    const updateData = mockDb._tx.speaker.update.mock.calls[0][0].data;
+    expect(updateData).not.toHaveProperty("status");
+  });
+});
+
 describe("submitter route — submitterSource stamping (a door WIDENS, never narrows — Aug 4 2026)", () => {
   it("stamps the source on speaker CREATE", async () => {
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
