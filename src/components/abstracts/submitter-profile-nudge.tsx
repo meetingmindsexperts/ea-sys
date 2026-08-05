@@ -44,8 +44,8 @@ export function SubmitterProfileNudge() {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 px-4 py-3">
       <div className="text-sm text-amber-900 dark:text-amber-200">
-        <strong>Please complete your details</strong> — the organizing team needs them for the
-        programme. Missing: {missing.join(", ")}.
+        <strong>Please complete your details</strong>
+
       </div>
       <Button asChild size="sm" variant="outline" className="border-amber-400">
         <Link href={`/events/${eventId}/abstracts/profile`}>

@@ -25,7 +25,6 @@ import {
   Phone,
   MapPin,
   Stethoscope,
-  BadgeCheck,
   FileText,
   Lightbulb,
   Plus,
@@ -41,11 +40,6 @@ import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-
 import { isProfileIncomplete, missingProfileFields } from "@/lib/submitter-profile-completeness";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
 import { abstractStatusColor, abstractStatusLabel, PRESENTATION_TYPE_LABELS } from "../abstract-enums";
-import {
-  PAYMENT_STATUS_COLORS,
-  PAYMENT_STATUS_LABELS,
-  REGISTRATION_STATUS_COLORS,
-} from "../../registrations/registration-enums";
 
 interface AbstractRow {
   id: string;
@@ -290,7 +284,6 @@ export default function SubmitterProfilePage() {
 
   if (!profile) return null;
 
-  const reg = profile.sourceRegistration;
   const missingFields = missingProfileFields(profile);
   const specialty =
     profile.specialty === "Others" && profile.customSpecialty
@@ -335,12 +328,16 @@ export default function SubmitterProfilePage() {
 
       {missingFields.length > 0 && (
         <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-          <strong>Please complete your details</strong> — the organizing team needs them for the
-          programme. Missing: {missingFields.join(", ")}.
+          <strong>Please complete your details</strong>
+
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* Was a 2-col grid beside a Registration card — that card was removed
+          (owner request Aug 5, 2026: the comp/Faculty registration facet is
+          organizer bookkeeping, not for the submitter's My Details); the
+          profile card now takes the full width. */}
+      <div className="grid gap-6">
         {/* Profile details — view + self-edit (Aug 4, 2026) */}
         <Card>
           <CardHeader>
@@ -474,74 +471,6 @@ export default function SubmitterProfilePage() {
           ) : null}
         </Card>
 
-        {/* Registration / attendee facet */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <BadgeCheck className="h-4 w-4 text-primary" /> Registration
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {reg ? (
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs text-muted-foreground">Registration #</div>
-                  <div className="text-sm font-mono">
-                    {reg.serialId != null ? String(reg.serialId).padStart(3, "0") : "—"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Status</div>
-                  <Badge className={`${REGISTRATION_STATUS_COLORS[reg.status as keyof typeof REGISTRATION_STATUS_COLORS] ?? "bg-gray-100 text-gray-700"} border-0`}>
-                    {reg.status}
-                  </Badge>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Payment</div>
-                  <Badge className={`${PAYMENT_STATUS_COLORS[reg.paymentStatus as keyof typeof PAYMENT_STATUS_COLORS] ?? "bg-gray-100 text-gray-700"} border-0`}>
-                    {PAYMENT_STATUS_LABELS[reg.paymentStatus as keyof typeof PAYMENT_STATUS_LABELS] ?? reg.paymentStatus}
-                  </Badge>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Ticket type</div>
-                  <div className="text-sm">
-                    {reg.ticketType?.name ?? "—"}
-                    {reg.ticketType?.isFaculty && (
-                      <Badge variant="secondary" className="ml-1.5 text-[10px]">Faculty</Badge>
-                    )}
-                  </div>
-                </div>
-                {reg.badgeType && (
-                  <div>
-                    <div className="text-xs text-muted-foreground">Badge</div>
-                    <div className="text-sm">{reg.badgeType}</div>
-                  </div>
-                )}
-                {reg.attendanceMode && (
-                  <div>
-                    <div className="text-xs text-muted-foreground">Attendance</div>
-                    <div className="text-sm">{reg.attendanceMode === "VIRTUAL" ? "Virtual" : "In-person"}</div>
-                  </div>
-                )}
-                <div>
-                  <div className="text-xs text-muted-foreground">Checked in</div>
-                  <div className="text-sm">
-                    {reg.checkedInAt ? new Date(reg.checkedInAt).toLocaleString() : "Not yet"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Survey</div>
-                  <div className="text-sm">{reg.surveyCompletedAt ? "Completed" : "Not completed"}</div>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No event registration is linked to your profile yet. The organizer will confirm your
-                registration; your entry badge and details will appear here once it&apos;s set up.
-              </p>
-            )}
-          </CardContent>
-        </Card>
       </div>
 
       {/* Abstracts summary — hidden for proposal-surface submitters (their
