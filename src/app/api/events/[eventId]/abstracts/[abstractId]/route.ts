@@ -18,6 +18,7 @@ import { optimisticLockField } from "@/lib/optimistic-lock";
 import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications";
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
+import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 
 // HTTP status mapping for the service's domain error codes. Kept local to
 // the REST caller — the service never knows about HTTP.
@@ -147,7 +148,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         id: abstractId,
         eventId,
       },
-      include: { speaker: { select: { userId: true } } },
+      include: { speaker: { select: { userId: true, ...PROFILE_COMPLETENESS_SELECT } } },
     });
 
     if (!existingAbstract) {
@@ -208,6 +209,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
       // Submitters can't force status transitions
       if (data.forceStatus) {
         return NextResponse.json({ error: "Only admins can force status" }, { status: 403 });
+      }
+      // Hard gate (Aug 5, 2026): submitting (DRAFT → SUBMITTED) requires a
+      // complete profile. Draft edits stay allowed — only the submission is
+      // blocked. The edit page redirects to My Details first; this covers a
+      // direct API call.
+      if (data.status === "SUBMITTED" && existingAbstract.speaker) {
+        const missing = missingProfileFields(existingAbstract.speaker);
+        if (missing.length > 0) {
+          apiLogger.warn({ msg: "abstract-submit:profile-incomplete-block", eventId, abstractId, userId: session.user.id, missing });
+          return NextResponse.json(profileIncompletePayload(missing), { status: 403 });
+        }
       }
     }
 

@@ -10,6 +10,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { SESSION_TYPE_KIND } from "@/lib/session-enums";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
+import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 
 /**
  * Single session proposal — GET / PUT / DELETE.
@@ -147,7 +148,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
           themeId: true,
           proposedFormat: true,
           durationMinutes: true,
-          speaker: { select: { userId: true } },
+          speaker: { select: { userId: true, ...PROFILE_COMPLETENESS_SELECT } },
         },
       });
 
@@ -176,6 +177,17 @@ export async function PUT(req: Request, { params }: RouteParams) {
         if (data.status && data.status !== "DRAFT" && data.status !== "SUBMITTED") {
           apiLogger.warn({ msg: "session-proposals:submitter-status-refused", eventId, proposalId, status: data.status });
           return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+        // Hard gate (Aug 5, 2026): submitting (DRAFT → SUBMITTED) requires a
+        // complete profile. Draft edits stay allowed — only the submission is
+        // blocked. The form redirects to My Details first; this covers a
+        // direct API call.
+        if (data.status === "SUBMITTED") {
+          const missing = missingProfileFields(existing.speaker);
+          if (missing.length > 0) {
+            apiLogger.warn({ msg: "session-proposals:profile-incomplete-block", eventId, proposalId, userId: session.user.id, missing });
+            return NextResponse.json(profileIncompletePayload(missing), { status: 403 });
+          }
         }
       }
 

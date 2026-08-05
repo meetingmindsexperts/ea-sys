@@ -159,6 +159,28 @@ describe("submitter route — speaker status default (owner decision Aug 5, 2026
     const updateData = mockDb._tx.speaker.update.mock.calls[0][0].data;
     expect(updateData).not.toHaveProperty("status");
   });
+
+  it("an EXISTING speaker's NAME is never rewritten by the door (Aug 5 name lock); a blank name is filled", async () => {
+    mockDb._tx.speaker.findUnique.mockResolvedValue({
+      id: "sp1", submitterSource: null, firstName: "Farid", lastName: "InvitedFaculty",
+    });
+    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    const updateData = mockDb._tx.speaker.update.mock.calls[0][0].data;
+    expect(updateData).not.toHaveProperty("firstName");
+    expect(updateData).not.toHaveProperty("lastName");
+    // Non-name profile fields still refresh from the signup form.
+    expect(updateData).toHaveProperty("organization");
+
+    // A blank name on file may still be filled once.
+    mockDb._tx.speaker.update.mockClear();
+    mockDb._tx.speaker.findUnique.mockResolvedValue({
+      id: "sp1", submitterSource: null, firstName: "", lastName: "InvitedFaculty",
+    });
+    await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    const second = mockDb._tx.speaker.update.mock.calls[0][0].data;
+    expect(second).toHaveProperty("firstName");
+    expect(second).not.toHaveProperty("lastName");
+  });
 });
 
 describe("submitter route — submitterSource stamping (a door WIDENS, never narrows — Aug 4 2026)", () => {

@@ -12,6 +12,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSubmitterSurfaceGuard } from "@/hooks/use-submitter-surface-guard";
+import { useSubmitterProfileGate } from "@/hooks/use-submitter-profile-gate";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import {
@@ -46,6 +47,9 @@ function ProposalForm() {
   // Surface separation: bounce a submitter whose signup flow doesn't cover
   // this surface (src/lib/submitter-surfaces.ts). No-op for staff.
   useSubmitterSurfaceGuard(eventId, "session-proposals");
+  // Profile hard gate: an incomplete-profile submitter is sent to My Details
+  // first (with a return link back here). Staff unaffected.
+  useSubmitterProfileGate(eventId);
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("edit");

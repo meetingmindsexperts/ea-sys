@@ -175,8 +175,26 @@ export default function SubmitterProfilePage() {
 
   const handleSave = async () => {
     if (!form) return;
-    if (!form.firstName.trim() || !form.lastName.trim()) {
-      toast.error("First and last name are required");
+    // Mandatory set (Aug 5, 2026, owner rule) — same fields the public signup
+    // form requires. Submission of abstracts/proposals is hard-gated on them.
+    const missing = [
+      [form.firstName.trim(), "First name"],
+      [form.lastName.trim(), "Last name"],
+      [form.phone.trim(), "Mobile"],
+      [form.jobTitle.trim(), "Job title"],
+      [form.organization.trim(), "Organization"],
+      [form.role, "Role"],
+      [form.specialty, "Specialty"],
+      [form.city.trim(), "City"],
+      [form.country, "Country"],
+    ]
+      .filter(([value]) => !value)
+      .map(([, label]) => label);
+    if (form.specialty === "Others" && !form.customSpecialty.trim()) {
+      missing.push("Custom specialty");
+    }
+    if (missing.length > 0) {
+      toast.error(`Please fill in: ${missing.join(", ")}`);
       return;
     }
     setSaving(true);
@@ -208,9 +226,23 @@ export default function SubmitterProfilePage() {
         toast.error(data.error || "Failed to save your details");
         return;
       }
-      setProfile(data as MyProfile);
+      const saved = data as MyProfile;
+      setProfile(saved);
       setEditing(false);
       toast.success("Your details were updated");
+      // Hard-gate return flow: if the person was bounced here from a submit
+      // page (?next=…), completing the profile sends them straight back.
+      // Same-origin relative paths only — never an absolute/protocol-relative
+      // URL (open-redirect guard).
+      const next = new URLSearchParams(window.location.search).get("next");
+      if (
+        next &&
+        next.startsWith("/") &&
+        !next.startsWith("//") &&
+        !isProfileIncomplete(saved)
+      ) {
+        router.push(next);
+      }
     } catch (err) {
       console.error("[submitter-profile] save failed", err);
       toast.error("Failed to save your details");
@@ -285,6 +317,13 @@ export default function SubmitterProfilePage() {
   if (!profile) return null;
 
   const missingFields = missingProfileFields(profile);
+  // Name lock (owner rule, Aug 5, 2026): a name that's already on file —
+  // including anyone with an existing registration — is greyed out like the
+  // email; changes go through the organizing team. A blank name (rare) can
+  // still be filled in once. Server enforces the same rule (NAME_IMMUTABLE).
+  const firstNameLocked = !!profile.firstName?.trim();
+  const lastNameLocked = !!profile.lastName?.trim();
+  const nameLocked = firstNameLocked || lastNameLocked;
   const specialty =
     profile.specialty === "Others" && profile.customSpecialty
       ? profile.customSpecialty
@@ -390,68 +429,98 @@ export default function SubmitterProfilePage() {
             </CardContent>
           ) : form ? (
             <CardContent className="space-y-4">
-              <div>
-                <Label className="text-xs">Photo</Label>
-                <PhotoUpload value={form.photo} onChange={(url) => setForm({ ...form, photo: url })} disabled={saving} />
-              </div>
-              <div className="grid sm:grid-cols-2 gap-3">
+              {/* Mandatory fields, in the owner-specified order (Aug 5, 2026):
+                  Title | First | Last → Email (locked) | Mobile → Job title |
+                  Organization → Role | Specialty → City | Country. Names lock
+                  once set (registration identity) — like email, changes go
+                  through the organizing team. */}
+              <div className="grid sm:grid-cols-3 gap-3">
                 <div>
                   <Label className="text-xs">Title</Label>
                   <TitleSelect value={form.title} onChange={(v) => setForm({ ...form, title: v })} />
                 </div>
                 <div>
-                  <Label className="text-xs">Role</Label>
-                  <RoleSelect value={form.role} onChange={(v) => setForm({ ...form, role: v })} placeholder="Select a role" />
-                </div>
-                <div>
                   <Label className="text-xs">First name *</Label>
-                  <Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
+                  <Input
+                    value={form.firstName}
+                    disabled={firstNameLocked}
+                    className={firstNameLocked ? "bg-muted" : undefined}
+                    onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">Last name *</Label>
-                  <Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
+                  <Input
+                    value={form.lastName}
+                    disabled={lastNameLocked}
+                    className={lastNameLocked ? "bg-muted" : undefined}
+                    onChange={(e) => setForm({ ...form, lastName: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Email</Label>
+                  <Input value={profile.email} disabled className="bg-muted" />
                 </div>
                 <div>
-                  <Label className="text-xs">Specialty</Label>
+                  <Label className="text-xs">Mobile *</Label>
+                  <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs">Job title *</Label>
+                  <Input value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs">Organization *</Label>
+                  <Input value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs">Role *</Label>
+                  <RoleSelect value={form.role} onChange={(v) => setForm({ ...form, role: v })} placeholder="Select a role" />
+                </div>
+                <div>
+                  <Label className="text-xs">Specialty *</Label>
                   <SpecialtySelect value={form.specialty} onChange={(v) => setForm({ ...form, specialty: v })} />
                 </div>
                 {form.specialty === "Others" && (
                   <div>
-                    <Label className="text-xs">Custom specialty</Label>
+                    <Label className="text-xs">Custom specialty *</Label>
                     <Input value={form.customSpecialty} onChange={(e) => setForm({ ...form, customSpecialty: e.target.value })} />
                   </div>
                 )}
                 <div>
-                  <Label className="text-xs">Organization</Label>
-                  <Input value={form.organization} onChange={(e) => setForm({ ...form, organization: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">Job title</Label>
-                  <Input value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">Phone</Label>
-                  <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">Additional email</Label>
-                  <Input type="email" value={form.additionalEmail} onChange={(e) => setForm({ ...form, additionalEmail: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">City</Label>
+                  <Label className="text-xs">City *</Label>
                   <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
                 </div>
                 <div>
-                  <Label className="text-xs">State</Label>
-                  <Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">Zip code</Label>
-                  <Input value={form.zipCode} onChange={(e) => setForm({ ...form, zipCode: e.target.value })} />
-                </div>
-                <div>
-                  <Label className="text-xs">Country</Label>
+                  <Label className="text-xs">Country *</Label>
                   <CountrySelect value={form.country} onChange={(v) => setForm({ ...form, country: v })} />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Your email{nameLocked ? " and name " : " "}can&apos;t be changed here — contact the
+                organizing team for that.
+              </p>
+              <div className="pt-1 border-t">
+                <p className="text-xs font-medium text-muted-foreground mt-3 mb-2">Optional</p>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Additional email</Label>
+                    <Input type="email" value={form.additionalEmail} onChange={(e) => setForm({ ...form, additionalEmail: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">State</Label>
+                    <Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Zip code</Label>
+                    <Input value={form.zipCode} onChange={(e) => setForm({ ...form, zipCode: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Photo</Label>
+                    <PhotoUpload value={form.photo} onChange={(url) => setForm({ ...form, photo: url })} disabled={saving} />
+                  </div>
                 </div>
               </div>
               <div>

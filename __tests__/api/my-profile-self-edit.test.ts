@@ -148,6 +148,26 @@ describe("my-profile PATCH — field semantics", () => {
     expect(mockDb.speaker.update.mock.calls[0][0].data).toEqual({ organization: null });
   });
 
+  it("NAME_IMMUTABLE: changing an already-set name is refused (400, no write) — contact the organizers", async () => {
+    const res = await PATCH(req({ firstName: "Somebody", phone: "+9715" }), params);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("NAME_IMMUTABLE");
+    expect(mockDb.speaker.update).not.toHaveBeenCalled();
+  });
+
+  it("re-sending the SAME name (unchanged form echo) passes the name lock", async () => {
+    const res = await PATCH(req({ firstName: "Krishna", lastName: "P", phone: "+9715" }), params);
+    expect(res.status).toBe(200);
+    expect(mockDb.speaker.update).toHaveBeenCalled();
+  });
+
+  it("a BLANK name on file can still be filled in once", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ ...structuredClone(existingSpeaker), lastName: "  " });
+    const res = await PATCH(req({ lastName: "Pallapolu" }), params);
+    expect(res.status).toBe(200);
+    expect(mockDb.speaker.update.mock.calls[0][0].data).toEqual({ lastName: "Pallapolu" });
+  });
+
   it("400 on an invalid role value (never a silent drop)", async () => {
     const res = await PATCH(req({ role: "SUPERHERO" }), params);
     expect(res.status).toBe(400);

@@ -94,6 +94,13 @@ const REVIEWER = { user: { id: "u-rev", role: "REVIEWER", organizationId: null }
 
 const EVENT = { id: "ev1", organizationId: "org1" };
 
+/** A speaker whose profile passes the Aug-5 completeness hard gate. */
+const COMPLETE_SPEAKER = {
+  id: "spk1",
+  role: "PHYSICIAN", specialty: "Cardiology", organization: "Clinic",
+  jobTitle: "Consultant", phone: "+97150", city: "Dubai", country: "AE",
+};
+
 const CREATED_PROPOSAL = {
   id: "sp1",
   title: "Hands-on TAVR Workshop",
@@ -125,7 +132,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue(ADMIN);
   mockDb.event.findFirst.mockResolvedValue(EVENT);
-  mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1" });
+  mockDb.speaker.findFirst.mockResolvedValue(COMPLETE_SPEAKER);
   mockDb.sessionProposalTheme.findFirst.mockResolvedValue({ id: "th1" });
   mockDb.sessionProposal.create.mockResolvedValue(CREATED_PROPOSAL);
   mockDb.sessionProposal.findMany.mockResolvedValue([]);
@@ -181,6 +188,23 @@ describe("POST /session-proposals — create", () => {
     const res = await CREATE(req("POST", { ...VALID_CREATE, proposedFormat: "LUNCH" }), listParams);
     expect(res.status).toBe(400);
     expect(mockDb.sessionProposal.create).not.toHaveBeenCalled();
+  });
+
+  it("SUBMITTER with an INCOMPLETE profile is hard-gated (403 PROFILE_INCOMPLETE, no create)", async () => {
+    mockAuth.mockResolvedValue(SUBMITTER);
+    mockDb.speaker.findFirst.mockResolvedValue({ ...COMPLETE_SPEAKER, phone: null, city: "" });
+    const res = await CREATE(req("POST", VALID_CREATE), listParams);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.code).toBe("PROFILE_INCOMPLETE");
+    expect(body.missingFields).toEqual(["Phone", "City"]);
+    expect(mockDb.sessionProposal.create).not.toHaveBeenCalled();
+  });
+
+  it("STAFF creating on behalf is NOT profile-gated (sparse speaker still creates)", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1" }); // no profile fields
+    const res = await CREATE(req("POST", VALID_CREATE), listParams); // ADMIN default
+    expect(res.status).toBe(201);
   });
 });
 
@@ -269,7 +293,7 @@ describe("PUT /session-proposals/[id] — submitter lifecycle", () => {
   it("DRAFT → SUBMITTED stamps submittedAt and fires the notify fan-out", async () => {
     mockAuth.mockResolvedValue(SUBMITTER);
     mockDb.sessionProposal.findFirst.mockResolvedValue({
-      id: "sp1", status: "DRAFT", speaker: { userId: "u-sub" },
+      id: "sp1", status: "DRAFT", speaker: { userId: "u-sub", ...COMPLETE_SPEAKER },
     });
     mockDb.sessionProposal.update.mockResolvedValue({ ...CREATED_PROPOSAL, status: "SUBMITTED" });
     const res = await PUT(req("PUT", { status: "SUBMITTED" }), oneParams);
@@ -277,6 +301,24 @@ describe("PUT /session-proposals/[id] — submitter lifecycle", () => {
     const data = mockDb.sessionProposal.update.mock.calls[0][0].data;
     expect(data.submittedAt).toBeInstanceOf(Date);
     expect(notifySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("DRAFT → SUBMITTED is hard-gated on profile completeness (403, no write); a plain draft edit is NOT", async () => {
+    mockAuth.mockResolvedValue(SUBMITTER);
+    mockDb.sessionProposal.findFirst.mockResolvedValue({
+      id: "sp1", status: "DRAFT",
+      speaker: { userId: "u-sub", ...COMPLETE_SPEAKER, organization: null },
+    });
+    const res = await PUT(req("PUT", { status: "SUBMITTED" }), oneParams);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.code).toBe("PROFILE_INCOMPLETE");
+    expect(mockDb.sessionProposal.update).not.toHaveBeenCalled();
+
+    // Draft edit without submitting stays allowed for the same person.
+    mockDb.sessionProposal.update.mockResolvedValue({ ...CREATED_PROPOSAL, status: "DRAFT" });
+    const editRes = await PUT(req("PUT", { title: "Reworked title" }), oneParams);
+    expect(editRes.status).toBe(200);
   });
 
   it("organizer can WITHDRAW without triggering the submission fan-out", async () => {

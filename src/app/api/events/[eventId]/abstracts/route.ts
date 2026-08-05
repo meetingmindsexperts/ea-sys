@@ -17,6 +17,7 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { MAX_ABSTRACT_WORDS, withinAbstractWordLimit } from "@/lib/abstract-content";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
+import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -203,7 +204,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const [speaker, track, theme] = await Promise.all([
       db.speaker.findFirst({
         where: speakerWhere,
-        select: { id: true },
+        select: { id: true, ...PROFILE_COMPLETENESS_SELECT },
       }),
       trackId
         ? db.track.findFirst({
@@ -224,6 +225,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         { error: session.user.role === "SUBMITTER" ? "Forbidden" : "Speaker not found" },
         { status: session.user.role === "SUBMITTER" ? 403 : 404 }
       );
+    }
+
+    // Hard gate (Aug 5, 2026): a SUBMITTER must complete their profile
+    // (role/specialty/org/job title/phone/city/country) before creating an
+    // abstract. The form redirects to My Details first — this refusal covers
+    // a direct API call. Staff creating on a speaker's behalf are exempt.
+    if (session.user.role === "SUBMITTER") {
+      const missing = missingProfileFields(speaker);
+      if (missing.length > 0) {
+        apiLogger.warn({ msg: "abstract-create:profile-incomplete-block", eventId, userId: session.user.id, missing });
+        return NextResponse.json(profileIncompletePayload(missing), { status: 403 });
+      }
     }
 
     if (trackId && !track) {

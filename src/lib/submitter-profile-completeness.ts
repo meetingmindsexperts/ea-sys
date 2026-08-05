@@ -39,3 +39,32 @@ export function missingProfileFields(p: ProfileCompletenessInput): string[] {
 export function isProfileIncomplete(p: ProfileCompletenessInput): boolean {
   return missingProfileFields(p).length > 0;
 }
+
+/**
+ * Prisma `select` fragment for exactly the Speaker columns the completeness
+ * check reads — spread it into a speaker lookup so the row can be passed to
+ * `missingProfileFields` directly.
+ */
+export const PROFILE_COMPLETENESS_SELECT = {
+  role: true,
+  specialty: true,
+  organization: true,
+  jobTitle: true,
+  phone: true,
+  city: true,
+  country: true,
+} as const;
+
+/**
+ * 403 payload for the hard gate (Aug 5, 2026): a SUBMITTER may not create or
+ * submit an abstract / session proposal until their profile is complete. The
+ * forms redirect to My Details before this ever fires — the server refusal
+ * exists so a direct API call can't bypass the gate.
+ */
+export function profileIncompletePayload(missing: string[]) {
+  return {
+    error: `Please complete your details before submitting (missing: ${missing.join(", ")}). Open My Details to fill them in.`,
+    code: "PROFILE_INCOMPLETE" as const,
+    missingFields: missing,
+  };
+}

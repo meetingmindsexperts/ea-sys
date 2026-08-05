@@ -129,3 +129,73 @@ describe("POST create — H2: birth status restricted to DRAFT | SUBMITTED", () 
     },
   );
 });
+
+/**
+ * Profile hard gate (Aug 5, 2026, owner rule): a SUBMITTER cannot create or
+ * submit an abstract until role/specialty/org/job title/phone/city/country
+ * are filled. Staff acting on a speaker's behalf are exempt.
+ */
+describe("profile hard gate — PROFILE_INCOMPLETE", () => {
+  const submitter = { user: { id: "spk", role: "SUBMITTER", organizationId: null } };
+  const completeProfile = {
+    role: "PHYSICIAN", specialty: "Cardiology", organization: "Clinic",
+    jobTitle: "Consultant", phone: "+97150", city: "Dubai", country: "AE",
+  };
+
+  beforeEach(() => {
+    mockDb.abstract.create.mockResolvedValue({ id: "new", status: "DRAFT" });
+  });
+
+  it("POST by a SUBMITTER with an incomplete profile → 403 PROFILE_INCOMPLETE, no create", async () => {
+    mockAuth.mockResolvedValue(submitter);
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...completeProfile, jobTitle: null, country: "" });
+    const res = await CREATE(createReq({ speakerId: "spk1", title: "T", content: "C", status: "DRAFT" }), createParams);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.code).toBe("PROFILE_INCOMPLETE");
+    expect(body.missingFields).toEqual(["Job title", "Country"]);
+    expect(mockDb.abstract.create).not.toHaveBeenCalled();
+  });
+
+  it("POST by a SUBMITTER with a COMPLETE profile passes the gate", async () => {
+    mockAuth.mockResolvedValue(submitter);
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...completeProfile });
+    const res = await CREATE(createReq({ speakerId: "spk1", title: "T", content: "C", status: "DRAFT" }), createParams);
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstract.create).toHaveBeenCalled();
+  });
+
+  it("POST by STAFF for a sparse speaker is NOT gated", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1" }); // admin default auth
+    const res = await CREATE(createReq({ speakerId: "spk1", title: "T", content: "C", status: "DRAFT" }), createParams);
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstract.create).toHaveBeenCalled();
+  });
+
+  it("PUT DRAFT → SUBMITTED by a SUBMITTER with an incomplete profile → 403; a plain draft edit is NOT gated", async () => {
+    mockAuth.mockResolvedValue(submitter);
+    mockDb.abstract.findFirst.mockResolvedValue({
+      id: "ab1", eventId: "ev1", status: "DRAFT", presentationType: "ORAL",
+      speaker: { userId: "spk", ...completeProfile, phone: null },
+    });
+    const res = await PUT(putReq({ status: "SUBMITTED" }), putParams);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("PROFILE_INCOMPLETE");
+    expect(mockDb.abstract.updateMany).not.toHaveBeenCalled();
+
+    // Editing the draft (no submission) stays allowed for the same person.
+    const editRes = await PUT(putReq({ title: "reworked" }), putParams);
+    expect(editRes.status).toBeLessThan(400);
+  });
+
+  it("PUT DRAFT → SUBMITTED by a SUBMITTER with a COMPLETE profile proceeds", async () => {
+    mockAuth.mockResolvedValue(submitter);
+    mockDb.abstract.findFirst.mockResolvedValue({
+      id: "ab1", eventId: "ev1", status: "DRAFT", presentationType: "ORAL",
+      speaker: { userId: "spk", ...completeProfile },
+    });
+    const res = await PUT(putReq({ status: "SUBMITTED" }), putParams);
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstract.updateMany).toHaveBeenCalled();
+  });
+});

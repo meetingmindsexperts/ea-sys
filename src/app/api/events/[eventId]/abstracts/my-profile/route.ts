@@ -192,6 +192,23 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         );
       }
 
+      // Name lock (Aug 5, 2026, owner rule): once first/last name is set —
+      // which includes anyone with an existing registration, and anyone who
+      // saved it once — it can only be CHANGED by the organizing team (like
+      // email). Filling a blank name is still allowed.
+      const nameChanged = (current: string | null, incoming: string | undefined) =>
+        incoming !== undefined && !!current?.trim() && incoming.trim() !== current.trim();
+      if (nameChanged(existing.firstName, data.firstName) || nameChanged(existing.lastName, data.lastName)) {
+        apiLogger.warn({ msg: "my-profile:name-immutable-block", userId: session.user.id, eventId });
+        return NextResponse.json(
+          {
+            error: "Your name can no longer be changed here — please contact the organizing team.",
+            code: "NAME_IMMUTABLE",
+          },
+          { status: 400 },
+        );
+      }
+
       const speaker = await db.speaker.update({
         where: { id: existing.id },
         // `undefined` = leave unchanged, `null` = clear (Prisma semantics).

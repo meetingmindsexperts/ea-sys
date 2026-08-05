@@ -414,7 +414,7 @@ export async function upsertEventSpeaker(
 
   const existing = await tx.speaker.findUnique({
     where: { eventId_email: { eventId, email } },
-    select: { id: true, submitterSource: true },
+    select: { id: true, submitterSource: true, firstName: true, lastName: true },
   });
 
   if (existing) {
@@ -441,8 +441,11 @@ export async function upsertEventSpeaker(
             userId,
             title: profile.title,
             role: profile.role,
-            firstName: profile.firstName,
-            lastName: profile.lastName,
+            // Name lock (Aug 5, 2026, owner rule): a name already on file is
+            // never rewritten by a signup door — like My Details, changes go
+            // through the organizing team. A blank name may still be filled.
+            ...(existing.firstName?.trim() ? {} : { firstName: profile.firstName }),
+            ...(existing.lastName?.trim() ? {} : { lastName: profile.lastName }),
             additionalEmail: profile.additionalEmail,
             organization: profile.organization,
             jobTitle: profile.jobTitle,

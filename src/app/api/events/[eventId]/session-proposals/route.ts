@@ -14,6 +14,7 @@ import { formatPersonName } from "@/lib/utils";
 import { toCsvRow } from "@/lib/csv-escape";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
+import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 
 /**
  * Session proposals — abstracts-shaped submissions for proposing SESSIONS.
@@ -226,7 +227,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Everything that reads/writes a swept table rides the resource-org lane.
     return await runWithTenant(event.organizationId, async () => {
       const [speaker, theme] = await Promise.all([
-        db.speaker.findFirst({ where: speakerWhere, select: { id: true } }),
+        db.speaker.findFirst({ where: speakerWhere, select: { id: true, ...PROFILE_COMPLETENESS_SELECT } }),
         themeId
           ? db.sessionProposalTheme.findFirst({ where: { id: themeId, eventId }, select: { id: true } })
           : Promise.resolve(null),
@@ -238,6 +239,18 @@ export async function POST(req: Request, { params }: RouteParams) {
           { error: session.user.role === "SUBMITTER" ? "Forbidden" : "Speaker not found" },
           { status: session.user.role === "SUBMITTER" ? 403 : 404 },
         );
+      }
+
+      // Hard gate (Aug 5, 2026): a SUBMITTER must complete their profile
+      // (role/specialty/org/job title/phone/city/country) before creating a
+      // proposal. The form redirects to My Details first — this refusal
+      // covers a direct API call. Staff creating on behalf are exempt.
+      if (session.user.role === "SUBMITTER") {
+        const missing = missingProfileFields(speaker);
+        if (missing.length > 0) {
+          apiLogger.warn({ msg: "session-proposals:profile-incomplete-block", eventId, userId: session.user.id, missing });
+          return NextResponse.json(profileIncompletePayload(missing), { status: 403 });
+        }
       }
       if (themeId && !theme) {
         apiLogger.warn({ msg: "session-proposals:theme-not-found", eventId, themeId });

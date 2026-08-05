@@ -24,6 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { useSubmitterProfileGate } from "@/hooks/use-submitter-profile-gate";
 import { useTracks, useEvent, queryKeys } from "@/hooks/use-api";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -480,6 +481,10 @@ export default function EditAbstractPage() {
   const params = useParams();
   const eventId = params.eventId as string;
   const abstractId = params.abstractId as string;
+  // Profile hard gate: an incomplete-profile submitter is sent to My Details
+  // first (with a return link back here) — a DRAFT can't be submitted until
+  // the details are filled. Staff/reviewers unaffected.
+  useSubmitterProfileGate(eventId);
 
   const { data: tracksData = [] } = useTracks(eventId);
   const tracks = tracksData as Track[];
