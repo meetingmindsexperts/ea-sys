@@ -18,6 +18,7 @@ const { mockDb, mockAuth, ensureCompanionSpy, createRegistrationSpy, cancelRegis
       event: { findFirst: vi.fn() },
       speaker: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
       registration: { findFirst: vi.fn() },
+      pricingTier: { count: vi.fn() },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
     },
     mockAuth: vi.fn(),
@@ -97,6 +98,7 @@ beforeEach(() => {
   mockDb.speaker.findUnique.mockResolvedValue({ sourceRegistrationId: null });
   // H1: the route fetches the linked/created row's REAL state for the response.
   mockDb.registration.findFirst.mockResolvedValue({ status: "CONFIRMED", paymentStatus: "COMPLIMENTARY" });
+  mockDb.pricingTier.count.mockResolvedValue(0);
   mockDb.auditLog.create.mockResolvedValue({});
   ensureCompanionSpy.mockResolvedValue({ status: "created", registrationId: "reg1" });
   cancelRegistrationSpy.mockResolvedValue({ ok: true });
@@ -379,6 +381,34 @@ describe("grant-companion payable mode", () => {
     expect(res.status).toBe(200);
     expect(ensureCompanionSpy).toHaveBeenCalled();
     expect(createRegistrationSpy).not.toHaveBeenCalled();
+  });
+
+  it("M2: a NON-empty unparseable body 400s INVALID_JSON — never silently degrades to a comp grant", async () => {
+    const badReq = new Request("http://test/api/events/ev1/speakers/sp1/grant-companion", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{mode: payable",
+    });
+    const res = await POST(badReq, routeParams);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("INVALID_JSON");
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+    expect(createRegistrationSpy).not.toHaveBeenCalled();
+  });
+
+  it("M6: payable on a tier-priced type WITHOUT a tier 400s PRICING_TIER_REQUIRED (no silent $0 comp)", async () => {
+    mockDb.pricingTier.count.mockResolvedValue(2);
+    const res = await POST(payableReq({ mode: "payable", ticketTypeId: "tt-tiered" }), routeParams);
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("PRICING_TIER_REQUIRED");
+    expect(createRegistrationSpy).not.toHaveBeenCalled();
+  });
+
+  it("M5: the payable grant passes overrideSalesWindow (organizer action — review happens after sales close)", async () => {
+    await POST(payableReq({ mode: "payable", ticketTypeId: "tt1" }), routeParams);
+    expect(createRegistrationSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ overrideSalesWindow: true }),
+    );
   });
 
   it("H2: a LOST payable race cancels the duplicate registration and 409s GRANT_RACE_LOST", async () => {

@@ -34,6 +34,17 @@
 >   speaker's status is never touched by the signup upsert (invited faculty inherit).
 >   Option A (reuse INVITED) chosen over Option B (a dedicated PENDING enum value) —
 >   B may come later if "Invited" confuses; noted on `EventSpeakerProfile.status`.
+> - **Adversarial review (Aug 5) — owner rulings on the 3 policy findings:**
+>   **(H3)** INVITED stays even though the Communications "Send Invitations" tile
+>   (status=INVITED) now includes self-signups — ACCEPTED; user-guide warns organizers
+>   to confirm people before using the tile. **(M1)** the abstract door's auto-comp
+>   stays (a proposer could self-comp via the abstract register link while abstracts
+>   are open) — ACCEPTED residual, owner decision. **(M5)** payable grants bypass the
+>   ticket type's public sales window (`overrideSalesWindow` in registration-service,
+>   staff-only callers, logged; capacity guards still apply) — IMPLEMENTED.
+>   H1/H2 (mislabeled Revoke, double-grant races) fixed in `053db886`; MEDs
+>   (strict body parse, linked-existing audit + honest toasts, server-side tier
+>   requirement, dialog state reset, user-guide contradiction) in the follow-up commit.
 
 ---
 

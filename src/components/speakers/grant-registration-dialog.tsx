@@ -87,6 +87,21 @@ export function GrantRegistrationDialog({
   const [pricingTierId, setPricingTierId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Re-seed on every closed→open transition (review M8; the React-19
+  // store-info-from-previous-render pattern, as in bulk-email-dialog): a
+  // reopened dialog must NOT come pre-set to the previous grant's
+  // payable+type — one Enter would mint a payable registration the
+  // organizer meant as comp.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setMode("comp");
+      setTicketTypeId("");
+      setPricingTierId("");
+    }
+  }
+
   const { data: ticketTypes = [] } = useTickets(eventId) as { data: TicketTypeRow[] };
   // Faculty types are the comp mechanism — never a payable choice.
   const payableTypes = ticketTypes.filter((t) => !t.isFaculty);
@@ -123,10 +138,21 @@ export function GrantRegistrationDialog({
         toast.error(data.error || "Failed to grant registration");
         return;
       }
+      // Honest toasts (review M2/M4/M6): branch on what ACTUALLY happened —
+      // a "payable" grant on a free type creates COMPLIMENTARY and sends no
+      // email; a linked existing registration gets no payment request either.
       if (data.outcome === "payable-created") {
-        toast.success("Registration created — payment request emailed with the quote and Pay Now link");
+        toast.success(
+          data.paymentStatus === "COMPLIMENTARY"
+            ? "Registration created as complimentary (the type is free) — no payment email sent"
+            : "Registration created — payment request emailed with the quote and Pay Now link",
+        );
       } else if (data.outcome === "linked-by-email" || data.outcome === "linked-existing") {
-        toast.success("Linked this person's existing registration");
+        toast.success(
+          mode === "payable"
+            ? "This person already had a registration — it was linked instead; NO payment request was sent"
+            : "Linked this person's existing registration",
+        );
       } else {
         toast.success("Complimentary registration granted");
       }

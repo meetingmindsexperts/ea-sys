@@ -60,8 +60,23 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Lenient body parse — the historical comp grant POSTs an empty body.
-    const rawBody = await req.json().catch(() => ({}));
+    // Body parse (review M2): only a genuinely EMPTY body means the historical
+    // comp grant. A NON-empty body that fails to parse must 400 — silently
+    // defaulting it to comp would mint a free registration when the caller
+    // intended a payable one (silent wrong-action).
+    const rawText = await req.text().catch(() => "");
+    let rawBody: unknown = {};
+    if (rawText.trim().length > 0) {
+      try {
+        rawBody = JSON.parse(rawText);
+      } catch {
+        apiLogger.warn({ msg: "grant-companion:unparseable-body", eventId, speakerId });
+        return NextResponse.json(
+          { error: "Request body is not valid JSON", code: "INVALID_JSON" },
+          { status: 400 },
+        );
+      }
+    }
     const parsedBody = grantBodySchema.safeParse(rawBody ?? {});
     if (!parsedBody.success) {
       apiLogger.warn({
@@ -155,6 +170,30 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 400 },
         );
       }
+      // Review M6: the dialog requires a tier when the type has tiers — enforce
+      // it server-side too. Without this, an API call on a tier-priced type
+      // (base price 0) resolves to $0 → COMPLIMENTARY → NO payment email,
+      // despite the caller asking for "payable".
+      if (!body.pricingTierId) {
+        const tierCount = await db.pricingTier.count({
+          where: { ticketTypeId: body.ticketTypeId, ticketType: { eventId } },
+        });
+        if (tierCount > 0) {
+          apiLogger.warn({
+            msg: "grant-companion:tier-required",
+            eventId,
+            speakerId,
+            ticketTypeId: body.ticketTypeId,
+          });
+          return NextResponse.json(
+            {
+              error: "This registration type is priced by pricing tier — pick one",
+              code: "PRICING_TIER_REQUIRED",
+            },
+            { status: 400 },
+          );
+        }
+      }
       // A live linked registration means they already have their facet —
       // granting a second (payable) one would double-register them.
       if (speaker.sourceRegistrationId && speaker.sourceRegistration?.status !== "CANCELLED") {
@@ -197,6 +236,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         source: "rest",
         requestIp: getClientIp(req),
         actorFirstName: session.user.firstName ?? null,
+        // Owner decision Aug 5, 2026 (review M5): a grant is an explicit
+        // ORGANIZER action — proposal review happens after public sales
+        // close, so the type's sales window must not block it. Capacity
+        // (sold-out / event cap) still applies; the bypass is logged by
+        // the service.
+        overrideSalesWindow: true,
       });
 
       if (!created.ok) {
@@ -226,6 +271,31 @@ export async function POST(req: Request, { params }: RouteParams) {
             where: { id: finalId, eventId },
             select: { status: true, paymentStatus: true },
           });
+          // Review M4: this is the same state change the comp path audits —
+          // a payable attempt that resolved to a link must be accountable too
+          // (the organizer's chosen type/tier was NOT applied and NO payment
+          // email was sent; the dialog toasts that honestly).
+          db.auditLog
+            .create({
+              data: {
+                eventId,
+                userId: session.user.id,
+                action: "COMPANION_GRANTED",
+                entityType: "Speaker",
+                entityId: speaker.id,
+                changes: {
+                  mode: "payable",
+                  outcome: "linked-existing",
+                  registrationId: finalId,
+                  requestedTicketTypeId: body.ticketTypeId,
+                  requestedPricingTierId: body.pricingTierId ?? null,
+                },
+                ipAddress: getClientIp(req),
+              },
+            })
+            .catch((err) =>
+              apiLogger.warn({ err, msg: "grant-companion:audit-failed", speakerId }),
+            );
           apiLogger.info({
             msg: "grant-companion:linked-existing-payable",
             eventId,

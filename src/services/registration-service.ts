@@ -317,6 +317,15 @@ export interface CreateRegistrationInput {
    */
   attendanceMode?: AttendanceMode;
 
+  /**
+   * Organizer override: skip the ticket type's PUBLIC sales window
+   * (salesStart/salesEnd) — owner decision Aug 5, 2026 for the payable
+   * Grant-registration flow (proposal review happens after sales close).
+   * Sold-out / event-cap guards still apply; the bypass is logged. Only
+   * staff-gated callers may set this — never thread it from public input.
+   */
+  overrideSalesWindow?: boolean;
+
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "api";
 
@@ -543,19 +552,37 @@ export async function createRegistration(
   // the attendee.create round-trip.
   if (ticketType) {
     const now = new Date();
-    if (ticketType.salesStart && new Date(ticketType.salesStart) > now) {
-      return {
-        ok: false,
-        code: "SALES_NOT_STARTED",
-        message: "Ticket sales have not started",
-      };
-    }
-    if (ticketType.salesEnd && new Date(ticketType.salesEnd) < now) {
-      return {
-        ok: false,
-        code: "SALES_ENDED",
-        message: "Ticket sales have ended",
-      };
+    const windowClosed =
+      (ticketType.salesStart && new Date(ticketType.salesStart) > now) ||
+      (ticketType.salesEnd && new Date(ticketType.salesEnd) < now);
+    if (windowClosed && input.overrideSalesWindow) {
+      // Owner decision Aug 5, 2026 (grant review M5): an ORGANIZER action —
+      // the Grant-registration flow — may register someone outside the type's
+      // public sales window (proposal review is inherently post-deadline
+      // work; mirrors the inactive-pricing-tier allowance for admin adds).
+      // Logged so the bypass is visible; sold-out/capacity guards still apply.
+      apiLogger.info({
+        msg: "registration:sales-window-overridden",
+        eventId,
+        ticketTypeId: ticketType.id,
+        source,
+        userId,
+      });
+    } else {
+      if (ticketType.salesStart && new Date(ticketType.salesStart) > now) {
+        return {
+          ok: false,
+          code: "SALES_NOT_STARTED",
+          message: "Ticket sales have not started",
+        };
+      }
+      if (ticketType.salesEnd && new Date(ticketType.salesEnd) < now) {
+        return {
+          ok: false,
+          code: "SALES_ENDED",
+          message: "Ticket sales have ended",
+        };
+      }
     }
     if (ticketType.soldCount >= ticketType.quantity) {
       return { ok: false, code: "SOLD_OUT", message: "Tickets sold out" };
