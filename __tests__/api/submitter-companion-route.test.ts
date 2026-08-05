@@ -115,12 +115,26 @@ describe("submitter route — companion registration", () => {
 
   it("ABSTRACT signups still auto-mint (linkOnly false)", async () => {
     await POST(makeReq(validBody), { params });
-    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: false });
+    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: false, expectedLink: null });
   });
 
   it("PROPOSAL signups are linkOnly — NO auto comp registration (owner decision Aug 5, 2026)", async () => {
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
-    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: true });
+    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: true, expectedLink: null });
+  });
+
+  it("a CANCELLED linked registration counts as NO link — the door re-links a LIVE one (LOW fix Aug 5, 2026)", async () => {
+    mockDb.speaker.findUnique.mockResolvedValue({
+      id: "sp1",
+      sourceRegistrationId: "reg-dead",
+      sourceRegistration: { status: "CANCELLED" },
+    });
+    await POST(makeReq(validBody), { params });
+    const [input, opts] = ensureCompanionSpy.mock.calls[0];
+    // Effective pointer nulled so the helper links a live same-email row…
+    expect(input.sourceRegistrationId).toBeNull();
+    // …while the RAW pointer rides as expectedLink for the conditional claim.
+    expect(opts).toEqual({ linkOnly: false, expectedLink: "reg-dead" });
   });
 });
 

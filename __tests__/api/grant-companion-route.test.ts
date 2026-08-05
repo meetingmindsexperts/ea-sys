@@ -1,14 +1,15 @@
 /**
  * POST /api/events/[eventId]/speakers/[speakerId]/grant-companion — the
- * organizer's grant / RE-grant of a comp Faculty companion registration
- * (July 30, 2026 model: self-signup auto-mints the comp registration; the
- * organizer revokes via cancel and re-grants here; this route also recovers
- * a signup whose auto-provisioning hiccuped).
+ * organizer's per-person grant (Aug 5, 2026 model: proposal signups mint NO
+ * registration; the organizer grants comp Faculty OR a payable registration
+ * on a chosen type/tier, revokes a comp via cancel, and re-grants here).
  *
  * Pins: the RBAC boundary (real denyReviewer — granting free entry is
  * ADMIN/ORGANIZER only), event access via the real buildEventAccessWhere,
  * the CANCELLED-link override (a revoked companion must NOT short-circuit
- * "already-linked" against a dead registration), and audit-on-grant.
+ * "already-linked" against a dead registration), audit-on-grant, the H1
+ * real-row-state responses, the H2 conditional link claims + payable race
+ * compensation, and the M2/M5/M6 body/override/tier rules.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -113,7 +114,7 @@ describe("grant-companion RBAC", () => {
     expect(ensureCompanionSpy).not.toHaveBeenCalled();
   });
 
-  it.each(["SUBMITTER", "REVIEWER", "REGISTRANT", "MEMBER", "ONSITE"])(
+  it.each(["SUBMITTER", "REVIEWER", "REGISTRANT", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS"])(
     "403 for %s (real denyReviewer — granting free entry is staff-only)",
     async (role) => {
       mockAuth.mockResolvedValue({ user: { id: "u1", role, organizationId: "org1" } });

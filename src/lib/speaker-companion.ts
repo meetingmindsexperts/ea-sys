@@ -147,7 +147,11 @@ export async function ensureSpeakerCompanionRegistration(
     const existing = await db.registration.findFirst({
       where: {
         eventId: speaker.eventId,
-        attendee: { email: speaker.email },
+        // Case-insensitive (review LOW, Aug 5 2026): a legacy mixed-case
+        // speaker email must still match its lowercased attendee row —
+        // an exact-match miss here would mint a DUPLICATE Faculty companion
+        // for someone who already holds a real registration.
+        attendee: { email: { equals: speaker.email, mode: "insensitive" } },
         status: { not: "CANCELLED" },
       },
       select: { id: true },
@@ -479,9 +483,10 @@ export async function upsertEventSpeaker(
       registrationType: profile.registrationType ?? null,
       sourceRegistrationId: profile.sourceRegistrationId ?? null,
       submitterSource: profile.submitterSource ?? null,
-      // CREATE only — see EventSpeakerProfile.status: abstract signups default
-      // CONFIRMED; the proposal door passes INVITED (team confirms after
-      // reviewing the proposal). Existing speakers keep their status above.
+      // CREATE only — see EventSpeakerProfile.status: BOTH self-signup doors
+      // pass INVITED (team confirms after review, Aug 5 2026). The CONFIRMED
+      // fallback is only for a future caller that doesn't specify; existing
+      // speakers keep their status (the update branch never touches it).
       status: profile.status ?? "CONFIRMED",
     },
     select: { id: true },

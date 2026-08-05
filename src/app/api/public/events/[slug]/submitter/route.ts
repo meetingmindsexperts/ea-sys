@@ -311,7 +311,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     // speaker's detail sheet (Email History card).
     const speakerRow = await db.speaker.findUnique({
       where: { eventId_email: { eventId: event.id, email: emailLower } },
-      select: { id: true, sourceRegistrationId: true },
+      select: {
+        id: true,
+        sourceRegistrationId: true,
+        sourceRegistration: { select: { status: true } },
+      },
     });
 
     // Provision the companion registration (the "attendee facet") so a
@@ -344,8 +348,19 @@ export async function POST(req: Request, { params }: RouteParams) {
           specialty: data.specialty,
           registrationType: data.registrationType || null,
           role: data.role ?? null,
-          sourceRegistrationId: speakerRow.sourceRegistrationId,
-        }, { linkOnly: data.source === "proposal" });
+          // A CANCELLED link counts as no link (review LOW, Aug 5 2026 — the
+          // grant route already did this): a revoked person who re-registers
+          // gets their LIVE registration linked instead of staying pointed at
+          // the dead row. The raw pointer still rides as expectedLink so the
+          // helper's conditional claim asserts the true current value.
+          sourceRegistrationId:
+            speakerRow.sourceRegistration?.status === "CANCELLED"
+              ? null
+              : speakerRow.sourceRegistrationId,
+        }, {
+          linkOnly: data.source === "proposal",
+          expectedLink: speakerRow.sourceRegistrationId,
+        });
       } catch (err) {
         apiLogger.error({ err, speakerId: speakerRow.id, eventId: event.id }, "submitter:companion-failed");
       }

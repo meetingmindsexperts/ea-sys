@@ -153,6 +153,10 @@ export function GrantRegistrationDialog({
             ? "This person already had a registration — it was linked instead; NO payment request was sent"
             : "Linked this person's existing registration",
         );
+      } else if (data.outcome === "already-linked") {
+        // Reachable when another organizer granted concurrently (button
+        // visibility is client state) — nothing was created; say so.
+        toast.success("This person already has a linked registration — nothing changed");
       } else {
         toast.success("Complimentary registration granted");
       }

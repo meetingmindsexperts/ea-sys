@@ -486,8 +486,10 @@ export default function SessionProposalsPage() {
                         {[selected.speaker.organization, selected.speaker.country].filter(Boolean).join(" · ")}
                       </div>
                     )}
-                    {/* Attendance: proposers get a comp registration at signup;
-                        the organizer can REVOKE it here (and re-grant later). */}
+                    {/* Attendance (Aug 5, 2026): proposal signups mint NOTHING —
+                        the organizer grants per person here (comp Faculty OR
+                        payable via the Grant dialog) and can revoke a comp
+                        grant later. */}
                     <div className="pt-2 mt-1 border-t space-y-1.5">
                       {selected.speaker.sourceRegistration &&
                       selected.speaker.sourceRegistration.status !== "CANCELLED" ? (

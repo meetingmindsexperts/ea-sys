@@ -327,6 +327,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       // concurrent grant linked something else meanwhile, we just minted a
       // DUPLICATE registration (whose confirmation email may already be out)
       // — compensate by cancelling it so nobody holds two live registrations.
+      // A CRASH between the create above and this claim is self-healing: the
+      // registration exists + is visible in the list, and a re-grant hits the
+      // service's ALREADY_REGISTERED → links it (no duplicate email).
       const claim = await db.speaker.updateMany({
         where: { id: speaker.id, sourceRegistrationId: speaker.sourceRegistrationId },
         data: { sourceRegistrationId: created.registration.id },
