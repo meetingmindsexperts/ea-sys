@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn, formatDate } from "@/lib/utils";
+import { signOutCallbackUrl } from "@/lib/sign-out-target";
 import { useEvents, useEvent } from "@/hooks/use-api";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
@@ -361,7 +362,16 @@ export function Header() {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-red-600 focus:text-red-600"
-              onClick={() => signOut({ callbackUrl: "/login" })}
+              // Attendee-side roles land on their EVENT sign-in, staff on
+              // /login — see signOutCallbackUrl (owner report Aug 5, 2026).
+              onClick={() =>
+                signOut({
+                  callbackUrl: signOutCallbackUrl(
+                    session?.user?.role,
+                    (isEventPage && currentEvent ? currentEvent : events[0]) ?? null,
+                  ),
+                })
+              }
             >
               <LogOut className="mr-2 h-4 w-4" />
               Sign out

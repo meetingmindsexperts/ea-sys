@@ -329,7 +329,7 @@ export default function EventMyRegistrationPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => signOut({ callbackUrl: `/e/${slug}/login` })}
+                onClick={() => signOut({ callbackUrl: `/e/${slug}/login?redirect=registration` })}
               >
                 <LogOut className="h-4 w-4 sm:mr-1.5" />
                 <span className="hidden sm:inline">Sign out</span>
