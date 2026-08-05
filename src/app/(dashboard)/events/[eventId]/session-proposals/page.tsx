@@ -140,7 +140,12 @@ export default function SessionProposalsPage() {
   // one (owner decision Aug 5, 2026); the organizer decides per person via the
   // GrantRegistrationDialog (comp Faculty OR a payable registration on a
   // chosen type, which auto-emails the quote + Pay Now link).
-  const handleGranted = (data: { outcome: string; registrationId: string; paymentStatus?: string }) => {
+  const handleGranted = (data: {
+    outcome: string;
+    registrationId: string;
+    status?: string | null;
+    paymentStatus?: string | null;
+  }) => {
     setSelected((prev) =>
       prev
         ? {
@@ -153,8 +158,15 @@ export default function SessionProposalsPage() {
                 // Serial unknown until the list refetch — a grant mints a
                 // FRESH registration, so the old serial would be wrong here.
                 serialId: null,
-                status: "CONFIRMED",
-                paymentStatus: data.paymentStatus ?? "COMPLIMENTARY",
+                // REAL state from the route (review H1) — never fabricate:
+                // a linked row can be a PAID delegate registration, and a
+                // fabricated "COMPLIMENTARY" exposed the no-refund Revoke on
+                // it. "" is NOT an enum value — it's a display-only fallback
+                // (rendered "—") that fails CLOSED: the Revoke gate requires
+                // paymentStatus === "COMPLIMENTARY". Should be unreachable
+                // (the route returns real values on every outcome).
+                status: data.status ?? "",
+                paymentStatus: data.paymentStatus ?? "",
               },
             },
           }
@@ -487,8 +499,8 @@ export default function SessionProposalsPage() {
                               {selected.speaker.sourceRegistration.serialId != null
                                 ? `#${String(selected.speaker.sourceRegistration.serialId).padStart(3, "0")} · `
                                 : ""}
-                              {selected.speaker.sourceRegistration.status} ·{" "}
-                              {selected.speaker.sourceRegistration.paymentStatus}
+                              {selected.speaker.sourceRegistration.status || "—"} ·{" "}
+                              {selected.speaker.sourceRegistration.paymentStatus || "—"}
                             </span>
                           </div>
                           {canManage &&

@@ -12,16 +12,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockAuth, ensureCompanionSpy, createRegistrationSpy } = vi.hoisted(() => ({
-  mockDb: {
-    event: { findFirst: vi.fn() },
-    speaker: { findFirst: vi.fn(), update: vi.fn() },
-    auditLog: { create: vi.fn().mockResolvedValue({}) },
-  },
-  mockAuth: vi.fn(),
-  ensureCompanionSpy: vi.fn(),
-  createRegistrationSpy: vi.fn(),
-}));
+const { mockDb, mockAuth, ensureCompanionSpy, createRegistrationSpy, cancelRegistrationSpy } =
+  vi.hoisted(() => ({
+    mockDb: {
+      event: { findFirst: vi.fn() },
+      speaker: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
+      registration: { findFirst: vi.fn() },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    },
+    mockAuth: vi.fn(),
+    ensureCompanionSpy: vi.fn(),
+    createRegistrationSpy: vi.fn(),
+    cancelRegistrationSpy: vi.fn(),
+  }));
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -46,6 +49,9 @@ vi.mock("@/lib/speaker-companion", () => ({
 }));
 vi.mock("@/services/registration-service", () => ({
   createRegistration: createRegistrationSpy,
+}));
+vi.mock("@/services/payment-service", () => ({
+  cancelRegistration: cancelRegistrationSpy,
 }));
 
 import { POST } from "@/app/api/events/[eventId]/speakers/[speakerId]/grant-companion/route";
@@ -86,8 +92,14 @@ beforeEach(() => {
   mockAuth.mockResolvedValue(ADMIN);
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1" });
   mockDb.speaker.findFirst.mockResolvedValue({ ...SPEAKER_ROW });
+  // H2: the payable link is a conditional updateMany claim — default: won.
+  mockDb.speaker.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.speaker.findUnique.mockResolvedValue({ sourceRegistrationId: null });
+  // H1: the route fetches the linked/created row's REAL state for the response.
+  mockDb.registration.findFirst.mockResolvedValue({ status: "CONFIRMED", paymentStatus: "COMPLIMENTARY" });
   mockDb.auditLog.create.mockResolvedValue({});
   ensureCompanionSpy.mockResolvedValue({ status: "created", registrationId: "reg1" });
+  cancelRegistrationSpy.mockResolvedValue({ ok: true });
   vi.mocked(checkRateLimit).mockReturnValue({ allowed: true, retryAfterSeconds: 0, remaining: 59 });
 });
 
@@ -146,6 +158,8 @@ describe("grant-companion behavior", () => {
     expect(body).toMatchObject({ ok: true, outcome: "created", registrationId: "reg1" });
     expect(ensureCompanionSpy).toHaveBeenCalledWith(
       expect.objectContaining({ id: "sp1", eventId: "ev1", email: "prop@x.com" }),
+      // H2: the raw pointer rides along for the conditional link claim.
+      { expectedLink: null },
     );
     // The Prisma-relation field must NOT leak into the helper input.
     expect(ensureCompanionSpy.mock.calls[0][0]).not.toHaveProperty("sourceRegistration");
@@ -187,6 +201,9 @@ describe("grant-companion behavior", () => {
     await POST(req, routeParams);
     expect(ensureCompanionSpy).toHaveBeenCalledWith(
       expect.objectContaining({ sourceRegistrationId: null }),
+      // H2: the claim asserts the RAW pointer (the cancelled id), so two
+      // concurrent re-grants can't both mint.
+      { expectedLink: "reg-dead" },
     );
   });
 
@@ -200,6 +217,26 @@ describe("grant-companion behavior", () => {
     await POST(req, routeParams);
     expect(ensureCompanionSpy).toHaveBeenCalledWith(
       expect.objectContaining({ sourceRegistrationId: "reg-live" }),
+      { expectedLink: "reg-live" },
+    );
+  });
+
+  it("H1: the comp response carries the linked row's REAL status/paymentStatus", async () => {
+    ensureCompanionSpy.mockResolvedValue({ status: "linked-by-email", registrationId: "reg-paid" });
+    // The linked row is a PAID delegate registration — the sheet must see that,
+    // never a fabricated COMPLIMENTARY (which exposed the no-refund Revoke).
+    mockDb.registration.findFirst.mockResolvedValue({ status: "CONFIRMED", paymentStatus: "PAID" });
+    const res = await POST(req, routeParams);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      outcome: "linked-by-email",
+      registrationId: "reg-paid",
+      status: "CONFIRMED",
+      paymentStatus: "PAID",
+    });
+    // Fetched event-bound, by the linked id.
+    expect(mockDb.registration.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "reg-paid", eventId: "ev1" } }),
     );
   });
 
@@ -227,9 +264,8 @@ describe("grant-companion payable mode", () => {
   beforeEach(() => {
     createRegistrationSpy.mockResolvedValue({
       ok: true,
-      registration: { id: "reg-pay", paymentStatus: "UNASSIGNED" },
+      registration: { id: "reg-pay", status: "CONFIRMED", paymentStatus: "UNASSIGNED" },
     });
-    mockDb.speaker.update.mockResolvedValue({});
   });
 
   it("400 TICKET_TYPE_REQUIRED without a ticketTypeId", async () => {
@@ -250,6 +286,9 @@ describe("grant-companion payable mode", () => {
       ok: true,
       outcome: "payable-created",
       registrationId: "reg-pay",
+      // H1: real row state in the response (requiresApproval types create
+      // PENDING — the sheet renders what actually happened).
+      status: "CONFIRMED",
       paymentStatus: "UNASSIGNED",
     });
     // Service input carries the speaker's own details — no re-registration.
@@ -267,8 +306,12 @@ describe("grant-companion payable mode", () => {
         }),
       }),
     );
-    expect(mockDb.speaker.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "sp1" }, data: { sourceRegistrationId: "reg-pay" } }),
+    // H2: the link is a CONDITIONAL claim on the pointer the route read.
+    expect(mockDb.speaker.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "sp1", sourceRegistrationId: null },
+        data: { sourceRegistrationId: "reg-pay" },
+      }),
     );
     expect(mockDb.auditLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -314,7 +357,7 @@ describe("grant-companion payable mode", () => {
     const res = await POST(payableReq({ mode: "payable", ticketTypeId: "tt1" }), routeParams);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ outcome: "linked-existing", registrationId: "reg-prior" });
-    expect(mockDb.speaker.update).toHaveBeenCalledWith(
+    expect(mockDb.speaker.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: { sourceRegistrationId: "reg-prior" } }),
     );
   });
@@ -336,5 +379,24 @@ describe("grant-companion payable mode", () => {
     expect(res.status).toBe(200);
     expect(ensureCompanionSpy).toHaveBeenCalled();
     expect(createRegistrationSpy).not.toHaveBeenCalled();
+  });
+
+  it("H2: a LOST payable race cancels the duplicate registration and 409s GRANT_RACE_LOST", async () => {
+    // The conditional link claim matches 0 rows — a concurrent grant won
+    // AFTER our registration (and its email) was created.
+    mockDb.speaker.updateMany.mockResolvedValue({ count: 0 });
+    const res = await POST(payableReq({ mode: "payable", ticketTypeId: "tt1" }), routeParams);
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("GRANT_RACE_LOST");
+    // The duplicate is compensated by a no-refund cancel through the service.
+    expect(cancelRegistrationSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        registrationId: "reg-pay",
+        eventId: "ev1",
+        refund: false,
+      }),
+    );
+    // No audit row for a grant that did not stand.
+    expect(mockDb.auditLog.create).not.toHaveBeenCalled();
   });
 });

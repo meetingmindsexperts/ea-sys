@@ -84,6 +84,15 @@ export interface CompanionSpeakerInput {
   sourceRegistrationId?: string | null;
 }
 
+/** Thrown inside the create tx when the conditional link claim matches 0 rows
+ *  (a concurrent grant won) — rolls the whole create back. Internal. */
+class CompanionLinkRaceError extends Error {
+  constructor() {
+    super("companion link race lost");
+    this.name = "CompanionLinkRaceError";
+  }
+}
+
 export type CompanionResult =
   | { status: "already-linked"; registrationId: string }
   | { status: "linked-by-email"; registrationId: string }
@@ -110,7 +119,20 @@ export async function ensureSpeakerCompanionRegistration(
    * dialog, comp or payable). Steps 1–2 still run so a proposer who already
    * registered themselves gets their real registration linked.
    */
-  opts?: { linkOnly?: boolean },
+  opts?: {
+    linkOnly?: boolean;
+    /**
+     * The speaker row's RAW current `sourceRegistrationId` as the caller read
+     * it (may be a CANCELLED registration's id on a re-grant, while
+     * `speaker.sourceRegistrationId` is passed as null to bypass step 1).
+     * The create step's link is a CONDITIONAL claim on this value (review H2,
+     * Aug 5 2026): two concurrent grants both reading the same pointer can't
+     * both commit — the loser's whole transaction (attendee + registration +
+     * serial) rolls back and the winner's registration is returned. Defaults
+     * to `speaker.sourceRegistrationId ?? null`.
+     */
+    expectedLink?: string | null;
+  },
 ): Promise<CompanionResult> {
   if (speaker.sourceRegistrationId) {
     return { status: "already-linked", registrationId: speaker.sourceRegistrationId };
@@ -154,6 +176,10 @@ export async function ensureSpeakerCompanionRegistration(
     });
     return { status: "link-only-no-create", registrationId: null };
   }
+
+  // The pointer value the conditional claim below asserts (see opts docs).
+  const expectedLink =
+    opts?.expectedLink !== undefined ? opts.expectedLink : (speaker.sourceRegistrationId ?? null);
 
   const facultyTypeId = await ensureFacultyTicketType(speaker.eventId);
   // Tenant stamp for the companion attendee/registration rows — the input
@@ -214,12 +240,39 @@ export async function ensureSpeakerCompanionRegistration(
       },
       select: { id: true },
     });
-    await tx.speaker.update({
-      where: { id: speaker.id },
+    // CONDITIONAL claim on the link (review H2, Aug 5 2026): the pointer must
+    // still be what the caller read (null, or the cancelled id on a re-grant).
+    // Under READ COMMITTED the loser of two concurrent grants blocks on the
+    // winner's row lock, re-evaluates the predicate after commit, matches 0
+    // rows, and this throw rolls back its attendee + registration + serial —
+    // one person can never end up with two live companions.
+    const claim = await tx.speaker.updateMany({
+      where: { id: speaker.id, sourceRegistrationId: expectedLink },
       data: { sourceRegistrationId: reg.id },
     });
+    if (claim.count === 0) throw new CompanionLinkRaceError();
     return reg.id;
+  }).catch(async (err) => {
+    if (!(err instanceof CompanionLinkRaceError)) throw err;
+    // Lost the race — the winner's registration is the companion now. Our
+    // attendee/registration/serial all rolled back with the transaction.
+    const current = await db.speaker.findUnique({
+      where: { id: speaker.id },
+      select: { sourceRegistrationId: true },
+    });
+    apiLogger.warn({
+      msg: "speaker-companion:link-race-lost",
+      speakerId: speaker.id,
+      eventId: speaker.eventId,
+      winnerRegistrationId: current?.sourceRegistrationId ?? null,
+    });
+    if (!current?.sourceRegistrationId) throw err; // pointer vanished — surface it
+    return { raceLostTo: current.sourceRegistrationId };
   });
+
+  if (typeof registrationId === "object") {
+    return { status: "already-linked", registrationId: registrationId.raceLostTo };
+  }
 
   apiLogger.info({
     msg: "speaker-companion:created",

@@ -43,7 +43,9 @@ import { cn } from "@/lib/utils";
 export interface GrantResult {
   outcome: string;
   registrationId: string;
-  paymentStatus?: string;
+  /** REAL row state from the route (review H1) — hosts must not fabricate. */
+  status?: string | null;
+  paymentStatus?: string | null;
 }
 
 interface PricingTierRow {

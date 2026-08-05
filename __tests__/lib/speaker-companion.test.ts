@@ -9,14 +9,16 @@ const ticketTypeFindFirst = vi.fn();
 const ticketTypeCreate = vi.fn();
 const registrationFindFirst = vi.fn();
 const speakerUpdate = vi.fn();
+const speakerFindUnique = vi.fn();
 const txAttendeeCreate = vi.fn();
 const txRegistrationCreate = vi.fn();
-const txSpeakerUpdate = vi.fn();
+// H2 (Aug 5 2026): the create-path link is a CONDITIONAL updateMany claim.
+const txSpeakerUpdateMany = vi.fn();
 
 const tx = {
   attendee: { create: (...a: unknown[]) => txAttendeeCreate(...a) },
   registration: { create: (...a: unknown[]) => txRegistrationCreate(...a) },
-  speaker: { update: (...a: unknown[]) => txSpeakerUpdate(...a) },
+  speaker: { updateMany: (...a: unknown[]) => txSpeakerUpdateMany(...a) },
 };
 
 vi.mock("@/lib/db", () => ({
@@ -26,7 +28,10 @@ vi.mock("@/lib/db", () => ({
       create: (...a: unknown[]) => ticketTypeCreate(...a),
     },
     registration: { findFirst: (...a: unknown[]) => registrationFindFirst(...a) },
-    speaker: { update: (...a: unknown[]) => speakerUpdate(...a) },
+    speaker: {
+      update: (...a: unknown[]) => speakerUpdate(...a),
+      findUnique: (...a: unknown[]) => speakerFindUnique(...a),
+    },
     // Tenant-stamp source: the helper resolves the event's org on the create path.
     event: {
       findUniqueOrThrow: vi.fn(async () => ({ organizationId: "org_1" })),
@@ -58,10 +63,12 @@ const base = {
 beforeEach(() => {
   [
     ticketTypeFindFirst, ticketTypeCreate, registrationFindFirst, speakerUpdate,
-    txAttendeeCreate, txRegistrationCreate, txSpeakerUpdate,
+    speakerFindUnique, txAttendeeCreate, txRegistrationCreate, txSpeakerUpdateMany,
   ].forEach((m) => m.mockReset());
   txAttendeeCreate.mockResolvedValue({ id: "att_new" });
   txRegistrationCreate.mockResolvedValue({ id: "reg_new" });
+  // Default: the conditional link claim succeeds (no concurrent grant).
+  txSpeakerUpdateMany.mockResolvedValue({ count: 1 });
 });
 
 describe("ensureSpeakerCompanionRegistration", () => {
@@ -80,6 +87,29 @@ describe("ensureSpeakerCompanionRegistration", () => {
       expect.objectContaining({ where: { id: "spk_1" }, data: { sourceRegistrationId: "reg_match" } }),
     );
     expect(txRegistrationCreate).not.toHaveBeenCalled();
+  });
+
+  it("H2: a LOST link race rolls back the create and returns the winner's registration", async () => {
+    registrationFindFirst.mockResolvedValueOnce(null);
+    ticketTypeFindFirst.mockResolvedValueOnce({ id: "ftype" });
+    // The conditional claim matches 0 rows — a concurrent grant already linked.
+    txSpeakerUpdateMany.mockResolvedValue({ count: 0 });
+    speakerFindUnique.mockResolvedValue({ sourceRegistrationId: "reg_winner" });
+
+    const res = await ensureSpeakerCompanionRegistration(base);
+    expect(res).toEqual({ status: "already-linked", registrationId: "reg_winner" });
+  });
+
+  it("H2: a re-grant claims against the RAW (cancelled) pointer via opts.expectedLink", async () => {
+    registrationFindFirst.mockResolvedValueOnce(null);
+    ticketTypeFindFirst.mockResolvedValueOnce({ id: "ftype" });
+
+    await ensureSpeakerCompanionRegistration(base, { expectedLink: "reg_dead" });
+    expect(txSpeakerUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "spk_1", sourceRegistrationId: "reg_dead" },
+      }),
+    );
   });
 
   it("linkOnly SKIPS the create (proposal signups — owner decision Aug 5, 2026)", async () => {
@@ -140,9 +170,13 @@ describe("ensureSpeakerCompanionRegistration", () => {
       badgeType: "Faculty",
       createdSource: "SPEAKER_COMPANION",
     });
-    // Linked back to the speaker.
-    expect(txSpeakerUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "spk_1" }, data: { sourceRegistrationId: "reg_new" } }),
+    // Linked back to the speaker — as a CONDITIONAL claim on the pointer the
+    // caller read (H2: two concurrent grants can't both mint).
+    expect(txSpeakerUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "spk_1", sourceRegistrationId: null },
+        data: { sourceRegistrationId: "reg_new" },
+      }),
     );
     // Uncapped: NO soldCount increment anywhere (no ticketType.update in the tx).
     expect(JSON.stringify(txRegistrationCreate.mock.calls[0][0])).not.toContain("soldCount");

@@ -14,6 +14,7 @@ import {
   type RegistrationTitle,
   type RegistrationAttendeeRole,
 } from "@/services/registration-service";
+import { cancelRegistration } from "@/services/payment-service";
 
 /**
  * POST — grant this speaker a registration by explicit organizer action, in
@@ -207,17 +208,37 @@ export async function POST(req: Request, { params }: RouteParams) {
             ? (created.meta?.existingRegistrationId as string | undefined)
             : undefined;
         if (existingId) {
-          await db.speaker.update({
-            where: { id: speaker.id },
+          // Conditional on the pointer we read — a concurrent grant that got
+          // there first simply wins (both outcomes are links; benign).
+          const linkClaim = await db.speaker.updateMany({
+            where: { id: speaker.id, sourceRegistrationId: speaker.sourceRegistrationId },
             data: { sourceRegistrationId: existingId },
+          });
+          const finalId = linkClaim.count > 0
+            ? existingId
+            : (await db.speaker.findUnique({
+                where: { id: speaker.id },
+                select: { sourceRegistrationId: true },
+              }))?.sourceRegistrationId ?? existingId;
+          // H1: return the linked row's REAL state — the sheet must never
+          // fabricate COMPLIMENTARY for what may be a PAID delegate row.
+          const linkedRow = await db.registration.findFirst({
+            where: { id: finalId, eventId },
+            select: { status: true, paymentStatus: true },
           });
           apiLogger.info({
             msg: "grant-companion:linked-existing-payable",
             eventId,
             speakerId,
-            registrationId: existingId,
+            registrationId: finalId,
           });
-          return NextResponse.json({ ok: true, outcome: "linked-existing", registrationId: existingId });
+          return NextResponse.json({
+            ok: true,
+            outcome: "linked-existing",
+            registrationId: finalId,
+            status: linkedRow?.status ?? null,
+            paymentStatus: linkedRow?.paymentStatus ?? null,
+          });
         }
         apiLogger.warn({
           msg: "grant-companion:payable-rejected",
@@ -232,10 +253,48 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
 
-      await db.speaker.update({
-        where: { id: speaker.id },
+      // CONDITIONAL claim on the pointer we validated (review H2): if a
+      // concurrent grant linked something else meanwhile, we just minted a
+      // DUPLICATE registration (whose confirmation email may already be out)
+      // — compensate by cancelling it so nobody holds two live registrations.
+      const claim = await db.speaker.updateMany({
+        where: { id: speaker.id, sourceRegistrationId: speaker.sourceRegistrationId },
         data: { sourceRegistrationId: created.registration.id },
       });
+      if (claim.count === 0) {
+        apiLogger.error({
+          msg: "grant-companion:payable-race-lost",
+          eventId,
+          speakerId,
+          duplicateRegistrationId: created.registration.id,
+          userId: session.user.id,
+        });
+        const compensated = await cancelRegistration({
+          registrationId: created.registration.id,
+          eventId,
+          organizationId: session.user.organizationId ?? "",
+          refund: false,
+          source: "rest",
+          issuedByUserId: session.user.id,
+        });
+        if (!compensated.ok) {
+          apiLogger.error({
+            msg: "grant-companion:race-compensation-failed",
+            eventId,
+            speakerId,
+            registrationId: created.registration.id,
+            code: compensated.code,
+          });
+        }
+        return NextResponse.json(
+          {
+            error:
+              "Another grant for this speaker happened at the same time — the duplicate registration was cancelled. Check the speaker's linked registration; a payment-request email may have gone out for the cancelled duplicate.",
+            code: "GRANT_RACE_LOST",
+          },
+          { status: 409 },
+        );
+      }
       db.auditLog
         .create({
           data: {
@@ -270,6 +329,9 @@ export async function POST(req: Request, { params }: RouteParams) {
         ok: true,
         outcome: "payable-created",
         registrationId: created.registration.id,
+        // H1: real state — a requiresApproval type creates PENDING, not
+        // CONFIRMED; the sheet renders what actually happened.
+        status: created.registration.status,
         paymentStatus: created.registration.paymentStatus,
       });
     }
@@ -281,10 +343,24 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Treat a cancelled link as no link so the helper links a live same-email
     // registration or mints a fresh companion (and re-points the speaker).
     const { sourceRegistration, ...speakerInput } = speaker;
-    const result = await ensureSpeakerCompanionRegistration({
-      ...speakerInput,
-      sourceRegistrationId:
-        sourceRegistration?.status === "CANCELLED" ? null : speaker.sourceRegistrationId,
+    const result = await ensureSpeakerCompanionRegistration(
+      {
+        ...speakerInput,
+        sourceRegistrationId:
+          sourceRegistration?.status === "CANCELLED" ? null : speaker.sourceRegistrationId,
+      },
+      // H2: the helper's create step claims the link CONDITIONALLY on the RAW
+      // pointer we read (the cancelled id on a re-grant, else null) — two
+      // concurrent grants can't both mint a companion.
+      { expectedLink: speaker.sourceRegistrationId },
+    );
+
+    // H1: return the row's REAL status/paymentStatus on every outcome — a
+    // linked-by-email row can be a PAID delegate registration, and the sheet
+    // must never fabricate COMPLIMENTARY (that exposed a no-refund Revoke).
+    const linkedRow = await db.registration.findFirst({
+      where: { id: result.registrationId ?? "", eventId },
+      select: { status: true, paymentStatus: true },
     });
 
     // Audit only real grants/links — an already-linked no-op writes nothing.
@@ -322,6 +398,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       ok: true,
       outcome: result.status,
       registrationId: result.registrationId,
+      status: linkedRow?.status ?? null,
+      paymentStatus: linkedRow?.paymentStatus ?? null,
     });
     });
   } catch (error) {
