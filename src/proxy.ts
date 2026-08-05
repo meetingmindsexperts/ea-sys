@@ -256,12 +256,15 @@ export default auth((req) => {
   const eventSubPath = eventPath[1] ?? "";
   // SUBMITTER/REVIEWER event surface: abstracts, plus session proposals
   // (July 30, 2026 — SUBMITTER accounts also propose sessions; REVIEWER has
-  // no proposal API access, the page just renders empty for them).
+  // no proposal API access, the page just renders empty for them), plus the
+  // neutral My Details page (Aug 5, 2026 — moved out of /abstracts/profile
+  // so proposal-flow submitters don't see "abstracts" in their profile URL).
   const isSubmitterAllowedPath =
     eventSubPath === "abstracts" ||
     eventSubPath.startsWith("abstracts/") ||
     eventSubPath === "session-proposals" ||
-    eventSubPath.startsWith("session-proposals/");
+    eventSubPath.startsWith("session-proposals/") ||
+    eventSubPath === "my-details";
 
   if (isSubmitterAllowedPath) {
     return addCorsHeaders(NextResponse.next(), origin);

@@ -299,7 +299,7 @@ export default function SessionProposalsPage() {
               surface-neutral). */}
           {isSubmitter && (
             <Button asChild variant="outline" size="sm">
-              <Link href={`/events/${eventId}/abstracts/profile`}>
+              <Link href={`/events/${eventId}/my-details`}>
                 <UserRound className="h-4 w-4 mr-1" /> My Details
               </Link>
             </Button>

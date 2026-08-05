@@ -48,5 +48,5 @@ export function submitterSeesProposals(ctx: SubmitterSurfaceContext): boolean {
 // deliberately unused since the home no longer depends on surfaces.
 export function submitterHomePath(eventId: string, ctx?: SubmitterSurfaceContext): string {
   void ctx;
-  return `/events/${eventId}/abstracts/profile`;
+  return `/events/${eventId}/my-details`;
 }

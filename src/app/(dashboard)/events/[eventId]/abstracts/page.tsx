@@ -418,7 +418,7 @@ export default function AbstractsPage() {
         {isSubmitter && (
           <>
             <Button asChild variant="outline">
-              <Link href={`/events/${eventId}/abstracts/profile`}>
+              <Link href={`/events/${eventId}/my-details`}>
                 <User className="mr-2 h-4 w-4" />
                 My Details
               </Link>

@@ -48,7 +48,7 @@ export function SubmitterProfileNudge() {
 
       </div>
       <Button asChild size="sm" variant="outline" className="border-amber-400">
-        <Link href={`/events/${eventId}/abstracts/profile`}>
+        <Link href={`/events/${eventId}/my-details`}>
           <UserRound className="h-4 w-4 mr-1" /> Complete My Details
         </Link>
       </Button>

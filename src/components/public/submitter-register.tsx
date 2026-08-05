@@ -408,7 +408,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       // Existing person signing in → land on My Details (ONE shared landing
       // for both variants, owner decision Aug 4 2026 — the page adapts its
       // actions to the person's surfaces).
-      router.push(`/events/${data.eventId}/abstracts/profile`);
+      router.push(`/events/${data.eventId}/my-details`);
     } catch (err) {
       console.error(`[${copy.logPrefix}] existing sign-in failed`, err);
       toast.error("Something went wrong. Please try again.");

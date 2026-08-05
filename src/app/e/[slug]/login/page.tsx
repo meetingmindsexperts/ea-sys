@@ -140,7 +140,7 @@ function EventLoginForm() {
         if (role === "SUBMITTER") {
           // Land the submitter on their details/profile page (their abstract
           // "home": profile + registration + their abstracts + a submit CTA).
-          router.push(event?.id ? `/events/${event.id}/abstracts/profile` : "/events");
+          router.push(event?.id ? `/events/${event.id}/my-details` : "/events");
         } else if (role && role !== "REGISTRANT") {
           router.push("/events");
         } else {
@@ -155,7 +155,7 @@ function EventLoginForm() {
         // /my-registration).
         const role = await getSession().then((s) => s?.user?.role).catch(() => undefined);
         if (role === "SUBMITTER") {
-          router.push(event?.id ? `/events/${event.id}/abstracts/profile` : "/events");
+          router.push(event?.id ? `/events/${event.id}/my-details` : "/events");
         } else if (role && role !== "REGISTRANT") {
           router.push("/events");
         } else {

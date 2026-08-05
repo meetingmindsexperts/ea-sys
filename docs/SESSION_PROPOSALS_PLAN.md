@@ -4,8 +4,22 @@
 > like abstracts it has its own themes, but **no reviewer, no accepted/rejected** (may need
 > it later, not now)."
 >
-> Status: **v1 IN BUILD** (owner: "plan, then build v1 now"). This doc is the blueprint +
-> decision record; update it when v2 (review workflow / convert-to-session) starts.
+> Status: **v1 SHIPPED** (July 30, 2026) + follow-on rounds through Aug 5, 2026. This doc is
+> the blueprint + decision record; update it when v2 (review workflow / convert-to-session)
+> starts.
+>
+> **Post-ship amendments (Aug 4–5, 2026, owner decisions):**
+> - **Format field HIDDEN everywhere** (form, list, detail sheet, CSV) — organizers decide
+>   the format when building the programme. `proposedFormat` column + API field KEPT so a
+>   future convert-to-session pre-fill still works; the form preserves a stored value on edit.
+> - **Organizer edit** on the proposal detail (status-preserving save + per-field
+>   before→after audit).
+> - **Independent doors** — the abstract + proposal registers are independent;
+>   `Speaker.submitterSource` widens to `"both"` when a person uses both (supersedes
+>   July-30 "first flow wins"). See [src/lib/submitter-surfaces.ts](../src/lib/submitter-surfaces.ts).
+> - **ONE neutral My Details landing** for both flows at `/events/[eventId]/my-details`
+>   (moved out of `/abstracts/profile`; old path redirects) — self-editable profile
+>   (+photo/bio), "Please complete your details" nudge, no registration bookkeeping shown.
 
 ---
 

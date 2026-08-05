@@ -48,8 +48,8 @@ describe("submitter surface truth table", () => {
   });
 
   it("home path is My Details for EVERYONE — one shared landing (Aug 4, 2026)", () => {
-    expect(submitterHomePath("ev1", ctx("abstract"))).toBe("/events/ev1/abstracts/profile");
-    expect(submitterHomePath("ev1", ctx("proposal"))).toBe("/events/ev1/abstracts/profile");
-    expect(submitterHomePath("ev1", ctx("both"))).toBe("/events/ev1/abstracts/profile");
+    expect(submitterHomePath("ev1", ctx("abstract"))).toBe("/events/ev1/my-details");
+    expect(submitterHomePath("ev1", ctx("proposal"))).toBe("/events/ev1/my-details");
+    expect(submitterHomePath("ev1", ctx("both"))).toBe("/events/ev1/my-details");
   });
 });
