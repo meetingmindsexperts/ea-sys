@@ -15,6 +15,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+/** Event statuses worth offering in the invoice event filter. */
+const BILLABLE_EVENT_STATUSES: readonly string[] = ["PUBLISHED", "LIVE", "COMPLETED"];
+
+interface EventOption {
+  id: string;
+  name: string;
+  status: string;
+  startDate?: string | null;
+}
+
 interface OrgInvoice {
   id: string;
   eventId: string;
@@ -67,6 +77,30 @@ export default function OrgInvoicesClient() {
   const [type, setType] = useState("all");
 
   const { data: events = [] } = useEvents();
+
+  /**
+   * Events offered in the picker: only those that can plausibly have billable
+   * activity — PUBLISHED, LIVE and COMPLETED. Drafts and cancelled events are
+   * left out because they just crowd the list on an org with a long history.
+   *
+   * This filters the PICKER ONLY, never the ledger. If an invoice somehow
+   * exists against a draft or cancelled event it still appears in the table
+   * (each row carries its own event name), because hiding money from a finance
+   * ledger would make the totals stop reconciling — the opposite of what this
+   * page is for. Sorted soonest-first so the events currently being worked on
+   * are at the top.
+   */
+  const selectableEvents = useMemo(
+    () =>
+      (events as EventOption[])
+        .filter((e) => BILLABLE_EVENT_STATUSES.includes(e.status))
+        .sort((a, b) => {
+          const at = a.startDate ? new Date(a.startDate).getTime() : 0;
+          const bt = b.startDate ? new Date(b.startDate).getTime() : 0;
+          return bt - at;
+        }),
+    [events],
+  );
 
   const query = useMemo(() => {
     const p = new URLSearchParams();
@@ -187,7 +221,7 @@ export default function OrgInvoicesClient() {
               <SelectTrigger className="w-[220px]"><SelectValue placeholder="Event" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All events</SelectItem>
-                {events.map((e: { id: string; name: string }) => (
+                {selectableEvents.map((e) => (
                   <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
                 ))}
               </SelectContent>
