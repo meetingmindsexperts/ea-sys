@@ -21,13 +21,43 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { EventBanner } from "@/components/public/event-banner";
 import { formatPersonName, formatCurrency } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import {
   Calendar, MapPin, Users, Building2, CreditCard, Download, Loader2,
-  CheckCircle2, AlertCircle, LogOut, BadgeCheck,
+  CheckCircle2, AlertCircle, LogOut, BadgeCheck, HelpCircle,
 } from "lucide-react";
+
+/** Organiser brand colour, with the house cerulean as the fallback for orgs
+ *  that never set one. */
+const DEFAULT_ACCENT = "#00aade";
+
+/**
+ * A label with a supplementary explanation on hover.
+ *
+ * Deliberately supplementary only: tooltips don't exist on touch devices, so
+ * nothing a coordinator NEEDS in order to act is hidden behind one — those
+ * stay as visible text.
+ */
+function Hint({ children, text }: { children: React.ReactNode; text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex cursor-help items-center gap-1">
+          {children}
+          <HelpCircle className="h-3.5 w-3.5 opacity-50" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs bg-popover text-popover-foreground border shadow-md">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 interface GroupMember {
   registrationId: string;
@@ -66,6 +96,7 @@ interface MyGroup {
     id: string; name: string; slug: string; startDate: string; endDate: string | null;
     venue: string | null; city: string | null; taxRate: number | null; taxLabel: string | null;
     bannerImage: string | null; bannerImageMobile: string | null;
+    organizationName: string | null; primaryColor: string | null;
   };
   groupSettings: { minMembers: number; maxMembers: number };
   members: GroupMember[];
@@ -182,9 +213,18 @@ export default function MyGroupPage() {
 
   const tax = group.event.taxRate ? (group.subtotal * group.event.taxRate) / 100 : 0;
   const openInvoice = group.invoices.find((i) => i.status !== "CANCELLED" && i.status !== "PAID");
+  const accent = group.event.primaryColor || DEFAULT_ACCENT;
+  // Derived tints. `color-mix` degrades safely: an unsupported value drops the
+  // declaration, leaving the plain class-based background underneath.
+  const accentStyle = {
+    "--org": accent,
+    "--org-tint": `color-mix(in srgb, ${accent} 8%, white)`,
+    "--org-edge": `color-mix(in srgb, ${accent} 28%, white)`,
+  } as React.CSSProperties;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <TooltipProvider delayDuration={200}>
+    <div className="min-h-screen bg-slate-50" style={accentStyle}>
       <EventBanner
         banner={group.event.bannerImage}
         bannerMobile={group.event.bannerImageMobile}
@@ -207,54 +247,75 @@ export default function MyGroupPage() {
                 <MapPin className="h-4 w-4" /> {group.event.venue}
               </span>
             ) : null}
-            <span className="inline-flex items-center gap-1.5 font-medium text-cyan-700">
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-medium"
+              style={{ color: "var(--org)", background: "var(--org-tint)" }}
+            >
               <Users className="h-4 w-4" /> Group registration
             </span>
           </div>
         </div>
 
         {/* Payment state */}
-        <div className="mb-6 rounded-xl border bg-white p-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <Building2 className="h-4 w-4" /> Billed to
+        <div
+          className="mb-6 overflow-hidden rounded-xl border bg-white"
+          style={{ borderColor: "var(--org-edge)" }}
+        >
+          <div className="h-1" style={{ background: "var(--org)" }} />
+          <div className="p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <Building2 className="h-4 w-4" />
+                  <Hint text="The company or institution paying for this group. Individual attendees are never asked to pay.">
+                    Billed to
+                  </Hint>
+                </div>
+                <p className="text-lg font-medium">{group.payer.name}</p>
+                {group.payerReference ? (
+                  <p className="text-sm text-slate-500">PO / Reference: {group.payerReference}</p>
+                ) : null}
               </div>
-              <p className="text-lg font-medium">{group.payer.name}</p>
-              {group.payerReference ? (
-                <p className="text-sm text-slate-500">PO / Reference: {group.payerReference}</p>
-              ) : null}
-            </div>
-            <div className="text-right">
-              {group.isPaid ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
-                  <CheckCircle2 className="h-4 w-4" /> Paid in full
-                </span>
-              ) : (
-                <>
-                  <p className="text-sm text-slate-500">Amount due</p>
-                  <p className="text-2xl font-semibold tabular-nums">
-                    {formatCurrency(group.amountDue || group.subtotal + tax, group.currency)}
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
-
-          {!group.isPaid && group.amountDue > 0 ? (
-            <div className="mt-5 border-t pt-5">
-              <Button onClick={payByCard} disabled={paying}>
-                {paying ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening payment…</>
+              <div className="text-right">
+                {group.isPaid ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
+                    <CheckCircle2 className="h-4 w-4" /> Paid in full
+                  </span>
                 ) : (
-                  <><CreditCard className="mr-2 h-4 w-4" /> Pay {formatCurrency(group.amountDue, group.currency)} by card</>
+                  <>
+                    <p className="text-sm text-slate-500">
+                      <Hint text="The total on your consolidated invoice, including tax. It's fixed at the amount invoiced, so it won't move if the attendee list changes.">
+                        Amount due
+                      </Hint>
+                    </p>
+                    <p className="text-2xl font-semibold tabular-nums" style={{ color: "var(--org)" }}>
+                      {formatCurrency(group.amountDue || group.subtotal + tax, group.currency)}
+                    </p>
+                  </>
                 )}
-              </Button>
-              <p className="mt-2 text-sm text-slate-500">
-                Or pay by bank transfer using the invoice below.
-              </p>
+              </div>
             </div>
-          ) : null}
+
+            {!group.isPaid && group.amountDue > 0 ? (
+              <div className="mt-5 border-t pt-5">
+                <Button
+                  onClick={payByCard}
+                  disabled={paying}
+                  style={{ background: "var(--org)" }}
+                  className="text-white hover:opacity-90"
+                >
+                  {paying ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening payment…</>
+                  ) : (
+                    <><CreditCard className="mr-2 h-4 w-4" /> Pay {formatCurrency(group.amountDue, group.currency)} by card</>
+                  )}
+                </Button>
+                <p className="mt-2 text-sm text-slate-500">
+                  Or pay by bank transfer using the invoice below — the bank details are on it.
+                </p>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {/* Members */}
@@ -275,8 +336,16 @@ export default function MyGroupPage() {
                   <th className="px-6 py-3 font-medium">#</th>
                   <th className="px-6 py-3 font-medium">Name</th>
                   <th className="px-6 py-3 font-medium">Type</th>
-                  <th className="px-6 py-3 font-medium">Badge</th>
-                  <th className="px-6 py-3 font-medium">Status</th>
+                  <th className="px-6 py-3 font-medium">
+                    <Hint text="Each attendee's entry barcode goes straight to them by email — it isn't shown here. “Issued” means theirs has been generated and sent.">
+                      Badge
+                    </Hint>
+                  </th>
+                  <th className="px-6 py-3 font-medium">
+                    <Hint text="“Confirmed” means they're registered. “Checked in” appears once they've been scanned at the door on the day.">
+                      Status
+                    </Hint>
+                  </th>
                   <th className="px-6 py-3 text-right font-medium">Price</th>
                 </tr>
               </thead>
@@ -302,7 +371,9 @@ export default function MyGroupPage() {
                             <BadgeCheck className="h-4 w-4" /> Issued
                           </span>
                         ) : (
-                          <span className="text-slate-400">Pending</span>
+                          <Hint text="This attendee's barcode hasn't been generated yet. It's sent automatically — no action needed from you.">
+                            <span className="text-slate-400">Pending</span>
+                          </Hint>
                         )}
                       </td>
                       <td className="px-6 py-3">
@@ -380,7 +451,13 @@ export default function MyGroupPage() {
                       {inv.status.toLowerCase()}
                     </Badge>
                     <span className="tabular-nums">{formatCurrency(inv.total, inv.currency)}</span>
-                    <Button variant="outline" size="sm" asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      className="bg-white hover:bg-slate-50"
+                      style={{ borderColor: "var(--org-edge)", color: "var(--org)" }}
+                    >
                       <a
                         href={`/api/registrant/my-group/${group.id}/invoice/${inv.id}`}
                         target="_blank"
@@ -402,12 +479,18 @@ export default function MyGroupPage() {
           </p>
         ) : null}
 
-        <div className="mt-8 text-center">
+        <div className="mt-8 flex flex-col items-center gap-2">
+          {group.event.organizationName ? (
+            <p className="text-xs text-slate-400">
+              Organised by {group.event.organizationName}
+            </p>
+          ) : null}
           <Button variant="ghost" size="sm" onClick={() => signOut({ callbackUrl: `/e/${slug}/login` })}>
             <LogOut className="mr-1.5 h-4 w-4" /> Sign out
           </Button>
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }

@@ -53,6 +53,9 @@ export async function GET() {
             taxRate: true,
             taxLabel: true,
             settings: true,
+            // Org branding so the portal wears the organiser's colour rather
+            // than a hardcoded accent. Nullable — the page falls back.
+            organization: { select: { name: true, primaryColor: true } },
           },
         },
         registrations: {
@@ -135,6 +138,8 @@ export async function GET() {
           bannerImageMobile: g.event.bannerImageMobile,
           taxRate: g.event.taxRate ? Number(g.event.taxRate) : null,
           taxLabel: g.event.taxLabel,
+          organizationName: g.event.organization?.name ?? null,
+          primaryColor: g.event.organization?.primaryColor ?? null,
         },
         groupSettings: {
           minMembers: settings.minMembers,
