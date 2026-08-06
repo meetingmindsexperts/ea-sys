@@ -1,4 +1,4 @@
-# Group Registration — plan of record (July 30, 2026)
+# Group Registration — plan of record (July 30, 2026; refreshed Aug 6, 2026)
 
 > Owner request: a company rep ("coordinator", e.g. Krishna) registers first, can add
 > **up to 50 registrations**, with a checkbox for **whether he himself is attending**
@@ -7,6 +7,19 @@
 > single invoice** — all **linked to "Charge to another account"** (BillingAccount).
 >
 > Status: **PLANNED — not built.** This doc is the blueprint + decision record.
+>
+> **Aug 6, 2026 refresh** (verified against the codebase; owner chose "refresh the
+> plan, hold the build"): all referenced helpers still exist under the same names
+> (`findOrCreateBillingAccount`, `claimSeats`/`claimSeat`/`claimEventSeats`,
+> invoice-service, `ensureRegistrantAccount`). Three subsystem changes since July 30
+> are folded in below — (a) the **Phase-2 tenancy sweep completed Aug 4**, so the new
+> model/routes must ship with the full tenancy convention (see §3a); (b) **per-tenant
+> Stripe keys** landed Aug 4 — `getStripe(organizationId)` is now async with an
+> org→env fallback chain, and the webhook body was extracted into ONE dispatcher
+> (`handleStripeEvent()` in `src/lib/stripe-webhook-handler.ts`) behind BOTH endpoints
+> (`/api/webhooks/stripe` + `/api/webhooks/stripe/[orgId]`), so the group webhook
+> branch lands exactly once (see §2/§4); (c) `Payment.organizationId` now exists
+> (Registration-core sweep) — group Payment rows stamp it like member rows do.
 
 ---
 
@@ -36,7 +49,18 @@
   tax math + atomic seat claims (`claimSeat`/`claimEventSeats`) + serial/qrCode minting +
   `ensureRegistrantAccount()` + confirmation emails.
 - **Invoice service + PDF** — numbering, branding, tax, PAID promotion, bill-to-payer
-  rendering.
+  rendering. The confirmation-email param object is the exported
+  `RegistrationConfirmationParams` type in [email.ts](../src/lib/email.ts) — the
+  "suppress the pay-now block for group members" rule (§4) becomes a new explicit
+  param on it, not a caller-side hack.
+- **Per-tenant Stripe + the single webhook dispatcher (Aug 4, 2026)** —
+  `getStripe(organizationId)` is **async** (org-key decrypt → env fallback; bounded
+  TTL client cache), so the group checkout-session creation passes the event's org.
+  The entire webhook event-dispatch body lives in `handleStripeEvent()`
+  ([stripe-webhook-handler.ts](../src/lib/stripe-webhook-handler.ts)), delegated to
+  by BOTH the legacy `/api/webhooks/stripe` and the per-org
+  `/api/webhooks/stripe/[orgId]` endpoints — the group `checkout.session.completed`
+  branch is written ONCE there and both entry points get it for free.
 
 ## 3. The structural gap (the heart of the build)
 
@@ -76,6 +100,32 @@ Schema deltas (all additive / blue-green safe — `DROP NOT NULL` is instant in 
   must null-guard (the compiler finds them once the schema changes). This is the risky
   part — budget review time for the Stripe webhook + invoice-service + reconciliation
   worker paths.
+
+### 3a. Tenancy convention (added Aug 6, 2026 — the Phase-2 sweep is COMPLETE)
+
+All 20 domains are swept, so a NEW domain must be born compliant rather than swept
+later. Concretely for `RegistrationGroup` + the group routes:
+
+- **`organizationId` stamped at create** (denormalized from the Event, the LoginEvent
+  convention — the schema sketch above already carries it). Group `Payment` /
+  `Invoice` rows stamp it too (both columns exist).
+- **Interactive transactions use `tenantTransaction`**, never bare `db.$transaction`
+  — the group-create tx, the invoice reissue/delta tx, the webhook PAID-promotion tx.
+- **`runWithTenant(orgId, …)` wraps every new handler** (public group-register route
+  after the `publicEventWhere` event resolution; the My Group routes; the organizer
+  group routes) + the new route dirs go into `scripts/check-tenant-als.sh`'s
+  `SWEPT_ROUTE_DIRS`/`SWEPT_ROUTE_FILES` so a dropped wrap fails CI.
+- **RLS policy file** `prisma/rls/registrationgroup.sql` (flat
+  `"organizationId" = current_setting('app.current_org', true)` policy, NO FORCE —
+  the contact.sql shape) + tenancy-harness fixtures/assertions. Applied by the
+  harness + the future platform bootstrap ONLY — **never a prisma migration**.
+  Without a policy the table **fails closed** on the platform, so the policy ships
+  in the same PR as the model.
+- **Slug lookups** on the public group pages/routes go through `publicEventWhere`
+  (the grep-gate `check-tenant-scoping.sh` enforces this).
+- The **coordinator is a REGISTRANT (org-null)** — same identity seam as every other
+  registrant; the group row itself is org-bound via the event. No new identity
+  decisions needed here.
 
 **Enablement + organizer controls**: `Event.settings.groupRegistration =
 { enabled: boolean, minMembers: number, maxMembers: number }` (settings JSON, no
@@ -124,7 +174,10 @@ register (burst + sustained + per-email).
 
 **Stripe webhook**: `checkout.session.completed` with group metadata → flip ALL member
 registrations PAID + one group `Payment` row + promote the consolidated invoice PAID +
-documents email. Idempotency keys on the group id.
+documents email. Idempotency keys on the group id. *(Aug 6 refresh: the branch is
+written ONCE in `handleStripeEvent()` — `src/lib/stripe-webhook-handler.ts` — and both
+webhook endpoints inherit it; checkout-session creation uses the async
+`getStripe(event.organizationId)` so per-tenant Stripe keys apply automatically.)*
 
 **Emails**: coordinator gets the group confirmation (member summary + consolidated
 invoice/quote PDF). Each member gets their own confirmation **with barcode but WITHOUT
@@ -166,7 +219,9 @@ Coordinator signs in → `/my-group` (or a group section on `/my-registration`):
 1. **Schema + group create + pay-later** — migration, `RegistrationGroup`,
    `group-registration-service.ts` (the transaction), public flow pages, consolidated
    invoice (`createGroupInvoice` in invoice-service), emails, organizer Group column.
-   *The null-guard sweep for Invoice/Payment.registrationId lands here.*
+   *The null-guard sweep for Invoice/Payment.registrationId lands here — plus the
+   full §3a tenancy package (org stamping, `tenantTransaction`, `runWithTenant` +
+   CI-gate entries, the RLS policy file + harness assertions) in the SAME phase.*
 2. **Card payment** — group Stripe checkout + webhook branch + PAID promotion.
 3. **Portal** — My Group page: view, add-member (+ invoice reissue/delta), edit.
 4. **Polish** — organizer group sheet, CSV export group column, docs/user-guide.
@@ -189,6 +244,14 @@ Coordinator signs in → `/my-group` (or a group section on `/my-registration`):
 - The **nullable-FK sweep** (Invoice/Payment.registrationId) touches money paths — the
   Stripe webhook, invoice-service, refund/reconciliation workers. Every one needs the
   group-vs-single branch verified; this is where the adversarial review should aim.
+  *(Aug 6: partially de-risked — the webhook dispatch is now single-sited in
+  `handleStripeEvent()`, so the group-vs-single branch there is written and reviewed
+  once instead of per-endpoint. The invoice-reconciliation + refund-reconciliation
+  workers and payment-service remain the multi-site sweep.)*
+- **Tenancy fail-closed** — a new table without its `prisma/rls/*.sql` policy is
+  invisible under platform RLS; a new route without `runWithTenant` is the silent
+  class the `check-tenant-als.sh` gate exists for. Ship the §3a package with Phase 1,
+  not as a follow-up.
 - **Seat-claim atomicity for N members** — all-or-nothing per group create; the bulk
   claim helpers (`claimSeats`) exist but the group path must compose type-claims +
   event-cap claim in one transaction.
