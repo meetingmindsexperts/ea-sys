@@ -19,6 +19,11 @@
 > `POST /api/public/events/[slug]/group-register`, `/e/[slug]/group/register`,
 > the Event Settings → Registration card, migration `20260806150000`.
 >
+> Status: **PHASE 2 BUILT (Aug 6, 2026)** — group card payment (Stripe checkout
+> for the whole company + webhook settlement + invoice promotion). See §7 item 2
+> for the shipped scope and the refund ruling. Phases 3 (My Group portal) and
+> 4 (polish) remain.
+>
 > **Aug 6, 2026 refresh** (verified against the codebase; owner chose "refresh the
 > plan, hold the build"): all referenced helpers still exist under the same names
 > (`findOrCreateBillingAccount`, `claimSeats`/`claimSeat`/`claimEventSeats`,
@@ -235,6 +240,24 @@ Coordinator signs in → `/my-group` (or a group section on `/my-registration`):
    full §3a tenancy package (org stamping, `tenantTransaction`, `runWithTenant` +
    CI-gate entries, the RLS policy file + harness assertions) in the SAME phase.*
 2. **Card payment** — group Stripe checkout + webhook branch + PAID promotion.
+   ✅ **BUILT (Aug 6, 2026).** `POST /api/public/events/[slug]/group-checkout`
+   (one session for the whole company, charging the INVOICE snapshot rather
+   than a fresh computation so the card statement and the document can never
+   disagree; descriptive per-type lines only while they still reconcile);
+   `handleGroupCheckoutCompleted` in the shared webhook dispatcher (ONE Payment
+   row anchored to the group with `registrationId` null, N members flipped
+   together, consolidated invoice PROMOTED — deliberately no second numbered
+   document, since a group receipt would double-count in the AR ledger);
+   `checkout.session.expired` releases only the members that session parked;
+   `issuePaidGroupDocuments` in invoice-service. UI: the success card offers
+   "Pay by card" on top of the invoice (the invoice is issued either way — a
+   coordinator often isn't the person holding the company card), plus the
+   Stripe-return states. **Refund policy (owner ruling, Aug 6): a refunded
+   group payment is RECORDED and ALERTED, never auto-reconciled** — one charge
+   covers N members, so "this was refunded" doesn't say which members lost
+   their place, and guessing would either strand paid attendees or leave
+   withdrawn ones holding badges. Full automated group refund reconciliation
+   (incl. the partial "3 of 40 dropped out" case) remains unbuilt.
 3. **Portal** — My Group page: view, add-member (+ invoice reissue/delta), edit.
 4. **Polish** — organizer group sheet, CSV export group column, docs/user-guide.
 

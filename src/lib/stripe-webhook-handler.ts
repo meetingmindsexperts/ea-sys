@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { getStripe, fromStripeAmount } from "@/lib/stripe";
 import type Stripe from "stripe";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { issuePaidRegistrationDocuments } from "@/lib/invoice-service";
+import { issuePaidRegistrationDocuments, issuePaidGroupDocuments } from "@/lib/invoice-service";
 import { issueCreditNoteForRegistration } from "@/services/payment-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import { refreshEventStats } from "@/lib/event-stats";
@@ -57,6 +57,16 @@ export async function handleStripeEvent(
   // Handle checkout.session.completed
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
+
+    // Group settlement (group registration Phase 2) — one charge covering N
+    // member registrations. Dispatched before the single-registration path
+    // because a group session carries no `registrationId` and would otherwise
+    // be dropped as unrecognised metadata.
+    const groupSessionId = session.metadata?.groupId;
+    if (groupSessionId) {
+      return handleGroupCheckoutCompleted(session, groupSessionId, event.type, opts);
+    }
+
     const registrationId = session.metadata?.registrationId;
 
     if (!registrationId) {
@@ -392,6 +402,41 @@ export async function handleStripeEvent(
   // Handle checkout.session.expired — release stuck PENDING registrations
   if (event.type === "checkout.session.expired") {
     const session = event.data.object as Stripe.Checkout.Session;
+
+    // Group abandonment: release the members this session parked at PENDING
+    // back to UNPAID so the company can retry (and so the group stops looking
+    // mid-payment on the organizer's list). Scoped to THIS session's id — a
+    // second, still-open tab's claim must survive this one expiring.
+    const expiredGroupId = session.metadata?.groupId;
+    if (expiredGroupId) {
+      try {
+        await runWithTenant(session.metadata?.organizationId ?? "", async () => {
+          const released = await db.registration.updateMany({
+            where: {
+              groupId: expiredGroupId,
+              paymentStatus: "PENDING",
+              stripeCheckoutSessionId: session.id,
+            },
+            data: { paymentStatus: "UNPAID", stripeCheckoutSessionId: null },
+          });
+          apiLogger.info({
+            msg: "stripe-webhook:group-checkout-expired — members released to UNPAID",
+            groupId: expiredGroupId,
+            released: released.count,
+            sessionId: session.id,
+          });
+        });
+      } catch (err) {
+        apiLogger.error({
+          err,
+          msg: "stripe-webhook:group-checkout-expired-failed",
+          groupId: expiredGroupId,
+        });
+        return NextResponse.json({ error: "Processing failed" }, { status: 500 });
+      }
+      return NextResponse.json({ received: true });
+    }
+
     const registrationId = session.metadata?.registrationId;
     if (!registrationId) return NextResponse.json({ received: true });
 
@@ -448,14 +493,26 @@ export async function handleStripeEvent(
         select: {
           id: true,
           amount: true,
+          currency: true,
           refundedAmount: true,
           registrationId: true,
+          groupId: true,
           registration: {
             select: {
               eventId: true,
               refundedAmount: true,
               attendee: { select: { firstName: true, lastName: true } },
               event: { select: { organizationId: true } },
+            },
+          },
+          group: {
+            select: {
+              id: true,
+              coordinatorName: true,
+              eventId: true,
+              billingAccount: { select: { name: true } },
+              event: { select: { organizationId: true } },
+              _count: { select: { registrations: true } },
             },
           },
         },
@@ -483,16 +540,88 @@ export async function handleStripeEvent(
         return NextResponse.json({ received: true });
       }
 
-      // Group-registration null guard (Aug 2026): a Payment may anchor to a
-      // RegistrationGroup instead of a Registration. Group Stripe payments
-      // don't exist until group Phase 2 (checkout) ships, and their refund
-      // reconciliation lands with that phase — until then this branch is
-      // per-registration only, and a registration-less payment is fail-loud.
+      // GROUP refund (group Phase 2). Deliberately NOT reconciled
+      // automatically: one charge covers N member registrations, so "this was
+      // refunded" doesn't say WHICH members lost their place — a company
+      // dropping 3 of 40 people and a company withdrawing entirely produce the
+      // same Stripe event. Guessing would either strand paid attendees without
+      // a seat or leave withdrawn ones holding badges. So we record the money
+      // truth (the payment IS refunded) and put a human on it, loudly.
+      if (payment.groupId) {
+        const group = payment.group;
+        const cumulative = fromStripeAmount(charge.amount_refunded, charge.currency.toUpperCase());
+        const orgId = group?.event.organizationId ?? "";
+
+        if (opts?.expectedOrgId && group && group.event.organizationId !== opts.expectedOrgId) {
+          return orgMismatchResponse({
+            expectedOrgId: opts.expectedOrgId,
+            resolvedOrgId: group.event.organizationId,
+            eventType: event.type,
+            entityId: payment.groupId,
+          });
+        }
+
+        await runWithTenant(orgId, async () => {
+          // Conditional on the counter moving forward, so a webhook retry (or
+          // a second partial refund arriving out of order) can't double-count.
+          const updated = await db.payment.updateMany({
+            where: { id: payment.id, refundedAmount: { lt: cumulative } },
+            data: {
+              refundedAmount: cumulative,
+              status: cumulative >= Number(payment.amount) ? "REFUNDED" : "PAID",
+            },
+          });
+          if (updated.count === 0) {
+            apiLogger.info({
+              msg: "charge.refunded:group-already-reconciled — skipping",
+              groupId: payment.groupId,
+              paymentIntentId,
+              cumulativeRefunded: cumulative,
+            });
+          }
+        });
+
+        apiLogger.error({
+          msg: "charge.refunded:group-payment-refunded — member registrations still PAID, manual review required",
+          groupId: payment.groupId,
+          eventId: group?.eventId,
+          paymentId: payment.id,
+          paymentIntentId,
+          refundedAmount: cumulative,
+          paymentAmount: Number(payment.amount),
+          memberCount: group?._count.registrations ?? null,
+        });
+
+        if (group) {
+          const fully = cumulative >= Number(payment.amount);
+          notifyEventAdmins(group.eventId, {
+            type: "PAYMENT",
+            title: fully
+              ? "⚠ Group payment refunded — members still marked paid"
+              : "⚠ Partial refund on a group payment",
+            message:
+              `${payment.currency} ${cumulative.toFixed(2)} of ${payment.currency} ${Number(payment.amount).toFixed(2)} was refunded to ${group.billingAccount.name} ` +
+              `(group of ${group._count.registrations}, coordinator ${group.coordinatorName}). ` +
+              `Their ${group._count.registrations} registrations are STILL marked paid — decide which members are cancelled, ` +
+              `then cancel them and issue a credit note. Nothing has been changed automatically.`,
+            link: `/events/${group.eventId}/registrations`,
+          }).catch((err) =>
+            apiLogger.error({
+              err,
+              msg: "charge.refunded:group-notify-failed",
+              groupId: payment.groupId,
+            }),
+          );
+        }
+
+        return NextResponse.json({ received: true });
+      }
+
       const registrationId = payment.registrationId;
       const registration = payment.registration;
       if (!registrationId || !registration) {
         apiLogger.error({
-          msg: "charge.refunded: payment has no registration (group payment?) — group refund reconciliation is not built yet, review manually",
+          msg: "charge.refunded: payment has neither a registration nor a group — orphaned Payment row, review manually",
           paymentIntentId,
           paymentId: payment.id,
         });
@@ -682,4 +811,252 @@ export async function handleStripeEvent(
   }
 
   return NextResponse.json({ received: true });
+}
+
+// ── Group settlement (group registration Phase 2) ───────────────────────────
+
+/**
+ * `checkout.session.completed` for a GROUP session.
+ *
+ * Differs from the single-registration path in three ways that matter:
+ *  - ONE `Payment` row anchored to the group (`registrationId` null), because
+ *    the company made one payment — splitting it N ways would invent
+ *    per-member charges that never happened and break refund reconciliation.
+ *  - N registrations flip PAID together.
+ *  - The consolidated invoice is PROMOTED, not re-minted (see
+ *    `issuePaidGroupDocuments`).
+ *
+ * Idempotency is charge-level (`Payment.stripePaymentId` unique), identical to
+ * the single path: "is the group already paid?" says nothing about whether
+ * THIS charge was recorded, and a group can legitimately be charged twice (two
+ * open tabs, or a card payment racing a bank transfer the desk recorded).
+ */
+async function handleGroupCheckoutCompleted(
+  session: Stripe.Checkout.Session,
+  groupId: string,
+  eventType: string,
+  opts?: HandleStripeEventOptions,
+): Promise<NextResponse> {
+  try {
+    const group = await runWithTenant(session.metadata?.organizationId ?? "", () =>
+      db.registrationGroup.findUnique({
+        where: { id: groupId },
+        include: {
+          event: { select: { id: true, organizationId: true, name: true } },
+          billingAccount: { select: { name: true } },
+          registrations: {
+            where: { status: { not: "CANCELLED" } },
+            select: { id: true, paymentStatus: true },
+          },
+        },
+      }),
+    );
+
+    if (!group) {
+      apiLogger.warn({
+        msg: "stripe-webhook:group-not-found",
+        groupId,
+        sessionId: session.id,
+      });
+      return NextResponse.json({ received: true });
+    }
+
+    if (opts?.expectedOrgId && group.event.organizationId !== opts.expectedOrgId) {
+      return orgMismatchResponse({
+        expectedOrgId: opts.expectedOrgId,
+        resolvedOrgId: group.event.organizationId,
+        eventType,
+        entityId: groupId,
+      });
+    }
+
+    return await runWithTenant(group.event.organizationId, async () => {
+      const paymentIntentId =
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : session.payment_intent?.id || null;
+      const customerId =
+        typeof session.customer === "string" ? session.customer : session.customer?.id || null;
+
+      if (paymentIntentId) {
+        const existing = await db.payment.findUnique({
+          where: { stripePaymentId: paymentIntentId },
+          select: { id: true },
+        });
+        if (existing) {
+          apiLogger.info({
+            msg: "stripe-webhook:group-intent-already-recorded — skipping",
+            groupId,
+            paymentIntentId,
+          });
+          return NextResponse.json({ received: true });
+        }
+      }
+
+      const currency = (session.currency || "USD").toUpperCase();
+      const amount = session.amount_total ? fromStripeAmount(session.amount_total, currency) : 0;
+
+      // Instrument details for the Payment row + the "Payment Received" block
+      // on the promoted invoice PDF.
+      let receiptUrl: string | null = null;
+      let cardBrand: string | null = null;
+      let cardLast4: string | null = null;
+      let paymentMethodType: string | null = null;
+      let paidAt: Date | null = null;
+      if (paymentIntentId) {
+        try {
+          const stripe = await getStripe(group.event.organizationId);
+          const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+          const chargeId =
+            typeof paymentIntent.latest_charge === "string"
+              ? paymentIntent.latest_charge
+              : paymentIntent.latest_charge?.id;
+          if (chargeId) {
+            const charge = await stripe.charges.retrieve(chargeId);
+            receiptUrl = charge.receipt_url || null;
+            const pmd = charge.payment_method_details;
+            if (pmd) {
+              paymentMethodType = pmd.type || null;
+              if (pmd.card) {
+                cardBrand = pmd.card.brand || null;
+                cardLast4 = pmd.card.last4 || null;
+              }
+            }
+            if (charge.created) paidAt = new Date(charge.created * 1000);
+          }
+        } catch (err) {
+          apiLogger.warn({
+            err,
+            msg: "stripe-webhook:group-charge-details-fetch-failed",
+            groupId,
+            paymentIntentId,
+          });
+        }
+      }
+
+      const alreadySettled = group.registrations.every((r) => r.paymentStatus === "PAID");
+      let paymentId: string | null = null;
+
+      try {
+        await tenantTransaction(async (tx) => {
+          if (!alreadySettled) {
+            await tx.registration.updateMany({
+              where: {
+                groupId: group.id,
+                status: { not: "CANCELLED" },
+                paymentStatus: { in: ["UNPAID", "PENDING"] },
+              },
+              data: { paymentStatus: "PAID", stripeCheckoutSessionId: null },
+            });
+          }
+          const payment = await tx.payment.create({
+            data: {
+              organizationId: group.event.organizationId,
+              registrationId: null,
+              groupId: group.id,
+              amount,
+              currency,
+              stripePaymentId: paymentIntentId,
+              stripeCustomerId: customerId,
+              status: "PAID",
+              receiptUrl,
+              stripeReceiptUrl: receiptUrl,
+              cardBrand,
+              cardLast4,
+              paymentMethodType,
+              paidAt: paidAt ?? new Date(),
+              metadata: { checkoutSessionId: session.id, groupId: group.id },
+            },
+          });
+          paymentId = payment.id;
+        });
+      } catch (txErr) {
+        if (txErr instanceof Prisma.PrismaClientKnownRequestError && txErr.code === "P2002") {
+          apiLogger.info({
+            msg: "stripe-webhook:group-concurrent-retry-recorded-intent — skipping",
+            groupId,
+            paymentIntentId,
+          });
+          return NextResponse.json({ received: true });
+        }
+        throw txErr;
+      }
+
+      if (alreadySettled) {
+        // The money is on the books either way; a human decides which charge
+        // to reverse. No documents email — the payer must not get a second
+        // PAID invoice for a charge that is about to be refunded.
+        apiLogger.error({
+          msg: "stripe-webhook:group-duplicate-charge-recorded",
+          groupId,
+          eventId: group.event.id,
+          amount,
+          currency,
+          paymentIntentId,
+        });
+        notifyEventAdmins(group.event.id, {
+          type: "PAYMENT",
+          title: "⚠ Possible double payment (group)",
+          message: `${group.billingAccount.name} paid ${currency} ${amount.toFixed(2)} for the group registration of ${group.coordinatorName}, but the group was already settled — check the group's invoice and refund the duplicate charge if confirmed.`,
+          link: `/events/${group.event.id}/registrations`,
+        }).catch((err) =>
+          apiLogger.error({ err, msg: "stripe-webhook:group-duplicate-notify-failed", groupId }),
+        );
+        return NextResponse.json({ received: true });
+      }
+
+      apiLogger.info({
+        msg: "stripe-webhook:group-payment-completed",
+        groupId,
+        eventId: group.event.id,
+        memberCount: group.registrations.length,
+        amount,
+        currency,
+        paymentIntentId,
+      });
+
+      // Documents are failure-isolated: the charge has settled, so a document
+      // failure must alert rather than fail the webhook into a retry storm
+      // (a retry would find the intent recorded and skip anyway).
+      if (paymentId) {
+        try {
+          await issuePaidGroupDocuments({
+            groupId: group.id,
+            eventId: group.event.id,
+            organizationId: group.event.organizationId,
+            paymentId,
+            paymentMethod: paymentMethodType ?? "stripe",
+            paymentReference: paymentIntentId ?? undefined,
+            paidAt: paidAt ?? undefined,
+          });
+        } catch (err) {
+          apiLogger.error({ err, msg: "stripe-webhook:group-documents-failed", groupId });
+          notifyEventAdmins(group.event.id, {
+            type: "PAYMENT",
+            title: "⚠ Group payment received — invoice not issued",
+            message: `${group.billingAccount.name} paid ${currency} ${amount.toFixed(2)} but the paid invoice could not be issued. Mark the group's invoice paid and send it manually.`,
+            link: `/events/${group.event.id}/registrations`,
+          }).catch((e) =>
+            apiLogger.error({ err: e, msg: "stripe-webhook:group-docs-fail-notify-failed", groupId }),
+          );
+        }
+      }
+
+      notifyEventAdmins(group.event.id, {
+        type: "PAYMENT",
+        title: "Group payment received",
+        message: `${group.billingAccount.name} paid ${currency} ${amount.toFixed(2)} for ${group.registrations.length} attendees (coordinator ${group.coordinatorName}).`,
+        link: `/events/${group.event.id}/registrations`,
+      }).catch((err) =>
+        apiLogger.error({ err, msg: "stripe-webhook:group-payment-notify-failed", groupId }),
+      );
+
+      refreshEventStats(group.event.id);
+
+      return NextResponse.json({ received: true });
+    });
+  } catch (err) {
+    apiLogger.error({ err, msg: "stripe-webhook:group-checkout-completed-failed", groupId });
+    return NextResponse.json({ error: "Processing failed" }, { status: 500 });
+  }
 }

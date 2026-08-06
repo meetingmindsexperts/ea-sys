@@ -212,6 +212,41 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Billing accounts — per-event vs org-shared payer records (Aug 6, 2026, owner: "will come back later")
+
+Raised by the owner mid-Phase-2 as *"billing accounts is per event and not global please"*.
+The codebase currently sits **between** the two readings, which is why this needs
+an explicit ruling rather than a guess:
+
+- **Availability IS already per event** — a `BillingAccount` is attached to
+  specific events through the `EventBillingAccount` junction (June 29, 2026), so
+  the payer picker on Event B only offers payers attached to Event B.
+- **The RECORD is org-level** — `@@unique([organizationId, name])`, so
+  "Cleveland Clinic" is one row shared by every event it's attached to.
+
+The consequence that surfaces in the group flow: `findOrCreateBillingAccount`
+does exact-name reuse at the org level, so when a coordinator types their
+company's details and a payer with that name already exists, **the newly typed
+address / contact / tax number are discarded** and Event B silently inherits
+Event A's (possibly stale) details. The PO/`payerReference` is already
+per-registration/per-group, so it is not affected.
+
+**The two options put to the owner:**
+
+1. **Separate payer record per event.** Matches the wording literally. Cost: no
+   consolidated view of what one company owes across events; the `needsReview`
+   duplicate-flagging + `mergeBillingAccounts` tooling loses its meaning; needs a
+   schema change (drop the org-level unique, re-key to the event).
+2. **Keep one record, fix the stale-details problem.** Payer stays one org row
+   attached per event; coordinator-supplied details are captured against that
+   event/group and flagged for finance instead of being silently dropped. No
+   core schema change.
+
+Deferred by the owner during group Phase 2 ("will come back later, proceed to
+phase 2"). **Nothing was changed** — today's behavior is exactly as described
+above. Pick this up before a second event reuses a payer with different billing
+details, because that is when the silent inheritance produces a wrong invoice.
+
 ### Group Registration Phase 1 review — deferred findings (Aug 6, 2026)
 
 The pre-push adversarial review returned 1 BLOCKER / 4 HIGH / 9 MED / 10 LOW.

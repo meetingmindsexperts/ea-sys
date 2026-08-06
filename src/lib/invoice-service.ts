@@ -1371,7 +1371,10 @@ export async function sendGroupInvoiceEmail(invoiceId: string): Promise<void> {
   const { event } = group;
   const pdfBuffer = await generateInvoicePDF(await buildGroupInvoicePDFData(invoiceId));
 
-  const typeLabel = "Invoice";
+  // Derived from the row, not a caller flag: this same function sends the
+  // pay-later invoice AND the post-settlement copy (group Phase 2), and a
+  // settled payer must not receive something that reads like a request to pay.
+  const typeLabel = invoice.status === "PAID" ? "Paid Invoice" : "Invoice";
   const coordinatorFirstName = group.coordinatorName.split(/\s+/)[0] || group.coordinatorName;
   const template = await getEventTemplate(invoice.eventId, "document-delivery");
   let subject = `${typeLabel} ${invoice.invoiceNumber} — ${event.name}`;
@@ -1539,6 +1542,90 @@ export async function issuePaidRegistrationDocuments(params: {
   });
 
   return { invoice, receipt };
+}
+
+/**
+ * Group settlement documents (group Phase 2 — card payment).
+ *
+ * Deliberately NOT the two-document shape of the single-registration path
+ * above. A group's consolidated invoice is the payer's ONE financial record
+ * for the whole company, and `buildGroupInvoicePDFData` already renders the
+ * "Payment Received" block off the linked Payment row — so promoting that
+ * invoice to PAID and re-sending it gives the payer their receipt without
+ * minting a second numbered document against the group (which would make the
+ * org's AR ledger double-count the same money).
+ *
+ * Idempotent by construction: the promote is a conditional `updateMany` on a
+ * not-yet-PAID invoice, so a Stripe webhook retry promotes nothing and sends
+ * nothing. Never throws — settlement has already happened at the card network
+ * by the time this runs, so a document failure must be logged and alerted, not
+ * allowed to fail the webhook into a retry storm.
+ */
+export async function issuePaidGroupDocuments(params: {
+  groupId: string;
+  eventId: string;
+  organizationId: string;
+  paymentId: string;
+  paymentMethod?: string;
+  paymentReference?: string;
+  paidAt?: Date;
+}): Promise<{ invoice: Invoice | null; promoted: boolean }> {
+  const {
+    groupId, eventId, organizationId, paymentId,
+    paymentMethod, paymentReference, paidAt,
+  } = params;
+
+  let invoice = await db.invoice.findFirst({
+    where: {
+      groupId, eventId, organizationId,
+      type: "INVOICE",
+      status: { not: "CANCELLED" },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  // Invoice creation at group-create is failure-isolated (the group stands
+  // even if the document fails), so a settled group can legitimately have
+  // none. Mint it now rather than leave the payer with no document for money
+  // we have already taken.
+  if (!invoice) {
+    apiLogger.warn({
+      msg: "group-payment:no-invoice-at-settlement — minting one now",
+      groupId,
+    });
+    invoice = await createGroupInvoice({ groupId, eventId, organizationId });
+  }
+
+  const promoted = await db.invoice.updateMany({
+    where: { id: invoice.id, status: { not: "PAID" } },
+    data: {
+      status: "PAID",
+      paidDate: paidAt ?? new Date(),
+      paymentId,
+      paymentMethod,
+      paymentReference,
+    },
+  });
+
+  if (promoted.count === 0) {
+    apiLogger.info({
+      msg: "group-payment:invoice-already-paid — skipping promote + email",
+      groupId,
+      invoiceId: invoice.id,
+    });
+    return { invoice, promoted: false };
+  }
+
+  apiLogger.info({
+    msg: "group-payment:invoice-promoted-to-paid",
+    groupId,
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    paymentId,
+  });
+
+  await sendGroupInvoiceEmail(invoice.id);
+  return { invoice, promoted: true };
 }
 
 // ── Invoice status transitions (cancel / mark overdue) ─────────────────────

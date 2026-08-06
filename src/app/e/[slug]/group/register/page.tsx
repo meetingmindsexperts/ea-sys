@@ -7,14 +7,17 @@
  * Registration → Group Registration and sends it to company reps. A
  * coordinator creates an account, enters the company payer, adds members
  * (each with the full public field-set + a registration type at the live
- * tier price), sees the cumulative total, and submits pay-later: members are
- * created UNPAID with the consolidated invoice emailed to the payer +
- * coordinator (card checkout is Phase 2).
+ * tier price), sees the cumulative total, and submits.
+ *
+ * Phase 2 (card): the consolidated invoice is issued either way — a
+ * coordinator is often NOT the person holding the company card, so leaving
+ * them without a document until someone pays would strand the common case.
+ * The success card then offers immediate card settlement on top.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
-import { Calendar, MapPin, Users, Building2, Plus, Trash2, CheckCircle2, Loader2 } from "lucide-react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Calendar, MapPin, Users, Building2, Plus, Trash2, CheckCircle2, Loader2, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,7 +108,7 @@ function livePrice(t: PublicTicketType): { price: number; tierName: string | nul
   return { price: Number(t.price), tierName: null };
 }
 
-export default function GroupRegisterPage() {
+function GroupRegisterContent() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
 
@@ -126,7 +129,51 @@ export default function GroupRegisterPage() {
   // Members
   const [members, setMembers] = useState<MemberForm[]>([{ ...EMPTY_MEMBER }]);
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState<{ memberCount: number; invoiceNumber: string | null; total: string } | null>(null);
+  const [done, setDone] = useState<{
+    groupId: string;
+    memberCount: number;
+    invoiceNumber: string | null;
+    total: string;
+    payable: boolean;
+  } | null>(null);
+  const [payingByCard, setPayingByCard] = useState(false);
+
+  // Stripe return: `?group=<id>&payment=success|cancelled`. Read once — the
+  // group is already created by this point, so this only chooses which card
+  // to render, never re-submits anything.
+  const searchParams = useSearchParams();
+  const returnedGroupId = searchParams.get("group");
+  const returnedPayment = searchParams.get("payment");
+
+  /**
+   * Settle the whole group by card. Never assumes the redirect will happen —
+   * a failure here must leave the coordinator on a page that still tells them
+   * the invoice is valid, because the registration itself already succeeded.
+   */
+  const payByCard = useCallback(async (groupId: string) => {
+    setPayingByCard(true);
+    try {
+      const res = await fetch(`/api/public/events/${slug}/group-checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.checkoutUrl) {
+        console.error("group-checkout: failed", data);
+        toast.error(
+          data.error || "We couldn't start the card payment. You can still pay by bank transfer using the invoice.",
+        );
+        return;
+      }
+      window.location.href = data.checkoutUrl;
+    } catch (err) {
+      console.error("group-checkout: error", err);
+      toast.error("We couldn't reach the payment page. Your invoice is still valid — please try again or pay by transfer.");
+    } finally {
+      setPayingByCard(false);
+    }
+  }, [slug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -281,9 +328,11 @@ export default function GroupRegisterPage() {
       const rate = event?.taxRate ? Number(event.taxRate) : 0;
       const serverTotal = serverSubtotal + (rate > 0 ? serverSubtotal * (rate / 100) : 0);
       setDone({
+        groupId: data.groupId,
         memberCount: data.memberCount,
         invoiceNumber: data.invoiceNumber ?? null,
         total: `${data.currency} ${serverTotal.toFixed(2)}`,
+        payable: serverTotal > 0,
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
@@ -339,7 +388,41 @@ export default function GroupRegisterPage() {
           </div>
         </div>
 
-        {done ? (
+        {returnedPayment === "success" ? (
+          <div className="rounded-xl border bg-white p-8 text-center">
+            <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500 mb-4" />
+            <h2 className="text-2xl font-semibold mb-2">Payment received</h2>
+            <p className="text-slate-600">
+              Thank you — your group registration is paid in full. A paid invoice is on its way to
+              the company and to you.
+            </p>
+            <p className="text-sm text-slate-500 mt-3">
+              Every member keeps the confirmation email they already received.
+            </p>
+          </div>
+        ) : returnedPayment === "cancelled" ? (
+          <div className="rounded-xl border bg-white p-8 text-center">
+            <h2 className="text-2xl font-semibold mb-2">Payment cancelled</h2>
+            <p className="text-slate-600">
+              No payment was taken and <strong>your group registration is safe</strong> — everyone
+              is still registered. You can pay by card now, or by bank transfer using the
+              consolidated invoice that was emailed to you.
+            </p>
+            {returnedGroupId ? (
+              <Button
+                className="mt-5"
+                onClick={() => payByCard(returnedGroupId)}
+                disabled={payingByCard}
+              >
+                {payingByCard ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening payment…</>
+                ) : (
+                  <><CreditCard className="mr-2 h-4 w-4" /> Try card payment again</>
+                )}
+              </Button>
+            ) : null}
+          </div>
+        ) : done ? (
           <div className="rounded-xl border bg-white p-8 text-center">
             <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500 mb-4" />
             <h2 className="text-2xl font-semibold mb-2">Group registered!</h2>
@@ -354,6 +437,21 @@ export default function GroupRegisterPage() {
             <p className="text-sm text-slate-500 mt-3">
               Each member has received their own confirmation email. Registration is confirmed on receipt of payment.
             </p>
+            {done.payable ? (
+              <div className="mt-6 border-t pt-6">
+                <p className="text-sm text-slate-600 mb-3">
+                  Paying by card? Settle the whole group now — or ignore this and pay the invoice by
+                  bank transfer.
+                </p>
+                <Button onClick={() => payByCard(done.groupId)} disabled={payingByCard}>
+                  {payingByCard ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening payment…</>
+                  ) : (
+                    <><CreditCard className="mr-2 h-4 w-4" /> Pay {done.total} by card</>
+                  )}
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : closed ? (
           <div className="rounded-xl border bg-white p-8 text-center">
@@ -499,5 +597,23 @@ export default function GroupRegisterPage() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * `useSearchParams` (the Stripe return) requires a Suspense boundary during
+ * prerender — same wrapper the confirmation page uses.
+ */
+export default function GroupRegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <GroupRegisterContent />
+    </Suspense>
   );
 }
