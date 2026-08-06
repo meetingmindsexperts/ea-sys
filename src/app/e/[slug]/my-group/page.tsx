@@ -32,10 +32,6 @@ import {
   CheckCircle2, AlertCircle, LogOut, BadgeCheck, HelpCircle,
 } from "lucide-react";
 
-/** Organiser brand colour, with the house cerulean as the fallback for orgs
- *  that never set one. */
-const DEFAULT_ACCENT = "#00aade";
-
 /**
  * A label with a supplementary explanation on hover.
  *
@@ -213,18 +209,12 @@ export default function MyGroupPage() {
 
   const tax = group.event.taxRate ? (group.subtotal * group.event.taxRate) / 100 : 0;
   const openInvoice = group.invoices.find((i) => i.status !== "CANCELLED" && i.status !== "PAID");
-  const accent = group.event.primaryColor || DEFAULT_ACCENT;
-  // Derived tints. `color-mix` degrades safely: an unsupported value drops the
-  // declaration, leaving the plain class-based background underneath.
-  const accentStyle = {
-    "--org": accent,
-    "--org-tint": `color-mix(in srgb, ${accent} 8%, white)`,
-    "--org-edge": `color-mix(in srgb, ${accent} 28%, white)`,
-  } as React.CSSProperties;
-
+  // `--org` / `--org-tint` / `--org-edge` are set for the whole `/e/[slug]`
+  // subtree by the public layout, so this page no longer derives them. The
+  // globals.css defaults apply for an org that hasn't set a brand colour.
   return (
     <TooltipProvider delayDuration={200}>
-    <div className="min-h-screen bg-slate-50" style={accentStyle}>
+    <div className="min-h-screen bg-slate-50">
       <EventBanner
         banner={group.event.bannerImage}
         bannerMobile={group.event.bannerImageMobile}

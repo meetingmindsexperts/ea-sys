@@ -37,9 +37,31 @@ const getEventForMeta = cache(async (host: string | null, slug: string) =>
       city: true,
       country: true,
       startDate: true,
+      // Brand colour for the public theme. Selected HERE rather than in a
+      // second query so the `[slug]` layout's metadata + theming share the
+      // one cached lookup per request.
+      organization: { select: { primaryColor: true } },
     },
   }),
 );
+
+/**
+ * The organisation's brand colour for a public event page, or null.
+ *
+ * Shares `getEventForMeta`'s React `cache()` entry, so calling this from the
+ * public layout costs no extra query on a request that already built metadata.
+ */
+export async function getPublicEventBrandColor(slug: string): Promise<string | null> {
+  try {
+    const host = (await headers()).get("host");
+    const event = await getEventForMeta(host, slug);
+    return event?.organization?.primaryColor ?? null;
+  } catch (err) {
+    // Theming must never break a public page — an unbranded page is fine.
+    apiLogger.warn({ err, msg: "public-event-theme:brand-color-lookup-failed", slug });
+    return null;
+  }
+}
 
 const getSessionName = cache(async (host: string | null, slug: string, sessionId: string) => {
   // tenancy: EventSession is swept (Sessions sweep, Domain #12) — resolve the
