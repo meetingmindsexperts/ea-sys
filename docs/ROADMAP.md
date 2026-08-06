@@ -227,17 +227,23 @@ members), M8 (150 members/hr/IP email-amplification budget), M9
 (case-insensitive dup check), L1/L2/L3(DB XOR CHECK)/L5/L6/L7/L8/L9.
 **Deferred:**
 
-- **M4 — OWNER RULING NEEDED: should public group registrations consume
-  pricing-TIER inventory?** Today a group member is PRICED at the live tier
-  (Early Bird) and stamps `pricingTierId`, but the seat claim lands on the
-  TICKET-TYPE counter only (`seatCounter` routes only PUBLIC_REGISTER+tier
-  rows to the tier counter). Consequence: a 20-seat Early Bird tier can be
-  overrun by groups at the Early Bird price, and the tier's public sell-out
-  never advances. The admin manual-add path documents the same behavior as a
-  deliberate courtesy-seat decision — but this is an unauthenticated public
-  door, so it deserves its own ruling: (a) claim tier seats for tier-priced
-  group members (route `seatCounter` for GROUP_REGISTER+tier accordingly, incl.
-  the release paths), or (b) accept + document as deliberate.
+- **~~M4 — should public group registrations consume pricing-TIER
+  inventory?~~ ✅ SHIPPED Aug 6, 2026 — owner ruled YES (option a).** A group
+  member priced at the live tier now CLAIMS that tier's seat, exactly like an
+  individual public registration: `seatCounter` routes
+  `createdSource ∈ {PUBLIC_REGISTER, GROUP_REGISTER} && pricingTierId` to the
+  tier counter (a named `TIER_CONSUMING_SOURCES` set — "public self-service
+  doors"), so every release/reactivate/type-change/delete/reconcile path
+  follows automatically (they all route through the same helper). The group
+  service aggregates its all-or-nothing claim **per counter** via
+  `seatCounter` rather than re-deriving it, and a tier sell-out names the tier
+  in the SOLD_OUT message ("Physician — Early Bird sold out"), not just the
+  type. Rationale: the group door is unauthenticated public self-service, so
+  price must carry allocation — otherwise one 40-person group drains the
+  discount budget invisibly and Early Bird never advances to Standard for
+  individual registrants. The **admin courtesy-seat exemption is unchanged**
+  (staff exercise judgment per person; a manually-recorded latecomer at the
+  Early-Bird rate still doesn't burn a real Early-Bird seat).
 - **M7 — group-register credential door bypasses login-throttle + Sign-in
   Activity.** The bcrypt compare uses only the generic rate limiter (which
   charges successes) and records no `LoginEvent`. Same class as the

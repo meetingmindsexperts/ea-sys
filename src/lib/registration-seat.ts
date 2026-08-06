@@ -6,12 +6,16 @@
  * uses pricing tiers ALSO has a `soldCount` on each `PricingTier`. A given
  * registration is counted on exactly ONE of them:
  *
- *   • Only the PUBLIC registration path increments `PricingTier.soldCount`
- *     (`createdSource === PUBLIC_REGISTER` with a `pricingTierId`). The
- *     admin/service path always uses `TicketType.soldCount` even when a tier is
- *     chosen (intentional — see registration-service.ts), and virtual nulls the
- *     tier. So the discriminator for "this seat lives on the tier counter" is:
- *         createdSource === PUBLIC_REGISTER && pricingTierId != null
+ *   • Only the PUBLIC self-service paths increment `PricingTier.soldCount`:
+ *     individual public registration (`createdSource === PUBLIC_REGISTER`) and
+ *     public GROUP registration (`GROUP_REGISTER`, owner ruling Aug 6 2026 —
+ *     a public group priced at the Early-Bird rate consumes Early-Bird
+ *     inventory; price and inventory move together on public doors), each with
+ *     a `pricingTierId`. The admin/service path always uses
+ *     `TicketType.soldCount` even when a tier is chosen (intentional courtesy
+ *     seat — see registration-service.ts), and virtual nulls the tier. So the
+ *     discriminator for "this seat lives on the tier counter" is:
+ *         createdSource ∈ {PUBLIC_REGISTER, GROUP_REGISTER} && pricingTierId != null
  *     Everything else → the ticket-type counter.
  *
  * A registration HOLDS a seat IFF it is NOT cancelled AND attending IN_PERSON
@@ -57,10 +61,24 @@ export interface SeatState {
 }
 
 /**
+ * The self-service doors whose tier-priced registrations consume TIER
+ * inventory. Both are public/unauthenticated, so the price the registrant is
+ * given must carry the corresponding allocation: an Early-Bird sale (whether
+ * one person or a 40-person company group) draws down Early Bird's seats and
+ * moves the event toward the next window. Staff-created rows deliberately do
+ * NOT appear here — see the courtesy-seat note in registration-service.ts.
+ */
+const TIER_CONSUMING_SOURCES: ReadonlySet<RegistrationCreatedSource> = new Set([
+  "PUBLIC_REGISTER",
+  "GROUP_REGISTER",
+]);
+
+/**
  * Which counter a seat for this registration is tallied on — INDEPENDENT of
- * whether it currently holds a seat (caller gates on `holdsSeat`). Public
- * register + tier → the tier counter; everything else → the ticket-type
- * counter. Returns null when there is no ticket type at all (nothing to count).
+ * whether it currently holds a seat (caller gates on `holdsSeat`). A public
+ * self-service door + tier → the tier counter; everything else → the
+ * ticket-type counter. Returns null when there is no ticket type at all
+ * (nothing to count).
  */
 export function seatCounter(
   state: Pick<SeatState, "createdSource" | "pricingTierId" | "ticketTypeId">,
@@ -72,7 +90,7 @@ export function seatCounter(
   // isFaculty ticket type, is exact — an admin who manually puts someone on the
   // Faculty type via the normal create path DOES increment that counter.)
   if (state.createdSource === "SPEAKER_COMPANION") return null;
-  if (state.createdSource === "PUBLIC_REGISTER" && state.pricingTierId) {
+  if (state.createdSource && TIER_CONSUMING_SOURCES.has(state.createdSource) && state.pricingTierId) {
     return { kind: "tier", id: state.pricingTierId };
   }
   if (state.ticketTypeId) return { kind: "ticketType", id: state.ticketTypeId };

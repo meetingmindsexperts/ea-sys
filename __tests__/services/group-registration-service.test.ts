@@ -221,12 +221,34 @@ describe("createGroupRegistration — gates", () => {
     expect(mockDb.registration.create).not.toHaveBeenCalled();
   });
 
-  it("SOLD_OUT when a type's bulk claim fails — nothing else is created", async () => {
+  it("SOLD_OUT when a counter's bulk claim fails — nothing else is created", async () => {
     claimSeatsMock.mockResolvedValueOnce(false);
     const res = await createGroupRegistration(BASE_INPUT);
     expect(res).toMatchObject({ ok: false, code: "SOLD_OUT" });
     expect(createGroupInvoiceMock).not.toHaveBeenCalled();
     expect(sendMemberConfirmationMock).not.toHaveBeenCalled();
+  });
+
+  it("SOLD_OUT on a tier names the TIER in the message, not just the type (M4)", async () => {
+    // Early Bird is exhausted → the coordinator must be told WHICH allocation
+    // ran out, otherwise "Physician sold out" contradicts a type with seats left.
+    claimSeatsMock.mockResolvedValueOnce(false);
+    const res = await createGroupRegistration(BASE_INPUT);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toContain("Early Bird");
+  });
+
+  it("aggregates the claim per COUNTER — two members on one tier claim it once, for 2 (M4)", async () => {
+    const res = await createGroupRegistration({
+      ...BASE_INPUT,
+      members: [member("a@corp.com"), member("b@corp.com")], // both tt-phys ⇒ tier-early
+    });
+    expect(res.ok).toBe(true);
+    const tierCalls = claimSeatsMock.mock.calls.filter(
+      (c) => (c[1] as { kind: string; id: string }).id === "tier-early",
+    );
+    expect(tierCalls).toHaveLength(1);
+    expect(tierCalls[0][2]).toBe(2);
   });
 
   it("EVENT_FULL when the event-wide cap refuses the whole group", async () => {
@@ -284,9 +306,13 @@ describe("createGroupRegistration — happy path", () => {
       payerReference: "PO-9",
     });
 
-    // Seat claims: one per distinct type + one event-wide for the total.
-    expect(claimSeatsMock).toHaveBeenCalledWith(expect.anything(), { kind: "ticketType", id: "tt-phys" }, 1);
+    // Seat claims: one per distinct COUNTER + one event-wide for the total.
+    // M4 ruling — the tier-priced Physician member burns EARLY BIRD's
+    // inventory (public door ⇒ price carries allocation); the tier-less Nurse
+    // member burns the ticket type's.
+    expect(claimSeatsMock).toHaveBeenCalledWith(expect.anything(), { kind: "tier", id: "tier-early" }, 1);
     expect(claimSeatsMock).toHaveBeenCalledWith(expect.anything(), { kind: "ticketType", id: "tt-nurse" }, 1);
+    expect(claimSeatsMock).not.toHaveBeenCalledWith(expect.anything(), { kind: "ticketType", id: "tt-phys" }, expect.anything());
     expect(claimEventSeatsMock).toHaveBeenCalledWith(expect.anything(), "ev1", 2);
 
     // Member rows: groupId + GROUP_REGISTER + UNPAID + payer + live-tier price.

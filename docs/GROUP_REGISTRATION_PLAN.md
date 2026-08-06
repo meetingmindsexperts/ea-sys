@@ -42,6 +42,7 @@
 | Payer details | **Coordinator enters them** in the public flow → `findOrCreateBillingAccount()` (exact-name reuse; near-duplicates created with `needsReview` for finance to merge — the machinery already exists and its comment anticipated exactly this). |
 | Post-submission | **Full group portal** — coordinator account + "My Group" page: see members + payment status, ADD members later up to the cap, edit member details. |
 | Pricing | **Per-person registration type** at the tier active at submission; cumulative total = Σ individual prices; invoice lines grouped by type ("2 × Physician, 2 × Nurse"). |
+| Tier inventory | **A group BURNS the tier's seats** (owner ruling Aug 6, 2026 — review M4). The group door is public self-service, so a member priced at Early Bird claims an Early-Bird seat exactly like an individual public registration; a group that doesn't fit is refused whole ("Physician — Early Bird sold out"). Otherwise one large group drains the discount allocation invisibly and the tier never sells out for individuals. The **staff** manual-add courtesy-seat exemption is unchanged. |
 | Link distribution | **One shared event link** — the organizer enables group registration, sets the member bounds, and copies ONE link (the proposer-link pattern) to send to company reps. No per-company invite tokens in v1. |
 | Member bounds | **Organizer-controlled min AND max** (e.g. min 2, max 10): Krishna can register any group size within the range. Hard server ceiling 50 regardless of settings. |
 

@@ -20,11 +20,15 @@
  *  - the consolidated invoice (createGroupInvoice) is the single money
  *    artifact, emailed to the payer + coordinator.
  *
- * Seat accounting: GROUP_REGISTER rows count on the TICKET-TYPE counter (the
- * seat model routes only PUBLIC_REGISTER+tier rows to the tier counter), so
- * the claim here is per-type `claimSeats` + one event-wide `claimEventSeats`,
- * all-or-nothing inside the same transaction — sold-out mid-group rolls the
- * whole group back.
+ * Seat accounting (owner ruling Aug 6, 2026 — review M4): a public group is a
+ * public door, so tier price implies tier inventory — GROUP_REGISTER rows with
+ * a `pricingTierId` count on the PRICING-TIER counter exactly like individual
+ * public registrations (the seat model's `seatCounter` routes them; release
+ * paths follow automatically). Tier-less members count on the ticket-type
+ * counter. Claims are aggregated per COUNTER via the shared `seatCounter`
+ * helper (never re-derived here) + one event-wide `claimEventSeats`,
+ * all-or-nothing inside the same transaction — a sold-out tier or type
+ * mid-group rolls the whole group back.
  */
 import {
   PaymentStatus,
@@ -36,6 +40,7 @@ import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { claimSeats, claimEventSeats } from "@/lib/registration-seat-db";
+import { seatCounter, type SeatCounter } from "@/lib/registration-seat";
 import { pickCurrentPricingTier } from "@/lib/current-pricing-tier";
 import {
   readGroupRegistrationSettings,
@@ -321,12 +326,20 @@ export async function createGroupRegistration(
   // live window at submission), else the base price.
   const pricingByType = new Map<
     string,
-    { tierId: string | null; price: number; name: string; currency: string; requiresApproval: boolean }
+    {
+      tierId: string | null;
+      tierName: string | null;
+      price: number;
+      name: string;
+      currency: string;
+      requiresApproval: boolean;
+    }
   >();
   for (const t of ticketTypes) {
     const tier = pickCurrentPricingTier(t.pricingTiers, now);
     pricingByType.set(t.id, {
       tierId: tier?.id ?? null,
+      tierName: tier?.name ?? null,
       price: Number(tier?.price ?? t.price),
       name: t.name,
       currency: t.currency ?? "USD",
@@ -435,17 +448,43 @@ export async function createGroupRegistration(
         select: { id: true },
       });
 
-      // All-or-nothing seat claims: per-type counts, then the event-wide cap.
-      const countByType = new Map<string, number>();
+      // All-or-nothing seat claims, aggregated per COUNTER via the shared
+      // seatCounter helper (M4 ruling: tier-priced members burn the TIER's
+      // inventory, tier-less members the ticket type's) — then the event-wide
+      // cap. Routing through seatCounter, not re-derived here, so the claim
+      // side can never drift from the cancel/delete release paths.
+      const countByCounter = new Map<
+        string,
+        { counter: SeatCounter; count: number; label: string; ticketTypeId: string }
+      >();
       for (const m of members) {
-        countByType.set(m.ticketTypeId, (countByType.get(m.ticketTypeId) ?? 0) + 1);
+        const pricing = pricingByType.get(m.ticketTypeId)!;
+        const counter = seatCounter({
+          createdSource: "GROUP_REGISTER",
+          pricingTierId: pricing.tierId,
+          ticketTypeId: m.ticketTypeId,
+        });
+        if (!counter) continue; // unreachable: every member has a ticket type
+        const key = `${counter.kind}:${counter.id}`;
+        const label =
+          counter.kind === "tier" && pricing.tierName
+            ? `${pricing.name} — ${pricing.tierName}`
+            : pricing.name;
+        const entry = countByCounter.get(key) ?? {
+          counter,
+          count: 0,
+          label,
+          ticketTypeId: m.ticketTypeId,
+        };
+        entry.count += 1;
+        countByCounter.set(key, entry);
       }
-      for (const [typeId, count] of countByType) {
-        const claimed = await claimSeats(tx, { kind: "ticketType", id: typeId }, count);
+      for (const { counter, count, label, ticketTypeId } of countByCounter.values()) {
+        const claimed = await claimSeats(tx, counter, count);
         if (!claimed) {
           throw new GroupServiceSentinel("SOLD_OUT", {
-            ticketTypeId: typeId,
-            ticketTypeName: pricingByType.get(typeId)?.name,
+            ticketTypeId,
+            ticketTypeName: label,
           });
         }
       }

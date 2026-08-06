@@ -60,6 +60,24 @@ describe("seatCounter — which counter the seat is tallied on", () => {
   it("public register WITHOUT a tier → the TICKET-TYPE counter", () => {
     expect(seatCounter({ createdSource: "PUBLIC_REGISTER", pricingTierId: null, ticketTypeId: T })).toEqual(TT(T));
   });
+  // Owner ruling Aug 6, 2026 (group review M4): the group door is public
+  // self-service, so a group priced at the Early-Bird rate draws down Early
+  // Bird's inventory — price and inventory move together on public doors.
+  // Staff-created rows keep the courtesy-seat exemption above.
+  it("public GROUP register + tier → the TIER counter (same as individual public)", () => {
+    expect(seatCounter({ createdSource: "GROUP_REGISTER", pricingTierId: P, ticketTypeId: T })).toEqual(TIER(P));
+  });
+  it("group register WITHOUT a tier → the TICKET-TYPE counter", () => {
+    expect(seatCounter({ createdSource: "GROUP_REGISTER", pricingTierId: null, ticketTypeId: T })).toEqual(TT(T));
+  });
+  it("a cancelled group member releases the TIER seat it claimed (release path follows routing)", () => {
+    const grp = { createdSource: "GROUP_REGISTER" as const, pricingTierId: P };
+    expect(planSeatTransition(s("CONFIRMED", IN, T, grp), s("CANCELLED", IN, T, grp))).toEqual({
+      release: TIER(P),
+      claim: null,
+      eventDelta: -1,
+    });
+  });
   it("no ticket type → null (nothing to count)", () => {
     expect(seatCounter({ createdSource: "PUBLIC_REGISTER", pricingTierId: null, ticketTypeId: null })).toBeNull();
   });
