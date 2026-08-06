@@ -244,16 +244,54 @@ members), M8 (150 members/hr/IP email-amplification budget), M9
   individual registrants. The **admin courtesy-seat exemption is unchanged**
   (staff exercise judgment per person; a manually-recorded latecomer at the
   Early-Bird rate still doesn't burn a real Early-Bird seat).
-- **M7 — group-register credential door bypasses login-throttle + Sign-in
-  Activity.** The bcrypt compare uses only the generic rate limiter (which
-  charges successes) and records no `LoginEvent`. Same class as the
-  pre-existing abstract-start door — fix BOTH together: wire `isLoginBlocked`/
-  `recordLoginFailure`/`clearLoginFailures` + `recordLoginEvent(surface)`
-  around each public credential door.
-- **L4 — tenancy-harness assertions for RegistrationGroup.** The policy file
-  shipped (`prisma/rls/registrationgroup.sql`) but the standard N-assertion
-  `tests/tenancy/*-rls.test.ts` + seed fixtures haven't — add on the next
-  harness run (needs the docker tenancy profile).
+- **~~M7 — group-register credential door bypasses login-throttle + Sign-in
+  Activity.~~ ✅ SHIPPED Aug 6, 2026 — BOTH doors.** New shared
+  [public-credential-door.ts](../src/lib/public-credential-door.ts)
+  `verifyPublicCredentials()` is the ONE guard every public password check goes
+  through (rather than the sequence being copy-pasted into each route): it
+  throttle-checks BEFORE bcrypt — the compare lives *inside* the helper so that
+  ordering is structural, not a rule each caller must remember — charges only
+  failures, clears the email bucket on success, and writes the `LoginEvent`
+  (`SUCCESS` / `FAILED_PASSWORD` / `FAILED_UNKNOWN_EMAIL` / `BLOCKED_RATE_LIMIT`,
+  surface `EVENT_PAGE`). Both callers keep their existing `checkRateLimit`
+  bucket — that bounds TOTAL requests, this bounds failed credential attempts;
+  dropping either would quietly loosen a live control. **`recordSuccess` differs
+  per door on purpose:** group-register never calls NextAuth `signIn()`, so its
+  pass IS the auth event and is recorded; abstract-start hands off to `signIn()`
+  immediately, whose `authorize()` writes the SUCCESS row — recording one there
+  too would double every successful sign-in in Sign-in Activity. Failures are
+  recorded on both, since a 401 stops the client before `signIn()` and nothing
+  else would ever see them. On success the guard returns the caller's own
+  (generic) row, so "a pass means there is an account" is a compiler-enforced
+  fact instead of an `!` at each call site. +12 tests.
+  - **Follow-up A — `authorize()` still implements the same sequence inline.**
+    Deliberately not refactored in the same change as a security fix: it is the
+    live login path for every staff account and its variant is interleaved with
+    org attribution, a distinct `RateLimitedSignin` throw and per-branch log
+    lines. The helper's shape is a superset so it can adopt it.
+  - **Follow-up B (trap for whoever sweeps `LoginEvent` for tenancy).** Both new
+    call sites write the `LoginEvent` INSIDE `runWithTenant(event.organizationId)`
+    while the row's own `organizationId` is null (org-independent registrants /
+    submitters). Harmless today — `LoginEvent` has no RLS policy — but a strict
+    `USING` rejects `create()`'s INSERT..RETURNING for an org-null row on a
+    tenant lane (the Domain-#18/#19 lesson). That sweep must use `createMany`
+    for org-null rows, as `HelpChatQuery` does.
+- **~~L4 — tenancy-harness assertions for RegistrationGroup.~~ ✅ SHIPPED
+  Aug 6, 2026.** [registrationgroup-rls.test.ts](../tests/tenancy/registrationgroup-rls.test.ts)
+  (9 assertions) + seed fixtures. `RegistrationGroup` has no per-org unique
+  field, so lane-scoping is proven the Invoice/EmailLog way — BOTH orgs hold a
+  group on the SAME coordinator email, so an unscoped `where:{coordinatorEmail}`
+  (the shape a future "find my group" lookup takes) must return only the
+  caller's. Plus fail-closed-with-no-store, WITH CHECK on create + org-re-home,
+  cross-tenant read/DELETE misses, defence-#1-in-isolation via the owner
+  connection, and one pin that a group's `invoices` relation still resolves on
+  its own lane (a fail-closed join there would hide a company's consolidated
+  invoice from them). Harness 304 → **313** across 26 files.
+  - *Harness gotcha found while doing this:* the throwaway tenancy DB had gone
+    stale (predating the Aug-4 `SessionProposal` unique), so `global-setup`'s
+    `db push` failed. That is intended — `--accept-data-loss` is deliberately
+    NOT hard-coded there. The reset command is now documented at the point of
+    failure in global-setup.ts.
 - **L10 — account-existence oracle in the 401 message** ("an account with this
   email already exists") — consistent with the existing check-email /
   abstract-start posture; revisit only if that posture changes globally.

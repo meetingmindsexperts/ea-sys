@@ -12,6 +12,8 @@ import bcrypt from "bcryptjs";
 const { mockDb, createGroupMock, notifyMock, sendVerifyMock } = vi.hoisted(() => ({
   mockDb: {
     user: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    // Written by the shared public-credential guard (review M7).
+    loginEvent: { create: vi.fn() },
     event: { findFirst: vi.fn() },
   },
   createGroupMock: vi.fn(),
@@ -31,6 +33,8 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  // The shared public-credential guard logs through authLogger.
+  authLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock("@/lib/public-event", () => ({
   publicEventWhere: vi.fn(async (_req: unknown, slug: string) => ({ slug })),
@@ -168,7 +172,29 @@ describe("POST /group-register — coordinator account", () => {
     expect(createGroupMock).not.toHaveBeenCalled();
   });
 
-  it("existing account + correct password → service gets that userId", async () => {
+  // Review M7 — this door checks a password on the unauthenticated surface, so
+  // a spray against it must be visible in Sign-in Activity. Before this it
+  // recorded nothing at all.
+  it("a wrong password writes a FAILED_PASSWORD LoginEvent attributed to the account", async () => {
+    mockDb.user.findUnique.mockResolvedValue({
+      id: "u1",
+      passwordHash: await bcrypt.hash("other-password", 4),
+      organizationId: "org1",
+      termsAcceptedAt: new Date(),
+    });
+    await POST(req(BODY), params);
+    expect(mockDb.loginEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          outcome: "FAILED_PASSWORD",
+          userId: "u1",
+          surface: "EVENT_PAGE",
+        }),
+      }),
+    );
+  });
+
+  it("existing account + correct password → service gets that userId, and the sign-in is recorded", async () => {
     mockDb.user.findUnique.mockResolvedValue({
       id: "u-existing",
       passwordHash: await bcrypt.hash("password123", 4),
@@ -178,6 +204,12 @@ describe("POST /group-register — coordinator account", () => {
     expect(res.status).toBe(201);
     expect(createGroupMock.mock.calls[0][0].coordinatorUserId).toBe("u-existing");
     expect(mockDb.user.create).not.toHaveBeenCalled();
+    // This flow never calls NextAuth signIn(), so the pass IS the auth event.
+    expect(mockDb.loginEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ outcome: "SUCCESS", userId: "u-existing" }),
+      }),
+    );
   });
 
   it("new email → REGISTRANT account created (org-null for external) + service gets the id", async () => {

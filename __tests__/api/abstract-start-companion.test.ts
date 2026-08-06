@@ -16,6 +16,8 @@ const { mockDb, ensureCompanionSpy, upsertSpy, rateLimitSpy, compareSpy } = vi.h
   mockDb: {
     event: { findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
+    // Written by the shared public-credential guard (review M7).
+    loginEvent: { create: vi.fn() },
     registration: { findFirst: vi.fn() },
   },
   ensureCompanionSpy: vi.fn(),
@@ -42,7 +44,11 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/tenant-context", () => ({
   runWithTenant: (_org: string, cb: () => unknown) => cb(),
 }));
-vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock("@/lib/logger", () => ({
+  apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  // The shared public-credential guard logs through authLogger.
+  authLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 vi.mock("@/lib/public-event", () => ({
   publicEventWhere: async () => ({ slug: "ev-slug" }),
 }));
@@ -135,6 +141,35 @@ describe("abstract-start — guards", () => {
     expect(res.status).toBe(401);
     expect(upsertSpy).not.toHaveBeenCalled();
     expect(ensureCompanionSpy).not.toHaveBeenCalled();
+  });
+
+  // Review M7 — this door checks a password on the unauthenticated surface.
+  it("a wrong password is RECORDED, so a spray here shows up in Sign-in Activity", async () => {
+    compareSpy.mockResolvedValue(false);
+    await POST(makeReq(validBody), params);
+    expect(mockDb.loginEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ outcome: "FAILED_PASSWORD", userId: "u1", surface: "EVENT_PAGE" }),
+      }),
+    );
+  });
+
+  it("an unknown address is recorded as FAILED_UNKNOWN_EMAIL — spray, not targeting", async () => {
+    mockDb.user.findUnique.mockResolvedValue(null);
+    const res = await POST(makeReq(validBody), params);
+    expect(res.status).toBe(401);
+    expect(mockDb.loginEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ outcome: "FAILED_UNKNOWN_EMAIL", userId: null }),
+      }),
+    );
+  });
+
+  it("a SUCCESS here is NOT recorded — the client hands off to signIn(), which records it", async () => {
+    const res = await POST(makeReq(validBody), params);
+    expect(res.status).toBe(200);
+    // A second row would double every successful sign-in in Sign-in Activity.
+    expect(mockDb.loginEvent.create).not.toHaveBeenCalled();
   });
 
   it("429 when rate-limited (per email)", async () => {

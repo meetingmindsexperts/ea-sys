@@ -33,6 +33,16 @@ export default async function globalSetup() {
   const env = { ...process.env, DATABASE_URL: direct, DIRECT_URL: direct };
 
   console.log("[tenancy:setup] syncing schema to the harness DB");
+  // NOTE: deliberately WITHOUT --accept-data-loss. If the harness DB has been
+  // sitting since before a constraint-adding schema change (e.g. a new
+  // @@unique), this push FAILS with "Use the --accept-data-loss flag …". That
+  // is the intended outcome: the flag is the INC-002 footgun, and hard-coding
+  // it here would turn a mis-set TENANCY_DIRECT_URL into silent data loss.
+  //
+  // The harness DB holds ONLY throwaway fixtures, so the fix is to reset it:
+  //   docker exec ea-sys-tenancy-db psql -U postgres -d tenancy \
+  //     -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+  // then re-run `npm run test:tenancy`.
   execSync("npx prisma db push --skip-generate", { env, stdio: "inherit" });
 
   console.log("[tenancy:setup] applying role split + RLS policies");

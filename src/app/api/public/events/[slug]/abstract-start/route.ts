@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { verifyPublicCredentials } from "@/lib/public-credential-door";
+import { readUserAgent } from "@/lib/login-audit";
 import { ensureSpeakerCompanionRegistration, upsertEventSpeaker } from "@/lib/speaker-companion";
 
 /**
@@ -73,15 +74,42 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     const orgId = event.organizationId;
     return await runWithTenant(orgId, async () => {
-    const user = await db.user.findUnique({
+    const existingUser = await db.user.findUnique({
       where: { email: emailLower },
-      select: { id: true, role: true, passwordHash: true, firstName: true, lastName: true, termsAcceptedAt: true },
+      select: {
+        id: true, role: true, passwordHash: true, organizationId: true,
+        firstName: true, lastName: true, termsAcceptedAt: true,
+      },
     });
-    // Generic message — don't reveal whether the email exists vs. wrong password.
-    if (!user || !user.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
-      apiLogger.warn({ msg: "public/abstract-start:bad-credentials", email: emailLower, ip });
+    // Review M7: throttled + audited like any other credential check.
+    // recordSuccess is FALSE here — the client calls NextAuth signIn()
+    // immediately after a 200, and authorize() writes the SUCCESS row for that
+    // same human sign-in; recording one here too would double every one of them
+    // in Sign-in Activity. Failures ARE recorded: a 401 stops the client before
+    // signIn(), so nothing else would ever see them.
+    const check = await verifyPublicCredentials({
+      email: emailLower,
+      password,
+      user: existingUser,
+      ipAddress: ip,
+      userAgent: readUserAgent(req),
+      surface: "EVENT_PAGE",
+      recordSuccess: false,
+      logLabel: "public/abstract-start",
+    });
+    if (!check.ok) {
+      if (check.reason === "throttled") {
+        return NextResponse.json(
+          { error: "Too many failed sign-in attempts. Please try again later.", code: "LOGIN_THROTTLED" },
+          { status: 429, headers: { "Retry-After": String(check.retryAfterSeconds) } },
+        );
+      }
+      // Generic message — don't reveal whether the email exists vs. wrong password.
       return NextResponse.json({ error: "Incorrect email or password." }, { status: 401 });
     }
+    // Non-null by the guard's contract (a pass means there IS an account), so
+    // the rest of the handler keeps working with a plain `user`.
+    const user = check.user;
 
     const wasRegistrant = user.role === "REGISTRANT";
 

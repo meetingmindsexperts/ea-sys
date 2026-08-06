@@ -104,6 +104,24 @@ export const INVOICE_B_ONLY_NUMBER = "TEN-B-INV-002";
  * + cross-tenant miss). RegistrationSerialCounter is keyed by eventId (PK) —
  * one row per shared event, org-stamped.
  */
+/**
+ * Group-registration sweep (born-compliant domain, Aug 2026 — review L4).
+ * `RegistrationGroup` has NO per-org unique field, so — like Invoice and
+ * EmailLog — lane-scoping is proven by BOTH orgs holding a group on the SAME
+ * coordinator email (an unscoped by-email lookup must return only the caller's)
+ * plus a B-only group for the cross-tenant-miss and defence-#1 assertions.
+ *
+ * Each group needs its org's Event + BillingAccount, both of which the earlier
+ * fixtures already provide. The FK to BillingAccount is Restrict, so the groups
+ * MUST be deleted before the payers — the org cascade handles that ordering
+ * (group cascades from Event, which cascades from Organization) only because
+ * BillingAccount also cascades from Organization; main() needs no extra care.
+ */
+export const SHARED_COORDINATOR_EMAIL = "shared.coordinator@tenancy.test";
+export const GROUP_A_ID = "tenancy-grp-a";
+export const GROUP_B_ID = "tenancy-grp-b";
+export const GROUP_B_ONLY_ID = "tenancy-grp-b-only";
+
 export const SHARED_ATTENDEE_EMAIL = "shared.attendee@tenancy.test";
 export const PAYMENT_A_ID = "tenancy-pay-a";
 export const PAYMENT_A_STRIPE_PI = "pi_tenancy_a_001";

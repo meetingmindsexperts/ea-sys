@@ -6,6 +6,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
+import { verifyPublicCredentials } from "@/lib/public-credential-door";
+import { readUserAgent } from "@/lib/login-audit";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { isTrustedInternalEmail, needsEmailVerification } from "@/lib/internal-domains";
 import { sendEmailVerification } from "@/lib/email-verification";
@@ -230,9 +232,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         organizationId: event.organizationId,
         eventId: event.id,
         clientIp,
+        userAgent: readUserAgent(req),
       });
       if (!account.ok) {
-        return NextResponse.json({ error: account.error, code: account.code }, { status: account.status });
+        return NextResponse.json(
+          { error: account.error, code: account.code, ...(account.retryAfterSeconds ? { retryAfterSeconds: account.retryAfterSeconds } : {}) },
+          {
+            status: account.status,
+            ...(account.retryAfterSeconds
+              ? { headers: { "Retry-After": String(account.retryAfterSeconds) } }
+              : {}),
+          },
+        );
       }
 
       const result = await createGroupRegistration({
@@ -293,21 +304,42 @@ async function resolveCoordinatorAccount(args: {
   organizationId: string;
   eventId: string;
   clientIp: string | null;
+  userAgent: string | null;
 }): Promise<
   | { ok: true; userId: string }
-  | { ok: false; status: number; error: string; code: string }
+  | { ok: false; status: number; error: string; code: string; retryAfterSeconds?: number }
 > {
   const { email, password } = args;
   const existing = await db.user.findUnique({
     where: { email },
-    select: { id: true, passwordHash: true, termsAcceptedAt: true },
+    select: { id: true, passwordHash: true, organizationId: true, termsAcceptedAt: true },
   });
 
   if (existing) {
-    if (!existing.passwordHash || !(await bcrypt.compare(password, existing.passwordHash))) {
-      // No email in the log line — login-audit keeps addresses in its own
-      // table; the broad log feed doesn't get PII (review L5).
-      apiLogger.warn({ msg: "public/group-register:bad-credentials", ip: args.clientIp });
+    // Review M7: throttled + audited like any other credential check. A PASS
+    // here IS the authentication event — unlike the abstract-start door, this
+    // flow never calls NextAuth signIn() afterwards, so nothing else would
+    // record it.
+    const check = await verifyPublicCredentials({
+      email,
+      password,
+      user: existing,
+      ipAddress: args.clientIp,
+      userAgent: args.userAgent,
+      surface: "EVENT_PAGE",
+      recordSuccess: true,
+      logLabel: "public/group-register",
+    });
+    if (!check.ok) {
+      if (check.reason === "throttled") {
+        return {
+          ok: false,
+          status: 429,
+          error: "Too many failed sign-in attempts. Please try again later.",
+          code: "LOGIN_THROTTLED",
+          retryAfterSeconds: check.retryAfterSeconds,
+        };
+      }
       return {
         ok: false,
         status: 401,
@@ -346,9 +378,33 @@ async function resolveCoordinatorAccount(args: {
     // re-resolves as a sign-in against the winner's row (review L6).
     if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002") {
       apiLogger.warn({ msg: "public/group-register:account-create-race", ip: args.clientIp });
-      const winner = await db.user.findUnique({ where: { email }, select: { id: true, passwordHash: true } });
-      if (winner?.passwordHash && (await bcrypt.compare(password, winner.passwordHash))) {
+      const winner = await db.user.findUnique({
+        where: { email },
+        select: { id: true, passwordHash: true, organizationId: true },
+      });
+      // The loser's re-check is a credential check like any other — same
+      // throttle + audit, so a race can't be used as an unmetered oracle.
+      const raceCheck = await verifyPublicCredentials({
+        email,
+        password,
+        user: winner,
+        ipAddress: args.clientIp,
+        userAgent: args.userAgent,
+        surface: "EVENT_PAGE",
+        recordSuccess: true,
+        logLabel: "public/group-register",
+      });
+      if (raceCheck.ok && winner) {
         return { ok: true, userId: winner.id };
+      }
+      if (!raceCheck.ok && raceCheck.reason === "throttled") {
+        return {
+          ok: false,
+          status: 429,
+          error: "Too many failed sign-in attempts. Please try again later.",
+          code: "LOGIN_THROTTLED",
+          retryAfterSeconds: raceCheck.retryAfterSeconds,
+        };
       }
       return {
         ok: false,

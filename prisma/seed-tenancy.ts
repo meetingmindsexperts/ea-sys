@@ -46,6 +46,10 @@ import {
   INVOICE_B_ONLY_ID,
   INVOICE_B_ONLY_NUMBER,
   SHARED_ATTENDEE_EMAIL,
+  SHARED_COORDINATOR_EMAIL,
+  GROUP_A_ID,
+  GROUP_B_ID,
+  GROUP_B_ONLY_ID,
   PAYMENT_A_ID,
   PAYMENT_A_STRIPE_PI,
   PAYMENT_B_ID,
@@ -326,6 +330,10 @@ async function seedOrg(
   // HelpChatQuery sweep (Domain #20): one captured Q&A per org on the SHARED
   // question text (no per-org unique field). NO FKs — cleaned in main().
   helpQueryId?: string,
+  // Group-registration sweep (born-compliant, review L4): groups on the SHARED
+  // coordinator email in both orgs (no per-org unique field) + a B-only group.
+  // Needs this org's event + a payer; cascades from Event → Organization.
+  groups?: { id: string; eventId: string; billingAccountId: string }[],
 ) {
   await db.organization.create({
     data: {
@@ -880,6 +888,20 @@ async function seedOrg(
       },
     });
   }
+  // Group-registration fixtures (review L4). Runs after the billing block —
+  // the FK to BillingAccount is Restrict, so the payer must already exist.
+  for (const g of groups ?? []) {
+    await db.registrationGroup.create({
+      data: {
+        id: g.id,
+        eventId: g.eventId,
+        organizationId: orgId,
+        coordinatorName: "Tenancy Coordinator",
+        coordinatorEmail: SHARED_COORDINATOR_EMAIL,
+        billingAccountId: g.billingAccountId,
+      },
+    });
+  }
   // CrmContact policy-pass fixtures (all FKs nullable — org cascade wipes them).
   for (const cc of crmContacts) {
     await db.crmContact.create({
@@ -1206,6 +1228,7 @@ async function main() {
       eventId: EVENT_A_SHARED_ID,
     },
     HELP_QUERY_A_ID,
+    [{ id: GROUP_A_ID, eventId: EVENT_A_SHARED_ID, billingAccountId: BILLING_A_SHARED_ID }],
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -1356,6 +1379,10 @@ async function main() {
       eventId: EVENT_B_SHARED_ID,
     },
     HELP_QUERY_B_ID,
+    [
+      { id: GROUP_B_ID, eventId: EVENT_B_SHARED_ID, billingAccountId: BILLING_B_SHARED_ID },
+      { id: GROUP_B_ONLY_ID, eventId: EVENT_B_SHARED_ID, billingAccountId: BILLING_B_SHARED_ID },
+    ],
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {
     companyId: CRM_CO_B_ID,
