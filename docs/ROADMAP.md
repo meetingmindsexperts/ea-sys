@@ -247,6 +247,55 @@ phase 2"). **Nothing was changed** — today's behavior is exactly as described
 above. Pick this up before a second event reuses a payer with different billing
 details, because that is when the silent inheritance produces a wrong invoice.
 
+### Group registration — promo codes (Aug 6, 2026, owner: "will do tomorrow morning")
+
+**Reverses** the v1 exclusion in GROUP_REGISTRATION_PLAN §8 ("promo codes on
+groups"). Confirmed by grep before recording: there is **zero** promo handling
+in the group path — the coordinator page, `group-register` route and
+`group-registration-service` contain no reference to it, against 57 in the
+individual register route. So the Promo Code column on the new sales export is
+empty for every group member today.
+
+**OWNER DECISION: the code applies to the FULL AND FINAL INVOICE**, as one
+discount against the consolidated total — not per member, not on each
+member's registration row.
+
+**Most of the document side already exists.** `Invoice.discountCode` and
+`Invoice.discountAmount` are already columns, and the PDF already renders a
+`Discount (CODE)` line from them (invoice-pdf.ts). Card checkout already
+charges the INVOICE total rather than recomputing, so a discounted group is
+charged correctly with no change there. What is missing is upstream: entering
+the code, validating it, and populating those two fields in
+`createGroupInvoice`.
+
+**To build:**
+- A code field on the coordinator form + validation against the same rules the
+  individual path uses (active, date window, applicability, caps).
+- `createGroupInvoice` computes and stores `discountCode`/`discountAmount`, so
+  the frozen total already includes the discount.
+- Record the redemption (`PromoCodeRedemption`) — see the open question below
+  on how many uses that is.
+
+**OPEN — needs an answer before building:**
+
+1. **Does one code on a 40-person group count as ONE use or FORTY?** Codes have
+   `maxUses`. One use lets a company put a whole delegation through a code
+   capped at 10; forty lets a single group exhaust a campaign-wide code. The
+   owner's phrasing ("against the full and final invoice") *implies* ONE, but
+   that is an inference, not a stated decision — confirm it.
+2. **Who enters the code** — the coordinator on the public form, or your team
+   afterwards (which would mean applying it to an already-issued invoice)?
+3. **Interaction with add-member (shipped Aug 6).** Adding people cancels an
+   unpaid invoice and reissues, or raises a supplementary one alongside a paid
+   invoice. So: does the code carry onto the reissued invoice (almost
+   certainly yes — same negotiation), and does it apply AGAIN to a
+   supplementary invoice for later arrivals (much less obvious — that is a
+   second discount off the same deal)? Whatever is chosen, the redemption
+   count must not drift on each reissue.
+4. **Credit notes / refunds** on a discounted group — the credit note caps
+   against the paid total, which is already net of the discount, so this is
+   probably free; worth a test rather than an assumption.
+
 ### Billing account — per-event breakdown (Aug 6, 2026, owner request, NOT BUILT)
 
 Owner's ask: under a payer, show **per event** — the registrations it covers
