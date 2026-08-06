@@ -7,6 +7,7 @@ import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
 import { updateBillingAccount } from "@/services/billing-account-service";
+import { buildPayerEventBreakdown } from "@/lib/payer-breakdown";
 
 interface RouteParams {
   params: Promise<{ billingAccountId: string }>;
@@ -49,24 +50,74 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Billing account not found" }, { status: 404 });
     }
 
-    // Parallel: "registrations by payer" (AR view) + the events this
-    // payer is attached to via the EventBillingAccount junction (powers
+    // Parallel: "registrations by payer" (AR view), the payer's invoices and
+    // payments (which drive the per-event money rollup below), and the events
+    // this payer is attached to via the EventBillingAccount junction (powers
     // the Settings → Billing "Events" attach/detach dialog).
-    const [registrations, attachedEvents] = await Promise.all([
+    //
+    // NOTE on the invoice + payment joins: neither links to the payer
+    // directly. An invoice bills EITHER one registration OR one group, so
+    // both shapes must be covered — a naive `where: { billingAccountId }`
+    // compiles to nothing and would silently drop every consolidated group
+    // invoice from a company's view.
+    const payerScope = {
+      OR: [
+        { registration: { billingAccountId } },
+        { group: { billingAccountId } },
+      ],
+      organizationId: orgId,
+    };
+
+    const [registrations, invoices, payments, attachedEvents] = await Promise.all([
       db.registration.findMany({
         where: { billingAccountId, event: { organizationId: session.user.organizationId! } },
         select: {
           id: true,
+          serialId: true,
           status: true,
           paymentStatus: true,
           payerReference: true,
           attendeeIsGuarantor: true,
+          originalPrice: true,
           createdAt: true,
+          groupId: true,
           attendee: { select: { firstName: true, lastName: true, email: true } },
           event: { select: { id: true, name: true } },
           ticketType: { select: { name: true } },
         },
         orderBy: { createdAt: "desc" },
+      }),
+      db.invoice.findMany({
+        where: payerScope,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          type: true,
+          status: true,
+          total: true,
+          currency: true,
+          issueDate: true,
+          dueDate: true,
+          paidDate: true,
+          eventId: true,
+          groupId: true,
+          registrationId: true,
+        },
+        orderBy: { issueDate: "desc" },
+      }),
+      db.payment.findMany({
+        where: { ...payerScope, status: "PAID" },
+        select: {
+          id: true,
+          amount: true,
+          refundedAmount: true,
+          currency: true,
+          paidAt: true,
+          createdAt: true,
+          groupId: true,
+          registration: { select: { eventId: true } },
+          group: { select: { eventId: true } },
+        },
       }),
       db.eventBillingAccount.findMany({
         where: {
@@ -82,11 +133,21 @@ export async function GET(_req: Request, { params }: RouteParams) {
       }),
     ]);
 
+    const events = buildPayerEventBreakdown({
+      registrations,
+      invoices,
+      payments,
+      attachedEvents,
+    });
+
     return NextResponse.json({
       ...account,
       registrations,
       registrationCount: registrations.length,
       attachedEvents,
+      invoices,
+      /** Per-event rollup: who, what was invoiced, what was paid. */
+      events,
     });
     });
   } catch (error) {

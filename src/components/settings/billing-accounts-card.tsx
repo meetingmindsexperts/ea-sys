@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Building2, Plus, Pencil, CalendarDays, GitMerge } from "lucide-react";
+import { PayerDetailDialog } from "@/components/billing/payer-detail-dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -70,6 +71,8 @@ export function BillingAccountsCard() {
   const [eventsDialogFor, setEventsDialogFor] = useState<Payer | null>(null);
   // Merge a duplicate payer into a survivor (the needsReview review action).
   const [mergeDialogFor, setMergeDialogFor] = useState<Payer | null>(null);
+  // Read-only "what is this payer covering, and have they paid?" view.
+  const [detailFor, setDetailFor] = useState<Payer | null>(null);
 
   const openCreate = () => {
     setEditing(null);
@@ -176,7 +179,13 @@ export function BillingAccountsCard() {
               {(accounts as Payer[]).map((p) => (
                 <TableRow key={p.id} className={p.isActive ? "" : "opacity-60"}>
                   <TableCell className="font-medium">
-                    {p.name}
+                    <button
+                      onClick={() => setDetailFor(p)}
+                      className="text-left hover:underline"
+                      title="See what this payer is covering, per event"
+                    >
+                      {p.name}
+                    </button>
                     {p.needsReview && (
                       <Badge variant="destructive" className="ml-2">Needs review</Badge>
                     )}
@@ -192,7 +201,15 @@ export function BillingAccountsCard() {
                       {p._count?.events ?? 0}
                     </button>
                   </TableCell>
-                  <TableCell className="text-center">{p._count?.registrations ?? 0}</TableCell>
+                  <TableCell className="text-center">
+                    <button
+                      onClick={() => setDetailFor(p)}
+                      className="text-xs underline text-muted-foreground hover:text-foreground"
+                      title="See these registrations, grouped by event"
+                    >
+                      {p._count?.registrations ?? 0}
+                    </button>
+                  </TableCell>
                   <TableCell className="text-center">
                     <button
                       onClick={() => toggleActive(p)}
@@ -232,6 +249,11 @@ export function BillingAccountsCard() {
       <EventsAttachmentDialog
         payer={eventsDialogFor}
         onClose={() => setEventsDialogFor(null)}
+      />
+
+      <PayerDetailDialog
+        payer={detailFor}
+        onClose={() => setDetailFor(null)}
       />
 
       <MergePayerDialog

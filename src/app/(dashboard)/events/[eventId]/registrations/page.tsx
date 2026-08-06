@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { PayerDetailDialog } from "@/components/billing/payer-detail-dialog";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -141,6 +142,10 @@ export default function RegistrationsPage() {
   };
 
   // Pagination state
+  // Payer drill-in: the same per-event breakdown the Settings → Billing view
+  // shows, scoped to THIS event — so an organiser can answer "has this
+  // sponsor paid for their people?" without leaving the event.
+  const [payerDetail, setPayerDetail] = useState<{ id: string; name: string } | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
@@ -748,9 +753,25 @@ export default function RegistrationsPage() {
                       {/* Third-party payer ("Charge to another account"). "—" =
                           self-pay, or the field was finance-redacted server-side. */}
                       {registration.billingAccount?.name ? (
-                        <Badge variant="outline" className="bg-sky-50 text-sky-800 border-sky-200">
-                          {registration.billingAccount.name}
-                        </Badge>
+                        <button
+                          onClick={(e) => {
+                            // The row opens the registration sheet; without
+                            // this the payer drill-in opens BOTH at once.
+                            e.stopPropagation();
+                            setPayerDetail({
+                              id: registration.billingAccount!.id,
+                              name: registration.billingAccount!.name,
+                            });
+                          }}
+                          title="See everyone this payer covers at this event, and whether they've paid"
+                        >
+                          <Badge
+                            variant="outline"
+                            className="bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100"
+                          >
+                            {registration.billingAccount.name}
+                          </Badge>
+                        </button>
                       ) : (
                         <span className="text-sm text-muted-foreground">—</span>
                       )}
@@ -1068,6 +1089,12 @@ export default function RegistrationsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PayerDetailDialog
+        payer={payerDetail}
+        onClose={() => setPayerDetail(null)}
+        eventId={eventId}
+      />
     </div>
   );
 }
