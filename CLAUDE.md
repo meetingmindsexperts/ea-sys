@@ -19,65 +19,121 @@ This file provides context for AI assistants (like Claude) working on this codeb
 
 ## Project Structure
 
+> Regenerated **August 6, 2026** from the actual tree. This is an **orientation
+> map of directories** — deliberately not a file index, because an index is what
+> rots. For "which files implement domain X", read
+> [docs/DOMAIN_MAP.html](docs/DOMAIN_MAP.html); for the durable invariants, read
+> [AGENTS.md](AGENTS.md). When you add a top-level directory (a new `src/lib/*`
+> module, a dashboard page group, a worker job), add it here.
+
 ```
-src/
-├── app/
-│   ├── (auth)/              # Auth pages (login, accept-invitation)
-│   ├── (dashboard)/         # Protected dashboard pages
-│   │   ├── dashboard/       # Main dashboard
-│   │   ├── events/          # Event management
-│   │   │   └── [eventId]/   # Single event pages
-│   │   │       ├── registrations/
-│   │   │       ├── speakers/
-│   │   │       ├── schedule/
-│   │   │       ├── accommodation/
-│   │   │       ├── tickets/
-│   │   │       ├── abstracts/
-│   │   │       ├── reviewers/
-│   │   │       ├── communications/ # Centralized event email sending
-│   │   │       ├── content/        # Standalone registration & abstract text editors
-│   │   │       └── settings/
-│   │   └── settings/        # Organization settings
-│   ├── e/                   # Public event pages (no auth)
-│   │   └── [slug]/          # Redirects to /e/[slug]/register
-│   │       ├── register/    # Submitter registration form (public)
-│   │       ├── submitAbstract/ # LEGACY — permanent redirect to abstract/register (older duplicate form, superseded)
-│   │       ├── complete-registration/ # Token-gated completion form for CSV-imported registrants
-│   │       └── confirmation/
-│   ├── uploads/             # Static file serving for uploaded photos
-│   │   └── [...path]/       # Catch-all: streams files from public/uploads/
-│   └── api/                 # API routes
-│       ├── auth/            # Auth endpoints
-│       ├── events/          # Event CRUD (protected)
-│       │   └── [eventId]/   # Event-specific endpoints
-│       ├── mcp/             # MCP server HTTP transport
-│       │   ├── route.ts     # Streamable HTTP (POST/GET with session state)
-│       │   └── sse/         # SSE compat redirect
-│       ├── media/           # Media library (GET list, POST upload, DELETE by id)
-│       ├── organization/    # Organization endpoints
-│       ├── upload/          # File upload endpoints
-│       │   └── photo/       # Photo upload (POST, auth required)
-│       └── public/          # Public API (no auth required)
-│           └── events/[slug]/ # Public event details & registration
-├── components/
-│   ├── layout/              # Header, Sidebar
-│   └── ui/                  # Shadcn/ui components
-├── contexts/                # React contexts
-├── hooks/                   # React hooks
-│   └── use-api.ts           # React Query hooks for API calls
-├── mcp/                     # MCP server (Model Context Protocol)
-│   ├── server.ts            # MCP server with tool definitions and stdio transport
-│   └── remote-client.ts     # Remote client utilities
-├── lib/                     # Utilities
-│   ├── auth.ts              # NextAuth configuration
-│   ├── auth-guards.ts       # Role-based access guards (denyReviewer)
-│   ├── db.ts                # Prisma client
-│   ├── email.ts             # Brevo email service
-│   ├── event-access.ts      # Event scoping by role (buildEventAccessWhere)
-│   ├── logger.ts            # Pino logger
-│   └── utils.ts             # Helper functions
-└── types/                   # TypeScript types
+ea-sys/
+├── src/
+│   ├── app/                       # Next.js App Router
+│   │   ├── (auth)/                # login, register, accept-invitation, forgot/reset-password
+│   │   ├── (dashboard)/           # everything behind auth
+│   │   │   ├── dashboard/         # org-wide home
+│   │   │   ├── events/            # event list + creation
+│   │   │   │   └── [eventId]/     # ~28 per-event pages, grouped by workflow:
+│   │   │   │                      #  Setup: settings · content · tickets · agenda ·
+│   │   │   │                      #    sponsors · media · setup (hub) · readiness
+│   │   │   │                      #  People: registrations · speakers · reviewers ·
+│   │   │   │                      #    accommodation · imports · onsite-staff (in settings)
+│   │   │   │                      #  Program: session-proposals · abstracts
+│   │   │   │                      #  Money: invoices · promo-codes · reimbursements
+│   │   │   │                      #  Live day: check-in (+ /kiosk) · webinar
+│   │   │   │                      #  After: analytics · certificates · survey
+│   │   │   │                      #  Comms: communications · email-templates
+│   │   │   │                      #  Other: dinner (RSVP) · agent (AI) · my-details
+│   │   │   ├── crm/               # CRM module UI (deals/companies/contacts/tasks/
+│   │   │   │                      #   products/templates/reports/inbox/activity)
+│   │   │   ├── admin/             # SUPER_ADMIN: docs viewer · help-queries · infra
+│   │   │   ├── contacts/ invoices/ media/ activity/ logs/ settings/   # org-level
+│   │   │   ├── my-registration/ my-reviews/ profile/                  # per-user portals
+│   │   │   └── layout.tsx         # sidebar + header shell
+│   │   ├── e/[slug]/              # PUBLIC event pages (no auth)
+│   │   │   │                      #   register · group/register · abstract/register ·
+│   │   │   │                      #   proposal/register · complete-registration ·
+│   │   │   │                      #   confirmation · agenda · session/[id] · survey ·
+│   │   │   │                      #   rsvp · reimbursement · speaker-form ·
+│   │   │   │                      #   speaker-agreement · presenter-agreement ·
+│   │   │   │                      #   login · my-registration · forgot/reset-password
+│   │   │   └── submitAbstract/    # LEGACY — permanent redirect to abstract/register
+│   │   ├── api/
+│   │   │   ├── events/[eventId]/  # the big one — ~40 per-event route groups mirroring
+│   │   │   │                      #   the dashboard pages above
+│   │   │   ├── public/events/[slug]/  # unauthenticated: register · group-register ·
+│   │   │   │                      #   checkout · abstract-start · submitter · survey ·
+│   │   │   │                      #   rsvp · agenda · sessions · validate-promo …
+│   │   │   ├── mcp/               # MCP Streamable HTTP + OAuth 2.1 (register/token/
+│   │   │   │                      #   revoke/authorize) — see src/lib/mcp-oauth.ts
+│   │   │   ├── crm/               # CRM REST surface
+│   │   │   ├── cron/              # LEGACY shims — the worker tier is the live runner
+│   │   │   ├── admin/ organization/ contacts/ invoices/ billing-accounts/
+│   │   │   ├── registrant/ my-reviews/ profile/ notifications/ activity/
+│   │   │   ├── media/ upload/ import/ email-logs/ help-chat/ logs/
+│   │   │   ├── auth/ webhooks/    # NextAuth · Stripe (global + per-org)
+│   │   │   └── health/ openapi.json/
+│   │   ├── .well-known/           # OAuth protected-resource + authorization-server metadata
+│   │   ├── mcp-authorize/         # OAuth consent screen (outside the dashboard shell)
+│   │   ├── admin/docs/[...path]/  # shareable direct-URL doc server, ADMIN+ (the browsable
+│   │   │                          #   viewer lives at (dashboard)/admin/docs)
+│   │   ├── uploads/[...path]/     # streams files from public/uploads/ (standalone mode)
+│   │   ├── api-docs/              # public Scalar OpenAPI reference
+│   │   ├── health/ worker/health/ # liveness probes (app + worker proxy)
+│   │   ├── auth/profile/          # LEGACY redirect → /profile
+│   │   └── verify-email/          # internal-domain email verification
+│   ├── services/                  # SHARED DOMAIN LOGIC — the anti-drift layer.
+│   │                              #   Called by REST + MCP + cron; errors-as-values;
+│   │                              #   never imports next/server. READ services/README.md
+│   │                              #   BEFORE extracting a new one. Shipped: registration ·
+│   │                              #   group-registration · speaker · abstract · session ·
+│   │                              #   accommodation · payment · promo-code · billing-account
+│   ├── crm/                       # CRM module — hard namespace boundary, one-way
+│   │                              #   imports crm→core only (components/hooks/lib/services)
+│   ├── lib/                       # cross-cutting server + shared libs
+│   │   ├── agent/                 # AI-agent + MCP tool definitions & executors
+│   │   │   └── tools/             # per-domain executor files (events, registrations, …)
+│   │   ├── ai/                    # provider abstraction (Anthropic, OpenAI)
+│   │   ├── certificates/          # render · issue-worker · bundle · tokens
+│   │   ├── zoom/ webinar/         # Zoom API clients · webinar state machines
+│   │   ├── tenant/                # multi-tenancy spine (host resolver, RLS assert)
+│   │   ├── pdf/                   # shared PDF layout primitives (invoice/quote/receipt)
+│   │   ├── survey/ rsvp/ reimbursement/ speaker-profile/ help-chat/ infra/
+│   │   ├── auth.ts auth-guards.ts event-access.ts   # authN + RBAC + event scoping
+│   │   ├── db.ts logger.ts utils.ts                 # Prisma · Pino · helpers
+│   │   └── email.ts               # email service (AWS SES in prod; Brevo/SendGrid alt)
+│   ├── components/                # React components, grouped by domain
+│   │   ├── ui/                    # Shadcn/ui primitives
+│   │   ├── layout/                # Header, Sidebar
+│   │   └── …                      # speakers/ registrations/ certificates/ webinar/ …
+│   ├── hooks/use-api.ts           # React Query hooks (the client data layer)
+│   ├── mcp/                       # legacy stdio MCP transport (local dev only)
+│   ├── contexts/ constants/ types/
+│   └── proxy.ts                   # Next.js middleware (role redirects; renamed in 16.1)
+├── worker/                        # BACKGROUND WORKER TIER — separate Node container
+│   ├── index.ts                   # node-cron scheduler
+│   ├── jobs/                      # 15 jobs: scheduled-emails · cert-issue · webinar-*
+│   │                              #   · invoice-reconciliation · crm-* · *-prune · daily-digest
+│   └── lib/                       # advisory-lock (singleton) · health-server · shutdown
+├── prisma/
+│   ├── schema.prisma  migrations/ # forward-only, additive + idempotent
+│   ├── rls/                       # per-domain RLS policies (platform instance only)
+│   └── seed-*.ts                  # e2e · docs-screenshots · tenancy · local scenarios
+├── __tests__/                     # vitest unit/route tests (the main suite)
+├── tests/tenancy/                 # RLS isolation harness (real Postgres + pgbouncer)
+├── e2e/                           # Playwright specs (+ e2e/screenshots for the manual)
+├── loadtest/                      # k6 scripts (capacity rehearsal)
+├── docs/                          # DOMAIN_MAP · runbooks · reviews · plans
+├── infra/                         # dr/ (Singapore DR) · cloudwatch/ · fail2ban/
+├── scripts/                       # deploy.sh + one-off ops/reconciliation scripts
+├── deploy/  docker/               # nginx config (+ live snapshot) · Dockerfile.dev
+└── public/                        # static assets · user-guide.html · uploads/ (volume)
 ```
+
+Root files worth knowing: `Dockerfile` + `Dockerfile.worker` (the two prod images),
+`docker-compose.prod.yml` (blue/green web + worker + mediamtx), `mediamtx.yml`
+(RTMP→HLS live streaming), `AGENTS.md` (invariants), `CHANGELOG.md`.
 
 ## Key Files
 
