@@ -110,6 +110,14 @@ export async function GET(req: Request) {
             attendee: { select: { firstName: true, lastName: true, email: true } },
           },
         },
+        // Group-registration (Aug 2026): consolidated group invoices have no
+        // registration — bill-to is the group's payer (BillingAccount).
+        group: {
+          select: {
+            coordinatorEmail: true,
+            billingAccount: { select: { name: true, email: true } },
+          },
+        },
       },
       orderBy: { issueDate: "desc" },
       take: 1000,
@@ -128,8 +136,10 @@ export async function GET(req: Request) {
         paidDate: inv.paidDate,
         total: Number(inv.total),
         currency: inv.currency,
-        billToName: `${inv.registration.attendee.firstName} ${inv.registration.attendee.lastName}`.trim(),
-        billToEmail: inv.registration.attendee.email,
+        billToName: inv.registration
+          ? `${inv.registration.attendee.firstName} ${inv.registration.attendee.lastName}`.trim()
+          : (inv.group?.billingAccount.name ?? "—"),
+        billToEmail: inv.registration?.attendee.email ?? inv.group?.billingAccount.email ?? inv.group?.coordinatorEmail ?? "",
       })),
       earliestYear,
     });

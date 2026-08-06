@@ -483,13 +483,29 @@ export async function handleStripeEvent(
         return NextResponse.json({ received: true });
       }
 
+      // Group-registration null guard (Aug 2026): a Payment may anchor to a
+      // RegistrationGroup instead of a Registration. Group Stripe payments
+      // don't exist until group Phase 2 (checkout) ships, and their refund
+      // reconciliation lands with that phase — until then this branch is
+      // per-registration only, and a registration-less payment is fail-loud.
+      const registrationId = payment.registrationId;
+      const registration = payment.registration;
+      if (!registrationId || !registration) {
+        apiLogger.error({
+          msg: "charge.refunded: payment has no registration (group payment?) — group refund reconciliation is not built yet, review manually",
+          paymentIntentId,
+          paymentId: payment.id,
+        });
+        return NextResponse.json({ received: true });
+      }
+
       // Review HIGH-1: same resolved-org enforcement as the completed branch.
-      if (opts?.expectedOrgId && payment.registration.event.organizationId !== opts.expectedOrgId) {
+      if (opts?.expectedOrgId && registration.event.organizationId !== opts.expectedOrgId) {
         return orgMismatchResponse({
           expectedOrgId: opts.expectedOrgId,
-          resolvedOrgId: payment.registration.event.organizationId,
+          resolvedOrgId: registration.event.organizationId,
           eventType: event.type,
-          entityId: payment.registrationId,
+          entityId: registrationId,
         });
       }
 
@@ -497,7 +513,7 @@ export async function handleStripeEvent(
       // from the payment lookup above. Early responses inside the closure are
       // relayed via `refundOutcome` so control flow (incl. the 500-for-retry
       // paths) is unchanged.
-      const refundOutcome = await runWithTenant(payment.registration.event.organizationId, async () => {
+      const refundOutcome = await runWithTenant(registration.event.organizationId, async () => {
       // Stripe's `amount_refunded` is the CUMULATIVE refunded total FOR THIS
       // CHARGE (minor units). Reconcile it against the PER-PAYMENT counter
       // (`Payment.refundedAmount`), NOT the registration's mixed total —
@@ -514,7 +530,7 @@ export async function handleStripeEvent(
       // delta of 0 means "already accounted for" → skip (idempotent on
       // retries too). Only a Stripe-Dashboard (out-of-band) refund advances it.
       if (delta <= 0) {
-        apiLogger.info({ msg: "charge.refunded: already reconciled, skipping", registrationId: payment.registrationId, paymentIntentId, cumulativeRefunded });
+        apiLogger.info({ msg: "charge.refunded: already reconciled, skipping", registrationId: registrationId, paymentIntentId, cumulativeRefunded });
         return NextResponse.json({ received: true });
       }
 
@@ -531,7 +547,7 @@ export async function handleStripeEvent(
         },
       });
       if (claimed.count === 0) {
-        apiLogger.warn({ msg: "charge.refunded: payment counter moved concurrently — 500 so Stripe retries", registrationId: payment.registrationId, paymentIntentId });
+        apiLogger.warn({ msg: "charge.refunded: payment counter moved concurrently — 500 so Stripe retries", registrationId: registrationId, paymentIntentId });
         return NextResponse.json({ error: "Concurrent reconciliation" }, { status: 500 });
       }
 
@@ -540,12 +556,12 @@ export async function handleStripeEvent(
       // collected (settled = PAID + REFUNDED rows — refunded payments still
       // represent money that was collected).
       const paidAgg = await db.payment.aggregate({
-        where: { registrationId: payment.registrationId, status: { in: ["PAID", "REFUNDED"] } },
+        where: { registrationId: registrationId, status: { in: ["PAID", "REFUNDED"] } },
         _sum: { amount: true },
       });
       const paidTotal = round2(Number(paidAgg._sum.amount ?? payment.amount));
       const updatedReg = await db.registration.update({
-        where: { id: payment.registrationId },
+        where: { id: registrationId },
         data: { refundedAmount: { increment: delta } },
         select: { refundedAmount: true },
       });
@@ -553,14 +569,14 @@ export async function handleStripeEvent(
       const isFull = newRegTotal >= paidTotal - 0.005;
       if (isFull) {
         await db.registration.updateMany({
-          where: { id: payment.registrationId, paymentStatus: "PAID" },
+          where: { id: registrationId, paymentStatus: "PAID" },
           data: { paymentStatus: "REFUNDED" },
         });
       }
 
       apiLogger.info({
         msg: "Refund reconciled via Stripe webhook",
-        registrationId: payment.registrationId,
+        registrationId: registrationId,
         paymentIntentId,
         delta,
         cumulativeRefunded,
@@ -573,17 +589,17 @@ export async function handleStripeEvent(
       // contract as route-initiated refunds (review H11): an AuditLog trail, an
       // in-app admin notification, and NO automatic attendee email — the
       // organizer communicates refunds manually, whichever button they clicked.
-      const attendeeName = `${payment.registration.attendee.firstName} ${payment.registration.attendee.lastName}`;
+      const attendeeName = `${registration.attendee.firstName} ${registration.attendee.lastName}`;
       const deltaFormatted = `${charge.currency.toUpperCase()} ${delta.toFixed(2)}`;
 
       db.auditLog
         .create({
           data: {
-            eventId: payment.registration.eventId,
+            eventId: registration.eventId,
             userId: null,
             action: isFull ? "REFUND_ISSUED" : "PARTIAL_REFUND_ISSUED",
             entityType: "Registration",
-            entityId: payment.registrationId,
+            entityId: registrationId,
             changes: {
               source: "stripe-webhook",
               amount: delta,
@@ -596,14 +612,14 @@ export async function handleStripeEvent(
             },
           },
         })
-        .catch((err) => apiLogger.warn({ err, msg: "charge.refunded:audit-write-failed", registrationId: payment.registrationId }));
+        .catch((err) => apiLogger.warn({ err, msg: "charge.refunded:audit-write-failed", registrationId: registrationId }));
 
-      notifyEventAdmins(payment.registration.eventId, {
+      notifyEventAdmins(registration.eventId, {
         type: "PAYMENT",
         title: isFull ? "Refund reconciled from Stripe" : "Partial refund reconciled from Stripe",
         message: `A ${deltaFormatted} refund for ${attendeeName} was issued from the Stripe Dashboard — a credit note was recorded automatically. No email was sent to the attendee.`,
-        link: `/events/${payment.registration.eventId}/registrations`,
-      }).catch((err) => apiLogger.error({ err, msg: "charge.refunded:notify-failed", registrationId: payment.registrationId }));
+        link: `/events/${registration.eventId}/registrations`,
+      }).catch((err) => apiLogger.error({ err, msg: "charge.refunded:notify-failed", registrationId: registrationId }));
 
       // Auto-record a credit note for this refund delta via the SERVICE (owns
       // the CREDIT_NOTE_ISSUED audit + logs cap rejections as warn instead of
@@ -613,9 +629,9 @@ export async function handleStripeEvent(
       (async () => {
         try {
           const result = await issueCreditNoteForRegistration({
-            registrationId: payment.registrationId,
-            eventId: payment.registration.eventId,
-            organizationId: payment.registration.event.organizationId,
+            registrationId: registrationId,
+            eventId: registration.eventId,
+            organizationId: registration.event.organizationId,
             amount: delta,
             reason: isFull ? "Refund via Stripe" : `Partial refund via Stripe (${deltaFormatted})`,
             send: false,
@@ -625,24 +641,24 @@ export async function handleStripeEvent(
           if (!result.ok) {
             apiLogger.warn({
               msg: "charge.refunded:credit-note-rejected",
-              registrationId: payment.registrationId,
+              registrationId: registrationId,
               code: result.code,
               detail: result.message,
             });
             // L2 (July 7 review): a cap-rejected out-of-band credit note means
             // the books show a refund with no matching credit-note document —
             // surface it to the organizer instead of only a log line.
-            notifyEventAdmins(payment.registration.eventId, {
+            notifyEventAdmins(registration.eventId, {
               type: "PAYMENT",
               title: "⚠ Credit note could not be recorded for a Stripe refund",
               message: `A ${deltaFormatted} refund for ${attendeeName} was reconciled from Stripe, but the automatic credit note was rejected (${result.code}). Review the registration's credit notes and issue one manually if needed.`,
-              link: `/events/${payment.registration.eventId}/registrations`,
+              link: `/events/${registration.eventId}/registrations`,
             }).catch((err: unknown) =>
-              apiLogger.error({ err, msg: "charge.refunded:cn-rejected-notify-failed", registrationId: payment.registrationId }),
+              apiLogger.error({ err, msg: "charge.refunded:cn-rejected-notify-failed", registrationId: registrationId }),
             );
           }
         } catch (err) {
-          apiLogger.error({ err, msg: "Failed to auto-create credit note", registrationId: payment.registrationId });
+          apiLogger.error({ err, msg: "Failed to auto-create credit note", registrationId: registrationId });
         }
       })();
       });

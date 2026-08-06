@@ -982,6 +982,15 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
   });
 
   const reg = invoice.registration;
+  if (!reg) {
+    // Group-registration null guard (Aug 2026): a consolidated group invoice
+    // (groupId set, registrationId null) is rendered + emailed by the group
+    // pipeline, never this per-registration sender. Fail loud — a caller
+    // routing a group invoice here is a bug, not a sendable state.
+    throw new Error(
+      `sendInvoiceEmail: invoice ${invoiceId} has no registration (group invoice?) — use the group invoice sender`,
+    );
+  }
   const { attendee, event } = reg;
   const pdfBuffer = await buildPDFFromLoadedInvoice(invoice);
 

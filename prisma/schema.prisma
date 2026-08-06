@@ -133,17 +133,18 @@ model User {
 
   // CRM module — all SetNull on user delete, so removing a team member never
   // destroys deal/task/note history AND never blocks the delete. See CrmDeal.
-  ownedCrmDeals            CrmDeal[]          @relation("CrmDealOwner")
-  ownedCrmContacts         CrmContact[]       @relation("CrmContactOwner")
-  ownedCrmTasks            CrmTask[]          @relation("CrmTaskOwner")
-  authoredCrmNotes         CrmNote[]          @relation("CrmNoteAuthor")
-  crmActivities            CrmActivity[]      @relation("CrmActivityActor")
-  uploadedCrmDealDocuments CrmDealDocument[]  @relation("CrmDealDocumentUploader")
-  crmNotifications         CrmNotification[]  @relation("CrmNotificationRecipient")
-  createdCrmEmailTemplates CrmEmailTemplate[] @relation("CrmEmailTemplateCreator")
-  createdCrmProducts       CrmProduct[]       @relation("CrmProductCreator")
-  sentCrmEmailMessages     CrmEmailMessage[]  @relation("CrmEmailMessageSender")
-  uploadedSpeakerDocuments SpeakerDocument[]  @relation("SpeakerDocumentUploader")
+  ownedCrmDeals            CrmDeal[]           @relation("CrmDealOwner")
+  ownedCrmContacts         CrmContact[]        @relation("CrmContactOwner")
+  ownedCrmTasks            CrmTask[]           @relation("CrmTaskOwner")
+  authoredCrmNotes         CrmNote[]           @relation("CrmNoteAuthor")
+  crmActivities            CrmActivity[]       @relation("CrmActivityActor")
+  uploadedCrmDealDocuments CrmDealDocument[]   @relation("CrmDealDocumentUploader")
+  crmNotifications         CrmNotification[]   @relation("CrmNotificationRecipient")
+  createdCrmEmailTemplates CrmEmailTemplate[]  @relation("CrmEmailTemplateCreator")
+  createdCrmProducts       CrmProduct[]        @relation("CrmProductCreator")
+  sentCrmEmailMessages     CrmEmailMessage[]   @relation("CrmEmailMessageSender")
+  uploadedSpeakerDocuments SpeakerDocument[]   @relation("SpeakerDocumentUploader")
+  coordinatedGroups        RegistrationGroup[] @relation("CoordinatedGroups")
   loginEvents              LoginEvent[]
 
   @@index([organizationId])
@@ -375,48 +376,49 @@ model Event {
   createdAt                        DateTime    @default(now())
   updatedAt                        DateTime    @updatedAt
 
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  ticketTypes    TicketType[]
-  registrations  Registration[]
-  speakers       Speaker[]
-  eventSessions  EventSession[]
-  tracks         Track[]
-  hotels         Hotel[]
-  accommodations Accommodation[]
-  abstracts      Abstract[]
-  abstractThemes AbstractTheme[]
-  reviewCriteria ReviewCriterion[]
-  auditLogs      AuditLog[]
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ticketTypes        TicketType[]
+  registrations      Registration[]
+  registrationGroups RegistrationGroup[]
+  speakers           Speaker[]
+  eventSessions      EventSession[]
+  tracks             Track[]
+  hotels             Hotel[]
+  accommodations     Accommodation[]
+  abstracts          Abstract[]
+  abstractThemes     AbstractTheme[]
+  reviewCriteria     ReviewCriterion[]
+  auditLogs          AuditLog[]
 
   sessionProposals      SessionProposal[]
   sessionProposalThemes SessionProposalTheme[]
 
-  importLogs                ImportLog[]
-  emailTemplates            EmailTemplate[]
-  notifications             Notification[]
-  mediaFiles                MediaFile[]
-  invoices                  Invoice[]
-  invoiceCounters           InvoiceCounter[]
-  registrationSerialCounter RegistrationSerialCounter?
-  abstractSerialCounter     AbstractSerialCounter?
+  importLogs                   ImportLog[]
+  emailTemplates               EmailTemplate[]
+  notifications                Notification[]
+  mediaFiles                   MediaFile[]
+  invoices                     Invoice[]
+  invoiceCounters              InvoiceCounter[]
+  registrationSerialCounter    RegistrationSerialCounter?
+  abstractSerialCounter        AbstractSerialCounter?
   sessionProposalSerialCounter SessionProposalSerialCounter?
-  billingAccounts           EventBillingAccount[]
-  zoomMeetings              ZoomMeeting[]
-  zoomAttendances           ZoomAttendance[]
-  webinarPresences          WebinarPresence[]
-  promoCodes                PromoCode[]
-  scheduledEmails           ScheduledEmail[]
-  eventStats                EventStats?
-  emailLogs                 EmailLog[]
-  issuedCertificates        IssuedCertificate[]
-  certificateSerialCounters CertificateSerialCounter[]
-  certificateIssueRuns      CertificateIssueRun[]
-  certificateTemplates      CertificateTemplate[]
-  surveyResponses           SurveyResponse[]
-  rsvpDinners               RsvpDinner[]
-  rsvpInvites               RsvpInvite[]
-  speakerReimbursements     SpeakerReimbursement[]
-  speakerProfileForms       SpeakerProfileForm[]
+  billingAccounts              EventBillingAccount[]
+  zoomMeetings                 ZoomMeeting[]
+  zoomAttendances              ZoomAttendance[]
+  webinarPresences             WebinarPresence[]
+  promoCodes                   PromoCode[]
+  scheduledEmails              ScheduledEmail[]
+  eventStats                   EventStats?
+  emailLogs                    EmailLog[]
+  issuedCertificates           IssuedCertificate[]
+  certificateSerialCounters    CertificateSerialCounter[]
+  certificateIssueRuns         CertificateIssueRun[]
+  certificateTemplates         CertificateTemplate[]
+  surveyResponses              SurveyResponse[]
+  rsvpDinners                  RsvpDinner[]
+  rsvpInvites                  RsvpInvite[]
+  speakerReimbursements        SpeakerReimbursement[]
+  speakerProfileForms          SpeakerProfileForm[]
 
   // CRM module — SetNull, so a sponsorship deal (revenue history) outlives the
   // event it was sold against.
@@ -454,9 +456,9 @@ enum CertificateType {
 /// the organizer creates. The category is what reads as the cert's identity
 /// in serial-number registries.
 model CertificateSerialCounter {
-  eventId    String
-  type       CertificateType
-  lastSerial Int             @default(0)
+  eventId        String
+  type           CertificateType
+  lastSerial     Int             @default(0)
   // tenancy (Certificates sweep): denormalized org, no FK. FLAT column on this
   // composite-PK counter for the RegistrationSerialCounter reason — the atomic
   // INSERT…ON CONFLICT upsert against a policy-invisible row would raise a
@@ -1048,6 +1050,9 @@ model Registration {
   // may be reassigned back to the attendee (finance action); also keeps
   // the attendee's Pay-Now path available as a guarantor.
   attendeeIsGuarantor        Boolean                    @default(false)
+  /// Group-registration membership (docs/GROUP_REGISTRATION_PLAN.md).
+  /// SetNull: a member survives group deletion as a normal registration.
+  groupId                    String?
   createdAt                  DateTime                   @default(now())
   updatedAt                  DateTime                   @updatedAt
 
@@ -1058,6 +1063,7 @@ model Registration {
   user                     User?                     @relation(fields: [userId], references: [id])
   promoCode                PromoCode?                @relation(fields: [promoCodeId], references: [id])
   billingAccount           BillingAccount?           @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
+  group                    RegistrationGroup?        @relation(fields: [groupId], references: [id], onDelete: SetNull)
   payments                 Payment[]
   accommodation            Accommodation?
   invoices                 Invoice[]
@@ -1075,6 +1081,7 @@ model Registration {
   @@unique([eventId, serialId])
   @@index([sponsorId])
   @@index([billingAccountId])
+  @@index([groupId])
   @@index([eventId])
   @@index([organizationId])
   @@index([eventId, status])
@@ -1146,14 +1153,72 @@ enum RegistrationCreatedSource {
   /// facet"): comp, uncapped Faculty type, organizer-added. Gives the
   /// speaker badge/barcode/DTCM/check-in/survey via the normal machinery.
   SPEAKER_COMPANION
+  /// Member of a group registration — created by the coordinator via the
+  /// public `/e/[slug]/group/register` flow (docs/GROUP_REGISTRATION_PLAN.md).
+  /// The company payer covers the money (billingAccountId + groupId set);
+  /// members are never dunned individually.
+  GROUP_REGISTER
   /// Catch-all for legacy paths or paths we haven't tagged yet.
   /// Rows landing here are a signal to extend coverage.
   OTHER
 }
 
+/// Group registration (docs/GROUP_REGISTRATION_PLAN.md, Phase 1) — the anchor
+/// for a company rep ("coordinator") registering N people with ONE payer and
+/// ONE consolidated invoice. The structural reason it exists: Invoice /
+/// Payment historically required exactly one Registration; a consolidated
+/// document spanning N members needs this row to hang off instead
+/// (`Invoice.groupId` / `Payment.groupId` — app-level XOR with
+/// `registrationId`). Line items are DERIVED at render time from the member
+/// registrations, grouped by ticket type — never stored.
+model RegistrationGroup {
+  id                   String   @id @default(cuid())
+  eventId              String
+  // Denormalized tenant key (born-compliant per the Phase-2 convention) —
+  // scalar only, no FK; stamped from the Event at create.
+  organizationId       String?
+  /// The REGISTRANT account that manages the group ("My Group"). Nullable +
+  /// SetNull so deleting a temp account never destroys the group; the
+  /// snapshot fields below keep the contact identity for organizer surfaces
+  /// and the invoice contact line.
+  coordinatorUserId    String?
+  coordinatorName      String
+  coordinatorEmail     String
+  /// false = the coordinator is contact-only (companies outsource this);
+  /// true = their details are also member #1 (a Registration linked to them).
+  coordinatorAttending Boolean  @default(true)
+  /// The company payer — REQUIRED (the whole point of a group). Restrict
+  /// mirrors Registration.billingAccountId: a payer backing a group cannot
+  /// be hard-deleted (soft-delete via isActive).
+  billingAccountId     String
+  /// Optional PO / grant reference for the consolidated invoice (also
+  /// stamped onto member rows so per-registration surfaces agree).
+  payerReference       String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  coordinator    User?          @relation("CoordinatedGroups", fields: [coordinatorUserId], references: [id], onDelete: SetNull)
+  billingAccount BillingAccount @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
+  registrations  Registration[]
+  invoices       Invoice[]
+  payments       Payment[]
+
+  @@index([eventId])
+  @@index([organizationId])
+  @@index([coordinatorUserId])
+  @@index([billingAccountId])
+}
+
 model Payment {
   id                String        @id @default(cuid())
-  registrationId    String
+  /// Nullable since the group-registration build (Aug 2026): a payment
+  /// belongs to EITHER one registration OR one group — app-level XOR with
+  /// `groupId` (exactly one set). Single-registration payments are unchanged.
+  registrationId    String?
+  /// Group settlement — one card charge / transfer covering all members
+  /// (docs/GROUP_REGISTRATION_PLAN.md).
+  groupId           String?
   // Denormalized tenant key (multi-tenancy Phase-2 Registration-core sweep,
   // 2 hops from Event via Registration) — see Registration.organizationId.
   organizationId    String?
@@ -1192,10 +1257,12 @@ model Payment {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  registration Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  registration Registration?      @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  group        RegistrationGroup? @relation(fields: [groupId], references: [id], onDelete: Cascade)
   invoice      Invoice?
 
   @@index([registrationId])
+  @@index([groupId])
   @@index([organizationId])
   @@index([stripePaymentId])
 }
@@ -1306,19 +1373,19 @@ enum SpeakerDocumentKind {
 /// Files live under /uploads/speaker-docs/{eventId}/; PDF + DOC/DOCX only,
 /// magic-byte validated, 10MB cap (see the documents route).
 model SpeakerDocument {
-  id           String              @id @default(cuid())
-  speakerId    String
-  kind         SpeakerDocumentKind @default(OTHER)
-  url          String
-  filename     String
-  label        String?
-  mimeType     String
-  size         Int
-  uploadedById String?
+  id             String              @id @default(cuid())
+  speakerId      String
+  kind           SpeakerDocumentKind @default(OTHER)
+  url            String
+  filename       String
+  label          String?
+  mimeType       String
+  size           Int
+  uploadedById   String?
   // Multi-tenancy Phase 2 (Speaker sweep) — denormalized org for RLS. Nullable,
   // backfilled 2-hop via speakerId → Speaker → Event. See prisma/rls/speaker.sql.
   organizationId String?
-  createdAt    DateTime            @default(now())
+  createdAt      DateTime            @default(now())
 
   speaker    Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
   uploadedBy User?   @relation("SpeakerDocumentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
@@ -1374,17 +1441,17 @@ model Abstract {
 }
 
 model AbstractReviewer {
-  id           String               @id @default(cuid())
-  abstractId   String
+  id             String               @id @default(cuid())
+  abstractId     String
   // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
   // from the parent Abstract's Event at create; backfilled 2-hop. The reviewer
   // User is org-independent, but this ROW belongs to the abstract's event's org.
   organizationId String?
-  userId       String
-  assignedAt   DateTime             @default(now())
-  assignedById String
-  role         AbstractReviewerRole @default(SECONDARY)
-  conflictFlag Boolean              @default(false)
+  userId         String
+  assignedAt     DateTime             @default(now())
+  assignedById   String
+  role           AbstractReviewerRole @default(SECONDARY)
+  conflictFlag   Boolean              @default(false)
 
   abstract    Abstract                   @relation(fields: [abstractId], references: [id], onDelete: Cascade)
   user        User                       @relation("ReviewerOnAbstracts", fields: [userId], references: [id], onDelete: Cascade)
@@ -1425,14 +1492,14 @@ model AbstractReviewSubmission {
 }
 
 model AbstractTheme {
-  id        String   @id @default(cuid())
-  eventId   String
+  id             String   @id @default(cuid())
+  eventId        String
   // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
   organizationId String?
-  name      String
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  name           String
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
   abstracts Abstract[]
@@ -1531,15 +1598,15 @@ model SessionProposalTheme {
 }
 
 model ReviewCriterion {
-  id        String   @id @default(cuid())
-  eventId   String
+  id             String   @id @default(cuid())
+  eventId        String
   // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
   organizationId String?
-  name      String
-  weight    Int
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  name           String
+  weight         Int
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
@@ -1580,16 +1647,16 @@ enum AbstractReviewerRole {
 // ==================== SESSIONS & SCHEDULE ====================
 
 model Track {
-  id          String   @id @default(cuid())
-  eventId     String
+  id             String   @id @default(cuid())
+  eventId        String
   // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
   organizationId String?
-  name        String
-  description String?  @db.Text
-  color       String   @default("#3B82F6")
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  name           String
+  description    String?  @db.Text
+  color          String   @default("#3B82F6")
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   event         Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   eventSessions EventSession[]
@@ -1600,23 +1667,23 @@ model Track {
 }
 
 model EventSession {
-  id          String        @id @default(cuid())
-  eventId     String
+  id             String        @id @default(cuid())
+  eventId        String
   // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event; 1-hop.
   organizationId String?
-  abstractId  String?       @unique
-  trackId     String?
-  name        String
-  description String?       @db.Text
-  startTime   DateTime
-  endTime     DateTime
-  location    String?
-  capacity    Int?
-  status      SessionStatus @default(SCHEDULED)
-  type        SessionType   @default(SESSION)
-  externalId  String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  abstractId     String?       @unique
+  trackId        String?
+  name           String
+  description    String?       @db.Text
+  startTime      DateTime
+  endTime        DateTime
+  location       String?
+  capacity       Int?
+  status         SessionStatus @default(SCHEDULED)
+  type           SessionType   @default(SESSION)
+  externalId     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   event            Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
   abstract         Abstract?         @relation(fields: [abstractId], references: [id])
@@ -1663,12 +1730,12 @@ enum SessionType {
 }
 
 model SessionSpeaker {
-  sessionId String
-  speakerId String
+  sessionId      String
+  speakerId      String
   // Denormalized tenant key (multi-tenancy Phase 2), stamped from the session's
   // Event; 2-hop backfill via sessionId. Composite-PK join table (no own id).
   organizationId String?
-  role      SessionRole @default(SPEAKER)
+  role           SessionRole @default(SPEAKER)
 
   session EventSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   speaker Speaker      @relation(fields: [speakerId], references: [id], onDelete: Cascade)
@@ -1678,17 +1745,17 @@ model SessionSpeaker {
 }
 
 model SessionTopic {
-  id         String   @id @default(cuid())
-  sessionId  String
+  id             String   @id @default(cuid())
+  sessionId      String
   // Denormalized tenant key (multi-tenancy Phase 2), stamped from the session's
   // Event; 2-hop backfill via sessionId.
   organizationId String?
-  abstractId String?  @unique
-  title      String
-  sortOrder  Int      @default(0)
-  duration   Int?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  abstractId     String?  @unique
+  title          String
+  sortOrder      Int      @default(0)
+  duration       Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   session  EventSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   abstract Abstract?      @relation(fields: [abstractId], references: [id])
@@ -1699,8 +1766,8 @@ model SessionTopic {
 }
 
 model TopicSpeaker {
-  topicId   String
-  speakerId String
+  topicId        String
+  speakerId      String
   // Denormalized tenant key (multi-tenancy Phase 2), stamped from the topic's
   // session's Event; 3-hop backfill via topicId. Composite-PK join (no own id).
   organizationId String?
@@ -1715,21 +1782,21 @@ model TopicSpeaker {
 // ==================== ACCOMMODATION ====================
 
 model Hotel {
-  id           String   @id @default(cuid())
-  eventId      String
+  id             String   @id @default(cuid())
+  eventId        String
   // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
   // from the parent Event at create; backfilled 1-hop. Backs the flat RLS policy.
   organizationId String?
-  name         String
-  address      String?
-  description  String?  @db.Text
-  contactEmail String?
-  contactPhone String?
-  stars        Int?
-  images       Json     @default("[]")
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  name           String
+  address        String?
+  description    String?  @db.Text
+  contactEmail   String?
+  contactPhone   String?
+  stars          Int?
+  images         Json     @default("[]")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
   roomTypes RoomType[]
@@ -1739,23 +1806,23 @@ model Hotel {
 }
 
 model RoomType {
-  id            String   @id @default(cuid())
-  hotelId       String
+  id             String   @id @default(cuid())
+  hotelId        String
   // Denormalized tenant key (multi-tenancy Phase 2). Nullable + no FK: stamped
   // from the parent Hotel's Event at create; backfilled 2-hop. Backs the RLS policy.
   organizationId String?
-  name          String
-  description   String?  @db.Text
-  pricePerNight Decimal  @db.Decimal(10, 2)
-  currency      String   @default("USD")
-  capacity      Int      @default(2)
-  totalRooms    Int
-  bookedRooms   Int      @default(0)
-  amenities     Json     @default("[]")
-  images        Json     @default("[]")
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  name           String
+  description    String?  @db.Text
+  pricePerNight  Decimal  @db.Decimal(10, 2)
+  currency       String   @default("USD")
+  capacity       Int      @default(2)
+  totalRooms     Int
+  bookedRooms    Int      @default(0)
+  amenities      Json     @default("[]")
+  images         Json     @default("[]")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   hotel          Hotel           @relation(fields: [hotelId], references: [id], onDelete: Cascade)
   accommodations Accommodation[]
@@ -1962,9 +2029,9 @@ model LoginEvent {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  eventId    String?
-  userId     String?
+  id             String   @id @default(cuid())
+  eventId        String?
+  userId         String?
   // Denormalized tenant key (Domain #19 sweep, Aug 3 2026). Deliberately a
   // bare scalar with NO FK (sweep convention): the audit trail must survive
   // org deletion with its attribution intact — an FK SetNull would erase
@@ -1976,13 +2043,13 @@ model AuditLog {
   // actors (registrant/reviewer auth flows) legitimately produce
   // unattributable rows — see prisma/rls/auditlog.sql for the NULL policy.
   organizationId String?
-  action     String
-  entityType String
-  entityId   String
-  changes    Json     @default("{}")
-  ipAddress  String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
+  action         String
+  entityType     String
+  entityId       String
+  changes        Json     @default("{}")
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
 
   event Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
   user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -2151,7 +2218,13 @@ model Invoice {
   id             String  @id @default(cuid())
   organizationId String
   eventId        String
-  registrationId String
+  /// Nullable since the group-registration build (Aug 2026): an invoice
+  /// bills EITHER one registration OR one group — app-level XOR with
+  /// `groupId` (exactly one set). Single-registration invoices unchanged.
+  registrationId String?
+  /// Consolidated group invoice — line items derived at render time from
+  /// the group's member registrations, grouped by ticket type.
+  groupId        String?
   paymentId      String? @unique
 
   type           InvoiceType
@@ -2185,16 +2258,18 @@ model Invoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  event         Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  registration  Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  payment       Payment?     @relation(fields: [paymentId], references: [id])
-  parentInvoice Invoice?     @relation("CreditNotes", fields: [parentInvoiceId], references: [id])
-  creditNotes   Invoice[]    @relation("CreditNotes")
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event         Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration  Registration?      @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  group         RegistrationGroup? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payment       Payment?           @relation(fields: [paymentId], references: [id])
+  parentInvoice Invoice?           @relation("CreditNotes", fields: [parentInvoiceId], references: [id])
+  creditNotes   Invoice[]          @relation("CreditNotes")
 
   @@unique([eventId, sequenceNumber, type])
   @@index([eventId])
   @@index([registrationId])
+  @@index([groupId])
   @@index([status])
   @@index([issueDate])
 }
@@ -2273,9 +2348,10 @@ model BillingAccount {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
-  organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  registrations Registration[]
-  events        EventBillingAccount[]
+  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  registrations      Registration[]
+  registrationGroups RegistrationGroup[]
+  events             EventBillingAccount[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -2818,21 +2894,21 @@ enum RsvpStatus {
 }
 
 model RsvpDinner {
-  id           String    @id @default(cuid())
-  eventId      String
+  id             String    @id @default(cuid())
+  eventId        String
   // Denormalized tenant key (multi-tenancy Phase-2, Domain #15). Nullable +
   // no FK; backfilled 1-hop from Event; stamped at create. Drives the RLS
   // policy in prisma/rls/rsvp.sql. Inert on master (RLS_SET_LOCAL off).
   organizationId String?
-  name         String
-  dinnerAt     DateTime
-  location     String?
-  description  String?   @db.Text
-  rsvpDeadline DateTime?
-  sortOrder    Int       @default(0)
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  name           String
+  dinnerAt       DateTime
+  location       String?
+  description    String?   @db.Text
+  rsvpDeadline   DateTime?
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   event     Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
   responses RsvpDinnerResponse[]
@@ -2871,16 +2947,16 @@ model RsvpInvite {
 }
 
 model RsvpDinnerResponse {
-  id         String   @id @default(cuid())
-  inviteId   String
-  dinnerId   String
+  id             String   @id @default(cuid())
+  inviteId       String
+  dinnerId       String
   // Denormalized tenant key (Domain #15). Nullable, no FK; backfilled 2-hop
   // via RsvpInvite → Event; stamped at create from the invite's org.
   organizationId String?
-  attending  Boolean  @default(false)
-  guestCount Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  attending      Boolean  @default(false)
+  guestCount     Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   invite RsvpInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
   dinner RsvpDinner @relation(fields: [dinnerId], references: [id], onDelete: Cascade)
@@ -2915,15 +2991,15 @@ enum ReimbursementStatus {
 }
 
 model SpeakerReimbursement {
-  id        String              @id @default(cuid())
-  eventId   String
+  id             String              @id @default(cuid())
+  eventId        String
   /// Multi-tenancy Phase-2 (Domain #17, Aug 3 2026): denormalized tenant key
   /// (nullable, no FK), backfilled 1-hop from Event; the dashboard add-speakers
   /// createMany stamps it. Backs prisma/rls/reimbursement.sql (platform-only).
   organizationId String?
-  speakerId String              @unique
-  token     String              @unique
-  status    ReimbursementStatus @default(PENDING)
+  speakerId      String              @unique
+  token          String              @unique
+  status         ReimbursementStatus @default(PENDING)
 
   // Section B — speaker/faculty details (prefilled from Speaker, editable
   // by the speaker; snapshot on this row so a later Speaker edit doesn't
@@ -3011,8 +3087,8 @@ enum SpeakerProfileFormStatus {
 }
 
 model SpeakerProfileForm {
-  id      String @id @default(cuid())
-  eventId String
+  id             String                   @id @default(cuid())
+  eventId        String
   /// Denormalized tenant key (sweep convention): nullable, no FK, stamped by
   /// every writer from the event's org.
   organizationId String?
@@ -3023,9 +3099,9 @@ model SpeakerProfileForm {
   submittedIp    String?
   // Soft ref (no FK) to the staff user who minted the link — the audit log
   // is the authoritative trail (RsvpInvite soft-ref pattern).
-  createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdById    String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
 
   event   Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
   speaker Speaker @relation(fields: [speakerId], references: [id], onDelete: Cascade)
