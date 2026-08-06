@@ -208,3 +208,51 @@ export function buildRegistrationExportRow(
     r.referrer || "",
   ];
 }
+
+/**
+ * The columns the sales team actually reads when an organiser hands over
+ * "who from Gulf Heart is coming, did they pay, and what code did they use?".
+ *
+ * Deliberately a PROJECTION of the full export rather than a second row
+ * builder: the values are produced by `buildRegistrationExportRow` exactly as
+ * they are for the 31-column file, so the two can never disagree about what a
+ * person paid or which code they used. Adding a column here is picking an
+ * existing header, not writing new logic.
+ */
+export const REGISTRATION_SALES_COLUMNS = [
+  "Serial ID",
+  "First Name",
+  "Last Name",
+  "Email",
+  "Organization",
+  "Payer",
+  "Registration Type",
+  "Payment Status",
+  "Promo Code",
+  "Discount",
+  "Total Paid",
+] as const;
+
+/**
+ * Positions of the sales columns within a full export row.
+ *
+ * Resolved once at module load and asserted, so renaming a header in
+ * `REGISTRATION_EXPORT_HEADERS` fails loudly at boot instead of silently
+ * shifting the sales file's values into the wrong columns — which would be
+ * invisible until someone acted on a wrong number.
+ */
+export const REGISTRATION_SALES_COLUMN_INDEXES: number[] =
+  REGISTRATION_SALES_COLUMNS.map((name) => {
+    const i = (REGISTRATION_EXPORT_HEADERS as readonly string[]).indexOf(name);
+    if (i === -1) {
+      throw new Error(
+        `registration-export: sales column "${name}" is not in REGISTRATION_EXPORT_HEADERS`,
+      );
+    }
+    return i;
+  });
+
+/** Full export row → the sales subset, in `REGISTRATION_SALES_COLUMNS` order. */
+export function toSalesExportRow(fullRow: readonly string[]): string[] {
+  return REGISTRATION_SALES_COLUMN_INDEXES.map((i) => fullRow[i] ?? "");
+}

@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 import { PayerDetailDialog } from "@/components/billing/payer-detail-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -194,19 +200,33 @@ export default function RegistrationsPage() {
   // applies the same finance/barcode redaction as the table, so the file
   // matches what's on screen.
   const [exporting, setExporting] = useState(false);
-  const exportToCSV = async () => {
+  /**
+   * @param variant "csv" = the full 31-column file; "sales" = the slim
+   *   who-paid-and-with-what-code list an organiser hands to the sales team.
+   * @param scopeGroupId narrows to ONE registration group ("Gulf Heart's
+   *   people"), ignoring the page filters — the caller asked for that group.
+   */
+  const exportToCSV = async (
+    variant: "csv" | "sales" = "csv",
+    scopeGroupId?: string,
+  ) => {
     setExporting(true);
     try {
-      const p = new URLSearchParams({ export: "csv" });
-      if (statusFilter !== "all") p.set("status", statusFilter);
-      if (paymentFilter !== "all") p.set("paymentStatus", paymentFilter);
-      if (ticketFilter !== "all") p.set("ticketTypeId", ticketFilter);
+      const p = new URLSearchParams({ export: variant });
+      if (scopeGroupId) p.set("groupId", scopeGroupId);
+      if (!scopeGroupId) {
+        if (statusFilter !== "all") p.set("status", statusFilter);
+        if (paymentFilter !== "all") p.set("paymentStatus", paymentFilter);
+        if (ticketFilter !== "all") p.set("ticketTypeId", ticketFilter);
+      }
       // The tag filter is applied SERVER-side on the table's own query
       // (useRegistrations below), so omitting it here doesn't just widen the
       // file — it returns the whole attendee book while the screen shows the
       // filtered subset. Every filter the table applies must be sent.
-      if (tagFilter.length > 0) p.set("tags", tagFilter.join(","));
-      if (searchQuery.trim()) p.set("q", searchQuery.trim());
+      if (!scopeGroupId) {
+        if (tagFilter.length > 0) p.set("tags", tagFilter.join(","));
+        if (searchQuery.trim()) p.set("q", searchQuery.trim());
+      }
 
       const res = await fetch(`/api/events/${eventId}/registrations?${p.toString()}`);
       if (!res.ok) {
@@ -218,7 +238,9 @@ export default function RegistrationsPage() {
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = objectUrl;
-      link.download = `registrations-${eventId}.csv`;
+      link.download = scopeGroupId
+        ? `group-${scopeGroupId}-sales.csv`
+        : `registrations-${eventId}${variant === "sales" ? "-sales" : ""}.csv`;
       link.click();
       URL.revokeObjectURL(objectUrl);
     } catch (err) {
@@ -402,10 +424,26 @@ export default function RegistrationsPage() {
               Share Link
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={exportToCSV} disabled={exporting}>
-            <Download className="mr-2 h-4 w-4" />
-            {exporting ? "Exporting…" : "Export"}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={exporting}>
+                <Download className="mr-2 h-4 w-4" />
+                {exporting ? "Exporting…" : "Export"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => exportToCSV("csv")}>
+                Full details
+                <span className="ml-2 text-xs text-muted-foreground">everything</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportToCSV("sales")}>
+                For the sales team
+                <span className="ml-2 text-xs text-muted-foreground">
+                  who paid, which code
+                </span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {!isReviewer && (
             <>
               {/* Management-only actions — hidden for ONSITE (desk staff). */}
@@ -730,13 +768,22 @@ export default function RegistrationsPage() {
                       <div className="flex items-center gap-1.5">
                         <Badge variant="outline">{displayRegistrationType({ ticketTypeName: registration.ticketType?.name, isFaculty: registration.ticketType?.isFaculty, attendeeRegistrationType: registration.attendee.registrationType })}</Badge>
                         {registration.group && (
-                          <Badge
-                            variant="outline"
-                            className="bg-violet-50 text-violet-800 border-violet-200"
-                            title={`Group registration — coordinator ${registration.group.coordinatorName}`}
+                          <button
+                            onClick={(e) => {
+                              // The row opens the registration sheet.
+                              e.stopPropagation();
+                              exportToCSV("sales", registration.group!.id);
+                            }}
+                            disabled={exporting}
+                            title={`Group registration — coordinator ${registration.group.coordinatorName}. Click to export this whole group for the sales team.`}
                           >
-                            Group
-                          </Badge>
+                            <Badge
+                              variant="outline"
+                              className="bg-violet-50 text-violet-800 border-violet-200 hover:bg-violet-100"
+                            >
+                              Group
+                            </Badge>
+                          </button>
                         )}
                       </div>
                     </TableCell>

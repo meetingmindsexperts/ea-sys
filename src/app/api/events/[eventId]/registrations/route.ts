@@ -28,6 +28,10 @@ import {
   type RegistrationExportRow,
 } from "@/lib/registration-export";
 import { recordExport, fingerprintSearchTerm } from "@/lib/audit-data-transfer";
+import {
+  REGISTRATION_SALES_COLUMNS,
+  toSalesExportRow,
+} from "@/lib/registration-export";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
   createRegistration,
@@ -206,6 +210,9 @@ export async function GET(req: Request, { params }: RouteParams) {
     const status = parsedStatus?.success ? parsedStatus.data : undefined;
     const paymentStatus = parsedPaymentStatus?.success ? parsedPaymentStatus.data : undefined;
     const ticketTypeId = searchParams.get("ticketTypeId");
+    // Narrow to ONE registration group — powers the organizer-side group
+    // roster + its export. Additive: absent, the where is untouched.
+    const groupId = searchParams.get("groupId");
 
     // Free-text search. Added for the CSV export so a server-produced file
     // matches the rows the operator can see on screen — the list page filters
@@ -285,6 +292,7 @@ export async function GET(req: Request, { params }: RouteParams) {
           ...(status && { status }),
           ...(paymentStatus && { paymentStatus }),
           ...(ticketTypeId && { ticketTypeId }),
+          ...(groupId && { groupId }),
           // Tags and free-text search BOTH constrain `attendee`, so they must
           // be merged into one nested filter — spreading them as two `attendee`
           // keys would let the later one silently drop the earlier (the
@@ -496,6 +504,67 @@ export async function GET(req: Request, { params }: RouteParams) {
     //
     // This replaces an in-browser Blob download that never reached the server
     // and therefore could not be audited at all.
+    // ── Sales handoff export ──────────────────────────────────────────────
+    // A slim file an organiser sends to the sales team: who is coming from
+    // which company, whether they paid, and which promo code they used.
+    // Combine with `?groupId=` to pull one company's group ("Gulf Heart's
+    // registrations and the code they used").
+    //
+    // Rows are built by the SAME builder as the full export and then
+    // projected down to the sales columns, so the two files can never disagree
+    // about an amount or a code. It runs on the already-redacted payload, so a
+    // caller who can't see money gets those columns blank rather than wrong —
+    // the same contract the full export has.
+    if (searchParams.get("export") === "sales") {
+      const rows = (payload as unknown as RegistrationExportRow[]).map((r) =>
+        toSalesExportRow(
+          buildRegistrationExportRow(r, {
+            taxRate: event.taxRate != null ? Number(event.taxRate) : null,
+            taxLabel: event.taxLabel ?? null,
+          }),
+        ),
+      );
+      const csv = [
+        REGISTRATION_SALES_COLUMNS.join(","),
+        ...rows.map((row) => toCsvRow(row)),
+      ].join("\n");
+
+      recordExport(req, {
+        entityType: "Registration",
+        eventId,
+        organizationId: orgCtx.organizationId,
+        userId: orgCtx.userId,
+        role: orgCtx.role,
+        source: orgCtx.userId ? "rest" : "api",
+        rowCount: rows.length,
+        format: "csv",
+        filters: {
+          variant: "sales",
+          ...(groupId ? { groupId } : {}),
+          ...(status ? { status } : {}),
+          ...(paymentStatus ? { paymentStatus } : {}),
+          ...(ticketTypeId ? { ticketTypeId } : {}),
+        },
+      });
+
+      apiLogger.info({
+        msg: "registrations-sales-export:completed",
+        eventId,
+        groupId,
+        userId: orgCtx.userId,
+        role: orgCtx.role,
+        rowCount: rows.length,
+      });
+
+      return new NextResponse(csv, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="sales-${groupId ? `group-${groupId}` : eventId}.csv"`,
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
+
     if (searchParams.get("export") === "csv") {
       const rows = (payload as unknown as RegistrationExportRow[]).map((r) =>
         buildRegistrationExportRow(r, {
