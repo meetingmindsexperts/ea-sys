@@ -11,6 +11,7 @@ import { getClientIp } from "@/lib/security";
 import { SESSION_TYPE_KIND } from "@/lib/session-enums";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
+import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
 
 /**
  * Single session proposal — GET / PUT / DELETE.
@@ -128,7 +129,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // the existing-proposal read, the theme read, and the update (all swept).
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {
       apiLogger.warn({ msg: "session-proposals:not-found", eventId, proposalId, userId: session.user.id });
@@ -177,6 +178,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
         if (data.status && data.status !== "DRAFT" && data.status !== "SUBMITTED") {
           apiLogger.warn({ msg: "session-proposals:submitter-status-refused", eventId, proposalId, status: data.status });
           return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+        // Deadline auto-end (Aug 6, 2026): after settings.sessionProposalDeadline
+        // a SUBMITTER can no longer SUBMIT (draft edits stay allowed; staff
+        // act normally — organizer decisions are exempt).
+        if (data.status === "SUBMITTED" && isDeadlinePassed(readSessionProposalDeadline(event.settings))) {
+          apiLogger.warn({ msg: "session-proposals:deadline-passed", eventId, proposalId, userId: session.user.id });
+          return NextResponse.json(
+            { error: "The session proposal deadline has passed.", code: "DEADLINE_PASSED" },
+            { status: 403 },
+          );
         }
         // Hard gate (Aug 5, 2026): submitting (DRAFT → SUBMITTED) requires a
         // complete profile. Draft edits stay allowed — only the submission is

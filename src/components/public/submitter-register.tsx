@@ -75,6 +75,9 @@ interface Event {
   abstractWelcomeHtml: string | null;
   sessionProposalWelcomeHtml?: string | null;
   organization: { name: string; logo: string | null };
+  sessionProposalSettings?: {
+    sessionProposalDeadline: string | null;
+  };
   abstractSettings?: {
     allowAbstractSubmissions: boolean;
     abstractDeadline: string | null;
@@ -278,6 +281,12 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
             if (new Date() > deadline) {
               setError("The abstract submission deadline has passed");
             }
+          }
+        } else if (data.sessionProposalSettings?.sessionProposalDeadline) {
+          // Proposal intake ends automatically at the deadline (Aug 6, 2026).
+          const deadline = new Date(data.sessionProposalSettings.sessionProposalDeadline);
+          if (new Date() > deadline) {
+            setError("The session proposal deadline has passed");
           }
         }
       } catch (err) {

@@ -206,6 +206,35 @@ describe("POST /session-proposals — create", () => {
     const res = await CREATE(req("POST", VALID_CREATE), listParams); // ADMIN default
     expect(res.status).toBe(201);
   });
+
+  it("SUBMITTER create after the deadline → 403 DEADLINE_PASSED, no create", async () => {
+    mockAuth.mockResolvedValue(SUBMITTER);
+    mockDb.event.findFirst.mockResolvedValue({
+      ...EVENT, settings: { sessionProposalDeadline: "2020-01-01T00:00:00.000Z" },
+    });
+    const res = await CREATE(req("POST", VALID_CREATE), listParams);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("DEADLINE_PASSED");
+    expect(mockDb.sessionProposal.create).not.toHaveBeenCalled();
+  });
+
+  it("STAFF create after the deadline is EXEMPT (organizer decisions post-close are deliberate)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      ...EVENT, settings: { sessionProposalDeadline: "2020-01-01T00:00:00.000Z" },
+    });
+    const res = await CREATE(req("POST", VALID_CREATE), listParams); // ADMIN default
+    expect(res.status).toBe(201);
+  });
+
+  it("a FUTURE deadline does not block a submitter create", async () => {
+    mockAuth.mockResolvedValue(SUBMITTER);
+    mockDb.event.findFirst.mockResolvedValue({
+      ...EVENT,
+      settings: { sessionProposalDeadline: new Date(Date.now() + 86400_000).toISOString() },
+    });
+    const res = await CREATE(req("POST", VALID_CREATE), listParams);
+    expect(res.status).toBe(201);
+  });
 });
 
 describe("GET /session-proposals — list scoping", () => {
@@ -318,6 +347,24 @@ describe("PUT /session-proposals/[id] — submitter lifecycle", () => {
     // Draft edit without submitting stays allowed for the same person.
     mockDb.sessionProposal.update.mockResolvedValue({ ...CREATED_PROPOSAL, status: "DRAFT" });
     const editRes = await PUT(req("PUT", { title: "Reworked title" }), oneParams);
+    expect(editRes.status).toBe(200);
+  });
+
+  it("SUBMITTER DRAFT → SUBMITTED after the deadline → 403 DEADLINE_PASSED; the draft edit still saves", async () => {
+    mockAuth.mockResolvedValue(SUBMITTER);
+    mockDb.event.findFirst.mockResolvedValue({
+      ...EVENT, settings: { sessionProposalDeadline: "2020-01-01T00:00:00.000Z" },
+    });
+    mockDb.sessionProposal.findFirst.mockResolvedValue({
+      id: "sp1", status: "DRAFT", speaker: { userId: "u-sub", ...COMPLETE_SPEAKER },
+    });
+    const res = await PUT(req("PUT", { status: "SUBMITTED" }), oneParams);
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("DEADLINE_PASSED");
+    expect(mockDb.sessionProposal.update).not.toHaveBeenCalled();
+
+    mockDb.sessionProposal.update.mockResolvedValue({ ...CREATED_PROPOSAL, status: "DRAFT" });
+    const editRes = await PUT(req("PUT", { title: "Post-deadline polish" }), oneParams);
     expect(editRes.status).toBe(200);
   });
 

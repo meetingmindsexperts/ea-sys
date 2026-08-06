@@ -255,6 +255,21 @@ describe("submitter route — abstract gate vs proposal source (July 30, 2026)",
     expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("403s a PROPOSAL signup past the session-proposal deadline (auto-end, Aug 6 2026)", async () => {
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "ev1", name: "Ev", slug: "ev-slug",
+      settings: { allowAbstractSubmissions: true, sessionProposalDeadline: "2020-01-01T00:00:00.000Z" },
+      organizationId: "org1",
+    });
+    const res = await POST(makeReq({ ...validBody, source: "proposal" }), { params });
+    expect(res.status).toBe(403);
+    expect(ensureCompanionSpy).not.toHaveBeenCalled();
+
+    // The proposal deadline never blocks an ABSTRACT signup (separate windows).
+    const abstractRes = await POST(makeReq(validBody), { params });
+    expect(abstractRes.status).toBeLessThan(400);
+  });
+
   it("403s an ABSTRACT signup past the deadline, but not a PROPOSAL signup", async () => {
     mockDb.event.findFirst.mockResolvedValue({
       id: "ev1", name: "Ev", slug: "ev-slug",

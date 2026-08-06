@@ -113,6 +113,7 @@ interface Event {
     showRemainingTickets?: boolean;
     allowAbstractSubmissions?: boolean;
     abstractDeadline?: string;
+    sessionProposalDeadline?: string;
     notifyOnRegistration?: boolean;
     notifyOnAbstractSubmission?: boolean;
     agendaPublished?: boolean;
@@ -225,6 +226,8 @@ export default function EventSettingsPage() {
     abstractDeadline: "",
   });
 
+  const [sessionProposalDeadline, setSessionProposalDeadline] = useState("");
+
   const [notificationSettings, setNotificationSettings] = useState({
     notifyOnRegistration: true,
     notifyOnAbstractSubmission: true,
@@ -295,6 +298,12 @@ export default function EventSettingsPage() {
             ? new Date(settings.abstractDeadline).toISOString().slice(0, 16)
             : "",
         });
+
+        setSessionProposalDeadline(
+          settings.sessionProposalDeadline
+            ? new Date(settings.sessionProposalDeadline).toISOString().slice(0, 16)
+            : "",
+        );
 
         setNotificationSettings({
           notifyOnRegistration: settings.notifyOnRegistration ?? true,
@@ -423,6 +432,9 @@ export default function EventSettingsPage() {
             ...notificationSettings,
             abstractDeadline: abstractSettings.abstractDeadline
               ? new Date(abstractSettings.abstractDeadline).toISOString()
+              : null,
+            sessionProposalDeadline: sessionProposalDeadline
+              ? new Date(sessionProposalDeadline).toISOString()
               : null,
           },
         }),
@@ -1144,6 +1156,28 @@ export default function EventSettingsPage() {
                       />
                     </div>
                   )}
+                </div>
+              </div>
+
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-medium mb-4">Session Proposals</h3>
+                <div className="space-y-2">
+                  <Label htmlFor="sessionProposalDeadline">Session Proposal Deadline</Label>
+                  <Input
+                    id="sessionProposalDeadline"
+                    type="datetime-local"
+                    value={sessionProposalDeadline}
+                    min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+                      .toISOString()
+                      .slice(0, 16)}
+                    onChange={(e) => setSessionProposalDeadline(e.target.value)}
+                    className="w-72"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Proposal sign-ups and submissions close automatically at this time. Leave
+                    empty for no deadline — you can extend it any time (past dates are not
+                    accepted). Your team can still add proposals after it closes.
+                  </p>
                 </div>
               </div>
 

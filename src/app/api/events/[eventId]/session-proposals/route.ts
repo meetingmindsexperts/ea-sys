@@ -15,6 +15,7 @@ import { toCsvRow } from "@/lib/csv-escape";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
+import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
 
 /**
  * Session proposals — abstracts-shaped submissions for proposing SESSIONS.
@@ -216,12 +217,27 @@ export async function POST(req: Request, { params }: RouteParams) {
     // the tenant lane for the Speaker (swept #9), theme, and proposal writes.
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, settings: true },
     });
 
     if (!event) {
       apiLogger.warn({ msg: "session-proposals:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    // Deadline auto-end (Aug 6, 2026): once settings.sessionProposalDeadline
+    // passes, a SUBMITTER can no longer create a proposal (draft or
+    // submitted). STAFF stay exempt — a post-deadline entry on someone's
+    // behalf is a deliberate organizer action.
+    if (
+      session.user.role === "SUBMITTER" &&
+      isDeadlinePassed(readSessionProposalDeadline(event.settings))
+    ) {
+      apiLogger.warn({ msg: "session-proposals:deadline-passed", eventId, userId: session.user.id });
+      return NextResponse.json(
+        { error: "The session proposal deadline has passed.", code: "DEADLINE_PASSED" },
+        { status: 403 },
+      );
     }
 
     // Everything that reads/writes a swept table rides the resource-org lane.

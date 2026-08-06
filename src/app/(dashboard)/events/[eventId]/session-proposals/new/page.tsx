@@ -16,11 +16,13 @@ import { useSubmitterProfileGate } from "@/hooks/use-submitter-profile-gate";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import {
+  useEvent,
   useSpeakers,
   useSessionProposalThemes,
   useCreateSessionProposal,
   useUpdateSessionProposal,
 } from "@/hooks/use-api";
+import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,6 +59,12 @@ function ProposalForm() {
   const isSubmitter = session?.user?.role === "SUBMITTER";
 
   const { data: speakers = [] } = useSpeakers(eventId);
+  const { data: event } = useEvent(eventId);
+  // Deadline auto-end (Aug 6, 2026): after the deadline a SUBMITTER can no
+  // longer create or submit — staff keep working normally. Editing an
+  // existing draft stays possible (submission of it is what's blocked).
+  const deadlinePassed =
+    isSubmitter && isDeadlinePassed(readSessionProposalDeadline((event as { settings?: unknown } | undefined)?.settings));
   const { data: themes = [] } = useSessionProposalThemes(eventId);
   const createProposal = useCreateSessionProposal(eventId);
   const updateProposal = useUpdateSessionProposal(eventId);
@@ -189,12 +197,49 @@ function ProposalForm() {
         <div className="flex items-center justify-center py-16 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading proposal…
         </div>
-      ) : editLocked ? (
+      ) : deadlinePassed && !editId ? (
         <Card className="border-amber-200 bg-amber-50/50">
           <CardContent className="py-8 text-sm text-amber-800">
-            This proposal has been submitted and can no longer be edited. Contact the organizing team for changes.
+            The session proposal deadline has passed — new proposals can no longer be
+            submitted. Please contact the organizing team if you have a question.
           </CardContent>
         </Card>
+      ) : editLocked ? (
+        <div className="space-y-4">
+          <Card className="border-amber-200 bg-amber-50/50">
+            <CardContent className="py-6 text-sm text-amber-800">
+              This proposal has been submitted and can no longer be edited. Contact the organizing team for changes.
+            </CardContent>
+          </Card>
+          {/* Read-only view — "View Your Proposal" must actually show it
+              (organizer-reported Aug 6, 2026). */}
+          <Card>
+            <CardContent className="pt-6 space-y-4 text-sm">
+              <div>
+                <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Title</div>
+                <div className="font-medium">{title || "—"}</div>
+              </div>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <div>
+                  <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Theme</div>
+                  <div>{themes.find((t: { id: string; name: string }) => t.id === themeId)?.name ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Duration</div>
+                  <div>{duration ? `${duration} min` : "—"}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Status</div>
+                  <div>{loadedStatus ?? "—"}</div>
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Description</div>
+                <div className="whitespace-pre-wrap rounded-lg border p-4 bg-background">{description || "—"}</div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       ) : (
         <>
           {!isSubmitter && !editId && (
@@ -296,17 +341,20 @@ function ProposalForm() {
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <Button onClick={() => save("SUBMITTED")} disabled={saving}>
-                  {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-                  Submit Proposal
-                </Button>
+                {!deadlinePassed && (
+                  <Button onClick={() => save("SUBMITTED")} disabled={saving}>
+                    {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                    Submit Proposal
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => save("DRAFT")} disabled={saving}>
                   Save as Draft
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                After you submit, the proposal is locked for editing — the organizing team will contact you about changes
-                and next steps.
+                {deadlinePassed
+                  ? "The submission deadline has passed — you can still save your draft, but it can no longer be submitted."
+                  : "After you submit, the proposal is locked for editing — the organizing team will contact you about changes and next steps."}
               </p>
             </>
           )}

@@ -42,7 +42,7 @@ export function notifySessionProposalSubmitted(args: {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
 
   db.event
-    .findUnique({ where: { id: eventId }, select: { name: true } })
+    .findUnique({ where: { id: eventId }, select: { name: true, slug: true } })
     .then(async (ev) => {
       const tpl =
         (await getEventTemplate(eventId, "session-proposal-confirmation")) ||
@@ -63,7 +63,12 @@ export function notifySessionProposalSubmitted(args: {
         proposalFormat: proposal.proposedFormat
           ? (SESSION_TYPE_LABELS[proposal.proposedFormat as keyof typeof SESSION_TYPE_LABELS] ?? proposal.proposedFormat)
           : "",
-        managementLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`,
+        // The BRANDED event login that lands on the proposer's "My Session
+        // Proposals" — NOT the internal /login (organizer-reported Aug 6, 2026:
+        // "View Your Proposal" dumped submitters on the dashboard login page).
+        managementLink: ev?.slug
+          ? `${appUrl}/e/${ev.slug}/login?redirect=session-proposals`
+          : `${appUrl}/login`,
       };
       const rendered = renderAndWrap(tpl, vars, branding);
       return sendEmail({

@@ -382,6 +382,54 @@ describe("PUT /api/events/[eventId]", () => {
     }
   });
 
+  it("refuses setting a NEW session-proposal deadline in the past (400 DEADLINE_IN_PAST)", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", slug: "test", settings: {} });
+    const res = await PUT(
+      makePutRequest({ settings: { sessionProposalDeadline: "2020-01-01T10:00:00.000Z" } }),
+      makeParams("evt-1")
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("DEADLINE_IN_PAST");
+    expect(mockUpdateEventSettings).not.toHaveBeenCalled();
+  });
+
+  it("an UNCHANGED already-past deadline still saves (unrelated settings edits never blocked)", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "evt-1",
+      slug: "test",
+      settings: { sessionProposalDeadline: "2020-01-01T10:00:00.000Z" },
+    });
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+    const res = await PUT(
+      makePutRequest({
+        settings: { sessionProposalDeadline: "2020-01-01T10:00:00.000Z", registrationOpen: false },
+      }),
+      makeParams("evt-1")
+    );
+    expect(res.status).toBe(200);
+    expect(mockUpdateEventSettings).toHaveBeenCalled();
+  });
+
+  it("a FUTURE deadline (extension) saves; clearing (null) always allowed", async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockDb.event.findFirst.mockResolvedValue({
+      id: "evt-1",
+      slug: "test",
+      settings: { sessionProposalDeadline: "2020-01-01T10:00:00.000Z" },
+    });
+    mockDb.event.update.mockResolvedValue(sampleEvent);
+    mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+    const future = new Date(Date.now() + 86400_000).toISOString();
+    const res = await PUT(makePutRequest({ settings: { sessionProposalDeadline: future } }), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+
+    const res2 = await PUT(makePutRequest({ settings: { sessionProposalDeadline: null } }), makeParams("evt-1"));
+    expect(res2.status).toBe(200);
+  });
+
   it("creates audit log on successful update", async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockDb.event.findFirst.mockResolvedValue({ id: "evt-1", slug: "test", settings: {} });

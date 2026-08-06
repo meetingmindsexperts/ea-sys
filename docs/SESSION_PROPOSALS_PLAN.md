@@ -160,6 +160,25 @@ inherit, and the two lists diverge in every surface. Themes are likewise separat
   the proposer on submit/resubmit; `notifyEventAdmins("New Session Proposal")`. Both
   failure-isolated from the create.
 
+## 5b. Submission deadline (Aug 6, 2026, organizer request)
+
+`Event.settings.sessionProposalDeadline` (ISO string, settings JSON — no migration),
+set under Event Settings beside the Abstract Submission Deadline. Semantics
+([src/lib/submission-deadline.ts](../src/lib/submission-deadline.ts)):
+
+- **Auto-end**: past the deadline, the public proposer door 403s and a SUBMITTER
+  can no longer create a proposal (`DEADLINE_PASSED`) or submit a draft
+  (DRAFT→SUBMITTED refused; draft *edits* stay allowed — the form hides Submit
+  and keeps Save as Draft).
+- **Staff exempt** — post-deadline entries on someone's behalf are a deliberate
+  organizer action (same philosophy as the grant flow's sales-window override).
+- **Extend = edit the date**; the event PUT refuses a NEW past date
+  (`DEADLINE_IN_PAST`) but an unchanged already-past value saves, so unrelated
+  settings edits are never blocked.
+- The abstract deadline (door-only today) is expected to adopt the same
+  auto-end helpers later (owner: "extends to abstracts too, but will do that
+  later").
+
 ## 6. Deliberately NOT in v1 (recorded so nobody builds them opportunistically)
 
 - **Review workflow** — no reviewers, scores, or ACCEPTED/REJECTED. The status enum +

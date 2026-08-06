@@ -12,6 +12,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { ensureSpeakerCompanionRegistration, upsertEventSpeaker } from "@/lib/speaker-companion";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
+import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
 
 const registerSchema = z.object({
   title: titleEnum,
@@ -143,6 +144,13 @@ export async function POST(req: Request, { params }: RouteParams) {
           );
         }
       }
+    } else if (isDeadlinePassed(readSessionProposalDeadline(settings))) {
+      // Proposal intake ends automatically at the deadline (Aug 6, 2026).
+      apiLogger.warn({ msg: "public/submitter:proposal-deadline-passed", slug, ip: clientIp });
+      return NextResponse.json(
+        { error: "The session proposal deadline has passed" },
+        { status: 403 }
+      );
     }
 
     const emailRateLimit = checkRateLimit({

@@ -10,6 +10,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { updateEventSettings } from "@/lib/event-settings";
+import { readSessionProposalDeadline } from "@/lib/submission-deadline";
 import {
   isSessionWithinEventDates,
   localDateInTz,
@@ -475,6 +476,22 @@ export async function PUT(req: Request, { params }: RouteParams) {
     // clobbered. Strip reviewerUserIds first so the general PUT can't overwrite
     // the reviewer list — the helper preserves the existing value automatically.
     if (settings) {
+      // Session-proposal deadline: a NEW/CHANGED value must not be in the
+      // past (the field exists to end intake automatically — "extending"
+      // always means forward). An UNCHANGED already-past value passes, so a
+      // save of unrelated settings on an event whose window closed is never
+      // blocked (the M9-guard lesson).
+      if ("sessionProposalDeadline" in settings) {
+        const incoming = readSessionProposalDeadline(settings);
+        const current = readSessionProposalDeadline(existingEvent.settings);
+        if (incoming && incoming !== current && new Date(incoming).getTime() < Date.now()) {
+          apiLogger.warn({ msg: "event-update:proposal-deadline-in-past", eventId, incoming });
+          return NextResponse.json(
+            { error: "The session proposal deadline can't be in the past.", code: "DEADLINE_IN_PAST" },
+            { status: 400 },
+          );
+        }
+      }
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { reviewerUserIds: _protected, ...safeSettings } = settings;
       const cleanSettings = JSON.parse(JSON.stringify(safeSettings));

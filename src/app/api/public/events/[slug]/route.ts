@@ -216,6 +216,9 @@ export async function GET(req: Request, { params }: RouteParams) {
         allowAbstractSubmissions: settings.allowAbstractSubmissions === true,
         abstractDeadline: settings.abstractDeadline || null,
       },
+      sessionProposalSettings: {
+        sessionProposalDeadline: settings.sessionProposalDeadline || null,
+      },
       agendaPublished: settings.agendaPublished === true || settings.programmePublished === true,
       // Master registration switch (Settings → Registration). Default OPEN when
       // the field is absent so existing events aren't accidentally closed.
