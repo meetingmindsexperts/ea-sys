@@ -154,6 +154,12 @@ export type CreateGroupRegistrationResult =
       meta?: Record<string, unknown>;
     };
 
+/** Public base URL for links minted into coordinator emails. */
+const appUrl = () =>
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.NEXTAUTH_URL ||
+  "https://events.meetingmindsgroup.com";
+
 /** Internal sentinel for tx rollback → error-code mapping (house pattern). */
 class GroupServiceSentinel extends Error {
   constructor(
@@ -825,6 +831,12 @@ async function sendCoordinatorConfirmation(args: {
       memberSummaryText,
       totalAmount: `${args.currency} ${total.toFixed(2)}`,
       invoiceNumber: args.invoiceNumber ?? "",
+      // My Group portal. Falls back to the event's public page rather than
+      // minting a broken `/e//my-group` when the slug is somehow absent —
+      // the session-proposal email-link lesson.
+      manageGroupLink: event.slug
+        ? `${appUrl()}/e/${event.slug}/my-group`
+        : appUrl(),
     },
     branding,
   );

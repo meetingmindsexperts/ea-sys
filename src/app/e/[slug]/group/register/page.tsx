@@ -437,6 +437,12 @@ function GroupRegisterContent() {
             <p className="text-sm text-slate-500 mt-3">
               Each member has received their own confirmation email. Registration is confirmed on receipt of payment.
             </p>
+            <p className="text-sm mt-3">
+              <a href={`/e/${slug}/my-group`} className="text-cyan-700 underline underline-offset-2">
+                View your group
+              </a>{" "}
+              <span className="text-slate-500">— everyone&apos;s status, the invoice, and payment.</span>
+            </p>
             {done.payable ? (
               <div className="mt-6 border-t pt-6">
                 <p className="text-sm text-slate-600 mb-3">

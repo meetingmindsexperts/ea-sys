@@ -1320,6 +1320,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "memberSummaryText", description: "Members list, plain text (for the text version of the email)" },
     { key: "totalAmount", description: "Cumulative total incl. tax (e.g. USD 1250.00)" },
     { key: "invoiceNumber", description: "Consolidated invoice number — blank if invoicing failed" },
+    { key: "manageGroupLink", description: "Link to the coordinator's My Group portal for this event" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML) — empty on automated sends" },
   ],
   "abstract-status-update": [
@@ -1835,7 +1836,8 @@ The organizing team will contact you about the next steps.
       <p style="margin: 12px 0 0 0; font-size: 15px;"><strong>Total: {{totalAmount}}</strong></p>
     </div>
     <p>Invoice <strong>{{invoiceNumber}}</strong> is attached. Registration is confirmed on receipt of payment — bank details are on the invoice. Each member has received their own confirmation email with their entry barcode.</p>
-    <p>You can add or edit members any time from your group portal after signing in.</p>
+    <p style="margin: 24px 0;"><a href="{{manageGroupLink}}" style="background: #00aade; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: 600;">View your group</a></p>
+    <p style="color: #6b7280; font-size: 13px;">Sign in with this email address to see everyone's status, pay by card, or download the invoice again.</p>
     {{organizerSignature}}
   </div>`,
     textContent: `Group Registration Received - {{eventName}}
@@ -1850,6 +1852,9 @@ Your Group ({{memberCount}} members):
 Total: {{totalAmount}}
 
 Invoice {{invoiceNumber}} is attached. Registration is confirmed on receipt of payment — bank details are on the invoice. Each member has received their own confirmation email with their entry barcode.
+
+View your group: {{manageGroupLink}}
+Sign in with this email address to see everyone's status, pay by card, or download the invoice again.
 
 {{organizerSignature}}`,
   },
@@ -2994,6 +2999,7 @@ export function getSamplePreviewVariables(
     memberSummaryText: "- Dr. Jane Doe (jane@example.com) — Physician\n- John Smith (john@example.com) — Nurse",
     totalAmount: "USD 1,250.00",
     invoiceNumber: "SAMPLE-INV-001",
+    manageGroupLink: `${process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com"}/e/sample-event/my-group`,
     presentationType: "Oral",
     theme: "Cardiology",
     authorName: "Dr. Jane Doe",
