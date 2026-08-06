@@ -46,6 +46,41 @@ nothing enforces this table, so it is the one that rots.
 > numbers-only rather than losing it. See §1.7 C of
 > [docs/AWS_OPERATIONS.md](../docs/AWS_OPERATIONS.md).
 
+### If the worker breaks
+
+**A crash self-heals; a freeze does not.** `restart: unless-stopped` fires when
+the process *exits* — but a wedged event loop or an exhausted DB pool leaves the
+container `Up` and useless. Docker's healthcheck detects that and flips the label
+to `unhealthy`; plain Compose then does nothing about it (only Swarm acts on
+health). [`scripts/worker-watchdog.sh`](../scripts/worker-watchdog.sh) is the
+missing action layer — cron `*/2`, restarts after 3 consecutive unhealthy checks,
+capped at 3 restarts/hour, emails on every restart. Details + install line in
+§1.7 D of [docs/AWS_OPERATIONS.md](../docs/AWS_OPERATIONS.md).
+
+**Nothing is lost while it is down.** Every job is a poller over durable state,
+not an alarm clock: `scheduled-emails` asks "any PENDING row whose time has
+passed?" oldest-first, `webinar-attendance` picks up never-synced rows
+*regardless of age*, the prune jobs simply sweep more next run. `node-cron` does
+**not** replay missed ticks, and that is correct — replaying them would duplicate
+work or be a long series of no-ops. The real consequence is that mail arrives
+**late in a clump**, never not at all.
+
+**On recovery there is no stampede**, because every job drains a fixed batch per
+tick (`scheduled-emails` 10 rows/min, `cert-issue` 50 renders + 25 emails,
+`invoice-reconciliation` 25) — a backlog leaves at a constant rate. The genuine
+contention risk is not recovery but **coincident tick boundaries** sharing one
+10-connection DB pool; that is what caused the June 2026 `P2024` incident, and
+why `cert-issue` runs `*/3` and the retention sweeps are staggered. Stagger any
+new job onto an odd offset rather than a round `*/5`.
+
+> ⚠️ **Before a SECOND worker ever runs against the same database**, fix "P3"
+> (see the caveat in `worker/lib/advisory-lock.ts`): the advisory lock that makes
+> a job a singleton is session-scoped, but the worker connects through the
+> *transaction* pooler, so the guarantee does not actually hold. Two workers on
+> one database means duplicate emails and duplicate certificates to real people.
+> The fix is pointing the worker at `DIRECT_URL` (port 5432). Separate silos with
+> separate databases are unaffected.
+
 > `invoice-reconciliation` (audit Round 2, DATA-5) recovers post-payment
 > invoices the Stripe webhook failed to create — it sweeps for PAID
 > registrations that have a PAID `Payment` but no `INVOICE` row and re-runs the

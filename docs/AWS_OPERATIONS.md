@@ -273,6 +273,53 @@ docker exec ea-sys-worker npx tsx -e \
   'import("@/lib/daily-digest-worker").then(m=>m.runDailyDigestTick()).then(console.log)'
 ```
 
+**D. The worker watchdog (self-healing for the one failure mode that isn't)** —
+a process stops working two ways, and only one self-heals: if the worker
+**crashes** the container exits and `restart: unless-stopped` restarts it; if it
+**freezes** (event-loop stall, DB pool exhaustion, a wedged fetch) the container
+keeps *running* while doing nothing. Docker detects that second case — the
+compose healthcheck flips the label to `unhealthy` — but **plain Compose never
+acts on its own verdict** (only Swarm restarts on health; the compose file says
+so in a comment). So a frozen worker used to sit there until a human noticed.
+
+[`scripts/worker-watchdog.sh`](../scripts/worker-watchdog.sh) is that missing
+action layer, and deliberately nothing more — it does **not** re-implement
+health checking, it reads the label Docker already computed from three
+consecutive probes, which is far better evidence than one ping from cron.
+
+| Property | Value | Why |
+|---|---|---|
+| Cron | `*/2 * * * *` | |
+| Restart after | **3** consecutive unhealthy checks (~6 min) | a deploy's worker gap is seconds — it can never accumulate 3 |
+| Restart budget | **3 per 60 min**, then escalate + go quiet | restarting can't fix a bad image/env/poison job; churning the DB is worse than being down |
+| Restart method | `docker restart` (never `compose up`) | `compose up` re-resolves `EA_SYS_WORKER_IMAGE`, which cron doesn't export — it could silently roll the worker back to an older tag |
+| Container **missing** | alerts, does **not** recreate | recreation is a deploy concern; guessing an image tag rolls prod backwards |
+| Escape hatch | `touch /home/ubuntu/ea-sys/.watchdog-disabled` | deliberate maintenance is never fought by a robot |
+| Alerts | SES on every restart, on give-up, on restart-failure | a watchdog that silently papers over a daily freeze makes a real problem invisible |
+
+State lives in `/home/ubuntu/ea-sys/.watchdog/` (`fail-count`, `restarts`). The
+16-case state machine is exercised against a fake `docker` by
+`scripts/worker-watchdog.test.sh`, run in CI via
+`__tests__/scripts/worker-watchdog.test.ts`.
+
+**Install (one crontab line, after the script is on the box via a deploy):**
+```bash
+# crontab -e -u ubuntu   →  add:
+*/2 * * * * /home/ubuntu/ea-sys/scripts/worker-watchdog.sh >> /home/ubuntu/cron-worker-watchdog.log 2>&1
+```
+```bash
+# Verify without waiting for a freeze (should print nothing and exit 0):
+bash /home/ubuntu/ea-sys/scripts/worker-watchdog.sh; echo "exit=$?"
+# Prove it fires, safely — pause the worker so Docker marks it unhealthy:
+docker pause ea-sys-worker    # …wait ~2 min for the label to flip…
+docker inspect --format '{{.State.Health.Status}}' ea-sys-worker
+docker unpause ea-sys-worker  # then let it recover
+```
+
+> Detection is layered: **Uptime Robot** on `/worker/health` pages you in ~2 min,
+> the **watchdog** tries to fix it in ~6, and the **daily digest** reports an
+> unreachable worker as CRITICAL as a last backstop.
+
 #### 1.7.1 Provisioning reference — the exact commands
 
 How the alerting above was built (2026-07-06). Reproducible: to rebuild on a new
