@@ -212,6 +212,42 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Warning-triage follow-ups (Aug 6, 2026 — the requireOrgId GET regression round)
+
+Context: the 48h warning triage found the July 24 `requireOrgId` sweep (`d4f31d42`)
+had 403'd org-null roles (SUBMITTER/REVIEWER) on the event-detail GET + the
+abstract-themes GET for 13 days. **The Option A fix shipped Aug 6** (guard removed
+from the two READS only; `buildEventAccessWhere` + finance redaction are the
+authorization; PUT/DELETE keep the guard; regression tests pin org-null access).
+Deferred from that round:
+
+- **Option B — slim event payload for org-null readers.** The full event GET
+  payload includes the whole `settings` JSON (reviewerUserIds / onsiteUserIds /
+  webinar lobby config / sponsors). Pre-July-24 posture, no credentials or PII,
+  finance already redacted — but more config than a submitter needs. The tightening:
+  keep full payload for org-bound roles, return a curated `select` for org-null
+  (name/dates/timezone/slug/banner/welcome/guidelines HTML + the settings keys
+  their pages read: deadlines, presentation types). Needs a field census of every
+  submitter/reviewer page (`useEvent` consumers) — missing one recreates the exact
+  silent-degradation class the Aug 6 fix closed, so do it as its own reviewed round.
+- **Staff-only hooks fire for submitters** (~47 warns/48h of pure noise): the
+  shared abstracts page mounts bulk-email-dialog data hooks (`useTickets`,
+  `useEventTags`, `useEmailTemplates`) unconditionally; submitters get 403s on
+  routes they never use. Fix: `enabled: isStaff` on the hooks (React Query),
+  or mount the dialog lazily for staff only.
+- **Stale n8n poll** (16 warns/48h): an API-key caller requests sessions+tracks for
+  a DELETED event (`cmscu1epb0001p501vgh21jbb`) — almost certainly the n8n→Webflow
+  people sync pointing at a dead event id. Fix lives in n8n (update/disable the
+  workflow), not EA-SYS.
+- **`ses:env-credentials-in-use`** advisory (7 warns/48h): `.env` on the box carries
+  `AWS_ACCESS_KEY_ID`, shadowing the EC2 instance role for SES. Sends work today;
+  the runbook (docs/runbook-ses.md) recommends removing the env key so the role
+  takes over. Operator action.
+- **Process lesson (adopted in the fix):** guard sweeps need "org-null role can
+  read its surfaces" pins — the regression passed the full gate because nothing
+  asserted submitter access to the event GET. The Aug 6 tests add that class for
+  the two fixed routes; extend it when touching other submitter-reachable GETs.
+
 ### Manual/CSV registration default status — CONFIRMED vs PENDING (Aug 6, 2026, organizer ask — DECISION PENDING)
 
 Organizer asked that manually added / CSV-imported registrations should NOT

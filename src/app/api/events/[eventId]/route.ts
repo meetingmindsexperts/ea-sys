@@ -96,8 +96,14 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
-    if ("error" in orgGuard) return orgGuard.error;
+    // NO requireOrgId here — this GET legitimately serves org-NULL roles
+    // (SUBMITTER / REVIEWER / REGISTRANT read event context — name, dates,
+    // guidelines, deadlines — on their dashboard pages). Authorization is the
+    // where below: buildEventAccessWhere scopes org-null roles to events they
+    // are LINKED to (speaker/reviewer-pool/registration), so a foreign event
+    // still 404s. Adding requireOrgId to this GET (July 24 `d4f31d42` sweep)
+    // 403'd every submitter page for 13 days — the Aug 6 warning-triage
+    // regression. PUT/DELETE below keep the guard (org-admin ops).
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),

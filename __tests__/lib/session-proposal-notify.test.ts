@@ -59,7 +59,7 @@ describe("notifySessionProposalSubmitted — View Your Proposal link", () => {
   it("points at the BRANDED event login with the session-proposals redirect (never /login)", async () => {
     mockDb.event.findUnique.mockResolvedValue({ name: "Ev", slug: "BIGSKY2027" });
     notifySessionProposalSubmitted({
-      eventId: "ev1", organizationId: "org1", triggeredByUserId: "u1",
+      eventId: "ev1", organizationId: "org1", triggeredByUserId: "u1", isResubmission: false,
       proposal: PROPOSAL as never,
     });
     await vi.waitFor(() => expect(sendEmailSpy).toHaveBeenCalled());
@@ -73,7 +73,7 @@ describe("notifySessionProposalSubmitted — View Your Proposal link", () => {
   it("falls back to the app login when the event has no slug (never a broken /e//… URL)", async () => {
     mockDb.event.findUnique.mockResolvedValue({ name: "Ev", slug: null });
     notifySessionProposalSubmitted({
-      eventId: "ev1", organizationId: "org1", triggeredByUserId: "u1",
+      eventId: "ev1", organizationId: "org1", triggeredByUserId: "u1", isResubmission: false,
       proposal: PROPOSAL as never,
     });
     await vi.waitFor(() => expect(sendEmailSpy).toHaveBeenCalled());

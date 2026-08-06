@@ -147,6 +147,51 @@ describe("GET /api/events/[eventId]", () => {
     const res = await GET(makeGetRequest(), makeParams("evt-1"));
     expect(res.status).toBe(500);
   });
+
+  // ── Org-null read access (Aug 6, 2026 warning-triage fix) ─────────────────
+  // The July 24 requireOrgId sweep 403'd every SUBMITTER/REVIEWER page for 13
+  // days (event name/dates/guidelines/deadlines never loaded). The GET now
+  // authorizes ONLY via buildEventAccessWhere — these pins stop the next
+  // guard sweep from re-breaking org-null readers.
+
+  it("a linked SUBMITTER (org-null) reads the event — never 403", async () => {
+    mockAuth.mockResolvedValue(submitterSession);
+    mockDb.event.findFirst.mockResolvedValue(sampleEvent);
+    const res = await GET(makeGetRequest(), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.name).toBe("Test Event");
+  });
+
+  it("a REVIEWER (org-null) reads the event — never 403", async () => {
+    mockAuth.mockResolvedValue(reviewerSession);
+    mockDb.event.findFirst.mockResolvedValue(sampleEvent);
+    const res = await GET(makeGetRequest(), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+  });
+
+  it("an UNLINKED org-null user 404s (buildEventAccessWhere finds nothing)", async () => {
+    mockAuth.mockResolvedValue(submitterSession);
+    mockDb.event.findFirst.mockResolvedValue(null);
+    const res = await GET(makeGetRequest(), makeParams("evt-1"));
+    expect(res.status).toBe(404);
+  });
+
+  it("SUBMITTER payload is finance-redacted (taxRate/bankDetails stripped, real redactor)", async () => {
+    mockAuth.mockResolvedValue(submitterSession);
+    mockDb.event.findFirst.mockResolvedValue({
+      ...sampleEvent,
+      taxRate: 5,
+      taxLabel: "VAT",
+      bankDetails: "IBAN AE00 0000",
+    });
+    const res = await GET(makeGetRequest(), makeParams("evt-1"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.name).toBe("Test Event");
+    expect(body.taxRate).toBeUndefined();
+    expect(body.bankDetails).toBeUndefined();
+  });
 });
 
 // ── PUT Tests ────────────────────────────────────────────────────────────────

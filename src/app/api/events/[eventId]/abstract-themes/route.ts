@@ -6,6 +6,18 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
+import { buildEventAccessWhere } from "@/lib/event-access";
+
+/**
+ * GET authorizes via buildEventAccessWhere, NOT requireOrgId (fixed Aug 6,
+ * 2026 — the "noted latent gap" from the Session Proposals build, confirmed
+ * live in the warning triage): org-null SUBMITTERs must be able to read the
+ * theme list to fill the abstract form's theme picker; requireOrgId 403'd
+ * them, leaving the picker empty on themed events. Theme names are not
+ * sensitive. Writes (POST) stay org-staff only. Mirrors the
+ * session-proposal-themes GET, which was built on this pattern for exactly
+ * this reason.
+ */
 
 const createThemeSchema = z.object({
   name: z.string().min(1).max(200).trim(),
@@ -23,28 +35,30 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
-    if ("error" in orgGuard) return orgGuard.error;
 
-    return await runWithTenant(orgGuard.orgId, async () => {
+    // Resource org: event resolved first, un-wrapped, for its org (the
+    // session-proposal-themes pattern) — org-null submitters linked to the
+    // event pass; a foreign event still 404s.
     const event = await db.event.findFirst({
-      where: { id: eventId, organizationId: session.user.organizationId ?? undefined },
-      select: { id: true },
+      where: buildEventAccessWhere(session.user, eventId),
+      select: { id: true, organizationId: true },
     });
     if (!event) {
+      apiLogger.warn({ msg: "abstract-themes:event-not-found", eventId, userId: session.user.id });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const themes = await db.abstractTheme.findMany({
-      where: { eventId },
-      select: { id: true, name: true, sortOrder: true, _count: { select: { abstracts: true } } },
-      orderBy: { sortOrder: "asc" },
-    });
+    const themes = await runWithTenant(event.organizationId, () =>
+      db.abstractTheme.findMany({
+        where: { eventId },
+        select: { id: true, name: true, sortOrder: true, _count: { select: { abstracts: true } } },
+        orderBy: { sortOrder: "asc" },
+      }),
+    );
 
     const response = NextResponse.json(themes);
     response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
     return response;
-    });
   } catch (err) {
     apiLogger.error({ err }, "abstract-themes:GET failed");
     return NextResponse.json({ error: "Failed to fetch themes" }, { status: 500 });
