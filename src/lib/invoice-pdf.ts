@@ -68,6 +68,17 @@ export interface InvoicePDFData {
     reference?: string | null;
   } | null;
 
+  // Group registration (Aug 2026): a consolidated group invoice. When set,
+  // the payer meta shows the coordinator + member count instead of the single
+  // "Attendee" row, and `groupLineItems` supersedes the single line item —
+  // one row per ticket type ("2 × Physician"), derived at render time from
+  // the member registrations.
+  groupMeta?: { coordinatorName: string; memberCount: number } | null;
+  groupLineItems?: Array<{ description: string; amount: number }> | null;
+  /** Extra notes appended to the standard invoice notes (e.g. the group
+   * member-cancellation drift note — review H4). */
+  extraNotes?: string[] | null;
+
   // Event
   eventName: string;
   eventDate: Date;
@@ -177,10 +188,15 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
           .join(", ");
         locationLine =
           [data.payer.address, cityLine, data.payer.country].filter(Boolean).join(" ") || null;
-        const attendeeName = [data.title, data.firstName, data.lastName]
-          .filter(Boolean)
-          .join(" ");
-        meta.push({ label: "Attendee", value: attendeeName });
+        if (data.groupMeta) {
+          meta.push({ label: "Coordinator", value: data.groupMeta.coordinatorName });
+          meta.push({ label: "Attendees", value: String(data.groupMeta.memberCount) });
+        } else {
+          const attendeeName = [data.title, data.firstName, data.lastName]
+            .filter(Boolean)
+            .join(" ");
+          meta.push({ label: "Attendee", value: attendeeName });
+        }
         if (data.payer.reference)
           meta.push({ label: "PO / Reference", value: data.payer.reference });
         if (data.payer.taxNumber)
@@ -216,8 +232,10 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
       y = ensureSpace(doc, y, 80);
       y = drawLineItemsTable(doc, y, data.currency, [
         {
-          name: "Registration",
-          items: [{ description: itemDescription, amount: data.price }],
+          name: data.groupLineItems?.length ? "Group Registration" : "Registration",
+          items: data.groupLineItems?.length
+            ? data.groupLineItems
+            : [{ description: itemDescription, amount: data.price }],
         },
       ]);
 
@@ -242,7 +260,7 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
       // ── 5. Notes + VAT disclaimer ──
       const showVatDisclaimer = !!data.taxRate && data.taxRate > 0;
       y = ensureSpace(doc, y, 120);
-      y = drawNotesAndDisclaimer(doc, y, INVOICE_NOTES, showVatDisclaimer);
+      y = drawNotesAndDisclaimer(doc, y, [...INVOICE_NOTES, ...(data.extraNotes ?? [])], showVatDisclaimer);
 
       // ── 6a. Payment received (only when paid) ──
       if (isPaid && (data.paidAt || data.cardLast4 || data.paymentMethodType)) {

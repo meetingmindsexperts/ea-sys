@@ -68,6 +68,9 @@ export async function GET() {
         ticketType: { select: { id: true, name: true, price: true, currency: true } },
         pricingTier: { select: { id: true, name: true, price: true, currency: true } },
         promoCode: { select: { code: true } },
+        // Group registration: the payer covering this member — drives the
+        // portal's "covered by {company}" note instead of Pay Now (review H1).
+        group: { select: { billingAccount: { select: { name: true } } } },
         payments: {
           select: { id: true, amount: true, currency: true, status: true, receiptUrl: true, createdAt: true },
           orderBy: { createdAt: "desc" },

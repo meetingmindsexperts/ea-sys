@@ -60,6 +60,9 @@ interface Registration {
   status: string;
   paymentStatus: string;
   qrCode: string | null;
+  /** Group-registration membership: the company payer covers the fee. */
+  groupId?: string | null;
+  group?: { billingAccount: { name: string } } | null;
   createdAt: string;
   event: {
     id: string;
@@ -434,8 +437,11 @@ export default function EventMyRegistrationPage() {
               const isSponsored = reg.paymentStatus === "INCLUSIVE";
               const isRefunded = reg.paymentStatus === "REFUNDED";
               const isConfirmed = reg.status === "CONFIRMED";
+              // Group member: the company pays via the consolidated invoice —
+              // never show Pay Now (mirrors the checkout COVERED_BY_GROUP gate).
+              const isGroupCovered = !!reg.groupId;
               const showPayment =
-                !isPaid && !isComplimentary && !isSponsored && !isRefunded && reg.status !== "CANCELLED";
+                !isPaid && !isComplimentary && !isSponsored && !isRefunded && !isGroupCovered && reg.status !== "CANCELLED";
               // A promo discounting to net 0 hides the payment block, but the
               // reg is still OUTSTANDING (paymentStatus stays UNPAID) — keep
               // the Remove control reachable so the registrant can undo a
@@ -467,14 +473,16 @@ export default function EventMyRegistrationPage() {
 
                   <CardContent className="p-6 space-y-6">
                     {/* Confirmation / Payment */}
-                    {(isConfirmed || isPaid || isSponsored || isRefunded) && !showPayment && (
+                    {(isConfirmed || isPaid || isSponsored || isRefunded || isGroupCovered) && !showPayment && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
                           <div>
                             <p className="font-semibold text-green-800">Registration Confirmed</p>
                             <p className="text-sm text-green-700">
-                              {isSponsored
+                              {isGroupCovered && !isPaid
+                                ? `Part of a group registration — the fee is billed to ${reg.group?.billingAccount.name ?? "your company"}. No payment is due from you.`
+                                : isSponsored
                                 ? "Sponsored registration — no payment required."
                                 : isRefunded
                                   ? "This registration's payment was refunded. Contact the organizer if you have questions."

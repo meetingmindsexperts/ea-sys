@@ -350,6 +350,11 @@ export async function GET(req: Request, { params }: RouteParams) {
           billingAccount: {
             select: { id: true, name: true },
           },
+          // Group-registration membership — powers the list "Group" badge.
+          // Coordinator name/email are not sensitive (organizer surface).
+          group: {
+            select: { id: true, coordinatorName: true },
+          },
           // Applied promo code — powers the list detail-sheet seed + the CSV
           // "Promo Code" column. Not in FINANCIAL_KEYS (product decision), so
           // it is NOT redacted; the amounts alongside it are.

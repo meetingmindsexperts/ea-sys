@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { readGroupRegistrationSettings } from "@/lib/group-registration-settings";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
 interface RouteParams {
@@ -219,6 +220,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       sessionProposalSettings: {
         sessionProposalDeadline: settings.sessionProposalDeadline || null,
       },
+      // Group registration (link-only page at /e/[slug]/group/register): the
+      // page needs enablement + the organizer's member bounds. Parsed +
+      // clamped server-side; disabled events expose the disabled default.
+      groupRegistration: readGroupRegistrationSettings(event.settings),
       agendaPublished: settings.agendaPublished === true || settings.programmePublished === true,
       // Master registration switch (Settings → Registration). Default OPEN when
       // the field is absent so existing events aren't accidentally closed.

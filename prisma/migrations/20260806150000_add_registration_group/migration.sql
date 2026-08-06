@@ -101,3 +101,22 @@ DO $$ BEGIN
     FOREIGN KEY ("groupId") REFERENCES "RegistrationGroup"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- 6) The invoice/payment anchor XOR at the DB level (group review L3): an
+--    invoice/payment must anchor to EXACTLY one of registration/group — the
+--    app enforces it, this makes a drifted writer impossible. All existing
+--    rows satisfy it (registrationId set, groupId null). NOT VALID + VALIDATE
+--    keeps the lock window minimal on the live table.
+DO $$ BEGIN
+  ALTER TABLE "Invoice"
+    ADD CONSTRAINT "Invoice_anchor_xor_check"
+    CHECK (("registrationId" IS NULL) <> ("groupId" IS NULL)) NOT VALID;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+ALTER TABLE "Invoice" VALIDATE CONSTRAINT "Invoice_anchor_xor_check";
+
+DO $$ BEGIN
+  ALTER TABLE "Payment"
+    ADD CONSTRAINT "Payment_anchor_xor_check"
+    CHECK (("registrationId" IS NULL) <> ("groupId" IS NULL)) NOT VALID;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+ALTER TABLE "Payment" VALIDATE CONSTRAINT "Payment_anchor_xor_check";

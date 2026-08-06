@@ -40,6 +40,7 @@ import {
 } from "./survey/share-link";
 import {
   CANCELLED_EXCLUDED_EMAIL_TYPES,
+  excludesGroupMembers,
   excludesCancelledByDefault,
 } from "./bulk-email-audience";
 import { loadCertTemplate, type LoadedCertTemplate } from "./certificates/bundle";
@@ -1073,6 +1074,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
         ...(excludesCancelledByDefault(emailType, status)
           ? { status: { not: "CANCELLED" as const } }
           : {}),
+        // Group members are never dunned individually (review H2) — the payer
+        // owes via the consolidated invoice. Shared predicate with the counts.
+        ...(excludesGroupMembers(emailType) ? { groupId: null } : {}),
         ...(paymentStatuses.length === 1
           ? { paymentStatus: paymentStatuses[0] }
           : paymentStatuses.length > 1

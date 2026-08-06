@@ -81,6 +81,10 @@ SWEPT_ROUTE_DIRS=(
 # nested under src/app/api/events, where sweeping the dir would wrongly demand a
 # wrap on every unrelated event route.
 SWEPT_ROUTE_FILES=(
+  # Group registration — born-compliant domain (Aug 6, 2026): the public
+  # group-register POST wraps its post-event-resolution body in runWithTenant
+  # (resource org). The service's tx uses tenantTransaction.
+  "src/app/api/public/events/[slug]/group-register/route.ts"                  # RegistrationGroup (Aug 6, 2026)
   "src/app/api/events/[eventId]/billing-accounts/route.ts"                    # BillingAccount (July 24, 2026)
   "src/app/api/events/[eventId]/billing-accounts/[billingAccountId]/route.ts" # BillingAccount (July 24, 2026)
   # Invoice sweep — the event-nested invoice/quote STAFF surface (July 27, 2026).

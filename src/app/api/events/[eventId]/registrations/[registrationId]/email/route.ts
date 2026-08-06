@@ -123,6 +123,20 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const { type, templateSlug, customSubject, customMessage, daysUntilEvent } = validated.data;
 
+    // Group members are never dunned individually (review H2): their fee is
+    // owed by the company on the consolidated invoice — refuse a single-send
+    // payment reminder the same way the bulk audience excludes them.
+    if (type === "payment-reminder" && registration.groupId) {
+      apiLogger.warn({ msg: "registration-email:group-member-payment-reminder-refused", registrationId, eventId });
+      return NextResponse.json(
+        {
+          error: "This registration is part of a group — the company is billed via the consolidated group invoice. Chase the payer, not the member.",
+          code: "MEMBER_OF_GROUP",
+        },
+        { status: 400 },
+      );
+    }
+
     // Built-in "Registration Confirmation" → delegate to the single source of
     // truth so the payment-pending block AND the quote PDF match the public /
     // registrant-resend sends. The generic template path below (used by

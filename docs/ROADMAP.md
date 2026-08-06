@@ -212,6 +212,51 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Group Registration Phase 1 review — deferred findings (Aug 6, 2026)
+
+The pre-push adversarial review returned 1 BLOCKER / 4 HIGH / 9 MED / 10 LOW.
+**Shipped in-band with Phase 1:** B1 (invoice export 500 on group invoices),
+H1–H4 (coordinator double-pay gate `COVERED_BY_GROUP` on checkout + portal;
+dunning exclusion via `excludesGroupMembers` incl. single-send `MEMBER_OF_GROUP`;
+double-submit advisory lock `group-register:{eventId}:{coordinatorEmail}`;
+member-cancel drift → admin notify at all 4 cancel/delete choke points + the
+invoice PDF drift note), M1 (group send routing on the send route + MCP), M2
+(event invoices tab payer bill-to + search), M3 (MIXED_CURRENCY reject), M5
+(tx timeout 30s), M6 (`GroupMemberInvoiceError` on individual invoices for
+members), M8 (150 members/hr/IP email-amplification budget), M9
+(case-insensitive dup check), L1/L2/L3(DB XOR CHECK)/L5/L6/L7/L8/L9.
+**Deferred:**
+
+- **M4 — OWNER RULING NEEDED: should public group registrations consume
+  pricing-TIER inventory?** Today a group member is PRICED at the live tier
+  (Early Bird) and stamps `pricingTierId`, but the seat claim lands on the
+  TICKET-TYPE counter only (`seatCounter` routes only PUBLIC_REGISTER+tier
+  rows to the tier counter). Consequence: a 20-seat Early Bird tier can be
+  overrun by groups at the Early Bird price, and the tier's public sell-out
+  never advances. The admin manual-add path documents the same behavior as a
+  deliberate courtesy-seat decision — but this is an unauthenticated public
+  door, so it deserves its own ruling: (a) claim tier seats for tier-priced
+  group members (route `seatCounter` for GROUP_REGISTER+tier accordingly, incl.
+  the release paths), or (b) accept + document as deliberate.
+- **M7 — group-register credential door bypasses login-throttle + Sign-in
+  Activity.** The bcrypt compare uses only the generic rate limiter (which
+  charges successes) and records no `LoginEvent`. Same class as the
+  pre-existing abstract-start door — fix BOTH together: wire `isLoginBlocked`/
+  `recordLoginFailure`/`clearLoginFailures` + `recordLoginEvent(surface)`
+  around each public credential door.
+- **L4 — tenancy-harness assertions for RegistrationGroup.** The policy file
+  shipped (`prisma/rls/registrationgroup.sql`) but the standard N-assertion
+  `tests/tenancy/*-rls.test.ts` + seed fixtures haven't — add on the next
+  harness run (needs the docker tenancy profile).
+- **L10 — account-existence oracle in the 401 message** ("an account with this
+  email already exists") — consistent with the existing check-email /
+  abstract-start posture; revisit only if that posture changes globally.
+- **Group deletion is unbuilt and must stay guarded:** the DB shape
+  Cascade-deletes the consolidated invoice with the group while SetNull-ing
+  members (they survive, still UNPAID). No UI/route deletes groups in Phase 1;
+  before Phase 3 adds any, decide the delete semantics (likely: refuse while a
+  non-cancelled invoice exists).
+
 ### Warning-triage follow-ups (Aug 6, 2026 — the requireOrgId GET regression round)
 
 Context: the 48h warning triage found the July 24 `requireOrgId` sweep (`d4f31d42`)

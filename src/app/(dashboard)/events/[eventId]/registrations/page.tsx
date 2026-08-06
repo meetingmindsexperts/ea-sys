@@ -71,7 +71,7 @@ import { RegistrationDetailSheet } from "./registration-detail-sheet";
 import { ImportContactsButton } from "@/components/contacts/import-contacts-button";
 import { CSVImportButton } from "@/components/import/csv-import-dialog";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
-import { excludesCancelledByDefault } from "@/lib/bulk-email-audience";
+import { excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
 import {
   Dialog,
@@ -257,6 +257,9 @@ export default function RegistrationsPage() {
       // Same rule the server applies to build the audience — imported, not
       // restated, so this count cannot drift from the actual send.
       if (excludesCancelledByDefault(f.emailType, f.status) && r.status === "CANCELLED")
+        return false;
+      // Group members are never dunned individually (H2) — count matches send.
+      if (excludesGroupMembers(f.emailType) && r.group)
         return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;
@@ -719,7 +722,18 @@ export default function RegistrationsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{displayRegistrationType({ ticketTypeName: registration.ticketType?.name, isFaculty: registration.ticketType?.isFaculty, attendeeRegistrationType: registration.attendee.registrationType })}</Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline">{displayRegistrationType({ ticketTypeName: registration.ticketType?.name, isFaculty: registration.ticketType?.isFaculty, attendeeRegistrationType: registration.attendee.registrationType })}</Badge>
+                        {registration.group && (
+                          <Badge
+                            variant="outline"
+                            className="bg-violet-50 text-violet-800 border-violet-200"
+                            title={`Group registration — coordinator ${registration.group.coordinatorName}`}
+                          >
+                            Group
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {registration.pricingTier?.name ? (

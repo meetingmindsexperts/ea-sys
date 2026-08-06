@@ -124,6 +124,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
+    // Group-registration gate (review H1): a group member's fee is owed by the
+    // COMPANY via the consolidated invoice — an individual card payment here
+    // would double-collect (the webhook would also mint an individual PAID
+    // invoice conflicting with the group one). Mirrors the INCLUSIVE gate.
+    if (registration.groupId) {
+      apiLogger.warn({ msg: "Checkout attempted for a group-covered registration", registrationId });
+      return NextResponse.json(
+        {
+          error: "This registration is part of a group registration — the fee is billed to the company on the consolidated invoice. No individual payment is due.",
+          code: "COVERED_BY_GROUP",
+        },
+        { status: 400 },
+      );
+    }
+
     // Calculate tax from event settings
     const taxRate = Number(registration.event.taxRate || 0);
     const taxLabel = registration.event.taxLabel || "VAT";

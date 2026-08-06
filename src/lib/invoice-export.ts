@@ -26,6 +26,14 @@ export const INVOICE_EXPORT_SELECT = {
   total: true,
   currency: true,
   event: { select: { name: true, city: true } },
+  // Group invoices bill the payer (registration is null on them).
+  group: {
+    select: {
+      coordinatorName: true,
+      coordinatorEmail: true,
+      billingAccount: { select: { name: true, email: true, address: true, city: true, country: true } },
+    },
+  },
   registration: {
     select: {
       billingAddress: true,
@@ -60,6 +68,16 @@ export interface InvoiceExportRow {
   total: Prisma.Decimal | number;
   currency: string;
   event: { name: string; city: string | null };
+  /** Group-registration (Aug 2026): a consolidated group invoice has NO
+   * registration — bill-to comes from `group` instead. The export routes'
+   * `as unknown as` casts hid this from the compiler once, breaking the
+   * export the day the first group registered (review B1) — keep this
+   * interface honest about nullability. */
+  group?: {
+    coordinatorName: string;
+    coordinatorEmail: string;
+    billingAccount: { name: string; email: string | null; address: string | null; city: string | null; country: string | null };
+  } | null;
   registration: {
     billingAddress: string | null;
     billingCity: string | null;
@@ -72,6 +90,20 @@ export interface InvoiceExportRow {
       title: string | null; firstName: string; lastName: string; email: string;
       city: string | null; state: string | null; zipCode: string | null; country: string | null;
     };
+  } | null;
+}
+
+/** Bill-to name + email for a row — payer for group invoices, attendee else. */
+export function exportBillTo(inv: InvoiceExportRow): { name: string; email: string } {
+  if (inv.registration) {
+    return {
+      name: `${inv.registration.attendee.firstName} ${inv.registration.attendee.lastName}`.trim(),
+      email: inv.registration.attendee.email,
+    };
+  }
+  return {
+    name: inv.group?.billingAccount.name ?? "—",
+    email: inv.group?.billingAccount.email ?? inv.group?.coordinatorEmail ?? "",
   };
 }
 
@@ -83,6 +115,7 @@ export interface InvoiceExportRow {
  * line since the template has a single BillAddrLine1 column.
  */
 export function billToAddressLine(r: InvoiceExportRow["registration"]): string {
+  if (!r) return "";
   const billing = [r.billingAddress, r.billingCity, r.billingState, r.billingZipCode, r.billingCountry].filter(Boolean);
   if (billing.length) return billing.join(", ");
   const a = r.attendee;
@@ -164,8 +197,8 @@ export function buildInvoiceCsv(invoices: InvoiceExportRow[]): string {
     const sign = inv.type === "CREDIT_NOTE" ? -1 : 1;
     return [
       inv.invoiceNumber, inv.type, inv.status, inv.event.name,
-      `${inv.registration.attendee.firstName} ${inv.registration.attendee.lastName}`.trim(),
-      inv.registration.attendee.email,
+      exportBillTo(inv).name,
+      exportBillTo(inv).email,
       ymd(inv.issueDate), ymd(inv.dueDate), ymd(inv.paidDate),
       (sign * Number(inv.subtotal)).toFixed(2), (sign * Number(inv.discountAmount)).toFixed(2),
       (sign * Number(inv.taxAmount)).toFixed(2), (sign * Number(inv.total)).toFixed(2), inv.currency,
@@ -192,8 +225,10 @@ export function buildInvoiceQuickBooksCsv(invoices: InvoiceExportRow[]): string 
     "LineAmount", "LineTaxCode", "Currency",
   ];
   const rows = invoices.map((inv) => {
-    const att = inv.registration.attendee;
-    const customer = `${att.title ? att.title + " " : ""}${att.firstName} ${att.lastName}`.trim();
+    const att = inv.registration?.attendee;
+    const customer = att
+      ? `${att.title ? att.title + " " : ""}${att.firstName} ${att.lastName}`.trim()
+      : exportBillTo(inv).name;
     const taxed = inv.taxRate != null && Number(inv.taxRate) > 0;
     // Credit notes → negative amounts so QuickBooks treats the line as a credit
     // (money out), not another positive invoice (review L5).
@@ -202,7 +237,9 @@ export function buildInvoiceQuickBooksCsv(invoices: InvoiceExportRow[]): string 
       inv.invoiceNumber,                                   // RefNumber
       qbDate(inv.issueDate),                               // TxnDate
       customer,                                            // Customer
-      billToAddressLine(inv.registration),                 // BillAddrLine1 (billing addr, else attendee location)
+      inv.registration
+        ? billToAddressLine(inv.registration)
+        : [inv.group?.billingAccount.address, inv.group?.billingAccount.city, inv.group?.billingAccount.country].filter(Boolean).join(", "), // BillAddrLine1 (payer address for group invoices)
       "Due on receipt",                                    // SalesTerm
       inv.event.city ?? "",                                // Location
       inv.event.name,                                      // LineClass (no prefix)
@@ -212,8 +249,9 @@ export function buildInvoiceQuickBooksCsv(invoices: InvoiceExportRow[]): string 
       // a distinct column in the plain reconciliation CSV.
       (sign * Math.max(0, Number(inv.subtotal) - Number(inv.discountAmount))).toFixed(2), // LineUnitPrice (net of discount; negative for credit notes)
       "TaxExcluded",                                       // AmountsIncl
-      [inv.registration.ticketType?.name, inv.registration.pricingTier?.name]
-        .filter(Boolean).join(" - ") || inv.type,          // LineDesc (ticket type + pricing tier)
+      (inv.registration
+        ? [inv.registration.ticketType?.name, inv.registration.pricingTier?.name].filter(Boolean).join(" - ")
+        : "Group Registration") || inv.type,               // LineDesc (type+tier; group invoices are consolidated)
       "",                                                  // LineItem (blank — set from your QB item list)
       1,                                                   // LineQty
       (sign * Number(inv.total)).toFixed(2),               // LineAmount (gross; negative for credit notes)

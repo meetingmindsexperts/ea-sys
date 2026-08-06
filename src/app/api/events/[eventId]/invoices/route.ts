@@ -5,7 +5,7 @@ import { denyReviewer, denyFinance } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { createInvoice } from "@/lib/invoice-service";
+import { createInvoice , GroupMemberInvoiceError } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import { z } from "zod";
 
@@ -58,6 +58,9 @@ export async function GET(req: Request, { params }: RouteParams) {
             { registration: { attendee: { email: { contains: search, mode: "insensitive" as const } } } },
             { registration: { attendee: { firstName: { contains: search, mode: "insensitive" as const } } } },
             { registration: { attendee: { lastName: { contains: search, mode: "insensitive" as const } } } },
+            // Group invoices: searchable by payer / coordinator (review M2).
+            { group: { billingAccount: { name: { contains: search, mode: "insensitive" as const } } } },
+            { group: { coordinatorName: { contains: search, mode: "insensitive" as const } } },
           ],
         }),
       },
@@ -66,6 +69,14 @@ export async function GET(req: Request, { params }: RouteParams) {
           select: {
             id: true,
             attendee: { select: { firstName: true, lastName: true, email: true } },
+          },
+        },
+        // Group invoices bill the payer (registration is null on them).
+        group: {
+          select: {
+            coordinatorName: true,
+            coordinatorEmail: true,
+            billingAccount: { select: { name: true, email: true } },
           },
         },
       },
@@ -143,6 +154,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json(invoice, { status: 201 });
     });
   } catch (error) {
+    if (error instanceof GroupMemberInvoiceError) {
+      apiLogger.warn({ err: error, msg: "invoices:group-member-refused" });
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 409 });
+    }
     apiLogger.error({ err: error, msg: "Error creating invoice" });
     return NextResponse.json({ error: "Failed to create invoice" }, { status: 500 });
   }

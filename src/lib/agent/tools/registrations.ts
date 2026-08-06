@@ -19,6 +19,7 @@ import { syncToContact } from "@/lib/contact-sync";
 import { checkInGate, executeCheckIn } from "@/lib/check-in";
 import { refreshEventStats } from "@/lib/event-stats";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
+import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
 import { notifyEventAdmins } from "@/lib/notifications";
 import {
   CONFIRMATION_EVENT_SELECT,
@@ -674,6 +675,7 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
     // Registrations that BECOME cancelled in this call — their open Stripe
     // checkout sessions are expired post-commit (review H2 sub-item).
     const cancelledIds: string[] = [];
+    const cancelledEventIds = new Set<string>();
     if (status) {
       const affected = await db.registration.findMany({
         where: {
@@ -714,7 +716,10 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
       for (const r of affected) {
         const becomingCancelled = status === "CANCELLED" && r.status !== "CANCELLED";
         const reactivating = status !== "CANCELLED" && r.status === "CANCELLED";
-        if (becomingCancelled) cancelledIds.push(r.id);
+        if (becomingCancelled) {
+          cancelledIds.push(r.id);
+          cancelledEventIds.add(r.eventId);
+        }
         // DATA-1: bulk cancel releases each consumed promo code's usage count;
         // reactivation re-claims it (H6 symmetry, same policy as
         // applyRegistrationTransition — without the re-claim, bulk cancel →
@@ -836,6 +841,14 @@ const bulkUpdateRegistrationStatus: ToolExecutor = async (input, ctx) => {
     // registration holds no open session.
     for (const id of cancelledIds) {
       void expireOpenCheckoutSessionOnCancel(id, "mcp-bulk");
+    }
+    // Group-invoice drift flag (group review H4) — ids may span sibling
+    // events; the helper only matches rows in the given event, so call it
+    // per distinct affected event. Fire-and-forget, never throws.
+    if (cancelledIds.length > 0) {
+      for (const evId of cancelledEventIds) {
+        void flagGroupInvoiceDriftForCancelledMembers(evId, cancelledIds);
+      }
     }
 
     return {

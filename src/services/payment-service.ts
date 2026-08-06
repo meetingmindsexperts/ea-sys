@@ -7,6 +7,7 @@ import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from
 import { createCreditNote, sendInvoiceEmail, CreditNoteAmountError } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
 import { applyRegistrationTransition } from "@/lib/registration-seat-db";
+import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { findStripeRefundForAttempt } from "@/lib/refund-reconciliation";
 
@@ -827,6 +828,10 @@ export async function cancelRegistration(input: CancelRegistrationInput): Promis
     }
 
     refreshEventStats(eventId);
+
+    // Group-invoice drift flag (group review H4): cancelling a group member
+    // leaves the consolidated invoice billing for them. Fire-and-forget.
+    void flagGroupInvoiceDriftForCancelledMembers(eventId, [registrationId]);
 
     // Kill any still-open Stripe payment tab (review H2 sub-item). Fire-and-
     // forget — the helper never throws.

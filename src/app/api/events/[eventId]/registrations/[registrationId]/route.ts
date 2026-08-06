@@ -3,6 +3,7 @@ import { z } from "zod";
 import { RegistrationStatus, AttendanceMode } from "@prisma/client";
 import { holdsSeat, seatCounter } from "@/lib/registration-seat";
 import { releaseEventSeats, releasePromoUsage, releaseSeat } from "@/lib/registration-seat-db";
+import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
 import { releaseRoomForDeletedPerson } from "@/lib/accommodation-rooms";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -583,6 +584,10 @@ export async function DELETE(req: Request, { params }: RouteParams) {
         { status: 409 },
       );
     }
+
+    // Group-invoice drift flag (group review H4) — awaited BEFORE the delete
+    // so the helper can still read the row's group linkage; never throws.
+    await flagGroupInvoiceDriftForCancelledMembers(eventId, [registrationId]);
 
     // Wrap soldCount decrement + delete in a transaction
     await tenantTransaction(async (tx) => {

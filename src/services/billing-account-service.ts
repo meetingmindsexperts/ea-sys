@@ -46,8 +46,10 @@ interface BillingAccountFields {
 
 export interface CreateBillingAccountInput extends BillingAccountFields {
   organizationId: string;
-  userId: string;
-  source: "rest" | "mcp" | "api";
+  /** Acting user for the audit row — null on public flows (group register)
+   * where the actor may have no account (AuditLog.userId is nullable). */
+  userId: string | null;
+  source: "rest" | "mcp" | "api" | "public";
   requestIp?: string;
 }
 

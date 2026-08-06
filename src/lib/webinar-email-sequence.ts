@@ -269,7 +269,11 @@ export async function rescheduleWebinarSequenceForEvent(
   opts?: { resurrectCancelled?: boolean },
 ): Promise<EnqueueSequenceResult & { cleared: number }> {
   const out = await tenantTransaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`webinar-seq:${eventId}`}))`;
+    // ::text cast — pg_advisory_xact_lock returns `void`, which Prisma 6.19's
+    // $queryRaw cannot deserialize; the bare form THREW here, making every
+    // retime's email-reschedule report "failed" (found via the group-register
+    // live smoke, Aug 6 2026 — same lock shape).
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`webinar-seq:${eventId}`}))::text`;
     const cleared = await clearPendingWebinarSequence(eventId, {
       resurrectCancelled: opts?.resurrectCancelled,
       tx,

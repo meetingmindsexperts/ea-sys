@@ -7,6 +7,7 @@ import { generateReceiptPDF, type ReceiptPDFData } from "@/lib/receipt-pdf";
 import { generateCreditNotePDF, type CreditNotePDFData } from "@/lib/credit-note-pdf";
 import { sendEmail, getEventTemplate, renderAndWrap } from "@/lib/email";
 import { getTitleLabel, deriveEventCode } from "@/lib/utils";
+import { escapeHtml } from "@/lib/html";
 import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import {
   sendPaymentConfirmationEmail,
@@ -194,6 +195,18 @@ function reconcileComponentsToCaptured(
 
 // ── Create Invoice ──────────────────────────────────────────────────────────
 
+/** Review M6 (Aug 2026): a group member may not receive an individual
+ * invoice — their fee lives on the consolidated group invoice. */
+export class GroupMemberInvoiceError extends Error {
+  code = "MEMBER_OF_GROUP" as const;
+  constructor(registrationId: string) {
+    super(
+      `Registration ${registrationId} is part of a group registration — its fee is billed on the consolidated group invoice. Individual invoices are not allowed for group members.`,
+    );
+    this.name = "GroupMemberInvoiceError";
+  }
+}
+
 export async function createInvoice(params: {
   registrationId: string;
   eventId: string;
@@ -210,6 +223,13 @@ export async function createInvoice(params: {
     where: { id: registrationId, eventId, event: { organizationId } },
     include: registrationInclude,
   });
+
+  // Group members are billed ONCE, on the consolidated group invoice (review
+  // M6) — an individual invoice for the same fee double-bills the person AND
+  // the payer. Typed error so REST/MCP callers map it to a clear 409.
+  if (registration.groupId) {
+    throw new GroupMemberInvoiceError(registrationId);
+  }
 
   const { price, currency, discount, discountCode, taxRate, taxAmount, total } = calcInvoicePricing(registration);
   const eventCode = await resolveEventCode(
@@ -946,6 +966,12 @@ export async function generatePDFForInvoice(invoiceId: string): Promise<Buffer> 
     },
   });
 
+  // Group-registration branch (Aug 2026): a consolidated group invoice has no
+  // registration — its PDF derives line items from the group's members.
+  if (!invoice.registration && invoice.groupId) {
+    return generateInvoicePDF(await buildGroupInvoicePDFData(invoiceId));
+  }
+
   return buildPDFFromLoadedInvoice(invoice);
 }
 
@@ -1065,14 +1091,16 @@ export async function sendInvoiceEmail(invoiceId: string): Promise<void> {
 }
 
 function buildInvoiceEmailHtml(typeLabel: string, invoiceNumber: string, eventName: string, firstName: string): string {
+  // escapeHtml on the dynamic strings (group review L1): the group sender
+  // feeds a PUBLIC-form-supplied coordinator name into this fallback.
   return `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h2 style="color: #1e293b; margin-bottom: 8px;">${typeLabel} ${invoiceNumber}</h2>
+      <h2 style="color: #1e293b; margin-bottom: 8px;">${escapeHtml(typeLabel)} ${escapeHtml(invoiceNumber)}</h2>
       <p style="color: #475569; font-size: 14px;">
-        Dear ${firstName},
+        Dear ${escapeHtml(firstName)},
       </p>
       <p style="color: #475569; font-size: 14px;">
-        Please find your ${typeLabel.toLowerCase()} for <strong>${eventName}</strong> attached to this email as a PDF.
+        Please find your ${escapeHtml(typeLabel.toLowerCase())} for <strong>${escapeHtml(eventName)}</strong> attached to this email as a PDF.
       </p>
       <p style="color: #475569; font-size: 14px;">
         If you have any questions regarding this document, please do not hesitate to contact us.
@@ -1082,6 +1110,342 @@ function buildInvoiceEmailHtml(typeLabel: string, invoiceNumber: string, eventNa
       </p>
     </div>
   `;
+}
+
+// ── Group registration: consolidated invoice ────────────────────────────────
+// docs/GROUP_REGISTRATION_PLAN.md Phase 1. One INVOICE row anchored to the
+// RegistrationGroup (registrationId null); line items are DERIVED at render
+// time from the member registrations grouped by ticket type, exactly as
+// single invoices derive from theirs.
+
+const groupInclude = {
+  billingAccount: {
+    select: {
+      name: true, contactName: true, email: true, phone: true,
+      address: true, city: true, state: true, zipCode: true,
+      country: true, taxNumber: true,
+    },
+  },
+  registrations: {
+    where: { status: { not: "CANCELLED" as const } },
+    select: {
+      originalPrice: true,
+      ticketType: { select: { name: true, currency: true } },
+      pricingTier: { select: { name: true } },
+    },
+  },
+  event: {
+    select: {
+      name: true, code: true, startDate: true, venue: true, city: true,
+      taxRate: true, taxLabel: true, bankDetails: true, supportEmail: true,
+      emailFromAddress: true, emailFromName: true,
+      organizationId: true,
+      organization: {
+        select: {
+          name: true, primaryColor: true, logo: true,
+          companyName: true, companyAddress: true, companyCity: true,
+          companyState: true, companyZipCode: true, companyCountry: true,
+          companyPhone: true, companyEmail: true, taxId: true,
+        },
+      },
+    },
+  },
+} as const;
+
+/** Member rows → one line item per ticket type ("2 × Physician"). */
+export function buildGroupLineItems(
+  members: Array<{
+    originalPrice: unknown;
+    ticketType: { name: string } | null;
+    pricingTier: { name: string } | null;
+  }>,
+): Array<{ description: string; amount: number; quantity: number; unitPrice: number }> {
+  const byType = new Map<string, { quantity: number; amount: number; unitPrice: number }>();
+  for (const m of members) {
+    const price = Number(m.originalPrice ?? 0);
+    const label = m.pricingTier
+      ? `${m.ticketType?.name ?? "Registration"} - ${m.pricingTier.name}`
+      : (m.ticketType?.name ?? "Registration");
+    const cur = byType.get(label) ?? { quantity: 0, amount: 0, unitPrice: price };
+    cur.quantity += 1;
+    cur.amount = round2(cur.amount + price);
+    byType.set(label, cur);
+  }
+  return [...byType.entries()].map(([label, v]) => ({
+    description: `${v.quantity} × ${label}`,
+    amount: v.amount,
+    quantity: v.quantity,
+    unitPrice: v.unitPrice,
+  }));
+}
+
+/**
+ * Mint the consolidated invoice for a RegistrationGroup (status SENT,
+ * pay-later semantics). Totals are the financial snapshot frozen at creation:
+ * subtotal = Σ member `originalPrice`, event tax applied on top.
+ */
+export async function createGroupInvoice(params: {
+  groupId: string;
+  eventId: string;
+  organizationId: string;
+  dueDate?: Date;
+}): Promise<Invoice> {
+  const { groupId, eventId, organizationId, dueDate } = params;
+
+  const group = await db.registrationGroup.findFirstOrThrow({
+    where: { id: groupId, eventId, event: { organizationId } },
+    include: groupInclude,
+  });
+
+  const subtotal = round2(
+    group.registrations.reduce((sum, r) => sum + Number(r.originalPrice ?? 0), 0),
+  );
+  const taxRate = group.event.taxRate ? Number(group.event.taxRate) : null;
+  const taxAmount = taxRate ? round2(subtotal * (taxRate / 100)) : 0;
+  const total = round2(subtotal + taxAmount);
+  const currency = group.registrations[0]?.ticketType?.currency ?? "USD";
+
+  const eventCode = await resolveEventCode(
+    { id: eventId, code: group.event.code, name: group.event.name },
+    { registrationId: `group:${groupId}`, flow: "INVOICE" },
+  );
+
+  const invoice = await tenantTransaction(async (tx: Prisma.TransactionClient) => {
+    const { sequenceNumber, invoiceNumber } = await getNextInvoiceNumber(
+      tx, eventId, "INVOICE", eventCode,
+    );
+    return tx.invoice.create({
+      data: {
+        organizationId,
+        eventId,
+        registrationId: null,
+        groupId,
+        type: "INVOICE",
+        invoiceNumber,
+        sequenceNumber,
+        status: "SENT",
+        issueDate: new Date(),
+        dueDate: dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        subtotal,
+        discountAmount: 0,
+        taxRate,
+        taxLabel: group.event.taxLabel || "VAT",
+        taxAmount,
+        total,
+        currency,
+      },
+    });
+  });
+
+  apiLogger.info({
+    msg: "Group invoice created",
+    invoiceNumber: invoice.invoiceNumber,
+    groupId,
+    members: group.registrations.length,
+    total: Number(invoice.total),
+    currency,
+  });
+  return invoice;
+}
+
+/** Loaded group invoice → InvoicePDFData (payer bill-to + grouped lines). */
+async function buildGroupInvoicePDFData(invoiceId: string): Promise<InvoicePDFData> {
+  const invoice = await db.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    include: {
+      group: { include: groupInclude },
+      payment: {
+        select: {
+          cardBrand: true, cardLast4: true, paymentMethodType: true,
+          paidAt: true, stripePaymentId: true,
+        },
+      },
+    },
+  });
+  const group = invoice.group;
+  if (!group) {
+    throw new Error(`buildGroupInvoicePDFData: invoice ${invoiceId} has no group`);
+  }
+  const { event } = group;
+  const org = event.organization;
+  const payer = group.billingAccount;
+  // Review H4: line items derive from LIVE members while the totals row is
+  // the snapshot frozen at issue — after a member cancellation the two
+  // disagree. Render an explicit note so the payer/finance see the document
+  // is awaiting a credit note / reissue instead of silently mismatched.
+  const lineItems = buildGroupLineItems(group.registrations);
+  const derivedSum = round2(lineItems.reduce((sum, li) => sum + li.amount, 0));
+  const driftNote =
+    Math.abs(derivedSum - Number(invoice.subtotal)) > 0.005
+      ? "Note: one or more group members cancelled after this invoice was issued — the line items reflect current members while the totals were frozen at issue. Contact the organizer for a credit note or reissued invoice."
+      : null;
+
+  return {
+    invoiceNumber: invoice.invoiceNumber,
+    issueDate: invoice.issueDate,
+    dueDate: invoice.dueDate,
+    status: invoice.status,
+    isTaxInvoice: !!org.taxId,
+    orgName: org.name,
+    companyName: org.companyName,
+    companyAddress: org.companyAddress,
+    companyCity: org.companyCity,
+    companyState: org.companyState,
+    companyZipCode: org.companyZipCode,
+    companyCountry: org.companyCountry,
+    companyPhone: org.companyPhone,
+    companyEmail: org.companyEmail,
+    taxId: org.taxId,
+    primaryColor: org.primaryColor,
+    logoPath: org.logo,
+    // Bill-to = the payer; the coordinator rides the group meta rows.
+    firstName: group.coordinatorName,
+    lastName: "",
+    email: group.coordinatorEmail,
+    organization: null,
+    title: null,
+    jobTitle: null,
+    billingAddress: null,
+    billingCity: null,
+    billingState: null,
+    billingZipCode: null,
+    billingCountry: null,
+    taxNumber: null,
+    payer: {
+      name: payer.name,
+      contactName: payer.contactName,
+      email: payer.email,
+      phone: payer.phone,
+      address: payer.address,
+      city: payer.city,
+      state: payer.state,
+      zipCode: payer.zipCode,
+      country: payer.country,
+      taxNumber: payer.taxNumber,
+      reference: group.payerReference,
+    },
+    groupMeta: {
+      coordinatorName: group.coordinatorName,
+      memberCount: group.registrations.length,
+    },
+    groupLineItems: lineItems,
+    extraNotes: driftNote ? [driftNote] : undefined,
+    eventName: event.name,
+    eventDate: event.startDate,
+    eventVenue: event.venue,
+    eventCity: event.city,
+    registrationType: "Group Registration",
+    pricingTier: null,
+    price: Number(invoice.subtotal),
+    taxAmount: Number(invoice.taxAmount),
+    total: Number(invoice.total),
+    currency: invoice.currency,
+    taxRate: invoice.taxRate ? Number(invoice.taxRate) : null,
+    taxLabel: invoice.taxLabel || "VAT",
+    discountCode: null,
+    discountAmount: 0,
+    bankDetails: event.bankDetails,
+    supportEmail: event.supportEmail,
+    paymentMethodType: invoice.payment?.paymentMethodType ?? null,
+    cardBrand: invoice.payment?.cardBrand ?? null,
+    cardLast4: invoice.payment?.cardLast4 ?? null,
+    paidAt: invoice.payment?.paidAt ?? invoice.paidDate ?? null,
+    paymentReference: invoice.payment?.stripePaymentId ?? invoice.paymentReference ?? null,
+  };
+}
+
+/**
+ * Email the consolidated group invoice to the payer + the coordinator
+ * (deduped). Same editable "document-delivery" template + branding wrapper as
+ * the per-registration sender; the group's coordinator is the greeting name.
+ */
+export async function sendGroupInvoiceEmail(invoiceId: string): Promise<void> {
+  const invoice = await db.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    include: { group: { include: groupInclude } },
+  });
+  const group = invoice.group;
+  if (!group) {
+    throw new Error(`sendGroupInvoiceEmail: invoice ${invoiceId} has no group`);
+  }
+  const { event } = group;
+  const pdfBuffer = await generateInvoicePDF(await buildGroupInvoicePDFData(invoiceId));
+
+  const typeLabel = "Invoice";
+  const coordinatorFirstName = group.coordinatorName.split(/\s+/)[0] || group.coordinatorName;
+  const template = await getEventTemplate(invoice.eventId, "document-delivery");
+  let subject = `${typeLabel} ${invoice.invoiceNumber} — ${event.name}`;
+  let htmlContent = buildInvoiceEmailHtml(typeLabel, invoice.invoiceNumber, event.name, coordinatorFirstName);
+  let textContent: string | undefined;
+  if (template) {
+    const rendered = renderAndWrap(
+      template,
+      {
+        firstName: coordinatorFirstName,
+        lastName: "",
+        documentType: typeLabel,
+        documentTypeLower: typeLabel.toLowerCase(),
+        documentNumber: invoice.invoiceNumber,
+        eventName: event.name,
+      },
+      template.branding,
+    );
+    subject = rendered.subject;
+    htmlContent = rendered.htmlContent;
+    textContent = rendered.textContent;
+  } else {
+    apiLogger.error({ msg: "group-invoice-email:template-load-failed — falling back to hardcoded body", invoiceId, slug: "document-delivery" });
+  }
+
+  // Payer contact + coordinator, deduped case-insensitively.
+  const recipients = new Map<string, { email: string; name: string }>();
+  recipients.set(group.coordinatorEmail.toLowerCase(), {
+    email: group.coordinatorEmail,
+    name: group.coordinatorName,
+  });
+  if (group.billingAccount.email) {
+    recipients.set(group.billingAccount.email.toLowerCase(), {
+      email: group.billingAccount.email,
+      name: group.billingAccount.contactName || group.billingAccount.name,
+    });
+  }
+
+  await sendEmail({
+    to: [...recipients.values()],
+    bcc: INVOICE_ACCOUNTING_BCC,
+    subject,
+    htmlContent,
+    textContent,
+    from: event.emailFromAddress
+      ? { email: event.emailFromAddress, name: event.emailFromName || event.name }
+      : undefined,
+    attachments: [{
+      name: `${invoice.invoiceNumber}.pdf`,
+      content: pdfBuffer.toString("base64"),
+      contentType: "application/pdf",
+    }],
+    emailType: "invoice_group",
+    stream: "transactional",
+    logContext: {
+      organizationId: invoice.organizationId,
+      eventId: invoice.eventId,
+      entityType: "OTHER",
+      entityId: invoice.groupId,
+      templateSlug: "document-delivery",
+    },
+  });
+
+  await db.invoice.update({
+    where: { id: invoiceId, organizationId: invoice.organizationId },
+    data: { sentAt: new Date(), sentTo: [...recipients.values()].map((r) => r.email).join(", ") },
+  });
+
+  apiLogger.info({
+    msg: "Group invoice email sent",
+    invoiceId,
+    invoiceNumber: invoice.invoiceNumber,
+    to: [...recipients.keys()],
+  });
 }
 
 // ── Combined post-payment documents email ────────────────────────────────────

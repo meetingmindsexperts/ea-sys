@@ -22,6 +22,7 @@ export const SYSTEM_TEMPLATE_SLUGS: ReadonlySet<string> = new Set([
   "event-reminder",
   "abstract-submission-confirmation",
   "session-proposal-confirmation",
+  "group-registration-confirmation",
   "session-proposal-welcome",
   "abstract-status-update",
   "submitter-welcome",

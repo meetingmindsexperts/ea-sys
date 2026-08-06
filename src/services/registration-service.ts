@@ -37,6 +37,7 @@ import { needsQrCode } from "@/lib/registration-seat";
 import { applyRegistrationTransition, claimEventSeats } from "@/lib/registration-seat-db";
 import { resolveRepricing } from "@/lib/registration-repricing";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
+import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
 import { computeTagDelta, syncRegistrationTagsToSpeakers } from "@/lib/person-tag-sync";
 // Leaf constants module (no agent machinery) — the admin-settable
 // paymentStatus policy (review H12) shared with the MCP boundary.
@@ -104,10 +105,14 @@ export function sendRegistrationConfirmationEmail(args: {
   ticketCurrency?: string | null;
   price: number;
   attendanceMode: AttendanceMode;
+  /** Group registration: payer covering this member — swaps the payment
+   * block for a "covered by" note + suppresses the quote PDF. */
+  coveredByGroupPayerName?: string | null;
   logKey: string;
 }): void {
   const { event, registration, attendee } = args;
   sendRegistrationConfirmation({
+    coveredByGroupPayerName: args.coveredByGroupPayerName ?? null,
     ...buildEventConfirmationFields(event),
     to: attendee.email,
     additionalEmail: attendee.additionalEmail ?? null,
@@ -1499,6 +1504,9 @@ export async function updateRegistration(
     // A cancel kills any still-open Stripe payment tab. Fire-and-forget.
     if (status === "CANCELLED" && existing.status !== "CANCELLED") {
       void expireOpenCheckoutSessionOnCancel(registrationId, `registration-update-${source}`);
+      // Group-invoice drift flag (group review H4): a cancelled group member
+      // leaves the consolidated invoice billing for them. Fire-and-forget.
+      void flagGroupInvoiceDriftForCancelledMembers(eventId, [registrationId]);
     }
 
     // Audit — full before/after snapshots (the Activity timeline derives its

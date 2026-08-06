@@ -79,12 +79,17 @@ const sendInvoiceExec: ToolExecutor = async (input, ctx) =>
 
     const existing = await db.invoice.findFirst({
       where: { id: invoiceId, event: { organizationId: ctx.organizationId } },
-      select: { id: true, eventId: true, invoiceNumber: true, status: true, registrationId: true },
+      select: { id: true, eventId: true, invoiceNumber: true, status: true, registrationId: true, groupId: true },
     });
     if (!existing) return { error: `Invoice ${invoiceId} not found or access denied` };
 
-    const { sendInvoiceEmail } = await import("@/lib/invoice-service");
-    await sendInvoiceEmail(invoiceId);
+    const { sendInvoiceEmail, sendGroupInvoiceEmail } = await import("@/lib/invoice-service");
+    if (existing.groupId) {
+      // Group invoices route to the payer + coordinator (group review M1).
+      await sendGroupInvoiceEmail(invoiceId);
+    } else {
+      await sendInvoiceEmail(invoiceId);
+    }
 
     db.auditLog.create({
       data: {

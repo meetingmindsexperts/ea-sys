@@ -420,6 +420,18 @@ export default function EventInvoicesPage() {
                               {inv.registration.attendee.email}
                             </div>
                           </div>
+                        ) : inv.group ? (
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate font-medium">{inv.group.billingAccount.name}</span>
+                              <Badge variant="outline" className="shrink-0 bg-violet-50 text-violet-800 border-violet-200">
+                                Group
+                              </Badge>
+                            </div>
+                            <div className="truncate text-xs text-muted-foreground">
+                              Coordinator: {inv.group.coordinatorName}
+                            </div>
+                          </div>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}

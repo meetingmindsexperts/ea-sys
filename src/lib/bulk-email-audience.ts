@@ -55,3 +55,19 @@ export function excludesCancelledByDefault(
   if (!(CANCELLED_EXCLUDED_EMAIL_TYPES as readonly string[]).includes(emailType)) return false;
   return !status || status === "all";
 }
+
+/**
+ * Should this send exclude GROUP-registration members? (Review H2, Aug 6 2026.)
+ *
+ * A group member's fee is owed by the COMPANY on the consolidated invoice —
+ * the members-are-never-dunned contract of the group feature. The
+ * payment-reminder audience must therefore never include a `groupId` row:
+ * "Chase Unpaid" would otherwise individually ask 50 group members to pay
+ * money their company already owes (each with a Pay Now link the checkout
+ * route refuses anyway). UNCONDITIONAL for payment-reminder — there is no
+ * legitimate individual dunning of a group member; the payer is chased via
+ * the group invoice.
+ */
+export function excludesGroupMembers(emailType: string | undefined): boolean {
+  return emailType === "payment-reminder";
+}

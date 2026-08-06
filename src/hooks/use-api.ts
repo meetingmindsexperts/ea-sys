@@ -1636,7 +1636,13 @@ export interface InvoiceListItem {
   registration?: {
     id: string;
     attendee: { firstName: string; lastName: string; email: string };
-  };
+  } | null;
+  /** Consolidated group invoice — bill-to is the payer (registration null). */
+  group?: {
+    coordinatorName: string;
+    coordinatorEmail: string;
+    billingAccount: { name: string; email: string | null };
+  } | null;
 }
 
 export function useInvoices(eventId: string, filters?: Record<string, string>) {

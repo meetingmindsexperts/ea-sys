@@ -61,7 +61,7 @@ import {
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 import { SESSION_ROLE_OPTIONS } from "@/lib/session-enums";
 import { BulkEmailDialog, type BulkEmailEffectiveFilters } from "@/components/bulk-email-dialog";
-import { excludesCancelledByDefault } from "@/lib/bulk-email-audience";
+import { excludesCancelledByDefault, excludesGroupMembers } from "@/lib/bulk-email-audience";
 import { ScheduledEmailsList } from "@/components/communications/scheduled-emails-list";
 import { EmailActivityCard } from "@/components/communications/email-activity-card";
 import { ReloadingSpinner } from "@/components/ui/reloading-spinner";
@@ -77,6 +77,8 @@ interface RegistrationItem {
   badgeType?: string | null;
   ticketType?: { id: string; name: string; isFaculty?: boolean };
   attendee?: { email?: string | null; tags?: string[] } | null;
+  /** Group-registration membership — excluded from dunning counts (H2). */
+  group?: { id: string } | null;
 }
 
 interface SpeakerItem {
@@ -412,6 +414,9 @@ export default function CommunicationsPage() {
       // Same rule the server applies to build the audience — imported, not
       // restated, so this count cannot drift from the actual send.
       if (excludesCancelledByDefault(f.emailType, f.status) && r.status === "CANCELLED")
+        return false;
+      // Group members are never dunned individually (H2) — count matches send.
+      if (excludesGroupMembers(f.emailType) && r.group)
         return false;
       if (payStatuses && !payStatuses.includes(r.paymentStatus)) return false;
       if (f.ticketTypeIds && f.ticketTypeIds.length > 0 && !(r.ticketType?.id && f.ticketTypeIds.includes(r.ticketType.id))) return false;

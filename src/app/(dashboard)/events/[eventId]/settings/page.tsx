@@ -118,6 +118,7 @@ interface Event {
     notifyOnAbstractSubmission?: boolean;
     agendaPublished?: boolean;
     programmePublished?: boolean; // backward compat
+    groupRegistration?: { enabled?: boolean; minMembers?: number; maxMembers?: number };
   };
 }
 
@@ -221,6 +222,15 @@ export default function EventSettingsPage() {
     agendaPublished: false,
   });
 
+  // Group registration (docs/GROUP_REGISTRATION_PLAN.md): link-only public
+  // flow; the organizer controls enablement + member bounds (hard ceiling 50
+  // enforced server-side).
+  const [groupSettings, setGroupSettings] = useState({
+    enabled: false,
+    minMembers: 2,
+    maxMembers: 10,
+  });
+
   const [abstractSettings, setAbstractSettings] = useState({
     allowAbstractSubmissions: true,
     abstractDeadline: "",
@@ -290,6 +300,13 @@ export default function EventSettingsPage() {
 
         setAgendaSettings({
           agendaPublished: settings.agendaPublished ?? settings.programmePublished ?? false,
+        });
+
+        const gr = settings.groupRegistration ?? {};
+        setGroupSettings({
+          enabled: gr.enabled === true,
+          minMembers: gr.minMembers ?? 2,
+          maxMembers: gr.maxMembers ?? 10,
         });
 
         setAbstractSettings({
@@ -430,6 +447,7 @@ export default function EventSettingsPage() {
             ...agendaSettings,
             ...abstractSettings,
             ...notificationSettings,
+            groupRegistration: groupSettings,
             abstractDeadline: abstractSettings.abstractDeadline
               ? new Date(abstractSettings.abstractDeadline).toISOString()
               : null,
@@ -986,6 +1004,90 @@ export default function EventSettingsPage() {
                   and faculty never count. Cannot be set below the current
                   attendee count.
                 </p>
+              </div>
+
+              <div className="space-y-3 border-t pt-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Group Registration</Label>
+                    <p className="text-sm text-muted-foreground">
+                      A company coordinator registers several people at once with
+                      one payer and one consolidated invoice. Link-only — copy
+                      the link below and send it to company reps (it is not
+                      shown on the public register page).
+                    </p>
+                  </div>
+                  <Switch
+                    checked={groupSettings.enabled}
+                    onCheckedChange={(checked) =>
+                      setGroupSettings({ ...groupSettings, enabled: checked })
+                    }
+                  />
+                </div>
+                {groupSettings.enabled && (
+                  <div className="space-y-3">
+                    <div className="flex gap-4">
+                      <div className="space-y-1">
+                        <Label htmlFor="groupMinMembers">Min members</Label>
+                        <Input
+                          id="groupMinMembers"
+                          type="number"
+                          min="1"
+                          max="50"
+                          className="w-28"
+                          value={groupSettings.minMembers}
+                          onChange={(e) =>
+                            setGroupSettings({
+                              ...groupSettings,
+                              minMembers: parseInt(e.target.value) || 1,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="groupMaxMembers">Max members</Label>
+                        <Input
+                          id="groupMaxMembers"
+                          type="number"
+                          min="1"
+                          max="50"
+                          className="w-28"
+                          value={groupSettings.maxMembers}
+                          onChange={(e) =>
+                            setGroupSettings({
+                              ...groupSettings,
+                              maxMembers: parseInt(e.target.value) || 1,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const url = `${window.location.origin}/e/${generalFormData.slug || eventId}/group/register`;
+                          navigator.clipboard
+                            .writeText(url)
+                            .then(() => toast.success("Group registration link copied"))
+                            .catch(() => toast.error("Couldn't copy — copy it manually: " + url));
+                        }}
+                      >
+                        Copy group registration link
+                      </Button>
+                      <span className="text-xs text-muted-foreground truncate">
+                        /e/{generalFormData.slug || "your-event-slug"}/group/register
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Hard ceiling: 50 members per group. Prices use whichever
+                      pricing tier is on sale at submission. Save settings to
+                      apply changes.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">

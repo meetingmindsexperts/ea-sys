@@ -167,6 +167,8 @@ export interface Registration {
   // "Charge to another account" — third-party payer. null = self-pay.
   // Orthogonal to paymentStatus (money still owed until the payer settles).
   billingAccountId: string | null;
+  /** Group-registration membership (null = individual registration). */
+  group?: { id: string; coordinatorName: string } | null;
   payerReference: string | null;
   attendeeIsGuarantor: boolean;
   billingAccount?: {

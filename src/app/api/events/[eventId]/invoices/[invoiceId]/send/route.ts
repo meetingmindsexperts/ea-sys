@@ -4,7 +4,7 @@ import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { sendInvoiceEmail } from "@/lib/invoice-service";
+import { sendInvoiceEmail, sendGroupInvoiceEmail } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
 
 interface RouteParams {
@@ -34,14 +34,21 @@ export async function POST(_req: Request, { params }: RouteParams) {
         // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
         event: buildEventAccessWhere(session.user),
       },
-      select: { id: true, invoiceNumber: true },
+      select: { id: true, invoiceNumber: true, groupId: true },
     });
     if (!invoice) {
       apiLogger.warn({ msg: "invoices:send:not-found-or-access-denied", eventId, userId: session.user.id, role: session.user.role });
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
 
-    await sendInvoiceEmail(invoiceId);
+    // Group invoices go to the payer + coordinator via the group sender —
+    // sendInvoiceEmail is per-registration and refuses them (group review M1:
+    // the Resend button used to 500 with no recovery path).
+    if (invoice.groupId) {
+      await sendGroupInvoiceEmail(invoiceId);
+    } else {
+      await sendInvoiceEmail(invoiceId);
+    }
 
     return NextResponse.json({ success: true, message: `Email sent for ${invoice.invoiceNumber}` });
     });

@@ -6,7 +6,18 @@
 > person (incl. role), sees a **cumulative payment**, and receives a **consolidated
 > single invoice** — all **linked to "Charge to another account"** (BillingAccount).
 >
-> Status: **PLANNED — not built.** This doc is the blueprint + decision record.
+> Status: **PHASE 1 BUILT (Aug 6, 2026)** — schema + group create + pay-later +
+> consolidated invoice + public flow + organizer enablement, live-verified on
+> the local DB end-to-end (browser + API: 2 groups, correct totals/tiers/seat
+> counters, invoice PDF emailed to payer+coordinator, member confirmations with
+> the covered-by note, contact-only coordinator). Phases 2 (card payment) /
+> 3 (My Group portal) / 4 (polish: organizer roll-up view, CSV group column)
+> remain per §7. Key Phase-1 files: `src/services/group-registration-service.ts`,
+> `src/lib/group-registration-settings.ts`, `createGroupInvoice` +
+> `sendGroupInvoiceEmail` in invoice-service, the
+> `group-registration-confirmation` system template,
+> `POST /api/public/events/[slug]/group-register`, `/e/[slug]/group/register`,
+> the Event Settings → Registration card, migration `20260806150000`.
 >
 > **Aug 6, 2026 refresh** (verified against the codebase; owner chose "refresh the
 > plan, hold the build"): all referenced helpers still exist under the same names

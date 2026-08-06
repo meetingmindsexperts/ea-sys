@@ -904,6 +904,9 @@ const DEFAULT_RAW_HTML_KEYS = new Set([
   "taxBlock",
   // Speaker email helper — see buildSpeakerEmailContext().
   "presentationDetails",
+  // Group-registration member table — our own markup, dynamic strings
+  // escaped inside the builder (group-registration-service).
+  "memberSummary",
   // Moderator run-sheet (sessions moderated + topic/speaker/time table) —
   // same helper, dynamic strings escaped inside the builder.
   "moderatorDetails",
@@ -1305,6 +1308,19 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "proposalFormat", description: "Proposed session format (e.g. Session, Workshop, Symposium) — blank if not set" },
     { key: "managementLink", description: "Login link to view the proposal" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
+  ],
+  "group-registration-confirmation": [
+    { key: "coordinatorName", description: "Group coordinator's full name" },
+    { key: "eventName", description: "Event name" },
+    { key: "eventDate", description: "Event date" },
+    { key: "eventVenue", description: "Event venue and city" },
+    { key: "payerName", description: "The company/payer covering the group" },
+    { key: "memberCount", description: "Number of group members" },
+    { key: "memberSummary", description: "Members table, HTML (auto-generated: name, email, registration type)" },
+    { key: "memberSummaryText", description: "Members list, plain text (for the text version of the email)" },
+    { key: "totalAmount", description: "Cumulative total incl. tax (e.g. USD 1250.00)" },
+    { key: "invoiceNumber", description: "Consolidated invoice number — blank if invoicing failed" },
+    { key: "organizerSignature", description: "Sender's personal email signature (HTML) — empty on automated sends" },
   ],
   "abstract-status-update": [
     { key: "title", description: "Submitter title prefix with period (e.g. Dr., Prof., Mr., Mrs., Ms.)" },
@@ -1799,6 +1815,41 @@ Proposal Details:
 View Your Proposal: {{managementLink}}
 
 The organizing team will contact you about the next steps.
+
+{{organizerSignature}}`,
+  },
+
+  {
+    slug: "group-registration-confirmation",
+    name: "Group Registration Confirmation",
+    subject: "Group Registration Received - {{eventName}}",
+    htmlContent: `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
+    <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">Group Registration Received!</h1>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">{{eventName}}</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
+    <p>Dear <strong>{{coordinatorName}}</strong>,</p>
+    <p>Thank you for registering your group for <strong>{{eventName}}</strong> ({{eventDate}}, {{eventVenue}}). The registration below is billed to <strong>{{payerName}}</strong> — the consolidated invoice is attached to this email.</p>
+    <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
+      <h3 style="margin-top: 0; color: #374151;">Your Group ({{memberCount}} members)</h3>
+      {{memberSummary}}
+      <p style="margin: 12px 0 0 0; font-size: 15px;"><strong>Total: {{totalAmount}}</strong></p>
+    </div>
+    <p>Invoice <strong>{{invoiceNumber}}</strong> is attached. Registration is confirmed on receipt of payment — bank details are on the invoice. Each member has received their own confirmation email with their entry barcode.</p>
+    <p>You can add or edit members any time from your group portal after signing in.</p>
+    {{organizerSignature}}
+  </div>`,
+    textContent: `Group Registration Received - {{eventName}}
+
+Dear {{coordinatorName}},
+
+Thank you for registering your group for {{eventName}} ({{eventDate}}, {{eventVenue}}). The registration is billed to {{payerName}} — the consolidated invoice is attached.
+
+Your Group ({{memberCount}} members):
+{{memberSummaryText}}
+
+Total: {{totalAmount}}
+
+Invoice {{invoiceNumber}} is attached. Registration is confirmed on receipt of payment — bank details are on the invoice. Each member has received their own confirmation email with their entry barcode.
 
 {{organizerSignature}}`,
   },
@@ -2933,6 +2984,16 @@ export function getSamplePreviewVariables(
     proposalTitle: "Sample Session Proposal Title",
     proposalTheme: "Interventional Cardiology",
     proposalFormat: "Workshop",
+    // Group-registration confirmation samples — real sends derive these from
+    // the group's members (group-registration-service).
+    coordinatorName: "Sarah Al Mansoori",
+    payerName: "Cleveland Clinic Abu Dhabi",
+    memberCount: 3,
+    memberSummary:
+      '<table style="width: 100%; border-collapse: collapse; font-size: 14px;"><tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">Dr. Jane Doe</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; color: #6b7280;">jane@example.com</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">Physician</td></tr><tr><td style="padding: 6px 0;">John Smith</td><td style="padding: 6px 0; color: #6b7280;">john@example.com</td><td style="padding: 6px 0;">Nurse</td></tr></table>',
+    memberSummaryText: "- Dr. Jane Doe (jane@example.com) — Physician\n- John Smith (john@example.com) — Nurse",
+    totalAmount: "USD 1,250.00",
+    invoiceNumber: "SAMPLE-INV-001",
     presentationType: "Oral",
     theme: "Cardiology",
     authorName: "Dr. Jane Doe",
@@ -3322,6 +3383,14 @@ export interface RegistrationConfirmationParams {
   billingZipCode?: string | null;
   billingCountry?: string | null;
   taxNumber?: string | null;
+  /**
+   * Group registration (Aug 2026): the company payer covering this member's
+   * fee. When set, the "Payment Pending" block + Pay Now link are REPLACED
+   * by a "covered by {payer}" note — group members must never be dunned —
+   * and the quote PDF attachment is suppressed (the money artifact is the
+   * group's consolidated invoice, sent to the payer + coordinator).
+   */
+  coveredByGroupPayerName?: string | null;
 }
 
 export async function sendRegistrationConfirmation(params: RegistrationConfirmationParams) {
@@ -3342,7 +3411,14 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
   // Build payment block for paid tickets (HTML + plain text versions)
   let paymentBlock = "";
   let paymentBlockText = "";
-  if (params.ticketPrice && params.ticketPrice > 0) {
+  if (params.coveredByGroupPayerName) {
+    const payer = params.coveredByGroupPayerName;
+    paymentBlock = `<div style="background: #ecfdf5; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #10b981; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0; font-weight: 600; color: #065f46;">Registration covered by ${escapeHtml(payer)}</p>
+      <p style="margin: 0; font-size: 14px; color: #047857;">Your registration fee is part of a group registration paid by ${escapeHtml(payer)} — no payment is required from you.</p>
+    </div>`;
+    paymentBlockText = `Registration covered by ${payer}\nYour registration fee is part of a group registration paid by ${payer} — no payment is required from you.`;
+  } else if (params.ticketPrice && params.ticketPrice > 0) {
     const currency = params.ticketCurrency || "USD";
     const baseAmount = Number(params.ticketPrice);
     // Promo discount is subtracted from the base before tax, mirroring the
@@ -3484,7 +3560,7 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
   // Attachments: inline barcode (if rendered) + quote PDF for paid tickets.
   const attachments: NonNullable<SendEmailParams["attachments"]> = [];
   if (barcodeAttachment) attachments.push(barcodeAttachment);
-  if (params.ticketPrice && params.ticketPrice > 0 && params.organizationName) {
+  if (params.ticketPrice && params.ticketPrice > 0 && params.organizationName && !params.coveredByGroupPayerName) {
     try {
       const { generateQuotePDF } = await import("@/lib/quote-pdf");
       const pdfBuffer = await generateQuotePDF({
