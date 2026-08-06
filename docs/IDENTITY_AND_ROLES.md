@@ -71,6 +71,49 @@ A person only needs a login if they must **do** something logged-in: review abst
 (`REGISTRANT`). **Pure faculty who just show up and present need no account at all** — their
 badge and check-in run entirely off the Registration facet.
 
+### Why external logins have NO organization — and never inherit the event's (ruled Aug 6, 2026)
+
+`User.organizationId` is **deliberately null** for REVIEWER / SUBMITTER / REGISTRANT, and
+the question "can't they just inherit the event's org id?" was asked and **ruled NO** by
+the owner after the Aug 6 warning-triage round (a guard sweep had wrongly treated org-null
+as "not allowed in", 403'ing submitter pages for 13 days — the fix restored linkage-based
+access, NOT an org stamp). The operating rule:
+
+> **Rows carry the org; external logins don't; a request derives the org from the
+> resource.**
+
+Three reasons, all load-bearing:
+
+1. **Org-null is a security fence, not a missing value.** Throughout the codebase, a
+   non-null `organizationId` on a User means *"one of the org's own people"* — the
+   internal-domain rule, the team-roles filter, and every org-scoped check lean on it.
+   Stamp the org onto external submitters and every org-scoped route that forgets a role
+   check silently opens to them (a leak class that has produced real findings — e.g. the
+   contacts-export H1). Org-null keeps outsiders outside *by default*.
+2. **One codebase serves both silos.** The future multi-tenant platform instance runs the
+   same image; there, a submitter can be linked to events in *different* tenants — one
+   stored org id is guaranteed wrong for someone. Code can never rely on it, so stamping
+   it on the single-org master buys nothing.
+3. **The org is already available where it's needed — per request.** The "resource-org"
+   pattern: authorization asks *"is this user linked to this event?"*
+   (`buildEventAccessWhere` — a stranger still 404s), then `event.organizationId` (always
+   correct, always fresh) drives the tenant lane, org-stamped writes, and branding. An
+   account-level copy would add zero capability and one staleness/leak risk.
+
+**Corollary for guard authors:** `requireOrgId` is for org-admin routes ONLY. A read that
+serves submitters/reviewers (event details, theme pickers, their own rows) must authorize
+via `buildEventAccessWhere` — and gets an "org-null role can read its surfaces" regression
+test so the next sweep can't re-break it.
+
+**The one sanctioned future version:** the platform identity model (PLATFORM_DECISIONS
+item 6 — email unique *per tenant*) makes external accounts tenant-bound **by design**,
+with the supporting redesign (tenant-scoped login, membership seam). That is the right
+layer for "submitters belong to an org" — not a column stamp on today's master.
+
+*(Related housekeeping, Aug 6, 2026: the vestigial second org "Meeting Minds" — one empty
+draft event, no users/keys/data — was deleted from prod. Master is single-org, MM Group,
+permanently, per the two-silo decision.)*
+
 ---
 
 ## 2. Quick reference: can the same person be both?
