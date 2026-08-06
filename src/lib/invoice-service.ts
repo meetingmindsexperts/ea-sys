@@ -6,7 +6,7 @@ import { generateInvoicePDF, type InvoicePDFData } from "@/lib/invoice-pdf";
 import { generateReceiptPDF, type ReceiptPDFData } from "@/lib/receipt-pdf";
 import { generateCreditNotePDF, type CreditNotePDFData } from "@/lib/credit-note-pdf";
 import { sendEmail, getEventTemplate, renderAndWrap } from "@/lib/email";
-import { getTitleLabel, deriveEventCode } from "@/lib/utils";
+import { getTitleLabel, deriveEventCode, formatPersonName } from "@/lib/utils";
 import { escapeHtml } from "@/lib/html";
 import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import {
@@ -1127,11 +1127,17 @@ const groupInclude = {
     },
   },
   registrations: {
-    where: { status: { not: "CANCELLED" as const } },
+    // CANCELLED members are deliberately INCLUDED (Aug 6, 2026 owner ruling).
+    // An issued invoice is a historical document: it must keep the people it
+    // was issued for, or its printed lines stop adding up to its own printed
+    // total. Each use site filters explicitly for its own purpose — creation
+    // prices only live members, rendering shows all and marks the cancelled.
     select: {
+      status: true,
       originalPrice: true,
       ticketType: { select: { name: true, currency: true } },
       pricingTier: { select: { name: true } },
+      attendee: { select: { title: true, firstName: true, lastName: true } },
     },
   },
   event: {
@@ -1152,31 +1158,45 @@ const groupInclude = {
   },
 } as const;
 
-/** Member rows → one line item per ticket type ("2 × Physician"). */
+/**
+ * Member rows → ONE LINE PER PERSON ("Dr Ahmed Osman — Physician").
+ *
+ * Owner ruling (Aug 6, 2026), replacing the earlier per-type aggregation
+ * ("2 × Physician"): a company's finance team needs to match every charge to a
+ * named person, and on a medical event a sponsor paying for named HCPs
+ * generally needs those names on the invoice itself, not only in an email.
+ *
+ * A member cancelled AFTER issue is still listed, at their original price,
+ * marked "(cancelled)" — the invoice was issued for them and its frozen total
+ * includes them, so dropping the line would leave the document unable to
+ * explain its own total. The adjustment is a credit note, not a rewritten
+ * invoice.
+ */
 export function buildGroupLineItems(
   members: Array<{
+    status?: string;
     originalPrice: unknown;
     ticketType: { name: string } | null;
     pricingTier: { name: string } | null;
+    attendee?: { title: string | null; firstName: string; lastName: string } | null;
   }>,
 ): Array<{ description: string; amount: number; quantity: number; unitPrice: number }> {
-  const byType = new Map<string, { quantity: number; amount: number; unitPrice: number }>();
-  for (const m of members) {
-    const price = Number(m.originalPrice ?? 0);
-    const label = m.pricingTier
+  return members.map((m, i) => {
+    const price = round2(Number(m.originalPrice ?? 0));
+    const type = m.pricingTier
       ? `${m.ticketType?.name ?? "Registration"} - ${m.pricingTier.name}`
       : (m.ticketType?.name ?? "Registration");
-    const cur = byType.get(label) ?? { quantity: 0, amount: 0, unitPrice: price };
-    cur.quantity += 1;
-    cur.amount = round2(cur.amount + price);
-    byType.set(label, cur);
-  }
-  return [...byType.entries()].map(([label, v]) => ({
-    description: `${v.quantity} × ${label}`,
-    amount: v.amount,
-    quantity: v.quantity,
-    unitPrice: v.unitPrice,
-  }));
+    const name = m.attendee
+      ? formatPersonName(m.attendee.title, m.attendee.firstName, m.attendee.lastName)
+      : `Attendee ${i + 1}`;
+    const cancelled = m.status === "CANCELLED" ? " (cancelled)" : "";
+    return {
+      description: `${name} — ${type}${cancelled}`,
+      amount: price,
+      quantity: 1,
+      unitPrice: price,
+    };
+  });
 }
 
 /**
@@ -1197,13 +1217,18 @@ export async function createGroupInvoice(params: {
     include: groupInclude,
   });
 
+  // The include no longer filters cancelled rows (the PDF needs them to stay
+  // truthful), so pricing filters explicitly: a company is never invoiced for
+  // someone already cancelled before the invoice existed.
+  const billable = group.registrations.filter((r) => r.status !== "CANCELLED");
+
   const subtotal = round2(
-    group.registrations.reduce((sum, r) => sum + Number(r.originalPrice ?? 0), 0),
+    billable.reduce((sum, r) => sum + Number(r.originalPrice ?? 0), 0),
   );
   const taxRate = group.event.taxRate ? Number(group.event.taxRate) : null;
   const taxAmount = taxRate ? round2(subtotal * (taxRate / 100)) : 0;
   const total = round2(subtotal + taxAmount);
-  const currency = group.registrations[0]?.ticketType?.currency ?? "USD";
+  const currency = billable[0]?.ticketType?.currency ?? "USD";
 
   const eventCode = await resolveEventCode(
     { id: eventId, code: group.event.code, name: group.event.name },
@@ -1241,7 +1266,7 @@ export async function createGroupInvoice(params: {
     msg: "Group invoice created",
     invoiceNumber: invoice.invoiceNumber,
     groupId,
-    members: group.registrations.length,
+    members: billable.length,
     total: Number(invoice.total),
     currency,
   });
@@ -1269,16 +1294,27 @@ async function buildGroupInvoicePDFData(invoiceId: string): Promise<InvoicePDFDa
   const { event } = group;
   const org = event.organization;
   const payer = group.billingAccount;
-  // Review H4: line items derive from LIVE members while the totals row is
-  // the snapshot frozen at issue — after a member cancellation the two
-  // disagree. Render an explicit note so the payer/finance see the document
-  // is awaiting a credit note / reissue instead of silently mismatched.
+  // Every person the invoice was issued for is listed, cancellations marked —
+  // so the printed lines normally still add up to the printed (frozen) total.
   const lineItems = buildGroupLineItems(group.registrations);
   const derivedSum = round2(lineItems.reduce((sum, li) => sum + li.amount, 0));
-  const driftNote =
-    Math.abs(derivedSum - Number(invoice.subtotal)) > 0.005
-      ? "Note: one or more group members cancelled after this invoice was issued — the line items reflect current members while the totals were frozen at issue. Contact the organizer for a credit note or reissued invoice."
-      : null;
+  const cancelledCount = group.registrations.filter((r) => r.status === "CANCELLED").length;
+
+  const notes: string[] = [];
+  if (cancelledCount > 0) {
+    notes.push(
+      `Note: ${cancelledCount} attendee${cancelledCount === 1 ? " on this invoice has" : "s on this invoice have"} since cancelled and ${cancelledCount === 1 ? "is" : "are"} marked above. ` +
+        `The total shown is the amount invoiced at issue — contact the organizer for a credit note covering the cancellation${cancelledCount === 1 ? "" : "s"}.`,
+    );
+  }
+  if (Math.abs(derivedSum - Number(invoice.subtotal)) > 0.005) {
+    // Members added after issue (or a repriced row) — the lines genuinely no
+    // longer reconcile with the frozen total, which must never pass silently.
+    notes.push(
+      "Note: the attendees listed above no longer match the amount invoiced at issue. Contact the organizer for a corrected or supplementary invoice.",
+    );
+  }
+  const driftNote = notes.length > 0 ? notes.join(" ") : null;
 
   return {
     invoiceNumber: invoice.invoiceNumber,
@@ -1326,7 +1362,9 @@ async function buildGroupInvoicePDFData(invoiceId: string): Promise<InvoicePDFDa
     },
     groupMeta: {
       coordinatorName: group.coordinatorName,
-      memberCount: group.registrations.length,
+      // Live attendees — the cancelled ones remain visible as marked line
+      // items, but the header count is who is actually coming.
+      memberCount: group.registrations.filter((r) => r.status !== "CANCELLED").length,
     },
     groupLineItems: lineItems,
     extraNotes: driftNote ? [driftNote] : undefined,

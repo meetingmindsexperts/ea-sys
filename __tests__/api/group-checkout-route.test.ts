@@ -62,12 +62,23 @@ const req = (body: unknown) =>
     body: JSON.stringify(body),
   });
 
-const member = (price: number, type: string, status = "UNPAID") => ({
-  id: `reg-${Math.random()}`,
-  paymentStatus: status,
+let seq = 0;
+const member = (
+  price: number,
+  type: string,
+  opts: { paymentStatus?: string; status?: string; first?: string; last?: string; title?: string | null } = {},
+) => ({
+  id: `reg-${++seq}`,
+  status: opts.status ?? "CONFIRMED",
+  paymentStatus: opts.paymentStatus ?? "UNPAID",
   originalPrice: price,
   ticketType: { name: type, currency: "USD" },
   pricingTier: null,
+  attendee: {
+    title: opts.title ?? null,
+    firstName: opts.first ?? "Member",
+    lastName: opts.last ?? String(seq),
+  },
 });
 
 const GROUP = {
@@ -82,7 +93,11 @@ const GROUP = {
     taxLabel: "VAT",
   },
   billingAccount: { name: "Gulf Heart Institute", email: "finance@corp.com" },
-  registrations: [member(100, "Physician"), member(100, "Physician"), member(150, "Allied Health")],
+  registrations: [
+    member(100, "Physician", { title: "DR", first: "Ahmed", last: "Osman" }),
+    member(100, "Nurse", { first: "Sara", last: "Malik" }),
+    member(150, "Allied Health", { first: "John", last: "Reyes" }),
+  ],
 };
 
 beforeEach(() => {
@@ -132,14 +147,43 @@ describe("group checkout — amount", () => {
     expect(charged).not.toBe(10500);
   });
 
-  it("groups line items by registration type when they reconcile", async () => {
+  it("names each attendee on its own line, matching the invoice", async () => {
     await POST(req({ groupId: "grp-1" }), params);
     const names = sessionsCreate.mock.calls[0][0].line_items.map(
       (li: { price_data: { product_data: { name: string } } }) => li.price_data.product_data.name,
     );
-    expect(names.some((n: string) => n.includes("2 × Physician"))).toBe(true);
-    expect(names.some((n: string) => n.includes("1 × Allied Health"))).toBe(true);
+    expect(names.some((n: string) => n.includes("Dr. Ahmed Osman — Physician"))).toBe(true);
+    expect(names.some((n: string) => n.includes("Sara Malik — Nurse"))).toBe(true);
+    expect(names.some((n: string) => n.includes("John Reyes — Allied Health"))).toBe(true);
     expect(names.some((n: string) => n.includes("VAT"))).toBe(true);
+    // One line per person + one tax line — never an aggregated "2 × Physician".
+    expect(names).toHaveLength(4);
+    expect(names.some((n: string) => n.includes("×"))).toBe(false);
+  });
+
+  it("keeps a member cancelled after issue on the lines, marked, so the total still adds up", async () => {
+    mockDb.registrationGroup.findFirst.mockResolvedValue({
+      ...GROUP,
+      registrations: [
+        member(100, "Physician", { title: "DR", first: "Ahmed", last: "Osman" }),
+        member(100, "Nurse", { first: "Sara", last: "Malik" }),
+        member(150, "Allied Health", { first: "John", last: "Reyes", status: "CANCELLED" }),
+      ],
+    });
+    await POST(req({ groupId: "grp-1" }), params);
+
+    const lineItems = sessionsCreate.mock.calls[0][0].line_items;
+    const names = lineItems.map(
+      (li: { price_data: { product_data: { name: string } } }) => li.price_data.product_data.name,
+    );
+    expect(names.some((n: string) => n.includes("John Reyes — Allied Health (cancelled)"))).toBe(true);
+    // Still reconciles with the frozen invoice total, so no fallback line.
+    expect(names.some((n: string) => n.includes("group registration ("))).toBe(false);
+    const charged = lineItems.reduce(
+      (s: number, li: { price_data: { unit_amount: number } }) => s + li.price_data.unit_amount,
+      0,
+    );
+    expect(charged).toBe(36750);
   });
 
   it("falls back to one honest line when a cancellation made the lines stop adding up", async () => {

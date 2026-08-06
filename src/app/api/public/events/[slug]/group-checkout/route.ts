@@ -92,13 +92,17 @@ export async function POST(req: Request, { params }: RouteParams) {
           },
           billingAccount: { select: { name: true, email: true } },
           registrations: {
-            where: { status: { not: "CANCELLED" } },
+            // Cancelled members are loaded (not filtered) so the Stripe page
+            // can show the SAME per-person lines as the consolidated invoice,
+            // which keeps them for the total it was issued at.
             select: {
               id: true,
+              status: true,
               paymentStatus: true,
               originalPrice: true,
               ticketType: { select: { name: true, currency: true } },
               pricingTier: { select: { name: true, currency: true } },
+              attendee: { select: { title: true, firstName: true, lastName: true } },
             },
           },
         },
@@ -109,14 +113,15 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "Group registration not found" }, { status: 404 });
       }
 
-      const payableMembers = group.registrations.filter(
+      const liveMembers = group.registrations.filter((r) => r.status !== "CANCELLED");
+      const payableMembers = liveMembers.filter(
         (r) => r.paymentStatus === "UNPAID" || r.paymentStatus === "PENDING",
       );
       if (payableMembers.length === 0) {
         apiLogger.warn({
           msg: "group-checkout:nothing-due",
           groupId,
-          memberCount: group.registrations.length,
+          memberCount: liveMembers.length,
         });
         return NextResponse.json(
           { error: "This group registration has already been settled.", code: "ALREADY_SETTLED" },
@@ -140,13 +145,13 @@ export async function POST(req: Request, { params }: RouteParams) {
       });
 
       const memberCurrency =
-        group.registrations[0]?.pricingTier?.currency ??
-        group.registrations[0]?.ticketType?.currency ??
+        liveMembers[0]?.pricingTier?.currency ??
+        liveMembers[0]?.ticketType?.currency ??
         "USD";
 
       const subtotal = invoice
         ? Number(invoice.subtotal)
-        : round2(group.registrations.reduce((s, r) => s + Number(r.originalPrice ?? 0), 0));
+        : round2(liveMembers.reduce((s, r) => s + Number(r.originalPrice ?? 0), 0));
       const taxRate = group.event.taxRate ? Number(group.event.taxRate) : 0;
       const taxAmount = invoice ? Number(invoice.taxAmount) : round2(subtotal * (taxRate / 100));
       const total = invoice ? Number(invoice.total) : round2(subtotal + taxAmount);
@@ -163,10 +168,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       const toStripe = (v: number) =>
         isZeroDecimalCurrency(currency) ? Math.round(v) : Math.round(v * 100);
 
-      // Descriptive per-type lines ("12 × Physician") only when they still sum
-      // to the invoice subtotal. After a post-issue member cancellation they
-      // won't — and a Stripe page whose lines don't add up to its own total is
-      // worse than one honest line, so fall back rather than mislead.
+      // Named per-person lines, matching the consolidated invoice exactly (the
+      // same builder feeds both). Shown only while they still sum to the
+      // amount being charged — a payment page whose items don't add up to its
+      // own total is worse than one honest line, so fall back rather than
+      // mislead.
       const derived = buildGroupLineItems(group.registrations);
       const derivedSum = round2(derived.reduce((s, li) => s + li.amount, 0));
       const linesAgree = Math.abs(derivedSum - subtotal) < 0.005;
@@ -179,7 +185,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             }))
           : [
               {
-                name: `${group.event.name} — group registration (${group.registrations.length} attendees)`,
+                name: `${group.event.name} — group registration (${liveMembers.length} attendees)`,
                 unit_amount: toStripe(subtotal),
               },
             ]
