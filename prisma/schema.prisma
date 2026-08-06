@@ -2223,8 +2223,20 @@ model Invoice {
   /// `groupId` (exactly one set). Single-registration invoices unchanged.
   registrationId String?
   /// Consolidated group invoice — line items derived at render time from
-  /// the group's member registrations, grouped by ticket type.
+  /// the group's member registrations, one line per person.
   groupId        String?
+  /// Which member registrations THIS group invoice bills.
+  ///
+  /// Needed once a coordinator can add people to a group that already paid:
+  /// the supplementary invoice must bill only the new arrivals, while the
+  /// settled one keeps its own frozen set. Without it both invoices would
+  /// derive their lines from the whole group and bill everybody twice.
+  ///
+  /// EMPTY MEANS "every non-cancelled member" — the pre-Aug-2026 behaviour —
+  /// so existing invoices are unaffected and need no backfill. Only
+  /// group invoices populate it; single-registration invoices use
+  /// `registrationId`.
+  coveredRegistrationIds String[] @default([])
   paymentId      String? @unique
 
   type           InvoiceType

@@ -1133,6 +1133,7 @@ const groupInclude = {
     // total. Each use site filters explicitly for its own purpose — creation
     // prices only live members, rendering shows all and marks the cancelled.
     select: {
+      id: true,
       status: true,
       originalPrice: true,
       ticketType: { select: { name: true, currency: true } },
@@ -1209,8 +1210,15 @@ export async function createGroupInvoice(params: {
   eventId: string;
   organizationId: string;
   dueDate?: Date;
+  /**
+   * Bill ONLY these member registrations — the supplementary-invoice case,
+   * where people were added to a group whose earlier invoice is already
+   * settled. Omit to bill every non-cancelled member (the normal first
+   * invoice, and the reissue after an unpaid one is cancelled).
+   */
+  registrationIds?: string[];
 }): Promise<Invoice> {
-  const { groupId, eventId, organizationId, dueDate } = params;
+  const { groupId, eventId, organizationId, dueDate, registrationIds } = params;
 
   const group = await db.registrationGroup.findFirstOrThrow({
     where: { id: groupId, eventId, event: { organizationId } },
@@ -1220,7 +1228,16 @@ export async function createGroupInvoice(params: {
   // The include no longer filters cancelled rows (the PDF needs them to stay
   // truthful), so pricing filters explicitly: a company is never invoiced for
   // someone already cancelled before the invoice existed.
-  const billable = group.registrations.filter((r) => r.status !== "CANCELLED");
+  const scope = registrationIds ? new Set(registrationIds) : null;
+  const billable = group.registrations.filter(
+    (r) => r.status !== "CANCELLED" && (!scope || scope.has(r.id)),
+  );
+  if (billable.length === 0) {
+    throw new Error(
+      `createGroupInvoice: no billable members for group ${groupId}` +
+        (scope ? ` within the requested subset` : ""),
+    );
+  }
 
   const subtotal = round2(
     billable.reduce((sum, r) => sum + Number(r.originalPrice ?? 0), 0),
@@ -1245,6 +1262,10 @@ export async function createGroupInvoice(params: {
         eventId,
         registrationId: null,
         groupId,
+        // Always recorded from here on, so a later supplementary invoice can
+        // tell what this one already billed. Older rows carry an empty array,
+        // which every reader treats as "all non-cancelled members".
+        coveredRegistrationIds: billable.map((r) => r.id),
         type: "INVOICE",
         invoiceNumber,
         sequenceNumber,
@@ -1294,11 +1315,21 @@ async function buildGroupInvoicePDFData(invoiceId: string): Promise<InvoicePDFDa
   const { event } = group;
   const org = event.organization;
   const payer = group.billingAccount;
-  // Every person the invoice was issued for is listed, cancellations marked —
+  // Every person THIS invoice was issued for is listed, cancellations marked —
   // so the printed lines normally still add up to the printed (frozen) total.
-  const lineItems = buildGroupLineItems(group.registrations);
+  //
+  // A supplementary invoice (people added to an already-settled group) records
+  // its own subset; rendering the whole group there would print 22 attendees
+  // against a 2-attendee total. An empty set is the pre-Aug-2026 shape and
+  // still means the whole group.
+  const covered = new Set(invoice.coveredRegistrationIds);
+  const invoiced =
+    covered.size > 0
+      ? group.registrations.filter((r) => covered.has(r.id))
+      : group.registrations;
+  const lineItems = buildGroupLineItems(invoiced);
   const derivedSum = round2(lineItems.reduce((sum, li) => sum + li.amount, 0));
-  const cancelledCount = group.registrations.filter((r) => r.status === "CANCELLED").length;
+  const cancelledCount = invoiced.filter((r) => r.status === "CANCELLED").length;
 
   const notes: string[] = [];
   if (cancelledCount > 0) {
