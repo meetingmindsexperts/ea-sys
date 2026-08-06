@@ -247,6 +247,77 @@ phase 2"). **Nothing was changed** — today's behavior is exactly as described
 above. Pick this up before a second event reuses a payer with different billing
 details, because that is when the silent inheritance produces a wrong invoice.
 
+### Billing account — per-event breakdown (Aug 6, 2026, owner request, NOT BUILT)
+
+Owner's ask: under a payer, show **per event** — the registrations it covers
+with their details, the invoices raised, and how much has been paid ("event 1,
+2 registrations along with details, paid invoice 10,000 USD").
+
+**What exists today** (so this isn't rebuilt from zero):
+
+- `GET /api/billing-accounts/[billingAccountId]` ALREADY returns
+  `registrations` (attendee name/email, event id+name, ticket type, status,
+  amounts) + `registrationCount` + `attachedEvents`.
+- **But the only UI consumer — the "Events using {payer}" dialog in
+  [billing-accounts-card.tsx](src/components/settings/billing-accounts-card.tsx)
+  — reads `attachedEvents` ONLY.** `detail.registrations` is fetched on every
+  open and rendered nowhere. Half the data for this feature is already on the
+  wire and thrown away.
+
+**What is missing:**
+
+- **Invoices are not in the payload at all.** Needs `Invoice` rows for the
+  payer — which is NOT a simple `where: { billingAccountId }`, because an
+  invoice links to a registration or a group, not to the payer directly. The
+  join is via `registration.billingAccountId` OR
+  `group.billingAccountId`, so both shapes must be covered or group invoices
+  silently vanish from a payer's view.
+- **Paid amounts.** Prefer the invoice's own `status`/`paidDate` plus the
+  linked `Payment` over recomputing from registrations — a group is settled by
+  ONE payment covering N members, so summing per-registration would
+  under-report it.
+- **Per-event grouping + a UI surface.** The current dialog is an
+  attach/detach checkbox list; this wants a proper detail view (the CRM record
+  pages are the closest house pattern).
+- **Finance gating.** The existing billing routes are `denyFinance`-guarded;
+  anything showing paid amounts must stay behind that boundary.
+
+Related but distinct: §"Billing accounts — per-event vs org-shared payer
+records" above (whether a payer's DETAILS should differ per event). This item
+is read-only reporting and does not depend on that decision.
+
+### Group Registration Phase 3b — edit a member (Aug 6, 2026, owner: "add to backlog")
+
+**Add member SHIPPED** (`36467a7c` service + API, `448165fa` dialog). The
+remaining half of Phase 3b — letting a coordinator CORRECT an existing
+member's details — is deferred.
+
+What it would be, so it can be picked up cold:
+
+- `PATCH /api/registrant/my-group/[groupId]/members/[registrationId]`,
+  ownership bound on `coordinatorUserId` like its siblings, 404 (not 403) on a
+  group they don't coordinate.
+- **Editable:** name, title, organization, job title, phone, city, state, zip,
+  country, specialty, role, additionalEmail — i.e. the attendee-detail fields
+  the group registration form collects.
+- **Deliberately NOT editable, and why:**
+  - **email** — that is member *substitution*, not a correction, and the plan
+    (§8) assigns substitution to the organiser. It also runs straight into the
+    email-immutability rule: `Attendee.email` may only change via the dedicated
+    PATCH routes, which cascade to `User`/`Contact` and clone a shared Attendee
+    row. Reproducing that here would be a fourth copy of that logic.
+  - **ticket type** — that is re-pricing, which reopens the invoice question
+    Phase 3b just settled. A type change after a settled invoice needs a credit
+    note plus a supplementary, which is its own decision.
+- Attendee rows for group members are created 1:1 in
+  `claimSeatsAndCreateMembers`, so the sibling-count/clone problem the
+  registration email PATCH solves does not arise here — but a defensive
+  sibling check is cheap and worth keeping if this is built.
+- No invoice consequence at all, which is what makes it small: none of the
+  editable fields feed a line item (the line is name + type, and the NAME is
+  rendered from the attendee at PDF time — so an edit correctly updates how an
+  already-issued invoice renders, without changing a single amount).
+
 ### Group Registration Phase 1 review — deferred findings (Aug 6, 2026)
 
 The pre-push adversarial review returned 1 BLOCKER / 4 HIGH / 9 MED / 10 LOW.

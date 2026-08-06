@@ -259,6 +259,19 @@ Coordinator signs in → `/my-group` (or a group section on `/my-registration`):
    withdrawn ones holding badges. Full automated group refund reconciliation
    (incl. the partial "3 of 40 dropped out" case) remains unbuilt.
 3. **Portal** — My Group page: view, add-member (+ invoice reissue/delta), edit.
+   ✅ **VIEW + ADD-MEMBER BUILT (Aug 6, 2026).** `GET /api/registrant/my-group`
+   + the coordinator's own invoice PDF route + the portal page (Phase 3a);
+   then `addGroupMembers` + `POST .../[groupId]/members` + the "Add people"
+   dialog (Phase 3b). Billing on an add is driven by
+   `Invoice.coveredRegistrationIds`: subtract whoever a SETTLED invoice
+   already covers, cancel any UNPAID invoice, raise one new invoice for the
+   remainder — which covers nothing-invoiced-yet, unpaid-only, paid-only and
+   paid-plus-unpaid without branching, and never re-bills someone who paid.
+   Seat claiming + member-row creation were EXTRACTED
+   (`claimSeatsAndCreateMembers`) so the create and add paths cannot drift on
+   seat accounting. **EDIT-MEMBER DEFERRED** — see docs/ROADMAP.md
+   §"Group Registration Phase 3b — edit a member" for the shape and for why
+   email (substitution) and ticket type (re-pricing) are excluded from it.
 4. **Polish** — organizer group sheet, CSV export group column, docs/user-guide.
 
 ## 8. Deliberately NOT in v1 (recorded so nobody builds them opportunistically)
