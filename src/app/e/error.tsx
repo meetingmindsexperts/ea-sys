@@ -28,14 +28,18 @@ export default function PublicEventError({
         <p className="mb-4 text-sm text-slate-600">
           We couldn&apos;t load this page. Please try again or contact the event organizer if the problem persists.
         </p>
-        {error.message && (
-          <details className="mb-4 rounded-md border bg-red-50 p-3 text-xs text-red-800">
-            <summary className="cursor-pointer font-medium">Error details</summary>
-            <p className="mt-2 break-all font-mono">{error.message}</p>
-            {error.digest && (
-              <p className="mt-2 text-red-600">Digest: <code>{error.digest}</code></p>
-            )}
-          </details>
+        {/*
+          The raw error message is deliberately NOT shown here, unlike the
+          dashboard boundary. This page faces attendees and sponsors: engine
+          internals are noise to them at best, and a client-thrown message is
+          not redacted by Next the way a server one is. The full message and
+          stack still go to Sentry above; the digest below is a safe reference
+          the organiser can quote to support.
+        */}
+        {error.digest && (
+          <p className="mb-4 text-xs text-slate-400">
+            Reference: <code>{error.digest}</code>
+          </p>
         )}
         <div className="flex gap-2">
           <button
