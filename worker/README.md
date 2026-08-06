@@ -11,7 +11,10 @@ This README is the operator-side quick-reference.
 
 ## What it does
 
-Six jobs, one process:
+Fifteen jobs, one process. **Keep this table in sync with
+`src/lib/worker-jobs.ts`** — a drift test
+(`__tests__/lib/worker-jobs-drift.test.ts`) enforces the roster there, but
+nothing enforces this table, so it is the one that rots.
 
 | Job | Schedule | Lock ID | Source of truth |
 |---|---|---|---|
@@ -23,6 +26,25 @@ Six jobs, one process:
 | `invoice-reconciliation` | `*/10 * * * *` (every 10 min) | 1006 | `src/lib/invoice-reconciliation-worker.ts` → `runInvoiceReconciliationTick` |
 | `contacts-central-sync` | `16,53 * * * *` (~every 37 min) | 1007 | `src/lib/contacts-central-sync.ts` → `runContactsCentralTick` |
 | `contacts-central-reconcile` | `24 2 * * *` (daily 02:24 UTC) | 1008 | `src/lib/contacts-central-sync.ts` → `runContactsCentralReconcile` |
+| `log-archive` | `30 3 1 * *` (monthly, 1st 03:30) | 1009 | `src/lib/log-archive.ts` → `runLogArchiveTick` |
+| `crm-reminders` | `*/5 * * * *` (every 5 min) | 1010 | `src/crm/reminders-worker.ts` → `runTick` |
+| `email-log-prune` | `45 3 * * *` (daily 03:45 UTC) | 1011 | `src/lib/email-log-prune-worker.ts` → `runEmailLogPruneTick` |
+| `crm-inbound-email` | `* * * * *` (every minute) | 1012 | `src/crm/inbound-email-worker.ts` → `runTick` |
+| `login-event-prune` | `15 4 * * *` (daily 04:15 UTC) | 1013 | `src/lib/login-event-prune-worker.ts` → `runLoginEventPruneTick` |
+| `system-log-prune` | `45 4 * * *` (daily 04:45 UTC) | 1014 | `src/lib/system-log-prune-worker.ts` → `runSystemLogPruneTick` |
+| `daily-digest` | `30 5 * * *` (daily 05:30 UTC) | 1015 | `src/lib/daily-digest-worker.ts` → `runDailyDigestTick` |
+
+> The three retention sweeps + the digest are deliberately staggered
+> (03:45 → 04:15 → 04:45 → 05:30) so they neither contend for the same DB
+> window nor let the digest report mid-prune numbers.
+
+> `daily-digest` is the only job whose output is a **human** rather than a state
+> change: one infrastructure-health email per day to `ALERT_EMAIL_TO`, sent
+> whether or not anything happened — so its silence is a signal rather than
+> reassurance. The verdict is computed by `assessInfra()`; the AI only writes
+> prose on top and cannot change it, and a model outage degrades the email to
+> numbers-only rather than losing it. See §1.7 C of
+> [docs/AWS_OPERATIONS.md](../docs/AWS_OPERATIONS.md).
 
 > `invoice-reconciliation` (audit Round 2, DATA-5) recovers post-payment
 > invoices the Stripe webhook failed to create — it sweeps for PAID

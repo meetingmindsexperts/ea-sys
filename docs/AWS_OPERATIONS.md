@@ -241,6 +241,38 @@ instead of waiting for a human.
   (`infra/dr/README.md`), never rehearsed under real conditions. See the
   production-readiness backlog in [`docs/PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md).
 
+**C. The daily digest (scheduled, arrives whether or not anything happened)** —
+layers A and B only ever speak up when something is *wrong*, which makes their
+silence ambiguous: a healthy night and a dead alerting pipeline look identical in
+an inbox. The **`daily-digest`** worker job (05:30 UTC = 09:30 Dubai, JOB_ID 1015,
+[`src/lib/daily-digest-worker.ts`](../src/lib/daily-digest-worker.ts)) closes that
+by emailing `ALERT_EMAIL_TO` **every morning regardless** — so a digest that stops
+arriving is itself the signal.
+
+It reuses `getInfraSnapshot()` (the same data behind `/admin/infra`, forced fresh
+past its 60s cache) and reports host metrics, alarms in ALARM, 24h error counts,
+cron-job outcomes, queue depths, backup/DR freshness, SES deliverability and the
+running build. Two properties are load-bearing:
+
+- **The verdict (🟢 OK / 🟠 needs attention / 🔴 critical) is computed by
+  `assessInfra()`, never by the model.** The AI writes two or three sentences of
+  plain-English prose *on top of an already-decided verdict* and cannot change it
+  — the failure mode that matters in a daily email is a summary softening the one
+  line that needed to be alarming. If the model is unavailable the digest still
+  sends, with the numbers and a note that the prose was missing.
+- **Its thresholds sit deliberately BELOW the CloudWatch alarms** (disk 70 vs 80,
+  memory 80 vs 85, CPU 60 vs 90, credits 200 vs 100), so a number trending the
+  wrong way shows up amber in the digest for a day or two before the pager fires.
+- **A section that could not be read is reported as unchecked**, not counted as
+  healthy — an "all clear" is only worth anything if everything was actually
+  checked.
+
+```bash
+# Force a digest right now (does not wait for 05:30) — sends a real email.
+docker exec ea-sys-worker npx tsx -e \
+  'import("@/lib/daily-digest-worker").then(m=>m.runDailyDigestTick()).then(console.log)'
+```
+
 #### 1.7.1 Provisioning reference — the exact commands
 
 How the alerting above was built (2026-07-06). Reproducible: to rebuild on a new

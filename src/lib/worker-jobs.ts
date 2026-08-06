@@ -31,6 +31,7 @@ export const EXPECTED_JOBS: ExpectedJob[] = [
   { name: "email-log-prune", cadence: "daily 03:45 UTC" },
   { name: "login-event-prune", cadence: "daily 04:15 UTC" },
   { name: "system-log-prune", cadence: "daily 04:45 UTC" },
+  { name: "daily-digest", cadence: "daily 05:30 UTC" },
 ];
 
 export const EXPECTED_JOB_NAMES: ReadonlySet<string> = new Set(EXPECTED_JOBS.map((j) => j.name));

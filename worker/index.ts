@@ -59,6 +59,7 @@ import * as emailLogPrune from "./jobs/email-log-prune";
 import * as crmInboundEmail from "./jobs/crm-inbound-email";
 import * as loginEventPrune from "./jobs/login-event-prune";
 import * as systemLogPrune from "./jobs/system-log-prune";
+import * as dailyDigest from "./jobs/daily-digest";
 
 import { startHealthServer, type HealthState } from "./lib/health-server";
 import { installShutdownHandler } from "./lib/shutdown";
@@ -93,6 +94,7 @@ const JOBS = [
   crmInboundEmail,
   loginEventPrune,
   systemLogPrune,
+  dailyDigest,
 ];
 
 // Shared state — populated as jobs tick. The health endpoint reads
