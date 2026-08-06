@@ -594,17 +594,14 @@ async function fetchDatabase(): Promise<InfraSnapshot["database"]> {
  * (since the roster fix) EVERY registered job, including the ones that have
  * never ticked.
  */
-async function fetchWorker(): Promise<InfraSnapshot["worker"]> {
-  const url = process.env.WORKER_HEALTH_URL || "http://ea-sys-worker:3099/health";
+const WORKER_PROBE_RETRY_DELAY_MS = 2500;
+
+async function probeWorkerOnce(
+  url: string,
+): Promise<{ ok: true; info: WorkerLive } | { ok: false; error: string; err?: unknown }> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(2500), cache: "no-store" });
-    if (!res.ok) {
-      return {
-        status: "error",
-        error: `Worker health returned ${res.status}`,
-        info: { reachable: false, uptimeSeconds: null, gitSha: null, jobs: [], staleJobs: [] },
-      };
-    }
+    if (!res.ok) return { ok: false, error: `Worker health returned ${res.status}` };
     const body = (await res.json()) as {
       uptimeSeconds?: number;
       gitSha?: string;
@@ -612,7 +609,7 @@ async function fetchWorker(): Promise<InfraSnapshot["worker"]> {
       staleJobs?: string[];
     };
     return {
-      status: "ok",
+      ok: true,
       info: {
         reachable: true,
         uptimeSeconds: body.uptimeSeconds ?? null,
@@ -622,15 +619,50 @@ async function fetchWorker(): Promise<InfraSnapshot["worker"]> {
       },
     };
   } catch (err) {
-    // Unreachable is a REAL finding, not a config gap — the worker drains every
-    // queue in the system. Log it at warn so it is greppable, and surface it.
-    apiLogger.warn({ err, url }, "infra:worker-unreachable");
-    return {
-      status: "error",
-      error: "Worker unreachable — no background job is running (emails, certificates, webinar sync).",
-      info: { reachable: false, uptimeSeconds: null, gitSha: null, jobs: [], staleJobs: [] },
-    };
+    return { ok: false, error: "Worker unreachable", err };
   }
+}
+
+/**
+ * Is the background worker alive?
+ *
+ * Probed TWICE with a short gap, because the single most common cause of a
+ * refused connection here is not a dead worker but a deploy: `scripts/deploy.sh`
+ * restarts `ea-sys-worker`, and for a couple of seconds port 3099 refuses
+ * connections. A one-shot probe landing in that window reported a healthy system
+ * as down — noise on the dashboard, and worse, a false CRITICAL in the daily
+ * digest, which treats an unreachable worker as the most serious finding there
+ * is (nothing background runs without it).
+ *
+ * A genuinely dead worker fails both probes and is still reported within a few
+ * seconds; the retry costs nothing on the happy path (it only runs after a
+ * failure) and buys the digest immunity from deploy timing.
+ */
+async function fetchWorker(): Promise<InfraSnapshot["worker"]> {
+  const url = process.env.WORKER_HEALTH_URL || "http://ea-sys-worker:3099/health";
+
+  const first = await probeWorkerOnce(url);
+  if (first.ok) return { status: "ok", info: first.info };
+
+  await new Promise((r) => setTimeout(r, WORKER_PROBE_RETRY_DELAY_MS));
+  const second = await probeWorkerOnce(url);
+  if (second.ok) {
+    // Recovered on the retry — almost certainly a restart window. Worth an info
+    // line (so a worker that flaps repeatedly is still visible in /logs) but NOT
+    // a warn, which would page-adjacent-noise on every single deploy.
+    apiLogger.info({ url, firstError: first.error }, "infra:worker-probe-recovered-on-retry");
+    return { status: "ok", info: second.info };
+  }
+
+  // Failed twice — a real finding, not a config gap. The worker drains every
+  // queue in the system.
+  apiLogger.warn({ err: second.err, url, attempts: 2 }, "infra:worker-unreachable");
+  return {
+    status: "error",
+    error:
+      "Worker unreachable (two attempts) — no background job is running (emails, certificates, webinar sync).",
+    info: { reachable: false, uptimeSeconds: null, gitSha: null, jobs: [], staleJobs: [] },
+  };
 }
 
 /**
