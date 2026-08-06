@@ -212,6 +212,32 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Manual/CSV registration default status — CONFIRMED vs PENDING (Aug 6, 2026, organizer ask — DECISION PENDING)
+
+Organizer asked that manually added / CSV-imported registrations should NOT
+auto-confirm. Both sides argued (Aug 5–6 discussion); no change shipped —
+recorded here for the owner decision.
+
+| # | Organizer's case (for PENDING-by-default) | Counter-case (for keeping CONFIRMED) |
+|---|---|---|
+| 1 | **Adder ≠ approver** — imports/adds are often done by temp desk staff or whoever got handed the file; data entry and approval are different jobs (maker–checker). | A **manual single add** is usually the desk or an organizer deliberately registering one person — the adder IS the reviewer; add-then-confirm is pure friction (2 clicks × 500 at a live door). |
+| 2 | **CONFIRMED leaks outward instantly** — confirmation email + quote fire, portal says "Confirmed", barcode minted, door admits. A sponsor file of 200 names against 150 seats has already promised 200 people. | "Confirmed" ≠ "paid" and ≠ "details complete" — money is chased via UNASSIGNED/UNPAID (desk blocks unpaid without an override) and incomplete CSV rows go through the Send Registration Forms completion flow. |
+| 3 | **House history** — the July-27 incident put 502 delegates on a type named "Faculty" via import. PENDING imports would contain a bad file to a review queue instead of 502 live badges. | Approval semantics already exist opt-in: `TicketType.requiresApproval` → PENDING on every entry path. |
+| 4 | **Consent** — a CSV-imported person never asked to register; honest lifecycle is provisional → completes the registration form → confirmed. | CSV already accepts an explicit `registrationStatus` column — a file can import as PENDING today; bulk status change exists to flip later. |
+| 5 | **The existing levers answer the wrong question** — `requiresApproval` is per ticket TYPE (category), not per ENTRY PATH; the CSV column requires the file author to know it exists. Defaults are what actually happens. | Never silently flip a global default on the LIVE system — existing events' workflows (desk flow, kiosk, completion emails, webinar sequences) assume today's behavior. |
+
+**Middle-ground proposal (recommended if the organizer insists):**
+
+| Entry path | Proposal |
+|---|---|
+| CSV / import-contacts / EventsAir imports | An **"Import as Pending"** choice in the import dialog (visible per-import decision, no file editing) — optionally an event-level setting defaulting imports to PENDING. This is where the risk genuinely lives. |
+| Manual single add (dashboard/desk) | Keep auto-CONFIRMED (desk reality); optionally a status picker on the full-page Add form for the rare deliberate pending add. |
+| Public self-register | Unchanged — `requiresApproval` already covers the unvetted-person case. |
+
+Cost to state if the global default flips anyway: two-step desk registration,
+a confirm pass after every import, and a decision about when the
+confirmation-email/quote fires for staff-added paid registrants.
+
 ### Webinar retime / anchor round — deferred LOWs (Aug 4, 2026)
 
 Adversarial review (two lenses) of the webinar retime cascade + email-sequence
