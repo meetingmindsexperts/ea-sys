@@ -16,6 +16,7 @@
 import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { AddGroupMembersDialog, type AddGroupMembersResultShape } from "@/components/public/add-group-members-dialog";
 import { useSession, signOut } from "next-auth/react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -29,7 +30,7 @@ import { formatPersonName, formatCurrency } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import {
   Calendar, MapPin, Users, Building2, CreditCard, Download, Loader2,
-  CheckCircle2, AlertCircle, LogOut, BadgeCheck, HelpCircle,
+  CheckCircle2, AlertCircle, LogOut, BadgeCheck, HelpCircle, Plus,
 } from "lucide-react";
 
 /**
@@ -111,6 +112,8 @@ export default function MyGroupPage() {
   const router = useRouter();
   const { status: sessionStatus } = useSession();
   const [paying, setPaying] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addNotice, setAddNotice] = useState<string | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery<{ groups: MyGroup[] }>({
     queryKey: ["my-group", slug],
@@ -318,7 +321,16 @@ export default function MyGroupPage() {
                 {group.cancelledCount > 0 ? ` · ${group.cancelledCount} cancelled` : ""})
               </span>
             </h2>
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" />
+              Add people
+            </Button>
           </div>
+          {addNotice && (
+            <div className="border-b bg-emerald-50 px-6 py-3 text-sm text-emerald-900">
+              {addNotice}
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-left text-slate-500">
@@ -480,6 +492,32 @@ export default function MyGroupPage() {
           </Button>
         </div>
       </div>
+
+      <AddGroupMembersDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        slug={slug}
+        groupId={group.id}
+        currency={group.currency}
+        remainingSlots={
+          group.groupSettings.maxMembers
+            ? Math.max(0, group.groupSettings.maxMembers - group.memberCount)
+            : null
+        }
+        groupIsPaid={group.isPaid}
+        onAdded={(r: AddGroupMembersResultShape) => {
+          refetch();
+          setAddNotice(
+            `${r.addedCount} ${r.addedCount === 1 ? "person" : "people"} added.` +
+              (r.invoiceNumber
+                ? r.reissued
+                  ? ` Your invoice was replaced with ${r.invoiceNumber}, covering everyone.`
+                  : ` Invoice ${r.invoiceNumber} covers the new ${r.addedCount === 1 ? "attendee" : "attendees"}.`
+                : " Your invoice will follow shortly."),
+          );
+          toast.success("Added to your group");
+        }}
+      />
     </div>
     </TooltipProvider>
   );

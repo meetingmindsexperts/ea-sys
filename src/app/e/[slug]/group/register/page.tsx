@@ -31,23 +31,12 @@ import { TitleSelect } from "@/components/ui/title-select";
 import { CountrySelect } from "@/components/ui/country-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
+import {
+  livePrice,
+  purchasableTypes,
+  type PublicTicketType,
+} from "@/lib/public-ticket-price";
 
-interface PublicTier {
-  id: string;
-  name: string;
-  price: number | string;
-  canPurchase: boolean;
-  sortOrder: number;
-}
-interface PublicTicketType {
-  id: string;
-  name: string;
-  price: number | string;
-  currency: string | null;
-  canPurchase: boolean;
-  soldOut: boolean;
-  pricingTiers: PublicTier[];
-}
 interface PublicEvent {
   id: string;
   name: string;
@@ -97,16 +86,6 @@ const EMPTY_MEMBER: MemberForm = {
   specialty: "",
   customSpecialty: "",
 };
-
-/** The price a member on this type pays NOW: the live tier, else base. */
-function livePrice(t: PublicTicketType): { price: number; tierName: string | null } {
-  const onSale = t.pricingTiers.filter((p) => p.canPurchase);
-  if (onSale.length > 0) {
-    const tier = onSale.reduce((best, p) => (p.sortOrder < best.sortOrder ? p : best));
-    return { price: Number(tier.price), tierName: tier.name };
-  }
-  return { price: Number(t.price), tierName: null };
-}
 
 function GroupRegisterContent() {
   const params = useParams<{ slug: string }>();
@@ -195,7 +174,7 @@ function GroupRegisterContent() {
   }, [slug]);
 
   const buyableTypes = useMemo(
-    () => (event?.ticketTypes ?? []).filter((t) => t.canPurchase || t.pricingTiers.some((p) => p.canPurchase)),
+    () => purchasableTypes(event?.ticketTypes ?? []),
     [event],
   );
   const currency = buyableTypes[0]?.currency ?? "USD";
