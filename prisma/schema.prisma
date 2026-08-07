@@ -1221,6 +1221,7 @@ model RegistrationGroup {
   @@index([organizationId])
   @@index([coordinatorUserId])
   @@index([billingAccountId])
+  @@index([promoCodeId])
 }
 
 model Payment {
