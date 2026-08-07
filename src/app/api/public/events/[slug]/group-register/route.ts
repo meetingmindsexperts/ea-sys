@@ -79,6 +79,8 @@ const groupRegisterSchema = z.object({
     taxNumber: z.string().max(100).optional(),
   }),
   payerReference: z.string().max(200).optional(),
+  /** Optional negotiated promo code, applied to the consolidated invoice. */
+  promoCode: z.string().trim().max(50).optional(),
   members: z
     .array(z.object({ ticketTypeId: z.string().min(1), attendee: memberAttendeeSchema }))
     .min(1)
@@ -99,6 +101,8 @@ const ERROR_STATUS: Record<CreateGroupRegistrationErrorCode, number> = {
   EVENT_FULL: 409,
   PAYER_INVALID: 400,
   MIXED_CURRENCY: 400,
+  PROMO_INVALID: 400,
+  PROMO_UNAVAILABLE: 409,
   UNKNOWN: 500,
 };
 
@@ -257,6 +261,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         coordinatorAttending: data.coordinator.attending,
         payer: data.payer,
         payerReference: data.payerReference ?? null,
+        promoCode: data.promoCode || null,
         members: data.members,
         requestIp: clientIp,
       });

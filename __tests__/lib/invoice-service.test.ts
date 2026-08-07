@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   mockTransaction, mockFindUniqueOrThrow, mockFindFirst, mockFindMany,
   mockCreate, mockUpdate, mockUpdateMany, mockInvoiceFindUniqueOrThrow, mockAuditCreate,
+  mockGenerateInvoicePDF,
 } = vi.hoisted(() => ({
   mockTransaction: vi.fn(),
   mockFindUniqueOrThrow: vi.fn(),
@@ -15,6 +16,7 @@ const {
   mockUpdateMany: vi.fn(),
   mockInvoiceFindUniqueOrThrow: vi.fn(),
   mockAuditCreate: vi.fn(),
+  mockGenerateInvoicePDF: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -54,7 +56,7 @@ vi.mock("@/lib/invoice-numbering", () => ({
 }));
 
 vi.mock("@/lib/invoice-pdf", () => ({
-  generateInvoicePDF: vi.fn().mockResolvedValue(Buffer.from("fake-pdf")),
+  generateInvoicePDF: mockGenerateInvoicePDF,
 }));
 
 vi.mock("@/lib/receipt-pdf", () => ({
@@ -111,6 +113,9 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/utils", () => ({
   getTitleLabel: vi.fn((t: string) => t === "DR" ? "Dr." : ""),
+  // Group invoice line items are one-per-person, so the PDF builder needs this.
+  formatPersonName: vi.fn((t: string | null, f: string, l: string) =>
+    [t, f, l].filter(Boolean).join(" ")),
   formatDate: vi.fn((d: Date) => d.toISOString().split("T")[0]),
   // Minimal stand-in for the real implementation. Enough for the tests
   // that check derived-code behavior — they only need "Production Test"
@@ -1006,5 +1011,84 @@ describe("invoice status transitions — cancelInvoice / markInvoiceOverdue (fin
     await cancelInvoice("inv-1");
     expect(mockUpdate).toHaveBeenCalled();
     expect(mockAuditCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("group invoice PDF — the discount must reach the document", () => {
+  it("passes the row's promo code and amount through to the PDF", async () => {
+    // Regression (Aug 7, 2026): these were hardcoded to null/0 in the group
+    // PDF builder, so a discounted group invoice printed a subtotal and a
+    // total that did not reconcile — 350 subtotal, 14 VAT, 294 total — and
+    // the company had no way to see where the 70 went. The money was correct
+    // everywhere except on the document the company actually receives.
+    const { generatePDFForInvoice } = await import("@/lib/invoice-service");
+
+    mockGenerateInvoicePDF.mockClear();
+    const groupInvoiceRow = {
+      type: "INVOICE",
+      // Routes to the GROUP pdf builder: a consolidated invoice has a group
+      // and no registration.
+      groupId: "grp-1",
+      invoiceNumber: "GRP-INV-001",
+      subtotal: 350,
+      discountCode: "GROUP20",
+      discountAmount: 70,
+      taxRate: 5,
+      taxLabel: "VAT",
+      taxAmount: 14,
+      total: 294,
+      currency: "USD",
+      issueDate: new Date(),
+      dueDate: new Date(),
+      paidDate: null,
+      status: "SENT",
+      coveredRegistrationIds: [],
+      payment: null,
+      registration: null,
+      group: {
+        coordinatorName: "Coord",
+        coordinatorEmail: "coord@acme.test",
+        payerReference: "PO-1",
+        billingAccount: { name: "Acme Ltd" },
+        registrations: [
+          {
+            id: "r1", status: "CONFIRMED", originalPrice: 250, ticketTypeId: "tt1",
+            ticketType: { name: "Physician", currency: "USD" },
+            pricingTier: null,
+            attendee: { title: null, firstName: "Pia", lastName: "One" },
+          },
+          {
+            id: "r2", status: "CONFIRMED", originalPrice: 100, ticketTypeId: "tt2",
+            ticketType: { name: "Nurse", currency: "USD" },
+            pricingTier: null,
+            attendee: { title: null, firstName: "Rob", lastName: "Two" },
+          },
+        ],
+        event: {
+          name: "Big Sky", code: "BSC", startDate: new Date(), venue: null, city: null,
+          taxRate: 5, taxLabel: "VAT", bankDetails: null, supportEmail: null,
+          emailFromAddress: null, emailFromName: null, organizationId: "org-1",
+          organization: {
+            name: "MM", primaryColor: null, logo: null, companyName: null,
+            companyAddress: null, companyCity: null, companyState: null,
+            companyZipCode: null, companyCountry: null, companyPhone: null,
+            companyEmail: null, taxId: null,
+          },
+        },
+      },
+    };
+    // generatePDFForInvoice loads the row, then buildGroupInvoicePDFData
+    // re-queries it — both calls get the same row.
+    mockInvoiceFindUniqueOrThrow
+      .mockResolvedValueOnce(groupInvoiceRow)
+      .mockResolvedValueOnce(groupInvoiceRow);
+
+    await generatePDFForInvoice("inv-group-1");
+
+    const data = mockGenerateInvoicePDF.mock.calls[0][0];
+    expect(data.discountCode).toBe("GROUP20");
+    expect(data.discountAmount).toBe(70);
+    // And the document reconciles: subtotal − discount + tax === total.
+    expect(data.price - data.discountAmount + data.taxAmount).toBeCloseTo(data.total, 2);
   });
 });

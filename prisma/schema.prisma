@@ -1194,12 +1194,25 @@ model RegistrationGroup {
   /// Optional PO / grant reference for the consolidated invoice (also
   /// stamped onto member rows so per-registration surfaces agree).
   payerReference       String?
+  /// Promo code negotiated for this group (Aug 2026, owner: "the code is
+  /// against the full and final invoice").
+  ///
+  /// Held on the GROUP rather than on a member or on one invoice, because the
+  /// discount belongs to the deal: when members are added and an unpaid
+  /// invoice is cancelled and reissued, the reissued invoice must carry the
+  /// same code. The money itself lands on `Invoice.discountCode` /
+  /// `discountAmount`, so each issued document stays a frozen snapshot.
+  ///
+  /// SetNull: deleting a promo code must never take a group's registrations
+  /// with it — the invoices already issued keep their own frozen discount.
+  promoCodeId          String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   event          Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   coordinator    User?          @relation("CoordinatedGroups", fields: [coordinatorUserId], references: [id], onDelete: SetNull)
   billingAccount BillingAccount @relation(fields: [billingAccountId], references: [id], onDelete: Restrict)
+  promoCode      PromoCode?     @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
   registrations  Registration[]
   invoices       Invoice[]
   payments       Payment[]
@@ -2641,6 +2654,7 @@ model PromoCode {
   ticketTypes   PromoCodeTicketType[]
   redemptions   PromoCodeRedemption[]
   registrations Registration[]
+  groups        RegistrationGroup[]
 
   @@unique([eventId, code])
   @@index([eventId])

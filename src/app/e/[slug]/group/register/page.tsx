@@ -105,6 +105,7 @@ function GroupRegisterContent() {
     name: "", contactName: "", email: "", phone: "", address: "", city: "", country: "", taxNumber: "",
   });
   const [payerReference, setPayerReference] = useState("");
+  const [promoCode, setPromoCode] = useState("");
   // Members
   const [members, setMembers] = useState<MemberForm[]>([{ ...EMPTY_MEMBER }]);
   const [submitting, setSubmitting] = useState(false);
@@ -275,6 +276,7 @@ function GroupRegisterContent() {
             taxNumber: payer.taxNumber.trim() || undefined,
           },
           payerReference: payerReference.trim() || undefined,
+          promoCode: promoCode.trim() || undefined,
           members: members.map((m) => ({
             ticketTypeId: m.ticketTypeId,
             attendee: {
@@ -484,7 +486,10 @@ function GroupRegisterContent() {
                 <div className="sm:col-span-2"><Label>Address</Label><Input value={payer.address} onChange={(e) => setPayer({ ...payer, address: e.target.value })} /></div>
                 <div><Label>City</Label><Input value={payer.city} onChange={(e) => setPayer({ ...payer, city: e.target.value })} /></div>
                 <div><Label>Country</Label><CountrySelect value={payer.country} onChange={(v) => setPayer({ ...payer, country: v })} /></div>
-                <div className="sm:col-span-2"><Label>PO / reference (optional)</Label><Input value={payerReference} onChange={(e) => setPayerReference(e.target.value)} placeholder="Printed on the invoice" /></div>
+                <div><Label>PO / reference (optional)</Label><Input value={payerReference} onChange={(e) => setPayerReference(e.target.value)} placeholder="Printed on the invoice" /></div>
+                <div><Label>Promo code (optional)</Label><Input value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="If you were given one" autoCapitalize="characters" />
+                  <p className="mt-1 text-xs text-slate-500">Applied as one discount on your invoice.</p>
+                </div>
               </div>
             </section>
 
@@ -570,6 +575,15 @@ function GroupRegisterContent() {
                   <div className="flex justify-between"><span className="text-slate-500">{event.taxLabel || "VAT"} ({totals.rate}%)</span><span>{currency} {totals.tax.toFixed(2)}</span></div>
                 )}
                 <div className="flex justify-between font-semibold text-base pt-1 border-t"><span>Total</span><span>{currency} {totals.total.toFixed(2)}</span></div>
+                {promoCode.trim() && (
+                  /* No client-side discount preview: the server resolves the
+                     code and freezes the amount onto the invoice, and a
+                     preview that disagreed with the invoice would be worse
+                     than none. Say what will happen instead. */
+                  <p className="pt-1 text-xs text-slate-500">
+                    Promo code <span className="font-medium uppercase">{promoCode.trim()}</span> will be checked and, if valid, discounted on your invoice.
+                  </p>
+                )}
               </div>
               <p className="text-sm text-slate-500 mt-4">
                 Submitting registers all members and emails the consolidated invoice to the payer. Payment is by bank transfer (details on the invoice); registration is confirmed on receipt of payment.

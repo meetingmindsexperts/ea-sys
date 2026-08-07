@@ -7,6 +7,7 @@ import { generateReceiptPDF, type ReceiptPDFData } from "@/lib/receipt-pdf";
 import { generateCreditNotePDF, type CreditNotePDFData } from "@/lib/credit-note-pdf";
 import { sendEmail, getEventTemplate, renderAndWrap } from "@/lib/email";
 import { getTitleLabel, deriveEventCode, formatPersonName } from "@/lib/utils";
+import { promoDiscountFor, promoEligibleBase } from "@/lib/promo-validation";
 import { escapeHtml } from "@/lib/html";
 import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import {
@@ -1119,6 +1120,12 @@ function buildInvoiceEmailHtml(typeLabel: string, invoiceNumber: string, eventNa
 // single invoices derive from theirs.
 
 const groupInclude = {
+  promoCode: {
+    select: {
+      id: true, code: true, discountType: true, discountValue: true,
+      ticketTypes: { select: { ticketTypeId: true } },
+    },
+  },
   billingAccount: {
     select: {
       name: true, contactName: true, email: true, phone: true,
@@ -1136,6 +1143,7 @@ const groupInclude = {
       id: true,
       status: true,
       originalPrice: true,
+      ticketTypeId: true,
       ticketType: { select: { name: true, currency: true } },
       pricingTier: { select: { name: true } },
       attendee: { select: { title: true, firstName: true, lastName: true } },
@@ -1217,8 +1225,15 @@ export async function createGroupInvoice(params: {
    * invoice, and the reissue after an unpaid one is cancelled).
    */
   registrationIds?: string[];
+  /**
+   * Apply the group's promo code to this invoice. False for a SUPPLEMENTARY
+   * invoice raised alongside an already-settled one — the discount was granted
+   * once, on the deal.
+   */
+  applyPromo?: boolean;
 }): Promise<Invoice> {
   const { groupId, eventId, organizationId, dueDate, registrationIds } = params;
+  const applyPromo = params.applyPromo ?? true;
 
   const group = await db.registrationGroup.findFirstOrThrow({
     where: { id: groupId, eventId, event: { organizationId } },
@@ -1242,9 +1257,47 @@ export async function createGroupInvoice(params: {
   const subtotal = round2(
     billable.reduce((sum, r) => sum + Number(r.originalPrice ?? 0), 0),
   );
+
+  // The group's negotiated promo code, as ONE discount against this invoice
+  // (owner rule, Aug 2026: "the code is against the full and final invoice").
+  //
+  // `applyPromo` is false for a SUPPLEMENTARY invoice — people added after an
+  // earlier invoice was already settled. The discount was granted once, on the
+  // deal; letting it land again on each later top-up would quietly hand the
+  // company a second discount off the same negotiation.
+  //
+  // A code restricted to certain ticket types discounts only the members on
+  // those types (promoEligibleBase), so "Physician 20% off" on a mixed group
+  // does not also discount the nurses. It is still one line on the invoice.
+  let discountCode: string | null = null;
+  let discountAmount = 0;
+  if (applyPromo && group.promoCode) {
+    const eligible = promoEligibleBase(
+      group.promoCode.ticketTypes.map((t) => t.ticketTypeId),
+      billable.map((r) => ({
+        ticketTypeId: r.ticketTypeId ?? "",
+        price: Number(r.originalPrice ?? 0),
+      })),
+    );
+    const amount = promoDiscountFor(
+      {
+        discountType: group.promoCode.discountType as "PERCENTAGE" | "FIXED_AMOUNT",
+        discountValue: Number(group.promoCode.discountValue),
+      },
+      eligible,
+    );
+    if (amount > 0) {
+      discountCode = group.promoCode.code;
+      discountAmount = amount;
+    }
+  }
+
+  const taxableBase = round2(subtotal - discountAmount);
   const taxRate = group.event.taxRate ? Number(group.event.taxRate) : null;
-  const taxAmount = taxRate ? round2(subtotal * (taxRate / 100)) : 0;
-  const total = round2(subtotal + taxAmount);
+  // Tax follows the DISCOUNTED base — a company is not taxed on money it was
+  // never charged.
+  const taxAmount = taxRate ? round2(taxableBase * (taxRate / 100)) : 0;
+  const total = round2(taxableBase + taxAmount);
   const currency = billable[0]?.ticketType?.currency ?? "USD";
 
   const eventCode = await resolveEventCode(
@@ -1273,7 +1326,8 @@ export async function createGroupInvoice(params: {
         issueDate: new Date(),
         dueDate: dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         subtotal,
-        discountAmount: 0,
+        discountCode,
+        discountAmount,
         taxRate,
         taxLabel: group.event.taxLabel || "VAT",
         taxAmount,
@@ -1411,8 +1465,12 @@ async function buildGroupInvoicePDFData(invoiceId: string): Promise<InvoicePDFDa
     currency: invoice.currency,
     taxRate: invoice.taxRate ? Number(invoice.taxRate) : null,
     taxLabel: invoice.taxLabel || "VAT",
-    discountCode: null,
-    discountAmount: 0,
+    // Read from the ROW, not hardcoded: a group can carry a negotiated promo
+    // code, and without these the PDF printed a subtotal and a total that
+    // didn't reconcile — the discount silently vanished from the document
+    // while still being deducted from the amount owed.
+    discountCode: invoice.discountCode,
+    discountAmount: Number(invoice.discountAmount ?? 0),
     bankDetails: event.bankDetails,
     supportEmail: event.supportEmail,
     paymentMethodType: invoice.payment?.paymentMethodType ?? null,

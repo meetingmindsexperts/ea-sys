@@ -40,7 +40,8 @@ import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
-import { claimSeats, claimEventSeats } from "@/lib/registration-seat-db";
+import { claimSeats, claimEventSeats, claimPromoUsage } from "@/lib/registration-seat-db";
+import { checkPromoUsable } from "@/lib/promo-validation";
 import { seatCounter, type SeatCounter } from "@/lib/registration-seat";
 import { pickCurrentPricingTier } from "@/lib/current-pricing-tier";
 import {
@@ -106,6 +107,9 @@ export interface CreateGroupRegistrationInput {
     taxNumber?: string | null;
   };
   payerReference?: string | null;
+  /** Promo code the coordinator entered, applied to the consolidated
+   *  invoice (owner rule: against the full and final invoice). */
+  promoCode?: string | null;
   /** ALL member rows — when the coordinator attends, the route includes
    * their row here (matched to the coordinator by email for userId linking). */
   members: GroupMemberInput[];
@@ -126,6 +130,8 @@ export type CreateGroupRegistrationErrorCode =
   | "EVENT_FULL"
   | "PAYER_INVALID"
   | "MIXED_CURRENCY"
+  | "PROMO_INVALID"
+  | "PROMO_UNAVAILABLE"
   | "UNKNOWN";
 
 export interface CreatedGroupSummary {
@@ -527,6 +533,63 @@ export async function createGroupRegistration(
     });
   }
 
+  // 3b. Promo code (optional) — validated against the SAME shared rules the
+  //     individual registration path uses, so a code can't be valid on one
+  //     form and rejected on the other.
+  //
+  //     Per-email caps are deliberately NOT enforced here: `maxUsesPerEmail`
+  //     exists to stop one PERSON reusing a code, but a group is a company
+  //     deal placed by whoever happens to be coordinating. Charging it against
+  //     the coordinator's personal allowance would block a company from
+  //     sending a second delegation. The overall `maxUses` cap IS enforced,
+  //     race-safely, at claim time below.
+  const promoCodeInput = input.promoCode?.trim();
+  let promoCodeRow: {
+    id: string;
+    maxUses: number | null;
+  } | null = null;
+  if (promoCodeInput) {
+    const found = await db.promoCode.findFirst({
+      where: { eventId, code: { equals: promoCodeInput, mode: "insensitive" } },
+      select: {
+        id: true, isActive: true, validFrom: true, validUntil: true,
+        maxUses: true, usedCount: true, maxUsesPerEmail: true,
+        discountType: true, discountValue: true,
+        ticketTypes: { select: { ticketTypeId: true } },
+      },
+    });
+    const rejection = checkPromoUsable({
+      promo: found
+        ? {
+            isActive: found.isActive,
+            validFrom: found.validFrom,
+            validUntil: found.validUntil,
+            maxUses: found.maxUses,
+            usedCount: found.usedCount,
+            maxUsesPerEmail: found.maxUsesPerEmail,
+            applicableTicketTypeIds: found.ticketTypes.map((t) => t.ticketTypeId),
+            discountType: found.discountType as "PERCENTAGE" | "FIXED_AMOUNT",
+            discountValue: Number(found.discountValue),
+          }
+        : null,
+      now,
+      ticketTypeIds: distinctTypeIds,
+    });
+    if (rejection) {
+      apiLogger.warn(
+        { eventId, code: rejection.code, promoCode: promoCodeInput },
+        "group-registration:promo-rejected",
+      );
+      return {
+        ok: false,
+        code: "PROMO_INVALID",
+        message: rejection.message,
+        meta: { reason: rejection.code },
+      };
+    }
+    promoCodeRow = { id: found!.id, maxUses: found!.maxUses };
+  }
+
   // 4. Payer: org-level find-or-create (exact-name reuse; near-duplicates
   //    flagged needsReview) + per-event attachment. Pre-tx by design — a
   //    payer row is a reusable org entity, harmless without a group.
@@ -611,9 +674,27 @@ export async function createGroupRegistration(
           coordinatorAttending: input.coordinatorAttending,
           billingAccountId: billingAccount.id,
           payerReference,
+          promoCodeId: promoCodeRow?.id ?? null,
         },
         select: { id: true },
       });
+
+      // ONE use for the whole group — the discount is one line on one invoice.
+      // Conditional when a cap exists, so two groups racing for the last use
+      // can't both take it (the read above is not a claim).
+      if (promoCodeRow) {
+        if (promoCodeRow.maxUses !== null) {
+          const claimed = await tx.promoCode.updateMany({
+            where: { id: promoCodeRow.id, usedCount: { lt: promoCodeRow.maxUses } },
+            data: { usedCount: { increment: 1 } },
+          });
+          if (claimed.count === 0) {
+            throw new GroupServiceSentinel("PROMO_UNAVAILABLE", {});
+          }
+        } else {
+          await claimPromoUsage(tx, promoCodeRow.id, 1);
+        }
+      }
 
       // Seat claims + member rows: the SHARED helper, so this path and the
       // add-members path can never drift on seat accounting.
@@ -641,6 +722,7 @@ export async function createGroupRegistration(
         ALREADY_REGISTERED: `${err.meta.email} is already registered for this event.`,
         SOLD_OUT: `"${err.meta.ticketTypeName ?? "A registration type"}" sold out — not enough seats for the whole group.`,
         EVENT_FULL: "This event has reached its maximum number of attendees.",
+        PROMO_UNAVAILABLE: "That promo code was just used up. Please remove it and try again.",
       };
       apiLogger.warn(
         { code: err.code, meta: err.meta, eventId, members: members.length },
@@ -1347,6 +1429,12 @@ export async function addGroupMembers(
         eventId,
         organizationId,
         registrationIds: toBill,
+        // Carry the group's negotiated discount onto a REISSUE (nothing settled
+        // yet — same deal, corrected document), but never onto a SUPPLEMENTARY
+        // invoice raised alongside one already paid: the discount was granted
+        // once, and applying it again to each later top-up would hand the
+        // company a second discount off the same negotiation.
+        applyPromo: settledIds.size === 0,
       });
       invoiceNumber = invoice.invoiceNumber;
       try {
