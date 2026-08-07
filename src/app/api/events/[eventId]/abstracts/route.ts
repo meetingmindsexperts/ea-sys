@@ -18,6 +18,7 @@ import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { MAX_ABSTRACT_WORDS, withinAbstractWordLimit } from "@/lib/abstract-content";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
+import { isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -245,6 +246,21 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (themeId && !theme) {
       return NextResponse.json({ error: "Theme not found" }, { status: 404 });
+    }
+
+    // Theme is mandatory to SUBMIT when the event HAS themes (owner, Aug 7
+    // 2026). Conditional by necessity: an event whose organiser created none
+    // would otherwise be unsubmittable. Drafts are exempt, same as
+    // presentation type. The count runs only on the submit path.
+    if (status === "SUBMITTED" && !themeId) {
+      const themeCount = await db.abstractTheme.count({ where: { eventId } });
+      if (isThemeMissing(themeCount > 0, themeId)) {
+        apiLogger.warn({ msg: "abstract-create:theme-required", eventId, userId: session.user.id });
+        return NextResponse.json(
+          { error: THEME_REQUIRED_MESSAGE, code: THEME_REQUIRED_CODE },
+          { status: 400 },
+        );
+      }
     }
 
     // The event only offers the presentation types its organizer enabled

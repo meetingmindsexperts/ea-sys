@@ -25,7 +25,8 @@ import {
   Loader2,
   Sparkles,
 } from "lucide-react";
-import { useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
+import { useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
+import { isThemeMissing, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
@@ -68,6 +69,10 @@ export default function NewAbstractPage() {
 
   const { data: speakersData = [] } = useSpeakers(eventId);
   const { data: tracksData = [] } = useTracks(eventId);
+  // Same React Query key the theme picker uses, so this is a cache read, not a
+  // second request. Needed here because the form decides whether theme is
+  // required (it is, when the event has any).
+  const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string }> };
   const { data: event } = useEvent(eventId);
 
   const speakers = speakersData as Speaker[];
@@ -137,6 +142,10 @@ export default function NewAbstractPage() {
     }
     if (!asDraft && !formData.presentationType) {
       toast.error("Please select a presentation type to submit");
+      return;
+    }
+    if (!asDraft && isThemeMissing(themes.length > 0, formData.themeId)) {
+      toast.error(THEME_REQUIRED_MESSAGE);
       return;
     }
     createMutation.mutate({
@@ -330,9 +339,12 @@ export default function NewAbstractPage() {
 
               {/* Theme */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Theme</Label>
+                <Label className="text-xs font-medium">
+                  Theme {themes.length > 0 && <span className="text-red-500">*</span>}
+                </Label>
                 <AbstractThemeSelect
                   eventId={eventId}
+                  required={themes.length > 0}
                   value={formData.themeId || null}
                   onChange={(v) => setFormData({ ...formData, themeId: v ?? "" })}
                 />

@@ -200,14 +200,18 @@ describe("profile completeness helper (the nudge's predicate)", () => {
   it("names exactly the missing required fields; complete profiles are quiet", async () => {
     const { missingProfileFields, isProfileIncomplete } = await import("@/lib/submitter-profile-completeness");
     expect(missingProfileFields(structuredClone(existingSpeaker))).toEqual([
-      "Role", "Specialty", "Organization", "Job title", "Phone", "City", "Country",
+      "Role", "Specialty", "Organization", "Job title", "Phone", "City", "Country", "Bio",
     ]);
     const complete = {
       role: "PHYSICIAN", specialty: "Cardiology", organization: "Org",
       jobTitle: "Consultant", phone: "+971", city: "Dubai", country: "AE",
+      // Mandatory since Aug 7, 2026 (owner) — the bio is printed in the
+      // programme, so an accepted speaker without one is a chase later.
+      bio: "Consultant cardiologist, 12 years.",
     };
     expect(isProfileIncomplete(complete)).toBe(false);
     // Whitespace-only counts as missing.
     expect(isProfileIncomplete({ ...complete, phone: "  " })).toBe(true);
+    expect(isProfileIncomplete({ ...complete, bio: "   " })).toBe(true);
   });
 });

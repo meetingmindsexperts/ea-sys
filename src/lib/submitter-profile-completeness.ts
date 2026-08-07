@@ -8,7 +8,10 @@
  * encouraged to fill them in first.
  *
  * The required set mirrors the PUBLIC signup form's required fields (minus
- * name/email, which always exist).
+ * name/email, which always exist), plus `bio` (owner, Aug 7, 2026): the
+ * speaker's biography is printed in the programme and read out when they are
+ * introduced, so chasing it after acceptance is the expensive moment to
+ * discover it is missing.
  */
 
 export interface ProfileCompletenessInput {
@@ -19,6 +22,7 @@ export interface ProfileCompletenessInput {
   phone: string | null;
   city: string | null;
   country: string | null;
+  bio: string | null;
 }
 
 const REQUIRED_FIELDS: Array<{ key: keyof ProfileCompletenessInput; label: string }> = [
@@ -29,6 +33,7 @@ const REQUIRED_FIELDS: Array<{ key: keyof ProfileCompletenessInput; label: strin
   { key: "phone", label: "Phone" },
   { key: "city", label: "City" },
   { key: "country", label: "Country" },
+  { key: "bio", label: "Bio" },
 ];
 
 /** Human-readable labels of the required fields that are still empty. */
@@ -53,6 +58,7 @@ export const PROFILE_COMPLETENESS_SELECT = {
   phone: true,
   city: true,
   country: true,
+  bio: true,
 } as const;
 
 /**

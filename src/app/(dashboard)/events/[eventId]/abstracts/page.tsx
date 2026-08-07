@@ -52,7 +52,8 @@ import { formatDate } from "@/lib/utils";
 import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { formatAttendeeRole } from "@/lib/schemas";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
-import { useAbstracts, useSpeakers, useTracks, useEvent, queryKeys } from "@/hooks/use-api";
+import { useAbstracts, useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
+import { isThemeMissing, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -144,6 +145,9 @@ export default function AbstractsPage() {
   const { data: abstractsData = [], isLoading: loading, isFetching, refetch: refetchAbstracts } = useAbstracts(eventId);
   const { data: speakersData = [] } = useSpeakers(eventId);
   const { data: tracksData = [] } = useTracks(eventId);
+  // Cache read (same key as the theme picker) — the form needs to know whether
+  // the event offers themes, because that is what makes one required.
+  const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string }> };
   const { data: event } = useEvent(eventId);
 
   const abstracts = abstractsData as Abstract[];
@@ -309,6 +313,11 @@ export default function AbstractsPage() {
     }
     if (!formData.content.trim()) {
       toast.error("Abstract content is required");
+      return;
+    }
+    // Submitting from this dialog always submits (no draft option here).
+    if (isThemeMissing(themes.length > 0, formData.themeId)) {
+      toast.error(THEME_REQUIRED_MESSAGE);
       return;
     }
     createAbstractMutation.mutate(formData);
@@ -563,9 +572,12 @@ export default function AbstractsPage() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Theme</Label>
+                      <Label>
+                        Theme {themes.length > 0 && <span className="text-red-500">*</span>}
+                      </Label>
                       <AbstractThemeSelect
                         eventId={eventId}
+                        required={themes.length > 0}
                         value={formData.themeId || null}
                         onChange={(v) => setFormData({ ...formData, themeId: v ?? "" })}
                       />

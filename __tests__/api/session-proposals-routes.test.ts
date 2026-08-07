@@ -99,6 +99,7 @@ const COMPLETE_SPEAKER = {
   id: "spk1",
   role: "PHYSICIAN", specialty: "Cardiology", organization: "Clinic",
   jobTitle: "Consultant", phone: "+97150", city: "Dubai", country: "AE",
+  bio: "Consultant cardiologist.",
 };
 
 const CREATED_PROPOSAL = {

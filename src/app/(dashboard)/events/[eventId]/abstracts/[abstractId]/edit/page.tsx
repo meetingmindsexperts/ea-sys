@@ -25,7 +25,8 @@ import {
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useSubmitterProfileGate } from "@/hooks/use-submitter-profile-gate";
-import { useTracks, useEvent, queryKeys } from "@/hooks/use-api";
+import { useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
+import { isThemeMissing, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -68,6 +69,9 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  // Cache read (same key as the theme picker below). Theme is required to
+  // submit when the event offers themes — see `abstract-theme-requirement`.
+  const { data: themes = [] } = useAbstractThemes(eventId) as { data: Array<{ id: string }> };
 
   const [editData, setEditData] = useState({
     title: (abstract.title as string) || "",
@@ -305,6 +309,10 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                         toast.error("Please select a presentation type to submit");
                         return;
                       }
+                      if (isThemeMissing(themes.length > 0, editData.themeId)) {
+                        toast.error(THEME_REQUIRED_MESSAGE);
+                        return;
+                      }
                       updateMutation.mutate({ ...editData, status: "SUBMITTED", expectedUpdatedAt: abstractUpdatedAt });
                     }}
                   >
@@ -439,9 +447,12 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
 
               {/* Theme */}
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Theme</Label>
+                <Label className="text-xs font-medium">
+                  Theme {themes.length > 0 && <span className="text-red-500">*</span>}
+                </Label>
                 <AbstractThemeSelect
                   eventId={eventId}
+                  required={themes.length > 0}
                   value={editData.themeId || null}
                   onChange={(v) => setEditData({ ...editData, themeId: v ?? "" })}
                   disabled={!canEdit}

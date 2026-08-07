@@ -187,6 +187,9 @@ export default function SubmitterProfilePage() {
       [form.specialty, "Specialty"],
       [form.city.trim(), "City"],
       [form.country, "Country"],
+      // Owner, Aug 7 2026: the bio is printed in the programme and read out at
+      // the introduction, so it is mandatory rather than a nicety.
+      [form.bio.trim(), "Bio"],
     ]
       .filter(([value]) => !value)
       .map(([, label]) => label);
@@ -502,6 +505,10 @@ export default function SubmitterProfilePage() {
                 Your email{nameLocked ? " and name " : " "}can&apos;t be changed here — contact the
                 organizing team for that.
               </p>
+              <div>
+                <Label className="text-xs">Bio <span className="text-red-500">*</span></Label>
+                <Textarea rows={4} maxLength={5000} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="A short professional biography — this is what gets printed in the programme." />
+              </div>
               <div className="pt-1 border-t">
                 <p className="text-xs font-medium text-muted-foreground mt-3 mb-2">Optional</p>
                 <div className="grid sm:grid-cols-2 gap-3">
@@ -522,10 +529,6 @@ export default function SubmitterProfilePage() {
                     <PhotoUpload value={form.photo} onChange={(url) => setForm({ ...form, photo: url })} disabled={saving} />
                   </div>
                 </div>
-              </div>
-              <div>
-                <Label className="text-xs">Bio</Label>
-                <Textarea rows={4} maxLength={5000} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="A short professional biography…" />
               </div>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" size="sm" onClick={() => setEditing(false)} disabled={saving}>

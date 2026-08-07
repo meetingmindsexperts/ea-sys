@@ -19,6 +19,7 @@ import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
+import { isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 
 // HTTP status mapping for the service's domain error codes. Kept local to
 // the REST caller — the service never knows about HTTP.
@@ -277,6 +278,23 @@ export async function PUT(req: Request, { params }: RouteParams) {
         { error: "Presentation type is required to submit an abstract", code: "PRESENTATION_TYPE_REQUIRED" },
         { status: 400 }
       );
+    }
+    // Theme is mandatory to submit when the event HAS themes (owner, Aug 7
+    // 2026) — the same conditional shape as the create path, and exempt for
+    // drafts. Reads the RESULTING theme so an abstract that already carries one
+    // is not asked again on a resubmission.
+    if (isSubmission) {
+      const resultingThemeId = data.themeId !== undefined ? data.themeId : existingAbstract.themeId;
+      if (!resultingThemeId) {
+        const themeCount = await db.abstractTheme.count({ where: { eventId } });
+        if (isThemeMissing(themeCount > 0, resultingThemeId)) {
+          apiLogger.warn({ msg: "abstract-update:theme-required", eventId, abstractId, userId: session.user.id });
+          return NextResponse.json(
+            { error: THEME_REQUIRED_MESSAGE, code: THEME_REQUIRED_CODE },
+            { status: 400 },
+          );
+        }
+      }
     }
     // The event only offers the presentation types its organizer enabled
     // (Content → Abstracts). Enforced on a CHANGE only — an abstract may

@@ -17,7 +17,7 @@ const { mockDb, mockAuth, changeStatusSpy } = vi.hoisted(() => ({
     abstract: { findFirst: vi.fn(), findUniqueOrThrow: vi.fn(), updateMany: vi.fn(), update: vi.fn(), create: vi.fn() },
     speaker: { findFirst: vi.fn() },
     track: { findFirst: vi.fn() },
-    abstractTheme: { findFirst: vi.fn() },
+    abstractTheme: { findFirst: vi.fn(), count: vi.fn().mockResolvedValue(0) },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
   mockAuth: vi.fn(),
@@ -68,6 +68,10 @@ function createReq(body: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // clearAllMocks clears CALLS, not implementations — a theme count set by one
+  // test would otherwise leak into every later one and fire the theme gate.
+  // Default to "this event has no themes", which is the historical behaviour.
+  mockDb.abstractTheme.count.mockResolvedValue(0);
   mockAuth.mockResolvedValue(admin);
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", name: "Ev", settings: {} });
   mockDb.abstract.updateMany.mockResolvedValue({ count: 1 });
@@ -140,6 +144,7 @@ describe("profile hard gate — PROFILE_INCOMPLETE", () => {
   const completeProfile = {
     role: "PHYSICIAN", specialty: "Cardiology", organization: "Clinic",
     jobTitle: "Consultant", phone: "+97150", city: "Dubai", country: "AE",
+    bio: "Consultant cardiologist.",
   };
 
   beforeEach(() => {
@@ -161,6 +166,44 @@ describe("profile hard gate — PROFILE_INCOMPLETE", () => {
     mockAuth.mockResolvedValue(submitter);
     mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...completeProfile });
     const res = await CREATE(createReq({ speakerId: "spk1", title: "T", content: "C", status: "DRAFT" }), createParams);
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstract.create).toHaveBeenCalled();
+  });
+
+  // ── Theme requirement (owner, Aug 7 2026) ──────────────────────────────
+  // Conditional by necessity: unconditional would make submission impossible
+  // on an event whose organiser created no themes.
+
+  it("POST SUBMITTED with no theme on an event that HAS themes → 400 THEME_REQUIRED, no create", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...completeProfile });
+    mockDb.abstractTheme.count.mockResolvedValue(3);
+    const res = await CREATE(
+      createReq({ speakerId: "spk1", title: "T", content: "C", presentationType: "ORAL", status: "SUBMITTED" }),
+      createParams,
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("THEME_REQUIRED");
+    expect(mockDb.abstract.create).not.toHaveBeenCalled();
+  });
+
+  it("POST SUBMITTED with no theme on an event with NO themes proceeds", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...completeProfile });
+    mockDb.abstractTheme.count.mockResolvedValue(0);
+    const res = await CREATE(
+      createReq({ speakerId: "spk1", title: "T", content: "C", presentationType: "ORAL", status: "SUBMITTED" }),
+      createParams,
+    );
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstract.create).toHaveBeenCalled();
+  });
+
+  it("a DRAFT is exempt even when the event has themes", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...completeProfile });
+    mockDb.abstractTheme.count.mockResolvedValue(3);
+    const res = await CREATE(
+      createReq({ speakerId: "spk1", title: "T", content: "C", status: "DRAFT" }),
+      createParams,
+    );
     expect(res.status).toBeLessThan(400);
     expect(mockDb.abstract.create).toHaveBeenCalled();
   });

@@ -15,14 +15,20 @@ interface AbstractThemeSelectProps {
   onChange: (value: string | null) => void;
   placeholder?: string;
   disabled?: boolean;
+  /**
+   * Drops the "No theme" escape hatch. Set when the event has themes and one
+   * must be chosen to submit — see `abstract-theme-requirement`.
+   */
+  required?: boolean;
 }
 
 export function AbstractThemeSelect({
   eventId,
   value,
   onChange,
-  placeholder = "Select theme (optional)",
+  placeholder,
   disabled,
+  required = false,
 }: AbstractThemeSelectProps) {
   const { data: themes = [], isLoading } = useAbstractThemes(eventId);
 
@@ -38,10 +44,12 @@ export function AbstractThemeSelect({
       disabled={disabled || isLoading}
     >
       <SelectTrigger className="w-full">
-        <SelectValue placeholder={placeholder} />
+        <SelectValue
+          placeholder={placeholder ?? (required ? "Select a theme" : "Select theme (optional)")}
+        />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={NONE}>No theme</SelectItem>
+        {!required && <SelectItem value={NONE}>No theme</SelectItem>}
         {themes.map((t: { id: string; name: string }) => (
           <SelectItem key={t.id} value={t.id}>
             {t.name}
