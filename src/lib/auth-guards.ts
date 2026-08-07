@@ -52,6 +52,43 @@ export const WEBINAR_STAFF_ALLOW = ["WEBINARS"] as const;
  */
 export const TEAM_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS"] as const;
 
+/**
+ * Roles an org admin may ASSIGN — when inviting a new team member, and when
+ * changing an existing member's role. Both doors derive from this list.
+ *
+ * They previously kept SEPARATE hand-written lists, and the change-role door
+ * silently fell four roles behind: inviting someone AS Webinars worked, while
+ * moving an existing person TO Webinars failed validation. The type check
+ * below makes that impossible to repeat — adding a role to TEAM_ROLES without
+ * making it assignable fails the build.
+ *
+ * SUPER_ADMIN is deliberately EXCLUDED: it must never be grantable through an
+ * ordinary admin surface. REVIEWER is included despite not being a team role —
+ * reviewers are org-independent, but are invited and promoted through this
+ * same door (see the Reviewers page).
+ */
+export const ASSIGNABLE_USER_ROLES = [
+  "ADMIN",
+  "ORGANIZER",
+  "MEMBER",
+  "ONSITE",
+  "CRM_USER",
+  "WEBINARS",
+  "REVIEWER",
+] as const;
+
+export type AssignableUserRole = (typeof ASSIGNABLE_USER_ROLES)[number];
+
+// Compile-time guard: every team role except SUPER_ADMIN must be assignable.
+// A new role added to TEAM_ROLES and forgotten here breaks the build rather
+// than silently becoming un-assignable from the change-role dialog.
+type _AssignableCoversTeamRoles =
+  Exclude<(typeof TEAM_ROLES)[number], "SUPER_ADMIN"> extends AssignableUserRole
+    ? true
+    : { error: "ASSIGNABLE_USER_ROLES is missing a team role" };
+const _assignableCoversTeamRoles: _AssignableCoversTeamRoles = true;
+void _assignableCoversTeamRoles;
+
 /** True when a role is an org team-member role (vs an attendee/reviewer role). */
 export function isTeamRole(role: string | null | undefined): boolean {
   return !!role && (TEAM_ROLES as readonly string[]).includes(role);

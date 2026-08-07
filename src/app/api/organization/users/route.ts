@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { getClientIp, hashVerificationToken, checkRateLimit } from "@/lib/security";
-import { TEAM_ROLES, isTeamRole } from "@/lib/auth-guards";
+import { TEAM_ROLES, isTeamRole, ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 import { isInternalEmail } from "@/lib/internal-domains";
 import { UserRole } from "@prisma/client";
 
@@ -29,7 +29,7 @@ const inviteUserSchema = z.object({
   // MEMBER + ONSITE were offered in the Settings dropdown but missing here
   // (MEMBER invites would have 400'd); both are now accepted. All of these are
   // org-bound team roles created under the inviter's organization.
-  role: z.enum(["ADMIN", "ORGANIZER", "MEMBER", "REVIEWER", "ONSITE", "CRM_USER", "WEBINARS"]),
+  role: z.enum(ASSIGNABLE_USER_ROLES),
   // Optional admin-set password. When present, the account is created active +
   // verified with NO invitation email — for temp accounts whose address may not
   // be a real mailbox (e.g. event-day staff). The admin hands over the

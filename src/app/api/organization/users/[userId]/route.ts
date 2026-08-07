@@ -4,11 +4,15 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
+import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
 
 const updateUserSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
-  role: z.enum(["ADMIN", "ORGANIZER", "REVIEWER"]).optional(),
+  // Shared with the invite route so the two doors can never disagree about
+  // which roles exist (they did: MEMBER, ONSITE, CRM_USER and WEBINARS were
+  // invitable but not assignable to an existing member).
+  role: z.enum(ASSIGNABLE_USER_ROLES).optional(),
 });
 
 interface RouteParams {
@@ -96,7 +100,10 @@ export async function PUT(req: Request, { params }: RouteParams) {
     }
 
     const updatedUser = await db.user.update({
-      where: { id: userId },
+      // Org-bound on the WRITE, not only on the read above — the house
+      // invariant, so a future refactor that drops the lookup can't turn this
+      // into a cross-org role change.
+      where: { id: userId, organizationId: session.user.organizationId! },
       data: validated.data,
       select: {
         id: true,
@@ -116,7 +123,16 @@ export async function PUT(req: Request, { params }: RouteParams) {
         action: "UPDATE",
         entityType: "User",
         entityId: userId,
-        changes: { ...validated.data, ip: getClientIp(req) },
+        changes: {
+          ...validated.data,
+          // A role change is security-relevant, so record what it was BEFORE.
+          // Without this the trail says someone is now an Admin but not what
+          // they were promoted from.
+          ...(validated.data.role && validated.data.role !== user.role
+            ? { previousRole: user.role }
+            : {}),
+          ip: getClientIp(req),
+        },
       },
     });
 
