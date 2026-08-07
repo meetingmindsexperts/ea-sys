@@ -34,6 +34,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn, formatDate } from "@/lib/utils";
 import { signOutCallbackUrl } from "@/lib/sign-out-target";
+import { isTeamRole } from "@/lib/team-roles";
 import { useEvents, useEvent } from "@/hooks/use-api";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
@@ -330,27 +331,37 @@ export function Header() {
             <DropdownMenuSeparator />
 
             {/* ── Permissions ─────────────────────────────────────────────── */}
-            <div className="px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">
-                Permissions
-              </p>
-              <div className="space-y-1.5">
-                {roleMeta.permissions.map((p) => (
-                  <div key={p.label} className="flex items-center gap-2">
-                    {p.allowed ? (
-                      <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                    ) : (
-                      <X className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                    )}
-                    <span className={`text-xs ${p.allowed ? "text-foreground" : "text-muted-foreground/60"}`}>
-                      {p.label}
-                    </span>
+            {/*
+              Staff only. A submitter, reviewer or registrant is a guest of the
+              event, not an operator of it: listing what they cannot do reads as
+              a wall of red crosses about a system they never asked to use. The
+              role badge above already tells them which door they came in.
+            */}
+            {isTeamRole(session?.user?.role) && (
+              <>
+                <div className="px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">
+                    Permissions
+                  </p>
+                  <div className="space-y-1.5">
+                    {roleMeta.permissions.map((p) => (
+                      <div key={p.label} className="flex items-center gap-2">
+                        {p.allowed ? (
+                          <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                        ) : (
+                          <X className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                        )}
+                        <span className={`text-xs ${p.allowed ? "text-foreground" : "text-muted-foreground/60"}`}>
+                          {p.label}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
 
-            <DropdownMenuSeparator />
+                <DropdownMenuSeparator />
+              </>
+            )}
 
             {/* ── Actions ─────────────────────────────────────────────────── */}
             <DropdownMenuItem asChild>

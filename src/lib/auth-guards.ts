@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { TEAM_ROLES } from "@/lib/team-roles";
 import { canViewFinance } from "@/lib/finance-visibility";
 import { apiLogger } from "@/lib/logger";
 
@@ -49,8 +50,13 @@ export const WEBINAR_STAFF_ALLOW = ["WEBINARS"] as const;
  * assignable via invite. REGISTRANT/SUBMITTER/REVIEWER are org-relationship
  * roles (an internal registrant can be org-bound but is NOT a team member),
  * so they're excluded.
+ *
+ * DECLARED in `team-roles.ts` and re-exported here. That module has no server
+ * imports, so a client component can ask "is this person staff?" without
+ * dragging `next/server` and the logger into the browser bundle. Import from
+ * either place; there is one list.
  */
-export const TEAM_ROLES = ["SUPER_ADMIN", "ADMIN", "ORGANIZER", "MEMBER", "ONSITE", "CRM_USER", "WEBINARS"] as const;
+export { TEAM_ROLES, isTeamRole } from "@/lib/team-roles";
 
 /**
  * Roles an org admin may ASSIGN — when inviting a new team member, and when
@@ -89,10 +95,6 @@ type _AssignableCoversTeamRoles =
 const _assignableCoversTeamRoles: _AssignableCoversTeamRoles = true;
 void _assignableCoversTeamRoles;
 
-/** True when a role is an org team-member role (vs an attendee/reviewer role). */
-export function isTeamRole(role: string | null | undefined): boolean {
-  return !!role && (TEAM_ROLES as readonly string[]).includes(role);
-}
 
 /**
  * Returns a 403 Forbidden response if the user has a restricted role
