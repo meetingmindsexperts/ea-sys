@@ -361,6 +361,7 @@ npm run build        # Build for production
 npm run lint         # Run ESLint
 npx prisma generate  # Generate Prisma client
 npm run db:refresh   # Reset the local test DB from the latest live DR dump
+npm run uploads:refresh  # Pull the uploaded FILES those rows point at (photos/banners/certs)
 npm run db:push      # Sync schema.prisma → LOCAL test DB (guarded; local only)
 npx prisma studio    # Open Prisma Studio
 npx tsc --noEmit     # Type check
@@ -375,6 +376,13 @@ holds a full copy of prod data seeded from the latest Singapore DR dump via
 test, and `tsx` script hits local. Full setup + guards:
 [docs/LOCAL_DEV_DATABASE.md](docs/LOCAL_DEV_DATABASE.md). Reach prod only,
 read-only, via `npm run prod:psql`.
+
+**The dump carries rows, not files.** Uploads live on the box + the DR bucket,
+never in git, so a freshly refreshed local DB renders broken images (org logo,
+banners, speaker photos, certificate backgrounds) until you also run
+`npm run uploads:refresh` ([scripts/dev-uploads-refresh.sh](scripts/dev-uploads-refresh.sh)
+— read-only S3 sync into the gitignored `public/uploads/`, no `--delete`).
+Counts + the what-is-NOT-in-the-bucket note: docs/LOCAL_DEV_DATABASE.md.
 
 **RULE — never run `prisma migrate dev` or `prisma migrate reset` anywhere.**
 Those are the [INC-002](docs/INCIDENTS.md) footgun — an interactive `migrate dev`

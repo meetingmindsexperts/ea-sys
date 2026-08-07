@@ -30,6 +30,7 @@
     "db:reset": "bash scripts/guard-db-target.sh && prisma migrate reset",
     "db:migrate": "prisma migrate deploy",
     "db:refresh": "bash scripts/dev-db-refresh.sh",
+    "uploads:refresh": "bash scripts/dev-uploads-refresh.sh",
     "prod:psql": "bash scripts/prod-psql.sh",
     "worker:dev": "tsx watch worker/index.ts",
     "worker:start": "tsx worker/index.ts",

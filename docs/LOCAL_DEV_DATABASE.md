@@ -16,6 +16,7 @@ and the daily workflow. **Read this before running any `prisma` command locally.
 ```bash
 docker compose up -d postgres-prod-local   # start the local dev DB (persists)
 npm run db:refresh                         # seed/refresh it from the latest live DR dump
+npm run uploads:refresh                    # pull the FILES those rows point at
 npm run dev                                 # app + Prisma use local automatically
 ```
 
@@ -90,6 +91,55 @@ npm run db:migrate                          # apply new migrations to local (saf
 - **`npm run db:migrate`** = `prisma migrate deploy` — applies pending migrations
   to whatever `DATABASE_URL` points at (local). Not guarded (deploy is never
   destructive).
+
+---
+
+## The uploaded files (they do NOT come with the dump)
+
+`db:refresh` restores the **rows**. It does not bring the **files** those rows
+point at, because uploads live on the box and in the DR bucket, never in git.
+
+That gap is quiet and confusing: nothing errors, the app just renders a broken
+image wherever an upload is referenced. Symptom seen Aug 7, 2026 — "the org
+logo is missing everywhere" — where the row held
+`/uploads/photos/2026/04/6e1b….png`, the file served 200 on production, and the
+local checkout simply did not have it (24 files locally against ~500 in the
+bucket). The same applies to event banners, speaker photos, certificate
+backgrounds and generated agreements.
+
+```bash
+npm run uploads:refresh    # scripts/dev-uploads-refresh.sh
+```
+
+Read-only against AWS: it syncs `s3://ea-sys-dr-singapore/uploads/` into
+`public/uploads/` (gitignored) and reports counts before and after, by category.
+Deliberately **no `--delete`** — mirroring the hourly production sync, whose
+non-deleting behaviour is what made [INC-004](INCIDENTS.md) recoverable. Re-runs
+are cheap: a second run downloads nothing.
+
+**As of Aug 7, 2026** the mirror holds **514 files / 64 MB**:
+
+| Folder | Files | Size | What it is |
+|---|---:|---:|---|
+| `photos/` | 406 | 26M | org logo, event banners, attendee + speaker photos |
+| `media/` | 58 | 21M | org media library (email + page images) |
+| `certificates/` | 42 | 16M | background PDFs + issued certificates |
+| `agreements/` | 4 | 324K | uploaded speaker-agreement templates + letterhead |
+| `stripe-receipts/` | 2 | 88K | durable snapshots of Stripe's hosted receipts |
+| `crm-deal-docs/` | 1 | 12K | CRM deal attachments |
+
+Worth knowing what is NOT there: no `speaker-docs/` and no `reimbursements/`
+directory exists in the bucket yet, so passport scans and bank details have not
+been uploaded on production to date.
+
+**Think before pulling everything.** This puts real attendee photos on your
+laptop, and would put passport and bank documents there too once those folders
+exist. It is proportionate on a machine you already trust with a production DB
+dump; anywhere else, copy the one file you need instead:
+
+```bash
+aws s3 cp s3://ea-sys-dr-singapore/uploads/<path> public/uploads/<dir>/ --region ap-southeast-1
+```
 
 ---
 
