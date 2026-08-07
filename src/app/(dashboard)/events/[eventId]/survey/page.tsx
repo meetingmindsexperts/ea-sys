@@ -461,7 +461,10 @@ export default function SurveyBuilderPage() {
       </Card>
 
       {/* Shareable link — one reusable link the organizer can post anywhere.
-          Respondents self-identify by their registered email. */}
+          It is a GATEWAY: the respondent enters their registered email and we
+          email them their own per-registration survey link (review B1 — a
+          typed email is an assertion, and completing a survey issues a
+          certificate, so the survey itself is only reachable from the inbox). */}
       <Card className="mb-6">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-1.5">
@@ -469,9 +472,11 @@ export default function SurveyBuilderPage() {
             Shareable link
           </CardTitle>
           <CardDescription className="text-xs">
-            One link you can post anywhere (email signature, WhatsApp, a slide). Anyone who opens
-            it enters their registered email to complete the survey — responses stay tied to that
-            registrant. Not registered? They&apos;ll be asked to use their registration email.
+            One link you can post anywhere (email signature, WhatsApp, a slide). Whoever opens it
+            enters their registered email and we send <span className="font-medium">their own
+            personal survey link</span> to that inbox — they answer from there. This keeps feedback
+            (and any certificate) attributable to the real attendee, so nobody can complete the
+            survey on someone else&apos;s behalf.
           </CardDescription>
         </CardHeader>
         <CardContent>

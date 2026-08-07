@@ -1410,13 +1410,48 @@ wrong-event badge 404s); sequential double-scan IS idempotent (only the concurre
 ONSITE fix holds on the five routes it touched; DTCM is never substituted for the entry barcode.
 
 
-### 🚨 Survey + Dinner RSVP review (July 13, 2026) — **B1 IS AN OPEN BLOCKER**; everything else in the batch shipped
+### Survey + Dinner RSVP review (July 13, 2026) — ✅ **B1 CLOSED (Aug 7, 2026)**; everything else in the batch shipped
 
 First independent review of the last un-reviewed domain: **2 BLOCKER / 5 HIGH / 8 MED / 5 LOW** — the most
 severe result of any domain. Full report (teaching format):
 [docs/CODE_REVIEW_SURVEY_RSVP.html](CODE_REVIEW_SURVEY_RSVP.html).
 
-> ## ⚠️ OPEN BLOCKER — B1: anyone can submit a survey AS another attendee, minting their CME certificate
+> ## ✅ CLOSED (Aug 7, 2026) — B1: anyone could submit a survey AS another attendee, minting their CME certificate
+>
+> **Fix shipped — option (a), owner-selected.** The share page is now a **gateway, not a form**:
+> it takes the typed email and, if it matches a registration, **emails that address the same
+> per-registration `?token=` link the bulk-email invitation mints** (256-bit secret, stored hashed,
+> single-use, TTL-bounded). It never submits answers and **never stamps `surveyCompletedAt`** — so
+> the certificate trigger can no longer be reached by asserting an identity. A stranger who types a
+> victim's address now merely causes the real attendee to receive their own link.
+>
+> Also closed in the same change: **M1, the enumeration oracle** — the endpoint returns one
+> identical generic message for registered / unregistered / already-completed, so it can't be used
+> to test whether a named physician attended.
+>
+> **Rate limiting was re-shaped for the intended use.** The share request is dispatched *before* the
+> submit limit (10/15min/IP, calibrated for one-submit-per-person) and carries its own: **100/15min
+> per IP** (room-scale — a whole hall scans the QR from one venue-NAT egress IP, the same failure
+> mode that got the ipHash dedup removed in H1) plus **3/hr per email address** to stop mail-bombing
+> one person. The per-email limit deliberately returns the *same generic 200* rather than a 429,
+> because any status that varies with the email would re-open the oracle. Pinned by a regression
+> test asserting exactly two limit checks on the share path.
+>
+> **Files:** [survey/route.ts](../src/app/api/public/events/%5Bslug%5D/survey/route.ts)
+> (`handleShareRequestLink`), [survey/page.tsx](../src/app/e/%5Bslug%5D/survey/page.tsx)
+> (share mode renders the gateway + a "check your inbox" panel).
+> **+7 tests** in [public-survey-route.test.ts](../__tests__/api/public-survey-route.test.ts) pinning:
+> no stamp / no `SurveyResponse` even when answers are supplied (the old exploit shape), token mint
+> + email with a `?token=` link, non-enumeration byte-equality, already-completed still gets a link,
+> invalid + expired share tokens, per-email limit returns generic 200, and the dispatch-ordering guard.
+>
+> **The lesson (worth carrying):** the share link shipped when `surveyCompletedAt` was *just a
+> feedback flag* — trusting a typed email was a defensible trade at the time. Certificate auto-issue
+> later **promoted that flag into a credential-issuing trigger**, and nobody went back to re-audit
+> who was allowed to set it. **When a field becomes a credential trigger, re-audit every writer of
+> that field.**
+>
+> <details><summary>Original blocker write-up (historical)</summary>
 >
 > **Do not run a conference that issues CME certificates off a broadcast survey link until this is closed.**
 >
@@ -1462,6 +1497,15 @@ severe result of any domain. Full report (teaching format):
 >
 > Deliberately **left open** (owner call, 2026-07-13) rather than picking a mechanism under time pressure.
 > Revisit before the next CME event that wants a broadcast survey link.
+>
+> </details>
+>
+> **Live exposure at close (re-checked 2026-08-05, read-only):** the one share link ever generated
+> (`osh-mm-june2026`) had **expired on 2026-07-18** on a `COMPLETED` event, and **0 survey tokens
+> were outstanding** — so the window was never exploited in practice. 4 templates still had
+> `autoIssueOnSurvey = true`, i.e. the machinery stayed armed and would have re-opened the hole the
+> moment an organizer generated a new share link. Whole-feature usage at close: **2 survey responses
+> ever**, so the fix carried no migration and broke no established habit.
 
 **Shipped** (Blockers+HIGHs batch, minus B1):
 - **✅ B2 (`220d421`) — editing a dinner wiped its venue, description and RSVP deadline.** The roster GET (the

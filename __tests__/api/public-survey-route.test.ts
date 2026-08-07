@@ -16,9 +16,13 @@ const { mockDb, mockRateLimit, mockSendEmail, mockHashToken } = vi.hoisted(() =>
     verificationToken: {
       findUnique: vi.fn(),
       delete: vi.fn().mockResolvedValue({}),
+      // Share "email me my link" path mints exactly like bulk-email does.
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      create: vi.fn().mockResolvedValue({}),
     },
     registration: {
       findFirst: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn(),
     },
     attendee: {
@@ -26,6 +30,13 @@ const { mockDb, mockRateLimit, mockSendEmail, mockHashToken } = vi.hoisted(() =>
     },
     surveyResponse: {
       create: vi.fn(),
+    },
+    event: {
+      findFirst: vi.fn(),
+    },
+    // resolveTenantOrg() consults this; null → legacy unscoped behavior.
+    tenantDomain: {
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     $transaction: vi.fn(),
   },
@@ -477,5 +488,221 @@ describe("POST /api/public/events/[slug]/survey", () => {
       PARAMS,
     );
     expect(res.status).toBe(400);
+  });
+});
+
+// ── Shareable link: "email me my survey link" (review B1) ──────────────
+//
+// The share link is BROADCAST (QR on a closing slide, WhatsApp), so it
+// carries no per-person identity. It used to accept the respondent's
+// identity as a TYPED EMAIL and submit on that basis, stamping
+// Registration.surveyCompletedAt — which certificates/auto-issue.ts polls
+// to mint a real CME certificate. A stranger who knew an attendee's email
+// could therefore issue a certificate in their name AND permanently lock
+// the real attendee out (SurveyResponse.registrationId is @unique).
+//
+// These tests pin the fix: the share path now only EMAILS the person their
+// per-registration token, and its HTTP response never varies with whether
+// the address is registered.
+describe("POST share link — request my survey link", () => {
+  const SHARE_TOKEN = "share-token-abc";
+
+  function shareEvent(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "evt-1",
+      name: "OSH Monthly Meeting",
+      slug: SLUG,
+      organizationId: "org-1",
+      surveyShareLink: {
+        token: SHARE_TOKEN,
+        expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+        createdAt: new Date().toISOString(),
+        createdByUserId: "user-1",
+      },
+      surveyConfig: SAMPLE_CONFIG,
+      organization: { name: "MeetingMinds" },
+      ...overrides,
+    };
+  }
+
+  function shareRegistration(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "reg-1",
+      surveyCompletedAt: null,
+      attendeeId: "att-1",
+      attendee: { id: "att-1", firstName: "Sara", email: "sara@hospital.com", tags: [] },
+      event: { id: "evt-1", name: "OSH Monthly Meeting", slug: SLUG },
+      ...overrides,
+    };
+  }
+
+  beforeEach(async () => {
+    const { getEventTemplate } = await import("@/lib/email");
+    vi.mocked(getEventTemplate).mockResolvedValue({
+      subject: "How was {{eventName}}?",
+      htmlContent: "<p>Dear {{firstName}},</p><a href=\"{{surveyLink}}\">Take the survey</a>",
+      textContent: "Dear {{firstName}}, {{surveyLink}}",
+      branding: {},
+    } as never);
+  });
+
+  it("NEVER stamps surveyCompletedAt or writes a SurveyResponse — even if answers are supplied (the B1 exploit shape)", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce(shareEvent());
+    mockDb.registration.findMany.mockResolvedValueOnce([shareRegistration()]);
+
+    const res = await POST(
+      makePostReq({
+        share: SHARE_TOKEN,
+        email: "sara@hospital.com",
+        // The old handler accepted these and submitted the survey.
+        answers: { q1: 5, q2: "Academia" },
+      }),
+      PARAMS,
+    );
+
+    expect(res.status).toBe(200);
+    // The credential-issuing flag is never touched, and no response row is
+    // created — so certificate auto-issue can never fire off this path.
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
+    expect(mockDb.surveyResponse.create).not.toHaveBeenCalled();
+  });
+
+  it("mints a per-registration token (dropping any previous one) and emails the link", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce(shareEvent());
+    mockDb.registration.findMany.mockResolvedValueOnce([shareRegistration()]);
+
+    const res = await POST(
+      makePostReq({ share: SHARE_TOKEN, email: "sara@hospital.com" }),
+      PARAMS,
+    );
+    expect(res.status).toBe(200);
+
+    // Exactly one live link per registration — old ones dropped first.
+    expect(mockDb.verificationToken.deleteMany).toHaveBeenCalledWith({
+      where: { identifier: "survey:reg-1" },
+    });
+    const created = mockDb.verificationToken.create.mock.calls[0]![0] as {
+      data: { identifier: string; token: string; expires: Date };
+    };
+    expect(created.data.identifier).toBe("survey:reg-1");
+    // Stored HASHED — the raw secret only ever exists in the email.
+    expect(created.data.token).toMatch(/^hashed:/);
+    expect(created.data.expires.getTime()).toBeGreaterThan(Date.now());
+
+    // Emailed to the typed address, carrying a ?token= link (not ?share=).
+    const sendArgs = mockSendEmail.mock.calls[0]![0] as {
+      to: { email: string }[];
+      htmlContent: string;
+    };
+    expect(sendArgs.to).toEqual([{ email: "sara@hospital.com" }]);
+    expect(sendArgs.htmlContent).toContain("/survey?token=");
+    expect(sendArgs.htmlContent).not.toContain("share=");
+  });
+
+  it("is NOT an enumeration oracle — an unregistered email gets the identical 200 body, and no email is sent", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce(shareEvent());
+    mockDb.registration.findMany.mockResolvedValueOnce([shareRegistration()]);
+    const registered = await POST(
+      makePostReq({ share: SHARE_TOKEN, email: "sara@hospital.com" }),
+      PARAMS,
+    );
+    const registeredBody = await registered.json();
+
+    vi.clearAllMocks();
+    const { getEventTemplate } = await import("@/lib/email");
+    vi.mocked(getEventTemplate).mockResolvedValue({
+      subject: "s", htmlContent: "h", textContent: "t", branding: {},
+    } as never);
+    mockDb.event.findFirst.mockResolvedValueOnce(shareEvent());
+    mockDb.registration.findMany.mockResolvedValueOnce([]); // not registered
+    const unknown = await POST(
+      makePostReq({ share: SHARE_TOKEN, email: "stranger@evil.com" }),
+      PARAMS,
+    );
+    const unknownBody = await unknown.json();
+
+    expect(unknown.status).toBe(registered.status);
+    expect(unknownBody).toEqual(registeredBody);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("still sends a link when the survey was already completed (uniform response; the token page explains)", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce(shareEvent());
+    mockDb.registration.findMany.mockResolvedValueOnce([
+      shareRegistration({ surveyCompletedAt: new Date() }),
+    ]);
+
+    const res = await POST(
+      makePostReq({ share: SHARE_TOKEN, email: "sara@hospital.com" }),
+      PARAMS,
+    );
+    expect(res.status).toBe(200);
+    expect(mockSendEmail).toHaveBeenCalled();
+    expect(mockDb.registration.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid share token", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce(shareEvent());
+    const res = await POST(
+      makePostReq({ share: "wrong-token", email: "sara@hospital.com" }),
+      PARAMS,
+    );
+    expect(res.status).toBe(400);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("rejects an expired share token", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce(
+      shareEvent({
+        surveyShareLink: {
+          token: SHARE_TOKEN,
+          expiresAt: new Date(Date.now() - 1000).toISOString(),
+          createdAt: new Date().toISOString(),
+          createdByUserId: "user-1",
+        },
+      }),
+    );
+    const res = await POST(
+      makePostReq({ share: SHARE_TOKEN, email: "sara@hospital.com" }),
+      PARAMS,
+    );
+    expect(res.status).toBe(400);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("is NOT gated by the submit rate limit — a whole hall scans the QR from ONE venue-NAT IP (regression guard)", async () => {
+    // The submit limit is 10/15min/IP, calibrated for "one submit per person".
+    // The share path is the QR entry point for a ROOM, so it must be
+    // dispatched before that limit and use its own room-scale one. If this
+    // ordering regresses, attendee #11 onwards silently cannot get a link.
+    mockDb.event.findFirst.mockResolvedValueOnce(shareEvent());
+    mockDb.registration.findMany.mockResolvedValueOnce([shareRegistration()]);
+    // Only ONE checkRateLimit call should happen before the work: the share
+    // path's own per-IP. (Then the per-email one.)
+    const res = await POST(
+      makePostReq({ share: SHARE_TOKEN, email: "sara@hospital.com" }),
+      PARAMS,
+    );
+    expect(res.status).toBe(200);
+    // Exactly two limit checks — share per-IP + per-email. A third would mean
+    // the submit limit is once again in front of the share path.
+    expect(mockRateLimit).toHaveBeenCalledTimes(2);
+    expect(mockSendEmail).toHaveBeenCalled();
+  });
+
+  it("per-email rate limit returns the SAME generic 200 (a 429 would re-open the oracle) and sends nothing", async () => {
+    mockDb.event.findFirst.mockResolvedValueOnce(shareEvent());
+    // First call = the per-IP check (allowed), second = per-email (blocked).
+    mockRateLimit
+      .mockReturnValueOnce({ allowed: true, retryAfterSeconds: 0 })
+      .mockReturnValueOnce({ allowed: false, retryAfterSeconds: 900 });
+
+    const res = await POST(
+      makePostReq({ share: SHARE_TOKEN, email: "sara@hospital.com" }),
+      PARAMS,
+    );
+    expect(res.status).toBe(200);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(mockDb.verificationToken.create).not.toHaveBeenCalled();
   });
 });

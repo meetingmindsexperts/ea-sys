@@ -7,7 +7,12 @@
  *       current survey config + read-only prefill (name + email).
  *
  *   POST /api/public/events/[slug]/survey
- *     → body { token, answers: { [questionId]: value } }
+ *     → body { share, email }  — shareable-link "email me my link". Mints the
+ *       per-registration token and EMAILS it; never submits a survey and never
+ *       stamps surveyCompletedAt (review B1 — that flag mints a CME
+ *       certificate, so a typed email may not set it). Always returns the same
+ *       generic message, so it is not an email-enumeration oracle.
+ *     → body { token, answers: { [questionId]: value } }  — the real submit
  *     → validates token + answers vs current Event.surveyConfig
  *     → inside one transaction:
  *         · SurveyResponse.create (1:1 with Registration via @unique)
@@ -48,7 +53,18 @@ import {
   validateAnswers,
   type SurveyConfig,
 } from "@/lib/survey/schema";
-import { isShareLinkValid } from "@/lib/survey/share-link";
+import {
+  isShareLinkValid,
+  DEFAULT_SURVEY_EXPIRY_DAYS,
+  DAY_MS,
+} from "@/lib/survey/share-link";
+import {
+  getEventTemplate,
+  renderAndWrap,
+  brandingFrom,
+  brandingCc,
+  sendEmail,
+} from "@/lib/email";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -547,45 +563,126 @@ const submitBodySchema = z.object({
   answers: z.record(z.string(), z.unknown()),
 });
 
-const shareSubmitSchema = z.object({
+const shareRequestLinkSchema = z.object({
   share: z.string().min(1),
   email: z.string().email(),
-  answers: z.record(z.string(), z.unknown()),
 });
 
 /**
- * Shareable-link submit (self-identify by email). Validates the
- * organizer-generated reusable token, resolves the registration from
- * the typed email, runs a short-window soft IP dedup, then defers to
- * the shared finalizeSubmission (no token to delete — the link reuses).
+ * The one message the share endpoint ever returns on a well-formed request.
+ *
+ * Deliberately identical for "registered", "not registered" and "already
+ * completed": the previous share path answered each differently, which made
+ * the endpoint an **email-enumeration oracle** (review M1) — anyone could
+ * probe whether a named physician attended an event. Password-reset flows
+ * solve this the same way. The real attendee learns the outcome in their
+ * inbox; a stranger learns nothing.
  */
-async function handleShareSubmit(
+const SHARE_LINK_GENERIC_MESSAGE =
+  "If that email is registered for this event, we've sent your personal survey link to it. Please check your inbox (and your spam folder).";
+
+/**
+ * Shareable-link "email me my survey link" (review B1 fix, Aug 2026).
+ *
+ * ## What this used to do, and why it changed
+ *
+ * The share link is designed to be BROADCAST — a QR on the closing slide, a
+ * WhatsApp blast, an email signature. It therefore carries **no per-person
+ * identity**: one token for the whole event. The old handler accepted the
+ * respondent's identity as a **typed email** and submitted the survey on that
+ * basis, stamping `Registration.surveyCompletedAt`.
+ *
+ * That flag is not cosmetic — `certificates/auto-issue.ts` polls exactly it
+ * (`surveyCompletedAt: { not: null }`) and mints a real, serialized, audited
+ * CME certificate. So anyone who knew an attendee's email (routinely public
+ * for medical faculty) could (1) issue a certificate in their name off garbage
+ * answers, (2) **permanently lock the real attendee out** — `SurveyResponse.
+ * registrationId` is `@unique`, the flag is set, and there is no organizer
+ * "reset survey" — and (3) poison the accreditation dataset.
+ *
+ * The share link shipped when `surveyCompletedAt` was just a feedback flag;
+ * certificate auto-issue later promoted that flag into a credential-issuing
+ * trigger, and nobody re-asked who was allowed to set it. **Lesson: when a
+ * field becomes a credential trigger, re-audit every writer of that field.**
+ *
+ * ## What it does now
+ *
+ * The share page is a GATEWAY, not a form. This endpoint takes the typed email
+ * and, if it matches a registration, mints the **same per-registration token
+ * the bulk-email invitation path mints** (`survey:{regId}`, 256-bit secret,
+ * stored hashed, single-use, TTL-bounded) and emails it to that address. The
+ * respondent then answers via the secure `?token=` path.
+ *
+ * Identity therefore rests on **possession of a secret delivered to the
+ * registered mailbox** instead of on an unverified assertion. A stranger who
+ * types a victim's address no longer forges anything — they just cause the
+ * real attendee to receive their own link.
+ *
+ * The response is ALWAYS the same generic message (see
+ * `SHARE_LINK_GENERIC_MESSAGE`), which also closes the enumeration oracle.
+ */
+async function handleShareRequestLink(
   req: Request,
   slug: string,
   body: unknown,
 ): Promise<NextResponse> {
-  const parsed = shareSubmitSchema.safeParse(body);
+  const parsed = shareRequestLinkSchema.safeParse(body);
   if (!parsed.success) {
-    apiLogger.warn({ msg: "survey:share-post-invalid", slug, errors: parsed.error.flatten() });
+    apiLogger.warn({ msg: "survey:share-link-request-invalid", slug, errors: parsed.error.flatten() });
     return NextResponse.json(
       { error: "Invalid input", details: parsed.error.flatten() },
       { status: 400 },
     );
   }
-  const { share: shareToken, email, answers: rawAnswers } = parsed.data;
+  const { share: shareToken, email } = parsed.data;
   const normalizedEmail = email.trim().toLowerCase();
+  const ip = getClientIp(req);
+
+  // Per-IP limit. This endpoint now SENDS EMAIL on an unauthenticated request,
+  // so it is an outbound-abuse surface (SES reputation), not just a DB one.
+  //
+  // Sized for the INTENDED use: the QR goes on the closing slide and a whole
+  // hall scans it at once, all sharing one venue-NAT egress IP. 100/15 min
+  // mirrors the public-register sustained per-IP limit, which exists for
+  // exactly this shape. The tight bound that actually stops abuse is the
+  // per-EMAIL limit below — a spray needs a different address every time.
+  const ipLimit = checkRateLimit({
+    key: `survey-share-link:ip:${ip}`,
+    limit: 100,
+    windowMs: 15 * 60 * 1000,
+  });
+  if (!ipLimit.allowed) {
+    apiLogger.warn({
+      msg: "survey:share-link-request-rate-limited-ip",
+      slug,
+      retryAfterSeconds: ipLimit.retryAfterSeconds,
+    });
+    return NextResponse.json(
+      { error: "Too many requests. Please try again shortly." },
+      { status: 429, headers: { "Retry-After": String(ipLimit.retryAfterSeconds) } },
+    );
+  }
 
   const event = await db.event.findFirst({
     where: await publicEventWhere(req, slug),
-    select: { id: true, organizationId: true, surveyShareLink: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      organizationId: true,
+      surveyShareLink: true,
+      surveyConfig: true,
+      organization: { select: { name: true } },
+    },
   });
   if (!event) {
+    apiLogger.info({ msg: "survey:share-link-request-event-not-found", slug });
     return NextResponse.json({ error: "Survey not found" }, { status: 404 });
   }
 
   const valid = isShareLinkValid(event.surveyShareLink, shareToken);
   if (!valid.ok) {
-    apiLogger.info({ msg: "survey:share-post-invalid-token", slug, reason: valid.reason });
+    apiLogger.info({ msg: "survey:share-link-request-invalid-token", slug, reason: valid.reason });
     return NextResponse.json(
       {
         error:
@@ -597,64 +694,147 @@ async function handleShareSubmit(
     );
   }
 
-  return await runWithTenant(event.organizationId, async () => {
-  // Same email can map to multiple registrations in an event (multi-ticket
-  // / re-registration): prefer an incomplete one, else treat as already
-  // completed. Scoped by the tenant-resolved event id (the event lookup above
-  // is host-scoped via publicEventWhere) so no cross-event/tenant leak.
-  const registrations = await db.registration.findMany({
-    where: {
-      eventId: event.id,
-      status: { notIn: ["CANCELLED"] },
-      attendee: { email: normalizedEmail },
-    },
-    select: SUBMIT_REGISTRATION_SELECT,
-    orderBy: { createdAt: "desc" },
+  // No survey configured ⇒ nothing to send a link to. Event-level fact, so
+  // reporting it leaks nothing about the typed email.
+  if (readSurveyConfig(event.surveyConfig, event.id) === null) {
+    apiLogger.info({ msg: "survey:share-link-request-no-survey", eventId: event.id });
+    return NextResponse.json({ error: "Survey not found" }, { status: 404 });
+  }
+
+  // Per-EMAIL limit — stops someone using this endpoint to mail-bomb one
+  // person. Keyed on the TYPED address (registered or not), so it reveals
+  // nothing, and it deliberately returns the SAME generic 200 rather than a
+  // 429: any status that varies with the email would re-open the oracle this
+  // handler exists to close. The real owner already has recent links.
+  const emailLimit = checkRateLimit({
+    key: `survey-share-link:email:${normalizedEmail}`,
+    limit: 3,
+    windowMs: 60 * 60 * 1000,
   });
+  if (!emailLimit.allowed) {
+    apiLogger.warn({ msg: "survey:share-link-request-rate-limited-email", eventId: event.id });
+    return NextResponse.json({ ok: true, message: SHARE_LINK_GENERIC_MESSAGE });
+  }
 
-  if (registrations.length === 0) {
-    apiLogger.info({ msg: "survey:share-post-email-not-found", eventId: event.id });
-    return NextResponse.json(
-      {
-        error:
-          "We couldn't find a registration for that email at this event. Please use the email address you registered with.",
+  return await runWithTenant(event.organizationId, async () => {
+    // Same email can map to multiple registrations in an event (multi-ticket /
+    // re-registration): prefer one that hasn't completed. Scoped by the
+    // tenant-resolved event id (the lookup above is host-scoped via
+    // publicEventWhere) so there is no cross-event/tenant leak.
+    const registrations = await db.registration.findMany({
+      where: {
+        eventId: event.id,
+        status: { notIn: ["CANCELLED"] },
+        attendee: { email: normalizedEmail },
       },
-      { status: 404 },
+      select: SUBMIT_REGISTRATION_SELECT,
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (registrations.length === 0) {
+      // Logged, but NOT surfaced — the generic response is the whole point.
+      apiLogger.info({ msg: "survey:share-link-request-email-not-found", eventId: event.id });
+      return NextResponse.json({ ok: true, message: SHARE_LINK_GENERIC_MESSAGE });
+    }
+
+    const target = registrations.find((r) => !r.surveyCompletedAt) ?? registrations[0];
+
+    // An already-completed respondent still gets a link. The `?token=` path
+    // renders a friendly "you've already completed this" state, so they learn
+    // it in their own inbox — and the HTTP response stays uniform.
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = hashVerificationToken(rawToken);
+    try {
+      // Identical mint to the bulk-email invitation path: drop any previous
+      // token for this registration first so exactly ONE link is ever live.
+      await db.verificationToken.deleteMany({
+        where: { identifier: `${TOKEN_PREFIX}${target.id}` },
+      });
+      await db.verificationToken.create({
+        data: {
+          identifier: `${TOKEN_PREFIX}${target.id}`,
+          token: hashedToken,
+          expires: new Date(Date.now() + DEFAULT_SURVEY_EXPIRY_DAYS * DAY_MS),
+        },
+      });
+    } catch (err) {
+      apiLogger.error({
+        msg: "survey:share-link-request-mint-failed",
+        eventId: event.id,
+        registrationId: target.id,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return NextResponse.json(
+        { error: "We couldn't send your survey link. Please try again." },
+        { status: 500 },
+      );
+    }
+
+    const template = await getEventTemplate(event.id, "survey-invitation");
+    if (!template) {
+      apiLogger.error({ msg: "survey:share-link-request-template-missing", eventId: event.id });
+      return NextResponse.json(
+        { error: "We couldn't send your survey link. Please try again." },
+        { status: 500 },
+      );
+    }
+
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.NEXTAUTH_URL ||
+      "http://localhost:3000";
+    const surveyLink = `${appUrl}/e/${event.slug}/survey?token=${rawToken}`;
+
+    const rendered = renderAndWrap(
+      template,
+      {
+        firstName: target.attendee.firstName,
+        eventName: event.name,
+        surveyLink,
+        // Self-service request — there is no organizer composing a note.
+        personalMessage: "",
+        organizerName: template.branding.emailFromName || event.organization?.name || event.name,
+      },
+      template.branding,
     );
-  }
 
-  const target = registrations.find((r) => !r.surveyCompletedAt) ?? registrations[0];
-  if (target.surveyCompletedAt) {
-    return NextResponse.json({ ok: true, alreadyCompleted: true });
-  }
+    const sent = await sendEmail({
+      to: [{ email: normalizedEmail }],
+      subject: rendered.subject,
+      htmlContent: rendered.htmlContent,
+      textContent: rendered.textContent,
+      from: brandingFrom(template.branding),
+      // Never CC the recipient onto their own email.
+      cc: brandingCc(template.branding, [{ email: normalizedEmail }]),
+      logContext: {
+        organizationId: event.organizationId,
+        eventId: event.id,
+        entityType: "REGISTRATION",
+        entityId: target.id,
+        templateSlug: "survey-invitation",
+      },
+    });
 
-  // ── The IP "soft dedup" that used to live here has been REMOVED (review H1) ──
-  //
-  // It queried for ANY response from the same ipHash in the last 60s and 429'd —
-  // keyed on the IP, NOT on the submitting registration. Every attendee on the
-  // venue WiFi shares one NAT egress IP, so they all hash to the same ipHash.
-  //
-  // The real-world failure: the organizer puts the survey QR on the closing
-  // slide and 300 people scan it at once. The first submission lands; EVERY
-  // other person in the room gets 429 "A response was just submitted from this
-  // device." And because submissions keep arriving, the sliding 60s window never
-  // empties — so the lockout is sustained. They never complete the survey,
-  // `surveyCompletedAt` is never set, and they therefore NEVER GET THEIR
-  // CERTIFICATE. The guard fired hardest at the exact moment of intended use.
-  //
-  // The comment on the old code said the short window was "deliberate so distinct
-  // registrants behind one NAT IP aren't blocked" — the author was thinking about
-  // precisely this risk, and the guard did the opposite.
-  //
-  // And it was REDUNDANT: the double-click/refresh case it was written for is
-  // already handled by `SurveyResponse.registrationId @unique`, whose P2002 is
-  // caught in finalizeSubmission and returned as an idempotent 200. A guard that
-  // duplicates a DB constraint can only add false positives.
-  //
-  // Abuse of this endpoint is bounded by the per-IP rate limit above and — for
-  // the impersonation vector — by the identity check on the share path. `ipHash`
-  // is still recorded on the response for the audit trail.
-  return finalizeSubmission(req, target, rawAnswers, null);
+    if (!sent.success) {
+      apiLogger.error({
+        msg: "survey:share-link-request-send-failed",
+        eventId: event.id,
+        registrationId: target.id,
+        error: sent.error,
+      });
+      return NextResponse.json(
+        { error: "We couldn't send your survey link. Please try again." },
+        { status: 500 },
+      );
+    }
+
+    apiLogger.info({
+      msg: "survey:share-link-request-sent",
+      eventId: event.id,
+      registrationId: target.id,
+      alreadyCompleted: Boolean(target.surveyCompletedAt),
+    });
+    return NextResponse.json({ ok: true, message: SHARE_LINK_GENERIC_MESSAGE });
   });
 }
 
@@ -664,6 +844,29 @@ export async function POST(req: Request, { params }: RouteParams) {
   let eventId: string | null = null;
   try {
     const { slug } = await params;
+
+    stage = "body-parse";
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+    }
+
+    // ── Shareable-link: request YOUR link by email (B1 fix) ──
+    // Detected by the `share` field. This NO LONGER submits a survey — it
+    // emails the requester their per-registration `?token=` link. A typed
+    // email is an assertion, not proof, and `surveyCompletedAt` mints a CME
+    // certificate; see handleShareRequestLink for the full rationale.
+    //
+    // Dispatched BEFORE the submit rate limit below, and carries its own
+    // (room-scale per-IP + tight per-email): the share link is the QR on the
+    // closing slide, so a whole hall requests links from ONE venue-NAT egress
+    // IP within minutes. The submit limit is calibrated for the opposite shape
+    // — one submit per person — and would cut the room off after 10. That is
+    // the same venue-WiFi failure the ipHash dedup was removed for (review H1).
+    if (typeof (body as { share?: unknown }).share === "string") {
+      stage = "share-request-link";
+      return await handleShareRequestLink(req, slug, body);
+    }
 
     // 10 POSTs / 15 min / IP — stricter than GET because each is a
     // DB-write attempt. Legitimate users submit once; bots get cut off.
@@ -678,20 +881,6 @@ export async function POST(req: Request, { params }: RouteParams) {
         { error: "Too many requests. Please try again later." },
         { status: 429, headers: { "Retry-After": String(ipLimit.retryAfterSeconds) } },
       );
-    }
-
-    stage = "body-parse";
-    const body = await req.json().catch(() => null);
-    if (!body || typeof body !== "object") {
-      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
-    }
-
-    // ── Shareable-link submit (self-identify by email) ──
-    // Detected by the `share` field; resolves the registration from the
-    // typed email rather than a per-registration token.
-    if (typeof (body as { share?: unknown }).share === "string") {
-      stage = "share-submit";
-      return await handleShareSubmit(req, slug, body);
     }
 
     // ── Per-registration token submit (existing single-use path) ──

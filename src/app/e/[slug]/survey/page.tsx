@@ -116,6 +116,10 @@ function PublicSurveyClient() {
     | { kind: "error"; message: string }
     | { kind: "ready"; data: ReadyData }
     | { kind: "thank-you"; eventName: string; bannerImage: string | null }
+    // Share mode only: we've asked the server to email this person their
+    // personal survey link. Deliberately shows the SAME copy whether or not
+    // the address matched a registration (the server won't say, by design).
+    | { kind: "link-sent"; message: string; event: EventLite }
   >({ kind: "loading" });
 
   // questionId → raw value (string). Ratings stored as the string number;
@@ -190,14 +194,58 @@ function PublicSurveyClient() {
 
   // ── Submit ──────────────────────────────────────────────────────────
 
-  const handleSubmit = useCallback(
+  /**
+   * Share mode: ask the server to EMAIL this person their personal survey
+   * link. It no longer submits answers (review B1 — a typed email is an
+   * assertion, and completing a survey mints a CME certificate), so the share
+   * page is a gateway into the same secure `?token=` flow the invitation
+   * emails use.
+   */
+  const handleRequestLink = useCallback(
     async (loaded: ReadyData) => {
-      if (mode === "preview") return; // preview never submits
-
-      if (mode === "share" && !EMAIL_RE.test(shareEmail.trim())) {
+      if (!EMAIL_RE.test(shareEmail.trim())) {
         toast.error("Please enter the email address you registered with.");
         return;
       }
+      setSubmitting(true);
+      try {
+        const res = await fetch(
+          `/api/public/events/${encodeURIComponent(slug)}/survey`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ share: shareToken, email: shareEmail.trim() }),
+          },
+        );
+        const data: { ok?: boolean; message?: string; error?: string } = await res
+          .json()
+          .catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          toast.error(data.error ?? "We couldn't send your survey link. Please try again.");
+          return;
+        }
+        setState({
+          kind: "link-sent",
+          message:
+            data.message ??
+            "If that email is registered for this event, we've sent your personal survey link to it.",
+          event: loaded.event,
+        });
+      } catch (err) {
+        console.error("survey:request-link-failed", err);
+        toast.error("We couldn't send your survey link. Please check your connection and try again.");
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [slug, shareToken, shareEmail],
+  );
+
+  const handleSubmit = useCallback(
+    async (loaded: ReadyData) => {
+      if (mode === "preview") return; // preview never submits
+      // Share mode never submits answers — it requests a link instead.
+      if (mode === "share") return;
 
       // Client-side required check — server re-validates. Highlight all
       // failing fields at once rather than one-at-a-time.
@@ -220,10 +268,7 @@ function PublicSurveyClient() {
         for (const [k, v] of Object.entries(answers)) {
           if (v !== "") payloadAnswers[k] = v;
         }
-        const body =
-          mode === "share"
-            ? { share: shareToken, email: shareEmail.trim(), answers: payloadAnswers }
-            : { token, answers: payloadAnswers };
+        const body = { token, answers: payloadAnswers };
         const res = await fetch(
           `/api/public/events/${encodeURIComponent(slug)}/survey`,
           {
@@ -254,7 +299,7 @@ function PublicSurveyClient() {
         setSubmitting(false);
       }
     },
-    [answers, slug, token, shareToken, shareEmail, mode],
+    [answers, slug, token, mode],
   );
 
   // ── Render ──────────────────────────────────────────────────────────
@@ -263,6 +308,10 @@ function PublicSurveyClient() {
   if (state.kind === "error") return <ErrorPanel message={state.message} />;
   if (state.kind === "thank-you") {
     return <ThankYouPanel eventName={state.eventName} bannerImage={state.bannerImage} />;
+  }
+
+  if (state.kind === "link-sent") {
+    return <LinkSentPanel message={state.message} event={state.event} />;
   }
 
   const { data } = state;
@@ -329,11 +378,37 @@ function PublicSurveyClient() {
             </div>
           ) : null}
 
+          {/* Share mode is a GATEWAY, not a form: we email the person their
+              own per-registration link rather than trusting a typed address
+              (review B1). Questions + submit are deliberately not rendered. */}
           {mode === "share" ? (
-            <ShareEmailStep value={shareEmail} onChange={setShareEmail} />
+            <>
+              <ShareEmailStep value={shareEmail} onChange={setShareEmail} />
+              <div className="mt-8 flex flex-col items-center gap-3 animate-in fade-in duration-700">
+                <Button
+                  onClick={() => void handleRequestLink(data)}
+                  disabled={submitting}
+                  className="btn-gradient h-12 w-full rounded-xl text-base font-semibold shadow-lg shadow-primary/20 disabled:opacity-60 disabled:shadow-none sm:w-auto sm:px-10"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    "Email me my survey link"
+                  )}
+                </Button>
+                <p className="max-w-md text-center text-xs text-muted-foreground">
+                  For your security we send the survey to your registered inbox, so
+                  your feedback — and any certificate — can only be recorded by you.
+                </p>
+              </div>
+            </>
           ) : null}
 
-          {/* Questions */}
+          {/* Questions — token/preview modes only */}
+          {mode !== "share" ? (
           <div className="mt-6 space-y-4">
             {data.config.map((q, i) => (
               <QuestionCard
@@ -356,8 +431,10 @@ function PublicSurveyClient() {
               />
             ))}
           </div>
+          ) : null}
 
-          {/* Submit */}
+          {/* Submit — token/preview modes only (share requests a link above) */}
+          {mode !== "share" ? (
           <div className="mt-8 flex flex-col items-center gap-3 animate-in fade-in duration-700">
             <Button
               onClick={() => void handleSubmit(data)}
@@ -383,6 +460,7 @@ function PublicSurveyClient() {
               </p>
             ) : null}
           </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -467,7 +545,7 @@ function ShareEmailStep({
             Your registered email <span className="text-destructive">*</span>
           </Label>
           <p className="text-xs text-muted-foreground">
-            We link your feedback to your registration.
+            We&apos;ll email you your personal survey link.
           </p>
         </div>
       </div>
@@ -662,6 +740,51 @@ function ErrorPanel({ message }: { message: string }) {
             Return to home
           </Button>
         </Link>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Share mode's terminal state: "we've emailed you your link".
+ *
+ * The copy is deliberately conditional-voice ("if that email is registered")
+ * and IDENTICAL whether or not the address matched — the server refuses to say,
+ * so that this page can't be used to test whether a named person attended
+ * (review M1, the enumeration oracle).
+ */
+function LinkSentPanel({ message, event }: { message: string; event: EventLite }) {
+  return (
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-b from-primary/[0.07] via-background to-muted/40 px-4">
+      <div className="pointer-events-none absolute -top-24 right-0 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-0 -left-20 h-64 w-64 rounded-full bg-accent/20 blur-3xl" />
+
+      <div className="relative w-full max-w-md rounded-3xl border bg-card/90 p-8 text-center shadow-xl shadow-primary/10 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-500 sm:p-10">
+        {event.bannerImage ? (
+          <div className="mx-auto mb-6 flex h-16 items-center justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={event.bannerImage}
+              alt={event.name}
+              className="max-h-full w-auto max-w-[70%] object-contain"
+            />
+          </div>
+        ) : null}
+
+        <div className="relative mx-auto mb-5 flex h-16 w-16 items-center justify-center">
+          <span className="absolute inset-0 rounded-full bg-gradient-primary opacity-20 blur-md" />
+          <span className="relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-primary text-white shadow-lg shadow-primary/30 animate-in zoom-in-50 duration-700">
+            <Mail className="h-8 w-8" strokeWidth={2.2} />
+          </span>
+        </div>
+
+        <h1 className="text-2xl font-bold tracking-tight">Check your inbox</h1>
+        <p className="mt-3 text-muted-foreground">{message}</p>
+        <p className="mt-4 text-xs text-muted-foreground">
+          The link is personal to your registration and expires in 7 days. If it
+          doesn&apos;t arrive within a few minutes, check your spam folder or ask the
+          organizer.
+        </p>
       </div>
     </div>
   );
