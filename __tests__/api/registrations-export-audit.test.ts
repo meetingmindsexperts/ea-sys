@@ -264,7 +264,9 @@ describe("registrations page export URL", () => {
     "src/app/(dashboard)/events/[eventId]/registrations/page.tsx",
     "utf8",
   );
-  const builder = /const exportToCSV = async \(\) => \{[\s\S]*?const res = await fetch/.exec(src);
+  // Tolerates parameters: the builder gained a variant ("csv" | "sales") and
+  // an optional group scope. The invariant it guards is unchanged.
+  const builder = /const exportToCSV = async \([\s\S]*?\) => \{[\s\S]*?const res = await fetch/.exec(src);
 
   it("sends every filter the table itself applies", () => {
     expect(builder, "exportToCSV builder not found").toBeTruthy();
@@ -282,6 +284,20 @@ describe("registrations page export URL", () => {
       expect(body, `export URL omits ${param}`).toContain(`p.set("${param}"`);
       expect(body, `export URL doesn't read ${state}`).toContain(state);
     }
+  });
+
+  it("only skips the page filters when an explicit group scope was asked for", () => {
+    // The group export deliberately ignores the page filters — the operator
+    // asked for THAT group, not that group minus whatever is filtered on
+    // screen. That widening must stay bounded to the scoped case: an
+    // unguarded skip would silently turn the normal export back into a full
+    // attendee-book dump, which is the exact bug this file exists to catch.
+    const body = builder![0];
+    for (const guarded of ['if (!scopeGroupId)']) {
+      expect(body, "filters are skipped without a group scope guard").toContain(guarded);
+    }
+    // And when scoped, the group id is what narrows it.
+    expect(body).toContain('p.set("groupId", scopeGroupId)');
   });
 });
 
