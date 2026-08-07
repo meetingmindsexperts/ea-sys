@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Plus, Calendar } from "lucide-react";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { buildEventAccessWhere, eventListSelect } from "@/lib/event-access";
 import { EventListClient } from "./event-list-client";
 import { EventsAirImportButton } from "@/components/import/eventsair-import-button";
 import { eventOrderBy, parseEventSort } from "@/lib/event-sort";
@@ -25,12 +25,13 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
 
   let events;
   try {
+    // Explicit select, and NO headcounts for an org-null role: a reviewer or an
+    // abstract submitter has no remit over who registered, so the numbers are
+    // never fetched rather than fetched and hidden. See `eventListSelect`.
     events = await db.event.findMany({
       where: buildEventAccessWhere(session.user),
       orderBy: eventOrderBy(sort),
-      include: {
-        _count: { select: { registrations: true, speakers: true } },
-      },
+      select: eventListSelect(session.user.role),
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Failed to load events list", userId: session.user.id });

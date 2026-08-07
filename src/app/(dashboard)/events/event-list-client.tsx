@@ -33,7 +33,13 @@ interface EventListItem {
   endDate: string | Date;
   timezone?: string | null;
   venue: string | null;
-  _count: { registrations: number; speakers: number };
+  /**
+   * Absent for org-null roles (reviewer / submitter / registrant): the server
+   * does not fetch headcounts for them, so the columns below render only when
+   * the data is actually there. Optional, not zeroed, so a missing count can
+   * never be mistaken for "no registrations".
+   */
+  _count?: { registrations: number; speakers: number };
 }
 
 const statusConfig: Record<
@@ -127,6 +133,13 @@ export function EventListClient({
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [yearFilter, setYearFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
+
+  /**
+   * Whether to render the headcount columns. Driven by the DATA, not by the
+   * role flag: the server decides who gets counts, so the header can never end
+   * up with two columns the rows don't fill (or the reverse).
+   */
+  const showCounts = events.some((e) => e._count);
 
   /** Build the URL for a sortable column header: clicking toggles order if
    *  the column is already active, otherwise switches to that column with
@@ -303,12 +316,16 @@ export function EventListClient({
                 <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden lg:table-cell">
                   Venue
                 </th>
-                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden sm:table-cell">
-                  Registrations
-                </th>
-                <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden sm:table-cell">
-                  Speakers
-                </th>
+                {showCounts && (
+                  <>
+                    <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden sm:table-cell">
+                      Registrations
+                    </th>
+                    <th className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden sm:table-cell">
+                      Speakers
+                    </th>
+                  </>
+                )}
                 <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">
                   Status
                 </th>
@@ -379,21 +396,23 @@ export function EventListClient({
                       )}
                     </td>
 
-                    {/* Registrations */}
-                    <td className="px-4 py-3.5 text-center hidden sm:table-cell">
-                      <div className="inline-flex items-center gap-1 text-sm text-muted-foreground">
-                        <Users className="h-3.5 w-3.5" />
-                        <span>{event._count.registrations}</span>
-                      </div>
-                    </td>
-
-                    {/* Speakers */}
-                    <td className="px-4 py-3.5 text-center hidden sm:table-cell">
-                      <div className="inline-flex items-center gap-1 text-sm text-muted-foreground">
-                        <Mic2 className="h-3.5 w-3.5" />
-                        <span>{event._count.speakers}</span>
-                      </div>
-                    </td>
+                    {/* Registrations + Speakers — organiser data, see showCounts */}
+                    {event._count && (
+                      <>
+                        <td className="px-4 py-3.5 text-center hidden sm:table-cell">
+                          <div className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+                            <Users className="h-3.5 w-3.5" />
+                            <span>{event._count.registrations}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-center hidden sm:table-cell">
+                          <div className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+                            <Mic2 className="h-3.5 w-3.5" />
+                            <span>{event._count.speakers}</span>
+                          </div>
+                        </td>
+                      </>
+                    )}
 
                     {/* Status */}
                     <td className="px-4 py-3.5">

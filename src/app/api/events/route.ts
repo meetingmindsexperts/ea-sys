@@ -5,8 +5,8 @@ import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { slugify, deriveEventCode } from "@/lib/utils";
 import { apiLogger } from "@/lib/logger";
-import { buildEventAccessWhere } from "@/lib/event-access";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { buildEventAccessWhere, EVENT_LIST_SELECT } from "@/lib/event-access";
+import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { validateApiKey } from "@/lib/api-key";
 import { DEFAULT_TEMPLATES } from "@/lib/email";
 import { DEFAULT_REG_TYPES, DEFAULT_TIER_NAMES } from "@/app/api/events/[eventId]/tickets/route";
@@ -51,6 +51,20 @@ export async function GET(req: Request) {
         if (overrideOrgId) {
           user.organizationId = overrideOrgId;
         }
+      }
+
+      // An org-null role (REVIEWER / SUBMITTER / REGISTRANT) reaches this route
+      // for the same event picker everyone uses, but must not receive the
+      // organiser payload: no registration or speaker headcounts, and none of
+      // the Event row's configuration (settings JSON, bank details, tax config,
+      // sender address) that a bare `include` would ship to their browser.
+      if (!isTeamRole(user.role)) {
+        const events = await db.event.findMany({
+          where: { ...buildEventAccessWhere(user), ...(slug && { slug }) },
+          orderBy,
+          select: EVENT_LIST_SELECT,
+        });
+        return NextResponse.json(events);
       }
 
       const events = await db.event.findMany({

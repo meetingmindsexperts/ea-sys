@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { isTeamRole } from "@/lib/auth-guards";
 
 type SessionUser = {
   id: string;
@@ -113,4 +114,47 @@ export function buildEventAccessWhere(
     ...(eventId && { id: eventId }),
     organizationId: user.organizationId!,
   };
+}
+
+/**
+ * The Event columns the events LIST renders, and nothing else.
+ *
+ * The list used to be fetched with a bare `include`, which ships the ENTIRE
+ * Event row to the browser: `settings` (reviewer + onsite assignments, sponsor
+ * list, webinar and group-registration config), `bankDetails`, `taxRate`, the
+ * per-event email sender. None of that is on screen, and for an org-null role
+ * none of it is any of their business. Selecting explicitly means a column
+ * added to Event later cannot silently join the payload.
+ */
+export const EVENT_LIST_SELECT = {
+  id: true,
+  name: true,
+  description: true,
+  status: true,
+  startDate: true,
+  endDate: true,
+  timezone: true,
+  venue: true,
+} as const;
+
+/**
+ * Registration and speaker headcounts: ORGANISER data.
+ *
+ * A reviewer scores abstracts and a submitter submits their own; how many
+ * people bought a ticket is outside both remits, so the counts are not fetched
+ * for them at all rather than fetched and hidden in CSS. Callers pair this with
+ * `EVENT_LIST_SELECT`.
+ */
+export const EVENT_LIST_COUNT_SELECT = {
+  _count: { select: { registrations: true, speakers: true } },
+} as const;
+
+/**
+ * The list select for a given role: staff get the headcounts, org-null roles
+ * (REVIEWER / SUBMITTER / REGISTRANT) get the event facts only.
+ */
+export function eventListSelect(role: string | null | undefined) {
+  return isTeamRole(role)
+    ? { ...EVENT_LIST_SELECT, ...EVENT_LIST_COUNT_SELECT }
+    : EVENT_LIST_SELECT;
 }
