@@ -8,13 +8,26 @@ import { runWithTenant } from "@/lib/tenant-context";
 
 /**
  * Pre-flight check called from Step-1 of the public signup forms.
- * Scope: **event-local only** — we report whether this email has a live
- * registration on this specific event. Cross-event user accounts are
- * intentionally NOT reported here: the server-side register route will
- * link to the existing User silently by email, and surfacing the
- * global account in the UI creates a dead-end flow where someone
- * registered for another event gets sent to /my-registration and sees
- * nothing for *this* event.
+ *
+ * It answers TWO questions with different scopes, which is the thing to hold
+ * on to when reading the response:
+ *
+ *   `exists` / `reason`  EVENT-LOCAL. Does this email hold a live registration
+ *                        on THIS event? Drives the delegate register form's
+ *                        "you're already registered" branch.
+ *
+ *   `hasAccount`         PLATFORM-WIDE. Does a login exist for this email
+ *                        anywhere? `User.email` is globally unique, so a second
+ *                        account for the same address literally cannot be
+ *                        created. The submitter forms therefore have to route
+ *                        an existing account to sign-in rather than sign-up,
+ *                        even when that account came from a different event.
+ *                        Signing in then adds them to this event (see
+ *                        abstract-start), so it is not the dead end the
+ *                        original event-local-only note worried about.
+ *
+ * Contacts play no part here. A Contact is a CRM snapshot with no credentials,
+ * so an imported or synced contact never makes `hasAccount` true on its own.
  */
 const bodySchema = z.object({
   email: z.string().email().max(255),

@@ -16,6 +16,7 @@ import { recordExport } from "@/lib/audit-data-transfer";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
+import { MAX_PROPOSAL_DESCRIPTION_CHARS } from "@/lib/session-proposal-content";
 
 /**
  * Session proposals — abstracts-shaped submissions for proposing SESSIONS.
@@ -36,7 +37,12 @@ const programFormatSchema = z
 const createProposalSchema = z.object({
   speakerId: z.string().min(1).max(100),
   title: z.string().min(1).max(500),
-  description: z.string().min(1).max(50000),
+  description: z
+    .string()
+    .min(1)
+    .max(MAX_PROPOSAL_DESCRIPTION_CHARS, {
+      message: `Description must be ${MAX_PROPOSAL_DESCRIPTION_CHARS} characters or fewer`,
+    }),
   themeId: z.string().max(100).optional(),
   proposedFormat: programFormatSchema.optional(),
   durationMinutes: z.number().int().min(5).max(600).optional(),

@@ -105,7 +105,7 @@ const VARIANT_COPY: Record<
     accountSub: "You'll use these credentials to sign in and submit your abstract.",
     signinHeading: "Sign in to submit your abstract",
     signinSub:
-      "You already have an account — enter your password and we'll take you straight to the abstract form.",
+      "This email already has an account from another event. Sign in and we'll add you to this one, then take you to the abstract form.",
     successLead: "Your presenter account has been created. Log in to submit your abstract for",
     nextStep3: "Submit your abstract for review",
     loginRedirect: "abstracts",
@@ -117,7 +117,7 @@ const VARIANT_COPY: Record<
     accountSub: "You'll use these credentials to sign in and propose a session.",
     signinHeading: "Sign in to propose a session",
     signinSub:
-      "You already have an account — enter your password and we'll take you straight to the proposal form.",
+      "This email already has an account from another event. Sign in and we'll add you to this one, then take you to the proposal form.",
     successLead: "Your proposer account has been created. Log in to propose a session for",
     nextStep3: "Submit your session proposal",
     loginRedirect: "session-proposals",

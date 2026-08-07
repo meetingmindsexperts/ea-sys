@@ -12,6 +12,7 @@ import { SESSION_TYPE_KIND } from "@/lib/session-enums";
 import { notifySessionProposalSubmitted } from "@/lib/session-proposal-notify";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
+import { MAX_PROPOSAL_DESCRIPTION_CHARS } from "@/lib/session-proposal-content";
 
 /**
  * Single session proposal — GET / PUT / DELETE.
@@ -31,7 +32,13 @@ const programFormatSchema = z
 
 const updateProposalSchema = z.object({
   title: z.string().min(1).max(500).optional(),
-  description: z.string().min(1).max(50000).optional(),
+  description: z
+    .string()
+    .min(1)
+    .max(MAX_PROPOSAL_DESCRIPTION_CHARS, {
+      message: `Description must be ${MAX_PROPOSAL_DESCRIPTION_CHARS} characters or fewer`,
+    })
+    .optional(),
   themeId: z.string().max(100).nullable().optional(),
   proposedFormat: programFormatSchema.nullable().optional(),
   durationMinutes: z.number().int().min(5).max(600).nullable().optional(),

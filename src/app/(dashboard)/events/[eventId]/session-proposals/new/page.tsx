@@ -23,6 +23,7 @@ import {
   useUpdateSessionProposal,
 } from "@/hooks/use-api";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
+import { MAX_PROPOSAL_DESCRIPTION_CHARS } from "@/lib/session-proposal-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -125,6 +126,15 @@ function ProposalForm() {
     }
     if (!title.trim() || !description.trim()) {
       toast.error("Title and description are required.");
+      return;
+    }
+    // `maxLength` only stops TYPING past the cap. A description loaded into
+    // edit mode (or pasted before a future cap change) can still be over it,
+    // so check the value rather than trusting the input attribute.
+    if (description.length > MAX_PROPOSAL_DESCRIPTION_CHARS) {
+      toast.error(
+        `Description is ${description.length.toLocaleString()} characters. Please shorten it to ${MAX_PROPOSAL_DESCRIPTION_CHARS.toLocaleString()} or fewer.`,
+      );
       return;
     }
     const durationMinutes = duration.trim() ? Number(duration) : undefined;
@@ -280,13 +290,26 @@ function ProposalForm() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="proposal-description">Description <span className="text-red-500">*</span></Label>
+                <div className="flex items-baseline justify-between gap-2">
+                  <Label htmlFor="proposal-description">Description <span className="text-red-500">*</span></Label>
+                  <span
+                    className={`text-xs tabular-nums ${
+                      description.length >= MAX_PROPOSAL_DESCRIPTION_CHARS
+                        ? "text-amber-600"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {description.length.toLocaleString()} / {MAX_PROPOSAL_DESCRIPTION_CHARS.toLocaleString()}
+                  </span>
+                </div>
                 <Textarea
                   id="proposal-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What the session covers, why it matters for this audience, and how it would run."
-                  rows={8}
+                  rows={16}
+                  maxLength={MAX_PROPOSAL_DESCRIPTION_CHARS}
+                  className="min-h-64 resize-y"
                 />
               </div>
               <div className="grid sm:grid-cols-3 gap-4">
