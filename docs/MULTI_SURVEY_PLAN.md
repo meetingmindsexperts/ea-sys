@@ -1,13 +1,34 @@
 # Multiple surveys per event
 
-**Status: PLANNED, NOT BUILT.** Planning round August 7, 2026. Owner decisions in
-§1 are locked. Do not start the build without an explicit go-ahead.
+**Status: PARKED.** Planned August 7, 2026, decisions locked, build deferred the
+same day. Owner: "I think we might not need it." Agreed. Revisit when a real
+tenant describes a real second survey; their description is what tells us
+whether `allowMultiple` (§4, the only decision adding meaningful work) is needed
+at all. Do not start without an explicit go-ahead.
 
-**Why now.** Today a survey is a set of columns on `Event`, so an event
-structurally cannot have two. MM Group has never needed more than one, but a
-second tenant plausibly will (a day-1 poll and a day-2 evaluation, an exhibitor
-survey alongside the delegate one, a per-track feedback form). The restructure
-is cheap today and gets steadily more expensive with every response collected.
+**Why it was parked.** Nobody has asked for it. Three of thirty-five events have
+a survey at all and the feature has collected two responses in its lifetime, so
+a more configurable version of it optimises a cold path. There is no platform
+instance yet, and the named next build is per-tenant Stripe / Zoom / AI keys
+([PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md) item 7), which is a prerequisite
+for onboarding anyone. Most "we need more surveys" turns out to be "we need more
+questions", which today's model already does; the genuine need is when the
+*audience* differs (exhibitors vs delegates) or the *timing* does (per-day), and
+neither is on the table. And the restructure sits one field away from the CME
+certificate trigger (§2), which is not a reason never to do it, but is a reason
+not to do it for a hypothetical.
+
+**The argument NOT to trust.** The first draft of this plan argued "this is the
+cheapest moment the change will ever be", on the strength of a five-row backfill.
+That does not hold up: a backfill is one `UPDATE` whether it touches 5 rows or
+5,000. The only cost that genuinely grows is the blue-green nullable window in
+§6, and that is solved by a two-deploy sequence whenever volume makes it matter.
+Recorded here so the argument is not recycled as a reason to build.
+
+**What the change is.** Today a survey is a set of columns on `Event`, so an
+event structurally cannot have two. A second tenant plausibly needs several: a
+day-1 poll and a day-2 evaluation, an exhibitor survey alongside the delegate
+one, a per-track feedback form.
 
 **Live state at planning time** (verified read-only against the prod copy):
 
