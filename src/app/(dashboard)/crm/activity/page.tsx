@@ -38,6 +38,8 @@ import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmListSkeleton } from "@/crm/components/crm-skeletons";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmActivityFeed } from "@/crm/hooks/use-crm-api";
+import { useSession } from "next-auth/react";
+import { canExportCrm } from "@/crm/lib/crm-roles";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
 import { cn } from "@/lib/utils";
 import {
@@ -91,6 +93,11 @@ function ActivityInner() {
 
   const rows = data?.pages.flatMap((p) => p.activity) ?? [];
 
+  // Admin and above only. The API is the authority (requireCrmExport); hiding
+  // the button just avoids handing everyone else a download that 403s.
+  const { data: session } = useSession();
+  const canExport = canExportCrm(session?.user?.role);
+
   // Export honours the current URL filters (same param names the feed reads).
   const exportHref = (() => {
     const qs = new URLSearchParams();
@@ -109,13 +116,15 @@ function ActivityInner() {
         <p className="text-sm text-muted-foreground">
           Every change across the CRM — who did what, and when.
         </p>
-        <Button asChild variant="outline">
-          {/* Plain link so the browser downloads it; honours the current filters. */}
-          <a href={exportHref} download>
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
-          </a>
-        </Button>
+        {canExport ? (
+          <Button asChild variant="outline">
+            {/* Plain link so the browser downloads it; honours the current filters. */}
+            <a href={exportHref} download>
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </a>
+          </Button>
+        ) : null}
       </div>
 
       {/* ── Filter bar ─────────────────────────────────────────────────────── */}

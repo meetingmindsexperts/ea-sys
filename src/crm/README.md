@@ -183,6 +183,28 @@ the board). So the CRM has its own, in `crm-roles.ts`:
 | `canViewCrm` | staff + MEMBER (+ API keys) | reading the board at all |
 | `canOwnDeals` | staff only (MEMBER excluded) | owning deals, any write |
 | `canViewDealValues` | staff only | seeing / filtering by money |
+| `canViewCrmInbox` | staff only | reading sponsor correspondence |
+| `canDeleteCrm` | admin tier + CRM_USER | archive / restore |
+| **`canExportCrm`** | **admin and above** (+ API keys) | **any CSV export** |
+| `canPurgeCrm` | SUPER_ADMIN sessions only, **API keys refused** | permanent delete |
+
+**`canExportCrm` is the module's narrowest READ boundary, and the only one tighter
+than WRITE** (owner decision, August 7 2026). ORGANIZER and CRM_USER may edit and
+archive records but may **not** export: reading the board is bounded and stays
+inside the app; an export is one request that yields the entire commercial book as
+a portable file, detached from the app and from any future revocation. A rep
+walking to a competitor with that CSV is the specific loss this exists to prevent.
+API keys ARE allowed (unlike purge) because the MCP read tools already serve the
+same rows to a valid key — refusing the CSV endpoint alone would be theatre. If
+that changes, the MCP surface must move in the same commit.
+
+Enforced by `requireCrmExport` in `crm-route.ts`, which wraps `requireCrmRead`
+(export is a *read* that is narrower than the other reads — chaining it through
+the write gate would work today but would silently couple the two sets). A drift
+test in `crm-route-gate-drift.test.ts` asserts that **every CRM route emitting a
+CSV calls it**, keyed on the source containing `toCsv`/`text/csv` — because the
+failure mode is a future third export route reaching for `requireCrmRead` like
+its neighbours do.
 
 **Roles that reach the CRM:** SUPER_ADMIN / ADMIN / ORGANIZER (full, via the event platform), **MEMBER** (read-only, no money), and **`CRM_USER`** — a dedicated sales-team role CONFINED to the CRM (full pipeline + sees deal values, but blocked from events/registrations/invoices/settings via the proxy redirect, a zero-event `buildEventAccessWhere` branch, `denyReviewer`, and the sidebar). CRM_USER is NOT in `FINANCE_ROLES` (CRM deal money ≠ event finance). It uses `/api/crm/events-lite` for the name-only event picker since it has no event-API access.
 

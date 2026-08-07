@@ -31,9 +31,11 @@ import {
   canOwnDeals,
   canViewDealValues,
   canPurgeCrm,
+  canExportCrm,
   denyCrmAccess,
   denyCrmWrite,
   denyCrmPurge,
+  denyCrmExport,
 } from "@/crm/lib/crm-visibility";
 import { apiLogger } from "@/lib/logger";
 
@@ -211,6 +213,91 @@ describe("denyCrmPurge", () => {
     denyCrmPurge(ctx("ADMIN"));
     expect(apiLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ msg: "auth-guard:crm-purge-denied", role: "ADMIN" }),
+    );
+  });
+});
+
+/**
+ * EXPORT — admin and above (owner decision, August 7 2026).
+ *
+ * This is the module's NARROWEST read boundary, and the only one that is tighter
+ * than WRITE. The rows that matter and must not drift:
+ *
+ *   CRM_USER  — works the pipeline daily, may edit and ARCHIVE records, and is
+ *               still refused the bulk dump. A rep leaving for a competitor with
+ *               a CSV of the whole book is the exact loss this exists to stop.
+ *   ORGANIZER — may write, may not export.
+ *   MEMBER    — reads the board, may not export.
+ *
+ * If someone ever "simplifies" canExportCrm() into canViewCrm() or canOwnDeals(),
+ * every one of those three gets the book and these tests fail loudly.
+ */
+describe("canExportCrm", () => {
+  it("allows SUPER_ADMIN and ADMIN", () => {
+    expect(canExportCrm("SUPER_ADMIN")).toBe(true);
+    expect(canExportCrm("ADMIN")).toBe(true);
+  });
+
+  it("REFUSES CRM_USER — the row that makes this narrower than WRITE, not just than READ", () => {
+    // Deliberately paired: a rep who can archive a record still cannot dump the book.
+    expect(canOwnDeals("CRM_USER")).toBe(true);
+    expect(canExportCrm("CRM_USER")).toBe(false);
+  });
+
+  it("REFUSES ORGANIZER — writes the pipeline, does not export it", () => {
+    expect(canOwnDeals("ORGANIZER")).toBe(true);
+    expect(canExportCrm("ORGANIZER")).toBe(false);
+  });
+
+  it("REFUSES MEMBER — reads the board, does not export it", () => {
+    expect(canViewCrm("MEMBER")).toBe(true);
+    expect(canExportCrm("MEMBER")).toBe(false);
+  });
+
+  it("refuses every non-CRM role", () => {
+    for (const r of ["ONSITE", "REVIEWER", "SUBMITTER", "REGISTRANT", "WEBINARS"]) {
+      expect(canExportCrm(r)).toBe(false);
+    }
+  });
+
+  it("ALLOWS an API key — unlike canPurgeCrm, because the MCP read tools already serve the same rows", () => {
+    // If this ever flips, the MCP surface has to move in the same commit or the
+    // boundary is theatre: list_crm_deals would still answer a valid key.
+    expect(canExportCrm(null, true)).toBe(true);
+    expect(canPurgeCrm(null, true)).toBe(false); // the contrast is the point
+  });
+
+  it("fails closed on unknown / absent role", () => {
+    expect(canExportCrm(null)).toBe(false);
+    expect(canExportCrm(undefined)).toBe(false);
+    expect(canExportCrm("WHATEVER")).toBe(false);
+  });
+});
+
+describe("denyCrmExport", () => {
+  it("returns null for an ADMIN session", () => {
+    expect(denyCrmExport(ctx("ADMIN"))).toBeNull();
+  });
+
+  it("403s CRM_USER with CRM_EXPORT_FORBIDDEN", async () => {
+    const res = denyCrmExport(ctx("CRM_USER"));
+    expect(res!.status).toBe(403);
+    await expect(res!.json()).resolves.toMatchObject({ code: "CRM_EXPORT_FORBIDDEN" });
+  });
+
+  it("403s ORGANIZER and MEMBER", () => {
+    expect(denyCrmExport(ctx("ORGANIZER"))!.status).toBe(403);
+    expect(denyCrmExport(ctx("MEMBER"))!.status).toBe(403);
+  });
+
+  it("allows an API-key caller", () => {
+    expect(denyCrmExport({ role: null, userId: null, fromApiKey: true })).toBeNull();
+  });
+
+  it("logs its own refusal", () => {
+    denyCrmExport(ctx("CRM_USER"));
+    expect(apiLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: "auth-guard:crm-export-denied", role: "CRM_USER" }),
     );
   });
 });

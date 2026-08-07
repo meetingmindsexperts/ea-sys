@@ -17,7 +17,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordImport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
 import { redactFinancialFields } from "@/lib/finance-visibility";
-import { canViewDealValues, denyCrmAccess, denyCrmWrite, denyCrmDelete, denyCrmPurge } from "@/crm/lib/crm-visibility";
+import { canViewDealValues, denyCrmAccess, denyCrmWrite, denyCrmDelete, denyCrmPurge, denyCrmExport } from "@/crm/lib/crm-visibility";
 
 // Re-exported so route handlers have one import site (the PATCH restore branch
 // calls this inline after requireCrmWrite).
@@ -125,6 +125,28 @@ export async function requireCrmDelete(
   if (denied) return { error: denied };
 
   return { ctx: write.ctx };
+}
+
+/**
+ * As requireCrmRead, plus the EXPORT gate: admin and above only.
+ *
+ * Built on requireCrmRead rather than requireCrmWrite ON PURPOSE — export is a
+ * READ that happens to be narrower than the other reads, not a write. Chaining
+ * it through the write gate would work today (the export set is a subset of the
+ * write set) but would silently couple the two: widening write later would
+ * change who can export, which is exactly the coupling this predicate exists to
+ * prevent. Every /api/crm/* endpoint that emits a file starts here.
+ */
+export async function requireCrmExport(
+  req: Request,
+): Promise<{ error: NextResponse; ctx?: never } | { error?: never; ctx: OrgContext }> {
+  const read = await requireCrmRead(req);
+  if (read.error) return read;
+
+  const denied = denyCrmExport(read.ctx); // logs its own refusal
+  if (denied) return { error: denied };
+
+  return { ctx: read.ctx };
 }
 
 /**

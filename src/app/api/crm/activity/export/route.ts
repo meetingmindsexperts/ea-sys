@@ -4,7 +4,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { checkRateLimit } from "@/lib/security";
 import { toCsv } from "@/lib/csv-escape";
-import { requireCrmRead, redactForCaller } from "@/crm/lib/crm-route";
+import { requireCrmExport, redactForCaller } from "@/crm/lib/crm-route";
 import { listOrgCrmActivityForExport, parseOrgActivityFilters } from "@/crm/lib/crm-activity";
 import {
   activityActionLabel,
@@ -22,9 +22,13 @@ import {
  * MEMBER's export can't leak a deal value or a prose channel (lostReason/notes)
  * through the summary. Cells escaped via the shared escapeCsvCell (formula-injection
  * safe). Rate-limited — an export is a whole-history read.
+ *
+ * ADMIN AND ABOVE ONLY (owner decision, August 7 2026) — narrower than both CRM
+ * read and CRM write; see CRM_EXPORT_ROLES. The redaction below stays as
+ * belt-and-braces for the API-key path.
  */
 export async function GET(req: Request) {
-  const { error, ctx } = await requireCrmRead(req);
+  const { error, ctx } = await requireCrmExport(req);
   if (error) return error;
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {

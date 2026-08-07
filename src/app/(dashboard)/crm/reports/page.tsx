@@ -30,7 +30,7 @@ import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { useCrmReport } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
-import { canViewDealValues } from "@/crm/lib/crm-roles";
+import { canViewDealValues, canExportCrm } from "@/crm/lib/crm-roles";
 import { formatDealValue } from "@/crm/lib/crm-types";
 
 const REPORT_FILTER_KEYS = ["event", "owner", "dateField", "from", "to"];
@@ -50,6 +50,9 @@ function money(v: number | null, currency: string | null, mixed?: boolean): stri
 function ReportsInner() {
   const { data: session } = useSession();
   const canSeeValues = canViewDealValues(session?.user?.role);
+  // Admin and above only. The API is the authority (requireCrmExport); hiding
+  // the button just avoids handing everyone else a download that 403s.
+  const canExport = canExportCrm(session?.user?.role);
 
   const { get, set, clear, anyActive } = useCrmFilters();
   const filters = {
@@ -88,13 +91,15 @@ function ReportsInner() {
         <p className="text-sm text-muted-foreground">
           Pipeline, win rate and rep performance — of whatever you filter to.
         </p>
-        <Button asChild variant="outline">
-          {/* A plain link so the browser downloads it; honours current filters. */}
-          <a href={exportHref} download>
-            <Download className="mr-2 h-4 w-4" />
-            Export deals (CSV)
-          </a>
-        </Button>
+        {canExport ? (
+          <Button asChild variant="outline">
+            {/* A plain link so the browser downloads it; honours current filters. */}
+            <a href={exportHref} download>
+              <Download className="mr-2 h-4 w-4" />
+              Export deals (CSV)
+            </a>
+          </Button>
+        ) : null}
       </div>
 
       {/* ── Filter bar ─────────────────────────────────────────────────────── */}

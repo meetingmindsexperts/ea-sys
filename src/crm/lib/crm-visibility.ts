@@ -16,10 +16,10 @@
  */
 import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
-import { canViewCrm, canOwnDeals, canDeleteCrm, canPurgeCrm } from "@/crm/lib/crm-roles";
+import { canViewCrm, canOwnDeals, canDeleteCrm, canPurgeCrm, canExportCrm } from "@/crm/lib/crm-roles";
 
 // Re-exported so server code has one import site for both predicates and guards.
-export { canViewCrm, canOwnDeals, canViewDealValues, canViewCrmInbox, canDeleteCrm, canPurgeCrm } from "@/crm/lib/crm-roles";
+export { canViewCrm, canOwnDeals, canViewDealValues, canViewCrmInbox, canDeleteCrm, canPurgeCrm, canExportCrm } from "@/crm/lib/crm-roles";
 
 /**
  * Returns a 403 if the caller may not read the CRM, else null.
@@ -89,6 +89,33 @@ export function denyCrmDelete(ctx: {
   });
   return NextResponse.json(
     { error: "Only admins and the sales team can archive CRM records", code: "CRM_DELETE_FORBIDDEN" },
+    { status: 403 },
+  );
+}
+
+/**
+ * Returns a 403 if the caller may not EXPORT CRM data to CSV, else null.
+ *
+ * Admin and above (owner decision, August 7 2026) — narrower than BOTH read and
+ * write, so a MEMBER, an ORGANIZER and a CRM_USER all read the board but none of
+ * them can walk out with the book. Rationale in full on CRM_EXPORT_ROLES.
+ * Logs its own refusal.
+ */
+export function denyCrmExport(ctx: {
+  role: string | null;
+  userId: string | null;
+  fromApiKey: boolean;
+}) {
+  if (canExportCrm(ctx.role, ctx.fromApiKey)) return null;
+
+  apiLogger.warn({
+    msg: "auth-guard:crm-export-denied",
+    role: ctx.role,
+    userId: ctx.userId,
+    fromApiKey: ctx.fromApiKey,
+  });
+  return NextResponse.json(
+    { error: "Only admins can export CRM data", code: "CRM_EXPORT_FORBIDDEN" },
     { status: 403 },
   );
 }

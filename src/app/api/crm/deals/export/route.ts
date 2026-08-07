@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { toCsv } from "@/lib/csv-escape";
-import { requireCrmRead } from "@/crm/lib/crm-route";
+import { requireCrmExport } from "@/crm/lib/crm-route";
 import { canViewDealValues } from "@/crm/lib/crm-roles";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
 
@@ -19,11 +19,17 @@ import { buildDealWhere } from "@/crm/lib/deal-filters";
  * it removes the channel). CSV cells escaped via the shared escapeCsvCell (formula
  * injection safe).
  *
- * Rate-limited: an export is a whole-pipeline read, the highest-value single object
- * in the domain.
+ * ADMIN AND ABOVE ONLY (owner decision, August 7 2026): an export is a whole-
+ * pipeline read, the highest-value single object in the domain, so the gate is
+ * narrower than both CRM read and CRM write — a MEMBER, an ORGANIZER and a
+ * CRM_USER all work the board but none of them can dump it. See CRM_EXPORT_ROLES.
+ * The finance gating below is now belt-and-braces for the API-key path (a session
+ * that reaches here is an admin, who may see money) and is kept deliberately.
+ *
+ * Rate-limited on top of the gate.
  */
 export async function GET(req: Request) {
-  const { error, ctx } = await requireCrmRead(req);
+  const { error, ctx } = await requireCrmExport(req);
   if (error) return error;
   // Tenancy pilot: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
   return await runWithTenant(ctx.organizationId, async () => {

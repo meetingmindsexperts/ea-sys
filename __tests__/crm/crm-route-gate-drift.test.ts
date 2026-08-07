@@ -27,8 +27,18 @@ const CRM_API_ROOT = join(process.cwd(), "src/app/api/crm");
 /** Handlers that intentionally need no auth. There are none — and that is correct. */
 const PUBLIC_ROUTES: string[] = [];
 
-/** Reads may use the read gate OR a stronger one (purge ⊇ delete ⊇ write ⊇ read). */
-const READ_GATES = ["requireCrmRead", "requireCrmWrite", "requireCrmDelete", "requireCrmPurge"];
+/**
+ * Reads may use the read gate OR a stronger one (purge ⊇ delete ⊇ write ⊇ read).
+ * `requireCrmExport` is also here: it WRAPS requireCrmRead and then narrows to
+ * admin-and-above, so a route using it is gated at least as tightly as read.
+ */
+const READ_GATES = [
+  "requireCrmRead",
+  "requireCrmWrite",
+  "requireCrmDelete",
+  "requireCrmPurge",
+  "requireCrmExport",
+];
 /**
  * Mutations must use the WRITE gate or a stronger one — requireCrmDelete wraps
  * requireCrmWrite (same rate limit, narrower RBAC), and requireCrmPurge wraps
@@ -131,6 +141,42 @@ describe("every /api/crm/inbox/* handler ALSO gates on canViewCrmInbox", () => {
         `${label} is an inbox route but does not call canViewCrmInbox. requireCrmRead alone ` +
           `admits MEMBER, so this would leak sponsor negotiation threads/attachments to a ` +
           `sponsor-side account — the review-M6 gap.`,
+      ).toBe(true);
+    },
+  );
+});
+
+describe("every CRM route that emits a CSV gates on requireCrmExport", () => {
+  // Owner decision, August 7 2026: CRM exports are ADMIN AND ABOVE — narrower
+  // than both CRM read and CRM write. The failure mode is not "the gate is
+  // wrong", it is "someone adds a third export endpoint next quarter and reaches
+  // for requireCrmRead like every neighbouring route does" — at which point a
+  // CRM_USER can dump the whole book again and nothing fails. So this asserts on
+  // the SOURCE, keyed on the thing that actually makes a route an export: it
+  // builds a CSV.
+  //
+  // Keyed on toCsv/text/csv deliberately, NOT on Content-Disposition — the deal-
+  // document and inbox-attachment routes stream a stored file (already gated on
+  // their own narrower rules) and are not data exports.
+  const csvHandlers = allHandlers().filter(
+    (h) => h.source.includes("toCsv") || h.source.includes("text/csv"),
+  );
+
+  it("finds the export routes (not testing nothing)", () => {
+    // deals/export + activity/export. If this drops to 0 the assertion below
+    // would pass vacuously, which is worse than having no test.
+    expect(csvHandlers.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it.each(csvHandlers.map((h) => [`${h.method} ${h.rel}`, h] as const))(
+    "%s calls requireCrmExport",
+    (label, h) => {
+      expect(
+        h.source.includes("requireCrmExport"),
+        `${label} emits a CSV but does not call requireCrmExport. requireCrmRead alone admits ` +
+          `MEMBER, ORGANIZER and CRM_USER — none of whom may export. An export is the whole ` +
+          `commercial book leaving the building in one request; it is gated tighter than read ` +
+          `AND tighter than write on purpose.`,
       ).toBe(true);
     },
   );

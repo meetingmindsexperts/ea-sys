@@ -68,6 +68,39 @@ const CRM_STAFF_ROLES = new Set<string>(CRM_OWNER_ROLES);
 const CRM_DELETE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "CRM_USER"]);
 
 /**
+ * Roles that may EXPORT CRM data to CSV (the deals dump, the activity log).
+ *
+ * Owner decision (August 7 2026): **admin and above only** — deliberately the
+ * narrowest read boundary in the module, narrower than READ and narrower than
+ * WRITE, and the reason it is its own predicate rather than a reuse.
+ *
+ * WHY NARROWER THAN READ. Reading the board is bounded — you see what's on
+ * screen, filtered, one card at a time, and it stays inside the app. An export
+ * is a single request that yields the ENTIRE sponsorship pipeline as a portable
+ * file: every account, every deal value, every lost reason, detached from the
+ * app and from any future revocation. Losing an export is not "someone saw the
+ * board", it is the whole commercial book leaving the building. That is the same
+ * reasoning that made `canExportContacts` narrower than contacts-read after the
+ * contacts review (H1/M-A) — export is its own boundary, everywhere.
+ *
+ * WHY NARROWER THAN WRITE (i.e. CRM_USER and ORGANIZER are refused). A rep works
+ * their own pipeline daily and may edit and archive records; that is scoped,
+ * attributable activity. Walking out with a CSV of the org's whole book on the
+ * way to a competitor is the single most damaging thing a departing salesperson
+ * can do, and it is precisely the action worth putting an admin in front of.
+ * They keep every other capability — this removes only the bulk dump.
+ *
+ * API KEYS ARE ALLOWED (unlike `canPurgeCrm`, which refuses them). An org key is
+ * admin-minted, and the MCP read tools already return the same rows to a valid
+ * key; refusing the CSV endpoint while `list_crm_deals` answers freely would be
+ * theatre, not a boundary. If that ever changes, the MCP surface has to move in
+ * the same commit — not this predicate alone.
+ *
+ * Fails closed: an unknown or absent role gets nothing.
+ */
+const CRM_EXPORT_ROLES = new Set(["SUPER_ADMIN", "ADMIN"]);
+
+/**
  * True when the role may read the CRM at all.
  * `isApiKey` callers are admin-equivalent (org-scoped, admin-minted).
  */
@@ -115,6 +148,15 @@ export function canViewDealValues(
 ): boolean {
   if (isApiKey) return true;
   return !!role && CRM_STAFF_ROLES.has(role);
+}
+
+/**
+ * True when the caller may EXPORT CRM data to CSV. Admin and above only.
+ * See CRM_EXPORT_ROLES for why this is narrower than both read and write.
+ */
+export function canExportCrm(role: string | null | undefined, isApiKey = false): boolean {
+  if (isApiKey) return true;
+  return !!role && CRM_EXPORT_ROLES.has(role);
 }
 
 /**
