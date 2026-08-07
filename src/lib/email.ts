@@ -1116,7 +1116,7 @@ export function wrapWithBranding(bodyHtml: string, branding: EmailBranding): str
     ? normalizeBodyImages(branding.emailFooterHtml)
     : branding.eventName
       ? `<p>This email was sent regarding ${escapeHtml(branding.eventName)}</p>`
-      : `<p>Sent from MMGroup EventsHub</p>`;
+      : `<p>Sent from MM Group Events</p>`;
 
   return `<!DOCTYPE html>
 <html>
@@ -2691,10 +2691,10 @@ export const systemTemplates = {
   }) => {
     const bodyHtml = `<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb;">
     <h1 style="margin: 0 0 4px 0; font-size: 22px; color: #111827;">You're Invited!</h1>
-    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Join ${escapeHtml(params.organizationName)} on MMGroup EventsHub</p>
+    <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">Join ${escapeHtml(params.organizationName)} on MM Group Events</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
-    <p><strong>${escapeHtml(params.inviterName)}</strong> has invited you to join <strong>${escapeHtml(params.organizationName)}</strong> on MMGroup EventsHub as a <strong>${escapeHtml(params.role)}</strong>.</p>
+    <p><strong>${escapeHtml(params.inviterName)}</strong> has invited you to join <strong>${escapeHtml(params.organizationName)}</strong> on MM Group Events as a <strong>${escapeHtml(params.role)}</strong>.</p>
     <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb;">
       <h3 style="margin-top: 0; color: #374151;">Invitation Details</h3>
       <table style="width: 100%; border-collapse: collapse;">
@@ -2716,7 +2716,7 @@ export const systemTemplates = {
 
 Hi ${params.recipientName},
 
-${params.inviterName} has invited you to join ${params.organizationName} on MMGroup EventsHub as a ${params.role}.
+${params.inviterName} has invited you to join ${params.organizationName} on MM Group Events as a ${params.role}.
 
 Accept Invitation & Set Password: ${params.setupLink}
 
@@ -2734,7 +2734,7 @@ ${params.expiresIn ? `Note: This invitation will expire in ${params.expiresIn}.`
     <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px;">We received a request to reset your password.</p>
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Hi <strong>${escapeHtml(params.recipientName)}</strong>,</p>
-    <p>Use the button below to set a new password for your MMGroup EventsHub account.</p>
+    <p>Use the button below to set a new password for your MM Group Events account.</p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="${escapeHtml(params.resetLink)}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Reset Password</a>
     </div>
@@ -2742,9 +2742,9 @@ ${params.expiresIn ? `Note: This invitation will expire in ${params.expiresIn}.`
     <p style="color: #6b7280; font-size: 14px;">If you did not request a password reset, you can safely ignore this email.</p>
   </div>`;
     return {
-      subject: "Reset your EventsHub password",
+      subject: "Reset your MM Group Events password",
       htmlContent: inlineCss(wrapWithBranding(bodyHtml, {})),
-      textContent: `Reset your EventsHub password
+      textContent: `Reset your MM Group Events password
 
 Hi ${params.recipientName},
 

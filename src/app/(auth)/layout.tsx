@@ -43,7 +43,7 @@ export default function AuthLayout({
             />
           </div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-white/60 mb-3">
-            EventsHub
+            MM Group Events
           </p>
           <p className="text-lg opacity-90 mb-8">
             The complete event management platform for conferences, meetings,

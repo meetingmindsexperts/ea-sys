@@ -193,7 +193,7 @@ function AcceptInvitationForm() {
         <CardTitle className="text-2xl font-bold">You&apos;ve been invited!</CardTitle>
         <CardDescription>
           Hi {userInfo?.firstName}, set up your password to join{" "}
-          <strong>{userInfo?.organizationName}</strong> on MMGroup EventsHub
+          <strong>{userInfo?.organizationName}</strong> on MM Group Events
         </CardDescription>
       </CardHeader>
       <Form {...form}>

@@ -346,7 +346,7 @@ export function Sidebar() {
                 "text-[11px] font-semibold text-primary/80 tracking-wide uppercase shrink-0 leading-tight line-clamp-2",
                 orgLogo && "border-l border-border pl-3"
               )}>
-                {orgName || "EventsHub"}
+                {orgName || "MM Group Events"}
               </span>
             )}
           </Link>
