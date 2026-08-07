@@ -26,6 +26,7 @@ import {
 import { useSession } from "next-auth/react";
 import { useSubmitterProfileGate } from "@/hooks/use-submitter-profile-gate";
 import { useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
+import { ApiError } from "@/lib/api-fetch";
 import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
 import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
@@ -521,7 +522,7 @@ export default function EditAbstractPage() {
   const { data: tracksData = [] } = useTracks(eventId);
   const tracks = tracksData as Track[];
 
-  const { data: abstract, isLoading } = useQuery<{
+  const { data: abstract, isLoading, isError, error, refetch } = useQuery<{
     id: string;
     updatedAt: string;
     title: string;
@@ -535,15 +536,55 @@ export default function EditAbstractPage() {
     queryKey: ["abstract", abstractId],
     queryFn: async () => {
       const res = await fetch(`/api/events/${eventId}/abstracts/${abstractId}`);
-      if (!res.ok) throw new Error("Failed to fetch abstract");
+      if (!res.ok) {
+        // Carry the status so the render below can tell "this is gone" from
+        // "this failed" — they need different words and different retries.
+        throw new ApiError(
+          res.status === 404 ? "Abstract not found" : "Failed to fetch abstract",
+          res.status,
+        );
+      }
       return res.json();
     },
+    // A 404 is an answer, not a failure: retrying it just repeats the same
+    // request against a row that does not exist. Retry the rest twice.
+    retry: (failureCount, err) =>
+      !(err instanceof ApiError && err.status === 404) && failureCount < 2,
   });
 
-  if (isLoading || !abstract) {
+  if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Previously this fell through to the spinner on ANY error, so a deleted or
+  // inaccessible abstract span forever while React Query re-fetched on every
+  // window focus — a loading state that can never end reads as a hung page.
+  if (isError || !abstract) {
+    const gone = error instanceof ApiError && error.status === 404;
+    return (
+      <div className="mx-auto max-w-lg py-16 text-center">
+        <h1 className="text-lg font-semibold">
+          {gone ? "This abstract no longer exists" : "Couldn't load this abstract"}
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {gone
+            ? "It may have been deleted, or the link may be out of date. Nothing else has changed."
+            : "Something went wrong fetching it. Your work is safe — please try again."}
+        </p>
+        <div className="mt-6 flex justify-center gap-2">
+          {!gone && (
+            <Button variant="outline" onClick={() => refetch()}>
+              Try again
+            </Button>
+          )}
+          <Button asChild>
+            <Link href={`/events/${eventId}/abstracts`}>Back to abstracts</Link>
+          </Button>
+        </div>
       </div>
     );
   }
