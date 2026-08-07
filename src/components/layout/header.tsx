@@ -364,13 +364,24 @@ export function Header() {
             )}
 
             {/* ── Actions ─────────────────────────────────────────────────── */}
-            <DropdownMenuItem asChild>
-              <Link href="/profile" className="flex items-center">
-                <User className="mr-2 h-4 w-4" />
-                Profile
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {/*
+              Staff only, same reasoning as the permissions panel above. /profile
+              is the STAFF profile: a name field plus the email signature that
+              gets appended to organiser emails. A submitter edits their details
+              on My Details and a registrant on their registration; neither ever
+              sends an organiser email, so the page has nothing for them.
+            */}
+            {isTeamRole(session?.user?.role) && (
+              <>
+                <DropdownMenuItem asChild>
+                  <Link href="/profile" className="flex items-center">
+                    <User className="mr-2 h-4 w-4" />
+                    Profile
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem
               className="text-red-600 focus:text-red-600"
               // Attendee-side roles land on their EVENT sign-in, staff on

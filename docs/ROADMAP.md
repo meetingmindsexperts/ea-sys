@@ -483,15 +483,18 @@ from the two READS only; `buildEventAccessWhere` + finance redaction are the
 authorization; PUT/DELETE keep the guard; regression tests pin org-null access).
 Deferred from that round:
 
-- **Option B — slim event payload for org-null readers.** The full event GET
-  payload includes the whole `settings` JSON (reviewerUserIds / onsiteUserIds /
-  webinar lobby config / sponsors). Pre-July-24 posture, no credentials or PII,
-  finance already redacted — but more config than a submitter needs. The tightening:
-  keep full payload for org-bound roles, return a curated `select` for org-null
-  (name/dates/timezone/slug/banner/welcome/guidelines HTML + the settings keys
-  their pages read: deadlines, presentation types). Needs a field census of every
-  submitter/reviewer page (`useEvent` consumers) — missing one recreates the exact
-  silent-degradation class the Aug 6 fix closed, so do it as its own reviewed round.
+- ~~**Option B — slim event payload for org-null readers.**~~ **✅ SHIPPED Aug 7,
+  2026** (`05bdb8b9` + `5c9ba475`), as its own reviewed round, after the field
+  census this entry asked for. It found MORE than the settings blob: the events
+  LIST also shipped registration/speaker headcounts plus the whole Event row
+  (`bankDetails`, tax config, sender) to submitters, and **`GET .../speakers`
+  returned the ENTIRE faculty roster** — every speaker's email, phone, bio and
+  abstract titles — to anyone with a self-service submitter account, when those
+  pages only ever needed the caller's own speaker row. All three fetch a
+  whitelist now (never filter-after-fetch), consolidated in
+  `src/lib/event-visibility.ts` with the detail select DERIVED from the list
+  select; `settings` is rebuilt from a 2-key whitelist so a key added later is
+  invisible by default. Both gates mutation-verified.
 - **Staff-only hooks fire for submitters** (~47 warns/48h of pure noise): the
   shared abstracts page mounts bulk-email-dialog data hooks (`useTickets`,
   `useEventTags`, `useEmailTemplates`) unconditionally; submitters get 403s on
@@ -509,6 +512,31 @@ Deferred from that round:
   read its surfaces" pins — the regression passed the full gate because nothing
   asserted submitter access to the event GET. The Aug 6 tests add that class for
   the two fixed routes; extend it when touching other submitter-reachable GETs.
+
+### Restricted-role reads — remaining judgement calls (Aug 7, 2026)
+
+Left deliberately unchanged during the org-null read sweep. Neither is a defect;
+both are product decisions the owner should make rather than a developer.
+
+- **Review is single-blind.** A reviewer sees the author's name and affiliation
+  on an abstract (it rides in the abstracts list payload). Double-blind would
+  mean withholding the speaker from the reviewer-facing shape, which changes the
+  review workflow (a chair often needs to spot conflicts by name), so it is a
+  decision, not a tightening. The reverse direction is already anonymised: the
+  author's decision email and the submissions view do not attribute notes to a
+  named reviewer.
+- **A submitter sees the mean score on their own abstract** (`meanOverallScore`
+  + `reviewCount` are folded into the abstracts list so the card can render
+  without a second fetch). Some organisers want that transparency, some do not.
+  Previously logged under the reviewer/submitter lifecycle audit; restated here
+  because the Aug 7 sweep confirmed it is the last "more than they need" item
+  on that surface.
+
+Also still open from the Aug 6 warning triage and now more visible: the shared
+abstracts page mounts staff-only data hooks (`useTickets`, `useEventTags`,
+`useEmailTemplates`) unconditionally, so a submitter generates 403s on routes
+they never use. Cosmetic in effect (React Query swallows them) but it is log
+noise on every page view — fix with `enabled: isStaff`.
 
 ### Manual/CSV registration default status — CONFIRMED vs PENDING (Aug 6, 2026, organizer ask — DECISION PENDING)
 

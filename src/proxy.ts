@@ -233,8 +233,16 @@ export default auth((req) => {
     return addCorsHeaders(NextResponse.next(), origin);
   }
 
-  // Block restricted roles from dashboard, settings, and logs
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/settings") || pathname.startsWith("/logs")) {
+  // Block restricted roles from dashboard, settings, logs and the staff
+  // profile. /profile holds a name field and the email signature appended to
+  // ORGANISER emails — a submitter edits their details on My Details, a
+  // registrant on their registration, and neither ever sends one.
+  if (
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/settings") ||
+    pathname.startsWith("/logs") ||
+    pathname.startsWith("/profile")
+  ) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = "/events";
     return NextResponse.redirect(redirectUrl);
