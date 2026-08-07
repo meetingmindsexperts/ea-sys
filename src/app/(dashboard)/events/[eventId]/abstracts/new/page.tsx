@@ -26,7 +26,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
-import { isThemeMissing, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
+import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
+import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
@@ -89,6 +90,7 @@ export default function NewAbstractPage() {
     presentationType: "",
     trackId: "",
     themeId: "",
+    subThemeId: "",
     coAuthors: [] as CoAuthor[],
     status: "SUBMITTED",
   });
@@ -104,6 +106,7 @@ export default function NewAbstractPage() {
           speakerId,
           trackId: data.trackId || undefined,
           themeId: data.themeId || undefined,
+          subThemeId: data.subThemeId || undefined,
           presentationType: data.presentationType || undefined,
         }),
       });
@@ -146,6 +149,13 @@ export default function NewAbstractPage() {
     }
     if (!asDraft && isThemeMissing(themes.length > 0, formData.themeId)) {
       toast.error(THEME_REQUIRED_MESSAGE);
+      return;
+    }
+    if (
+      !asDraft &&
+      isSubThemeMissing(subThemesOf(themes, formData.themeId).length > 0, formData.subThemeId)
+    ) {
+      toast.error(SUB_THEME_REQUIRED_MESSAGE);
       return;
     }
     createMutation.mutate({
@@ -346,9 +356,28 @@ export default function NewAbstractPage() {
                   eventId={eventId}
                   required={themes.length > 0}
                   value={formData.themeId || null}
-                  onChange={(v) => setFormData({ ...formData, themeId: v ?? "" })}
+                  onChange={(v) =>
+                    // Clear the sub-theme with the theme: keeping it would
+                    // leave a child pointing at a parent it does not belong to.
+                    setFormData({ ...formData, themeId: v ?? "", subThemeId: "" })
+                  }
                 />
               </div>
+
+              {/* Sub-theme — renders only when the chosen theme has any */}
+              {subThemesOf(themes, formData.themeId).length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">
+                    Sub-theme <span className="text-red-500">*</span>
+                  </Label>
+                  <AbstractSubThemeSelect
+                    eventId={eventId}
+                    themeId={formData.themeId || null}
+                    value={formData.subThemeId || null}
+                    onChange={(v) => setFormData({ ...formData, subThemeId: v ?? "" })}
+                  />
+                </div>
+              )}
 
               {/* Status (admin only) */}
               {isAdmin && (

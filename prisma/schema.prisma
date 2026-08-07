@@ -387,6 +387,7 @@ model Event {
   accommodations     Accommodation[]
   abstracts          Abstract[]
   abstractThemes     AbstractTheme[]
+  abstractSubThemes  AbstractSubTheme[]
   reviewCriteria     ReviewCriterion[]
   auditLogs          AuditLog[]
 
@@ -1419,6 +1420,10 @@ model Abstract {
   content          String            @db.Text
   trackId          String?
   themeId          String?
+  // Optional narrowing under the chosen theme. Required to SUBMIT only when
+  // the chosen theme HAS sub-themes (see src/lib/abstract-theme-requirement.ts)
+  // — a theme with none submits exactly as before.
+  subThemeId       String?
   specialty        String?
   presentationType PresentationType?
   // Co-authors entered by the submitter — array of
@@ -1442,6 +1447,7 @@ model Abstract {
   speaker      Speaker                    @relation(fields: [speakerId], references: [id], onDelete: Cascade)
   track        Track?                     @relation(fields: [trackId], references: [id])
   theme        AbstractTheme?             @relation(fields: [themeId], references: [id])
+  subTheme     AbstractSubTheme?          @relation(fields: [subThemeId], references: [id])
   eventSession EventSession?
   sessionTopic SessionTopic?
   reviewers    AbstractReviewer[]
@@ -1505,6 +1511,36 @@ model AbstractReviewSubmission {
   @@index([organizationId])
 }
 
+/// A narrowing under an AbstractTheme ("Heart Failure" → "Acute", "Chronic").
+/// Optional by design: an event may have themes with no sub-themes at all, and
+/// those submit exactly as they did before. Where sub-themes DO exist on the
+/// chosen theme, picking one is required to submit — the same conditional shape
+/// the theme requirement itself uses (src/lib/abstract-theme-requirement.ts).
+///
+/// eventId is carried alongside themeId so route scoping stays a single bind
+/// rather than a join through the parent, matching AbstractTheme; the theme FK
+/// cascades, so deleting a theme takes its sub-themes with it.
+model AbstractSubTheme {
+  id             String   @id @default(cuid())
+  themeId        String
+  eventId        String
+  // Denormalized tenant key (multi-tenancy Phase 2), stamped from Event.
+  organizationId String?
+  name           String
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  theme     AbstractTheme @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  event     Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  abstracts Abstract[]
+
+  @@unique([themeId, name])
+  @@index([themeId])
+  @@index([eventId])
+  @@index([organizationId])
+}
+
 model AbstractTheme {
   id             String   @id @default(cuid())
   eventId        String
@@ -1515,8 +1551,9 @@ model AbstractTheme {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event     Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
   abstracts Abstract[]
+  subThemes AbstractSubTheme[]
 
   @@unique([eventId, name])
   @@index([eventId])
@@ -2229,16 +2266,16 @@ enum ApiKeyRateLimitTier {
 // ==================== INVOICES & RECEIPTS ====================
 
 model Invoice {
-  id             String  @id @default(cuid())
-  organizationId String
-  eventId        String
+  id                     String   @id @default(cuid())
+  organizationId         String
+  eventId                String
   /// Nullable since the group-registration build (Aug 2026): an invoice
   /// bills EITHER one registration OR one group — app-level XOR with
   /// `groupId` (exactly one set). Single-registration invoices unchanged.
-  registrationId String?
+  registrationId         String?
   /// Consolidated group invoice — line items derived at render time from
   /// the group's member registrations, one line per person.
-  groupId        String?
+  groupId                String?
   /// Which member registrations THIS group invoice bills.
   ///
   /// Needed once a coordinator can add people to a group that already paid:
@@ -2251,7 +2288,7 @@ model Invoice {
   /// group invoices populate it; single-registration invoices use
   /// `registrationId`.
   coveredRegistrationIds String[] @default([])
-  paymentId      String? @unique
+  paymentId              String?  @unique
 
   type           InvoiceType
   invoiceNumber  String      @unique

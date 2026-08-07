@@ -51,7 +51,20 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const themes = await runWithTenant(event.organizationId, () =>
       db.abstractTheme.findMany({
         where: { eventId },
-        select: { id: true, name: true, sortOrder: true, _count: { select: { abstracts: true } } },
+        select: {
+          id: true,
+          name: true,
+          sortOrder: true,
+          _count: { select: { abstracts: true } },
+          // Nested rather than a second endpoint: the sub-theme dropdown is
+          // driven entirely by the theme the submitter just picked, so shipping
+          // the children with the parent avoids a request per selection and
+          // keeps the two lists impossible to get out of step.
+          subThemes: {
+            select: { id: true, name: true, sortOrder: true },
+            orderBy: { sortOrder: "asc" },
+          },
+        },
         orderBy: { sortOrder: "asc" },
       }),
     );

@@ -18,6 +18,7 @@ const { mockDb, mockAuth, changeStatusSpy } = vi.hoisted(() => ({
     speaker: { findFirst: vi.fn() },
     track: { findFirst: vi.fn() },
     abstractTheme: { findFirst: vi.fn(), count: vi.fn().mockResolvedValue(0) },
+    abstractSubTheme: { findFirst: vi.fn(), count: vi.fn().mockResolvedValue(0) },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
   },
   mockAuth: vi.fn(),
@@ -72,6 +73,7 @@ beforeEach(() => {
   // test would otherwise leak into every later one and fire the theme gate.
   // Default to "this event has no themes", which is the historical behaviour.
   mockDb.abstractTheme.count.mockResolvedValue(0);
+  mockDb.abstractSubTheme.count.mockResolvedValue(0);
   mockAuth.mockResolvedValue(admin);
   mockDb.event.findFirst.mockResolvedValue({ id: "ev1", organizationId: "org1", name: "Ev", settings: {} });
   mockDb.abstract.updateMany.mockResolvedValue({ count: 1 });
@@ -206,6 +208,40 @@ describe("profile hard gate — PROFILE_INCOMPLETE", () => {
     );
     expect(res.status).toBeLessThan(400);
     expect(mockDb.abstract.create).toHaveBeenCalled();
+  });
+
+  it("POST SUBMITTED with a theme that HAS sub-themes but none chosen → 400 SUB_THEME_REQUIRED", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...completeProfile });
+    mockDb.abstractTheme.findFirst.mockResolvedValue({ id: "th1", subThemes: [{ id: "sub1" }] });
+    const res = await CREATE(
+      createReq({ speakerId: "spk1", title: "T", content: "C", presentationType: "ORAL", themeId: "th1", status: "SUBMITTED" }),
+      createParams,
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("SUB_THEME_REQUIRED");
+    expect(mockDb.abstract.create).not.toHaveBeenCalled();
+  });
+
+  it("POST SUBMITTED with a theme that has NO sub-themes proceeds", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...completeProfile });
+    mockDb.abstractTheme.findFirst.mockResolvedValue({ id: "th1", subThemes: [] });
+    const res = await CREATE(
+      createReq({ speakerId: "spk1", title: "T", content: "C", presentationType: "ORAL", themeId: "th1", status: "SUBMITTED" }),
+      createParams,
+    );
+    expect(res.status).toBeLessThan(400);
+    expect(mockDb.abstract.create).toHaveBeenCalled();
+  });
+
+  it("a sub-theme belonging to a DIFFERENT theme is a 404, not a silent accept", async () => {
+    mockDb.speaker.findFirst.mockResolvedValue({ id: "spk1", ...completeProfile });
+    mockDb.abstractTheme.findFirst.mockResolvedValue({ id: "th1", subThemes: [{ id: "sub1" }] });
+    const res = await CREATE(
+      createReq({ speakerId: "spk1", title: "T", content: "C", presentationType: "ORAL", themeId: "th1", subThemeId: "sub_from_another_theme", status: "SUBMITTED" }),
+      createParams,
+    );
+    expect(res.status).toBe(404);
+    expect(mockDb.abstract.create).not.toHaveBeenCalled();
   });
 
   it("POST by STAFF for a sparse speaker is NOT gated", async () => {

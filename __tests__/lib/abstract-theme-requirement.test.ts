@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
+import {
+  isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE,
+  isSubThemeMissing, SUB_THEME_REQUIRED_CODE, SUB_THEME_REQUIRED_MESSAGE,
+} from "@/lib/abstract-theme-requirement";
 
 /**
  * Theme is mandatory to submit, but only when the event HAS themes.
@@ -34,5 +37,27 @@ describe("abstract theme requirement", () => {
   it("exposes one message and one code for every caller", () => {
     expect(THEME_REQUIRED_CODE).toBe("THEME_REQUIRED");
     expect(THEME_REQUIRED_MESSAGE).toMatch(/theme/i);
+  });
+});
+
+describe("abstract sub-theme requirement", () => {
+  it("requires a sub-theme when the CHOSEN theme has them", () => {
+    expect(isSubThemeMissing(true, null)).toBe(true);
+    expect(isSubThemeMissing(true, "")).toBe(true);
+    expect(isSubThemeMissing(true, "   ")).toBe(true);
+    expect(isSubThemeMissing(true, "sub_1")).toBe(false);
+  });
+
+  it("keys on the chosen theme, not on the event", () => {
+    // The rule that keeps sub-themes genuinely optional: adding them to one
+    // theme must not start demanding them on every other theme. A theme with
+    // no children never blocks, whatever its siblings have.
+    expect(isSubThemeMissing(false, null)).toBe(false);
+    expect(isSubThemeMissing(false, "")).toBe(false);
+  });
+
+  it("exposes one message and one code for every caller", () => {
+    expect(SUB_THEME_REQUIRED_CODE).toBe("SUB_THEME_REQUIRED");
+    expect(SUB_THEME_REQUIRED_MESSAGE).toMatch(/sub-theme/i);
   });
 });

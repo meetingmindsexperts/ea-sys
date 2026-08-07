@@ -53,7 +53,8 @@ import { formatAbstractSerial } from "@/lib/abstract-serial";
 import { formatAttendeeRole } from "@/lib/schemas";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
 import { useAbstracts, useSpeakers, useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
-import { isThemeMissing, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
+import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
+import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -104,6 +105,7 @@ interface Abstract {
   speaker: Speaker;
   track: Track | null;
   theme: { id: string; name: string } | null;
+  subTheme: { id: string; name: string } | null;
   eventSession: { id: string; name: string } | null;
   /** Server-computed aggregate from AbstractReviewSubmission rows (Sprint B) */
   reviewCount?: number;
@@ -193,6 +195,7 @@ export default function AbstractsPage() {
     presentationType: "" as string,
     trackId: "",
     themeId: "" as string,
+    subThemeId: "" as string,
     status: "SUBMITTED",
   });
   // Sprint B: per-reviewer scoring moved to AbstractReviewSubmission rows
@@ -217,6 +220,7 @@ export default function AbstractsPage() {
           speakerId,
           trackId: data.trackId || undefined,
           themeId: data.themeId || undefined,
+          subThemeId: data.subThemeId || undefined,
         }),
       });
       if (!res.ok) {
@@ -320,6 +324,10 @@ export default function AbstractsPage() {
       toast.error(THEME_REQUIRED_MESSAGE);
       return;
     }
+    if (isSubThemeMissing(subThemesOf(themes, formData.themeId).length > 0, formData.subThemeId)) {
+      toast.error(SUB_THEME_REQUIRED_MESSAGE);
+      return;
+    }
     createAbstractMutation.mutate(formData);
   };
 
@@ -347,6 +355,7 @@ export default function AbstractsPage() {
       presentationType: "",
       trackId: "",
       themeId: "",
+      subThemeId: "",
       status: "SUBMITTED",
     });
   };
@@ -579,9 +588,22 @@ export default function AbstractsPage() {
                         eventId={eventId}
                         required={themes.length > 0}
                         value={formData.themeId || null}
-                        onChange={(v) => setFormData({ ...formData, themeId: v ?? "" })}
+                        onChange={(v) => setFormData({ ...formData, themeId: v ?? "", subThemeId: "" })}
                       />
                     </div>
+                    {subThemesOf(themes, formData.themeId).length > 0 && (
+                      <div className="space-y-2">
+                        <Label>
+                          Sub-theme <span className="text-red-500">*</span>
+                        </Label>
+                        <AbstractSubThemeSelect
+                          eventId={eventId}
+                          themeId={formData.themeId || null}
+                          value={formData.subThemeId || null}
+                          onChange={(v) => setFormData({ ...formData, subThemeId: v ?? "" })}
+                        />
+                      </div>
+                    )}
                     {!isSubmitter && (
                       <div className="space-y-2 sm:col-span-2">
                         <Label htmlFor="status">Status</Label>
@@ -953,7 +975,11 @@ export default function AbstractsPage() {
                         )}
                         {abstract.theme && (
                           <Badge variant="outline" className="text-xs border-violet-300 text-violet-700">
+                            {/* One badge, not two: the sub-theme is only ever
+                                meaningful under its parent, so reading them
+                                together beats two chips side by side. */}
                             {abstract.theme.name}
+                            {abstract.subTheme && ` › ${abstract.subTheme.name}`}
                           </Badge>
                         )}
                         {abstract.track && (

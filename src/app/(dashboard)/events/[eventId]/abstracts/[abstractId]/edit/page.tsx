@@ -26,7 +26,8 @@ import {
 import { useSession } from "next-auth/react";
 import { useSubmitterProfileGate } from "@/hooks/use-submitter-profile-gate";
 import { useTracks, useEvent, useAbstractThemes, queryKeys } from "@/hooks/use-api";
-import { isThemeMissing, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
+import { isThemeMissing, THEME_REQUIRED_MESSAGE, isSubThemeMissing, SUB_THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
+import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abstract-sub-theme-select";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -80,6 +81,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
     presentationType: (abstract.presentationType as string) || "",
     trackId: (abstract.track as { id: string } | null)?.id || "",
     themeId: (abstract.theme as { id: string } | null)?.id || "",
+    subThemeId: (abstract.subTheme as { id: string } | null)?.id || "",
     coAuthors: normalizeCoAuthors(abstract.coAuthors),
   });
 
@@ -313,6 +315,10 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                         toast.error(THEME_REQUIRED_MESSAGE);
                         return;
                       }
+                      if (isSubThemeMissing(subThemesOf(themes, editData.themeId).length > 0, editData.subThemeId)) {
+                        toast.error(SUB_THEME_REQUIRED_MESSAGE);
+                        return;
+                      }
                       updateMutation.mutate({ ...editData, status: "SUBMITTED", expectedUpdatedAt: abstractUpdatedAt });
                     }}
                   >
@@ -454,10 +460,25 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   eventId={eventId}
                   required={themes.length > 0}
                   value={editData.themeId || null}
-                  onChange={(v) => setEditData({ ...editData, themeId: v ?? "" })}
+                  onChange={(v) => setEditData({ ...editData, themeId: v ?? "", subThemeId: "" })}
                   disabled={!canEdit}
                 />
               </div>
+
+              {subThemesOf(themes, editData.themeId).length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">
+                    Sub-theme <span className="text-red-500">*</span>
+                  </Label>
+                  <AbstractSubThemeSelect
+                    eventId={eventId}
+                    themeId={editData.themeId || null}
+                    value={editData.subThemeId || null}
+                    onChange={(v) => setEditData({ ...editData, subThemeId: v ?? "" })}
+                    disabled={!canEdit}
+                  />
+                </div>
+              )}
 
               {speaker && (
                 <div className="pt-3 border-t">

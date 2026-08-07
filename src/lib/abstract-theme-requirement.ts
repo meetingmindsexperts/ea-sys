@@ -25,3 +25,24 @@ export function isThemeMissing(
 ): boolean {
   return eventHasThemes && !themeId?.trim();
 }
+
+export const SUB_THEME_REQUIRED_CODE = "SUB_THEME_REQUIRED";
+export const SUB_THEME_REQUIRED_MESSAGE =
+  "Please choose a sub-theme for the theme you selected.";
+
+/**
+ * Sub-theme follows the SAME conditional shape one level down: required only
+ * when the CHOSEN THEME has sub-themes. A theme with none submits exactly as it
+ * did before this existed, which is what keeps the feature optional for
+ * organisers who do not want it.
+ *
+ * Deliberately keyed on the chosen theme's children rather than on "does the
+ * event have any sub-themes anywhere" — otherwise adding sub-themes to one
+ * theme would start demanding them on every other theme too.
+ */
+export function isSubThemeMissing(
+  chosenThemeHasSubThemes: boolean,
+  subThemeId: string | null | undefined,
+): boolean {
+  return chosenThemeHasSubThemes && !subThemeId?.trim();
+}

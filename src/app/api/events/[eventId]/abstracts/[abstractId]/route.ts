@@ -19,7 +19,10 @@ import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications
 import { notifyEventAdmins } from "@/lib/notifications";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
-import { isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
+import {
+  isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE,
+  isSubThemeMissing, SUB_THEME_REQUIRED_CODE, SUB_THEME_REQUIRED_MESSAGE,
+} from "@/lib/abstract-theme-requirement";
 
 // HTTP status mapping for the service's domain error codes. Kept local to
 // the REST caller — the service never knows about HTTP.
@@ -46,6 +49,7 @@ const updateAbstractSchema = z.object({
     .optional(),
   trackId: z.string().max(100).nullable().optional(),
   themeId: z.string().max(100).nullable().optional(),
+  subThemeId: z.string().max(100).nullable().optional(),
   specialty: z.string().max(255).optional(),
   presentationType: z.enum(["ORAL", "POSTER", "ORAL_POSTER", "VIDEO", "WORKSHOP"]).nullable().optional(),
   coAuthors: coAuthorsSchema.optional(),
@@ -88,6 +92,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         speaker: true,
         track: true,
         theme: { select: { id: true, name: true } },
+        subTheme: { select: { id: true, name: true } },
         eventSession: {
           include: {
             track: true,
@@ -261,6 +266,27 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
     }
 
+    // A sub-theme must belong to the theme the abstract will END UP on, not
+    // merely to the event — otherwise changing the theme while keeping an old
+    // sub-theme would leave a mismatched pair.
+    const resultingThemeIdForSub =
+      data.themeId !== undefined ? data.themeId : existingAbstract.themeId;
+    if (data.subThemeId) {
+      const subTheme = await db.abstractSubTheme.findFirst({
+        where: { id: data.subThemeId, eventId, themeId: resultingThemeIdForSub ?? undefined },
+        select: { id: true },
+      });
+      if (!subTheme) {
+        apiLogger.warn({ msg: "abstract-update:sub-theme-not-in-theme", eventId, abstractId, subThemeId: data.subThemeId, userId: session.user.id });
+        return NextResponse.json({ error: "Sub-theme not found for that theme" }, { status: 404 });
+      }
+    }
+    // Changing theme without restating the sub-theme would strand the old one
+    // under the new theme, so clear it unless the caller set one explicitly.
+    const themeChanged =
+      data.themeId !== undefined && data.themeId !== existingAbstract.themeId;
+    const clearStaleSubTheme = themeChanged && data.subThemeId === undefined;
+
     const isReview = data.status && reviewStatuses.includes(data.status);
     // A (re)submission = moving the abstract INTO SUBMITTED from one of its
     // EDITABLE states — DRAFT (first submit) OR REVISION_REQUESTED (resubmit
@@ -291,6 +317,24 @@ export async function PUT(req: Request, { params }: RouteParams) {
           apiLogger.warn({ msg: "abstract-update:theme-required", eventId, abstractId, userId: session.user.id });
           return NextResponse.json(
             { error: THEME_REQUIRED_MESSAGE, code: THEME_REQUIRED_CODE },
+            { status: 400 },
+          );
+        }
+      }
+    }
+    // Sub-theme required to submit when the RESULTING theme has any.
+    if (isSubmission) {
+      const resultingSubThemeId = clearStaleSubTheme
+        ? null
+        : data.subThemeId !== undefined
+          ? data.subThemeId
+          : existingAbstract.subThemeId;
+      if (!resultingSubThemeId && resultingThemeIdForSub) {
+        const subCount = await db.abstractSubTheme.count({ where: { themeId: resultingThemeIdForSub } });
+        if (isSubThemeMissing(subCount > 0, resultingSubThemeId)) {
+          apiLogger.warn({ msg: "abstract-update:sub-theme-required", eventId, abstractId, userId: session.user.id });
+          return NextResponse.json(
+            { error: SUB_THEME_REQUIRED_MESSAGE, code: SUB_THEME_REQUIRED_CODE },
             { status: 400 },
           );
         }
@@ -355,6 +399,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.content && { content: data.content }),
         ...(data.trackId !== undefined && { trackId: data.trackId }),
         ...(data.themeId !== undefined && { themeId: data.themeId }),
+        ...(data.subThemeId !== undefined
+          ? { subThemeId: data.subThemeId }
+          : clearStaleSubTheme
+            ? { subThemeId: null }
+            : {}),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
         ...(data.coAuthors !== undefined && { coAuthors: normalizeCoAuthors(data.coAuthors) }),
@@ -425,6 +474,11 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.content && { content: data.content }),
         ...(data.trackId !== undefined && { trackId: data.trackId }),
         ...(data.themeId !== undefined && { themeId: data.themeId }),
+        ...(data.subThemeId !== undefined
+          ? { subThemeId: data.subThemeId }
+          : clearStaleSubTheme
+            ? { subThemeId: null }
+            : {}),
         ...(data.specialty !== undefined && { specialty: data.specialty || null }),
         ...(data.presentationType !== undefined && { presentationType: data.presentationType }),
         ...(data.coAuthors !== undefined && { coAuthors: normalizeCoAuthors(data.coAuthors) }),

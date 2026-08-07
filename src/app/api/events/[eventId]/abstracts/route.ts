@@ -18,7 +18,10 @@ import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { MAX_ABSTRACT_WORDS, withinAbstractWordLimit } from "@/lib/abstract-content";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
-import { isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE } from "@/lib/abstract-theme-requirement";
+import {
+  isThemeMissing, THEME_REQUIRED_CODE, THEME_REQUIRED_MESSAGE,
+  isSubThemeMissing, SUB_THEME_REQUIRED_CODE, SUB_THEME_REQUIRED_MESSAGE,
+} from "@/lib/abstract-theme-requirement";
 
 const abstractStatusSchema = z.nativeEnum(AbstractStatus);
 
@@ -36,6 +39,7 @@ const createAbstractSchema = z.object({
   presentationType: presentationTypeSchema.optional(),
   trackId: z.string().max(100).optional(),
   themeId: z.string().max(100).optional(),
+  subThemeId: z.string().max(100).optional(),
   coAuthors: coAuthorsSchema.optional(),
   // H2: an abstract may only be BORN as DRAFT or SUBMITTED. Accepting the full
   // enum let a self-service SUBMITTER POST { status: "ACCEPTED" } and mint a
@@ -116,6 +120,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         speaker: true,
         track: true,
         theme: { select: { id: true, name: true } },
+        subTheme: { select: { id: true, name: true } },
         eventSession: true,
         // Sprint B: fold submission rollup into the list response so the
         // dashboard card can render meanOverallScore + reviewCount without
@@ -181,7 +186,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { speakerId, title, content, specialty, presentationType, trackId, themeId, coAuthors, status } = validated.data;
+    const { speakerId, title, content, specialty, presentationType, trackId, themeId, subThemeId, coAuthors, status } = validated.data;
 
     // SUBMITTER can only submit for their own speaker record
     const speakerWhere = session.user.role === "SUBMITTER"
@@ -216,7 +221,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       themeId
         ? db.abstractTheme.findFirst({
             where: { id: themeId, eventId },
-            select: { id: true },
+            // Children come along so the sub-theme gate and the "does this
+            // sub-theme belong to this theme?" check share one query.
+            select: { id: true, subThemes: { select: { id: true } } },
           })
         : Promise.resolve(null),
     ]);
@@ -263,6 +270,21 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
+    // Sub-theme: belongs to the chosen theme, and is required to SUBMIT when
+    // that theme has any. Ownership first — a sub-theme id from another theme
+    // is a 404, not a silently accepted classification.
+    if (subThemeId && !theme?.subThemes.some((st) => st.id === subThemeId)) {
+      apiLogger.warn({ msg: "abstract-create:sub-theme-not-in-theme", eventId, themeId, subThemeId, userId: session.user.id });
+      return NextResponse.json({ error: "Sub-theme not found for that theme" }, { status: 404 });
+    }
+    if (status === "SUBMITTED" && isSubThemeMissing((theme?.subThemes.length ?? 0) > 0, subThemeId)) {
+      apiLogger.warn({ msg: "abstract-create:sub-theme-required", eventId, themeId, userId: session.user.id });
+      return NextResponse.json(
+        { error: SUB_THEME_REQUIRED_MESSAGE, code: SUB_THEME_REQUIRED_CODE },
+        { status: 400 },
+      );
+    }
+
     // The event only offers the presentation types its organizer enabled
     // (Content → Abstracts; settings.abstractPresentationTypes — absent =
     // all). The forms filter their dropdowns, but a form can be bypassed, so
@@ -293,6 +315,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           presentationType: presentationType || null,
           trackId: trackId || null,
           themeId: themeId || null,
+          subThemeId: subThemeId || null,
           coAuthors: normalizeCoAuthors(coAuthors),
           status,
           serialId,
@@ -303,6 +326,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           speaker: true,
           track: true,
           theme: { select: { name: true } },
+          subTheme: { select: { name: true } },
         },
       });
     });

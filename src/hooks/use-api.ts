@@ -1442,6 +1442,54 @@ export function useDeleteAbstractTheme(eventId: string) {
   });
 }
 
+// ── Sub-themes ──────────────────────────────────────────────────────────────
+// No list hook: sub-themes ride nested inside useAbstractThemes, so both the
+// picker and the management dialog read one source. These three invalidate that
+// same query, which is why an added sub-theme appears in the dropdown at once.
+
+export function useCreateAbstractSubTheme(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ themeId, name }: { themeId: string; name: string }) =>
+      fetchApi(`/api/events/${eventId}/abstract-themes/${themeId}/sub-themes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstractThemes(eventId) });
+    },
+  });
+}
+
+export function useUpdateAbstractSubTheme(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ themeId, subThemeId, ...data }: { themeId: string; subThemeId: string; name?: string; sortOrder?: number }) =>
+      fetchApi(`/api/events/${eventId}/abstract-themes/${themeId}/sub-themes/${subThemeId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstractThemes(eventId) });
+    },
+  });
+}
+
+export function useDeleteAbstractSubTheme(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ themeId, subThemeId }: { themeId: string; subThemeId: string }) =>
+      fetchApi(`/api/events/${eventId}/abstract-themes/${themeId}/sub-themes/${subThemeId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.abstractThemes(eventId) });
+    },
+  });
+}
+
 // ============ SESSION PROPOSALS ============
 
 export function useSessionProposals(eventId: string) {
