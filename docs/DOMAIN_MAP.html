@@ -89,7 +89,7 @@
 
 <header>
   <h1>EA-SYS Domain Map</h1>
-  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post accommodation-review remediation; certificates review, pkg 0.4.20). Markdown-free, self-contained, dark-mode aware.</div>
+  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post accommodation-review remediation; certificates review, pkg 0.4.20) — <strong>abstracts branch refreshed Aug 7, 2026</strong> (themes/sub-themes); the rest of the tree has not been re-walked since July 13, so treat other branches as a month behind. Markdown-free, self-contained, dark-mode aware.</div>
 </header>
 
 <div class="note">
@@ -270,19 +270,20 @@
 <div class="kids">
 <details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
 <div class="leaf"><b class="k">UI</b> <code>abstracts/</code> (list, full-page new/edit, submitter profile landing) · <code>reviewers/</code> page · <code>/my-reviews</code> portal · reviewers card on abstract edit</div>
-<div class="leaf"><b class="k">REST</b> <code>api/.../abstracts/*</code> (+ <code>[id]/reviewers</code>, <code>[id]/submissions</code>) · <code>review-criteria</code> · <code>abstract-themes</code> · <code>reviewers/*</code> (+ resend-invitation) · <code>/api/my-reviews</code></div>
+<div class="leaf"><b class="k">REST</b> <code>api/.../abstracts/*</code> (+ <code>[id]/reviewers</code>, <code>[id]/submissions</code>) · <code>review-criteria</code> · <code>abstract-themes</code> (+ <code>[themeId]/sub-themes/*</code> — writes only; the LIST rides nested in the themes GET) · <code>reviewers/*</code> (+ resend-invitation) · <code>/api/my-reviews</code></div>
 <div class="leaf"><b class="k">Public</b> <code>e/[slug]/abstract/register</code> (submitter signup; <code>submitAbstract</code> is a legacy redirect)</div>
 <div class="leaf"><b class="k">MCP</b> <code>tools/abstracts.ts</code> — list / status / assign / unassign / submit_review / scores / criteria CRUD</div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
 <div class="leaf"><code>services/abstract-service.ts</code> — <code>changeAbstractStatus</code> (tx-claimed, review-count gated) · <code>submitAbstractReview</code> (the ONE submission impl: auth matrix + COI + reviewable-status gates)</div>
-<div class="leaf"><code>lib/abstract-review.ts</code> (score aggregates) · <code>lib/abstract-notifications.ts</code> · <code>lib/abstract-presentation-types.ts</code> (per-event offering) · <code>lib/abstract-coauthors.ts</code></div>
+<div class="leaf"><code>lib/abstract-review.ts</code> (score aggregates) · <code>lib/abstract-notifications.ts</code> · <code>lib/abstract-presentation-types.ts</code> (per-event offering) · <code>lib/abstract-coauthors.ts</code> · <code>lib/abstract-theme-requirement.ts</code> (theme + sub-theme submit rules, shared by 3 forms + both write routes) · <code>lib/submitter-profile-completeness.ts</code> (the hard gate; includes <code>bio</code> since Aug 7, 2026)</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
-<div class="leaf"><code>Abstract</code> · <code>AbstractReviewer</code> (role + <code>conflictFlag</code> — <b>enforced</b>, blocks scoring) · <code>AbstractReviewSubmission</code> · <code>ReviewCriteria</code></div>
+<div class="leaf"><code>Abstract</code> · <code>AbstractTheme</code> → <code>AbstractSubTheme</code> (two levels; each required to submit ONLY where they exist) · <code>AbstractReviewer</code> (role + <code>conflictFlag</code> — <b>enforced</b>, blocks scoring) · <code>AbstractReviewSubmission</code> · <code>ReviewCriteria</code></div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
 <div class="gotcha">Submitters can edit only DRAFT (REVISION_REQUESTED self-edit is a known deferred item).</div>
+<div class="gotcha">Theme / sub-theme requirements are CONDITIONAL and keyed one level down: theme required iff the EVENT has themes, sub-theme required iff the CHOSEN THEME has sub-themes. An absolute rule would make submission impossible on an event with none; event-wide keying would make adding sub-themes to one theme demand them on all. Drafts are exempt from both.</div>
 <div class="gotcha">Decision emails anonymize reviewers ("Reviewer N") — blind review; MEMBER gets the anonymized submissions view too.</div>
 <div class="gotcha">Body capped at 300 words; presentation type is mandatory to submit and per-event configurable.</div>
 </div></details>
