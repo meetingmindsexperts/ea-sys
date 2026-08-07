@@ -177,20 +177,25 @@ describe("GET /api/events/[eventId]", () => {
     expect(res.status).toBe(404);
   });
 
-  it("SUBMITTER payload is finance-redacted (taxRate/bankDetails stripped, real redactor)", async () => {
+  it("SUBMITTER never fetches finance (or any other organiser) columns", async () => {
+    // This used to assert the redactor stripped taxRate/bankDetails from a full
+    // row. The row is no longer fetched: an org-null role gets a narrow select,
+    // which also withholds everything the redactor never covered (settings JSON,
+    // internal CC list, badge + seat config). Asserting on the SELECT is the
+    // honest test — a mock returns whatever it is told regardless of `select`,
+    // so asserting on the response body would pass against a widened query.
     mockAuth.mockResolvedValue(submitterSession);
-    mockDb.event.findFirst.mockResolvedValue({
-      ...sampleEvent,
-      taxRate: 5,
-      taxLabel: "VAT",
-      bankDetails: "IBAN AE00 0000",
-    });
+    mockDb.event.findFirst.mockResolvedValue(sampleEvent);
+
     const res = await GET(makeGetRequest(), makeParams("evt-1"));
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.name).toBe("Test Event");
-    expect(body.taxRate).toBeUndefined();
-    expect(body.bankDetails).toBeUndefined();
+
+    const select = mockDb.event.findFirst.mock.calls[0][0].select;
+    expect(select).toBeDefined();
+    for (const column of ["taxRate", "taxLabel", "bankDetails", "emailCcAddresses"]) {
+      expect(select).not.toHaveProperty(column);
+    }
+    expect(select).toHaveProperty("name");
   });
 });
 

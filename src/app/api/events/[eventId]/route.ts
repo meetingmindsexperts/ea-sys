@@ -8,7 +8,8 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { RESTRICTED_EVENT_DETAIL_SELECT, pickRestrictedSettings } from "@/lib/event-visibility";
 import { updateEventSettings } from "@/lib/event-settings";
 import { readSessionProposalDeadline } from "@/lib/submission-deadline";
 import {
@@ -104,6 +105,25 @@ export async function GET(req: Request, { params }: RouteParams) {
     // still 404s. Adding requireOrgId to this GET (July 24 `d4f31d42` sweep)
     // 403'd every submitter page for 13 days — the Aug 6 warning-triage
     // regression. PUT/DELETE below keep the guard (org-admin ops).
+
+    // An org-null role gets the whitelisted view, not the organiser row. The
+    // narrow shape is FETCHED, not filtered afterwards, so a column added to
+    // Event later cannot ride along. See `event-visibility`.
+    if (!isTeamRole(session.user.role)) {
+      const restricted = await db.event.findFirst({
+        where: buildEventAccessWhere(session.user, eventId),
+        select: RESTRICTED_EVENT_DETAIL_SELECT,
+      });
+      if (!restricted) {
+        return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      }
+      const response = NextResponse.json({
+        ...restricted,
+        settings: pickRestrictedSettings(restricted.settings),
+      });
+      response.headers.set("Cache-Control", "private, max-age=0, stale-while-revalidate=30");
+      return response;
+    }
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId, { surface: "desk" }),

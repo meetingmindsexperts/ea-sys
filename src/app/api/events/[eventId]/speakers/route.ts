@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
-import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
+import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -99,6 +99,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       ? { id: eventId, organizationId: orgCtx.organizationId }
       : buildEventAccessWhere(session!.user, eventId);
 
+    // An org-null role (SUBMITTER / REVIEWER / REGISTRANT) reaches this list for
+    // exactly one reason: the abstract and proposal forms look up the caller's
+    // OWN speaker row to bind as the author. The full roster is faculty PII —
+    // every speaker's email, phone, bio and abstract titles — so they get their
+    // own row and nothing else. A reviewer, who has no speaker row, gets an
+    // empty list; the author shown beside an abstract comes from the abstracts
+    // payload, not from here.
+    const ownSpeakerOnly = !orgCtx && !isTeamRole(session!.user.role);
+
     const [event, speakers] = await Promise.all([
       db.event.findFirst({
         where: eventWhere,
@@ -107,6 +116,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       db.speaker.findMany({
         where: {
           eventId,
+          ...(ownSpeakerOnly && { userId: session!.user.id }),
           ...(status && { status: status as "INVITED" | "CONFIRMED" | "DECLINED" | "CANCELLED" }),
           ...dateRange.where,
         },
