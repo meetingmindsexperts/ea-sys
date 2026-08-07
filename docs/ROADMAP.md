@@ -247,14 +247,12 @@ phase 2"). **Nothing was changed** — today's behavior is exactly as described
 above. Pick this up before a second event reuses a payer with different billing
 details, because that is when the silent inheritance produces a wrong invoice.
 
-### Group registration — promo codes (Aug 6, 2026, owner: "will do tomorrow morning")
+### Group registration — promo codes ✅ SHIPPED Aug 7, 2026 (`cf043e33`)
 
 **Reverses** the v1 exclusion in GROUP_REGISTRATION_PLAN §8 ("promo codes on
-groups"). Confirmed by grep before recording: there is **zero** promo handling
-in the group path — the coordinator page, `group-register` route and
-`group-registration-service` contain no reference to it, against 57 in the
-individual register route. So the Promo Code column on the new sales export is
-empty for every group member today.
+groups"). Before this, the group path had zero promo handling — which is why
+the Promo Code column on the sales export came out empty for every group
+member.
 
 **OWNER DECISION: the code applies to the FULL AND FINAL INVOICE**, as one
 discount against the consolidated total — not per member, not on each
@@ -276,23 +274,43 @@ the code, validating it, and populating those two fields in
 - Record the redemption (`PromoCodeRedemption`) — see the open question below
   on how many uses that is.
 
-**OPEN — needs an answer before building:**
+**BUILT.** Code held on `RegistrationGroup.promoCodeId` (the discount belongs
+to the deal, so it carries onto a reissued invoice); the money freezes onto
+`Invoice.discountCode`/`discountAmount`. Read-only promo rules extracted to
+[src/lib/promo-validation.ts](src/lib/promo-validation.ts) — they had been
+hand-rolled twice already and groups would have been a third copy.
 
-1. **Does one code on a 40-person group count as ONE use or FORTY?** Codes have
-   `maxUses`. One use lets a company put a whole delegation through a code
-   capped at 10; forty lets a single group exhaust a campaign-wide code. The
-   owner's phrasing ("against the full and final invoice") *implies* ONE, but
-   that is an inference, not a stated decision — confirm it.
-2. **Who enters the code** — the coordinator on the public form, or your team
-   afterwards (which would mean applying it to an already-issued invoice)?
-3. **Interaction with add-member (shipped Aug 6).** Adding people cancels an
-   unpaid invoice and reissues, or raises a supplementary one alongside a paid
-   invoice. So: does the code carry onto the reissued invoice (almost
-   certainly yes — same negotiation), and does it apply AGAIN to a
-   supplementary invoice for later arrivals (much less obvious — that is a
-   second discount off the same deal)? Whatever is chosen, the redemption
-   count must not drift on each reissue.
-4. **Credit notes / refunds** on a discounted group — the credit note caps
+Verified end to end: GROUP20 (20%) on a $350 group → $70 discount, $14 VAT (tax
+follows the DISCOUNTED base), $294 total, usedCount 1, discount line rendered
+on the PDF. Found and fixed in the same round: the group PDF builder hardcoded
+the discount to zero, so a discounted invoice printed a subtotal and total that
+did not reconcile — correct in the database, wrong on the document the company
+receives. Pinned by a mutation-verified regression test.
+
+**The three answers below were ASSUMPTIONS, not owner decisions — revisit if any
+is wrong (each is a small change):**
+
+1. **One code on a group = ONE redemption**, matching "against the full and
+   final invoice". Claimed conditionally when a cap exists, so two groups
+   racing for the last use can't both take it.
+2. **The coordinator enters it on the public form**, parity with individual
+   registration.
+3. **A SUPPLEMENTARY invoice does not re-apply the discount** (people added
+   after one was settled); a REISSUE does. Granting it again on each later
+   top-up would be a second discount off one negotiation.
+
+Also decided in passing: `maxUsesPerEmail` is deliberately NOT charged against
+the coordinator — it exists to stop one PERSON reusing a code, and counting a
+company's group against their personal allowance would block that company's
+next delegation. And a type-restricted code discounts only the members on
+those types (still one invoice line; it only sets the base).
+
+**Still open:**
+
+- **Applying a code to an ALREADY-ISSUED invoice** (your team negotiating a
+  discount after the fact) is not built — today the code must be entered at
+  registration. That would mean cancelling and reissuing the invoice.
+- **Credit notes / refunds** on a discounted group — the credit note caps
    against the paid total, which is already net of the discount, so this is
    probably free; worth a test rather than an assumption.
 
