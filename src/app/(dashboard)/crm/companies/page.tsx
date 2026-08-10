@@ -71,21 +71,21 @@ function CompaniesInner() {
   // vanish as you use them.
   const { data: allCompanies = [] } = useCrmCompanies();
   const { data: availableTags = [] } = useCrmCompanyTags();
-  const { data: companies = [], isLoading, isError, refetch } = useCrmCompanies({
+  // `needsReview` is applied SERVER-side (the route has supported it all along).
+  // Filtering it client-side made the banner's `shown` and `total` describe two
+  // different predicates — "Showing 12 of 1,500" where the 1,488 were not in
+  // fact hidden by the cap, and no filter could reveal them.
+  const companyFilters = {
     q: q || undefined,
     industry: industry || undefined,
     tags: tagFilter || undefined,
     archived: showArchived ? "1" : undefined,
-  });
+    needsReview: onlyReview ? "true" : undefined,
+  };
+  const { data: companies = [], isLoading, isError, refetch } = useCrmCompanies(companyFilters);
   // Same cache entry as the list above — no second fetch.
-  const { data: companiesMeta } = useCrmCompaniesMeta({
-    q: q || undefined,
-    industry: industry || undefined,
-    tags: tagFilter || undefined,
-    archived: showArchived ? "1" : undefined,
-  });
-  const filtered = onlyReview ? companies.filter((c) => c.needsReview) : companies;
-  const rows = sortKey ? [...filtered].sort(makeComparator(sortKey, dir)) : filtered;
+  const { data: companiesMeta } = useCrmCompaniesMeta(companyFilters);
+  const rows = sortKey ? [...companies].sort(makeComparator(sortKey, dir)) : companies;
   const reviewCount = allCompanies.filter((c) => c.needsReview).length;
   const industries = Array.from(
     new Set(allCompanies.map((c) => c.industry).filter((i): i is string => !!i)),
@@ -177,6 +177,11 @@ function CompaniesInner() {
         <EmptyArchiveButton entity="companies" visible={showArchived} />
       </div>
 
+      {/* ABOVE the loading/empty/table branches on purpose: the empty state is
+          exactly where truncation misleads most — "no results, clear a filter"
+          while rows sit behind the cap (review H5). */}
+      <ListTruncationBanner meta={companiesMeta} shown={rows.length} noun="companies" />
+
       {isLoading ? (
         <CrmTableSkeleton rows={6} cols={7} />
       ) : isError ? (
@@ -208,9 +213,7 @@ function CompaniesInner() {
           }
         />
       ) : (
-        <div className="space-y-3">
-          <ListTruncationBanner meta={companiesMeta} shown={rows.length} noun="companies" />
-          <div className="overflow-hidden rounded-xl border">
+        <div className="overflow-hidden rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -282,7 +285,6 @@ function CompaniesInner() {
               ))}
             </TableBody>
           </Table>
-          </div>
         </div>
       )}
 

@@ -579,6 +579,19 @@ describe("parseDateCell", () => {
     expect(parseDateCell("   ", "dmy").kind).toBe("blank");
   });
 
+  it("REFUSES a slash triple under `iso` — the default must never guess an order", () => {
+    // The blocker this replaced: the format ternary was binary (dmy vs
+    // everything-else), so `iso` — the DEFAULT — silently took the month-first
+    // branch and read 05/03/2026 as 3 May. That is the exact corruption this
+    // module exists to prevent, sitting on the path an operator gets by not
+    // touching the picker.
+    const r = parseDateCell("05/03/2026", "iso");
+    expect(r.kind).toBe("error");
+    expect(r.kind === "error" && r.message).toMatch(/DD\/MM\/YYYY or MM\/DD\/YYYY/);
+    // …and the ambiguous-for-humans case too (both parts <= 12).
+    expect(parseDateCell("1/2/2026", "iso").kind).toBe("error");
+  });
+
   it("accepts ISO under EVERY format — it is unambiguous, so a mixed file still imports", () => {
     for (const f of CSV_DATE_FORMATS) {
       expect(iso(parseDateCell("2026-03-05", f))).toBe("2026-03-05");
@@ -893,5 +906,145 @@ describe("lookups are batched, not per-row", () => {
     expect(db.crmCompany.findMany).toHaveBeenCalledTimes(1);
     expect(db.crmCompany.findFirst).not.toHaveBeenCalled();
     expect(db.crmCompany.create).not.toHaveBeenCalled();
+  });
+});
+
+// ── Review fixes: prefetch staleness + column-absent ─────────────────────────
+
+/**
+ * H1. Batching the lookups introduced a way for one row's write to consume
+ * another row's record. `seenKeys` rejects a later row carrying the SAME
+ * identity; it said nothing about a later row carrying an identity an earlier
+ * row's write had just MOVED. Both rows then updated the same record, one
+ * survived, and the report said "2 updated".
+ */
+describe("prefetch staleness (H1)", () => {
+  const CSV = `Id,Name\nFS-1,Abbott\nFS-9,Abbott Laboratories`;
+
+  beforeEach(() => {
+    vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-new" } as never);
+    // ONE existing record satisfying BOTH rows' lookups: row 1 by nameKey,
+    // row 2 by externalId.
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([
+      {
+        id: "X", name: "Abbott", nameKey: "abbott",
+        externalSource: "freshsales", externalId: "FS-9",
+        website: null, industry: null, city: null, country: null, phone: null,
+        tags: [], notes: null,
+        updatedAt: new Date("2026-01-01"), lastImportedAt: new Date("2026-01-01"),
+      },
+    ] as never);
+  });
+
+  it("row 2 CREATES once row 1's write moved the id away — matching the pre-batch behaviour", async () => {
+    const res = await importFreshsalesCompanies({ organizationId: ORG, userId: "u-1", csvText: CSV, dryRun: false });
+
+    if (!res.ok) throw new Error(res.message);
+    // Row 1 updates X (matched by name, takes externalId FS-1).
+    expect(db.crmCompany.update).toHaveBeenCalledTimes(1);
+    // Row 2's FS-9 no longer resolves to anything → it must become its OWN record.
+    // Before the fix this was a second update to X, silently destroying row 1.
+    expect(db.crmCompany.create).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ updated: 1, created: 1 });
+  });
+
+  it("a row that STILL resolves to an already-written record is a loud row error, not a silent overwrite", async () => {
+    // reindex() cannot help here: row 1 carries NO id, so X's identity never
+    // moves — both rows legitimately resolve to the same record. That is what
+    // the consumed-id guard is for.
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([
+      {
+        id: "X", name: "Abbott", nameKey: "abbott",
+        externalSource: "freshsales", externalId: "FS-9",
+        website: null, industry: null, city: null, country: null, phone: null,
+        tags: [], notes: null,
+        updatedAt: new Date("2026-01-01"), lastImportedAt: new Date("2026-01-01"),
+      },
+    ] as never);
+    // row 1 matches X by name (no id); row 2 matches the SAME X by its id.
+    const csv = `Id,Name\n,Abbott\nFS-9,Pfizer`;
+
+    const res = await importFreshsalesCompanies({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(db.crmCompany.update).toHaveBeenCalledTimes(1); // row 1 only
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0]!.error).toMatch(/already updated the record/);
+  });
+});
+
+/**
+ * H2. "Freshsales wins" on update wrote `value ?? null`, so a field whose COLUMN
+ * the export simply didn't carry was NULLED. Import a view without a Phone
+ * column and every previously-imported company's phone is erased, org-wide,
+ * silently. decideImportAction is no protection — it only spares fields a human
+ * touched after the last import, not values a previous import wrote.
+ */
+describe("column absent vs cell blank (H2)", () => {
+  const existingCompany = {
+    id: "X", name: "Abbott", nameKey: "abbott",
+    externalSource: "freshsales", externalId: "FS-1",
+    website: "abbott.com", industry: "Pharma", city: "Dubai", country: "UAE",
+    phone: "+97141234567", tags: [], notes: null,
+    updatedAt: new Date("2026-01-01"), lastImportedAt: new Date("2026-01-01"),
+  };
+
+  it("a MISSING column is left alone — it must not erase a stored value", async () => {
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([existingCompany] as never);
+    // No Phone column at all in this export.
+    await importFreshsalesCompanies({
+      organizationId: ORG, userId: "u-1", csvText: `Id,Name,City\nFS-1,Abbott,Dubai`, dryRun: false,
+    });
+
+    const data = (vi.mocked(db.crmCompany.update).mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    expect(data).not.toHaveProperty("phone");
+    expect(data).not.toHaveProperty("website"); // also absent from this file
+    expect(data).toHaveProperty("city"); // present → Freshsales wins as before
+  });
+
+  it("a PRESENT but blank cell still clears the value — that IS an instruction", async () => {
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([existingCompany] as never);
+    await importFreshsalesCompanies({
+      organizationId: ORG, userId: "u-1", csvText: `Id,Name,Phone\nFS-1,Abbott,`, dryRun: false,
+    });
+
+    const data = (vi.mocked(db.crmCompany.update).mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    expect(data.phone).toBeNull();
+  });
+
+  it("deals: an export with no Deal Stage column must not drag won deals back into the pipeline", async () => {
+    mockDealFixtures();
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([
+      { id: "x-1", externalId: "d-1", status: "WON", ownerId: null, updatedAt: new Date("2026-01-01"), lastImportedAt: new Date("2026-01-01") },
+    ] as never);
+
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1",
+      csvText: `Id,Name,Amount,Sales account\nd-1,Abbott,1000,Abbott`,
+      dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+
+    const data = (vi.mocked(db.crmDeal.update).mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    // Without the guard, `stage` fell back to the first OPEN stage and status to
+    // OPEN — silently un-winning every won deal in the org.
+    expect(data).not.toHaveProperty("stageId");
+    expect(data).not.toHaveProperty("status");
+    expect(data).not.toHaveProperty("wonAt");
+  });
+
+  it("deals: a missing Deal Type column does not clear a type set by an earlier import", async () => {
+    mockDealFixtures();
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([
+      { id: "x-1", externalId: "d-1", status: "OPEN", ownerId: null, updatedAt: new Date("2026-01-01"), lastImportedAt: new Date("2026-01-01") },
+    ] as never);
+
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1",
+      csvText: `Id,Name,Amount,Deal stage,Sales account\nd-1,Abbott,1000,Negotiation,Abbott`,
+      dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+
+    const data = (vi.mocked(db.crmDeal.update).mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    expect(data).not.toHaveProperty("dealTypeId");
   });
 });

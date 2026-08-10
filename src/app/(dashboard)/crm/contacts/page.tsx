@@ -225,6 +225,11 @@ function ContactsInner() {
         <EmptyArchiveButton entity="contacts" visible={showArchived} />
       </div>
 
+      {/* ABOVE the loading/empty/table branches on purpose: the empty state is
+          exactly where truncation misleads most — "no results, clear a filter"
+          while rows sit behind the cap (review H5). */}
+      <ListTruncationBanner meta={contactsMeta} shown={rows.length} noun="contacts" />
+
       {isLoading ? (
         <CrmTableSkeleton rows={6} cols={8} />
       ) : isError ? (
@@ -256,9 +261,7 @@ function ContactsInner() {
           }
         />
       ) : (
-        <div className="space-y-3">
-          <ListTruncationBanner meta={contactsMeta} shown={rows.length} noun="contacts" />
-          <div className="overflow-hidden rounded-xl border">
+        <div className="overflow-hidden rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -349,7 +352,6 @@ function ContactsInner() {
               ))}
             </TableBody>
           </Table>
-          </div>
         </div>
       )}
 

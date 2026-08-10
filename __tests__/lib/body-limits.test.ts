@@ -44,6 +44,10 @@ describe("maxBodySizeFor", () => {
     // Not style policing: every entry is a path where an unauthenticated request
     // can make the box buffer 8MB before any handler runs. Growing this list
     // should be a deliberate decision, so it fails the test first.
+    //
+    // NOTE this asserts the LIST, not a guarantee about bytes: the proxy check
+    // reads `content-length`, so a chunked request bypasses it and nginx's 10MB
+    // is the real ceiling. Don't read this test as proof of an 8MB bound.
     expect(LARGE_BODY_PREFIXES).toEqual(["/api/crm/import/"]);
     expect(IMPORT_BODY_SIZE).toBeGreaterThan(MAX_BODY_SIZE);
     // …and still under nginx's client_max_body_size (10MB), or nginx rejects it

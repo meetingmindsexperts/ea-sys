@@ -18,10 +18,24 @@ export const MAX_BODY_SIZE = 1_048_576; // 1MB
  * operator saw a bare 413 with nothing to act on. nginx already allows 10MB
  * (`client_max_body_size`), so the app limit was the binding one.
  *
- * 8MB keeps headroom under nginx. Raising it is safe ONLY for these routes
- * because they are admin-gated, rate-limited (20/hr/org), and row-capped by the
- * CSV parser — none of which is true of the general API surface, which is why
- * this is a narrow allow-list and not a bumped default.
+ * 8MB keeps headroom under nginx.
+ *
+ * ⚠ WHAT THIS DOES AND DOES NOT BOUND — an earlier version of this comment
+ * claimed the routes were "admin-gated", which is false: they call
+ * `requireCrmWrite`, which admits ORGANIZER and CRM_USER. What actually bounds
+ * them is the 20/hr/org import rate limit and the CSV parser's 5,000-row cap,
+ * and the row cap applies AFTER `req.json()`, so it bounds DB work rather than
+ * parse cost.
+ *
+ * The size check itself only binds well-behaved clients: it reads
+ * `content-length`, so a request using `Transfer-Encoding: chunked` skips it
+ * entirely. The real ceiling on every route is nginx's `client_max_body_size`
+ * (10MB). Treat the values here as a courtesy limit that produces a friendly
+ * 413, not as a security control.
+ *
+ * The allow-list stays narrow for the same reason it always did — each entry is
+ * a path an anonymous request can make Node ingest 8MB on, since this check runs
+ * before route auth.
  */
 export const IMPORT_BODY_SIZE = 8 * 1_048_576; // 8MB
 

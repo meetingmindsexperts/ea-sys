@@ -32,7 +32,13 @@ export interface CrmDealType {
   archivedAt?: string | null;
 }
 export type CrmActivityType = "NOTE" | "CALL" | "MEETING";
-export type CrmLifecycleStage = "LEAD" | "ENGAGED" | "CUSTOMER" | "CHAMPION";
+/**
+ * Relationship depth. Runtime tuple (not a bare union) so the CSV importer can
+ * validate against it — it previously re-declared its own copy, which is the
+ * cross-caller-duplication rule broken in miniature.
+ */
+export const LIFECYCLE_VALUES = ["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"] as const;
+export type CrmLifecycleStage = (typeof LIFECYCLE_VALUES)[number];
 
 /**
  * Sales-conversation status (Freshsales-style ladder). Distinct from

@@ -18,6 +18,8 @@
  *    EA-SYS wins and the row is reported as kept-local.
  */
 
+import { LIFECYCLE_VALUES, CONTACT_STATUS_VALUES } from "@/crm/lib/crm-types";
+
 export const FRESHSALES_SOURCE = "freshsales";
 
 // ── Date formats ──────────────────────────────────────────────────────────────
@@ -110,6 +112,19 @@ export function parseDateCell(v: string | undefined, format: CsvDateFormat): Dat
     const d = utcDate(Number(a), Number(b), Number(c));
     return d ? { kind: "date", date: d } : { kind: "error", message: `"${raw}" is not a real calendar date` };
   }
+
+  // `iso` DECLARES "this file is YYYY-MM-DD", so a d/m/y triple under it has no
+  // stated order and MUST NOT be read. Without this the ternary below (binary:
+  // dmy vs everything-else) quietly gave `iso` the month-first branch — which is
+  // the exact silent corruption this whole module exists to prevent, sitting on
+  // the DEFAULT path. Refuse loudly and name the two orders instead.
+  if (format === "iso") {
+    return {
+      kind: "error",
+      message: `"${raw}" is not an ISO date (YYYY-MM-DD). Set "Date format in this file" to DD/MM/YYYY or MM/DD/YYYY — we will not guess the order.`,
+    };
+  }
+
   if (c.length !== 4) {
     return {
       kind: "error",
@@ -394,21 +409,23 @@ export interface ContactRow {
   unmappedEnums: string[];
 }
 
-// The two contact ladders. Declared as literal tuples rather than imported from
-// @prisma/client because this module is CLIENT-SAFE (the dialog imports it) and
-// the Prisma client is not. A drift test pins them against the real enums.
-export const CRM_LIFECYCLE_VALUES = ["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"] as const;
-export const CRM_CONTACT_STATUS_VALUES = [
-  "NEW", "CONTACTED", "INTERESTED", "QUALIFIED", "NEGOTIATION", "WON", "LOST", "UNQUALIFIED",
-] as const;
+// The two contact ladders come from crm-types.ts — the SAME tuples the dropdown,
+// the route Zod and the detail form use. An earlier version of this file
+// re-declared them locally, justified as "@prisma/client isn't client-safe";
+// that was beside the point, since crm-types.ts is client-safe and already had
+// them. A real drift test against the Prisma enums now lives in
+// __tests__/crm/crm-enum-drift.test.ts (the previous comment claimed one existed
+// when none did — do not restate a guarantee without grepping for it first).
+export const CRM_LIFECYCLE_VALUES = LIFECYCLE_VALUES;
+export const CRM_CONTACT_STATUS_VALUES = CONTACT_STATUS_VALUES;
 export type CrmLifecycleStageValue = (typeof CRM_LIFECYCLE_VALUES)[number];
 export type CrmContactStatusValue = (typeof CRM_CONTACT_STATUS_VALUES)[number];
 
 /**
  * Coerce a free-text CSV cell onto one of our enum values.
  *
- * Tolerant of the casing and punctuation a CRM export uses ("Sales Qualified",
- * "sales_qualified"), but never CREATIVE: an unrecognised value returns null and
+ * Tolerant of the casing and punctuation a CRM export uses ("Un-qualified",
+ * "un qualified" → UNQUALIFIED), but never CREATIVE: an unrecognised value returns null and
  * is reported rather than being coerced to a default. Landing every unknown
  * status on NEW would silently rewrite the pipeline's shape.
  */

@@ -79,11 +79,31 @@ interface ImportCtx {
  * sequential, which is what put a large import past the 60s gateway timeout and
  * left it half-written. One `findMany` up front collapses those to zero.
  *
- * SAFE BECAUSE THE FILE IS DEDUPED FIRST: a prefetched map goes stale only if a
- * row created earlier in the SAME file needs to be seen by a later row, and the
- * `seenKeys` guard already rejects a second row carrying either identity. Rows
- * created by a CONCURRENT import are still caught — the unique indexes hold and
- * the P2002 handler reports "re-run to converge".
+ * ⚠ A PREFETCHED MAP GOES STALE AS THE FILE IS APPLIED, and `seenKeys` alone
+ * does NOT cover it — that assumption was wrong and cost a record. `seenKeys`
+ * rejects a later row carrying the SAME identity; it says nothing about a later
+ * row carrying an identity an earlier row's write just MOVED. Worked example:
+ *
+ *   DB:  X { nameKey: "abbott", externalId: "FS-9" }
+ *   row1 Id=FS-1  Name=Abbott              → matches X by nameKey, sets externalId=FS-1
+ *   row2 Id=FS-9  Name=Abbott Laboratories → dedup keys are disjoint, so it passes,
+ *                                            and the STALE map still answers FS-9 → X
+ *
+ * Both rows then update X: one record survives carrying row 2's data, row 1's
+ * write is destroyed, and the report cheerfully says "2 updated". The pre-batch
+ * code re-read per row, missed on both lookups, and CREATED — so this was a
+ * regression introduced by batching, not a pre-existing quirk.
+ *
+ * Two guards, because they do different jobs:
+ *   1. `reindex()` after every write — deletes the record's old keys and sets its
+ *      new ones, so a later row whose identity was moved away MISSES and creates,
+ *      matching the pre-batch behaviour.
+ *   2. `consumed` ids — a later row that still resolves to a record this file has
+ *      already written becomes a ROW ERROR rather than a silent overwrite. (2)
+ *      catches what (1) cannot: two rows legitimately resolving to one record.
+ *
+ * Rows created by a CONCURRENT import are still caught by the unique indexes,
+ * and the P2002 handler reports "re-run to converge".
  *
  * Writes stay per-row on purpose: `createMany` would be faster still but would
  * lose the per-row try/catch, and one bad row killing a 5,000-row file is a far
@@ -96,6 +116,44 @@ function indexBy<T>(rows: T[], key: (row: T) => string | null | undefined): Map<
     if (k) map.set(k, row);
   }
   return map;
+}
+
+/**
+ * "Freshsales wins" on update must mean *this cell is blank*, NOT *this column
+ * is missing from the export*.
+ *
+ * The update branches write `value ?? null`, so a field whose COLUMN the export
+ * simply doesn't carry was being NULLED — import a Deals view without a Phone
+ * column and every previously-imported company's phone is erased, silently and
+ * org-wide. `decideImportAction` is no protection: it only spares fields a human
+ * touched AFTER the last import, not values a previous import wrote.
+ *
+ * So a field only appears in an update payload when its column EXISTS in this
+ * file. `resolveColumns` already knows (`index < 0` ⇒ absent); this just makes
+ * every call site say so.
+ */
+function ifColumn<K extends string, V>(index: number, key: K, value: V): Partial<Record<K, V>> {
+  return index >= 0 ? ({ [key]: value } as Partial<Record<K, V>>) : {};
+}
+
+/** Message for guard (2) above — shared so companies and contacts read alike. */
+const CONSUMED_ROW_ERROR =
+  "An earlier row in this file already updated the record this row matches — split the conflicting rows across two files, or fix the duplicate in Freshsales";
+
+/**
+ * Re-point the identity maps after a write, so a later row whose identity this
+ * write moved away MISSES and creates instead of overwriting. See indexBy().
+ */
+function reindex<T>(
+  maps: { byExternalId: Map<string, T>; byNaturalKey: Map<string, T> },
+  record: T,
+  before: { externalId?: string | null; naturalKey?: string | null },
+  after: { externalId?: string | null; naturalKey?: string | null },
+) {
+  if (before.externalId && before.externalId !== after.externalId) maps.byExternalId.delete(before.externalId);
+  if (after.externalId) maps.byExternalId.set(after.externalId, record);
+  if (before.naturalKey && before.naturalKey !== after.naturalKey) maps.byNaturalKey.delete(before.naturalKey);
+  if (after.naturalKey) maps.byNaturalKey.set(after.naturalKey, record);
 }
 
 function parseOrFail(csvText: string): { headers: string[]; rows: string[][] } | { ok: false; code: string; message: string } {
@@ -152,8 +210,12 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
       ],
     },
   });
-  const byExternalId = indexBy(existingCompanies, (c) => (c.externalSource === FRESHSALES_SOURCE ? c.externalId : null));
-  const byNameKey = indexBy(existingCompanies, (c) => c.nameKey);
+  const maps = {
+    byExternalId: indexBy(existingCompanies, (c) => (c.externalSource === FRESHSALES_SOURCE ? c.externalId : null)),
+    byNaturalKey: indexBy(existingCompanies, (c) => c.nameKey),
+  };
+  /** Record ids this file has already written — guard (2) in indexBy(). */
+  const consumed = new Set<string>();
 
   for (let i = 0; i < parsed.rows.length; i++) {
     const rowNo = i + 1;
@@ -180,7 +242,13 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
       // Match: the source id first (previously imported), else the normalized
       // name (converges with hand-typed accounts, which then get the id stamped).
       const existing =
-        (row.externalId ? byExternalId.get(row.externalId) : undefined) ?? byNameKey.get(nameKey) ?? null;
+        (row.externalId ? maps.byExternalId.get(row.externalId) : undefined) ??
+        maps.byNaturalKey.get(nameKey) ??
+        null;
+      if (existing && consumed.has(existing.id)) {
+        report.errors.push({ row: rowNo, error: CONSUMED_ROW_ERROR });
+        continue;
+      }
 
       const action = decideImportAction(existing);
       // R2-H1: the enrich path deliberately does NOT stamp lastImportedAt — an
@@ -236,18 +304,29 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
                   : {}),
               }
             : {
-                // Freshsales wins on the imported fields. The display name follows
+                // Freshsales wins on the imported fields — but only on fields this
+                // file actually CARRIES (see ifColumn). The display name follows
                 // the CSV; nameKey must follow the name (the contacts-H2 lesson).
                 name: row.name, nameKey,
-                website: row.website ?? null, industry: row.industry ?? null,
-                city: row.city ?? null, country: row.country ?? null,
-                phone: row.phone ?? null, notes: row.notes ?? null,
+                ...ifColumn(cols.index.website, "website", row.website ?? null),
+                ...ifColumn(cols.index.industry, "industry", row.industry ?? null),
+                ...ifColumn(cols.index.city, "city", row.city ?? null),
+                ...ifColumn(cols.index.country, "country", row.country ?? null),
+                ...ifColumn(cols.index.phone, "phone", row.phone ?? null),
+                ...ifColumn(cols.index.notes, "notes", row.notes ?? null),
                 ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
               };
         if (action === "enrich") report.enriched++;
         else report.updated++;
         if (!ctx.dryRun) {
           await db.crmCompany.update({ where: { id: existing!.id }, data: { ...data, ...stamp } });
+          consumed.add(existing!.id);
+          reindex(
+            maps,
+            existing!,
+            { externalId: existing!.externalId, naturalKey: existing!.nameKey },
+            { externalId: stamp.externalId, naturalKey: action === "enrich" ? existing!.nameKey : nameKey },
+          );
           activity.push({
             organizationId: ctx.organizationId, entityType: "COMPANY", entityId: existing!.id,
             action: "IMPORTED", actorId: ctx.userId,
@@ -320,8 +399,12 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
       ],
     },
   });
-  const byExternalId = indexBy(existingContacts, (c) => (c.externalSource === FRESHSALES_SOURCE ? c.externalId : null));
-  const byEmailKey = indexBy(existingContacts, (c) => c.emailKey);
+  const maps = {
+    byExternalId: indexBy(existingContacts, (c) => (c.externalSource === FRESHSALES_SOURCE ? c.externalId : null)),
+    byNaturalKey: indexBy(existingContacts, (c) => c.emailKey),
+  };
+  /** Record ids this file has already written — guard (2) in indexBy(). */
+  const consumed = new Set<string>();
 
   for (let i = 0; i < parsed.rows.length; i++) {
     const rowNo = i + 1;
@@ -342,7 +425,13 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
       dupKeys.forEach((k) => seenKeys.add(k));
 
       const existing =
-        (row.externalId ? byExternalId.get(row.externalId) : undefined) ?? byEmailKey.get(emailKey) ?? null;
+        (row.externalId ? maps.byExternalId.get(row.externalId) : undefined) ??
+        maps.byNaturalKey.get(emailKey) ??
+        null;
+      if (existing && consumed.has(existing.id)) {
+        report.errors.push({ row: rowNo, error: CONSUMED_ROW_ERROR });
+        continue;
+      }
 
       const action = decideImportAction(existing);
       // R2-H1: the enrich path deliberately does NOT stamp lastImportedAt — an
@@ -414,20 +503,33 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
               }
             : {
                 firstName: row.firstName, lastName: row.lastName,
-                jobTitle: row.jobTitle ?? null, phone: row.phone ?? null,
-                mobile: row.mobile ?? null, country: row.country ?? null,
+                ...ifColumn(cols.index.jobTitle, "jobTitle", row.jobTitle ?? null),
+                ...ifColumn(cols.index.workPhone, "phone", row.phone ?? null),
+                ...ifColumn(cols.index.mobilePhone, "mobile", row.mobile ?? null),
+                ...ifColumn(cols.index.country, "country", row.country ?? null),
                 // Freshsales wins on update — but an UNMATCHABLE owner must not
                 // silently un-own a live contact (the deals-path rule, mirrored).
                 ...(ownerId ? { ownerId } : {}),
                 ...(row.lifecycleStage ? { lifecycleStage: row.lifecycleStage } : {}),
                 ...(row.status ? { status: row.status } : {}),
                 ...tagPatch,
-                ...(dryCompany ? {} : { companyId }),
+                // A missing Sales Account column must not detach the contact from
+                // its company; a present-but-blank cell still clears it.
+                ...(dryCompany ? {} : ifColumn(cols.index.companyName, "companyId", companyId)),
               };
         if (action === "enrich") report.enriched++;
         else report.updated++;
         if (!ctx.dryRun) {
           await db.crmContact.update({ where: { id: existing!.id }, data: { ...data, ...stamp } });
+          consumed.add(existing!.id);
+          // The email (and so emailKey) is never rewritten by an import, so only
+          // the externalId can move here.
+          reindex(
+            maps,
+            existing!,
+            { externalId: existing!.externalId, naturalKey: existing!.emailKey },
+            { externalId: stamp.externalId, naturalKey: existing!.emailKey },
+          );
           activity.push({
             organizationId: ctx.organizationId, entityType: "CONTACT", entityId: existing!.id,
             action: "IMPORTED", actorId: ctx.userId,
@@ -794,39 +896,58 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
             ? { lostAt: row.closedDate ?? null, wonAt: null, lostReason: row.lostReason ?? null }
             : { wonAt: null, lostAt: null, lostReason: null };
       // R2-M6: on a RE-IMPORT of a deal whose closed status hasn't changed and
-      // whose CSV carries no Closed-date value, PRESERVE the stored stamps —
-      // the `?? new Date()` fallback otherwise drifted every won deal's wonAt
-      // to the re-import date, and "deals won in July" reported zero. The
-      // fallback is only for a genuine transition with no date (best available).
+      // whose CSV carries no Closed-date value, PRESERVE the stored stamps — an
+      // earlier `?? new Date()` fallback drifted every won deal's wonAt to the
+      // re-import date, and "deals won in July" reported zero. That fallback is
+      // now gone entirely: a genuine transition with no date stores NULL and is
+      // counted in closedWithoutDate. Do not reinstate it.
       const closeStampsForUpdate =
         !row.closedDate && existing !== null && existing.status === status ? {} : closeStamps;
 
+      // Everything not derived from an optional column — safe on create AND update.
       const common = {
         name: row.name,
-        stageId: stage.id,
-        status,
-        dealValue: row.amount !== undefined ? new Prisma.Decimal(row.amount) : null,
         currency: row.currency ?? defaultCurrency,
-        expectedClose: row.expectedClose ?? null,
         ownerId,
-        dealTypeId,
         ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
         // The pipeline is OUR classification (corporate vs conference), not a
         // Freshsales column — a Freshsales pipeline NAME can't be coerced onto a
         // two-value enum without inventing a mapping, so the operator picks one
         // for the whole file instead.
         ...(ctx.pipeline ? { pipeline: ctx.pipeline } : {}),
-        ...(dryCompany ? {} : { companyId }),
         externalSource: FRESHSALES_SOURCE,
         externalId: row.externalId,
         lastImportedAt: new Date(),
+      };
+
+      // Column-derived. On CREATE a missing column is legitimately null; on
+      // UPDATE it must be OMITTED, or an export that simply lacks the column
+      // erases the stored value (see ifColumn).
+      const fromColumns = {
+        stageId: stage.id,
+        status,
+        dealValue: row.amount !== undefined ? new Prisma.Decimal(row.amount) : null,
+        expectedClose: row.expectedClose ?? null,
+        dealTypeId,
+        ...(dryCompany ? {} : { companyId }),
+      };
+      const fromColumnsForUpdate = {
+        // Stage is the sharpest edge here: with no Deal Stage column every row
+        // resolves to the first OPEN stage, so a stageless export would drag
+        // every won deal back into the pipeline. Omit the whole trio together —
+        // status and the close stamps are derived from the same column.
+        ...(cols.index.stage >= 0 ? { stageId: stage.id, status } : {}),
+        ...ifColumn(cols.index.amount, "dealValue", fromColumns.dealValue),
+        ...ifColumn(cols.index.expectedClose, "expectedClose", fromColumns.expectedClose),
+        ...ifColumn(cols.index.dealType, "dealTypeId", dealTypeId),
+        ...(dryCompany ? {} : ifColumn(cols.index.companyName, "companyId", companyId)),
       };
 
       if (action === "create") {
         report.created++;
         if (!ctx.dryRun) {
           const created = await db.crmDeal.create({
-            data: { organizationId: ctx.organizationId, eventId, ...common, ...closeStamps },
+            data: { organizationId: ctx.organizationId, eventId, ...common, ...fromColumns, ...closeStamps },
           });
           activity.push({
             organizationId: ctx.organizationId, entityType: "DEAL", entityId: created.id,
@@ -850,7 +971,14 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
           // matchable CSV owner still wins; only a null (unresolved) is skipped.
           await db.crmDeal.update({
             where: { id: existing!.id },
-            data: { ...common, ownerId: ownerId ?? existing!.ownerId, ...closeStampsForUpdate },
+            data: {
+              ...common,
+              ...fromColumnsForUpdate,
+              ownerId: ownerId ?? existing!.ownerId,
+              // Only a file that carries the stage column may move a deal's
+              // close stamps — see fromColumnsForUpdate.
+              ...(cols.index.stage >= 0 ? closeStampsForUpdate : {}),
+            },
           });
           activity.push({
             organizationId: ctx.organizationId, entityType: "DEAL", entityId: existing!.id,
