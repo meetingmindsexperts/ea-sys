@@ -27,7 +27,9 @@ interface RouteParams {
  * the SAME `executeBulkEmail` the scheduled path uses, so the HTTP
  * request can never block on / time out against a large fan-out, and the
  * caller polls status via the existing Scheduled Emails list. "Send now"
- * therefore means "sends within ~60s". Explicitly-selected recipients are
+ * therefore means "sends within ~90s" — the poll is every 60s, so the honest
+ * promise is a full poll interval plus the send itself, not 60s flat.
+ * Explicitly-selected recipients are
  * preserved through `recipientIds` on the row; the worker also emits the
  * "Scheduled Email Sent" admin notification on completion.
  */
@@ -160,7 +162,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           deduplicated: true,
           jobId: duplicate.id,
           status: "PENDING",
-          message: "This send was already queued moments ago — it will go out within about a minute.",
+          message: "This send was already queued moments ago — it will go out within about 90 seconds.",
         },
         { status: 202 },
       );
@@ -227,7 +229,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         jobId: created.id,
         status: created.status,
         message:
-          "Email queued — it will be sent within about a minute. Track progress under Scheduled Emails.",
+          "Email queued — it will be sent within about 90 seconds. Track progress under Scheduled Emails.",
       },
       { status: 202 }
     );

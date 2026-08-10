@@ -711,7 +711,7 @@ export default function CertificatesPage() {
       // appears immediately (otherwise the polling-on-active loop
       // hasn't started yet for a freshly-created run).
       queryClient.invalidateQueries({ queryKey: ["cert-runs-all", eventId] });
-      toast.success(`Issuing certificates to ${data.totalCount} people — cron will start within 60 seconds.`);
+      toast.success(`Issuing certificates to ${data.totalCount} people — issuing starts within ~90 seconds.`);
     },
     onError: (e: Error & { runId?: string }) => {
       if (e.runId && issueTemplateIds.length > 0) {
@@ -762,7 +762,7 @@ export default function CertificatesPage() {
       queryClient.invalidateQueries({ queryKey: ["cert-runs-all", eventId] });
       setReissueDialogOpen(false);
       toast.success(
-        `Re-sending the latest version to ${data.totalCount} recipient${data.totalCount === 1 ? "" : "s"} — cron will start within 60 seconds.`,
+        `Re-sending the latest version to ${data.totalCount} recipient${data.totalCount === 1 ? "" : "s"} — issuing starts within ~90 seconds.`,
       );
     },
     onError: (e: Error & { runId?: string; code?: string }, templateId) => {

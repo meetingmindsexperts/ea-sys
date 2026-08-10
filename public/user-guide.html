@@ -2390,6 +2390,56 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
 
     <div class="divider"></div>
 
+    <div class="section" id="s20">
+      <div class="sec-hd"><div class="sec-num">20</div><div class="sec-meta">
+        <div class="sec-title">&ldquo;I clicked send &mdash; where is it?&rdquo;</div>
+        <div class="sec-desc">Which emails go out instantly, which are queued, and what to check when something feels slow.</div>
+        <span class="sec-badge b-all">Everyone</span>
+      </div></div>
+
+      <p>Some emails leave the moment you click. Others are handed to a background service that sends them in batches. Knowing which is which explains almost every &ldquo;is it stuck?&rdquo; moment.</p>
+
+      <div class="sub" id="s20-instant">
+        <div class="sub-title">Sent instantly &mdash; one person, one click</div>
+        <p>These go out inside the click, in seconds:</p>
+        <ul>
+          <li>A speaker <strong>invitation</strong> or <strong>agreement</strong> sent from one speaker&rsquo;s page</li>
+          <li>A registration <strong>confirmation</strong> when someone registers</li>
+          <li><strong>Password resets</strong> and team <strong>invitations</strong></li>
+          <li>Payment <strong>receipts</strong> and <strong>invoices</strong> after a payment</li>
+          <li>An abstract <strong>decision</strong> (accepted / rejected / revision)</li>
+        </ul>
+        <p>If one of these hasn&rsquo;t arrived within a minute or two, it isn&rsquo;t queued somewhere &mdash; it either failed or landed in spam. Open the person&rsquo;s record and look at <strong>Email History</strong>: every attempt is logged there, successful or not, with the reason if it failed.</p>
+      </div>
+
+      <div class="sub" id="s20-queued">
+        <div class="sub-title">Queued &mdash; anything going to many people</div>
+        <p>Bulk emails, certificate batches and webinar sequences are <strong>not</strong> sent while you wait. The system writes down what needs sending and a background service picks it up. You&rsquo;ll see a message saying it has been <em>queued</em>, and it starts going out <strong>within about 90 seconds</strong>.</p>
+        <p>This is deliberate. Sending two thousand emails &mdash; each possibly with its own attached PDF &mdash; while your browser waits would time out halfway, and you&rsquo;d have no way of knowing who received what. Handing it off means the send can resume and you can watch it.</p>
+        <p><strong>Where to watch it:</strong> <em>Communications &rarr; Scheduled Emails</em>. Each send moves through <strong>Pending &rarr; Processing &rarr; Sent</strong> and shows how many succeeded and how many failed. A send that fails can be retried from there without re-composing it.</p>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">&ldquo;Send now&rdquo; means &ldquo;starts within about 90 seconds&rdquo;, not &ldquo;already sent&rdquo;</div><div class="c-text">If you need something in front of people <em>immediately</em> &mdash; a room change on the morning of the conference &mdash; send it to a small group from their individual pages, or use WhatsApp, and follow up with the bulk send.</div></div></div>
+      </div>
+
+      <div class="sub" id="s20-late">
+        <div class="sub-title">If a queued email is running late</div>
+        <p>The important thing to know: <strong>nothing is ever lost.</strong> The background service re-reads the list of what&rsquo;s outstanding every time it runs, so anything waiting simply goes out when the service catches up &mdash; late, never dropped. The same is true if the service is stopped or restarted: work waits for it, it doesn&rsquo;t evaporate.</p>
+        <p>What to check, in order:</p>
+        <ol>
+          <li><strong>Communications &rarr; Scheduled Emails</strong> &mdash; is it still <em>Pending</em>, or did it fail? A failure shows a reason.</li>
+          <li>The person&rsquo;s <strong>Email History</strong> &mdash; if the send reported success, the email left us and the question becomes deliverability (spam folder, a full mailbox, a typo&rsquo;d address).</li>
+          <li>Ask an administrator to check the <strong>daily health email</strong>, which reports whether the background service is running normally.</li>
+        </ol>
+      </div>
+
+      <div class="sub" id="s20-admin">
+        <div class="sub-title">For administrators</div>
+        <p>The background service is a separate component from the website, which is why the site stays fast and responsive even while thousands of emails are going out &mdash; and why registration and check-in keep working normally even if that service is having a bad day.</p>
+        <p>It is watched three ways: an external monitor alerts within about two minutes if it stops responding, an automatic watchdog restarts it if it freezes, and the <strong>daily health email</strong> reports its status every morning whether or not anything went wrong &mdash; so if that email ever <em>stops arriving</em>, that itself is worth investigating.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
     <!-- SCREENSHOT INDEX -->
     <div class="section" id="img-ref">
       <div class="sec-hd"><div class="sec-num">&#x1F5BC;</div><div class="sec-meta">

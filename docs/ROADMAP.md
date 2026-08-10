@@ -212,6 +212,54 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Worker job locking — replace the session lock with an expiring lease (Aug 10, 2026, owner: "not yet — watch today's fix first")
+
+**Status: deferred pending 24h of measurement.** Re-run the cadence query in
+[docs/BACKGROUND_JOBS.md](BACKGROUND_JOBS.md) §7 on **Aug 11+**; if run counts
+are back near their `expectedPerDay` the narrower fix sufficed in practice and
+this becomes optional. If they are still short, build it.
+
+**Background.** `withJobLock` uses a session-scoped `pg_try_advisory_lock`.
+Because the worker ran through the *transaction* pooler, the lock was taken on
+one backend and released on another that never held it, so it leaked and every
+tick until pgbouncer recycled that connection skipped. Measured on prod over 24h:
+`scheduled-emails` 435 runs of 1,440; `crm-inbound-email` 375 of 1,440;
+`cert-issue` 182 of 480. Nothing failed — it simply did not run. Fixed on Aug 10
+by pinning the worker to `DIRECT_URL` (session mode).
+
+**Why that fix is a narrowing, not a cure.** Prisma keeps its own pool, so the
+acquire and the release can *still* land on different connections. Probed
+directly against Postgres:
+
+| Pool state | Acquire pid | Release pid | `pg_advisory_unlock` |
+|---|---|---|---|
+| Idle | 14724 | 14724 | `true` |
+| Busy | 14731 | **14727** | **`false` — leaked** |
+
+A leak is now the exception rather than the rule — but is *most likely exactly
+when a tick runs long*, since that is when the pool is busiest. And it is worse
+in one respect than the pooler was: a session-mode connection is long-lived, so
+a leaked lock can wedge that one job until the worker restarts, where before it
+self-healed in minutes.
+
+**The proper fix.** Replace the connection-bound lock with a lease row:
+
+```sql
+UPDATE "JobLease" SET "lockedUntil" = now() + <ttl>, owner = <tick token>
+ WHERE job = <job> AND ("lockedUntil" IS NULL OR "lockedUntil" < now())
+```
+
+One statement is atomic regardless of which connection runs it, so pooling stops
+mattering entirely, and a leaked lease **expires by itself**. Long ticks extend
+it with a heartbeat (the scheduled-emails worker already heartbeats its own
+rows); release is a conditional update on the owner token, so a superseded tick
+cannot release someone else's lease.
+
+Shape: additive `JobLease` table + migration, rewrite `worker/lib/advisory-lock.ts`
+keeping the `withJobLock(jobId, jobName, fn)` signature so no job file changes.
+Must be tested against the concurrent case above, which is the one that fails
+today. Also removes the last caveat on running a second worker (DR failover).
+
 ### Billing accounts — per-event vs org-shared payer records (Aug 6, 2026, owner: "will come back later")
 
 Raised by the owner mid-Phase-2 as *"billing accounts is per event and not global please"*.

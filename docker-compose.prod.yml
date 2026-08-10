@@ -182,12 +182,17 @@ services:
       # lock/unlock pair correctly. Required, not defaulted: a silent fallback
       # to the pooler is the exact failure this line exists to prevent.
       #
-      # Pool sized modestly (5): direct connections are a scarcer Supabase
-      # resource than pooled ones, and the worker needs a handful of long-lived
-      # connections, not many short ones. pool_timeout matches the web tier.
+      # Pool kept at 10 — the SAME value the worker has run on since the June
+      # 2026 P2024 incident, when 3 was too few and jobs ticking on the same
+      # minute boundary exhausted the pool. Direct connections are scarcer than
+      # pooled ones so the instinct is to shrink it here, but the measurement
+      # says otherwise: prod is at 24 of max_connections=90, so 10 direct
+      # connections lands around 34 — ample. Halving a number that is only
+      # known-good at 10 would have traded a fixed bug for a reintroduced one.
       # The web containers deliberately KEEP the pooler — many short requests is
-      # exactly what it is for.
-      - DATABASE_URL=${DIRECT_URL:?DIRECT_URL is required — the worker needs a session-mode connection for advisory locks}?connection_limit=5&pool_timeout=15
+      # exactly what it is for, and Supavisor multiplexes both slots down to
+      # ~11 real backends regardless of their client-side limit.
+      - DATABASE_URL=${DIRECT_URL:?DIRECT_URL is required — the worker needs a session-mode connection for advisory locks}?connection_limit=10&pool_timeout=15
     # Same reasoning as the web slots. The worker renders PDFs and pulls Zoom
     # reports, so its peaks are spikier — but it must not be able to take the
     # host down with it.

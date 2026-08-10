@@ -352,7 +352,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         templateIds: templates.map((t) => t.id),
         templateId: templates.length === 1 ? templates[0].id : undefined,
         perTemplate: merged.perTemplate,
-        nextStep: "Cron worker picks up PENDING runs within 60 seconds. Poll GET /runs/{runId} for status.",
+        nextStep: "The worker picks up PENDING runs within ~90 seconds. Poll GET /runs/{runId} for status.",
       },
       { status: 201 },
     );

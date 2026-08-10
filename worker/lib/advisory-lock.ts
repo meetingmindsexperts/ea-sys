@@ -25,6 +25,20 @@
  * because it explains WHY that override exists — delete the override and every
  * word of it becomes true again.
  *
+ * ⚖️ THE TRADE-OFF THIS INTRODUCED — worth knowing before debugging a stuck job.
+ * On the pooler a leaked lock SELF-HEALED: pgbouncer recycled the backend within
+ * minutes and the lock died with it. In session mode the connection is long-lived
+ * by design, so if an unlock ever fails while its connection survives, that lock
+ * persists for the life of the connection — potentially until the worker
+ * restarts, during which that ONE job never runs.
+ *
+ * We accepted this because the failure is far less likely than what it replaces:
+ * the unlock is a single statement, and the usual reason it fails (the connection
+ * died) is itself what releases the lock. And unlike before, it is no longer
+ * invisible — the skip logs at `warn`, and the daily digest flags a job running
+ * below its cadence. Recovery, if it ever happens, is `docker restart
+ * ea-sys-worker`.
+ *
  * It was NOT merely latent. The note below reasoned that it "hasn't bitten us"
  * because only one runner exists — correct about DUPLICATE work, wrong about
  * SKIPPED work. With one worker on the pooler the lock leaked onto a backend
