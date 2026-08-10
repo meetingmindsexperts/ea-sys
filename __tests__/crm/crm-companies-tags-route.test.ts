@@ -11,7 +11,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 vi.mock("@/lib/db", () => ({
-  db: { crmCompany: { findMany: vi.fn() } },
+  db: { crmCompany: { findMany: vi.fn(), count: vi.fn(async () => 0) } },
 }));
 
 vi.mock("@/crm/lib/crm-route", () => ({

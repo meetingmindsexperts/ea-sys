@@ -19,6 +19,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, apiFetch, apiPostJson, apiPatchJson, apiDelete } from "@/lib/api-fetch";
+import type { CrmListMeta } from "@/crm/lib/list-caps";
 import type {
   CrmActivityRow,
   CrmActivityFeedRow,
@@ -214,6 +215,14 @@ export function useDeleteStage() {
 
 // ── Deals ────────────────────────────────────────────────────────────────────
 
+/** Shared so the list and its meta hook can never fetch different things. */
+function dealsQueryOptions(filters: CrmDealFilters, suffix: string) {
+  return {
+    queryKey: crmKeys.deals(filters),
+    queryFn: () => apiFetch<{ deals: CrmBoardDeal[] } & CrmListMeta>(`/api/crm/deals${suffix}`),
+  };
+}
+
 export function useCrmDeals(filters: CrmDealFilters = {}) {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
@@ -222,8 +231,29 @@ export function useCrmDeals(filters: CrmDealFilters = {}) {
   const suffix = qs.toString() ? `?${qs}` : "";
 
   return useQuery({
-    queryKey: crmKeys.deals(filters),
-    queryFn: () => apiFetch<{ deals: CrmBoardDeal[] }>(`/api/crm/deals${suffix}`).then((r) => r.deals),
+    ...dealsQueryOptions(filters, suffix),
+    select: (r) => r.deals,
+  });
+}
+
+/**
+ * The list metadata (true total, and whether the cap hid rows).
+ *
+ * Shares the deals query's KEY and queryFn, differing only in `select`, so the
+ * board and its truncation banner read ONE fetch. Splitting this out keeps the
+ * 11 existing `useCrmDeals` call sites returning a plain array — the metadata is
+ * needed in exactly one place, and churning every consumer to thread it through
+ * would be a worse trade than a second select over the same cache entry.
+ */
+export function useCrmDealsMeta(filters: CrmDealFilters = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v) qs.set(k, v);
+  }
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return useQuery({
+    ...dealsQueryOptions(filters, suffix),
+    select: (r): CrmListMeta => ({ total: r.total, truncated: r.truncated }),
   });
 }
 
@@ -343,15 +373,33 @@ export function useCrmCompanyTags() {
   });
 }
 
+function companiesQueryOptions(key: string) {
+  return {
+    queryKey: crmKeys.companies(key),
+    queryFn: () =>
+      apiFetch<{ companies: CrmCompanyRow[] } & CrmListMeta>(`/api/crm/companies${key ? `?${key}` : ""}`),
+  };
+}
+
 export function useCrmCompanies(arg?: string | CrmCompanyFilters) {
   const filters: CrmCompanyFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
   const key = qs.toString();
   return useQuery({
-    queryKey: crmKeys.companies(key),
-    queryFn: () =>
-      apiFetch<{ companies: CrmCompanyRow[] }>(`/api/crm/companies${key ? `?${key}` : ""}`).then((r) => r.companies),
+    ...companiesQueryOptions(key),
+    select: (r) => r.companies,
+  });
+}
+
+/** Truncation metadata for the companies list — same cache entry, see useCrmDealsMeta. */
+export function useCrmCompaniesMeta(arg?: string | CrmCompanyFilters) {
+  const filters: CrmCompanyFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
+  return useQuery({
+    ...companiesQueryOptions(qs.toString()),
+    select: (r): CrmListMeta => ({ total: r.total, truncated: r.truncated }),
   });
 }
 
@@ -602,15 +650,33 @@ export function useCrmContactTags() {
   });
 }
 
+function contactsQueryOptions(key: string) {
+  return {
+    queryKey: crmKeys.contacts(key),
+    queryFn: () =>
+      apiFetch<{ contacts: CrmContactRow[] } & CrmListMeta>(`/api/crm/contacts${key ? `?${key}` : ""}`),
+  };
+}
+
 export function useCrmContacts(arg?: string | CrmContactFilters) {
   const filters: CrmContactFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
   const key = qs.toString();
   return useQuery({
-    queryKey: crmKeys.contacts(key),
-    queryFn: () =>
-      apiFetch<{ contacts: CrmContactRow[] }>(`/api/crm/contacts${key ? `?${key}` : ""}`).then((r) => r.contacts),
+    ...contactsQueryOptions(key),
+    select: (r) => r.contacts,
+  });
+}
+
+/** Truncation metadata for the contacts list — same cache entry, see useCrmDealsMeta. */
+export function useCrmContactsMeta(arg?: string | CrmContactFilters) {
+  const filters: CrmContactFilters = typeof arg === "string" ? { q: arg } : arg ?? {};
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
+  return useQuery({
+    ...contactsQueryOptions(qs.toString()),
+    select: (r): CrmListMeta => ({ total: r.total, truncated: r.truncated }),
   });
 }
 

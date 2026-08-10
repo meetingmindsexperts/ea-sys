@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EventCombobox } from "@/crm/components/event-combobox";
 import { DealBoard } from "@/crm/components/deal-board";
+import { ListTruncationBanner } from "@/crm/components/list-truncation-banner";
 import { CreateDealDialog } from "@/crm/components/create-deal-dialog";
 import { CrmEmailDialog } from "@/crm/components/crm-email-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
@@ -30,7 +31,13 @@ import { CrmBoardSkeleton } from "@/crm/components/crm-skeletons";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { DateRangeFilter } from "@/crm/components/filters/date-range-filter";
 import { ValueRangeFilter } from "@/crm/components/filters/value-range-filter";
-import { useCrmDeals, useCrmDealTypes, useCrmStages, useMoveDealStage } from "@/crm/hooks/use-crm-api";
+import {
+  useCrmDeals,
+  useCrmDealsMeta,
+  useCrmDealTypes,
+  useCrmStages,
+  useMoveDealStage,
+} from "@/crm/hooks/use-crm-api";
 import { ManageStagesDialog } from "@/crm/components/manage-stages-dialog";
 import { ManageDealTypesDialog } from "@/crm/components/manage-deal-types-dialog";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
@@ -90,6 +97,8 @@ function DealsPageInner() {
   const { data: stages = [], isLoading: stagesLoading, isError: stagesError, refetch: refetchStages } = useCrmStages();
   const { data: dealTypes = [] } = useCrmDealTypes();
   const { data: deals = [], isLoading: dealsLoading, isError: dealsError, refetch: refetchDeals } = useCrmDeals(filters);
+  // Same cache entry as the list above — no second fetch.
+  const { data: dealsMeta } = useCrmDealsMeta(filters);
   const move = useMoveDealStage(filters);
 
   const isLoading = stagesLoading || dealsLoading;
@@ -267,6 +276,7 @@ function DealsPageInner() {
         />
       ) : (
         <>
+          <ListTruncationBanner meta={dealsMeta} shown={deals.length} noun="deals" />
           <p className="text-xs text-muted-foreground tabular-nums">
             {deals.length} deal{deals.length === 1 ? "" : "s"}
             {filtersActive && " match these filters"}

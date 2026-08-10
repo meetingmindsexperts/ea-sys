@@ -9,6 +9,7 @@ import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
 import { canViewDealValues } from "@/crm/lib/crm-roles";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
+import { CRM_DEALS_LIST_CAP, listMeta } from "@/crm/lib/list-caps";
 import { createDeal } from "@/crm/services/deal-service";
 
 const createDealSchema = z.object({
@@ -61,7 +62,10 @@ export async function GET(req: Request) {
       { organizationId: ctx.organizationId, canSeeValues: canViewDealValues(ctx.role, ctx.fromApiKey) },
     );
 
-    const deals = await db.crmDeal.findMany({
+    // The count runs against the SAME `where` — it is the honest total the board
+    // reports, so a capped page can never read as "this is the whole pipeline".
+    const [deals, total] = await Promise.all([
+      db.crmDeal.findMany({
       where,
       select: {
         id: true,
@@ -96,10 +100,15 @@ export async function GET(req: Request) {
         _count: { select: { tasks: true, notes: true } },
       },
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
-      take: 1000,
-    });
+      take: CRM_DEALS_LIST_CAP,
+      }),
+      db.crmDeal.count({ where }),
+    ]);
 
-    return NextResponse.json({ deals: redactForCaller(deals, ctx) });
+    return NextResponse.json({
+      deals: redactForCaller(deals, ctx),
+      ...listMeta(total, deals.length),
+    });
   } catch (err) {
     apiLogger.error({
       msg: "crm/deals:list-failed",

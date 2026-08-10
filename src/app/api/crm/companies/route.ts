@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
+import { CRM_COMPANIES_LIST_CAP, listMeta } from "@/crm/lib/list-caps";
 import { isArchivedView } from "@/crm/lib/deal-filters";
 import { findOrCreateCompany } from "@/crm/services/company-service";
 import { companyDealTotals, companyPrimaryContact } from "@/crm/lib/company-rollup";
@@ -39,16 +40,21 @@ export async function GET(req: Request) {
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const rows = await db.crmCompany.findMany({
-      where: {
-        organizationId: ctx.organizationId,
-        // Soft delete: active only by default; ?archived=1 shows the archived view.
-        archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
-        ...(needsReview ? { needsReview: true } : {}),
-        ...(industry ? { industry: { equals: industry, mode: "insensitive" as const } } : {}),
-        ...(tags.length ? { tags: { hasSome: tags } } : {}),
-        ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
-      },
+    // Same honest-total rule as the deals board: the cap is a rendering budget,
+    // the count is the truth.
+    const companyWhere = {
+      organizationId: ctx.organizationId,
+      // Soft delete: active only by default; ?archived=1 shows the archived view.
+      archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
+      ...(needsReview ? { needsReview: true } : {}),
+      ...(industry ? { industry: { equals: industry, mode: "insensitive" as const } } : {}),
+      ...(tags.length ? { tags: { hasSome: tags } } : {}),
+      ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}),
+    };
+
+    const [rows, total] = await Promise.all([
+      db.crmCompany.findMany({
+      where: companyWhere,
       select: {
         id: true,
         name: true,
@@ -87,8 +93,10 @@ export async function GET(req: Request) {
         },
       },
       orderBy: { name: "asc" },
-      take: 500,
-    });
+      take: CRM_COMPANIES_LIST_CAP,
+      }),
+      db.crmCompany.count({ where: companyWhere }),
+    ]);
 
     // dealTotals is in FINANCIAL_KEYS, so redactForCaller strips it for MEMBER
     // exactly like the per-deal dealValue it aggregates.
@@ -98,7 +106,10 @@ export async function GET(req: Request) {
       primaryContact: companyPrimaryContact(deals, contacts[0]),
     }));
 
-    return NextResponse.json({ companies: redactForCaller(companies, ctx) });
+    return NextResponse.json({
+      companies: redactForCaller(companies, ctx),
+      ...listMeta(total, companies.length),
+    });
   } catch (err) {
     apiLogger.error({
       msg: "crm/companies:list-failed",

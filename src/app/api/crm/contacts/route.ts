@@ -6,6 +6,7 @@ import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
+import { CRM_CONTACTS_LIST_CAP, listMeta } from "@/crm/lib/list-caps";
 import { isArchivedView } from "@/crm/lib/deal-filters";
 import { findOrCreateCrmContact } from "@/crm/services/crm-contact-service";
 import { computeContactScore } from "@/crm/lib/contact-score";
@@ -56,8 +57,9 @@ export async function GET(req: Request) {
     const LIFECYCLE = new Set(["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"]);
     const STATUS = new Set<string>(CONTACT_STATUS_VALUES);
 
-    const rows = await db.crmContact.findMany({
-      where: {
+    // Same honest-total rule as the deals board: the cap is a rendering
+    // budget, the count is the truth.
+    const contactWhere = {
         organizationId: ctx.organizationId,
         archivedAt: isArchivedView(searchParams.get("archived")) ? { not: null } : null,
         ...(companyId ? { companyId } : {}),
@@ -74,7 +76,11 @@ export async function GET(req: Request) {
               ],
             }
           : {}),
-      },
+    };
+
+    const [rows, total] = await Promise.all([
+      db.crmContact.findMany({
+      where: contactWhere,
       select: {
         id: true,
         firstName: true,
@@ -98,8 +104,10 @@ export async function GET(req: Request) {
         deals: { select: { deal: { select: { status: true, archivedAt: true } } } },
       },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
-      take: 500,
-    });
+      take: CRM_CONTACTS_LIST_CAP,
+      }),
+      db.crmContact.count({ where: contactWhere }),
+    ]);
 
     // Score is derived, never stored — computed here from live deal involvement
     // (archived deals excluded), so it cannot go stale.
@@ -114,7 +122,7 @@ export async function GET(req: Request) {
       };
     });
 
-    return NextResponse.json({ contacts });
+    return NextResponse.json({ contacts, ...listMeta(total, contacts.length) });
   } catch (err) {
     apiLogger.error({
       msg: "crm/contacts:list-failed",

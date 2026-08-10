@@ -30,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ListTruncationBanner } from "@/crm/components/list-truncation-banner";
 import { CreateCompanyDialog } from "@/crm/components/create-company-dialog";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
 import { CrmEmptyState } from "@/crm/components/crm-empty-state";
@@ -37,7 +38,11 @@ import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { SortableTh, nextSort, type SortDir } from "@/crm/components/sortable-th";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCrmCompanies, useCrmCompanyTags } from "@/crm/hooks/use-crm-api";
+import {
+  useCrmCompanies,
+  useCrmCompaniesMeta,
+  useCrmCompanyTags,
+} from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
@@ -67,6 +72,13 @@ function CompaniesInner() {
   const { data: allCompanies = [] } = useCrmCompanies();
   const { data: availableTags = [] } = useCrmCompanyTags();
   const { data: companies = [], isLoading, isError, refetch } = useCrmCompanies({
+    q: q || undefined,
+    industry: industry || undefined,
+    tags: tagFilter || undefined,
+    archived: showArchived ? "1" : undefined,
+  });
+  // Same cache entry as the list above — no second fetch.
+  const { data: companiesMeta } = useCrmCompaniesMeta({
     q: q || undefined,
     industry: industry || undefined,
     tags: tagFilter || undefined,
@@ -196,7 +208,9 @@ function CompaniesInner() {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border">
+        <div className="space-y-3">
+          <ListTruncationBanner meta={companiesMeta} shown={rows.length} noun="companies" />
+          <div className="overflow-hidden rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -268,6 +282,7 @@ function CompaniesInner() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </div>
       )}
 

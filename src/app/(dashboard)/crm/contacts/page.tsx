@@ -31,6 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ListTruncationBanner } from "@/crm/components/list-truncation-banner";
 import { CreateCrmContactDialog } from "@/crm/components/create-crm-contact-dialog";
 import { OwnerFilter } from "@/crm/components/filters/owner-filter";
 import { FreshsalesImportDialog } from "@/crm/components/freshsales-import-dialog";
@@ -38,7 +39,8 @@ import { CrmEmptyState } from "@/crm/components/crm-empty-state";
 import { CrmTableSkeleton } from "@/crm/components/crm-skeletons";
 import { SortableTh, nextSort, type SortDir } from "@/crm/components/sortable-th";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCrmCompanies, useCrmContacts, useCrmContactTags } from "@/crm/hooks/use-crm-api";
+import { useCrmCompanies, useCrmContacts,
+  useCrmContactsMeta, useCrmContactTags } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
 import { EmptyArchiveButton } from "@/crm/components/empty-archive-button";
 import { useCrmFilters } from "@/crm/lib/use-crm-filters";
@@ -77,6 +79,16 @@ function ContactsInner() {
   const { data: companies = [] } = useCrmCompanies();
   const { data: availableTags = [] } = useCrmContactTags();
   const { data: contacts = [], isLoading, isError, refetch } = useCrmContacts({
+    q: q || undefined,
+    lifecycle: lifecycle || undefined,
+    status: status || undefined,
+    owner: owner || undefined,
+    companyId: companyId || undefined,
+    tags: tagFilter || undefined,
+    archived: showArchived ? "1" : undefined,
+  });
+  // Same cache entry as the list above — no second fetch.
+  const { data: contactsMeta } = useCrmContactsMeta({
     q: q || undefined,
     lifecycle: lifecycle || undefined,
     status: status || undefined,
@@ -244,7 +256,9 @@ function ContactsInner() {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-xl border">
+        <div className="space-y-3">
+          <ListTruncationBanner meta={contactsMeta} shown={rows.length} noun="contacts" />
+          <div className="overflow-hidden rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -335,6 +349,7 @@ function ContactsInner() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </div>
       )}
 
