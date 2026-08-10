@@ -11,7 +11,7 @@
 import { runInvoiceReconciliationTick } from "@/lib/invoice-reconciliation-worker";
 import { resolveStaleRefundAttempts } from "@/lib/refund-reconciliation";
 import { apiLogger } from "@/lib/logger";
-import { withJobLock } from "../lib/advisory-lock";
+import { withJobLock } from "../lib/job-lease";
 import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "invoice-reconciliation";

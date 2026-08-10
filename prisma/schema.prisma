@@ -3251,6 +3251,38 @@ model JobRun {
   @@index([startedAt])
 }
 
+/// One row per background job — the "who is running this right now" sheet.
+///
+/// Replaces the session-scoped `pg_try_advisory_lock` the worker used until
+/// 2026-08-10. That lock has to be RELEASED by the same database connection
+/// that TOOK it, and Prisma's pool hands out whichever connection is free — so
+/// the release routinely landed on a connection that never held the lock, the
+/// lock leaked, and every subsequent tick skipped. Measured on prod:
+/// `scheduled-emails` ran 7 times in 30 minutes instead of 30, with locks
+/// observably held by connections sitting idle.
+///
+/// A lease fixes that structurally: claiming is ONE atomic statement
+/// (`INSERT … ON CONFLICT DO UPDATE … WHERE` expired-or-free), so it does not
+/// matter which connection executes it, and `lockedUntil` means a lease whose
+/// holder died **expires by itself** rather than wedging the job forever.
+///
+/// Deliberately has NO organizationId: this is platform infrastructure, not
+/// tenant data — the worker is a single process serving every tenant, and a
+/// per-tenant lease would let one tenant's stuck job block another's.
+model JobLease {
+  /// Job name (matches worker/jobs/*.ts JOB_NAME). One row per job.
+  job         String    @id
+  /// Random per-tick token. Every mutation is conditional on this, so a tick
+  /// whose lease already expired can never release or extend its successor's.
+  owner       String?
+  /// Lease expiry. NULL = free. Past = expired and reclaimable.
+  lockedUntil DateTime?
+  acquiredAt  DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([lockedUntil])
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // CRM MODULE
 //

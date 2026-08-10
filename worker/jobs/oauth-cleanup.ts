@@ -8,7 +8,7 @@
 
 import { runMcpOAuthCleanupTick } from "@/lib/mcp-oauth-cleanup-worker";
 import { apiLogger } from "@/lib/logger";
-import { withJobLock } from "../lib/advisory-lock";
+import { withJobLock } from "../lib/job-lease";
 import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "oauth-cleanup";

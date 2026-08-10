@@ -16,7 +16,7 @@ import { tickAllRuns } from "@/lib/certificates/issue-worker";
 import { runAutoIssueSweep } from "@/lib/certificates/auto-issue";
 import { runSurveyThankYouSweep } from "@/lib/certificates/survey-thankyou-sweep";
 import { apiLogger } from "@/lib/logger";
-import { withJobLock } from "../lib/advisory-lock";
+import { withJobLock } from "../lib/job-lease";
 import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "cert-issue";

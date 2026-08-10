@@ -10,7 +10,7 @@
 
 import { runLoginEventPruneTick } from "@/lib/login-event-prune-worker";
 import { apiLogger } from "@/lib/logger";
-import { withJobLock } from "../lib/advisory-lock";
+import { withJobLock } from "../lib/job-lease";
 import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "login-event-prune";

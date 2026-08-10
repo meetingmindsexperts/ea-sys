@@ -339,7 +339,7 @@ It was not hypothetical. Measured over 24h before the fix:
 locks are session-scoped — the lock was taken on one backend and released on
 another, so it stayed held until pgbouncer recycled that connection and every
 tick in between skipped. This is the "P3" caveat in
-`worker/lib/advisory-lock.ts`, previously believed latent because it needs two
+`worker/lib/job-lease.ts`, previously believed latent because it needs two
 workers to cause *duplicate* work; with one worker it caused *skipped* work.
 Diagnosis was: gaps scattered all day, always exact multiples of the cadence,
 max 17 min, and **zero** `lock-acquire-transient-skip` warnings — i.e. cron

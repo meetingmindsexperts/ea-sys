@@ -14,7 +14,7 @@
 
 import { runTick } from "@/crm/reminders-worker";
 import { apiLogger } from "@/lib/logger";
-import { withJobLock } from "../lib/advisory-lock";
+import { withJobLock } from "../lib/job-lease";
 import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "crm-reminders";

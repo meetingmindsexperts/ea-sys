@@ -1,6 +1,6 @@
 # `worker/` — EA-SYS background-jobs service
 
-Long-running Node process that runs the 5 cron-driven jobs on a
+Long-running Node process that runs every cron-driven job on a
 `node-cron` scheduler, separate from the Next.js web container.
 
 See [`docs/WORKER_EXTRACTION_PLAN.md`](../docs/WORKER_EXTRACTION_PLAN.md)
@@ -73,42 +73,63 @@ contention risk is not recovery but **coincident tick boundaries** sharing one
 why `cert-issue` runs `*/3` and the retention sweeps are staggered. Stagger any
 new job onto an odd offset rather than a round `*/5`.
 
-### The worker uses DIRECT_URL, not the pooler — do not "simplify" this
+### Why a lease and not a lock — the bug that hid for months
 
-`docker-compose.prod.yml` overrides `DATABASE_URL` for this service to the
-session-mode `DIRECT_URL` (:5432). It looks redundant next to `env_file: .env`.
-It is not.
+Until 2026-08-10 each job took a Postgres advisory lock. Advisory locks are
+**session-scoped**: the connection that TAKES the lock must be the one that
+RELEASES it. Prisma hands out whichever pooled connection is free, so the
+release routinely ran on a connection that had never held the lock — it silently
+did nothing, the original connection sat on the lock while idle, and every
+subsequent tick found the job "already running" and skipped.
 
-Advisory locks are **session-scoped**: the backend that takes the lock must
-release it. The pooled URL (:6543, `pgbouncer=true`) is *transaction*-pooled, so
-each statement can land on a different backend — the lock was taken on one and
-the release ran on another, leaving it stuck until pgbouncer recycled that
-connection minutes later. Every tick in between skipped.
-
-**This was live for months and invisible.** Measured on prod 2026-08-10 over 24h:
+Measured on prod over 24h before the fix:
 
 | Job | Expected | Actual |
 |---|---|---|
 | `scheduled-emails` | 1,440 | **435** |
+| `crm-inbound-email` | 1,440 | **375** |
 | `cert-issue` | 480 | **182** |
-| `oauth-cleanup` (hourly) | 24 | 24 |
+| `oauth-cleanup` (hourly) | 24 | 24 ✓ |
 
-Nothing failed, the last run was always recent, and every dashboard was green —
-because every surface asked *"did the last run succeed?"* rather than *"did it
-run as often as it should?"*. Two changes make that impossible to repeat: the
-skip now logs at `warn` (it was `debug`, which reaches neither `/logs` nor
-CloudWatch), and the daily digest compares each job's 24h count against
-`expectedPerDay` in [src/lib/worker-jobs.ts](../src/lib/worker-jobs.ts).
+The shortfall scaled with frequency, because frequent jobs mean a busy pool.
+Emails still went out — 5 to 17 minutes late instead of 90 seconds. Nothing was
+ever lost.
 
-`assertSessionModeConnection()` in [index.ts](index.ts) re-checks at boot and
-logs at `error` (which emails the operator) if the worker is ever back on the
-pooler. It deliberately does **not** refuse to boot — a worker on the pooler is
-degraded, and degraded beats dead for this component.
+**It hid because every health surface asked the wrong question** — *"did the
+last run succeed?"*, to which the answer was always yes. Three guards now exist:
 
-> This also removes the old precondition on running a **second** worker: with
-> session-mode connections the lock behaves, so a DR-failover worker no longer
-> risks duplicate emails and duplicate certificates. Separate silos with separate
-> databases were never affected.
+1. The skip logs at `warn` (was `debug`, which reached neither `/logs` nor
+   CloudWatch nor the digest).
+2. The daily digest compares each job's 24h count against `expectedPerDay` in
+   [src/lib/worker-jobs.ts](../src/lib/worker-jobs.ts) and warns below 80%.
+3. `worker:lease-lost-mid-tick` logs at **error** if a lease ever expires while
+   its tick is still running.
+
+**A lease is structurally immune.** Claiming is one statement
+(`INSERT … ON CONFLICT DO UPDATE … WHERE` free-or-expired), so it is atomic
+wherever it runs and "which connection" stops being able to affect correctness.
+Pinned by real-Postgres tests in
+[tests/crm-db/job-lease.db.test.ts](../tests/crm-db/job-lease.db.test.ts),
+including the connection-split case the old lock failed — a mocked Prisma has
+one fake connection, so that bug was not even *expressible* in the unit suite,
+which is exactly why it survived a year of green tests.
+
+> This also retires the old precondition on running a **second** worker: leases
+> make a DR-failover worker safe, where advisory locks risked duplicate emails
+> and certificates.
+
+#### The worker still uses DIRECT_URL — but no longer needs to
+
+`docker-compose.prod.yml` overrides `DATABASE_URL` for this service to the
+session-mode `DIRECT_URL` (:5432). That override was the *first* attempt at the
+bug above; it narrowed the leak but did not close it, because the split happens
+inside Prisma's own pool, below the pooler.
+
+It is kept because session mode is the right shape for a long-lived process
+holding a handful of connections, and `assertSessionModeConnection()` in
+[index.ts](index.ts) warns at boot if it is ever lost. But it is **no longer
+load-bearing for correctness** — if direct connections ever become scarce on the
+database plan, moving the worker back to the pooler is now safe.
 
 > `invoice-reconciliation` (audit Round 2, DATA-5) recovers post-payment
 > invoices the Stripe webhook failed to create — it sweeps for PAID
@@ -122,15 +143,17 @@ degraded, and degraded beats dead for this component.
 > 45 min (~37-min cadence); the reconcile does a nightly full push (self-healing).
 > See [docs/CONTACTS_CENTRAL_SYNC.md](../docs/CONTACTS_CENTRAL_SYNC.md).
 
-Each job is wrapped in a Postgres advisory lock
-(`worker/lib/advisory-lock.ts`) — multiple worker processes can run
-without double-processing. The lock is session-scoped, so a crashed
-worker releases its locks automatically at connection close.
+Each job runs under a **lease** (`worker/lib/job-lease.ts`) — a row in
+`JobLease` claimed for a bounded time and renewed by a heartbeat while the tick
+runs. That stops a job running twice at once, whether the second runner is
+another worker process or, far more commonly, the job's OWN next tick arriving
+before the current one has finished.
 
-The same `runTick()` functions are ALSO callable from the legacy
-`/api/cron/*` routes (extracted in Phase 1). During the dual-write
-window (Phase 2-3), both paths fire; the lock ensures only one path
-does work per tick.
+A lease rather than a lock because a lock has to be released by the same
+database connection that took it, and Prisma's pool cannot promise that — see
+the section below. A lease is claimed in one atomic statement, so which
+connection runs it stops mattering, and an abandoned lease **expires by itself**
+instead of wedging the job.
 
 ---
 
@@ -149,8 +172,8 @@ worker/
 │   ├── contacts-central-sync.ts  # → runContactsCentralTick (incremental)
 │   └── contacts-central-reconcile.ts # → runContactsCentralReconcile (nightly)
 ├── lib/
-│   ├── job-ids.ts             # Numeric advisory-lock IDs
-│   ├── advisory-lock.ts       # withJobLock(id, name, fn) helper
+│   ├── job-ids.ts             # Stable numeric job ids (log correlation)
+│   ├── job-lease.ts           # withJobLock(id, name, fn) — claim/heartbeat/release
 │   ├── health-server.ts       # GET /health on :3099
 │   └── shutdown.ts            # SIGTERM/SIGINT graceful drain
 └── README.md                  # this file
@@ -183,11 +206,10 @@ Expect log output:
 ...
 ```
 
-If you ALSO have `npm run dev` running, the legacy `/api/cron/*`
-routes will keep firing via whatever cron you have. Both paths
-share the advisory lock — running both is safe and is the
-explicit dual-write configuration described in
-`docs/WORKER_EXTRACTION_PLAN.md` Phase 2-3.
+If you ALSO have `npm run dev` running, any legacy `/api/cron/*`
+route you still trigger shares the same `JobLease` rows — so running
+both is safe: whichever claims the lease does the work and the other
+skips.
 
 ### Health endpoint
 
@@ -309,13 +331,15 @@ Useful keys:
 | `worker:started` | Boot — schedules registered, health server up |
 | `worker:tick-start` | A job's tick is about to run (debug-level) |
 | `worker:tick-end` | A tick settled; `durationMs` is the wall-clock cost |
-| `worker:skip-tick-locked` | Another worker held the advisory lock; we politely skipped |
-| `worker:lock-acquire-transient-skip` | A retryable DB connection-closed (e.g. Supabase `EDBHANDLEREXITED`) hit the lock-acquire; treated like a contended lock — tick skipped, retries next cycle. **Warn-level — does NOT page** |
+| `worker:skip-tick-leased` | The lease was already held — usually this job's OWN previous tick still running. Politely skipped. **Warn-level** (was `debug` until Aug 2026, which is how a 70% skip rate hid for months) |
+| `worker:lease-claim-transient-skip` | A retryable DB connection-closed (e.g. Supabase `EDBHANDLEREXITED`) hit the claim; treated like contention — tick skipped, retries next cycle. **Warn-level — does NOT page** |
+| `worker:lease-lost-mid-tick` | The lease expired while the tick was STILL running and someone else took it — two ticks may now overlap. **Error-level: raise `LEASE_TTL_MS` or find out why the tick outran its heartbeat** |
 | `worker:tick-uncaught` | Exception escaped the job's own try/catch |
 | `worker:tick-wrapper-uncaught` | Exception escaped EVEN the wrapper's catch (rare) |
 | `worker:shutdown-start` | SIGTERM received; draining begins |
 | `worker:shutdown-drain-result` | `"drained"` (graceful) or `"timeout"` (forced) |
-| `worker:advisory-unlock-failed` | Postgres connection died before unlock; session-close cleanup will release |
+| `worker:lease-release-failed` | Could not hand the lease back; self-correcting — it expires at `LEASE_TTL_MS` and the job resumes |
+| `worker:lease-renew-failed` | A heartbeat did not land; harmless unless repeated (the lease would then expire mid-tick) |
 | `worker:uncaught-exception` | Process-level — restart will follow |
 
 ---

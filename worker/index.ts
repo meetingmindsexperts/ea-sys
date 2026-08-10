@@ -1,23 +1,20 @@
 /**
  * EA-SYS worker process entry point.
  *
- * Runs a node-cron scheduler that fires the 5 background jobs on
- * their natural cadences (cert-issue + scheduled-emails every minute,
- * webinar-recordings every 5 min, webinar-attendance every 10 min,
- * oauth-cleanup hourly). Each job is wrapped in a Postgres advisory
- * lock (worker/lib/advisory-lock.ts) so multiple instances can run
- * safely — the dual-write window during migration (Phase 2-3 of
- * docs/WORKER_EXTRACTION_PLAN.md), Singapore DR boot-up, or future
- * horizontal scaling.
+ * Runs a node-cron scheduler firing every background job on its own cadence —
+ * the current roster lives in src/lib/worker-jobs.ts (a drift test enforces it
+ * against worker/jobs/*.ts, so that list is the one to trust).
  *
- * The legacy /api/cron/* routes stay live during Phase 2-3 as
- * thin shims around the same runTick() functions; advisory locks
- * mean both paths firing the same job is safe — whichever gets the
- * lock does the work, the other politely skips.
+ * Each job runs under a **lease** (worker/lib/job-lease.ts) so it can never run
+ * twice at once — whether that is two worker processes (Singapore DR boot-up,
+ * horizontal scaling) or, far more commonly, one job's tick overrunning into
+ * its own next tick. A tick that takes four minutes simply skips three.
  *
- * Phase 4 (after ~1 week of clean operation) deletes the legacy
- * routes + the Mumbai crontab lines that hit them, and the worker
- * becomes the only path.
+ * The lease replaced a Postgres advisory lock on 2026-08-10. Advisory locks
+ * must be released by the same connection that took them, which Prisma's pool
+ * cannot guarantee — so they leaked and roughly 70% of ticks silently skipped
+ * for months. See job-lease.ts for the full account; the short version is that
+ * "which connection ran it" must not be able to affect correctness.
  *
  * Entry contract:
  *   - Loads .env (dotenv) so DATABASE_URL etc. are populated when

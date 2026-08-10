@@ -145,34 +145,54 @@ run succeed?"* — and the answer was always yes. Three guards now exist:
 3. `assertSessionModeConnection()` at worker boot logs at **error** (→ operator
    email) if the worker is ever back on the pooler.
 
-### ⚠️ This narrows the problem — it does not eliminate it
+### ✅ Fixed properly on 2026-08-10 — a lease, not a lock
 
-Leaving the pooler removes the *dominant* cause, not the whole class. Prisma
-keeps its **own** pool, and it can still hand the acquire to one connection and
-the release to another. Measured directly against Postgres (2026-08-10):
+Moving off the pooler was the first attempt and it **did not work**: prod went
+from 435 runs a day to 7 in 30 minutes, and three locks were caught being held
+by connections that had been idle for minutes. The split happens inside
+**Prisma's own pool**, below the pooler — proved by probing Postgres directly:
 
 | Pool state | Acquire | Release | `pg_advisory_unlock` |
 |---|---|---|---|
 | Idle | pid 14724 | pid 14724 | ✅ `true` |
-| **Busy** | pid 14731 | pid **14727** | ❌ `false` — **leaked** |
+| **Busy** | pid 14731 | pid **14727** | ❌ `false` — leaked |
 
-So a leak is now the exception rather than the rule, but it is still possible —
-and **most likely precisely when a tick runs long**, since that is when the pool
-is busiest. Worse than before in one respect: on the pooler a leaked lock
-self-healed within minutes as backends recycled; a session-mode connection is
-long-lived, so a leak can wedge that one job until the worker restarts.
+Two jobs run every minute, so the pool is never idle at a tick boundary. The
+leak was therefore near-constant, and no choice of connection *type* could fix
+a mix-up happening one layer above it.
 
-Detection covers it (the `warn` log, and the digest's under-run check), and
-recovery is `docker restart ea-sys-worker`.
+**The fix: [`worker/lib/job-lease.ts`](../worker/lib/job-lease.ts).** Instead of
+a lock bound to a connection, a row in `JobLease` claimed for a bounded time:
 
-**The correct fix, deliberately deferred (owner call, 2026-08-10: measure
-first):** replace the connection-bound lock with an **expiring lease** — a single
-atomic `UPDATE JobLease SET locked_until = now() + ttl WHERE job = ? AND
-(locked_until IS NULL OR locked_until < now())`. One statement is atomic no
-matter which connection runs it, so pooling stops mattering entirely, and a
-leaked lease expires by itself instead of wedging a job. Long ticks extend it
-with a heartbeat. Tracked in [ROADMAP.md](ROADMAP.md); re-run §7's query after
-24h to decide whether it is needed.
+```sql
+INSERT INTO "JobLease" (job, owner, "lockedUntil", …)
+VALUES (…) ON CONFLICT (job) DO UPDATE SET …
+ WHERE "JobLease".owner IS NULL OR "JobLease"."lockedUntil" < now()
+RETURNING job
+```
+
+One statement is its own transaction, so it is atomic **wherever it runs** —
+connection identity stops being able to affect correctness. Two further
+properties fall out of it:
+
+- **Leases expire.** A worker killed mid-tick frees its job at `lockedUntil`
+  (5 min) rather than wedging it. The advisory lock had no story for this at
+  all; a leaked one sat until the connection closed.
+- **Every mutation is owner-conditional.** A tick that overran its lease cannot
+  release or extend the successor that legitimately took over — without that,
+  a slow tick finishing late would hand its replacement's lease away mid-run.
+
+A heartbeat renews the lease every 60s while a tick runs, so "expired" always
+means *the holder died*, never *the holder is slow*. If a lease is ever lost
+mid-tick anyway, that logs at **error** and pages — it means the TTL is too
+short for that job's real runtime.
+
+Pinned by real-Postgres tests
+([tests/crm-db/job-lease.db.test.ts](../tests/crm-db/job-lease.db.test.ts)),
+including the connection-split case the lock failed. Those have to hit a real
+database: a mocked Prisma has exactly one fake connection, so the bug was not
+even *expressible* in the unit suite — which is precisely how it survived a year
+of green tests.
 
 ---
 
