@@ -247,3 +247,61 @@ export function eventCountdown(
     label: days === 1 ? "Ended yesterday" : `Ended ${days} days ago`,
   };
 }
+
+/**
+ * Human date range for an event, rendered in the EVENT's timezone and
+ * collapsed to the shortest form that stays unambiguous:
+ *
+ *   same day      → "August 11, 2026"
+ *   same month    → "August 11 – 14, 2026"
+ *   same year     → "August 28 – September 2, 2026"
+ *   spans a year  → "December 30, 2026 – January 2, 2027"
+ *
+ * The public agenda header used to hard-code `start – end` with date-fns, so a
+ * one-day event read "August 11 – August 11, 2026" (organizer-reported, Aug 10
+ * 2026), and it rendered in the VIEWER's timezone while the same page grouped
+ * its sessions by the EVENT's local date — the two could disagree across a
+ * midnight boundary.
+ *
+ * The single-day rule already existed for the email token `{{eventDateRange}}`
+ * in speaker-agreement.ts and was simply absent here. That token keeps its own
+ * formatter deliberately: it is merged into the MMG agreement document, where
+ * the string format is a stability contract, not a display choice.
+ */
+export function formatEventDateRange(
+  start: Date,
+  end: Date,
+  timeZone: string,
+): string {
+  const tz = resolveTimezone(timeZone);
+  // Compare on the event-local calendar date. `localDateInTz` returns
+  // YYYY-MM-DD, which compares lexically, so no Date arithmetic is needed.
+  const startDay = localDateInTz(start, tz);
+  const endDay = localDateInTz(end, tz);
+
+  const part = (d: Date, opts: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat("en-US", { timeZone: tz, ...opts }).format(d);
+
+  const full = (d: Date) => part(d, { month: "long", day: "numeric", year: "numeric" });
+
+  if (startDay === endDay) return full(start);
+
+  const [sy, sm] = startDay.split("-");
+  const [ey, em] = endDay.split("-");
+
+  // Same month and year: "August 11 – 14, 2026".
+  // The tail is composed from the parsed parts rather than asked of Intl:
+  // `{ day, year }` with no month is an unusual field combination, and Intl
+  // answers it with a DESCRIPTIVE fallback ("2026 (day: 14)") rather than the
+  // bare "14, 2026" you would expect. Caught by test, not by review.
+  if (sy === ey && sm === em) {
+    const endDayNum = Number(endDay.split("-")[2]);
+    return `${part(start, { month: "long", day: "numeric" })} – ${endDayNum}, ${ey}`;
+  }
+  // Same year, different month: "August 28 – September 2, 2026"
+  if (sy === ey) {
+    return `${part(start, { month: "long", day: "numeric" })} – ${full(end)}`;
+  }
+  // Spans a year boundary: both sides carry their year.
+  return `${full(start)} – ${full(end)}`;
+}

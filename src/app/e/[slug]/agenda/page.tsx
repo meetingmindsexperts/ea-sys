@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { format } from "date-fns";
 import {
   Calendar,
   ClipboardList,
@@ -22,7 +21,13 @@ import {
 } from "lucide-react";
 import { cn, formatPersonName } from "@/lib/utils";
 import { EventBanner } from "@/components/public/event-banner";
-import { formatTimeInTz, localDateInTz, resolveTimezone, tzLabel } from "@/lib/event-time";
+import {
+  formatEventDateRange,
+  formatTimeInTz,
+  localDateInTz,
+  resolveTimezone,
+  tzLabel,
+} from "@/lib/event-time";
 import { formatSessionRole, formatSessionType, isBreakSessionType } from "@/lib/session-enums";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -293,8 +298,11 @@ export default function PublicAgendaPage() {
               <div className="flex items-center gap-1.5 mt-2 text-sm text-slate-500">
                 <Calendar className="h-3.5 w-3.5" />
                 <span>
-                  {format(new Date(eventData.startDate), "MMMM d")} –{" "}
-                  {format(new Date(eventData.endDate), "MMMM d, yyyy")}
+                  {formatEventDateRange(
+                    new Date(eventData.startDate),
+                    new Date(eventData.endDate),
+                    eventData.timezone,
+                  )}
                 </span>
               </div>
             </div>
