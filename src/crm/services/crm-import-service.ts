@@ -37,6 +37,9 @@ import {
   dealOutcomeFromStageName,
   matchEventByName,
   decideImportAction,
+  formatDateEcho,
+  CSV_DATE_FORMAT_LABELS,
+  type CsvDateFormat,
 } from "@/crm/lib/freshsales-import";
 
 export interface ImportRowError {
@@ -449,6 +452,12 @@ export interface ImportDealsCtx extends ImportCtx {
   fallbackEventId: string;
   /** Used when the CSV has no currency column (Freshsales often omits it). */
   defaultCurrency?: string;
+  /**
+   * DECLARED by the operator in the dialog — never guessed. `05/03/2026` is
+   * 5 March or 3 May depending on the export's locale, and the dry-run report
+   * echoes the first parsed date back so a wrong pick is caught before writing.
+   */
+  dateFormat: CsvDateFormat;
 }
 
 export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<ImportResult> {
@@ -508,18 +517,36 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   let eventMatched = 0;
   let eventFallback = 0;
   let ownersUnmatched = 0;
+  /** First real date seen, echoed in the report so a wrong format pick is visible. */
+  let dateEcho: string | null = null;
+  /** Won/Lost rows carrying no close date — their wonAt/lostAt stays NULL, reported. */
+  let closedWithoutDate = 0;
 
   const defaultCurrency = (ctx.defaultCurrency ?? "USD").toUpperCase();
 
   for (let i = 0; i < parsed.rows.length; i++) {
     const rowNo = i + 1;
     try {
-      const mapped = mapDealRow(parsed.rows[i]!, cols);
+      const mapped = mapDealRow(parsed.rows[i]!, cols, ctx.dateFormat);
       if ("error" in mapped) {
         report.errors.push({ row: rowNo, error: mapped.error });
         continue;
       }
       const row = mapped.row;
+
+      // Echo the FIRST real date back to the operator. A wrong format pick is
+      // otherwise invisible until months of win history are already wrong: both
+      // orders parse cleanly for days 1-12, so counts alone can't reveal it.
+      if (!dateEcho) {
+        for (const field of ["expectedClose", "closedDate"] as const) {
+          const parsedDate = row[field];
+          const rawCell = parsed.rows[i]![cols.index[field]]?.trim();
+          if (parsedDate && rawCell) {
+            dateEcho = formatDateEcho(rawCell, parsedDate);
+            break;
+          }
+        }
+      }
       if (!row.externalId) {
         report.errors.push({ row: rowNo, error: "Missing deal Id" });
         continue;
@@ -579,11 +606,18 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
       const action = decideImportAction(existing);
 
       const status: CrmDealStatus = outcome ?? "OPEN";
+      // NO `?? new Date()` HERE. A won deal imported without a close date used
+      // to be stamped with the IMPORT date, which reads as "won today" and makes
+      // every won-in-a-period report wrong. An unknown close date is NULL and
+      // reported: the deal correctly drops out of date-ranged reports rather
+      // than landing in the wrong bucket. (A cell that is present but
+      // unreadable never reaches here — mapDealRow made it a row error.)
+      if (outcome && !row.closedDate) closedWithoutDate++;
       const closeStamps =
         outcome === "WON"
-          ? { wonAt: row.closedDate ?? new Date(), lostAt: null, lostReason: null }
+          ? { wonAt: row.closedDate ?? null, lostAt: null, lostReason: null }
           : outcome === "LOST"
-            ? { lostAt: row.closedDate ?? new Date(), wonAt: null, lostReason: row.lostReason ?? null }
+            ? { lostAt: row.closedDate ?? null, wonAt: null, lostReason: row.lostReason ?? null }
             : { wonAt: null, lostAt: null, lostReason: null };
       // R2-M6: on a RE-IMPORT of a deal whose closed status hasn't changed and
       // whose CSV carries no Closed-date value, PRESERVE the stored stamps —
@@ -662,6 +696,17 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
     }
   }
 
+  // Dates first — it is the note most likely to stop a bad import.
+  report.notes.push(
+    dateEcho
+      ? `Dates read as ${CSV_DATE_FORMAT_LABELS[ctx.dateFormat]} — e.g. ${dateEcho}. Wrong? Change the date format and preview again.`
+      : `Dates read as ${CSV_DATE_FORMAT_LABELS[ctx.dateFormat]} (no dated row in this file to show)`,
+  );
+  if (closedWithoutDate > 0) {
+    report.notes.push(
+      `${closedWithoutDate} won/lost deal(s) had no close date — their won/lost date is left empty rather than stamped with today, so they won't appear in date-ranged reports`,
+    );
+  }
   report.notes.push(`Events: ${eventMatched} matched by name, ${eventFallback} → fallback "${fallbackEvent.name}"`);
   for (const note of stageMappingNotes.values()) report.notes.push(note);
   if (ownersUnmatched > 0) report.notes.push(`${ownersUnmatched} deal(s) had an owner we couldn't match to a team member — left unassigned`);

@@ -20,6 +20,126 @@
 
 export const FRESHSALES_SOURCE = "freshsales";
 
+// ── Date formats ──────────────────────────────────────────────────────────────
+/**
+ * THE AMBIGUITY THIS EXISTS TO KILL.
+ *
+ * `05/03/2026` is 5 March in Dubai and 3 May in New York, and nothing in the file
+ * says which. The importer used to call `new Date(cell)`, which silently applies
+ * V8's US-centric lenient parser — so on a day-first export the first ~12 days of
+ * every month imported as the WRONG DATE, and days 13-31 came back Invalid and
+ * were dropped to `undefined`. A dropped close date is not benign: a won deal
+ * with no date fell back to `new Date()`, stamping TODAY, which is how "deals won
+ * in July" quietly reports zero.
+ *
+ * So the format is now DECLARED by the operator, never guessed, and a value that
+ * doesn't fit becomes a ROW ERROR the dry run shows. Auto-detection was
+ * considered and rejected: scanning for a day > 12 works right up until a file
+ * where every date happens to fall on the 1st-12th, at which point it guesses —
+ * and a guess that is usually right is exactly the failure mode here.
+ */
+export const CSV_DATE_FORMATS = ["iso", "dmy", "mdy"] as const;
+export type CsvDateFormat = (typeof CSV_DATE_FORMATS)[number];
+
+export const CSV_DATE_FORMAT_LABELS: Record<CsvDateFormat, string> = {
+  iso: "YYYY-MM-DD (ISO)",
+  dmy: "DD/MM/YYYY (day first)",
+  mdy: "MM/DD/YYYY (month first)",
+};
+
+export const DEFAULT_CSV_DATE_FORMAT: CsvDateFormat = "iso";
+
+export function isCsvDateFormat(v: unknown): v is CsvDateFormat {
+  return typeof v === "string" && (CSV_DATE_FORMATS as readonly string[]).includes(v);
+}
+
+/** A date cell is one of: absent/blank, a real date, or a reportable error. */
+export type DateCellResult =
+  | { kind: "blank" }
+  | { kind: "date"; date: Date }
+  | { kind: "error"; message: string };
+
+/** `YYYY-MM-DD`, optionally followed by a time we ignore (dates here are day-precision). */
+const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/;
+/** Three numeric parts separated by / - or . — the ambiguous shape the picker resolves. */
+const TRIPLE_RE = /^(\d{1,4})[/\-.](\d{1,2})[/\-.](\d{1,4})(?:[T ].*)?$/;
+
+/**
+ * Build a day-precision Date at UTC midnight, REJECTING a rolled-over date.
+ *
+ * `Date.UTC(2026, 1, 31)` happily yields 3 March; comparing the components back
+ * is what turns "31/02/2026" into an error instead of a silently shifted row.
+ * UTC (not local) midnight also removes the second bug the old parser had: local
+ * parsing made a date render one day earlier once serialised to UTC.
+ */
+function utcDate(year: number, month: number, day: number): Date | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) {
+    return null;
+  }
+  return d;
+}
+
+/**
+ * Parse one date cell under an explicitly declared format.
+ *
+ * ISO (`YYYY-MM-DD`) is accepted under EVERY format because it is unambiguous —
+ * a file that mixes ISO into a day-first export still imports correctly. Anything
+ * else must match the declared format. Two-digit years are refused rather than
+ * century-guessed: that would be the same class of silent corruption one level down.
+ */
+export function parseDateCell(v: string | undefined, format: CsvDateFormat): DateCellResult {
+  const raw = v?.trim();
+  if (!raw) return { kind: "blank" };
+
+  const iso = ISO_RE.exec(raw);
+  if (iso) {
+    const d = utcDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+    return d ? { kind: "date", date: d } : { kind: "error", message: `"${raw}" is not a real calendar date` };
+  }
+
+  const triple = TRIPLE_RE.exec(raw);
+  if (!triple) {
+    return { kind: "error", message: `"${raw}" is not a date we can read (expected ${CSV_DATE_FORMAT_LABELS[format]})` };
+  }
+  const [a, b, c] = [triple[1]!, triple[2]!, triple[3]!];
+
+  // A 4-digit leading part is year-first regardless of the picker (also unambiguous).
+  if (a.length === 4) {
+    const d = utcDate(Number(a), Number(b), Number(c));
+    return d ? { kind: "date", date: d } : { kind: "error", message: `"${raw}" is not a real calendar date` };
+  }
+  if (c.length !== 4) {
+    return {
+      kind: "error",
+      message: `"${raw}" has a 2-digit year — re-export with 4-digit years so the century isn't guessed`,
+    };
+  }
+
+  const year = Number(c);
+  const day = format === "dmy" ? Number(a) : Number(b);
+  const month = format === "dmy" ? Number(b) : Number(a);
+  const d = utcDate(year, month, day);
+  return d
+    ? { kind: "date", date: d }
+    : {
+        kind: "error",
+        message: `"${raw}" is not a valid ${CSV_DATE_FORMAT_LABELS[format]} date — is the file in the other order?`,
+      };
+}
+
+/** Human echo for the dry-run report: "05/03/2026 → 5 Mar 2026". */
+export function formatDateEcho(raw: string, parsed: Date): string {
+  const shown = parsed.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  return `${raw} → ${shown}`;
+}
+
 // ── Sample CSV templates ──────────────────────────────────────────────────────
 // Headers here are human-readable Freshsales-style names that NORMALIZE (lower +
 // whitespace-stripped, per csv-parser) to a synonym the importer recognizes, so
@@ -296,18 +416,26 @@ export interface DealRow {
   lostReason?: string;
 }
 
-function parseDateCell(v: string | undefined): Date | undefined {
-  if (!v) return undefined;
-  const d = new Date(v);
-  return Number.isFinite(d.getTime()) ? d : undefined;
-}
-
 export function mapDealRow(
   fields: string[],
   cols: ColumnResolution<keyof typeof DEAL_FIELDS & string>,
+  dateFormat: CsvDateFormat,
 ): { row: DealRow } | { error: string } {
   const name = cell(fields, cols.index.name);
   if (!name) return { error: "Missing deal name" };
+
+  // A present-but-unreadable date is a ROW ERROR, never a silent `undefined`.
+  // The old behaviour dropped it, and a dropped close date on a won deal then
+  // fell through to a today-stamp — losing the win history for good.
+  const dates: Partial<Record<"expectedClose" | "closedDate", Date>> = {};
+  for (const [field, label] of [
+    ["expectedClose", "Expected Close"],
+    ["closedDate", "Closed Date"],
+  ] as const) {
+    const result = parseDateCell(cell(fields, cols.index[field]), dateFormat);
+    if (result.kind === "error") return { error: `${label}: ${result.message}` };
+    if (result.kind === "date") dates[field] = result.date;
+  }
 
   let amount: number | undefined;
   const rawAmount = cell(fields, cols.index.amount);
@@ -326,8 +454,8 @@ export function mapDealRow(
       amount,
       currency: cell(fields, cols.index.currency)?.toUpperCase(),
       stageName: cell(fields, cols.index.stage),
-      expectedClose: parseDateCell(cell(fields, cols.index.expectedClose)),
-      closedDate: parseDateCell(cell(fields, cols.index.closedDate)),
+      expectedClose: dates.expectedClose,
+      closedDate: dates.closedDate,
       companyName: cell(fields, cols.index.companyName),
       ownerEmail: cell(fields, cols.index.ownerEmail)?.toLowerCase(),
       ownerName: cell(fields, cols.index.ownerName),

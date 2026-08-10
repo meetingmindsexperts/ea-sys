@@ -2,12 +2,19 @@ import { z } from "zod";
 import { runWithTenant } from "@/lib/tenant-context";
 import { requireCrmWrite, runCrmCsvImport, crmCsvImportBaseSchema } from "@/crm/lib/crm-route";
 import { importFreshsalesDeals } from "@/crm/services/crm-import-service";
+import { CSV_DATE_FORMATS, DEFAULT_CSV_DATE_FORMAT } from "@/crm/lib/freshsales-import";
 
 const bodySchema = crmCsvImportBaseSchema.extend({
   /** Deals whose name matches no event land here — a deal must have an event. */
   fallbackEventId: z.string().min(1),
   /** Used when the CSV carries no currency column. */
   defaultCurrency: z.string().length(3).optional(),
+  /**
+   * How to read `05/03/2026`. Declared, never guessed — see CSV_DATE_FORMATS.
+   * Defaults to ISO (the one unambiguous shape) so an old client that doesn't
+   * send the field can't silently opt into a day/month swap.
+   */
+  dateFormat: z.enum(CSV_DATE_FORMATS).default(DEFAULT_CSV_DATE_FORMAT),
 });
 
 /**
@@ -35,6 +42,7 @@ export async function POST(req: Request) {
         ...base,
         fallbackEventId: data.fallbackEventId,
         defaultCurrency: data.defaultCurrency,
+        dateFormat: data.dateFormat,
       }),
   });
   });

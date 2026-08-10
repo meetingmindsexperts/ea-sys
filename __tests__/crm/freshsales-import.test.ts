@@ -38,6 +38,9 @@ import {
   mapDealRow,
   dealOutcomeFromStageName,
   matchEventByName,
+  parseDateCell,
+  CSV_DATE_FORMATS,
+  type DateCellResult,
   decideImportAction,
   COMPANY_FIELDS,
   CONTACT_FIELDS,
@@ -115,7 +118,7 @@ describe("row mappers", () => {
   it("maps a deal row, tolerating formatted amounts", () => {
     const headers = parseCSVHeaders("Id,Name,Amount,Currency,Deal stage,Expected close date,Sales account");
     const cols = resolveColumns(headers, DEAL_FIELDS);
-    const res = mapDealRow(["d-1", "Abbott — BRIDGES 2026 Gold", "40,000.00", "usd", "Negotiation", "2026-09-01", "Abbott"], cols);
+    const res = mapDealRow(["d-1", "Abbott — BRIDGES 2026 Gold", "40,000.00", "usd", "Negotiation", "2026-09-01", "Abbott"], cols, "iso");
     if ("error" in res) throw new Error(res.error);
     expect(res.row).toMatchObject({ amount: 40000, currency: "USD", stageName: "Negotiation" });
     expect(res.row.expectedClose).toBeInstanceOf(Date);
@@ -123,7 +126,7 @@ describe("row mappers", () => {
 
   it("rejects an unparsable amount", () => {
     const cols = resolveColumns(parseCSVHeaders("Name,Amount"), DEAL_FIELDS);
-    const res = mapDealRow(["Deal", "n/a"], cols);
+    const res = mapDealRow(["Deal", "n/a"], cols, "iso");
     expect("error" in res && res.error).toMatch(/Invalid amount/);
   });
 
@@ -361,7 +364,7 @@ describe("importFreshsalesDeals", () => {
     mockDealFixtures();
 
     const res = await importFreshsalesDeals({
-      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback",
+      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
     });
 
     if (!res.ok) throw new Error(res.message);
@@ -385,7 +388,7 @@ describe("importFreshsalesDeals", () => {
     mockDealFixtures();
 
     const res = await importFreshsalesDeals({
-      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback",
+      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
     });
 
     if (!res.ok) throw new Error(res.message);
@@ -406,7 +409,7 @@ describe("importFreshsalesDeals", () => {
     }) as never);
 
     const res = await importFreshsalesDeals({
-      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback",
+      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
     });
 
     if (!res.ok) throw new Error(res.message);
@@ -428,7 +431,7 @@ describe("importFreshsalesDeals", () => {
     // Same WON row, but the export carries no Closed date column this month.
     const csvNoDate = `Id,Name,Amount,Deal stage,Sales account\nd-1,Abbott — BRIDGES 2026 Gold,"40,000",Closed won,Abbott`;
     const res = await importFreshsalesDeals({
-      organizationId: ORG, userId: "u-1", csvText: csvNoDate, dryRun: false, fallbackEventId: "e-fallback",
+      organizationId: ORG, userId: "u-1", csvText: csvNoDate, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
     });
 
     if (!res.ok) throw new Error(res.message);
@@ -452,7 +455,7 @@ describe("importFreshsalesDeals", () => {
 
     const csv = `Id,Name,Amount,Deal stage,Closed date,Sales account,Sales owner email\nd-1,Abbott — BRIDGES 2026 Gold,"40,000",Closed won,2026-03-15,Abbott,rep@mmg.com`;
     const res = await importFreshsalesDeals({
-      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback",
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
     });
 
     if (!res.ok) throw new Error(res.message);
@@ -470,7 +473,7 @@ describe("importFreshsalesDeals", () => {
     vi.mocked(db.crmCompany.findUnique).mockResolvedValue({ id: "c-winner" } as never);
 
     const res = await importFreshsalesDeals({
-      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback",
+      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
     });
 
     if (!res.ok) throw new Error(res.message);
@@ -482,7 +485,7 @@ describe("importFreshsalesDeals", () => {
   it("refuses a CSV without the Id column — re-imports would duplicate the pipeline", async () => {
     mockDealFixtures();
     const res = await importFreshsalesDeals({
-      organizationId: ORG, userId: "u-1", csvText: "Name,Amount\nDeal,100", dryRun: true, fallbackEventId: "e-fallback",
+      organizationId: ORG, userId: "u-1", csvText: "Name,Amount\nDeal,100", dryRun: true, fallbackEventId: "e-fallback", dateFormat: "iso",
     });
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
@@ -493,7 +496,7 @@ describe("importFreshsalesDeals", () => {
     mockDealFixtures();
     vi.mocked(db.event.findFirst).mockResolvedValue(null as never);
     const res = await importFreshsalesDeals({
-      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: true, fallbackEventId: "other-orgs-event",
+      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: true, fallbackEventId: "other-orgs-event", dateFormat: "iso",
     });
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
@@ -542,5 +545,155 @@ describe("buildSampleCsv — the downloadable template can't drift from the syno
     const csv = buildSampleCsv("companies");
     // No sample value contains a comma, so no field should be quoted here.
     expect(csv).not.toContain('"');
+  });
+});
+
+// ── Dates: the ambiguity, and the corruption it used to cause ────────────────
+
+/**
+ * WHAT THIS BLOCK EXISTS TO PREVENT.
+ *
+ * The importer used to call `new Date(cell)`. On a day-first export that meant:
+ *   - days 1-12 parsed as the WRONG DATE (05/03 read as 3 May, not 5 March), and
+ *   - days 13-31 came back Invalid and were silently dropped to `undefined`,
+ * and a dropped close date on a won deal then fell through to `?? new Date()` —
+ * stamping the IMPORT date. Months of win history became "won today", which is
+ * how a won-in-July report quietly returns zero.
+ *
+ * Both halves are pinned here: the parse must be governed by a DECLARED format,
+ * and a missing close date must stay NULL rather than become today.
+ */
+describe("parseDateCell", () => {
+  const iso = (r: DateCellResult) => {
+    if (r.kind !== "date") throw new Error(`expected a date, got ${r.kind}`);
+    return r.date.toISOString().slice(0, 10);
+  };
+
+  it("treats blank / absent as blank, not as an error", () => {
+    expect(parseDateCell(undefined, "iso").kind).toBe("blank");
+    expect(parseDateCell("   ", "dmy").kind).toBe("blank");
+  });
+
+  it("accepts ISO under EVERY format — it is unambiguous, so a mixed file still imports", () => {
+    for (const f of CSV_DATE_FORMATS) {
+      expect(iso(parseDateCell("2026-03-05", f))).toBe("2026-03-05");
+    }
+  });
+
+  it("READS THE SAME CELL DIFFERENTLY per declared format — the whole reason the picker exists", () => {
+    expect(iso(parseDateCell("05/03/2026", "dmy"))).toBe("2026-03-05"); // 5 March
+    expect(iso(parseDateCell("05/03/2026", "mdy"))).toBe("2026-05-03"); // 3 May
+  });
+
+  it("errors (never silently drops) when the value contradicts the declared format", () => {
+    // The old code returned undefined here, and the deal lost its close date.
+    const r = parseDateCell("25/03/2026", "mdy");
+    expect(r.kind).toBe("error");
+    expect(r.kind === "error" && r.message).toMatch(/other order/);
+  });
+
+  it("rejects a date that would silently ROLL OVER (31 Feb becomes 3 March in JS)", () => {
+    expect(parseDateCell("31/02/2026", "dmy").kind).toBe("error");
+    expect(parseDateCell("2026-02-31", "iso").kind).toBe("error");
+  });
+
+  it("refuses a 2-digit year rather than guessing the century", () => {
+    const r = parseDateCell("05/03/26", "dmy");
+    expect(r.kind).toBe("error");
+    expect(r.kind === "error" && r.message).toMatch(/4-digit/);
+  });
+
+  it("errors on a value that is not a date at all", () => {
+    expect(parseDateCell("n/a", "iso").kind).toBe("error");
+  });
+
+  it("anchors to UTC midnight — the OTHER old bug shifted dates a day when serialised", () => {
+    const r = parseDateCell("05/03/2026", "dmy");
+    if (r.kind !== "date") throw new Error("expected a date");
+    expect(r.date.toISOString()).toBe("2026-03-05T00:00:00.000Z");
+  });
+
+  it("accepts . and - separators, not just /", () => {
+    expect(iso(parseDateCell("05-03-2026", "dmy"))).toBe("2026-03-05");
+    expect(iso(parseDateCell("05.03.2026", "dmy"))).toBe("2026-03-05");
+  });
+});
+
+describe("mapDealRow — dates", () => {
+  it("turns an unreadable date into a ROW ERROR naming the column", () => {
+    const cols = resolveColumns(parseCSVHeaders("Name,Closed date"), DEAL_FIELDS);
+    const res = mapDealRow(["Deal", "25/03/2026"], cols, "mdy");
+    expect("error" in res && res.error).toMatch(/^Closed Date:/);
+  });
+
+  it("still maps cleanly when the date matches the declared format", () => {
+    const cols = resolveColumns(parseCSVHeaders("Name,Closed date"), DEAL_FIELDS);
+    const res = mapDealRow(["Deal", "25/03/2026"], cols, "dmy");
+    if ("error" in res) throw new Error(res.error);
+    expect(res.row.closedDate?.toISOString().slice(0, 10)).toBe("2026-03-25");
+  });
+});
+
+describe("importFreshsalesDeals — date handling", () => {
+  it("stores the SAME csv differently under dmy vs mdy (regression: the silent swap)", async () => {
+    const csv = `Id,Name,Amount,Deal stage,Closed date,Sales account\nd-1,Abbott,1000,Closed won,05/03/2026,Abbott`;
+
+    mockDealFixtures();
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "dmy",
+    });
+    const dmy = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as { data: { wonAt: Date } };
+    expect(dmy.data.wonAt.toISOString().slice(0, 10)).toBe("2026-03-05");
+
+    vi.clearAllMocks();
+    mockDealFixtures();
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "mdy",
+    });
+    const mdy = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as { data: { wonAt: Date } };
+    expect(mdy.data.wonAt.toISOString().slice(0, 10)).toBe("2026-05-03");
+  });
+
+  it("leaves wonAt NULL when a won deal has no close date — NEVER stamps today", async () => {
+    // The headline regression. `?? new Date()` here is what made historical wins
+    // report as won-on-import-day, and it is invisible in the row counts.
+    mockDealFixtures();
+    const csv = `Id,Name,Amount,Deal stage,Closed date,Sales account\nd-1,Abbott,1000,Closed won,,Abbott`;
+
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+
+    const created = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as { data: { wonAt: Date | null; status: string } };
+    expect(created.data.status).toBe("WON");
+    expect(created.data.wonAt).toBeNull();
+    // …and it is REPORTED, so the operator knows the reports won't see it.
+    expect(res.ok && res.notes.join(" ")).toMatch(/no close date/);
+  });
+
+  it("ECHOES the first parsed date so a wrong format pick is visible before writing", async () => {
+    mockDealFixtures();
+    const csv = `Id,Name,Amount,Deal stage,Closed date,Sales account\nd-1,Abbott,1000,Closed won,05/03/2026,Abbott`;
+
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: true, fallbackEventId: "e-fallback", dateFormat: "dmy",
+    });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(res.notes.join(" ")).toMatch(/05\/03\/2026 → 5 Mar 2026/);
+  });
+
+  it("reports a bad date as a row error instead of importing the deal", async () => {
+    mockDealFixtures();
+    const csv = `Id,Name,Amount,Deal stage,Closed date,Sales account\nd-1,Abbott,1000,Closed won,25/03/2026,Abbott`;
+
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "mdy",
+    });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(res.created).toBe(0);
+    expect(res.errors).toHaveLength(1);
+    expect(db.crmDeal.create).not.toHaveBeenCalled();
   });
 });

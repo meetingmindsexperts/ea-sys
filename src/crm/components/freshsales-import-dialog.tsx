@@ -17,7 +17,14 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Download, FileUp, Loader2, TriangleAlert, Upload } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { buildSampleCsv } from "@/crm/lib/freshsales-import";
+import {
+  buildSampleCsv,
+  CSV_DATE_FORMATS,
+  CSV_DATE_FORMAT_LABELS,
+  DEFAULT_CSV_DATE_FORMAT,
+  type CsvDateFormat,
+} from "@/crm/lib/freshsales-import";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,6 +73,7 @@ export function FreshsalesImportDialog({
   const [csv, setCsv] = useState("");
   const [fallbackEventId, setFallbackEventId] = useState<string | null>(null);
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
+  const [dateFormat, setDateFormat] = useState<CsvDateFormat>(DEFAULT_CSV_DATE_FORMAT);
   const [preview, setPreview] = useState<ImportReport | null>(null);
   const [result, setResult] = useState<ImportReport | null>(null);
   const [busy, setBusy] = useState(false);
@@ -75,6 +83,7 @@ export function FreshsalesImportDialog({
     setCsv("");
     setFallbackEventId(null);
     setDefaultCurrency("USD");
+    setDateFormat(DEFAULT_CSV_DATE_FORMAT);
     setPreview(null);
     setResult(null);
     setBusy(false);
@@ -86,7 +95,11 @@ export function FreshsalesImportDialog({
         csv,
         dryRun,
         ...(type === "deals"
-          ? { fallbackEventId, defaultCurrency: defaultCurrency.trim().toUpperCase() || "USD" }
+          ? {
+              fallbackEventId,
+              defaultCurrency: defaultCurrency.trim().toUpperCase() || "USD",
+              dateFormat,
+            }
           : {}),
       });
     } catch (err) {
@@ -216,6 +229,25 @@ export function FreshsalesImportDialog({
                   className="w-24 uppercase"
                 />
                 <p className="text-xs text-muted-foreground">Used when the CSV has no currency column.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fs-date-format">Date format in this file</Label>
+                <Select value={dateFormat} onValueChange={(v) => setDateFormat(v as CsvDateFormat)}>
+                  <SelectTrigger id="fs-date-format" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CSV_DATE_FORMATS.map((f) => (
+                      <SelectItem key={f} value={f}>
+                        {CSV_DATE_FORMAT_LABELS[f]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  <b>05/03/2026</b> is 5 March or 3 May depending on the export — we never guess.
+                  The preview shows how the first date was read; check it before importing.
+                </p>
               </div>
             </div>
           )}
