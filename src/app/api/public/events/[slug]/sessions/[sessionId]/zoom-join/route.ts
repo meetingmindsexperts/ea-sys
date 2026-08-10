@@ -141,7 +141,22 @@ export async function GET(req: Request, { params }: RouteParams) {
     const isUpcoming = startTime - now <= JOINABLE_BEFORE_START_MS && startTime > now;
     const isDraftEvent = event.status === "DRAFT";
 
-    if (!isLive && !isUpcoming && !isDraftEvent) {
+    // Org staff bypass the window (Aug 10, 2026). `isOrgStaff` is computed
+    // above and its comment already says it exists "for QA / host testing" —
+    // but the clock below then blocked exactly that, so rehearsing a webinar
+    // meant keeping the event in DRAFT, and publishing it silently removed the
+    // producer's ability to open their own attendee view. Five prod refusals in
+    // one morning, one of them against a session starting the NEXT DAY.
+    // The public detail route already exempts staff in this same area; this
+    // route computed the flag and then didn't use it here.
+    if (isOrgStaff && !isLive && !isUpcoming && !isDraftEvent) {
+      apiLogger.info(
+        { sessionId, eventId: event.id, userId: authSession.user.id, startsAt: session.startTime.toISOString() },
+        "zoom:join-staff-preview-outside-window",
+      );
+    }
+
+    if (!isOrgStaff && !isLive && !isUpcoming && !isDraftEvent) {
       apiLogger.warn(
         { sessionId, eventId: event.id, userId: authSession.user.id, startsAt: session.startTime.toISOString() },
         "zoom:join-denied:not-joinable-yet",

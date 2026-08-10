@@ -24,6 +24,15 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Video,
   Copy,
   PlayCircle,
@@ -253,6 +262,7 @@ export default function WebinarConsolePage() {
 
       {/* Sticky status bar — always visible summary + primary action */}
       <WebinarStatusBar
+        eventId={eventId}
         status={status}
         anchor={anchor ?? null}
         zoom={zoom ?? null}
@@ -374,6 +384,7 @@ function formatSessionWindow(
 
 // ── Sticky status bar — always visible summary + primary action ────
 function WebinarStatusBar({
+  eventId,
   status,
   anchor,
   zoom,
@@ -383,6 +394,7 @@ function WebinarStatusBar({
   onProvision,
   onCopy,
 }: {
+  eventId: string;
   status: WebinarStatus;
   anchor: AnchorSession;
   zoom: ZoomMeetingLite;
@@ -392,6 +404,38 @@ function WebinarStatusBar({
   onProvision: () => void;
   onCopy: (value: string | null | undefined, label: string) => void;
 }) {
+  // Room state belongs in the ALWAYS-VISIBLE bar (organizer feedback, Aug 10
+  // 2026). Starting the webinar is two steps — "Start as Host" begins the
+  // broadcast, "Open the room" admits attendees out of the waiting room — and
+  // only the first one lived up here. So the control that does NOT let anyone
+  // in was permanently on screen, and the one that does was a scroll away in
+  // the Lobby card. The predictable outcome: producer sits in an empty Zoom
+  // while the audience watches a countdown.
+  const roomOpen = anchor?.status === "LIVE";
+  const toggleRoom = useToggleWebinarRoom(eventId);
+  const [confirmStartOpen, setConfirmStartOpen] = useState(false);
+
+  // The Zoom tab is opened from the CLICK HANDLER, synchronously, before any
+  // await — a popup blocker kills a window.open() that happens after one.
+  const openHostTab = () => {
+    if (zoom?.startUrl) window.open(zoom.startUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const startAndOpenRoom = async () => {
+    openHostTab();
+    setConfirmStartOpen(false);
+    try {
+      await toggleRoom.mutateAsync(true);
+      toast.success("Room opened — attendees are being let in");
+    } catch (err) {
+      // The host tab already opened, so this must NOT read as a failed start.
+      toast.error(
+        err instanceof Error
+          ? `Started, but opening the room failed: ${err.message}`
+          : "Started, but opening the room failed — use the Lobby card",
+      );
+    }
+  };
   // No Zoom attached → collapse to a "Configure Zoom" banner with provisioner retry.
   if (!hasZoom || !zoom) {
     return (
@@ -486,6 +530,25 @@ function WebinarStatusBar({
 
           {/* Context-aware primary action */}
           <div className="flex items-center gap-2 shrink-0">
+            {/* Room state, always visible next to the start control — the two
+                are a pair and were previously separated by a scroll. */}
+            {anchor && status !== "ended" ? (
+              <Badge
+                variant="outline"
+                className={
+                  roomOpen
+                    ? "bg-red-100 text-red-800 border-red-200 shrink-0"
+                    : "text-muted-foreground shrink-0"
+                }
+                title={
+                  roomOpen
+                    ? "Attendees are being let in"
+                    : "Attendees are held in the waiting room"
+                }
+              >
+                {roomOpen ? "Room OPEN" : "Room closed"}
+              </Badge>
+            ) : null}
             {status === "ended" && hasRecording ? (
               <Button asChild>
                 <a
@@ -498,12 +561,22 @@ function WebinarStatusBar({
                 </a>
               </Button>
             ) : zoom.startUrl ? (
-              <Button asChild>
-                <a href={zoom.startUrl} target="_blank" rel="noopener noreferrer">
+              // Room already open (or no anchor to open) → plain link, nothing
+              // to confirm. Room closed → confirm, because starting alone
+              // leaves every attendee in the waiting room.
+              roomOpen || !anchor ? (
+                <Button asChild>
+                  <a href={zoom.startUrl} target="_blank" rel="noopener noreferrer">
+                    <PlayCircle className="h-4 w-4 mr-2" />
+                    Start as Host
+                  </a>
+                </Button>
+              ) : (
+                <Button onClick={() => setConfirmStartOpen(true)}>
                   <PlayCircle className="h-4 w-4 mr-2" />
                   Start as Host
-                </a>
-              </Button>
+                </Button>
+              )
             ) : null}
             {eventSlug && anchor ? (
               <Button asChild variant="outline" size="icon" title="Open public session page">
@@ -517,6 +590,37 @@ function WebinarStatusBar({
             ) : null}
           </div>
         </div>
+
+        <AlertDialog open={confirmStartOpen} onOpenChange={setConfirmStartOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Open the room for attendees too?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Starting as host begins the broadcast, but attendees stay in the
+                waiting room until the room is opened. Open it now unless you
+                want a private rehearsal first.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              {/* Start-only stays available on purpose: rehearsing with
+                  panelists before letting the audience in is a real workflow,
+                  and it is what the producer got by default until today. */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  openHostTab();
+                  setConfirmStartOpen(false);
+                }}
+              >
+                Start only
+              </Button>
+              <Button onClick={startAndOpenRoom} disabled={toggleRoom.isPending}>
+                Start and open the room
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );
