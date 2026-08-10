@@ -74,6 +74,8 @@ export function FreshsalesImportDialog({
   const [fallbackEventId, setFallbackEventId] = useState<string | null>(null);
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
   const [dateFormat, setDateFormat] = useState<CsvDateFormat>(DEFAULT_CSV_DATE_FORMAT);
+  /** "" = leave the pipeline unset (it is ours, not a Freshsales column). */
+  const [pipeline, setPipeline] = useState<"" | "CORPORATE" | "CONFERENCE">("");
   const [preview, setPreview] = useState<ImportReport | null>(null);
   const [result, setResult] = useState<ImportReport | null>(null);
   const [busy, setBusy] = useState(false);
@@ -84,6 +86,7 @@ export function FreshsalesImportDialog({
     setFallbackEventId(null);
     setDefaultCurrency("USD");
     setDateFormat(DEFAULT_CSV_DATE_FORMAT);
+    setPipeline("");
     setPreview(null);
     setResult(null);
     setBusy(false);
@@ -99,6 +102,7 @@ export function FreshsalesImportDialog({
               fallbackEventId,
               defaultCurrency: defaultCurrency.trim().toUpperCase() || "USD",
               dateFormat,
+              ...(pipeline ? { pipeline } : {}),
             }
           : {}),
       });
@@ -247,6 +251,23 @@ export function FreshsalesImportDialog({
                 <p className="text-xs text-muted-foreground">
                   <b>05/03/2026</b> is 5 March or 3 May depending on the export — we never guess.
                   The preview shows how the first date was read; check it before importing.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fs-pipeline">Pipeline for this file</Label>
+                <Select value={pipeline || "none"} onValueChange={(v) => setPipeline(v === "none" ? "" : (v as "CORPORATE" | "CONFERENCE"))}>
+                  <SelectTrigger id="fs-pipeline" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Leave unset</SelectItem>
+                    <SelectItem value="CORPORATE">Corporate</SelectItem>
+                    <SelectItem value="CONFERENCE">Conference</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Ours, not a Freshsales column — applied to every deal in this file. Split the
+                  export if the deals belong to different pipelines.
                 </p>
               </div>
             </div>

@@ -17,7 +17,7 @@
  * error. dryRun runs the exact same decisions with the writes skipped — what
  * the dialog shows before the operator confirms IS what the write run does.
  */
-import { Prisma, type CrmDealStatus } from "@prisma/client";
+import { Prisma, type CrmDealStatus, type CrmDealPipeline } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { parseCSV } from "@/lib/csv-parser";
@@ -170,6 +170,8 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
               industry: row.industry ?? null,
               city: row.city ?? null,
               country: row.country ?? null,
+              phone: row.phone ?? null,
+              ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
               notes: row.notes ?? null,
               ...stamp,
             },
@@ -185,16 +187,25 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
         // enrich (EA-born row) or update (previously imported, untouched since)
         const data =
           action === "enrich"
-            ? enrichPatch(existing!, {
-                website: row.website, industry: row.industry, city: row.city,
-                country: row.country, notes: row.notes,
-              })
+            ? {
+                ...enrichPatch(existing!, {
+                  website: row.website, industry: row.industry, city: row.city,
+                  country: row.country, phone: row.phone, notes: row.notes,
+                }),
+                // Tags are an array, so enrichPatch's blank-scalar rule can't see
+                // them: fill only when the EA row has none (the contacts pattern).
+                ...(row.tags && (existing!.tags?.length ?? 0) === 0
+                  ? { tags: normalizeContactTags(row.tags) }
+                  : {}),
+              }
             : {
                 // Freshsales wins on the imported fields. The display name follows
                 // the CSV; nameKey must follow the name (the contacts-H2 lesson).
                 name: row.name, nameKey,
                 website: row.website ?? null, industry: row.industry ?? null,
-                city: row.city ?? null, country: row.country ?? null, notes: row.notes ?? null,
+                city: row.city ?? null, country: row.country ?? null,
+                phone: row.phone ?? null, notes: row.notes ?? null,
+                ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
               };
         if (action === "enrich") report.enriched++;
         else report.updated++;
@@ -251,7 +262,12 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   const activity: CrmActivityEntry[] = [];
   const seenKeys = new Set<string>();
 
-  const resolveCompany = await makeCompanyResolver(ctx);
+  const [resolveCompany, resolveOwner] = await Promise.all([
+    makeCompanyResolver(ctx),
+    makeOwnerResolver(ctx.organizationId),
+  ]);
+  /** Lifecycle/status labels we couldn't map — reported, never coerced to a default. */
+  const unmappedEnums = new Set<string>();
 
   for (let i = 0; i < parsed.rows.length; i++) {
     const rowNo = i + 1;
@@ -295,6 +311,8 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
       };
       const companyId = await resolveCompany.idFor(row.companyName);
       const dryCompany = typeof companyId === "string" && companyId.startsWith("dry:");
+      const ownerId = resolveOwner.resolve(row.ownerEmail, row.ownerName);
+      row.unmappedEnums.forEach((e) => unmappedEnums.add(e));
 
       if (action === "create") {
         report.created++;
@@ -311,6 +329,9 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
               mobile: row.mobile ?? null,
               country: row.country ?? null,
               ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
+              ownerId,
+              lifecycleStage: row.lifecycleStage ?? null,
+              status: row.status ?? null,
               companyId: dryCompany ? null : companyId,
               ...stamp,
             },
@@ -335,6 +356,11 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
             ? {
                 ...enrichPatch(existing!, {
                   jobTitle: row.jobTitle, phone: row.phone, mobile: row.mobile, country: row.country,
+                  // Owner + ladders are enrich-only here for the same reason as
+                  // every other field: an EA-born contact a human has already
+                  // assigned must not be re-pointed by a stale CSV.
+                  ownerId: ownerId ?? undefined,
+                  lifecycleStage: row.lifecycleStage, status: row.status,
                   companyId: dryCompany ? undefined : companyId ?? undefined,
                 }),
                 ...tagPatch,
@@ -343,6 +369,11 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
                 firstName: row.firstName, lastName: row.lastName,
                 jobTitle: row.jobTitle ?? null, phone: row.phone ?? null,
                 mobile: row.mobile ?? null, country: row.country ?? null,
+                // Freshsales wins on update — but an UNMATCHABLE owner must not
+                // silently un-own a live contact (the deals-path rule, mirrored).
+                ...(ownerId ? { ownerId } : {}),
+                ...(row.lifecycleStage ? { lifecycleStage: row.lifecycleStage } : {}),
+                ...(row.status ? { status: row.status } : {}),
                 ...tagPatch,
                 ...(dryCompany ? {} : { companyId }),
               };
@@ -378,12 +409,22 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   if (resolveCompany.created > 0) {
     report.notes.push(`${resolveCompany.created} compan${resolveCompany.created === 1 ? "y" : "ies"} named in the CSV didn't exist and ${ctx.dryRun ? "would be" : "were"} created`);
   }
+  report.notes.push(...ownerNotes(resolveOwner));
+  if (unmappedEnums.size > 0) {
+    report.notes.push(
+      `Left blank — no matching value in EA-SYS for: ${[...unmappedEnums].join(", ")}`,
+    );
+  }
   if (!ctx.dryRun) void recordCrmActivityBulk(activity);
   apiLogger.info({
     msg: "crm-import:contacts-done", organizationId: ctx.organizationId, dryRun: ctx.dryRun,
     total: report.total, created: report.created, updated: report.updated,
     enriched: report.enriched, keptLocal: report.keptLocal, errorCount: report.errors.length,
     companiesCreated: resolveCompany.created,
+    ownersUnmatched: resolveOwner.unmatched,
+    ownersByName: resolveOwner.matchedByName,
+    ownersAmbiguous: resolveOwner.ambiguous,
+    unmappedEnumCount: unmappedEnums.size,
   });
   return report;
 }
@@ -445,6 +486,74 @@ async function makeCompanyResolver(ctx: ImportCtx) {
   return resolver;
 }
 
+// ── Shared: CSV owner (email, else name) → User id ───────────────────────────
+
+/**
+ * Resolve a CSV's owner column onto a team member. ONE resolver for deals AND
+ * contacts (the cross-caller-duplication rule) — contacts previously imported
+ * with no owner at all, and deals matched on email only.
+ *
+ * Order: email wins (exact, unambiguous). Falling back to NAME matters because a
+ * Freshsales list view renders "Sales Owner" as a display name and may not offer
+ * an email column at all — without this every imported deal lands unassigned.
+ *
+ * An AMBIGUOUS name (two team members called "John Smith") assigns NOBODY and is
+ * counted separately. Picking the first would silently hand one rep's whole book
+ * to another, and unlike a blank owner that is not visibly wrong.
+ *
+ * Role-bound (review R2-M5): only CRM_OWNER_ROLES are candidates, so a CSV owner
+ * matching a MEMBER/ONSITE account counts as unmatched rather than assigning CRM
+ * content to a role the CRM excludes.
+ */
+async function makeOwnerResolver(organizationId: string) {
+  const users = await db.user.findMany({
+    where: { organizationId, role: { in: [...CRM_OWNER_ROLES] } },
+    select: { id: true, email: true, firstName: true, lastName: true },
+  });
+
+  const byEmail = new Map(users.map((u) => [u.email.toLowerCase(), u.id]));
+  const byName = new Map<string, string[]>();
+  for (const u of users) {
+    const full = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!full) continue;
+    byName.set(full, [...(byName.get(full) ?? []), u.id]);
+  }
+
+  return {
+    unmatched: 0,
+    ambiguous: 0,
+    matchedByName: 0,
+    resolve(email: string | undefined, name: string | undefined): string | null {
+      if (email) {
+        const hit = byEmail.get(email.trim().toLowerCase());
+        if (hit) return hit;
+      }
+      if (name) {
+        const candidates = byName.get(name.trim().toLowerCase().replace(/\s+/g, " ")) ?? [];
+        if (candidates.length === 1) {
+          this.matchedByName++;
+          return candidates[0]!;
+        }
+        if (candidates.length > 1) {
+          this.ambiguous++;
+          return null;
+        }
+      }
+      if (email || name) this.unmatched++;
+      return null;
+    },
+  };
+}
+
+/** The owner notes both importers append, built in one place so they can't drift. */
+function ownerNotes(r: { unmatched: number; ambiguous: number; matchedByName: number }): string[] {
+  const notes: string[] = [];
+  if (r.matchedByName > 0) notes.push(`${r.matchedByName} owner(s) matched by NAME (no email column) — spot-check those`);
+  if (r.ambiguous > 0) notes.push(`${r.ambiguous} owner name(s) matched more than one team member — left unassigned rather than guessed`);
+  if (r.unmatched > 0) notes.push(`${r.unmatched} record(s) had an owner we couldn't match to a CRM team member — left unassigned`);
+  return notes;
+}
+
 // ── Deals ─────────────────────────────────────────────────────────────────────
 
 export interface ImportDealsCtx extends ImportCtx {
@@ -458,6 +567,13 @@ export interface ImportDealsCtx extends ImportCtx {
    * echoes the first parsed date back so a wrong pick is caught before writing.
    */
   dateFormat: CsvDateFormat;
+  /**
+   * OUR classification (corporate vs conference sales), applied to every row.
+   * Deliberately not read from a CSV column: `CrmDealPipeline` is a two-value
+   * enum of our own and a Freshsales pipeline NAME can't be mapped onto it
+   * without a translation table nobody has. Undefined leaves it null.
+   */
+  pipeline?: CrmDealPipeline;
 }
 
 export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<ImportResult> {
@@ -475,21 +591,18 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   }
 
   // Everything the rows resolve against, fetched once and org-bound.
-  const [fallbackEvent, events, stages, owners] = await Promise.all([
+  const [fallbackEvent, events, stages, resolveOwner, dealTypes] = await Promise.all([
     db.event.findFirst({ where: { id: ctx.fallbackEventId, organizationId: ctx.organizationId }, select: { id: true, name: true } }),
     db.event.findMany({ where: { organizationId: ctx.organizationId }, select: { id: true, name: true } }),
     db.crmPipelineStage.findMany({ where: { organizationId: ctx.organizationId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
-    // Owners are role-bound like every other assignment path (R2-M5): a CSV
-    // owner email matching a MEMBER/ONSITE account counts as unmatched (left
-    // unassigned + reported) rather than assigning CRM content to a role the
-    // CRM excludes.
-    db.user.findMany({ where: { organizationId: ctx.organizationId, role: { in: [...CRM_OWNER_ROLES] } }, select: { id: true, email: true } }),
+    makeOwnerResolver(ctx.organizationId),
+    db.crmDealType.findMany({ where: { organizationId: ctx.organizationId }, select: { id: true, name: true } }),
   ]);
   if (!fallbackEvent) {
     apiLogger.warn({ msg: "crm-import:deals-bad-fallback-event", organizationId: ctx.organizationId, fallbackEventId: ctx.fallbackEventId });
     return { ok: false, code: "EVENT_NOT_FOUND", message: "Fallback event not found" };
   }
-  const ownerByEmail = new Map(owners.map((u) => [u.email.toLowerCase(), u.id]));
+  const dealTypeByName = new Map(dealTypes.map((t) => [t.name.trim().toLowerCase(), t.id]));
   const stageByName = new Map(stages.map((st) => [st.name.trim().toLowerCase(), st]));
   const wonStage = stages.find((st) => st.terminalOutcome === "WON");
   const lostStage = stages.find((st) => st.terminalOutcome === "LOST");
@@ -516,7 +629,7 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   const stageMappingNotes = new Map<string, string>();
   let eventMatched = 0;
   let eventFallback = 0;
-  let ownersUnmatched = 0;
+  const unmappedDealTypes = new Set<string>();
   /** First real date seen, echoed in the report so a wrong format pick is visible. */
   let dateEcho: string | null = null;
   /** Won/Lost rows carrying no close date — their wonAt/lostAt stays NULL, reported. */
@@ -586,13 +699,15 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
       if (matchedEvent) eventMatched++;
       else eventFallback++;
 
-      // ── Owner ──
-      let ownerId: string | null = null;
-      if (row.ownerEmail) {
-        ownerId = ownerByEmail.get(row.ownerEmail) ?? null;
-        if (!ownerId) ownersUnmatched++;
-      } else if (row.ownerName) {
-        ownersUnmatched++;
+      // ── Owner ── email first, then an unambiguous name match.
+      const ownerId = resolveOwner.resolve(row.ownerEmail, row.ownerName);
+
+      // ── Deal type ── matched by name against the org's own types; an unknown
+      // type leaves the deal untyped and is reported, never invented.
+      let dealTypeId: string | null = null;
+      if (row.dealTypeName) {
+        dealTypeId = dealTypeByName.get(row.dealTypeName.trim().toLowerCase()) ?? null;
+        if (!dealTypeId) unmappedDealTypes.add(row.dealTypeName);
       }
 
       const companyId = await resolveCompany.idFor(row.companyName);
@@ -635,6 +750,13 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
         currency: row.currency ?? defaultCurrency,
         expectedClose: row.expectedClose ?? null,
         ownerId,
+        dealTypeId,
+        ...(row.tags ? { tags: normalizeContactTags(row.tags) } : {}),
+        // The pipeline is OUR classification (corporate vs conference), not a
+        // Freshsales column — a Freshsales pipeline NAME can't be coerced onto a
+        // two-value enum without inventing a mapping, so the operator picks one
+        // for the whole file instead.
+        ...(ctx.pipeline ? { pipeline: ctx.pipeline } : {}),
         ...(dryCompany ? {} : { companyId }),
         externalSource: FRESHSALES_SOURCE,
         externalId: row.externalId,
@@ -709,7 +831,12 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   }
   report.notes.push(`Events: ${eventMatched} matched by name, ${eventFallback} → fallback "${fallbackEvent.name}"`);
   for (const note of stageMappingNotes.values()) report.notes.push(note);
-  if (ownersUnmatched > 0) report.notes.push(`${ownersUnmatched} deal(s) had an owner we couldn't match to a team member — left unassigned`);
+  report.notes.push(...ownerNotes(resolveOwner));
+  if (unmappedDealTypes.size > 0) {
+    report.notes.push(
+      `Deal type(s) not found in this org, left untyped: ${[...unmappedDealTypes].join(", ")} — add them under Manage deal types and re-import to fill them in`,
+    );
+  }
   if (resolveCompany.created > 0) {
     report.notes.push(`${resolveCompany.created} compan${resolveCompany.created === 1 ? "y" : "ies"} named in the CSV didn't exist and ${ctx.dryRun ? "would be" : "were"} created`);
   }
@@ -719,7 +846,11 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
     msg: "crm-import:deals-done", organizationId: ctx.organizationId, dryRun: ctx.dryRun,
     total: report.total, created: report.created, updated: report.updated,
     keptLocal: report.keptLocal, errorCount: report.errors.length,
-    eventMatched, eventFallback, ownersUnmatched,
+    eventMatched, eventFallback,
+    ownersUnmatched: resolveOwner.unmatched,
+    ownersByName: resolveOwner.matchedByName,
+    ownersAmbiguous: resolveOwner.ambiguous,
+    closedWithoutDate,
   });
   return report;
 }

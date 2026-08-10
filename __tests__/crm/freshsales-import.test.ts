@@ -23,6 +23,7 @@ vi.mock("@/lib/db", () => ({
     crmContact: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
     crmDeal: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     crmPipelineStage: { findMany: vi.fn() },
+    crmDealType: { findMany: vi.fn() },
     event: { findFirst: vi.fn(), findMany: vi.fn() },
     user: { findMany: vi.fn() },
     crmActivity: { create: vi.fn().mockResolvedValue({}), createMany: vi.fn().mockResolvedValue({ count: 0 }) },
@@ -257,6 +258,7 @@ describe("importFreshsalesCompanies", () => {
   it("R2-H1: a contact enrich also keeps lastImportedAt unstamped — human fields survive every re-import cycle", async () => {
     const contactCsv = `Id,First name,Last name,Emails,Job title\nc-1,Sara,Khan,s.khan@abbott.com,Procurement Lead`;
     vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never); // company resolver prefetch
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never); // owner resolver prefetch
     vi.mocked(db.crmContact.findFirst).mockResolvedValue(null as never);
     vi.mocked(db.crmContact.findUnique).mockResolvedValue({
       id: "ct-1", firstName: "Sara", lastName: "Khan",
@@ -352,7 +354,10 @@ function mockDealFixtures() {
     { id: "s-won", name: "Won", isTerminal: true, terminalOutcome: "WON" },
     { id: "s-lost", name: "Lost", isTerminal: true, terminalOutcome: "LOST" },
   ] as never);
-  vi.mocked(db.user.findMany).mockResolvedValue([{ id: "u-rep", email: "rep@mmg.com" }] as never);
+  vi.mocked(db.crmDealType.findMany).mockResolvedValue([{ id: "dt-sponsor", name: "Sponsorship" }] as never);
+  vi.mocked(db.user.findMany).mockResolvedValue([
+    { id: "u-rep", email: "rep@mmg.com", firstName: "Rita", lastName: "Rep" },
+  ] as never);
   vi.mocked(db.crmCompany.findMany).mockResolvedValue([{ id: "c-abbott", nameKey: "abbott" }] as never);
   vi.mocked(db.crmDeal.findFirst).mockResolvedValue(null as never);
   vi.mocked(db.crmDeal.create).mockResolvedValue({ id: "d-new" } as never);
@@ -695,5 +700,156 @@ describe("importFreshsalesDeals — date handling", () => {
     expect(res.created).toBe(0);
     expect(res.errors).toHaveLength(1);
     expect(db.crmDeal.create).not.toHaveBeenCalled();
+  });
+});
+
+// ── Owner resolution + the fields that used to be dropped ────────────────────
+
+/**
+ * Gaps 2-4 of the migration assessment. Contacts imported with NO owner at all
+ * (the field simply wasn't in the spec), and deals matched owners on email only
+ * — but a Freshsales list view renders "Sales Owner" as a display NAME and may
+ * not offer an email column, so every imported deal could land unassigned.
+ */
+describe("owner resolution", () => {
+  const csvWithOwner = (ownerCol: string, value: string) =>
+    `Id,Name,Amount,Deal stage,Sales account,${ownerCol}\nd-1,Abbott,1000,Negotiation,Abbott,${value}`;
+
+  it("matches an owner by NAME when the export has no email column", async () => {
+    mockDealFixtures();
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csvWithOwner("Sales owner", "Rita Rep"),
+      dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+    const created = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as { data: { ownerId: string | null } };
+    expect(created.data.ownerId).toBe("u-rep");
+  });
+
+  it("REFUSES to guess when a name matches two team members — nobody gets the deal", async () => {
+    mockDealFixtures();
+    vi.mocked(db.user.findMany).mockResolvedValue([
+      { id: "u-a", email: "a@mmg.com", firstName: "John", lastName: "Smith" },
+      { id: "u-b", email: "b@mmg.com", firstName: "John", lastName: "Smith" },
+    ] as never);
+
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csvWithOwner("Sales owner", "John Smith"),
+      dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+
+    const created = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as { data: { ownerId: string | null } };
+    // Picking the first would hand one rep's book to another, invisibly.
+    expect(created.data.ownerId).toBeNull();
+    expect(res.ok && res.notes.join(" ")).toMatch(/more than one team member/);
+  });
+
+  it("prefers the email column when both are present", async () => {
+    mockDealFixtures();
+    vi.mocked(db.user.findMany).mockResolvedValue([
+      { id: "u-rep", email: "rep@mmg.com", firstName: "Rita", lastName: "Rep" },
+      { id: "u-other", email: "other@mmg.com", firstName: "Other", lastName: "Person" },
+    ] as never);
+    const csv = `Id,Name,Amount,Deal stage,Sales account,Sales owner,Sales owner email\nd-1,Abbott,1000,Negotiation,Abbott,Other Person,rep@mmg.com`;
+
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+    const created = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as { data: { ownerId: string | null } };
+    expect(created.data.ownerId).toBe("u-rep");
+  });
+
+  it("assigns a CONTACT owner — contacts previously imported with none at all", async () => {
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.user.findMany).mockResolvedValue([
+      { id: "u-rep", email: "rep@mmg.com", firstName: "Rita", lastName: "Rep" },
+    ] as never);
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "ct-new" } as never);
+
+    const csv = `Id,First name,Last name,Email,Sales owner email,Lifecycle stage,Status\nc-1,Sara,Khan,s@abbott.com,rep@mmg.com,Engaged,Negotiation`;
+    await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    const created = vi.mocked(db.crmContact.create).mock.calls[0]![0] as {
+      data: { ownerId: string | null; lifecycleStage: string | null; status: string | null };
+    };
+    expect(created.data.ownerId).toBe("u-rep");
+    // …and the two ladders, coerced case/space-insensitively onto our enums.
+    expect(created.data.lifecycleStage).toBe("ENGAGED");
+    expect(created.data.status).toBe("NEGOTIATION");
+  });
+
+  it("reports an unmappable lifecycle/status instead of defaulting it", async () => {
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmContact.findFirst).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "ct-new" } as never);
+
+    const csv = `Id,First name,Last name,Email,Status\nc-1,Sara,Khan,s@abbott.com,Sales Qualified Lead`;
+    const res = await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    const created = vi.mocked(db.crmContact.create).mock.calls[0]![0] as { data: { status: string | null } };
+    // Coercing every unknown status to NEW would silently rewrite pipeline shape.
+    expect(created.data.status).toBeNull();
+    expect(res.ok && res.notes.join(" ")).toMatch(/Sales Qualified Lead/);
+  });
+});
+
+describe("deal type, tags, pipeline", () => {
+  it("resolves a deal type by name and carries tags + the file-level pipeline", async () => {
+    mockDealFixtures();
+    const csv = `Id,Name,Amount,Deal stage,Sales account,Deal type,Tags\nd-1,Abbott,1000,Negotiation,Abbott,Sponsorship,multi-year;renewal`;
+
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false,
+      fallbackEventId: "e-fallback", dateFormat: "iso", pipeline: "CONFERENCE",
+    });
+
+    const created = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as {
+      data: { dealTypeId: string | null; tags: string[]; pipeline: string };
+    };
+    expect(created.data.dealTypeId).toBe("dt-sponsor");
+    expect(created.data.tags).toEqual(["multi-year", "renewal"]);
+    expect(created.data.pipeline).toBe("CONFERENCE");
+  });
+
+  it("leaves an unknown deal type UNSET and names it in the report", async () => {
+    mockDealFixtures();
+    const csv = `Id,Name,Amount,Deal stage,Sales account,Deal type\nd-1,Abbott,1000,Negotiation,Abbott,Media Partnership`;
+
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+
+    const created = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as { data: { dealTypeId: string | null } };
+    expect(created.data.dealTypeId).toBeNull();
+    expect(res.ok && res.notes.join(" ")).toMatch(/Media Partnership/);
+  });
+
+  it("omits pipeline entirely when the operator leaves it unset", async () => {
+    mockDealFixtures();
+    const csv = `Id,Name,Amount,Deal stage,Sales account\nd-1,Abbott,1000,Negotiation,Abbott`;
+
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+
+    const created = vi.mocked(db.crmDeal.create).mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(created.data).not.toHaveProperty("pipeline");
+  });
+
+  it("reads 'Deal reason' as the lost reason — the label the API field most likely renders as", () => {
+    const cols = resolveColumns(parseCSVHeaders("Name,Deal reason"), DEAL_FIELDS);
+    const res = mapDealRow(["Deal", "Budget cut"], cols, "iso");
+    if ("error" in res) throw new Error(res.error);
+    expect(res.row.lostReason).toBe("Budget cut");
+  });
+
+  it("maps company phone + tags", () => {
+    const cols = resolveColumns(parseCSVHeaders("Name,Phone,Tags"), COMPANY_FIELDS);
+    const res = mapCompanyRow(["Abbott", "+97141234567", "sponsor;pharma"], cols);
+    if ("error" in res) throw new Error(res.error);
+    expect(res.row).toMatchObject({ phone: "+97141234567", tags: ["sponsor", "pharma"] });
   });
 });

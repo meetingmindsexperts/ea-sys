@@ -15,6 +15,12 @@ const bodySchema = crmCsvImportBaseSchema.extend({
    * send the field can't silently opt into a day/month swap.
    */
   dateFormat: z.enum(CSV_DATE_FORMATS).default(DEFAULT_CSV_DATE_FORMAT),
+  /**
+   * Applied to every row in the file. Not a CSV column: `CrmDealPipeline` is our
+   * own two-value classification and a Freshsales pipeline NAME can't be mapped
+   * onto it without a translation table, so the operator states it per import.
+   */
+  pipeline: z.enum(["CORPORATE", "CONFERENCE"]).optional(),
 });
 
 /**
@@ -43,6 +49,7 @@ export async function POST(req: Request) {
         fallbackEventId: data.fallbackEventId,
         defaultCurrency: data.defaultCurrency,
         dateFormat: data.dateFormat,
+        pipeline: data.pipeline,
       }),
   });
   });

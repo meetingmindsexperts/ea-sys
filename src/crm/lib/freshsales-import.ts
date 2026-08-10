@@ -158,6 +158,8 @@ const COMPANY_SAMPLE: SampleColumn[] = [
   { header: "Industry", example: "Pharmaceuticals" },
   { header: "City", example: "Dubai" },
   { header: "Country", example: "United Arab Emirates" },
+  { header: "Phone", example: "+97141234567" },
+  { header: "Tags", example: "sponsor;pharma" },
   { header: "Description", example: "Key sponsor account" },
 ];
 
@@ -172,6 +174,10 @@ const CONTACT_SAMPLE: SampleColumn[] = [
   { header: "Sales Account", example: "Abbott Laboratories" },
   { header: "Country", example: "United Arab Emirates" },
   { header: "Tags", example: "sponsor;gold" },
+  { header: "Sales Owner", example: "Krishna P" },
+  { header: "Sales Owner Email", example: "krishna@meetingmindsdubai.com" },
+  { header: "Lifecycle Stage", example: "ENGAGED" },
+  { header: "Status", example: "NEGOTIATION" },
 ];
 
 const DEAL_SAMPLE_ROWS: SampleColumn[][] = [
@@ -186,6 +192,8 @@ const DEAL_SAMPLE_ROWS: SampleColumn[][] = [
     { header: "Sales Account", example: "Abbott Laboratories" },
     { header: "Sales Owner", example: "Krishna P" },
     { header: "Sales Owner Email", example: "krishna@meetingmindsdubai.com" },
+    { header: "Deal Type", example: "Sponsorship" },
+    { header: "Tags", example: "multi-year;renewal" },
     { header: "Lost Reason", example: "" },
   ],
   [
@@ -199,6 +207,8 @@ const DEAL_SAMPLE_ROWS: SampleColumn[][] = [
     { header: "Sales Account", example: "Pfizer" },
     { header: "Sales Owner", example: "Krishna P" },
     { header: "Sales Owner Email", example: "krishna@meetingmindsdubai.com" },
+    { header: "Deal Type", example: "Sponsorship" },
+    { header: "Tags", example: "multi-year;renewal" },
     { header: "Lost Reason", example: "" },
   ],
 ];
@@ -237,6 +247,8 @@ export const COMPANY_FIELDS = {
   industry: { synonyms: ["industrytype", "industry"] },
   city: { synonyms: ["city"] },
   country: { synonyms: ["country"] },
+  phone: { synonyms: ["phone", "phonenumber", "workphone", "telephone"] },
+  tags: { synonyms: ["tags", "tag"] },
   notes: { synonyms: ["description", "about", "notes"] },
 } satisfies FieldSpec<string>;
 
@@ -252,6 +264,10 @@ export const CONTACT_FIELDS = {
   country: { synonyms: ["country"] },
   companyName: { synonyms: ["salesaccount", "salesaccounts", "accountname", "company", "companyname"] },
   tags: { synonyms: ["tags", "tag"] },
+  ownerEmail: { synonyms: ["salesowneremail", "owneremail", "contactowneremail"] },
+  ownerName: { synonyms: ["salesowner", "owner", "contactowner"] },
+  lifecycleStage: { synonyms: ["lifecyclestage", "lifecycle"] },
+  status: { synonyms: ["status", "contactstatus", "salesstatus"] },
 } satisfies FieldSpec<string>;
 
 export const DEAL_FIELDS = {
@@ -263,9 +279,13 @@ export const DEAL_FIELDS = {
   expectedClose: { synonyms: ["expectedclose", "expectedclosedate"] },
   closedDate: { synonyms: ["closeddate", "actualclosedate", "wondate"] },
   companyName: { synonyms: ["salesaccount", "salesaccounts", "accountname", "company", "companyname"] },
-  ownerEmail: { synonyms: ["salesowneremail", "owneremail"] },
-  ownerName: { synonyms: ["salesowner", "owner"] },
-  lostReason: { synonyms: ["lostreason", "closedlostreason", "deallostreason"] },
+  ownerEmail: { synonyms: ["salesowneremail", "owneremail", "dealowneremail"] },
+  ownerName: { synonyms: ["salesowner", "owner", "dealowner"] },
+  // `dealreason` is the label the API field `deal_reason_id` most likely renders
+  // as — without it a whole column of lost reasons imported as "unrecognized".
+  lostReason: { synonyms: ["lostreason", "closedlostreason", "deallostreason", "dealreason", "reasonforloss"] },
+  dealType: { synonyms: ["dealtype", "type"] },
+  tags: { synonyms: ["tags", "tag"] },
 } satisfies FieldSpec<string>;
 
 export interface ColumnResolution<T extends string> {
@@ -327,6 +347,8 @@ export interface CompanyRow {
   industry?: string;
   city?: string;
   country?: string;
+  phone?: string;
+  tags?: string[];
   notes?: string;
 }
 
@@ -344,6 +366,8 @@ export function mapCompanyRow(
       industry: cell(fields, cols.index.industry),
       city: cell(fields, cols.index.city),
       country: cell(fields, cols.index.country),
+      phone: cell(fields, cols.index.phone),
+      tags: parseTagsCell(cell(fields, cols.index.tags)),
       notes: cell(fields, cols.index.notes),
     },
   };
@@ -361,6 +385,37 @@ export interface ContactRow {
   companyName?: string;
   /** Undefined when the CSV has no tags column OR the cell is blank. */
   tags?: string[];
+  ownerEmail?: string;
+  ownerName?: string;
+  /** Already coerced to our enum, or undefined when absent/unrecognised. */
+  lifecycleStage?: CrmLifecycleStageValue;
+  status?: CrmContactStatusValue;
+  /** Values we saw but couldn't map onto an enum — reported, never dropped silently. */
+  unmappedEnums: string[];
+}
+
+// The two contact ladders. Declared as literal tuples rather than imported from
+// @prisma/client because this module is CLIENT-SAFE (the dialog imports it) and
+// the Prisma client is not. A drift test pins them against the real enums.
+export const CRM_LIFECYCLE_VALUES = ["LEAD", "ENGAGED", "CUSTOMER", "CHAMPION"] as const;
+export const CRM_CONTACT_STATUS_VALUES = [
+  "NEW", "CONTACTED", "INTERESTED", "QUALIFIED", "NEGOTIATION", "WON", "LOST", "UNQUALIFIED",
+] as const;
+export type CrmLifecycleStageValue = (typeof CRM_LIFECYCLE_VALUES)[number];
+export type CrmContactStatusValue = (typeof CRM_CONTACT_STATUS_VALUES)[number];
+
+/**
+ * Coerce a free-text CSV cell onto one of our enum values.
+ *
+ * Tolerant of the casing and punctuation a CRM export uses ("Sales Qualified",
+ * "sales_qualified"), but never CREATIVE: an unrecognised value returns null and
+ * is reported rather than being coerced to a default. Landing every unknown
+ * status on NEW would silently rewrite the pipeline's shape.
+ */
+function coerceEnum<T extends string>(v: string | undefined, allowed: readonly T[]): T | null {
+  if (!v) return null;
+  const key = v.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return allowed.find((a) => a === key) ?? null;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -377,8 +432,23 @@ export function mapContactRow(
   if (!rawEmail) return { error: "Missing email" };
   if (!EMAIL_RE.test(rawEmail)) return { error: `Invalid email "${rawEmail}"` };
 
+  const unmappedEnums: string[] = [];
+  const rawLifecycle = cell(fields, cols.index.lifecycleStage);
+  const rawStatus = cell(fields, cols.index.status);
+  const lifecycleStage = coerceEnum(rawLifecycle, CRM_LIFECYCLE_VALUES);
+  const status = coerceEnum(rawStatus, CRM_CONTACT_STATUS_VALUES);
+  // Unmapped is a REPORT, not a row error: a stray lifecycle label shouldn't
+  // cost you the contact, but it must not vanish without a word either.
+  if (rawLifecycle && !lifecycleStage) unmappedEnums.push(`lifecycle "${rawLifecycle}"`);
+  if (rawStatus && !status) unmappedEnums.push(`status "${rawStatus}"`);
+
   return {
     row: {
+      lifecycleStage: lifecycleStage ?? undefined,
+      status: status ?? undefined,
+      unmappedEnums,
+      ownerEmail: cell(fields, cols.index.ownerEmail)?.toLowerCase(),
+      ownerName: cell(fields, cols.index.ownerName),
       externalId: cell(fields, cols.index.externalId),
       firstName,
       lastName,
@@ -414,6 +484,8 @@ export interface DealRow {
   ownerEmail?: string;
   ownerName?: string;
   lostReason?: string;
+  dealTypeName?: string;
+  tags?: string[];
 }
 
 export function mapDealRow(
@@ -460,6 +532,8 @@ export function mapDealRow(
       ownerEmail: cell(fields, cols.index.ownerEmail)?.toLowerCase(),
       ownerName: cell(fields, cols.index.ownerName),
       lostReason: cell(fields, cols.index.lostReason),
+      dealTypeName: cell(fields, cols.index.dealType),
+      tags: parseTagsCell(cell(fields, cols.index.tags)),
     },
   };
 }
