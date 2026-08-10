@@ -734,7 +734,7 @@ function CategoryRegistrationContent() {
                         )} />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField control={form.control} name="jobTitle"
                         render={({ field }) => (
                           <FormItem>
@@ -753,7 +753,7 @@ function CategoryRegistrationContent() {
                         )} />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField control={form.control} name="phone"
                         render={({ field }) => (
                           <FormItem>
@@ -772,7 +772,7 @@ function CategoryRegistrationContent() {
                         )} />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField control={form.control} name="country"
                         render={({ field }) => (
                           <FormItem>
@@ -790,7 +790,7 @@ function CategoryRegistrationContent() {
                           </FormItem>
                         )} />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField control={form.control} name="state"
                         render={({ field }) => (
                           <FormItem>
@@ -809,7 +809,7 @@ function CategoryRegistrationContent() {
                         )} />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField control={form.control} name="specialty"
                         render={({ field }) => (
                           <FormItem>
@@ -828,7 +828,7 @@ function CategoryRegistrationContent() {
                         )} />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {selectedSpecialty === "Others" && (
                         <FormField control={form.control} name="customSpecialty"
                           render={({ field }) => (
@@ -881,7 +881,7 @@ function CategoryRegistrationContent() {
                               <FormMessage />
                             </FormItem>
                           )} />
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <FormField control={form.control} name="billingFirstName"
                             render={({ field }) => (
                               <FormItem>
@@ -900,7 +900,7 @@ function CategoryRegistrationContent() {
                             )} />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <FormField control={form.control} name="billingEmail"
                             render={({ field }) => (
                               <FormItem>
@@ -928,7 +928,7 @@ function CategoryRegistrationContent() {
                             </FormItem>
                           )} />
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <FormField control={form.control} name="billingCountry"
                             render={({ field }) => (
                               <FormItem>
@@ -947,7 +947,7 @@ function CategoryRegistrationContent() {
                             )} />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <FormField control={form.control} name="billingState"
                             render={({ field }) => (
                               <FormItem>
@@ -1192,7 +1192,7 @@ function CategoryRegistrationContent() {
                           Please provide your membership details below. You will be required to present your valid member ID at the time of event attendance for verification.
                         </p>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <FormField control={form.control} name="associationName"
                           render={({ field }) => (
                             <FormItem>
@@ -1222,7 +1222,7 @@ function CategoryRegistrationContent() {
                           Please provide your student ID details below. You will be required to present a valid student ID at the time of event attendance for verification.
                         </p>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <FormField control={form.control} name="studentId"
                           render={({ field }) => (
                             <FormItem>

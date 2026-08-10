@@ -429,7 +429,7 @@ function CompleteRegistrationContent() {
                   <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Your Details</h3>
                   <p className="text-xs text-slate-500">These details were provided by the event organizer and cannot be changed here.</p>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium text-slate-600 flex items-center gap-1.5">
                         <Lock className="h-3 w-3 text-slate-400" /> First Name
@@ -482,7 +482,7 @@ function CompleteRegistrationContent() {
                       )} />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormField control={form.control} name="phone"
                       render={({ field }) => (
                         <FormItem>
@@ -501,7 +501,7 @@ function CompleteRegistrationContent() {
                       )} />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormField control={form.control} name="city"
                       render={({ field }) => (
                         <FormItem>
@@ -520,7 +520,7 @@ function CompleteRegistrationContent() {
                       )} />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormField control={form.control} name="specialty"
                       render={({ field }) => (
                         <FormItem>
@@ -560,7 +560,7 @@ function CompleteRegistrationContent() {
                         Please provide your membership details below. You will be required to present your valid member ID at the time of event attendance for verification.
                       </p>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField control={form.control} name="associationName"
                         render={({ field }) => (
                           <FormItem>
@@ -590,7 +590,7 @@ function CompleteRegistrationContent() {
                         Please provide your student ID details below. You will be required to present a valid student ID at the time of event attendance for verification.
                       </p>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <FormField control={form.control} name="studentId"
                         render={({ field }) => (
                           <FormItem>
@@ -616,7 +616,7 @@ function CompleteRegistrationContent() {
                   <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Create Your Account</h3>
                   <p className="text-xs text-slate-500">Set a password to access your registration portal, view your details, and make payments online.</p>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormField control={form.control} name="password"
                       render={({ field }) => (
                         <FormItem>
