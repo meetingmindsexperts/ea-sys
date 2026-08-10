@@ -216,6 +216,25 @@ blank survey answers (which are `{ …, value }`). Don't rename it.
 > Rule of thumb (from AGENTS.md): if you're reaching for an existing predicate
 > because it's "close enough", that's the signal to write a new one.
 
+### 3.3a A capped list must report its true total
+
+Every CRM list route caps its page (`src/crm/lib/list-caps.ts`) — the board at
+2,000, contacts and companies at 1,000. A cap is a **rendering budget**, not a
+correctness mechanism, so each route also returns `{ total, truncated }` from a
+count against the **same `where`** and the UI renders a banner.
+
+The bug this rule exists to prevent: the board used to return at most 1,000 rows
+and say nothing, so an org with 10,412 deals saw a pipeline with 1,000 deals in
+it. That is not a visibly broken screen — it is a plausible one, and every total
+anyone read off it was wrong. Silent truncation on a sales pipeline is worse than
+an obviously empty screen, because nobody goes looking for the missing rows.
+
+Two things to keep right when adding a list:
+- **Count the same `where` object** the page used. A divergent count is worse
+  than no count — the banner would state a wrong number confidently.
+- **Compare `total` against what was RETURNED**, not against the cap. Keying on
+  `returned === CAP` false-positives on an org holding exactly CAP rows.
+
 ### 3.4 State transitions are conditional claims, never blind writes
 
 A kanban board is the most concurrent surface in the product — two people drag the

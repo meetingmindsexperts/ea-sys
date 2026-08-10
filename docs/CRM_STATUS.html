@@ -107,7 +107,7 @@
 <h1>CRM — Build Status</h1>
 <p class="sub">
   What is built, what is wired to the rest of EA-SYS, and what is not.<br>
-  <span class="stamp">Last updated: <b>7 August 2026</b> (CSV export narrowed to admin-and-above; Freshsales migration assessed — see <a href="CRM_FRESHSALES_MIGRATION.md">CRM_FRESHSALES_MIGRATION.md</a>) · prev 27 Jul (UI pass — CRM Home/Overview landing; org-wide Activity view + CSV export filterable by user &amp; timeframe; URL-backed filters + sortable columns on Companies &amp; Contacts) · prev 23 Jul (email inbox; quote generation; deal documents; contact enrichment/ownership; inline editing ×3; multi-tenant prep) · HEAD <code>WORKING</code> ·
+  <span class="stamp">Last updated: <b>10 August 2026</b> (Freshsales migration fixes shipped — declared date format, owner/ladder/type/tag mapping, 8MB import bodies + batched lookups, honest list truncation) · prev 7 Aug (CSV export narrowed to admin-and-above; migration assessed — see <a href="CRM_FRESHSALES_MIGRATION.md">CRM_FRESHSALES_MIGRATION.md</a>) · prev 27 Jul (UI pass — CRM Home/Overview landing; org-wide Activity view + CSV export filterable by user &amp; timeframe; URL-backed filters + sortable columns on Companies &amp; Contacts) · prev 23 Jul (email inbox; quote generation; deal documents; contact enrichment/ownership; inline editing ×3; multi-tenant prep) · HEAD <code>WORKING</code> ·
   Plan: <a href="CRM_MODULE_PLAN.md">CRM_MODULE_PLAN.md</a></span>
 </p>
 
@@ -240,6 +240,28 @@ Reports and Activity hide for everyone else — but the API is the authority. A 
 that <b>every</b> CRM route emitting a CSV calls the export gate, because the real failure mode is
 a future third export route reaching for <code>requireCrmRead</code> like its neighbours.</p>
 
+<p class="why"><b>Aug 10 — the migration fixes shipped (4 phases).</b> <b>(1) Dates are DECLARED,
+never guessed.</b> The importer called <code>new Date(cell)</code>, so a day-first export made days
+1-12 of every month the WRONG date and days 13-31 vanish — and a vanished close date on a won deal
+fell through to <code>?? new Date()</code>, stamping the import date, so historical wins read as
+"won today". The dialog now carries a format picker, parsing is strict (UTC-anchored, rolled-over
+dates and 2-digit years refused), a contradicting value is a row error, and <b>the dry run echoes
+the first parsed date</b> — both orders parse cleanly for days 1-12, so counts alone can never
+reveal a wrong pick. An undated won deal keeps <code>wonAt</code> NULL and is reported.
+<b>(2) The dropped fields.</b> Contacts had NO owner field at all; deals matched owners by email
+only, though a Freshsales view renders the owner as a NAME. One shared resolver now does email →
+unambiguous name for both, and <b>refuses to guess</b> on a duplicate name. Plus contact
+lifecycle/status, deal type by name, deal + company tags, company phone, and a
+<code>dealreason</code> synonym. Pipeline is deliberately per-file (ours, not a Freshsales column).
+<b>(3) The caps.</b> <code>/api/crm/import/*</code> gets 8MB (nginx already allowed 10MB, so our
+1MB was the binding limit behind the 413), and per-row lookups became one prefetch per file —
+15,000 sequential round trips down to zero for a 5,000-row chunk. <b>(4) Honest truncation.</b>
+All three list routes return the TRUE total; the board/contacts/companies render
+"Showing 2,000 of 10,412 — narrow the filters". The cap is a rendering budget, the count is the
+correctness mechanism. <b>Still outstanding: a real 5-row sample export</b> — it decides which
+further header synonyms are needed and which date format to pick.
+Full runbook: <a href="CRM_FRESHSALES_MIGRATION.md">CRM_FRESHSALES_MIGRATION.md</a>.</p>
+
 <p class="why"><b>Aug 7 — Freshsales migration assessed (~10k deals / 4.4k contacts / 230
 accounts).</b> Postgres handles the volume; the pipeline around it does not, as shipped. Three
 hard caps block a single-file import (5,000-row parser cap, 1 MB request body, 60 s gateway
@@ -264,6 +286,9 @@ they are recorded rather than left in chat. Full reasoning in
     <tr><td>Contact lifecycle</td><td><code>LEAD → ENGAGED → CUSTOMER → CHAMPION</code> (nullable; no backfill needed).</td></tr>
     <tr><td>Pipeline stages</td><td><code>Prospect → Contacted → Proposal → Negotiation → Won/Lost</code>, as a <b>table</b> (org-editable), not an enum.</td></tr>
     <tr><td>Visibility</td><td>Staff own deals; all staff see all deals; <b>MEMBER sees the board with values redacted</b>.</td></tr>
+    <tr><td>Import date format <span class="tag">Aug 10</span></td><td><b>Declared per file, never auto-detected.</b> A guess that is usually right is the failure mode; the dry run echoes the first parsed date.</td></tr>
+    <tr><td>Deal pipeline on import <span class="tag">Aug 10</span></td><td><b>Chosen per file</b>, not read from a column — <code>CrmDealPipeline</code> is ours and a Freshsales pipeline name can't map onto it.</td></tr>
+    <tr><td>Import size <span class="tag">Aug 10</span></td><td><b>~5,000-row chunks</b> (8MB bodies + batched lookups). Jobifying the import was considered and deferred.</td></tr>
     <tr><td>CSV export <span class="tag">Aug 7</span></td><td><b>Admin and above only</b> — narrower than both CRM read and CRM write. API keys allowed; see the note above.</td></tr>
   </tbody>
 </table>
