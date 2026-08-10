@@ -136,6 +136,42 @@ function ifColumn<K extends string, V>(index: number, key: K, value: V): Partial
   return index >= 0 ? ({ [key]: value } as Partial<Record<K, V>>) : {};
 }
 
+/**
+ * Count how many ROWS each unmappable label affected.
+ *
+ * The notes used to render a `Set` of distinct labels with no counts:
+ *   Left blank — no matching value in EA-SYS for: lifecycle "Sales Qualified Lead"
+ * Freshsales' default ladder ("Lead / Contact / Sales Qualified Lead / Customer")
+ * does not match ours, so on 4,400 contacts that one short string can be standing
+ * in for thousands of rows — and the operator has no way to tell 3 from 3,000.
+ */
+function tally(counts: Map<string, number>, label: string) {
+  counts.set(label, (counts.get(label) ?? 0) + 1);
+}
+
+function renderTally(counts: Map<string, number>): string {
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, n]) => `${label} (${n.toLocaleString()} row${n === 1 ? "" : "s"})`)
+    .join(", ");
+}
+
+/**
+ * An archived (soft-deleted) record still matches by name/email/externalId, so
+ * an import updates it and counts it as "updated" — while it stays invisible in
+ * every list, board and report. The operator reads "1 updated" and cannot find
+ * the record anywhere.
+ *
+ * Deliberately NOT auto-un-archived: resurrecting a record the org chose to
+ * remove is a bigger surprise than a stale one. It is reported instead, so the
+ * decision stays theirs.
+ */
+const ARCHIVED_NOTE = (n: number, noun: string) =>
+  `${n.toLocaleString()} archived ${noun}${n === 1 ? "" : "s"} matched and ${n === 1 ? "was" : "were"} updated — they stay archived, so you won't see them in the list. Restore them there if that's wrong.`;
+/** "company/companies" doesn't pluralise by adding an s. */
+const ARCHIVED_COMPANIES_NOTE = (n: number) =>
+  ARCHIVED_NOTE(n, "compan").replace("compans", "companies").replace("compan ", "company ");
+
 /** Message for guard (2) above — shared so companies and contacts read alike. */
 const CONSUMED_ROW_ERROR =
   "An earlier row in this file already updated the record this row matches — split the conflicting rows across two files, or fix the duplicate in Freshsales";
@@ -216,6 +252,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
   };
   /** Record ids this file has already written — guard (2) in indexBy(). */
   const consumed = new Set<string>();
+  let archivedMatched = 0;
 
   for (let i = 0; i < parsed.rows.length; i++) {
     const rowNo = i + 1;
@@ -251,6 +288,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
       }
 
       const action = decideImportAction(existing);
+      if (existing?.archivedAt && action !== "skip-kept-local") archivedMatched++;
       // R2-H1: the enrich path deliberately does NOT stamp lastImportedAt — an
       // EA-born row stays enrich-FOREVER. Stamping it here made the SECOND
       // import of the same export take the Freshsales-wins `update` path and
@@ -349,6 +387,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
     }
   }
 
+  if (archivedMatched > 0) report.notes.push(ARCHIVED_COMPANIES_NOTE(archivedMatched));
   if (!ctx.dryRun) void recordCrmActivityBulk(activity);
   apiLogger.info({
     msg: "crm-import:companies-done", organizationId: ctx.organizationId, dryRun: ctx.dryRun,
@@ -382,8 +421,8 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
     makeCompanyResolver(ctx),
     makeOwnerResolver(ctx.organizationId),
   ]);
-  /** Lifecycle/status labels we couldn't map — reported, never coerced to a default. */
-  const unmappedEnums = new Set<string>();
+  /** Lifecycle/status labels we couldn't map — reported WITH row counts (M3). */
+  const unmappedEnums = new Map<string, number>();
 
   // One prefetch instead of two reads per row — see indexBy().
   const wanted = parsed.rows.map((r) => {
@@ -405,6 +444,7 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   };
   /** Record ids this file has already written — guard (2) in indexBy(). */
   const consumed = new Set<string>();
+  let archivedMatched = 0;
 
   for (let i = 0; i < parsed.rows.length; i++) {
     const rowNo = i + 1;
@@ -434,6 +474,7 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
       }
 
       const action = decideImportAction(existing);
+      if (existing?.archivedAt && action !== "skip-kept-local") archivedMatched++;
       // R2-H1: the enrich path deliberately does NOT stamp lastImportedAt — an
       // EA-born row stays enrich-FOREVER. Stamping it here made the SECOND
       // import of the same export take the Freshsales-wins `update` path and
@@ -448,7 +489,7 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
       const companyId = await resolveCompany.idFor(row.companyName);
       const dryCompany = typeof companyId === "string" && companyId.startsWith("dry:");
       const ownerId = resolveOwner.resolve(row.ownerEmail, row.ownerName);
-      row.unmappedEnums.forEach((e) => unmappedEnums.add(e));
+      row.unmappedEnums.forEach((e) => tally(unmappedEnums, e));
 
       if (action === "create") {
         report.created++;
@@ -558,11 +599,10 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   if (resolveCompany.created > 0) {
     report.notes.push(`${resolveCompany.created} compan${resolveCompany.created === 1 ? "y" : "ies"} named in the CSV didn't exist and ${ctx.dryRun ? "would be" : "were"} created`);
   }
+  if (archivedMatched > 0) report.notes.push(ARCHIVED_NOTE(archivedMatched, "contact"));
   report.notes.push(...ownerNotes(resolveOwner));
   if (unmappedEnums.size > 0) {
-    report.notes.push(
-      `Left blank — no matching value in EA-SYS for: ${[...unmappedEnums].join(", ")}`,
-    );
+    report.notes.push(`Left blank — no matching value in EA-SYS for: ${renderTally(unmappedEnums)}`);
   }
   if (!ctx.dryRun) void recordCrmActivityBulk(activity);
   apiLogger.info({
@@ -694,7 +734,16 @@ async function makeOwnerResolver(organizationId: string) {
   };
 }
 
-/** The owner notes both importers append, built in one place so they can't drift. */
+/**
+ * The owner notes both importers append, built in one place so they can't drift.
+ *
+ * NOTE the counters are incremented at RESOLVE time, which is before the
+ * create/update/kept-local decision — so a kept-local row still contributes.
+ * That overstates the effect slightly and is deliberate: the alternative is
+ * threading the action back into the resolver, and an operator reading "3 owners
+ * unmatched" wants to know their CSV has 3 unresolvable owners regardless of
+ * which rows this particular run happened to write.
+ */
 function ownerNotes(r: { unmatched: number; ambiguous: number; matchedByName: number }): string[] {
   const notes: string[] = [];
   if (r.matchedByName > 0) notes.push(`${r.matchedByName} owner(s) matched by NAME (no email column) — spot-check those`);
@@ -792,7 +841,7 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   const stageMappingNotes = new Map<string, string>();
   let eventMatched = 0;
   let eventFallback = 0;
-  const unmappedDealTypes = new Set<string>();
+  const unmappedDealTypes = new Map<string, number>();
   /** First real date seen, echoed in the report so a wrong format pick is visible. */
   let dateEcho: string | null = null;
   /** Won/Lost rows carrying no close date — their wonAt/lostAt stays NULL, reported. */
@@ -870,7 +919,7 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
       let dealTypeId: string | null = null;
       if (row.dealTypeName) {
         dealTypeId = dealTypeByName.get(row.dealTypeName.trim().toLowerCase()) ?? null;
-        if (!dealTypeId) unmappedDealTypes.add(row.dealTypeName);
+        if (!dealTypeId) tally(unmappedDealTypes, row.dealTypeName);
       }
 
       const companyId = await resolveCompany.idFor(row.companyName);
@@ -888,13 +937,21 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
       // reported: the deal correctly drops out of date-ranged reports rather
       // than landing in the wrong bucket. (A cell that is present but
       // unreadable never reaches here — mapDealRow made it a row error.)
-      if (outcome && !row.closedDate) closedWithoutDate++;
+
+      // M1: `lostReason` is NOT a close stamp and must not ride with them. It
+      // used to, so a LOST deal re-imported from an export with no Closed-date
+      // column took the preserve branch below and silently ignored a corrected
+      // reason — while the row was still reported as "updated".
       const closeStamps =
         outcome === "WON"
-          ? { wonAt: row.closedDate ?? null, lostAt: null, lostReason: null }
+          ? { wonAt: row.closedDate ?? null, lostAt: null }
           : outcome === "LOST"
-            ? { lostAt: row.closedDate ?? null, wonAt: null, lostReason: row.lostReason ?? null }
-            : { wonAt: null, lostAt: null, lostReason: null };
+            ? { lostAt: row.closedDate ?? null, wonAt: null }
+            : { wonAt: null, lostAt: null };
+      const lostReasonWrite =
+        outcome === "LOST"
+          ? ifColumn(cols.index.lostReason, "lostReason", row.lostReason ?? null)
+          : { lostReason: null };
       // R2-M6: on a RE-IMPORT of a deal whose closed status hasn't changed and
       // whose CSV carries no Closed-date value, PRESERVE the stored stamps — an
       // earlier `?? new Date()` fallback drifted every won deal's wonAt to the
@@ -903,6 +960,18 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
       // counted in closedWithoutDate. Do not reinstate it.
       const closeStampsForUpdate =
         !row.closedDate && existing !== null && existing.status === status ? {} : closeStamps;
+      // M2: count only rows where a NULL close date is actually WRITTEN. The
+      // counter used to fire for every undated won/lost row — including
+      // kept-local rows (nothing written) and re-imports taking the preserve
+      // branch above (stored date retained). The note then told the operator
+      // their win history had gone blank when it hadn't, which is worse than
+      // silence: it teaches them to distrust the note when it IS true.
+      const willWriteNullStamp =
+        outcome !== null &&
+        !row.closedDate &&
+        action !== "skip-kept-local" &&
+        (action === "create" || Object.keys(closeStampsForUpdate).length > 0);
+      if (willWriteNullStamp) closedWithoutDate++;
 
       // Everything not derived from an optional column — safe on create AND update.
       const common = {
@@ -947,7 +1016,11 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
         report.created++;
         if (!ctx.dryRun) {
           const created = await db.crmDeal.create({
-            data: { organizationId: ctx.organizationId, eventId, ...common, ...fromColumns, ...closeStamps },
+            data: {
+              organizationId: ctx.organizationId, eventId,
+              ...common, ...fromColumns, ...closeStamps,
+              lostReason: outcome === "LOST" ? row.lostReason ?? null : null,
+            },
           });
           activity.push({
             organizationId: ctx.organizationId, entityType: "DEAL", entityId: created.id,
@@ -978,6 +1051,9 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
               // Only a file that carries the stage column may move a deal's
               // close stamps — see fromColumnsForUpdate.
               ...(cols.index.stage >= 0 ? closeStampsForUpdate : {}),
+              // …but the reason follows its OWN column, so a corrected reason
+              // lands even when the close date is unchanged (M1).
+              ...(cols.index.stage >= 0 ? lostReasonWrite : {}),
             },
           });
           activity.push({
@@ -1021,7 +1097,7 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   report.notes.push(...ownerNotes(resolveOwner));
   if (unmappedDealTypes.size > 0) {
     report.notes.push(
-      `Deal type(s) not found in this org, left untyped: ${[...unmappedDealTypes].join(", ")} — add them under Manage deal types and re-import to fill them in`,
+      `Deal type(s) not found in this org: ${renderTally(unmappedDealTypes)} — those deals are left untyped, and an existing type is CLEARED. Add them under Manage deal types and re-import.`,
     );
   }
   if (resolveCompany.created > 0) {

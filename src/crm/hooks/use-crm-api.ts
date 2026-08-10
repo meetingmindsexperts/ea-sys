@@ -81,6 +81,7 @@ export const crmKeys = {
   contact: (id: string) => ["crm", "contact", id] as const,
   contactTags: ["crm", "contact-tags"] as const,
   companyTags: ["crm", "company-tags"] as const,
+  companyFacets: ["crm", "company-facets"] as const,
   activity: (entityType: string, entityId?: string | null) =>
     entityId === undefined ? (["crm", "activity", entityType] as const) : (["crm", "activity", entityType, entityId ?? ""] as const),
   emailTemplates: (includeArchived: boolean) => ["crm", "email-templates", includeArchived] as const,
@@ -215,8 +216,21 @@ export function useDeleteStage() {
 
 // ── Deals ────────────────────────────────────────────────────────────────────
 
-/** Shared so the list and its meta hook can never fetch different things. */
-function dealsQueryOptions(filters: CrmDealFilters, suffix: string) {
+/**
+ * Shared so the list and its meta hook can never fetch different things.
+ *
+ * The suffix is derived HERE rather than passed in: it used to be rebuilt
+ * independently inside each hook, so normalising a filter in one and missing the
+ * other would leave the queryKey identical while the URLs diverged — both
+ * observers keep sharing the cache entry, and whichever mounts first silently
+ * wins. No error, no duplicate request, render-order dependent.
+ */
+function dealsQueryOptions(filters: CrmDealFilters) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v) qs.set(k, v);
+  }
+  const suffix = qs.toString() ? `?${qs}` : "";
   return {
     queryKey: crmKeys.deals(filters),
     queryFn: () => apiFetch<{ deals: CrmBoardDeal[] } & CrmListMeta>(`/api/crm/deals${suffix}`),
@@ -224,14 +238,8 @@ function dealsQueryOptions(filters: CrmDealFilters, suffix: string) {
 }
 
 export function useCrmDeals(filters: CrmDealFilters = {}) {
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(filters)) {
-    if (v) qs.set(k, v);
-  }
-  const suffix = qs.toString() ? `?${qs}` : "";
-
   return useQuery({
-    ...dealsQueryOptions(filters, suffix),
+    ...dealsQueryOptions(filters),
     select: (r) => r.deals,
   });
 }
@@ -246,13 +254,8 @@ export function useCrmDeals(filters: CrmDealFilters = {}) {
  * would be a worse trade than a second select over the same cache entry.
  */
 export function useCrmDealsMeta(filters: CrmDealFilters = {}) {
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(filters)) {
-    if (v) qs.set(k, v);
-  }
-  const suffix = qs.toString() ? `?${qs}` : "";
   return useQuery({
-    ...dealsQueryOptions(filters, suffix),
+    ...dealsQueryOptions(filters),
     select: (r): CrmListMeta => ({ total: r.total, truncated: r.truncated }),
   });
 }
@@ -370,6 +373,20 @@ export function useCrmCompanyTags() {
     queryKey: crmKeys.companyTags,
     queryFn: () => apiFetch<{ tags: string[] }>("/api/crm/companies/tags").then((r) => r.tags),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Whole-book aggregates for the companies list header (industry options + the
+ * needs-review count). Deliberately NOT derived from an unfiltered list read —
+ * that is capped, so past the cap the badge under-counted and industries went
+ * missing from their own dropdown.
+ */
+export function useCrmCompanyFacets() {
+  return useQuery({
+    queryKey: crmKeys.companyFacets,
+    queryFn: () =>
+      apiFetch<{ industries: string[]; needsReviewCount: number }>("/api/crm/companies/facets"),
   });
 }
 

@@ -1048,3 +1048,115 @@ describe("column absent vs cell blank (H2)", () => {
     expect(data).not.toHaveProperty("dealTypeId");
   });
 });
+
+// ── Review round 2: report honesty + field independence ──────────────────────
+
+describe("lostReason travels with its own column (M1)", () => {
+  it("a corrected reason lands even when the close date is unchanged", async () => {
+    mockDealFixtures();
+    // Stored LOST deal, re-imported as LOST from an export with no Closed date.
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([
+      { id: "x-1", externalId: "d-1", status: "LOST", ownerId: null, updatedAt: new Date("2026-01-01"), lastImportedAt: new Date("2026-01-01") },
+    ] as never);
+
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1",
+      csvText: `Id,Name,Amount,Deal stage,Sales account,Lost reason\nd-1,Abbott,1000,Closed lost,Abbott,Budget cut`,
+      dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+
+    const data = (vi.mocked(db.crmDeal.update).mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    // It used to be bundled into closeStamps, so the R2-M6 preserve branch threw
+    // it away and the row was still reported as "updated".
+    expect(data.lostReason).toBe("Budget cut");
+    // …while the stored close DATE is still preserved.
+    expect(data).not.toHaveProperty("lostAt");
+  });
+});
+
+describe("closedWithoutDate counts only real nulls (M2)", () => {
+  it("does NOT warn about deals whose stored close date was preserved", async () => {
+    mockDealFixtures();
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([
+      { id: "x-1", externalId: "d-1", status: "WON", ownerId: null, updatedAt: new Date("2026-01-01"), lastImportedAt: new Date("2026-01-01") },
+    ] as never);
+
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1",
+      csvText: `Id,Name,Amount,Deal stage,Closed date,Sales account\nd-1,Abbott,1000,Closed won,,Abbott`,
+      dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+
+    if (!res.ok) throw new Error(res.message);
+    // The old counter fired here, so a monthly re-import told the operator their
+    // whole win history had gone blank — when the stamps were retained intact.
+    expect(res.notes.join(" ")).not.toMatch(/no close date/);
+  });
+
+  it("DOES warn when a null stamp is genuinely written", async () => {
+    mockDealFixtures();
+    const res = await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1",
+      csvText: `Id,Name,Amount,Deal stage,Closed date,Sales account\nd-1,Abbott,1000,Closed won,,Abbott`,
+      dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+    if (!res.ok) throw new Error(res.message);
+    expect(res.notes.join(" ")).toMatch(/no close date/);
+  });
+});
+
+describe("report honesty (M3, M4)", () => {
+  it("unmapped labels carry ROW COUNTS, not just the distinct strings", async () => {
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmContact.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "ct" } as never);
+
+    // Freshsales' default ladder doesn't match ours, so one label can stand in
+    // for thousands of rows — "3" and "3,000" must not read the same.
+    const csv = [
+      "Id,First name,Last name,Email,Status",
+      "c-1,A,One,a@x.com,Sales Qualified Lead",
+      "c-2,B,Two,b@x.com,Sales Qualified Lead",
+      "c-3,C,Three,c@x.com,Sales Qualified Lead",
+    ].join("\n");
+    const res = await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    if (!res.ok) throw new Error(res.message);
+    expect(res.notes.join(" ")).toMatch(/Sales Qualified Lead" \(3 rows\)/);
+  });
+
+  it("an ARCHIVED record that gets updated is reported — it stays invisible in the list", async () => {
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([
+      {
+        id: "X", name: "Abbott", nameKey: "abbott",
+        externalSource: "freshsales", externalId: "FS-1",
+        website: null, industry: null, city: null, country: null, phone: null,
+        tags: [], notes: null, archivedAt: new Date("2026-02-01"),
+        updatedAt: new Date("2026-01-01"), lastImportedAt: new Date("2026-01-01"),
+      },
+    ] as never);
+
+    const res = await importFreshsalesCompanies({
+      organizationId: ORG, userId: "u-1", csvText: `Id,Name\nFS-1,Abbott`, dryRun: false,
+    });
+
+    if (!res.ok) throw new Error(res.message);
+    // Without the note the operator reads "1 updated" and cannot find it anywhere.
+    expect(res.notes.join(" ")).toMatch(/1 archived company matched/);
+    // Deliberately NOT auto-restored — that decision stays theirs.
+    const data = (vi.mocked(db.crmCompany.update).mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    expect(data).not.toHaveProperty("archivedAt");
+  });
+});
+
+describe("tag cells are capped (L)", () => {
+  it("drops runaway tags rather than writing an enormous array", () => {
+    const cols = resolveColumns(parseCSVHeaders("Name,Tags"), COMPANY_FIELDS);
+    const many = Array.from({ length: 200 }, (_, i) => `t${i}`).join(";");
+    const res = mapCompanyRow(["Abbott", `${many};${"x".repeat(200)}`], cols);
+    if ("error" in res) throw new Error(res.error);
+    expect(res.row.tags).toHaveLength(50); // capped…
+    expect(res.row.tags!.every((t) => t.length <= 64)).toBe(true); // …and the 200-char one dropped
+  });
+});

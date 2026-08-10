@@ -62,7 +62,13 @@ export function parseTags(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-const MAX_ROWS = 5000;
+/**
+ * Exported so the import dialogs can TELL the operator before they upload —
+ * discovering a 5,000-row ceiling by having a 10,000-row file rejected is a
+ * poor way to learn it.
+ */
+export const CSV_MAX_ROWS = 5000;
+const MAX_ROWS = CSV_MAX_ROWS;
 
 /**
  * Split CSV text into logical lines, merging lines that are inside quoted fields.

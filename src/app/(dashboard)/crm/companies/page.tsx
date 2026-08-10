@@ -41,6 +41,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   useCrmCompanies,
   useCrmCompaniesMeta,
+  useCrmCompanyFacets,
   useCrmCompanyTags,
 } from "@/crm/hooks/use-crm-api";
 import { CrmLoadError } from "@/crm/components/crm-load-error";
@@ -66,10 +67,12 @@ function CompaniesInner() {
   const [importOpen, setImportOpen] = useState(false);
   const router = useRouter();
 
-  // Unfiltered list drives BOTH the option dropdown (a stable industry list) and
-  // the review count — deriving the options from the filtered set would make them
-  // vanish as you use them.
-  const { data: allCompanies = [] } = useCrmCompanies();
+  // Whole-book aggregates. These used to come from an unfiltered list read,
+  // which is capped like every other list — so past 1,000 companies the review
+  // badge under-counted and any industry appearing only in later rows vanished
+  // from its own dropdown. A capped list is fine for a table that says so; it is
+  // not fine as the source of a COUNT.
+  const { data: facets } = useCrmCompanyFacets();
   const { data: availableTags = [] } = useCrmCompanyTags();
   // `needsReview` is applied SERVER-side (the route has supported it all along).
   // Filtering it client-side made the banner's `shown` and `total` describe two
@@ -86,10 +89,8 @@ function CompaniesInner() {
   // Same cache entry as the list above — no second fetch.
   const { data: companiesMeta } = useCrmCompaniesMeta(companyFilters);
   const rows = sortKey ? [...companies].sort(makeComparator(sortKey, dir)) : companies;
-  const reviewCount = allCompanies.filter((c) => c.needsReview).length;
-  const industries = Array.from(
-    new Set(allCompanies.map((c) => c.industry).filter((i): i is string => !!i)),
-  ).sort();
+  const reviewCount = facets?.needsReviewCount ?? 0;
+  const industries = facets?.industries ?? [];
 
   const onSort = (key: string) => set(nextSort(sortKey, dir, key));
 

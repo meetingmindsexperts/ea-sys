@@ -25,6 +25,7 @@ import {
   type CsvDateFormat,
 } from "@/crm/lib/freshsales-import";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CSV_MAX_ROWS } from "@/lib/csv-parser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -203,6 +204,9 @@ export function FreshsalesImportDialog({
             <p className="text-xs text-muted-foreground">
               A real Freshsales {TYPE_COPY[type].source.replace("Freshsales ", "").replace(" export", "")}{" "}
               export works directly. Not sure of the format? Download the sample to see the exact columns.
+              <br />
+              <b>Max {CSV_MAX_ROWS.toLocaleString()} rows per file</b> — split a larger export and import
+              the parts in any order. Re-importing is safe: rows converge on their Freshsales Id.
             </p>
           </div>
 

@@ -482,10 +482,24 @@ export function mapContactRow(
   };
 }
 
-/** Freshsales tag cells are comma- or semicolon-separated. Blank → undefined. */
+/**
+ * Freshsales tag cells are comma- or semicolon-separated. Blank → undefined.
+ *
+ * Capped: without one, a single malformed cell becomes an enormous `String[]`
+ * written to Postgres and then queried with `hasSome`. Excess is DROPPED rather
+ * than erroring — a runaway tag cell shouldn't cost you the contact.
+ */
+const MAX_TAGS_PER_CELL = 50;
+const MAX_TAG_LENGTH = 64;
+
 function parseTagsCell(v: string | undefined): string[] | undefined {
   if (!v) return undefined;
-  const tags = v.split(/[;,]/).map((t) => t.trim()).filter(Boolean);
+  const tags = v
+    .split(/[;,]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .filter((t) => t.length <= MAX_TAG_LENGTH)
+    .slice(0, MAX_TAGS_PER_CELL);
   return tags.length > 0 ? tags : undefined;
 }
 
