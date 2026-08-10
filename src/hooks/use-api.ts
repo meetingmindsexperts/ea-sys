@@ -34,14 +34,19 @@ function useEventListQuery<T>(
   eventId: string,
   key: readonly unknown[],
   path: string,
-  filters?: Record<string, string>
+  filters?: Record<string, string>,
+  /** Extra gate ANDed with the eventId check. Lets a caller hold a query back
+   *  until it is actually needed (e.g. a dialog that is still closed). */
+  enabled = true,
 ) {
   const queryString = buildQueryString(filters);
 
   return useQuery({
     queryKey: filters ? [...key, filters] : key,
     queryFn: () => fetchApi<T>(`/api/events/${eventId}/${path}${queryString}`),
-    enabled: !!eventId,
+    // The eventId guard stays: on the first render it can be an empty string,
+    // and `/api/events//tickets` would 404.
+    enabled: !!eventId && enabled,
   });
 }
 
@@ -199,8 +204,8 @@ export function useCloneEvent() {
 }
 
 // ============ TICKETS ============
-export function useTickets(eventId: string) {
-  return useEventListQuery<any[]>(eventId, queryKeys.tickets(eventId), "tickets");
+export function useTickets(eventId: string, enabled = true) {
+  return useEventListQuery<any[]>(eventId, queryKeys.tickets(eventId), "tickets", undefined, enabled);
 }
 
 export function useCreateTicket(eventId: string) {
@@ -303,11 +308,11 @@ export function useRegistrations(eventId: string, filters?: Record<string, strin
  * invalidates, so adding tags via the bulk dialog refreshes the
  * dropdown options without a manual refetch.
  */
-export function useEventTags(eventId: string) {
+export function useEventTags(eventId: string, enabled = true) {
   return useQuery<{ tags: Array<{ tag: string; count: number }> }>({
     queryKey: queryKeys.eventTags(eventId),
     queryFn: () => fetchApi(`/api/events/${eventId}/tags`),
-    enabled: !!eventId,
+    enabled: !!eventId && enabled,
   });
 }
 
@@ -1051,14 +1056,14 @@ export function useRegistrationTypes() {
 }
 
 // ============ EMAIL TEMPLATES ============
-export function useEmailTemplates(eventId: string) {
+export function useEmailTemplates(eventId: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.emailTemplates(eventId),
     queryFn: () =>
       fetchApi<{ templates: any[]; variables: Record<string, { key: string; description: string }[]> }>(
         `/api/events/${eventId}/email-templates`
       ),
-    enabled: !!eventId,
+    enabled: !!eventId && enabled,
   });
 }
 

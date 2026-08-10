@@ -374,13 +374,26 @@ export function BulkEmailDialog({
   const bulkEmail = useBulkEmail(eventId);
   const scheduleEmail = useScheduleBulkEmail(eventId);
   const previewMutation = usePreviewEmailBySlug(eventId);
-  // Registrations-only filter option sources. Always called (hooks must be
-  // unconditional); only rendered for the registrations recipient type.
-  const { data: ticketTypeData } = useTickets(eventId);
+  // Registrations-only filter option sources. Always CALLED (hooks must be
+  // unconditional) but only FETCHED while the dialog is open, matching the
+  // certificate-templates query below.
+  //
+  // This dialog is rendered unconditionally by its host pages — `open` only
+  // controls whether Radix portals the content, so the component mounts and
+  // its hooks run on every page load regardless. On the abstracts page that
+  // meant a SUBMITTER, who can never bulk-email anything, fired three requests
+  // per page load that the server refused, and each refusal wrote a warn line:
+  // 51 of them from one account in six hours (Aug 10, 2026). Gating on `open`
+  // also stops the wasted fetches for staff who never open the dialog.
+  //
+  // Deliberately `open` alone, not a role check: the client should avoid
+  // asking for what it cannot have, but the SERVER guard is what protects the
+  // data. Removing this line makes the logs noisy again, never insecure.
+  const { data: ticketTypeData } = useTickets(eventId, open);
   const ticketTypeOptions = ((ticketTypeData ?? []) as Array<{ id: string; name: string }>).map(
     (t) => ({ id: t.id, name: t.name }),
   );
-  const eventTagsQuery = useEventTags(eventId);
+  const eventTagsQuery = useEventTags(eventId, open);
   const tagSuggestions = (eventTagsQuery.data?.tags ?? []).map((t) => t.tag);
   // Certificate templates for the "Certificates" email type's multi-select.
   // Only fetched while the dialog is open for an eligible recipient type.
@@ -400,7 +413,7 @@ export function BulkEmailDialog({
   // dropdown for every recipient type and on the Communications page. Inactive
   // and system templates are excluded (the latter are already covered by the
   // built-in options above).
-  const { data: templatesData } = useEmailTemplates(eventId);
+  const { data: templatesData } = useEmailTemplates(eventId, open);
   const customTemplates = (
     (templatesData?.templates ?? []) as Array<{
       slug: string;
