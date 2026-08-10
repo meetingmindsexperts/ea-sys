@@ -48,7 +48,10 @@ vi.mock("@/lib/tenant-context", () => ({
   runWithTenant: (_org: string, fn: () => unknown) => fn(),
 }));
 vi.mock("@/lib/api-auth", () => ({ getOrgContext: () => mockGetOrgContext() }));
-vi.mock("@/lib/event-access", () => ({
+// Spread the real module and override ONLY the predicate under test, so adding
+// an export to event-access can't break this file the way it did on Aug 10.
+vi.mock("@/lib/event-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/event-access")>()),
   buildEventAccessWhere: (_user: unknown, eventId?: string) => ({ id: eventId }),
 }));
 

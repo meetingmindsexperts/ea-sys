@@ -67,7 +67,12 @@ vi.mock("@/lib/audit-data-transfer", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/audit-data-transfer")>()),
   recordExport: mockRecordExport,
 }));
-vi.mock("@/lib/event-access", () => ({ buildEventAccessWhere: () => ({ id: "evt_1" }) }));
+// Spread the real module and override ONLY the predicate under test, so adding
+// an export to event-access can't break this file the way it did on Aug 10.
+vi.mock("@/lib/event-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/event-access")>()),
+  buildEventAccessWhere: () => ({ id: "evt_1" }),
+}));
 vi.mock("@/lib/finance-visibility", () => ({
   canViewFinance: mockCanViewFinance,
   redactFinancialFields: mockRedactFinancial,

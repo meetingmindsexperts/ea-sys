@@ -8,7 +8,7 @@ import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { createSession, SESSION_SELECT } from "@/services/session-service";
 import { HTTP_STATUS_FOR_SESSION_ERROR } from "@/lib/session-http";
 import { canViewZoomHostCredentials, redactZoomHostFieldsFromSessions } from "@/lib/zoom-visibility";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { buildEventAccessWhere, accessUserFrom } from "@/lib/event-access";
 import { getOrgContext } from "@/lib/api-auth";
 import { getClientIp } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -73,10 +73,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     const status = searchParams.get("status");
     const date = searchParams.get("date");
 
-    // API key → scope to the key's org; session → role-scoped event access.
-    const eventWhere = orgCtx
-      ? { id: eventId, organizationId: orgCtx.organizationId }
-      : buildEventAccessWhere(session!.user, eventId);
+    // API key → the key's org; a signed-in person → their role scoping. ONE
+    // predicate: this used to be a ternary on `orgCtx`, which reads as "key,
+    // else person" but matches a signed-in person too, so the role rules never
+    // ran and an ONSITE temp could read any org event's agenda. See
+    // `accessUserFrom`.
+    const eventWhere = buildEventAccessWhere(
+      accessUserFrom(orgCtx, session?.user),
+      eventId,
+    );
 
     // Resolve the event FIRST — its org (RESOURCE org, so an org-null caller
     // reaching the event by linkage still resolves) opens the tenant wrap

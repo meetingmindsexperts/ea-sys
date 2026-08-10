@@ -9,7 +9,7 @@ import { apiLogger } from "@/lib/logger";
 import { parseDateRangeFilters, dateRangeAuditFilters } from "@/lib/date-range-filter";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { buildEventAccessWhere, accessUserFrom } from "@/lib/event-access";
 import { canViewFinance, redactFinancialFields } from "@/lib/finance-visibility";
 import {
   computeCancelledCreditState,
@@ -273,11 +273,15 @@ export async function GET(req: Request, { params }: RouteParams) {
         // settings.onsiteUserIds-gated where for ONSITE, so an ONSITE user only
         // reads registrations for events they're assigned to. API-key auth has
         // role/userId null → org-scoped (unchanged).
+        //
+        // This route already built the access user correctly by hand; it now
+        // shares `accessUserFrom` with its sessions/speakers siblings, which did
+        // NOT, so the three can no longer disagree about who a caller is.
         where: buildEventAccessWhere(
-          { id: orgCtx.userId ?? "", role: orgCtx.role ?? "", organizationId: orgCtx.organizationId },
+          accessUserFrom(orgCtx),
           eventId,
-          // Desk surface: WEBINARS reads its ASSIGNED conferences' lists too
-          // (its ONSITE-equivalent tier); no-op for every other role.
+          // Desk surface: MEMBER-parity scope for WEBINARS; no-op for every
+          // other role.
           { surface: "desk" },
         ),
         // taxRate feeds the hand-flipped-PAID fallback in the cancelled

@@ -9,7 +9,7 @@ import { normalizeTag } from "@/lib/utils";
 import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { getOrgContext } from "@/lib/api-auth";
 import { parseDateRangeFilters } from "@/lib/date-range-filter";
-import { buildEventAccessWhere } from "@/lib/event-access";
+import { buildEventAccessWhere, accessUserFrom } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import {
@@ -94,10 +94,18 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: dateRange.message, code: "INVALID_DATE_FILTER" }, { status: 400 });
     }
 
-    // Fetch event validation and speakers in parallel
-    const eventWhere = orgCtx
-      ? { id: eventId, organizationId: orgCtx.organizationId }
-      : buildEventAccessWhere(session!.user, eventId);
+    // Fetch event validation and speakers in parallel.
+    //
+    // ONE predicate. This was a ternary on `orgCtx` — "API key, else a person" —
+    // which also matched a signed-in person, so the role scoping below never ran
+    // for anyone org-bound. That let an ONSITE temp assigned to one conference
+    // pull ANY org event's full faculty roster: names, emails, phones, bios. The
+    // registrations route beside it 404'd correctly, which is what made the
+    // difference visible. See `accessUserFrom`.
+    const eventWhere = buildEventAccessWhere(
+      accessUserFrom(orgCtx, session?.user),
+      eventId,
+    );
 
     // An org-null role (SUBMITTER / REVIEWER / REGISTRANT) reaches this list for
     // exactly one reason: the abstract and proposal forms look up the caller's

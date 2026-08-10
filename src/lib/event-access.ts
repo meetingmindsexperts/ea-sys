@@ -1,10 +1,64 @@
 import { Prisma } from "@prisma/client";
 
-type SessionUser = {
+export type SessionUser = {
   id: string;
   role: string;
   organizationId?: string | null;
 };
+
+/**
+ * Structural shape of `getOrgContext()`'s result — declared, not imported, so
+ * this module keeps no dependency on the auth layer.
+ */
+type OrgContextLike = {
+  organizationId: string;
+  userId?: string | null;
+  role?: string | null;
+};
+
+/**
+ * The user to scope by on a route that accepts BOTH an org API key and a
+ * signed-in session.
+ *
+ * Use this instead of branching. The obvious shape —
+ *
+ *     const where = orgCtx
+ *       ? { id: eventId, organizationId: orgCtx.organizationId }   // "API key"
+ *       : buildEventAccessWhere(session.user, eventId);            // "a person"
+ *
+ * reads as "an API key, otherwise a person", which is what it was meant to say
+ * and is not what it does. `getOrgContext()` returns a context for ANY caller
+ * that belongs to an organisation, a signed-in person included, so the first
+ * branch swallowed everyone and the role rules in the second branch never ran.
+ *
+ * Neither branch was wrong on its own, which is why reading them found nothing:
+ * org-scoping IS correct for a key, and the role predicate IS correct for a
+ * person. The defect was in the one line that chose between them. Live effect
+ * (found Aug 10, 2026): an ONSITE desk temp assigned to a single conference
+ * could read every other event's agenda and full speaker roster, emails and
+ * phone numbers included, while the registrations route beside it correctly
+ * 404'd.
+ *
+ * So: no branch. One predicate, always. An API key carries no userId and no
+ * role, so it lands on `buildEventAccessWhere`'s org-scoped default exactly as
+ * it did before; a person carries both and is scoped by their role.
+ *
+ * Callers must already have rejected the "neither" case. If one slips through
+ * the fallback is org-less, which matches no event — closed, not open.
+ */
+export function accessUserFrom(
+  orgCtx: OrgContextLike | null | undefined,
+  sessionUser?: SessionUser | null,
+): SessionUser {
+  if (orgCtx) {
+    return {
+      id: orgCtx.userId ?? "",
+      role: orgCtx.role ?? "",
+      organizationId: orgCtx.organizationId,
+    };
+  }
+  return sessionUser ?? { id: "", role: "", organizationId: null };
+}
 
 export function buildEventAccessWhere(
   user: SessionUser,

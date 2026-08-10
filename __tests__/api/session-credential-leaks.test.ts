@@ -42,7 +42,10 @@ vi.mock("@/lib/security", () => ({
   getClientIp: () => "1.2.3.4",
   checkRateLimit: () => mockRateLimit(),
 }));
-vi.mock("@/lib/event-access", () => ({
+// Spread the real module and override ONLY the predicate under test, so adding
+// an export to event-access can't break this file the way it did on Aug 10.
+vi.mock("@/lib/event-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/event-access")>()),
   buildEventAccessWhere: (_u: unknown, id: string) => ({ id }),
 }));
 vi.mock("@/lib/webinar", () => ({
