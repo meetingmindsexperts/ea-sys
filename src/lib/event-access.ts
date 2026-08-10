@@ -11,13 +11,14 @@ export function buildEventAccessWhere(
   eventId?: string,
   opts?: {
     /**
-     * "desk" widens the WEBINARS role's resolution to ALSO include
-     * conferences it's been assigned to via Event.settings.onsiteUserIds
-     * (its ONSITE-equivalent surface). Pass it ONLY from the registration-
-     * desk routes (list/create/detail/check-in/badges/payments/activity).
-     * The default ("manage") resolves ONLY WEBINAR-type events for that
-     * role, so full-control routes fail closed on conferences. Other roles
-     * ignore this flag entirely.
+     * "desk" widens the WEBINARS role's resolution to EVERY event in its org
+     * (MEMBER parity — it is internal staff). Pass it ONLY from the events
+     * list/detail and the registration-desk routes (list/create/detail/
+     * check-in/badges/payments/activity), which are the routes MEMBER can
+     * also reach. The default ("manage") resolves ONLY WEBINAR-type events
+     * for that role, so the ~55 full-control routes that opt it in via
+     * WEBINAR_STAFF_ALLOW fail closed on conferences. Other roles ignore
+     * this flag entirely.
      */
     surface?: "manage" | "desk";
   }
@@ -76,21 +77,31 @@ export function buildEventAccessWhere(
   //  - manage surface (default): ALL of the org's WEBINAR-type events —
   //    full-control routes pair this with `denyReviewer(..., { allow:
   //    WEBINAR_STAFF_ALLOW })`, so conferences are unreachable there.
-  //  - desk surface (opt-in flag): webinars PLUS conferences assigned via the
-  //    SAME Event.settings.onsiteUserIds list ONSITE uses — the registration-
-  //    desk routes pass { surface: "desk" }.
+  //  - desk surface (opt-in flag): EVERY event in the org — MEMBER parity.
+  //
+  // The desk surface was org-wide-ified on Aug 10, 2026 (owner: "webinar role
+  // can see all events ... as they are internal users but they see limited
+  // data"). The model is now "MEMBER + full control on webinars", and it costs
+  // almost nothing to express because the two roles' write guards are ALREADY
+  // identical: both sit in RESTRICTED_WRITE_ROLES (writes blocked by default),
+  // both in REGISTRATION_DESK_ALLOW (add registration / check-in / badge /
+  // record payment), both in FINANCE_ROLES. Event scope was the only thing
+  // separating them, so widening it here is the whole change.
+  //
+  // What did NOT change, and must not: the MANAGE surface stays WEBINAR-only.
+  // ~55 route files opt this role into full control via WEBINAR_STAFF_ALLOW and
+  // rely on the manage `where` to keep that control off conferences. Widening
+  // the default would make every one of them fail OPEN on a conference in a
+  // single edit — the exact invariant documented on WEBINAR_STAFF_ALLOW.
+  //
+  // Consequence worth knowing: Event.settings.onsiteUserIds no longer affects
+  // this role (every org event matches regardless). The Onsite Staff tab still
+  // accepts WEBINARS accounts — harmless, now redundant. ONSITE still needs it.
   if (user.role === "WEBINARS") {
     return {
       ...(eventId && { id: eventId }),
       organizationId: user.organizationId!,
-      ...(opts?.surface === "desk"
-        ? {
-            OR: [
-              { eventType: "WEBINAR" },
-              { settings: { path: ["onsiteUserIds"], array_contains: user.id } },
-            ],
-          }
-        : { eventType: "WEBINAR" as const }),
+      ...(opts?.surface === "desk" ? {} : { eventType: "WEBINAR" as const }),
     };
   }
 

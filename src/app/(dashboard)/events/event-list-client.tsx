@@ -33,6 +33,7 @@ interface EventListItem {
   endDate: string | Date;
   timezone?: string | null;
   venue: string | null;
+  eventType?: string | null;
   /**
    * Absent for org-null roles (reviewer / submitter / registrant): the server
    * does not fetch headcounts for them, so the columns below render only when
@@ -94,6 +95,12 @@ const filterLabels: Record<string, string> = {
 interface EventListClientProps {
   events: EventListItem[];
   isRestricted: boolean;
+  /**
+   * The WEBINARS role. It runs its org's webinars outright but holds only the
+   * desk surface on everything else, so a row's destination depends on the
+   * event's type — see `hrefFor`.
+   */
+  isWebinarStaff?: boolean;
   sortField: EventSortField;
   sortOrder: EventSortOrder;
 }
@@ -126,6 +133,7 @@ function SortIndicator({
 export function EventListClient({
   events,
   isRestricted,
+  isWebinarStaff = false,
   sortField,
   sortOrder,
 }: EventListClientProps) {
@@ -140,6 +148,24 @@ export function EventListClient({
    * up with two columns the rows don't fill (or the reverse).
    */
   const showCounts = events.some((e) => e._count);
+
+  /**
+   * Where a row goes. ONE definition — the name cell and the arrow cell used to
+   * carry the same ternary twice, which is how a destination rule drifts.
+   *
+   * The WEBINARS branch exists because that role can now SEE every event in the
+   * org but only RUNS the webinars: on anything else it holds the desk surface,
+   * whose landing page is Registrations. Sending it to the overview instead
+   * would 404 — that page resolves on the manage surface — and a list full of
+   * links that refuse is worse than no link at all.
+   */
+  const hrefFor = (event: EventListItem) => {
+    if (isRestricted) return `/events/${event.id}/abstracts`;
+    if (isWebinarStaff && event.eventType !== "WEBINAR") {
+      return `/events/${event.id}/registrations`;
+    }
+    return `/events/${event.id}`;
+  };
 
   /** Build the URL for a sortable column header: clicking toggles order if
    *  the column is already active, otherwise switches to that column with
@@ -343,7 +369,7 @@ export function EventListClient({
                     {/* Event name + mobile meta */}
                     <td className="px-4 py-3.5">
                       <Link
-                        href={isRestricted ? `/events/${event.id}/abstracts` : `/events/${event.id}`}
+                        href={hrefFor(event)}
                         className="block group-hover:text-primary transition-colors"
                       >
                         <span className="font-medium text-sm leading-snug line-clamp-1">
@@ -429,7 +455,7 @@ export function EventListClient({
                     {/* Arrow */}
                     <td className="px-4 py-3.5">
                       <Link
-                        href={isRestricted ? `/events/${event.id}/abstracts` : `/events/${event.id}`}
+                        href={hrefFor(event)}
                         className="text-primary opacity-0 group-hover:opacity-100 transition-opacity"
                         tabIndex={-1}
                         aria-hidden

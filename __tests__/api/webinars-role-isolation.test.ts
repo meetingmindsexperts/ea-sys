@@ -62,15 +62,40 @@ describe("buildEventAccessWhere — WEBINARS two-tier scoping", () => {
     });
   });
 
-  it("desk surface widens to assigned conferences via onsiteUserIds", () => {
+  // Aug 10, 2026: the desk surface went org-wide (MEMBER parity — the role is
+  // internal staff). It used to be `webinars OR conferences assigned via
+  // onsiteUserIds`; the assignment is now irrelevant to this role.
+  it("desk surface resolves EVERY event in the org (MEMBER parity)", () => {
     expect(buildEventAccessWhere(WEBINARS_USER, "evX", { surface: "desk" })).toEqual({
       id: "evX",
       organizationId: "org1",
-      OR: [
-        { eventType: "WEBINAR" },
-        { settings: { path: ["onsiteUserIds"], array_contains: "web1" } },
-      ],
     });
+  });
+
+  it("desk surface matches MEMBER's scope exactly", () => {
+    const member = { id: "web1", role: "MEMBER", organizationId: "org1" };
+    expect(buildEventAccessWhere(WEBINARS_USER, "evX", { surface: "desk" })).toEqual(
+      buildEventAccessWhere(member, "evX"),
+    );
+  });
+
+  // The load-bearing one. ~55 route files opt this role into full control via
+  // WEBINAR_STAFF_ALLOW and depend on the MANAGE where to keep that control off
+  // conferences. If someone ever widens the default the way the desk surface was
+  // widened, every one of them fails OPEN — and nothing else in the suite would
+  // notice, because each of those routes would simply start succeeding.
+  it("manage surface stays WEBINAR-only — it must NOT follow desk org-wide", () => {
+    const manage = buildEventAccessWhere(WEBINARS_USER, "evX");
+    expect(manage).toHaveProperty("eventType", "WEBINAR");
+    expect(manage).not.toEqual(buildEventAccessWhere(WEBINARS_USER, "evX", { surface: "desk" }));
+  });
+
+  it("both surfaces stay org-bound — a foreign event id can never match", () => {
+    for (const surface of ["manage", "desk"] as const) {
+      expect(
+        buildEventAccessWhere(WEBINARS_USER, "evX", { surface }),
+      ).toHaveProperty("organizationId", "org1");
+    }
   });
 
   it("the surface flag is a no-op for every other role", () => {

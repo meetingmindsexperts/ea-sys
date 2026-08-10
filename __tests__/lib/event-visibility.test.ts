@@ -50,8 +50,12 @@ describe("event field visibility", () => {
   });
 
   it("selects only event facts in the list", () => {
+    // `eventType` joined on Aug 10, 2026: the list has to know a row's type to
+    // send the WEBINARS role to the right landing page. Not sensitive — the
+    // public event API already returns it.
     expect(Object.keys(EVENT_LIST_SELECT).sort()).toEqual([
-      "description", "endDate", "id", "name", "slug", "startDate", "status", "timezone", "venue",
+      "description", "endDate", "eventType", "id", "name", "slug", "startDate",
+      "status", "timezone", "venue",
     ]);
     expect(EVENT_LIST_SELECT).not.toHaveProperty("_count");
   });

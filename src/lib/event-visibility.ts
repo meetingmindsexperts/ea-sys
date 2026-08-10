@@ -31,6 +31,10 @@ const EVENT_CORE_SELECT = {
   endDate: true,
   timezone: true,
   venue: true,
+  // Not sensitive — the public event API already returns it. Included because
+  // the events list has to know a row's type to send the WEBINARS role to the
+  // right landing page (full event vs its desk surface).
+  eventType: true,
 } as const;
 
 /** The events LIST renders exactly the core facts. */

@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useOrgBranding, useOrganizations, useEvent, useSubmitterContext } from "@/hooks/use-api";
 import { submitterSeesAbstracts, submitterSeesProposals } from "@/lib/submitter-surfaces";
 import { useActiveOrg } from "@/contexts/active-org-context";
-import { webinarModuleFilter } from "@/lib/webinar";
+import { webinarModuleFilter, WEBINARS_ROLE_HIDDEN_MODULES } from "@/lib/webinar";
 import {
   Home,
   Settings,
@@ -185,6 +185,10 @@ const eventNavigationSections: { label: string; items: EventNavItem[] }[] = [
 // Flat version used for restricted roles and tooltip matching
 const eventNavigation = eventNavigationSections.flatMap((s) => s.items);
 
+/** Module names the WEBINARS role never sees, whatever the event type.
+ *  Module-level so the Set is allocated once, not on every render. */
+const webinarsRoleHidden = new Set<string>(WEBINARS_ROLE_HIDDEN_MODULES);
+
 export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
@@ -293,7 +297,11 @@ export function Sidebar() {
         ? eventNavigationSections
             .map((section) => ({
               ...section,
-              items: section.items.filter(webinarFilter),
+              items: section.items
+                .filter(webinarFilter)
+                // Then drop what the ROLE may not use regardless of event type
+                // — today just the AI Agent, whose API refuses this role.
+                .filter((item) => !webinarsRoleHidden.has(item.name)),
             }))
             .filter((section) => section.items.length > 0)
         : [{ label: "Manage", items: onsiteEventItems }]

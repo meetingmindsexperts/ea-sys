@@ -30,7 +30,11 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
     // abstract submitter has no remit over who registered, so the numbers are
     // never fetched rather than fetched and hidden. See `eventListSelect`.
     events = await db.event.findMany({
-      where: buildEventAccessWhere(session.user),
+      // Desk surface, matching `GET /api/events`. The two had drifted: the API
+      // passed it, this page did not, so a WEBINARS user's assigned events were
+      // returned by the endpoint but missing from the page that renders the
+      // list. Same query, same flag — the list is one thing, not two.
+      where: buildEventAccessWhere(session.user, undefined, { surface: "desk" }),
       orderBy: eventOrderBy(sort),
       select: eventListSelect(session.user.role),
     });
@@ -69,6 +73,7 @@ export default async function EventsPage({ searchParams }: EventsPageProps) {
         <EventListClient
           events={JSON.parse(JSON.stringify(events))}
           isRestricted={isRestricted}
+          isWebinarStaff={session.user.role === "WEBINARS"}
           sortField={sort.field}
           sortOrder={sort.order}
         />

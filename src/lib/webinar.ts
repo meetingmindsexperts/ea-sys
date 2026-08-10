@@ -12,6 +12,20 @@ export const WEBINAR_HIDDEN_SETTINGS_TABS = [
   "review-criteria",
 ] as const;
 
+/**
+ * Modules hidden from the WEBINARS *role*, whatever the event type.
+ *
+ * Distinct from WEBINAR_HIDDEN_MODULES above, which is about the event: that
+ * list drops Accommodation from a webinar because a webinar has no hotel. This
+ * one drops a module the ROLE is not permitted to use at all.
+ *
+ * The AI Agent is the case in point. `POST /events/[id]/agent/execute` admits
+ * only SUPER_ADMIN / ADMIN / ORGANIZER / MEMBER, so a WEBINARS user reaching
+ * the page got the full console, suggested commands and all, and a 403 on the
+ * first send. The API was right; the nav simply never asked.
+ */
+export const WEBINARS_ROLE_HIDDEN_MODULES = ["AI Agent"] as const;
+
 export function isWebinar(
   event: { eventType?: string | null } | null | undefined,
 ): boolean {
