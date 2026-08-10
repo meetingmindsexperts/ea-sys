@@ -42,8 +42,7 @@ const PROPOSAL = {
   id: "sp1",
   title: "TAVR Workshop",
   serialId: 3,
-  proposedFormat: null,
-  theme: null,
+  durationMinutes: 90,
   speaker: {
     id: "spk1", title: "DR", firstName: "Aisha", lastName: "Khan",
     email: "aisha@x.com", additionalEmail: null,
@@ -80,5 +79,64 @@ describe("notifySessionProposalSubmitted — View Your Proposal link", () => {
     const { htmlContent } = sendEmailSpy.mock.calls[0][0];
     expect(htmlContent).toContain("https://events.example.com/login");
     expect(htmlContent).not.toContain("/e//");
+  });
+});
+
+/**
+ * Aug 10, 2026: the email reported Format, which was removed from every
+ * submitter surface on Aug 4 (form, list, sheet, CSV) but left in the email, so
+ * it printed a value nobody could set. Duration replaces it and Theme is gone.
+ */
+describe("notifySessionProposalSubmitted — proposal detail vars", () => {
+  /** Render through a stub template that actually carries the tokens under test. */
+  const renderWith = async (proposal: unknown, textTemplate: string) => {
+    mockDb.event.findUnique.mockResolvedValue({ name: "Ev", slug: "ev-2026" });
+    const { getDefaultTemplate } = await import("@/lib/email");
+    vi.mocked(getDefaultTemplate).mockReturnValueOnce({
+      subject: "s",
+      htmlContent: `<p>${textTemplate}</p>`,
+      textContent: textTemplate,
+    } as never);
+    notifySessionProposalSubmitted({
+      eventId: "ev1", organizationId: "org1", triggeredByUserId: "u1", isResubmission: false,
+      proposal: proposal as never,
+    });
+    await vi.waitFor(() => expect(sendEmailSpy).toHaveBeenCalled());
+    return sendEmailSpy.mock.calls[0][0];
+  };
+
+  it("reports the requested duration in minutes", async () => {
+    const sent = await renderWith(PROPOSAL, "Duration: {{proposalDuration}}");
+    expect(sent.textContent).toBe("Duration: 90 minutes");
+  });
+
+  it("renders a blank duration, not a dash, when none was stated", async () => {
+    // The dashboard table shows "—" in a cell; an email row reading
+    // "Duration: —" is noise where blank reads as "not stated".
+    const sent = await renderWith({ ...PROPOSAL, durationMinutes: null }, "Duration: {{proposalDuration}}");
+    expect(sent.textContent).toBe("Duration: ");
+  });
+
+  it("still fills the legacy theme/format keys so a customized template can't print a raw token", async () => {
+    // Migration 20260810130000 rewrites saved templates matching the seeded
+    // markup but deliberately leaves a customized one alone. renderTemplate
+    // prints an unknown key LITERALLY, so those keys must resolve to blank
+    // rather than reach a proposer as "{{proposalTheme}}".
+    mockDb.event.findUnique.mockResolvedValue({ name: "Ev", slug: "ev-2026" });
+    const { getDefaultTemplate } = await import("@/lib/email");
+    vi.mocked(getDefaultTemplate).mockReturnValueOnce({
+      subject: "s",
+      htmlContent: "<p>Theme: {{proposalTheme}} / Format: {{proposalFormat}}</p>",
+      textContent: "Theme: {{proposalTheme}} / Format: {{proposalFormat}}",
+    } as never);
+
+    notifySessionProposalSubmitted({
+      eventId: "ev1", organizationId: "org1", triggeredByUserId: "u1", isResubmission: false,
+      proposal: PROPOSAL as never,
+    });
+    await vi.waitFor(() => expect(sendEmailSpy).toHaveBeenCalled());
+    const { htmlContent } = sendEmailSpy.mock.calls[0][0];
+    expect(htmlContent).not.toContain("{{proposalTheme}}");
+    expect(htmlContent).not.toContain("{{proposalFormat}}");
   });
 });

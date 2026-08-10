@@ -1304,8 +1304,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "proposalNumber", description: "Proposal number (e.g. S-007) — blank on legacy proposals without one" },
     { key: "proposalTitle", description: "Session proposal title" },
-    { key: "proposalTheme", description: "Proposal theme name — blank if none" },
-    { key: "proposalFormat", description: "Proposed session format (e.g. Session, Workshop, Symposium) — blank if not set" },
+    { key: "proposalDuration", description: "Requested duration, e.g. \"90 minutes\" — blank if not stated" },
     { key: "managementLink", description: "Login link to view the proposal" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
@@ -1790,8 +1789,7 @@ Important: Save this email! The link above is your personal access link to manag
       <table style="width: 100%; border-collapse: collapse;">
         <tr><td style="padding: 8px 0; color: #6b7280;">Proposal #:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalNumber}}</td></tr>
         <tr><td style="padding: 8px 0; color: #6b7280;">Title:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalTitle}}</td></tr>
-        <tr><td style="padding: 8px 0; color: #6b7280;">Theme:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalTheme}}</td></tr>
-        <tr><td style="padding: 8px 0; color: #6b7280;">Format:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalFormat}}</td></tr>
+        <tr><td style="padding: 8px 0; color: #6b7280;">Duration:</td><td style="padding: 8px 0; font-weight: 500;">{{proposalDuration}}</td></tr>
       </table>
     </div>
     <p>You can view your proposal any time using the link below:</p>
@@ -1810,8 +1808,7 @@ Thank you for proposing a session for {{eventName}}. Your proposal has been rece
 Proposal Details:
 - Proposal #: {{proposalNumber}}
 - Title: {{proposalTitle}}
-- Theme: {{proposalTheme}}
-- Format: {{proposalFormat}}
+- Duration: {{proposalDuration}}
 
 View Your Proposal: {{managementLink}}
 
@@ -2987,8 +2984,7 @@ export function getSamplePreviewVariables(
     abstractTitle: "Sample Abstract Title",
     proposalNumber: "S-007",
     proposalTitle: "Sample Session Proposal Title",
-    proposalTheme: "Interventional Cardiology",
-    proposalFormat: "Workshop",
+    proposalDuration: "90 minutes",
     // Group-registration confirmation samples — real sends derive these from
     // the group's members (group-registration-service).
     coordinatorName: "Sarah Al Mansoori",

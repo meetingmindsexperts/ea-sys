@@ -2,7 +2,6 @@ import { db } from "./db";
 import { apiLogger } from "./logger";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "./email";
 import { getTitleLabel, formatPersonName } from "./utils";
-import { SESSION_TYPE_LABELS } from "./session-enums";
 import { formatSessionProposalSerial } from "./session-proposal-serial";
 import { notifyEventAdmins } from "./notifications";
 
@@ -25,8 +24,13 @@ export function notifySessionProposalSubmitted(args: {
     id: string;
     serialId?: number | null;
     title: string;
-    proposedFormat: string | null;
-    theme: { name: string } | null;
+    /**
+     * The email reports Proposal # / Title / Duration only. Format was removed
+     * from every submitter surface on Aug 4, 2026 (form, list, sheet, CSV) but
+     * the email kept rendering it, so it printed a value nobody could set; the
+     * theme row was dropped with it as organizer noise. The DB columns stay.
+     */
+    durationMinutes: number | null;
     speaker: {
       id: string;
       title: string | null;
@@ -59,10 +63,19 @@ export function notifySessionProposalSubmitted(args: {
         eventName: ev?.name ?? "",
         proposalNumber: proposal.serialId != null ? formatSessionProposalSerial(proposal.serialId) : "",
         proposalTitle: proposal.title,
-        proposalTheme: proposal.theme?.name ?? "",
-        proposalFormat: proposal.proposedFormat
-          ? (SESSION_TYPE_LABELS[proposal.proposedFormat as keyof typeof SESSION_TYPE_LABELS] ?? proposal.proposedFormat)
-          : "",
+        // Blank, not "—", when unset: the dashboard renders an em-dash
+        // placeholder in a table cell, but an email row reading "Duration: —"
+        // is noise where an empty value simply reads as "not stated".
+        proposalDuration:
+          proposal.durationMinutes != null ? `${proposal.durationMinutes} minutes` : "",
+        // Legacy keys, deliberately still emitted as empty strings. Migration
+        // 20260810130000 rewrites saved templates that match the seeded markup,
+        // but leaves a genuinely customized one alone. renderTemplate prints an
+        // unknown key as LITERAL text, so without these a customized template
+        // would email a proposer the string "{{proposalTheme}}". Blank rows are
+        // the graceful degradation. Drop once no template references them.
+        proposalTheme: "",
+        proposalFormat: "",
         // The BRANDED event login that lands on the proposer's "My Session
         // Proposals" — NOT the internal /login (organizer-reported Aug 6, 2026:
         // "View Your Proposal" dumped submitters on the dashboard login page).
