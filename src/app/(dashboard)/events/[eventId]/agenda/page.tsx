@@ -142,6 +142,10 @@ interface Session {
   capacity: number | null;
   status: string;
   type: string;
+  /** Optimistic-lock token (W2-F8). Carried on every row by SESSION_SELECT and
+   *  sent back as `expectedUpdatedAt` on save, so a concurrent edit is refused
+   *  with 409 STALE_WRITE instead of silently overwriting the other person. */
+  updatedAt: string;
   track: Track | null;
   speakers: SessionSpeakerEntry[];
   topics: TopicEntry[];
@@ -225,6 +229,41 @@ const DEFAULT_SESSION_FORM = {
 };
 
 const DEFAULT_TRACK_FORM = { name: "", description: "", color: "#3B82F6" };
+
+/**
+ * Maps a session row onto the edit form. Extracted because TWO paths populate
+ * the dialog — opening it, and reloading it after a 409 STALE_WRITE — and a
+ * second hand-written copy of this mapping is exactly how one of them ends up
+ * quietly dropping a field.
+ *
+ * Stored instants render as wall-clock times in the EVENT's timezone, matching
+ * how the grid draws them and how submit re-interprets them.
+ */
+function sessionToForm(s: Session, eventTz: string): typeof DEFAULT_SESSION_FORM {
+  const toLocal = (iso: string) => localDateTimeInTz(new Date(iso), eventTz);
+  return {
+    name: s.name,
+    description: s.description || "",
+    type: s.type || "SESSION",
+    trackId: s.track?.id || "",
+    startTime: toLocal(s.startTime),
+    endTime: toLocal(s.endTime),
+    location: s.location || "",
+    capacity: s.capacity?.toString() || "",
+    status: s.status,
+    speakerIds: [],
+    sessionRoles: s.speakers.map((sp) => ({
+      speakerId: sp.speaker.id,
+      role: sp.role as SessionRoleForm["role"],
+    })),
+    topics: (s.topics || []).map((t) => ({
+      id: t.id,
+      title: t.title,
+      speakerIds: t.speakers.map((ts) => ts.speaker.id),
+      duration: t.duration?.toString() || "",
+    })),
+  };
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -321,7 +360,12 @@ export default function AgendaPage() {
         // Surface the server's reason (BREAK_ITEM_HAS_PROGRAM, STALE_WRITE,
         // OUTSIDE_EVENT_DATES, …) instead of a generic failure (review M4).
         const body = await res.json().catch(() => null);
-        throw new Error(body?.error || "Failed to save session");
+        const err = new Error(body?.error || "Failed to save session");
+        // Keep the machine-readable code: onError branches on STALE_WRITE to
+        // offer a reload, and a message-string match would break the moment
+        // someone rewords the server copy.
+        (err as Error & { code?: string }).code = body?.code;
+        throw err;
       }
       return res.json();
     },
@@ -345,7 +389,31 @@ export default function AgendaPage() {
         );
       }
     },
-    onError: (error: Error) => toast.error(error.message || "Failed to save session"),
+    onError: async (error: Error & { code?: string }) => {
+      if (error.code !== "STALE_WRITE") {
+        toast.error(error.message || "Failed to save session");
+        return;
+      }
+      // Someone else wrote this session after the dialog opened. The token in
+      // `editingSession` is now stale, so every retry would fail identically —
+      // but the operator may have retyped times, roles and topics, so their
+      // form is NOT discarded. Refresh the grid behind so their version is
+      // visible, and offer an explicit "take theirs" reload.
+      const { data } = await refetchSessions();
+      const fresh = data?.find((s: Session) => s.id === editingSession?.id);
+      toast.error(error.message, {
+        duration: 12000,
+        action: fresh
+          ? {
+              label: "Reload session",
+              // Deliberately a manual action, not automatic: silently adopting
+              // the new token would turn the lock back into last-write-wins
+              // with one extra click, which is the defect this fixes.
+              onClick: () => openEditSession(fresh),
+            }
+          : undefined,
+      });
+    },
   });
 
   const deleteSessionMutation = useMutation({
@@ -423,6 +491,13 @@ export default function AgendaPage() {
 
     sessionMutation.mutate({
       data: {
+        // Optimistic-lock token (W2-F8), edits only — a create has nothing to
+        // conflict with. Read from `editingSession`, which is set when the
+        // dialog opens and refreshed ONLY by the operator's own in-dialog Zoom
+        // attach/delete. A background refetch must never touch it, or the
+        // token would silently catch up to the other editor and the guard
+        // would pass on a write it should refuse.
+        ...(editingSession ? { expectedUpdatedAt: editingSession.updatedAt } : {}),
         name: rest.name,
         description: rest.description || undefined,
         type: rest.type,
@@ -496,31 +571,7 @@ export default function AgendaPage() {
 
   const openEditSession = (s: Session) => {
     setEditingSession(s);
-    // Show stored instants as wall-clock times in the event's timezone —
-    // matching how the grid draws them and how submit re-interprets them.
-    const toLocal = (iso: string) => localDateTimeInTz(new Date(iso), eventTz);
-    setSessionForm({
-      name: s.name,
-      description: s.description || "",
-      type: s.type || "SESSION",
-      trackId: s.track?.id || "",
-      startTime: toLocal(s.startTime),
-      endTime: toLocal(s.endTime),
-      location: s.location || "",
-      capacity: s.capacity?.toString() || "",
-      status: s.status,
-      speakerIds: [],
-      sessionRoles: s.speakers.map((sp) => ({
-        speakerId: sp.speaker.id,
-        role: sp.role as SessionRoleForm["role"],
-      })),
-      topics: (s.topics || []).map((t) => ({
-        id: t.id,
-        title: t.title,
-        speakerIds: t.speakers.map((ts) => ts.speaker.id),
-        duration: t.duration?.toString() || "",
-      })),
-    });
+    setSessionForm(sessionToForm(s, eventTz));
     setIsSessionDialogOpen(true);
   };
 
