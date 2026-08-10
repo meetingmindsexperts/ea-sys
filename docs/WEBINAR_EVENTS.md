@@ -291,11 +291,33 @@ The console at `/events/[eventId]/webinar` is organized top-down:
 - Status icon + pill
 - Session window ("Mar 14 · 2:00 – 3:00 PM")
 - Inline join URL + copy button + passcode badge
+- **`Room OPEN` / `Room closed` badge** (Aug 10, 2026; see below)
 - Context-aware primary action:
   - `Scheduled` / `Live` → **Start as Host**
   - `Ended, no recording` → **Refetch recording**
   - `Ended, recording ready` → **Watch Replay**
 - `!hasZoom` → collapses to "Configure Zoom" banner with a "Run provisioner" button
+
+**Starting is TWO steps, and the bar now says so** (organizer-reported, Aug 10
+2026). `Start as Host` begins the broadcast; it admits **nobody**. Attendees
+leave the waiting room only when someone clicks **"Open the room / Go live"**.
+Until this change, `Start as Host` lived in the always-visible bar while the
+room toggle sat two cards down in Lobby, so the control that does *not* let
+anyone in was permanently on screen and the one that does required a scroll.
+The predictable outcome is a producer sitting in an empty Zoom while the
+audience watches a countdown, and the pre-existing "room still closed" warning
+shows the failure was mitigated after the fact rather than designed out.
+
+Now: the room badge renders **next to** Start as Host, and starting while the
+room is closed opens a confirm with **"Start and open the room"** vs **"Start
+only"**. Start-only is kept deliberately, because rehearsing with panelists
+before letting the audience in is a real workflow, and is exactly what the
+producer got by default until now.
+
+Implementation note: the Zoom tab is opened **synchronously in the click
+handler, before any `await`**, since a popup blocker kills a `window.open()`
+that happens after one. If opening the room then fails, the toast reads
+"Started, but opening the room failed" so it never implies the start failed.
 
 **3. Tabs — Setup / Analytics / Settings.** Default tab is status-driven:
 - `scheduled` / `live` → **Setup**
@@ -361,6 +383,30 @@ The public session page at `/e/[slug]/session/[sessionId]` is where attendees wa
 - **Ended, no recording** → muted "session has ended" banner
 
 The sticky CTA uses `position: sticky; top: 0; z-10` with a gradient-blur background so content scrolls under it cleanly.
+
+### The join window, and why org staff bypass it (Aug 10, 2026)
+
+`zoom-join` admits a caller when the session is `LIVE`, starts within
+`JOINABLE_BEFORE_START_MS` (15 min), **or** the event is `DRAFT`. Since Aug 10
+2026 **org staff bypass the window entirely**, logged as
+`zoom:join-staff-preview-outside-window` so an out-of-window join stays
+traceable.
+
+The route had always computed `isOrgStaff`, with a comment saying it existed
+"for QA / host testing", and used it only to skip the registration
+requirement. The clock check below then blocked exactly the testing it named.
+Net effect: the only way to rehearse was to keep the event in `DRAFT`, so
+**publishing a webinar silently removed the producer's ability to open their
+own attendee view**. Prod logged five refusals from the organizer's own account
+in one morning, one against a session starting the next day.
+
+The bypass is deliberately narrow: `isOrgStaff` requires **both** a staff role
+(`SUPER_ADMIN` / `ADMIN` / `ORGANIZER`) **and** a matching `organizationId`, so
+a staff account from another org still falls through to the registration path
+and then the clock. Registered attendees are unaffected and still held to the
+window. Pinned in both directions by
+[zoom-join-window.test.ts](../__tests__/api/zoom-join-window.test.ts),
+mutation-verified.
 
 ### Tabs
 

@@ -212,6 +212,107 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Cloning a WEBINAR event produces a broken webinar (Aug 10, 2026, NOT FIXED)
+
+Found while triaging `zoom:webinar-non-anchor-create-refused` in prod. Not
+picked for the fix round; recorded here because it sits on a workflow we will
+hit.
+
+**The defect.** [clone/route.ts](../src/app/api/events/%5BeventId%5D/clone/route.ts)
+copies `settings` wholesale, resetting exactly one key:
+
+```ts
+const settings = { ...(source.settings as Record<string, unknown>), reviewerUserIds: [] };
+```
+
+`settings.webinar.sessionId` is a **foreign key into the source event's
+sessions**, so the clone inherits a pointer to a session belonging to a
+different event. Prod showed it directly: event `cmsn5lhjk…` carrying
+`anchorSessionId: cmsmykig…`, the anchor of the *other* event in the same log
+window.
+
+**Consequences** (all verified against source):
+- `webinarSecondRoomViolation` compares each session against the foreign anchor
+  id, never matches, and refuses with 409 `WEBINAR_ANCHOR_ONLY` naming a session
+  that does not exist on that event. **You cannot attach Zoom to any session on
+  the clone.** The organizer hit this twice, then abandoned the clone and built
+  a fresh event 11 minutes later.
+- The console shows "Configure Zoom" (the anchor lookup correctly returns null).
+- Attendees on a non-anchor session get `session-detail:webinar-anchor-dangling`
+  instead of the redirect.
+
+**Not a security issue**, and not by luck: every anchor lookup binds `eventId`
+from the July 28 sweep, so the foreign id resolves to null rather than reaching
+another event's row.
+
+**Recovery exists but is poor.** The banner's "Run provisioner" heals a
+dangling pointer, but then creates a *second* anchor session alongside the one
+clone already copied.
+
+**The fix.** Rewrite the clone's settings handling as an **allow-list**:
+config keys copy (`viewingMode`, `lobbyVideoUrl`, `lobbyImageUrl`,
+`lobbyMessage`, `autoProvisionZoom`, `defaultPasscode`, `waitingRoom`,
+`autoRecording`, `automationEnabled`), identity/state keys are dropped
+(`sessionId`, `autoCreated`, `provisioningAt`).
+
+An allow-list, not a deny-list: a deny-list goes stale the next time someone
+adds a key, which is exactly what happened here. `reviewerUserIds` proves it:
+somebody reasoned about this once and the reasoning did not survive the next
+key that needed it.
+
+**Same edit should reset `onsiteUserIds`**, which sits in the same blob, holds
+the same kind of thing (per-event staff assignment), and currently carries last
+event's desk temps onto the clone.
+
+**Live state at time of writing: no event is broken.** All 4 webinar events have
+anchor pointers resolving to their own sessions. But
+`hemophilia-awareness-series-2026-july-10` is a *series*, and cloning is how you
+build the next instalment.
+
+### Webinar duration has no input anywhere (Aug 10, 2026, organizer-reported as "calendar says 1 hr not 1.30")
+
+Investigated and **the software is correct**: `test-webinar` is 12:00–13:00 UTC,
+and the event row, anchor session and Zoom meeting all agree; feeding a
+90-minute window through the encoder produces
+`dates=…T120000Z/…T133000Z`. Nothing dropped 30 minutes; the 90 minutes never
+reached the database.
+
+The real gap is product, not code: **there is no duration field for a webinar
+anywhere in the UI.** The console *displays* `zoom.duration` read-only and the
+Zoom form has no duration input. A webinar's length is implied entirely by the
+event's start/end datetime (create form or Settings → General). An organizer
+thinking "this webinar is 1.5 hours" has no field that says so.
+
+Compounding it: we push session times **to** Zoom (the Aug 4 retime cascade) but
+never read Zoom's duration **back**, so changing the length in Zoom's own UI is
+silently lost.
+
+**Open question for the owner before building:** where was 1.30 entered? If it
+was the event end time in Settings, that is a save bug to chase. If it was
+Zoom's own UI, or no field could be found, the fix is a duration control in the
+Webinar Console that writes the anchor session's `endTime` (and cascades to Zoom
+through the existing `session-service` path).
+
+**Adjacent latent bug found while checking**, not fixed: `fromDatetimeLocal` in
+[events/new/page.tsx](../src/app/%28dashboard%29/events/new/page.tsx) **hardcodes
+a Dubai offset** (`4 * 60 * 60 * 1000`) while the form also collects a
+`timezone`. Inert today because every event is Dubai; wrong the moment one
+is not, and a hard blocker for the platform instance.
+
+### Public banner container widths have drifted (Aug 10, 2026)
+
+Found while fixing the confirmation page's squeezed banner. **Four different
+widths across the 19 public pages**: `max-w-[1400px]` (9 pages: sign-in,
+my-registration, password, survey, agreements, submitter-register,
+complete-registration), `max-w-[1120px]` (4, the register family),
+`max-w-5xl` (2, agenda and group register), and unset (4: my-group, rsvp,
+session, and confirmation until it was fixed).
+
+Not swept: fixing one reported page is not the moment to restyle eighteen
+others. Worth one deliberate pass to pick a convention, ideally by extracting
+the banner *frame* (not just the `<img>`) into a shared component so the width
+is decided once.
+
 ### Saved email templates drift behind the built-in defaults (Aug 10, 2026, owner: "add to backlog")
 
 Surfaced while fixing the session-proposal confirmation email. Three related
