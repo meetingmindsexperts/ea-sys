@@ -89,7 +89,7 @@
 
 <header>
   <h1>EA-SYS Domain Map</h1>
-  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post accommodation-review remediation; certificates review, pkg 0.4.20) — <strong>abstracts branch refreshed Aug 7, 2026</strong> (themes/sub-themes) and the <strong>worker/job branch Aug 10, 2026</strong> (leases replaced advisory locks — see <a href="BACKGROUND_JOBS.md">BACKGROUND_JOBS.md</a>); the rest of the tree has not been re-walked since July 13, so treat other branches as a month behind. Markdown-free, self-contained, dark-mode aware.</div>
+  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post accommodation-review remediation; certificates review, pkg 0.4.20) — <strong>abstracts branch refreshed Aug 7, 2026</strong> (themes/sub-themes) the <strong>worker/job branch Aug 10, 2026</strong> (leases replaced advisory locks — see <a href="BACKGROUND_JOBS.md">BACKGROUND_JOBS.md</a>) and the <strong>roles/visibility rows Aug 10, 2026</strong> (WEBINARS desk surface org-wide; <code>accessUserFrom</code>); the rest of the tree has not been re-walked since July 13, so treat other branches as a month behind. Markdown-free, self-contained, dark-mode aware.</div>
 </header>
 
 <div class="note">
@@ -138,7 +138,7 @@
 <table>
 <tr><th>Concern</th><th>File</th><th>Rule</th></tr>
 <tr><td>Write-guard RBAC</td><td><code>src/lib/auth-guards.ts</code></td><td><code>denyReviewer(session, {allow?})</code> on every non-abstract write; ONSITE opted back in per-route via <code>REGISTRATION_DESK_ALLOW</code></td></tr>
-<tr><td>Event visibility</td><td><code>src/lib/event-access.ts</code></td><td><code>buildEventAccessWhere()</code> — role-scoped event lookup; <b>every ONSITE-reachable route must use it</b> (assignment-gated, not just org)</td></tr>
+<tr><td>Event visibility</td><td><code>src/lib/event-access.ts</code></td><td><code>buildEventAccessWhere()</code> — role-scoped event lookup; <b>every ONSITE-reachable route must use it</b> (assignment-gated, not just org). On routes that accept an API key <i>or</i> a session, resolve the caller through <code>accessUserFrom()</code> — never branch on <code>orgCtx</code>, which matches a signed-in person and skips role scoping entirely</td></tr>
 <tr><td>Money visibility</td><td><code>src/lib/finance-visibility.ts</code></td><td><code>FINANCE_ROLES</code> = SUPER_ADMIN / ADMIN / ORGANIZER / MEMBER / ONSITE; <code>redactFinancialFields()</code> for the rest</td></tr>
 <tr><td>Door credentials</td><td><code>src/lib/barcode-visibility.ts</code></td><td>qrCode / dtcmBarcode: staff + ONSITE yes, MEMBER <b>no</b> — deliberately narrower than finance</td></tr>
 <tr><td>Zoom host creds</td><td><code>src/lib/zoom-visibility.ts</code></td><td>startUrl / streamKey / passcode: ADMIN + ORGANIZER only</td></tr>
@@ -345,7 +345,7 @@
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
 <div class="gotcha"><b>NEVER "undo" a check-in by hand-flipping status</b> — leaves <code>checkedInAt</code> set → permanent ALREADY_CHECKED_IN. Use the DELETE/undo endpoint.</div>
-<div class="gotcha">ONSITE staff are per-event assigned (<code>settings.onsiteUserIds</code>) and 404 on other events' desk routes.</div>
+<div class="gotcha">ONSITE staff are per-event assigned (<code>settings.onsiteUserIds</code>) and 404 on other events' desk routes. WEBINARS is <b>not</b> assignment-gated (Aug 10, 2026): its desk surface is org-wide, MEMBER parity. Its <i>manage</i> surface stays webinar-only.</div>
 <div class="gotcha">Desk payment override = <code>{ overridePayment: true }</code> — covers ANY payment block, warn-logged + audited.</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">

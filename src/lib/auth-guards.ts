@@ -20,8 +20,9 @@ const RESTRICTED_WRITE_ROLES = ["REVIEWER", "SUBMITTER", "REGISTRANT", "MEMBER",
 /**
  * Roles permitted to operate the REGISTRATION DESK — create a registration,
  * check attendees in, edit a registration, record a payment, print badges.
- * MEMBER + ONSITE (+ WEBINARS, which carries ONSITE-equivalent desk powers on
- * its assigned conferences) are otherwise restricted from writes, so the
+ * MEMBER + ONSITE (+ WEBINARS, which since Aug 10, 2026 carries these desk
+ * powers on EVERY event in its org — MEMBER parity, it is internal staff) are
+ * otherwise restricted from writes, so the
  * registration-domain write routes opt them back in via
  * `denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW })`. Deliberately
  * NOT including: deleting a registration, bulk operations, or any
@@ -37,11 +38,24 @@ export const REGISTRATION_DESK_ALLOW = ["ONSITE", "MEMBER", "WEBINARS"] as const
  * pass this so the webinar team can run webinar events end-to-end.
  *
  * INVARIANT — every route that opts WEBINARS in via this list MUST resolve
- * its event through `buildEventAccessWhere` (default surface), which for
- * WEBINARS matches ONLY `eventType: WEBINAR` events in its org. That pairing
+ * its event through `buildEventAccessWhere` (default / "manage" surface), which
+ * for WEBINARS matches ONLY `eventType: WEBINAR` events in its org. That pairing
  * is what confines the role: the guard says "this OPERATION is allowed", the
  * where says "…but only on a webinar". An org-scoped hand-rolled event lookup
  * next to this allow would open the operation on conferences — never do that.
+ *
+ * The invariant got MORE load-bearing on Aug 10, 2026, when the DESK surface
+ * went org-wide for this role (MEMBER parity). The manage surface deliberately
+ * did not follow, and must not: ~55 route files sit behind this allow, so
+ * widening the default would open all of them on conferences in one edit.
+ * `webinars-role-isolation.test.ts` fails if anyone tries — mutation-verified
+ * against that exact change.
+ *
+ * Related trap, same family: do NOT write `orgCtx ? { id, organizationId } :
+ * buildEventAccessWhere(...)`. It reads as "an API key, else a person" but
+ * `getOrgContext()` matches a signed-in person too, so the role scoping never
+ * runs. Use `accessUserFrom` — see its docblock for the live bypass that shape
+ * produced.
  */
 export const WEBINAR_STAFF_ALLOW = ["WEBINARS"] as const;
 

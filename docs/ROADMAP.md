@@ -757,6 +757,39 @@ the credentials PUT when the org already has env-account Payment rows.
 Latent on master (MMG never switches accounts mid-stream); must land before
 any org that took env-fallback payments configures its own Stripe key.
 
+### WEBINARS MEMBER-parity read sweep (Aug 10, 2026)
+
+The role's DESK surface went org-wide (MEMBER parity) on Aug 10; the READ side was
+deliberately staged and is still outstanding. Today ~59 event GETs resolve on the
+**manage** surface, so a WEBINARS user sees every event in the list, can work any
+registration desk, but gets a **404 on a conference's agenda, speakers, tickets and
+analytics**. That is the staged state, not a defect.
+
+The sweep: triage each of the ~59 GETs under `src/app/api/events/[eventId]/` and pass
+`{ surface: "desk" }` where MEMBER-equivalent read is intended. Fails closed on anything
+missed (a 404 is a feature gap, never a leak), so it can land incrementally.
+
+**Must STAY refused**, or the sweep quietly reverses decisions already made:
+- the **org-wide invoice ledger** (`/api/invoices` + export) — the Aug-4 H-1 ruling,
+  *finance-capable ≠ org-ledger access*. Full MEMBER parity would hand it back.
+- the webinar console routes, email templates, scheduled emails (full-control surfaces).
+- anything paired with `WEBINAR_STAFF_ALLOW` — those MUST keep the manage surface.
+
+**Precondition met:** the `orgCtx`-branch bypass below is fixed, so `buildEventAccessWhere`
+is actually reached on these routes. Sweeping before that would have written down rules
+the code did not apply.
+
+### WEBINARS / ONSITE — role scoping skipped for signed-in callers (FIXED Aug 10, 2026, `db250e45`)
+
+Recorded because the shape is worth recognising, not because anything is outstanding.
+`sessions` + `speakers` GET used `orgCtx ? { id, organizationId } : buildEventAccessWhere(...)`,
+which reads as "an API key, else a person" but matches a signed-in person too, so role
+scoping never ran: an ONSITE temp assigned to one conference could read any other event's
+agenda and full faculty roster (emails, phones). Fixed with `accessUserFrom` — one
+predicate, no branch. **Remaining watch item:** the same trap is available anywhere a route
+mixes API-key and session auth. Only these two had it at the time of the sweep; a CI
+grep-gate for the pattern is a candidate (see the existing gate suggestion below).
+
 Adversarial review of the WEBINARS role (webinar team): 0 BLOCKER / 2 HIGH / 3 MED / 5 LOW.
 H-1 (org invoice ledger refused + proxy block), H-2 (schedule-mutation primary writes
 builder-bound), M-1 (email-logs desk-confined + CONTACT/USER/OTHER refused), M-2

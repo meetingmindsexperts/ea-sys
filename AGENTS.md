@@ -131,7 +131,7 @@ event assignment or linked entity. **Internal-domain emails get the org attached
 | Boundary | File | Notable |
 |---|---|---|
 | Write guard | `auth-guards.ts` — `denyReviewer()` | Blocks REVIEWER/SUBMITTER/REGISTRANT/**MEMBER**/ONSITE. Desk routes opt back in via `REGISTRATION_DESK_ALLOW`. |
-| Event scoping | `event-access.ts` — `buildEventAccessWhere()` | ONSITE is **assignment-gated**, not just org-gated. Every ONSITE-reachable route must build its lookup from this. |
+| Event scoping | `event-access.ts` — `buildEventAccessWhere()` | ONSITE is **assignment-gated**, not just org-gated. Every ONSITE-reachable route must build its lookup from this. WEBINARS has **two surfaces**: `desk` is org-wide (MEMBER parity), the default `manage` is webinar-only and **must stay that way** — ~55 routes behind `WEBINAR_STAFF_ALLOW` depend on it. |
 | Money | `finance-visibility.ts` | **Includes MEMBER and ONSITE** (desk staff record payments). |
 | Door credentials | `barcode-visibility.ts` | **Excludes MEMBER, includes ONSITE** — the exact inverse of the finance set. |
 | Contact store | `contact-visibility.ts` | **Includes MEMBER, excludes ONSITE.** |
@@ -166,6 +166,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ eventId
 - Prisma `select` over `include` — an allow-list can't leak a column added later.
 - Bind **every** lookup to its parent (`{ id, eventId }`, `{ id, organizationId }`). Trusting a nested
   id straight from the URL is this codebase's most-repeated IDOR.
+- On a route that accepts **both** an org API key and a session, never branch on `orgCtx` to pick the
+  scope. `getOrgContext()` matches a signed-in person too, so `orgCtx ? orgScoped : roleScoped` silently
+  skips the role rules for everyone org-bound. Use `accessUserFrom(orgCtx, session?.user)` and call
+  `buildEventAccessWhere` **once**. This shipped as a live bypass in two routes (Aug 10, 2026) and
+  survived review because both branches are correct in isolation — the defect was the condition.
 - Concurrency: claim first, then act. `updateMany` with the expected prior state as a predicate; a
   zero-row result means someone else won. Check-then-act on a counter is always a bug here.
 - Audit writes are fire-and-forget **with a logged catch** — an audit blip must not 500 a committed write.
