@@ -28,6 +28,23 @@ export const CRM_CONTACTS_LIST_CAP = 1000;
 /** Accounts are the smallest of the three populations by an order of magnitude. */
 export const CRM_COMPANIES_LIST_CAP = 1000;
 
+/**
+ * Row count at which a list read by a role that may NOT export is recorded as a
+ * bulk read (review H3).
+ *
+ * The export gate stops the easy path — the Download button — but a rep can
+ * still replay the board's own request, and you cannot stop someone reading what
+ * they are allowed to read. So the goal here is ATTRIBUTION, not prevention: the
+ * export routes write an audit row and the list routes wrote nothing, so a mass
+ * pull left no trace at all.
+ *
+ * 500 because a FILTERED board (by event, owner, stage) is ordinary daily work
+ * and must not spam the audit log; an unfiltered whole-book pull clears it.
+ * Tune it if the audit log gets noisy — it is a detection threshold, not a
+ * security boundary, and nothing breaks if it moves.
+ */
+export const CRM_BULK_READ_AUDIT_ROWS = 500;
+
 /** Shape every capped CRM list route returns. */
 export interface CrmListMeta {
   /** Rows matching the filters, ignoring the cap — the honest number. */

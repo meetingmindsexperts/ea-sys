@@ -19,8 +19,18 @@ const MCP_SERVER_VERSION = pkg.version;
  * Build an org-scoped MCP server. All tools are restricted to the authenticated organization.
  * @param organizationId - The org ID from the validated API key. ALL queries are scoped to this org.
  */
-export function buildMcpServer(organizationId: string): McpServer {
+/**
+ * `actor` carries what the CALLER may do. Omitted ⇒ admin-equivalent, which is
+ * correct for an API key (admin-minted) and was the ONLY assumption this builder
+ * made — including for OAuth grants, where `/mcp-authorize` admits ORGANIZER. A
+ * role the CRM's export gate refuses could therefore approve its own consent
+ * screen and get the full CRM tool set with deal values (review H4).
+ */
+export function buildMcpServer(
+  organizationId: string,
+  actor?: { role: string | null; fromApiKey: boolean },
+): McpServer {
   const server = new McpServer({ name: "ea-sys", version: MCP_SERVER_VERSION });
-  registerAllMcpTools(server, organizationId);
+  registerAllMcpTools(server, organizationId, actor ? { actor } : undefined);
   return server;
 }

@@ -6,7 +6,7 @@
  */
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { registerCrmMcpTools } from "@/crm/agent-tools"; // permitted core-side touch point (ESLint exemption)
+import { registerCrmMcpTools, type CrmMcpActor } from "@/crm/agent-tools"; // permitted core-side touch point (ESLint exemption)
 import { z } from "zod";
 import { PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -70,9 +70,12 @@ async function getOrgIdSecure(eventId: string, authenticatedOrgId: string): Prom
 export function registerAllMcpTools(
   server: McpServer,
   organizationId: string,
-  options?: { systemUserId?: string },
+  options?: { systemUserId?: string; actor?: CrmMcpActor },
 ): void {
   const SYSTEM_USER_ID = options?.systemUserId ?? DEFAULT_SYSTEM_USER_ID;
+  // Defaults to admin-equivalent so the API-key path (an admin-minted org key)
+  // is byte-identical to before. Only the OAuth path passes a real role.
+  const actor: CrmMcpActor = options?.actor ?? { role: null, fromApiKey: true };
 
   // Wraps every tool callback so thrown errors become MCP-protocol `isError`
   // responses with the real message instead of the SDK's generic
@@ -985,5 +988,5 @@ export function registerAllMcpTools(
   // ── CRM (sponsorship pipeline) ──
   // Registered from inside the CRM module (src/crm/agent-tools.ts) so the tool
   // logic stays behind the import boundary; this file is the named exemption.
-  registerCrmMcpTools(server, organizationId, SYSTEM_USER_ID);
+  registerCrmMcpTools(server, organizationId, SYSTEM_USER_ID, actor);
 }

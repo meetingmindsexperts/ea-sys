@@ -93,8 +93,23 @@ const CRM_DELETE_ROLES = new Set(["SUPER_ADMIN", "ADMIN", "CRM_USER"]);
  * API KEYS ARE ALLOWED (unlike `canPurgeCrm`, which refuses them). An org key is
  * admin-minted, and the MCP read tools already return the same rows to a valid
  * key; refusing the CSV endpoint while `list_crm_deals` answers freely would be
- * theatre, not a boundary. If that ever changes, the MCP surface has to move in
- * the same commit — not this predicate alone.
+ * theatre, not a boundary.
+ *
+ * ⚠ WHAT THIS GATE ACTUALLY BUYS — the original wording of this comment implied
+ * more. You cannot stop a role from reading what it is allowed to read: a rep
+ * refused the export can still replay the board's own request. Two rounds of
+ * review found exactly that, so the honest statement of the boundary is:
+ *   · the EASY path (a Download button producing a portable file) is admin-only;
+ *   · the JSON list is no longer a SUPERSET of it — `contacts` (every linked
+ *     person's email + job title) was removed from the list select, since the
+ *     board never rendered it (review H3);
+ *   · a bulk list read by a non-exporting role is AUDITED, so mass extraction is
+ *     attributable rather than invisible (CRM_BULK_READ_AUDIT_ROWS);
+ *   · and the MCP surface now follows the CALLER's role, not just their org, so
+ *     an OAuth grant cannot hand the full tool set to a role this predicate
+ *     refuses (review H4).
+ * That is friction plus attribution, not prevention. Say so rather than
+ * implying a wall.
  *
  * Fails closed: an unknown or absent role gets nothing.
  */

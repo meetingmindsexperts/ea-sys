@@ -7,9 +7,10 @@ import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { zodErrorResponse } from "@/lib/api-errors";
 import { requireCrmRead, requireCrmWrite, redactForCaller, crmErrorResponse } from "@/crm/lib/crm-route";
-import { canViewDealValues } from "@/crm/lib/crm-roles";
+import { canViewDealValues, canExportCrm } from "@/crm/lib/crm-roles";
+import { recordExport } from "@/lib/audit-data-transfer";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
-import { CRM_DEALS_LIST_CAP, listMeta } from "@/crm/lib/list-caps";
+import { CRM_DEALS_LIST_CAP, CRM_BULK_READ_AUDIT_ROWS, listMeta } from "@/crm/lib/list-caps";
 import { createDeal } from "@/crm/services/deal-service";
 
 const createDealSchema = z.object({
@@ -86,12 +87,12 @@ export async function GET(req: Request) {
         archivedAt: true,
         createdAt: true,
         company: { select: { id: true, name: true } },
-        contacts: {
-          select: {
-            role: true,
-            crmContact: { select: { id: true, firstName: true, lastName: true, email: true, jobTitle: true } },
-          },
-        },
+        // `contacts` is deliberately NOT selected here. The board renders none
+        // of it, and it made this LIST a superset of the admin-only CSV export —
+        // which carries no contact emails at all — so a role refused the export
+        // could still lift every linked person's email and job title out of the
+        // board's own request. The deal DETAIL route still returns them, for the
+        // one deal you opened. (Review H3.)
         // Project date + location are DERIVED from the linked event (never stored
         // on the deal — no drift). city/country only, per owner: the venue string
         // is deliberately not surfaced here.
@@ -104,6 +105,25 @@ export async function GET(req: Request) {
       }),
       db.crmDeal.count({ where }),
     ]);
+
+    // A caller who may not EXPORT can still page this endpoint, and no amount of
+    // gating changes that — you cannot stop someone reading what they are allowed
+    // to read. What was missing was ATTRIBUTION: the export routes write an audit
+    // row, this one wrote nothing, so a mass pull left no trace at all. Bulk reads
+    // by a non-exporting role are now recorded. Threshold, not every read: a
+    // filtered board is ordinary work and must not spam the audit log.
+    // Fire-and-forget by contract.
+    if (deals.length >= CRM_BULK_READ_AUDIT_ROWS && !canExportCrm(ctx.role, ctx.fromApiKey)) {
+      recordExport(req, {
+        entityType: "CrmDeal",
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        role: ctx.role,
+        rowCount: deals.length,
+        format: "json",
+        filters: { truncated: total > deals.length, total },
+      });
+    }
 
     return NextResponse.json({
       deals: redactForCaller(deals, ctx),

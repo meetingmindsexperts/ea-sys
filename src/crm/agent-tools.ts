@@ -22,6 +22,7 @@ import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { buildDealWhere } from "@/crm/lib/deal-filters";
+import { canViewCrm, canViewDealValues, canOwnDeals } from "@/crm/lib/crm-roles";
 import { defaultOpenStage } from "@/crm/lib/crm-types";
 import { companyDealValueBreakdown, type RollupDeal } from "@/crm/lib/company-rollup";
 import { ensurePipelineStages } from "@/crm/services/pipeline-service";
@@ -140,11 +141,47 @@ async function resolveDealTypeFlexible(organizationId: string, idOrName: string)
   );
 }
 
+/**
+ * What the CALLER may do — not what an org API key may do.
+ *
+ * These tools used to be registered unconditionally with `canSeeValues: true`,
+ * justified as "API key = admin-equivalent". That premise holds for an
+ * admin-minted org key; it does NOT hold for the OAuth half of the MCP surface,
+ * where `/mcp-authorize` admits ORGANIZER and `buildMcpServer` was handed only
+ * an org id. So a role the CRM's own export gate refuses could approve its own
+ * consent screen and then page the whole pipeline with full deal values, with
+ * writes attributed to the system user rather than to them (review H4).
+ */
+export interface CrmMcpActor {
+  /** Session role behind an OAuth grant; null for an API key. */
+  role: string | null;
+  /** API keys stay admin-equivalent — they are minted by an admin. */
+  fromApiKey: boolean;
+}
+
 export function registerCrmMcpTools(
   server: McpServer,
   organizationId: string,
   systemUserId: string,
+  actor: CrmMcpActor = { role: null, fromApiKey: true },
 ): void {
+  // Registering nothing is the right failure mode: a tool the caller may not use
+  // should not appear in their tool list at all, rather than 403 on call.
+  if (!canViewCrm(actor.role, actor.fromApiKey)) return;
+  const canSeeValues = canViewDealValues(actor.role, actor.fromApiKey);
+  const canWrite = canOwnDeals(actor.role, actor.fromApiKey);
+
+  /**
+   * Registrar for the MUTATING tools. A caller who may read the board but not
+   * write it (MEMBER) simply never sees them — not registered, rather than
+   * registered-and-403, so the tool list itself tells the truth.
+   */
+  const writeServer = {
+    tool: ((...args: Parameters<McpServer["tool"]>) => {
+      if (!canWrite) return;
+      server.tool(...args);
+    }) as McpServer["tool"],
+  } as McpServer;
   // Same error contract as the core registrations: a thrown error becomes an
   // MCP `isError` text response with the real message, logged server-side.
   async function safeTool(
@@ -214,7 +251,7 @@ export function registerCrmMcpTools(
             pipeline: pipeline ?? null,
             archived: includeArchived ? "1" : null,
           },
-          { organizationId, canSeeValues: true }, // API key = admin-equivalent
+          { organizationId, canSeeValues },
         );
         if (stage) {
           const resolved = await resolveStageFlexible(organizationId, stage);
@@ -276,7 +313,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "create_crm_deal",
     "Create a sponsorship deal. Required: name, eventId (the project the deal is sold against — a deal without an event is refused). Optional: companyName (the account — found or created, deduped on the normalized name), stage (name or id; defaults to the first open stage), pipeline (deal CATEGORY — CORPORATE or CONFERENCE; NOT a pipeline stage), dealType (the org-configurable business line — name or id, call list_crm_deal_types), tags (free-form labels, normalized), dealValue, currency (default USD), expectedClose (ISO date). Project date + location are derived from the event, not set here.",
     {
@@ -343,7 +380,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "update_crm_deal",
     "Update a deal's fields: name, dealValue, currency, expectedClose (ISO date), eventId (re-point to another event; clearing is refused — a deal must stay on a project), pipeline (deal CATEGORY CORPORATE/CONFERENCE; pass null to clear), dealType (business line — name or id; pass null to clear), tags (REPLACES the whole tag list, normalized). Stage moves go through move_crm_deal_stage; closing through close_crm_deal.",
     {
@@ -392,7 +429,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "move_crm_deal_stage",
     "Move a deal to another pipeline stage (by stage name or id). Moving into a terminal stage closes the deal as that stage's outcome; moving a closed deal out of a terminal stage REOPENS it. Race-safe: if someone moves the deal concurrently, this fails with the current stage.",
     {
@@ -427,7 +464,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "close_crm_deal",
     "Close a deal as WON or LOST. The deal lands in the matching terminal column. Refused when the pipeline has no column mapped to that outcome, when the deal is already closed, or when it is archived.",
     {
@@ -492,7 +529,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "create_crm_company",
     "Create a CRM account (company) — or link to the existing one if the name already exists (deduped on the normalized name; a near-duplicate is created but flagged for human review).",
     { name: z.string().min(1).max(255) },
@@ -553,7 +590,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "create_crm_task",
     "Create a CRM follow-up task. Optional: description, dueAt (ISO date — also arms the email reminder at that date), ownerEmail (must be an org team member; unassigned when omitted), dealId, companyId, crmContactId.",
     {
@@ -595,7 +632,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "complete_crm_task",
     "Mark a CRM task done. Refused when it is already done or archived.",
     { taskId: z.string().min(1) },
@@ -609,7 +646,7 @@ export function registerCrmMcpTools(
 
   // ── Notes ───────────────────────────────────────────────────────────────────
 
-  server.tool(
+  writeServer.tool(
     "add_crm_note",
     "Log a note / call / meeting on a CRM record. Attach to exactly one of dealId, companyId, crmContactId.",
     {
@@ -654,7 +691,7 @@ export function registerCrmMcpTools(
         await ensurePipelineStages(organizationId);
         const { pipeline, winLoss, reps } = await buildCrmReport({
           organizationId,
-          canSeeValues: true,
+          canSeeValues,
           filters: { eventId: eventId ?? null },
         });
 
@@ -738,7 +775,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "create_crm_contact",
     "Create a CRM business contact — or link to the existing one if the email already exists (deduped on the normalized email). Required: firstName, lastName, email. Optional: companyId (the account), jobTitle, phone, mobile, country, notes, ownerEmail (an org team member), status (NEW/CONTACTED/INTERESTED/QUALIFIED/NEGOTIATION/WON/LOST/UNQUALIFIED), lifecycleStage (LEAD/ENGAGED/CUSTOMER/CHAMPION), tags.",
     {
@@ -784,7 +821,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "update_crm_contact",
     "Update a CRM contact's fields: firstName, lastName, email (kept deduped), companyId (re-point to another account; null unlinks), jobTitle, phone, mobile, country, notes, ownerEmail (reassign; null unowns), status, lifecycleStage, tags (REPLACES the whole list). Only the fields you pass change.",
     {
@@ -888,7 +925,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "update_crm_company",
     "Update a CRM account's fields: name, industry, website, phone, country, city, notes, tags (REPLACES the whole list), needsReview (set false once you've confirmed a flagged near-duplicate is distinct). Only the fields you pass change.",
     {
@@ -1052,7 +1089,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "create_crm_product",
     "Add a product/service to the org catalog. Required: name, category. Optional: sku, source (IN_HOUSE/OUTSOURCED, default IN_HOUSE), price (default 0), currency (default AED), priceIncludesTax.",
     {
@@ -1082,7 +1119,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "update_crm_product",
     "Update a catalog product: name, category, sku, source (IN_HOUSE/OUTSOURCED), price, currency, priceIncludesTax. Only the fields you pass change. Editing a product does NOT rewrite line items already on deals — those are snapshots.",
     {
@@ -1135,7 +1172,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "add_deal_product",
     "Add a catalog product as a line item on a deal. Required: dealId, crmProductId (from list_crm_products). Optional: unitPrice (defaults to the catalog list price), quantity (default 1). Refused if the product is already on the deal (edit its quantity instead) or if the product/deal is archived.",
     {
@@ -1159,7 +1196,7 @@ export function registerCrmMcpTools(
       }),
   );
 
-  server.tool(
+  writeServer.tool(
     "update_deal_product",
     "Update a deal line item's unitPrice and/or quantity. Required: dealId, lineId (from list_crm_deal_products / get_crm_deal).",
     {

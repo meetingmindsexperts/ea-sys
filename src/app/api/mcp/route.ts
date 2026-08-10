@@ -1,5 +1,6 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { validateApiKey } from "@/lib/api-key";
+import { db } from "@/lib/db";
 import { validateOAuthAccessToken } from "@/lib/mcp-oauth";
 import { handlePreflight, withCors, publicBaseUrl } from "@/lib/mcp-cors";
 import { apiLogger } from "@/lib/logger";
@@ -20,6 +21,16 @@ function cleanExpiredSessions() {
 type AuthResult = {
   organizationId: string;
   keyPrefix: string;
+  /**
+   * The granting user's role for an OAuth grant; null for an API key.
+   *
+   * An API key is admin-minted, so null here means admin-equivalent — the
+   * long-standing convention. An OAuth grant is NOT: `/mcp-authorize` admits
+   * ORGANIZER, so without this the CRM tool set was handed to a role its own
+   * export gate refuses (review H4).
+   */
+  actorRole: string | null;
+  fromApiKey: boolean;
   rateLimitTier: "NORMAL" | "INTERNAL";
 };
 
@@ -36,6 +47,8 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
       organizationId: apiKey.organizationId,
       keyPrefix: key.slice(0, 12),
       rateLimitTier: apiKey.rateLimitTier,
+      actorRole: null,
+      fromApiKey: true,
     };
   }
 
@@ -45,10 +58,28 @@ async function authenticate(req: Request): Promise<AuthResult | null> {
   // client to INTERNAL after the user has connected once via DCR.
   const oauth = await validateOAuthAccessToken(key);
   if (oauth) {
+    // Resolve the GRANTING user's current role — not the role they held when
+    // they approved the grant. A demotion must take effect on the next request,
+    // and a deleted user resolves to null, which fails closed everywhere the
+    // CRM predicates are consulted.
+    const grantee = await db.user.findUnique({
+      where: { id: oauth.userId },
+      select: { role: true, organizationId: true },
+    });
+    if (grantee && grantee.organizationId !== oauth.organizationId) {
+      apiLogger.warn({
+        msg: "mcp:oauth-grantee-org-mismatch",
+        organizationId: oauth.organizationId,
+        userId: oauth.userId,
+      });
+      return null;
+    }
     return {
       organizationId: oauth.organizationId,
       keyPrefix: "oauth-" + key.slice(0, 10),
       rateLimitTier: oauth.rateLimitTier,
+      actorRole: grantee?.role ?? null,
+      fromApiKey: false,
     };
   }
 
@@ -196,7 +227,10 @@ async function handleMcp(req: Request): Promise<Response> {
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: () => crypto.randomUUID(),
   });
-  const mcpServer = buildMcpServer(authResult.organizationId);
+  const mcpServer = buildMcpServer(authResult.organizationId, {
+    role: authResult.actorRole,
+    fromApiKey: authResult.fromApiKey,
+  });
 
   await mcpServer.connect(transport);
 
