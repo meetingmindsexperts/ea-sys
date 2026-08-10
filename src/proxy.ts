@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import authConfig from "@/lib/auth.config";
+import { maxBodySizeFor } from "@/lib/body-limits";
 
 // Use the Edge-compatible auth config (no Node.js modules like bcrypt, prisma)
 const { auth } = NextAuth(authConfig);
@@ -16,9 +17,10 @@ function logWarn(msg: string, data?: Record<string, unknown>) {
 }
 
 // ── Body size limits ──
-// Reject oversized request bodies early to prevent abuse.
-// 1MB default for JSON API routes; photo upload has its own 500KB app-level limit.
-const MAX_BODY_SIZE = 1_048_576; // 1MB
+// Reject oversized request bodies early to prevent abuse. 1MB default for JSON
+// API routes (photo upload has its own 500KB app-level limit); CSV imports get
+// a larger allowance. The decision lives in src/lib/body-limits.ts so it can be
+// unit tested without dragging NextAuth into the test.
 
 // ── Mobile app CORS ──
 // Allowed origins for mobile app development and production.
@@ -67,8 +69,9 @@ export default auth((req) => {
     const contentLength = req.headers.get("content-length");
     if (contentLength) {
       const size = parseInt(contentLength, 10);
-      if (!Number.isNaN(size) && size > MAX_BODY_SIZE) {
-        logWarn("Request body too large", { pathname, contentLength: size, maxSize: MAX_BODY_SIZE });
+      const maxSize = maxBodySizeFor(pathname);
+      if (!Number.isNaN(size) && size > maxSize) {
+        logWarn("Request body too large", { pathname, contentLength: size, maxSize });
         return addCorsHeaders(
           NextResponse.json(
             { error: "Request body too large" },

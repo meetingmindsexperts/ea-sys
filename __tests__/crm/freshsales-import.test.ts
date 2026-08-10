@@ -20,8 +20,8 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     crmCompany: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
-    crmContact: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    crmDeal: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    crmContact: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
+    crmDeal: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn() },
     crmPipelineStage: { findMany: vi.fn() },
     crmDealType: { findMany: vi.fn() },
     event: { findFirst: vi.fn(), findMany: vi.fn() },
@@ -55,6 +55,12 @@ const ORG = "org-1";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The importers prefetch existing rows in ONE query per file (indexBy); the
+  // default for every test is "nothing exists yet". Tests that seed an existing
+  // record override the relevant findMany below.
+  vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never);
+  vi.mocked(db.crmContact.findMany).mockResolvedValue([] as never);
+  vi.mocked(db.crmDeal.findMany).mockResolvedValue([] as never);
 });
 
 // ── Header resolution ─────────────────────────────────────────────────────────
@@ -231,11 +237,9 @@ describe("importFreshsalesCompanies", () => {
   });
 
   it("ENRICHES an EA-born account it matched by name — blanks filled, human data kept", async () => {
-    vi.mocked(db.crmCompany.findFirst).mockResolvedValue(null as never);
-    vi.mocked(db.crmCompany.findUnique).mockImplementation((async (args: { where: { organizationId_nameKey: { nameKey: string } } }) =>
-      args.where.organizationId_nameKey.nameKey === "abbott"
-        ? { id: "c-1", name: "Abbott", nameKey: "abbott", website: "already-set.com", industry: null, city: null, country: null, notes: null, updatedAt: new Date(), lastImportedAt: null }
-        : null) as never);
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([
+      { id: "c-1", name: "Abbott", nameKey: "abbott", website: "already-set.com", industry: null, city: null, country: null, phone: null, tags: [], notes: null, externalSource: null, externalId: null, updatedAt: new Date(), lastImportedAt: null },
+    ] as never);
     vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-2" } as never);
 
     const res = await importFreshsalesCompanies({ organizationId: ORG, userId: "u-1", csvText: CSV, dryRun: false });
@@ -259,13 +263,14 @@ describe("importFreshsalesCompanies", () => {
     const contactCsv = `Id,First name,Last name,Emails,Job title\nc-1,Sara,Khan,s.khan@abbott.com,Procurement Lead`;
     vi.mocked(db.crmCompany.findMany).mockResolvedValue([] as never); // company resolver prefetch
     vi.mocked(db.user.findMany).mockResolvedValue([] as never); // owner resolver prefetch
-    vi.mocked(db.crmContact.findFirst).mockResolvedValue(null as never);
-    vi.mocked(db.crmContact.findUnique).mockResolvedValue({
+    vi.mocked(db.crmContact.findMany).mockResolvedValue([{
       id: "ct-1", firstName: "Sara", lastName: "Khan",
       email: "s.khan@abbott.com", emailKey: "s.khan@abbott.com",
-      jobTitle: "Human-typed title", phone: null, country: null, companyId: null,
+      jobTitle: "Human-typed title", phone: null, mobile: null, country: null, companyId: null,
+      ownerId: null, lifecycleStage: null, status: null, tags: [],
+      externalSource: null, externalId: null,
       updatedAt: new Date(), lastImportedAt: null,
-    } as never);
+    }] as never);
 
     const res = await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: contactCsv, dryRun: false });
 
@@ -280,11 +285,9 @@ describe("importFreshsalesCompanies", () => {
   it("keeps EA-SYS edits on re-import (kept-local), and reports it", async () => {
     const imported = new Date("2026-07-01T10:00:00Z");
     const editedLater = new Date("2026-07-02T09:00:00Z");
-    vi.mocked(db.crmCompany.findFirst).mockImplementation((async (args: { where: { externalId?: string } }) =>
-      args.where.externalId === "a-1"
-        ? { id: "c-1", name: "Abbott", nameKey: "abbott", updatedAt: editedLater, lastImportedAt: imported }
-        : null) as never);
-    vi.mocked(db.crmCompany.findUnique).mockResolvedValue(null as never);
+    vi.mocked(db.crmCompany.findMany).mockResolvedValue([
+      { id: "c-1", name: "Abbott", nameKey: "abbott", externalSource: "freshsales", externalId: "a-1", updatedAt: editedLater, lastImportedAt: imported },
+    ] as never);
     vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-2" } as never);
 
     const res = await importFreshsalesCompanies({ organizationId: ORG, userId: "u-1", csvText: CSV, dryRun: false });
@@ -359,7 +362,7 @@ function mockDealFixtures() {
     { id: "u-rep", email: "rep@mmg.com", firstName: "Rita", lastName: "Rep" },
   ] as never);
   vi.mocked(db.crmCompany.findMany).mockResolvedValue([{ id: "c-abbott", nameKey: "abbott" }] as never);
-  vi.mocked(db.crmDeal.findFirst).mockResolvedValue(null as never);
+  vi.mocked(db.crmDeal.findMany).mockResolvedValue([] as never);
   vi.mocked(db.crmDeal.create).mockResolvedValue({ id: "d-new" } as never);
   vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-created" } as never);
 }
@@ -407,11 +410,10 @@ describe("importFreshsalesDeals", () => {
   it("re-import converges: an untouched imported deal UPDATES (Freshsales wins), an EA-edited one is kept", async () => {
     mockDealFixtures();
     const imported = new Date("2026-07-01T10:00:00Z");
-    vi.mocked(db.crmDeal.findFirst).mockImplementation((async (args: { where: { externalId?: string } }) => {
-      if (args.where.externalId === "d-1") return { id: "x-1", updatedAt: imported, lastImportedAt: imported }; // untouched
-      if (args.where.externalId === "d-2") return { id: "x-2", updatedAt: new Date("2026-07-05T10:00:00Z"), lastImportedAt: imported }; // EA-edited
-      return null;
-    }) as never);
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([
+      { id: "x-1", externalId: "d-1", updatedAt: imported, lastImportedAt: imported }, // untouched
+      { id: "x-2", externalId: "d-2", updatedAt: new Date("2026-07-05T10:00:00Z"), lastImportedAt: imported }, // EA-edited
+    ] as never);
 
     const res = await importFreshsalesDeals({
       organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
@@ -428,10 +430,9 @@ describe("importFreshsalesDeals", () => {
   it("R2-M6: a re-import whose CSV has NO Closed-date value PRESERVES the stored wonAt — close dates must not drift to the re-import date", async () => {
     mockDealFixtures();
     const imported = new Date("2026-07-01T10:00:00Z");
-    vi.mocked(db.crmDeal.findFirst).mockImplementation((async (args: { where: { externalId?: string } }) =>
-      args.where.externalId === "d-1"
-        ? { id: "x-1", status: "WON", updatedAt: imported, lastImportedAt: imported } // won long ago, untouched since
-        : null) as never);
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([
+      { id: "x-1", externalId: "d-1", status: "WON", updatedAt: imported, lastImportedAt: imported }, // won long ago, untouched since
+    ] as never);
 
     // Same WON row, but the export carries no Closed date column this month.
     const csvNoDate = `Id,Name,Amount,Deal stage,Sales account\nd-1,Abbott — BRIDGES 2026 Gold,"40,000",Closed won,Abbott`;
@@ -453,10 +454,9 @@ describe("importFreshsalesDeals", () => {
     // role, so `rep@mmg.com` no longer resolves in the owner map.
     vi.mocked(db.user.findMany).mockResolvedValue([] as never);
     const imported = new Date("2026-07-01T10:00:00Z");
-    vi.mocked(db.crmDeal.findFirst).mockImplementation((async (args: { where: { externalId?: string } }) =>
-      args.where.externalId === "d-1"
-        ? { id: "x-1", status: "WON", ownerId: "u-existing", updatedAt: imported, lastImportedAt: imported }
-        : null) as never);
+    vi.mocked(db.crmDeal.findMany).mockResolvedValue([
+      { id: "x-1", externalId: "d-1", status: "WON", ownerId: "u-existing", updatedAt: imported, lastImportedAt: imported },
+    ] as never);
 
     const csv = `Id,Name,Amount,Deal stage,Closed date,Sales account,Sales owner email\nd-1,Abbott — BRIDGES 2026 Gold,"40,000",Closed won,2026-03-15,Abbott,rep@mmg.com`;
     const res = await importFreshsalesDeals({
@@ -851,5 +851,47 @@ describe("deal type, tags, pipeline", () => {
     const res = mapCompanyRow(["Abbott", "+97141234567", "sponsor;pharma"], cols);
     if ("error" in res) throw new Error(res.error);
     expect(res.row).toMatchObject({ phone: "+97141234567", tags: ["sponsor", "pharma"] });
+  });
+});
+
+// ── Batched lookups ──────────────────────────────────────────────────────────
+
+/**
+ * Every row used to cost TWO reads before its write. At 5,000 rows that is
+ * 15,000 sequential round trips, which is what pushed a large import past the
+ * 60s gateway timeout — and a timeout there is not a clean failure: the rows
+ * already written stay written, and the operator gets a bare 504 with no report.
+ */
+describe("lookups are batched, not per-row", () => {
+  it("deals: ONE prefetch for the whole file, never a per-row read", async () => {
+    mockDealFixtures();
+    await importFreshsalesDeals({
+      organizationId: ORG, userId: "u-1", csvText: DEAL_CSV, dryRun: false, fallbackEventId: "e-fallback", dateFormat: "iso",
+    });
+    expect(db.crmDeal.findMany).toHaveBeenCalledTimes(1); // 2 rows, 1 query
+    expect(db.crmDeal.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("contacts: ONE prefetch covering both identities (externalId and email)", async () => {
+    vi.mocked(db.user.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.crmContact.create).mockResolvedValue({ id: "ct-new" } as never);
+    const csv = `Id,First name,Last name,Email\nc-1,Sara,Khan,s@abbott.com\nc-2,Omar,Ali,o@pfizer.com`;
+
+    await importFreshsalesContacts({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: false });
+
+    expect(db.crmContact.findMany).toHaveBeenCalledTimes(1);
+    expect(db.crmContact.findFirst).not.toHaveBeenCalled();
+    expect(db.crmContact.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("companies: ONE prefetch, and a DRY RUN reads without writing anything", async () => {
+    vi.mocked(db.crmCompany.create).mockResolvedValue({ id: "c-new" } as never);
+    const csv = `Id,Name\na-1,Abbott\na-2,Pfizer`;
+
+    await importFreshsalesCompanies({ organizationId: ORG, userId: "u-1", csvText: csv, dryRun: true });
+
+    expect(db.crmCompany.findMany).toHaveBeenCalledTimes(1);
+    expect(db.crmCompany.findFirst).not.toHaveBeenCalled();
+    expect(db.crmCompany.create).not.toHaveBeenCalled();
   });
 });

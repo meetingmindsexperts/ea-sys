@@ -71,6 +71,33 @@ interface ImportCtx {
   dryRun: boolean;
 }
 
+/**
+ * Index prefetched rows by a key, skipping rows whose key is null.
+ *
+ * WHY PREFETCH AT ALL. Every row used to cost TWO reads (by externalId, then by
+ * natural key) before its write — 15,000 round trips for a 5,000-row file, all
+ * sequential, which is what put a large import past the 60s gateway timeout and
+ * left it half-written. One `findMany` up front collapses those to zero.
+ *
+ * SAFE BECAUSE THE FILE IS DEDUPED FIRST: a prefetched map goes stale only if a
+ * row created earlier in the SAME file needs to be seen by a later row, and the
+ * `seenKeys` guard already rejects a second row carrying either identity. Rows
+ * created by a CONCURRENT import are still caught — the unique indexes hold and
+ * the P2002 handler reports "re-run to converge".
+ *
+ * Writes stay per-row on purpose: `createMany` would be faster still but would
+ * lose the per-row try/catch, and one bad row killing a 5,000-row file is a far
+ * worse trade than a slower import.
+ */
+function indexBy<T>(rows: T[], key: (row: T) => string | null | undefined): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const row of rows) {
+    const k = key(row);
+    if (k) map.set(k, row);
+  }
+  return map;
+}
+
 function parseOrFail(csvText: string): { headers: string[]; rows: string[][] } | { ok: false; code: string; message: string } {
   const parsed = parseCSV(csvText);
   if (parsed.error) return { ok: false, code: "CSV_INVALID", message: parsed.error };
@@ -111,6 +138,23 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
   const activity: CrmActivityEntry[] = [];
   const seenKeys = new Set<string>(); // duplicate rows within ONE file
 
+  // Prefetch every candidate match in one query instead of two reads per row.
+  const wanted = parsed.rows.map((r) => {
+    const m = mapCompanyRow(r, cols);
+    return "row" in m ? m.row : null;
+  });
+  const existingCompanies = await db.crmCompany.findMany({
+    where: {
+      organizationId: ctx.organizationId,
+      OR: [
+        { externalSource: FRESHSALES_SOURCE, externalId: { in: wanted.map((w) => w?.externalId).filter((v): v is string => !!v) } },
+        { nameKey: { in: wanted.map((w) => (w ? companyNameKey(w.name) : null)).filter((v): v is string => !!v) } },
+      ],
+    },
+  });
+  const byExternalId = indexBy(existingCompanies, (c) => (c.externalSource === FRESHSALES_SOURCE ? c.externalId : null));
+  const byNameKey = indexBy(existingCompanies, (c) => c.nameKey);
+
   for (let i = 0; i < parsed.rows.length; i++) {
     const rowNo = i + 1;
     try {
@@ -136,14 +180,7 @@ export async function importFreshsalesCompanies(ctx: ImportCtx): Promise<ImportR
       // Match: the source id first (previously imported), else the normalized
       // name (converges with hand-typed accounts, which then get the id stamped).
       const existing =
-        (row.externalId
-          ? await db.crmCompany.findFirst({
-              where: { organizationId: ctx.organizationId, externalSource: FRESHSALES_SOURCE, externalId: row.externalId },
-            })
-          : null) ??
-        (await db.crmCompany.findUnique({
-          where: { organizationId_nameKey: { organizationId: ctx.organizationId, nameKey } },
-        }));
+        (row.externalId ? byExternalId.get(row.externalId) : undefined) ?? byNameKey.get(nameKey) ?? null;
 
       const action = decideImportAction(existing);
       // R2-H1: the enrich path deliberately does NOT stamp lastImportedAt — an
@@ -269,6 +306,23 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
   /** Lifecycle/status labels we couldn't map — reported, never coerced to a default. */
   const unmappedEnums = new Set<string>();
 
+  // One prefetch instead of two reads per row — see indexBy().
+  const wanted = parsed.rows.map((r) => {
+    const m = mapContactRow(r, cols);
+    return "row" in m ? m.row : null;
+  });
+  const existingContacts = await db.crmContact.findMany({
+    where: {
+      organizationId: ctx.organizationId,
+      OR: [
+        { externalSource: FRESHSALES_SOURCE, externalId: { in: wanted.map((w) => w?.externalId).filter((v): v is string => !!v) } },
+        { emailKey: { in: wanted.map((w) => (w ? contactEmailKey(w.email) : null)).filter((v): v is string => !!v) } },
+      ],
+    },
+  });
+  const byExternalId = indexBy(existingContacts, (c) => (c.externalSource === FRESHSALES_SOURCE ? c.externalId : null));
+  const byEmailKey = indexBy(existingContacts, (c) => c.emailKey);
+
   for (let i = 0; i < parsed.rows.length; i++) {
     const rowNo = i + 1;
     try {
@@ -288,14 +342,7 @@ export async function importFreshsalesContacts(ctx: ImportCtx): Promise<ImportRe
       dupKeys.forEach((k) => seenKeys.add(k));
 
       const existing =
-        (row.externalId
-          ? await db.crmContact.findFirst({
-              where: { organizationId: ctx.organizationId, externalSource: FRESHSALES_SOURCE, externalId: row.externalId },
-            })
-          : null) ??
-        (await db.crmContact.findUnique({
-          where: { organizationId_emailKey: { organizationId: ctx.organizationId, emailKey } },
-        }));
+        (row.externalId ? byExternalId.get(row.externalId) : undefined) ?? byEmailKey.get(emailKey) ?? null;
 
       const action = decideImportAction(existing);
       // R2-H1: the enrich path deliberately does NOT stamp lastImportedAt — an
@@ -626,6 +673,20 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
   const activity: CrmActivityEntry[] = [];
   const resolveCompany = await makeCompanyResolver(ctx);
   const seenIds = new Set<string>();
+
+  // One prefetch instead of a read per row — see indexBy().
+  const wantedIds = parsed.rows
+    .map((r) => {
+      const m = mapDealRow(r, cols, ctx.dateFormat);
+      return "row" in m ? m.row.externalId : null;
+    })
+    .filter((v): v is string => !!v);
+  const existingDeals = wantedIds.length
+    ? await db.crmDeal.findMany({
+        where: { organizationId: ctx.organizationId, externalSource: FRESHSALES_SOURCE, externalId: { in: wantedIds } },
+      })
+    : [];
+  const dealByExternalId = indexBy(existingDeals, (d) => d.externalId);
   const stageMappingNotes = new Map<string, string>();
   let eventMatched = 0;
   let eventFallback = 0;
@@ -713,9 +774,7 @@ export async function importFreshsalesDeals(ctx: ImportDealsCtx): Promise<Import
       const companyId = await resolveCompany.idFor(row.companyName);
       const dryCompany = typeof companyId === "string" && companyId.startsWith("dry:");
 
-      const existing = await db.crmDeal.findFirst({
-        where: { organizationId: ctx.organizationId, externalSource: FRESHSALES_SOURCE, externalId: row.externalId },
-      });
+      const existing = dealByExternalId.get(row.externalId) ?? null;
       // Deals match by externalId only (an EA-born deal has none), so "enrich"
       // is unreachable here — decideImportAction still guards kept-local.
       const action = decideImportAction(existing);
