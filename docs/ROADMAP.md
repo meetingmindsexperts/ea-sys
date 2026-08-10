@@ -212,6 +212,79 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Saved email templates drift behind the built-in defaults (Aug 10, 2026, owner: "add to backlog")
+
+Surfaced while fixing the session-proposal confirmation email. Three related
+items, one root cause, none urgent.
+
+**The root cause.** `EmailTemplate` rows are **snapshots** of the built-in
+defaults, seeded automatically the first time anyone opens Communications →
+Email Templates for an event, edited or not. `getEventTemplate`
+([email.ts:3197](../src/lib/email.ts#L3197)) then resolves **saved-always-wins**:
+
+```ts
+if (dbTemplate?.isActive) return { ...dbTemplate, branding };
+```
+
+No date and no version comparison, so a row saved eighteen months ago beats a
+default improved this morning. That is correct for genuine customization and
+wrong for a row nobody ever touched, and the system cannot tell the two apart.
+
+**1. Clone propagates staleness (the item the owner backlogged).**
+[clone/route.ts:330](../src/app/api/events/%5BeventId%5D/clone/route.ts#L330)
+copies every row verbatim. An event created from scratch has no rows and so
+uses the current default; a **cloned** event inherits the source's frozen
+copies and is born behind. It compounds across generations of clones.
+
+Owner decision Aug 10: **option 1 for now** (leave it: ten events, low clone
+volume, and the fallback means nothing looks broken), revisit at option 2 when
+clone volume justifies it.
+
+- *Option 2, when it does:* on clone, skip rows whose content is **identical to
+  the current built-in** (a pure seed) and copy the rest. The new event then
+  falls back to the current default for the untouched ones. Same
+  content-comparison discriminator the Aug 10 migration used to decide which
+  saved rows were safe to rewrite, so it is consistent with what already ships.
+  Caveat: the comparison is against *today's* built-in, so a row seeded in
+  January and untouched will not match and still reads as "edited". It helps
+  future clones more than it repairs past ones. Contained to the clone route,
+  plus a test, plus a line of UI copy so a skipped template is not a surprise.
+- *Option 3, the real fix:* version the copies (store which default version each
+  came from) and surface "update available", the way a package manager does.
+  **This belongs to the platform instance, not to MM Group.** At ten events the
+  debt is trivial; at five hundred, "improve one email" means five hundred
+  frozen copies and a migration every time. Cross-reference
+  [PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md).
+
+**2. Seven events silently omit the proposal number.** Verified Aug 10 against a
+full copy of prod: 7 of 10 saved `session-proposal-confirmation` rows predate the
+Aug 4 serial-number feature, so those events' proposal emails **never render
+`{{proposalNumber}}`** even though the default does and everyone assumes it does.
+Live, cosmetic, unnoticed until now. Fixing it means deciding whether to inject a
+row into templates an organizer may have customized, which is exactly the
+judgement call option 3 exists to remove. Owner call.
+
+**3. The Aug 10 legacy-key compatibility shim.** `session-proposal-notify.ts`
+still emits `proposalTheme` and `proposalFormat` as empty strings so a template
+the migration deliberately skipped degrades to a blank row instead of printing a
+raw `{{proposalTheme}}` (renderTemplate prints unknown keys **literally**).
+Standard expand/contract: added, migrated, and now awaiting the contract step.
+Remove once no saved template references either key. Zero rows referenced them
+after the Aug 10 migration, so this can go whenever someone is in the file.
+
+### `npm run db:migrate` has no target guard (Aug 10, 2026)
+
+`db:push` is wrapped by [guard-db-target.sh](../scripts/guard-db-target.sh),
+which refuses to run against anything but the local container. `db:migrate` is a
+bare `prisma migrate deploy` that goes wherever `DATABASE_URL` points.
+
+It **cannot** repeat INC-002 (migrate deploy is non-destructive and never
+prompts), but it is the same shape of hazard: a command whose target you infer
+rather than verify, in a repo where `.env` has pointed at prod before. Roughly a
+five-line fix, with the wrinkle being a clean opt-out for the box and CI deploy
+paths, which legitimately must run it against prod. Needs a moment's thought
+about the opt-out mechanism rather than a reflexive guard.
+
 ### ~~Worker job locking — replace the session lock with an expiring lease~~ ✅ SHIPPED Aug 10, 2026
 
 Deferred in the morning ("watch today's fix first"), then built the same day
