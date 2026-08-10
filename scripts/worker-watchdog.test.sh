@@ -88,6 +88,19 @@ OUT=$(run; run; run)
 check "no restart" "0" "$(cat "$ROOT/restarts-called" 2>/dev/null | wc -l | tr -d ' ')"
 check "logged disabled" "yes" "$(echo "$OUT" | grep -q disabled && echo yes || echo no)"
 
+echo "== an UNWRITABLE state dir refuses to run instead of pretending to watch"
+# The install-day bug: a root-owned state dir meant the fail counter could never
+# increment, so the threshold was never reached and nothing was ever restarted —
+# while the script still exited 0 and looked healthy. Silently not watching is
+# worse than not being installed, because you believe you are covered.
+reset; mkfake unhealthy 0 0
+mkdir -p "$ROOT/state" && chmod 500 "$ROOT/state"
+OUT=$(run; run; run); RC=$?
+chmod 700 "$ROOT/state"
+check "no restart attempted" "0" "$(cat "$ROOT/restarts-called" 2>/dev/null | wc -l | tr -d ' ')"
+check "logged state-dir-unwritable" "yes" "$(echo "$OUT" | grep -q state-dir-unwritable && echo yes || echo no)"
+check "exits NON-zero so cron mail/monitoring sees it" "1" "$RC"
+
 echo "== docker restart failing is reported, not swallowed"
 reset; mkfake unhealthy 0 1
 run > /dev/null; run > /dev/null; OUT=$(run)

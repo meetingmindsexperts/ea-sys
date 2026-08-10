@@ -121,6 +121,37 @@ fi
 
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
+# ── The state dir must be WRITABLE, and this must be loud ────────────────
+# Without it the fail counter cannot increment, so the watchdog never reaches
+# its threshold and never restarts anything — while still exiting 0 and looking
+# perfectly healthy in the log. A watchdog that has silently stopped watching is
+# strictly worse than no watchdog, because you believe you are covered.
+#
+# This is not hypothetical: it happened on first install. The script was
+# test-run once as root via SSM, which created ${STATE_DIR} owned by root; cron
+# then runs as `ubuntu` and every write failed with "Permission denied" on
+# stderr, into a log nobody reads. Caught only because the install was verified.
+#
+# Fix is `sudo chown -R ubuntu:ubuntu ${STATE_DIR}` — named in the alert so the
+# person reading the email does not have to come and find this comment.
+if ! touch "${STATE_DIR}/.writable" 2>/dev/null; then
+  log "state-dir-unwritable dir=${STATE_DIR} — CANNOT WATCH"
+  alert "🔴 EA-SYS watchdog is DISABLED — cannot write its state" \
+"${STATE_DIR} is not writable by the user cron runs this script as ($(id -un)).
+
+The watchdog therefore cannot count consecutive failures, which means it will
+NEVER restart a frozen worker — while appearing to run normally every 2 minutes.
+You are not currently covered.
+
+Fix on the box:
+  sudo chown -R ubuntu:ubuntu ${STATE_DIR}
+
+Then confirm:
+  sudo -u ubuntu ${APP_DIR}/scripts/worker-watchdog.sh; echo exit=\$?"
+  exit 1
+fi
+rm -f "${STATE_DIR}/.writable"
+
 # ── Observe ──────────────────────────────────────────────────────────────
 # `timeout` guards against a wedged Docker daemon hanging the cron slot.
 HEALTH=$(timeout 10 "$DOCKER_BIN" inspect --format '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null)

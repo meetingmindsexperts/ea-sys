@@ -307,9 +307,17 @@ State lives in `/home/ubuntu/ea-sys/.watchdog/` (`fail-count`, `restarts`). The
 # crontab -e -u ubuntu   →  add:
 */2 * * * * /home/ubuntu/ea-sys/scripts/worker-watchdog.sh >> /home/ubuntu/cron-worker-watchdog.log 2>&1
 ```
+> **Run it as `ubuntu`, never as root.** Running it once as root creates
+> `/home/ubuntu/ea-sys/.watchdog/` root-owned, after which cron (as `ubuntu`)
+> cannot write its fail counter — so the threshold is never reached and nothing
+> is ever restarted, while the script still exits 0 and looks healthy. This
+> happened on install day. The script now refuses to run and emails instead of
+> limping, but the fix if you hit it is:
+> `sudo chown -R ubuntu:ubuntu /home/ubuntu/ea-sys/.watchdog`
+
 ```bash
-# Verify without waiting for a freeze (should print nothing and exit 0):
-bash /home/ubuntu/ea-sys/scripts/worker-watchdog.sh; echo "exit=$?"
+# Verify without waiting for a freeze (must run as ubuntu — see above):
+sudo -u ubuntu /home/ubuntu/ea-sys/scripts/worker-watchdog.sh; echo "exit=$?"
 # Prove it fires, safely — pause the worker so Docker marks it unhealthy:
 docker pause ea-sys-worker    # …wait ~2 min for the label to flip…
 docker inspect --format '{{.State.Health.Status}}' ea-sys-worker
