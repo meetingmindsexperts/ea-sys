@@ -57,7 +57,7 @@ of the five call it** — that question is the source of most bugs in this codeb
 | **REST API** | `src/app/api/**` | Session **or** org API key (`getOrgContext`) |
 | **Public API** | `src/app/api/public/**` | None — rate-limited, token-gated |
 | **MCP / AI agent** | `src/lib/agent/tools/*.ts` | Org API key or OAuth 2.1 (admin-equivalent) |
-| **Worker cron** | `worker/jobs/*.ts` | Postgres advisory lock, singleton |
+| **Worker cron** | `worker/jobs/*.ts` | Singleton via an expiring `JobLease` row — **never** a connection-bound lock (see below) |
 
 The **MCP path is the one people forget.** It is a full write surface (n8n, claude.ai, Claude
 Desktop all drive it), it is admin-equivalent, and historically it has drifted from REST — silently.
@@ -105,6 +105,17 @@ server first — Playwright's port collides with 3113).
 `syncToContact` **never clears a populated field** — so a payload of only `{email, firstName, lastName}`
 against an existing contact is a **silent no-op that reports success.** If you are syncing an entity to
 the contact store, send the full field set. This exact hole shipped twice.
+
+### 7. Correctness must never depend on *which* connection ran a statement
+Prisma hands out whichever pooled connection is free, so anything requiring the same connection twice
+is broken by construction. Background jobs are guarded by an **expiring `JobLease` row** claimed in one
+atomic statement — **never** `pg_advisory_lock`, which must be released by the connection that took it.
+That lock leaked and silently skipped ~70% of every job's ticks for months while every dashboard stayed
+green, because nothing failed. Same rule for any new "only one of these at a time" mechanism.
+
+The corollary for tests: **a mocked Prisma has one fake connection, so this class of bug is not
+expressible in the unit suite.** Anything whose correctness is about concurrency or connection identity
+needs the real-Postgres harness (`tests/crm-db/`). See `docs/BACKGROUND_JOBS.md`.
 
 ---
 

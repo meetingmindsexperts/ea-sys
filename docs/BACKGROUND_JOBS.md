@@ -187,6 +187,10 @@ means *the holder died*, never *the holder is slow*. If a lease is ever lost
 mid-tick anyway, that logs at **error** and pages — it means the TTL is too
 short for that job's real runtime.
 
+**Verified on prod within 4 minutes of deploy:** `scheduled-emails` 4 runs of 4
+expected, `crm-inbound-email` 4 of 4, `cert-issue` 2 — full cadence, up from
+~23%, with every lease row reading released seconds after its tick.
+
 Pinned by real-Postgres tests
 ([tests/crm-db/job-lease.db.test.ts](../tests/crm-db/job-lease.db.test.ts)),
 including the connection-split case the lock failed. Those have to hit a real

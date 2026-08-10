@@ -335,31 +335,55 @@ It was not hypothetical. Measured over 24h before the fix:
 | `cert-issue` | 480 | **182** |
 | `oauth-cleanup` (hourly) | 24 | 24 ✓ |
 
-**Cause:** the worker connected through the *transaction* pooler, but advisory
-locks are session-scoped — the lock was taken on one backend and released on
-another, so it stayed held until pgbouncer recycled that connection and every
-tick in between skipped. This is the "P3" caveat in
-`worker/lib/job-lease.ts`, previously believed latent because it needs two
-workers to cause *duplicate* work; with one worker it caused *skipped* work.
-Diagnosis was: gaps scattered all day, always exact multiples of the cadence,
-max 17 min, and **zero** `lock-acquire-transient-skip` warnings — i.e. cron
-fired and the tick was refused, not errored.
+**Cause:** each job took a Postgres **advisory lock**, which must be released by
+the same connection that took it — and Prisma hands out whichever pooled
+connection is free. The release routinely ran on a connection that had never
+held the lock, did nothing, and the original connection sat on the lock while
+idle. Every subsequent tick found the job "already running" and skipped.
+
+**How it was diagnosed** (worth keeping — the same reasoning applies to any
+"job seems fine but isn't running" report):
+
+| Observation | Rules out |
+|---|---|
+| Gaps scattered all day, never one long block | worker downtime |
+| Gaps always exact multiples of the cadence | cron not firing |
+| **Zero** transient-skip warnings in 24h | connection errors |
+| `pg_locks` showed locks held by **idle** connections | anything other than a leak |
 
 **Effect:** nothing lost (every job re-reads what is due), but latency 10–20×
-worse than designed — bulk sends promised "within ~60s" took 5–17 minutes.
+worse than designed — bulk sends promising "within ~90s" took 5–17 minutes.
 
-**Fixed by** pinning the worker to the session-mode `DIRECT_URL` (`DATABASE_URL`
-override on the `ea-sys-worker` service in `docker-compose.prod.yml`; web keeps
-the pooler, which is correct for many short requests).
+**First attempt, which FAILED — recorded because the failure is instructive.**
+Pinning the worker to the session-mode `DIRECT_URL` removed pgbouncer's
+per-statement backend reassignment. In the 30 minutes after it deployed,
+`scheduled-emails` ran **7 times out of 30**. The split was never only in the
+pooler: it also happens inside **Prisma's own pool**, one layer above. Probing
+Postgres directly showed acquire on pid 14731 and release on pid 14727 with the
+release returning `false`. Two jobs run every minute, so the pool is never idle
+at a tick boundary — no choice of connection *type* could fix a mix-up
+happening above it.
 
-Three guards so it cannot hide again:
-1. `assertSessionModeConnection()` at worker boot logs at **error** (→ operator
-   email) if the worker is ever back on the pooler. Deliberately does not refuse
-   to boot — degraded beats dead for this component.
-2. The skipped-tick log moved **debug → warn**; at debug it reached neither
-   `/logs`, CloudWatch, nor the digest. Should now be ~zero.
-3. The daily digest compares each job's 24h run count against `expectedPerDay`
-   in `src/lib/worker-jobs.ts` and warns below 80%.
+**Actually fixed by** replacing the lock with an expiring **lease**
+([`worker/lib/job-lease.ts`](../worker/lib/job-lease.ts), table `JobLease`).
+Claiming is one atomic statement, so which connection runs it stops mattering;
+and a lease **expires**, so a killed worker frees its job instead of wedging it.
+See [BACKGROUND_JOBS.md §4](BACKGROUND_JOBS.md) for the mechanism.
+
+Three guards so this class cannot hide again:
+1. The skipped-tick log moved **debug → warn** (`worker:skip-tick-leased`); at
+   debug it reached neither `/logs`, CloudWatch, nor the digest — which is how a
+   70% skip rate stayed invisible for months. Should now be near zero.
+2. The daily digest compares each job's 24h run count against `expectedPerDay`
+   in `src/lib/worker-jobs.ts` and warns below 80% — the check that asks the
+   question every other surface was failing to ask.
+3. `worker:lease-lost-mid-tick` logs at **error** if a lease ever expires while
+   its tick is still running (two ticks could then overlap).
+
+> The `DIRECT_URL` override and `assertSessionModeConnection()` remain, but are
+> **no longer load-bearing** — session mode is simply a reasonable shape for a
+> long-lived worker. Moving back to the pooler is safe now if direct connections
+> ever get scarce on the database plan.
 
 ```bash
 # The query that found it — run any time to check job cadence health.

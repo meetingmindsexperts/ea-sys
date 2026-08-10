@@ -89,7 +89,7 @@
 
 <header>
   <h1>EA-SYS Domain Map</h1>
-  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post accommodation-review remediation; certificates review, pkg 0.4.20) — <strong>abstracts branch refreshed Aug 7, 2026</strong> (themes/sub-themes); the rest of the tree has not been re-walked since July 13, so treat other branches as a month behind. Markdown-free, self-contained, dark-mode aware.</div>
+  <div class="sub">The context-reload tree — click any branch to expand. Last updated <strong>July 13, 2026</strong> (post accommodation-review remediation; certificates review, pkg 0.4.20) — <strong>abstracts branch refreshed Aug 7, 2026</strong> (themes/sub-themes) and the <strong>worker/job branch Aug 10, 2026</strong> (leases replaced advisory locks — see <a href="BACKGROUND_JOBS.md">BACKGROUND_JOBS.md</a>); the rest of the tree has not been re-walked since July 13, so treat other branches as a month behind. Markdown-free, self-contained, dark-mode aware.</div>
 </header>
 
 <div class="note">
@@ -118,7 +118,7 @@
 <tr><td><b>REST API</b></td><td><code>src/app/api/events/[eventId]/*</code></td><td>Session or API-key auth; <code>denyReviewer</code> on writes</td></tr>
 <tr><td><b>Public API</b></td><td><code>src/app/api/public/events/[slug]/*</code> + pages <code>src/app/e/[slug]/*</code></td><td>No auth; rate-limited; slug-scoped</td></tr>
 <tr><td><b>MCP / AI agent</b></td><td><code>src/lib/agent/tools/*.ts</code> + <code>register-mcp-tools.ts</code></td><td>Serves claude.ai, Claude Desktop, n8n, in-app agent. <b>Bump <code>package.json</code> on any tool change</b></td></tr>
-<tr><td><b>Worker (cron)</b></td><td><code>worker/jobs/*.ts</code> → shared <code>runTick()</code> libs</td><td>Sole runner since June 9; advisory-locked; search <code>/logs</code> for <code>worker:</code></td></tr>
+<tr><td><b>Worker (cron)</b></td><td><code>worker/jobs/*.ts</code> → shared <code>runTick()</code> libs</td><td>Sole runner since June 9; lease-guarded (<code>JobLease</code>); search <code>/logs</code> for <code>worker:</code> — a run of <code>worker:skip-tick-leased</code> means a job is being starved</td></tr>
 </table>
 </div>
 </details>
@@ -153,8 +153,9 @@
 <details class="sec">
 <summary><span class="ico">⏱️</span>Worker job schedule</summary>
 <div class="kids">
-<div class="leaf"><code>cert-issue</code> every 3 min (auto-issue sweep + run state machine) · <code>scheduled-emails</code> every 1 min · <code>invoice-reconciliation</code> rides the 10-min tick (also hosts the refund-attempt sweep) · <code>webinar-recordings</code> every 5 min · <code>webinar-attendance</code> + engagement every 10 min · <code>oauth-cleanup</code> hourly · <code>log-archive</code> · <code>contacts-central-sync</code> / <code>-reconcile</code> · <code>email-log-prune</code> daily 03:45 · <code>login-event-prune</code> daily 04:15</div>
-<div class="leaf">Scheduler: <code>worker/index.ts</code> · singleton via Postgres advisory locks · health at <code>/worker/health</code></div>
+<div class="leaf"><b>Canonical roster:</b> <code>src/lib/worker-jobs.ts</code> (drift-tested against <code>worker/jobs/*.ts</code>) — 15 jobs. <code>scheduled-emails</code> + <code>crm-inbound-email</code> every 1 min · <code>cert-issue</code> every 3 · <code>webinar-recordings</code> + <code>crm-reminders</code> every 5 · <code>webinar-attendance</code> + <code>invoice-reconciliation</code> every 10 · <code>contacts-central-sync</code> 2×/hr · <code>oauth-cleanup</code> hourly · then the staggered dailies <code>email-log-prune</code> 03:45 → <code>login-event-prune</code> 04:15 → <code>system-log-prune</code> 04:45 → <code>daily-digest</code> 05:30 · <code>log-archive</code> monthly</div>
+<div class="leaf">Scheduler: <code>worker/index.ts</code> · singleton via <b>expiring leases</b> (<code>worker/lib/job-lease.ts</code>, <code>JobLease</code> table) · health at <code>/worker/health</code></div>
+<div class="leaf"><b>Read <a href="BACKGROUND_JOBS.md">docs/BACKGROUND_JOBS.md</a> before touching any of this.</b> Why leases and not advisory locks (locks must be released by the connection that took them, which Prisma's pool cannot promise — that leaked and silently skipped ~70% of ticks for months, Aug 2026), why missed ticks are <em>correctly</em> never replayed, and why a slow tick skips its own next tick rather than overlapping.</div>
 </div>
 </details>
 
