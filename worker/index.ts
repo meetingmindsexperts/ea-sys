@@ -169,7 +169,38 @@ function wrapTick(job: {
 // day-of-week). Each schedule string also lives on the job module
 // (`SCHEDULE`) so adding/changing one job touches a single file.
 
+/**
+ * Advisory locks are SESSION-scoped, so the worker must hold a session-mode
+ * connection (DIRECT_URL, :5432) — never the transaction pooler. On the pooler
+ * the lock is taken on one backend and released on another, so it leaks and
+ * every subsequent tick skips (measured on prod 2026-08-10: scheduled-emails
+ * ran 435 of 1,440 expected). docker-compose.prod.yml pins this; the check here
+ * exists because that pinning is one interpolated line, and the failure it
+ * guards against is SILENT — the worker runs, jobs just quietly stop happening.
+ *
+ * Deliberately does NOT refuse to boot, unlike the RLS tripwire below. A worker
+ * on the pooler is DEGRADED (work happens late); a worker that won't start does
+ * no work at all — and degraded beats dead for this component. Logging at
+ * `error` emails the operator immediately via the admin-alert forwarding hook,
+ * which is loud enough.
+ */
+function assertSessionModeConnection() {
+  const url = process.env.DATABASE_URL ?? "";
+  if (!/pgbouncer=true|:6543/.test(url)) return;
+  apiLogger.error({
+    msg: "worker:pooled-connection-detected",
+    detail:
+      "The worker is connected through the TRANSACTION POOLER. Advisory locks " +
+      "leak on the pooler, so jobs will silently skip most of their ticks. " +
+      "Expected the session-mode DIRECT_URL (:5432). Check the DATABASE_URL " +
+      "override on the ea-sys-worker service in docker-compose.prod.yml.",
+    runbook: "docs/AWS_OPERATIONS.md §1.7 E",
+  });
+}
+
 async function boot() {
+  assertSessionModeConnection();
+
   // RLS tripwire (owner decision July 23, 2026: refuse to boot). A deployment
   // claiming tenant isolation (RLS_SET_LOCAL=1) whose DB connection bypasses
   // RLS (owner role / policies never applied) must not run jobs against the

@@ -173,6 +173,94 @@ describe("assessInfra — verdict", () => {
     expect(a.findings.some((f) => f.detail.includes("pool timeout"))).toBe(true);
   });
 
+  it("flags a job that is SKIPPING rather than failing — the real 2026-08-10 numbers", () => {
+    // The pooler advisory-lock leak: nothing failed, the last run was recent,
+    // every dashboard was green — and scheduled-emails had run 435 times
+    // instead of 1,440 for months. This is the check that would have caught it
+    // on day one, so it is pinned to the observed values.
+    const s = healthySnapshot();
+    s.jobs.rows = [
+      {
+        job: "scheduled-emails",
+        cadence: "every minute",
+        lastStatus: "OK",
+        lastRunAt: "x",
+        lastDurationMs: 40,
+        lastError: null,
+        ok24h: 435,
+        failed24h: 0,
+      },
+    ];
+    const a = assessInfra(s);
+    expect(a.verdict).toBe("warn");
+    expect(a.findings[0].label).toContain("under-running");
+    expect(a.findings[0].label).toContain("435 of ~1440");
+    // Must NOT be reported as failing — it isn't, and saying so would send
+    // whoever reads it looking in the wrong place.
+    expect(a.findings.some((f) => f.label.startsWith("Job failing"))).toBe(false);
+  });
+
+  it("a job at full cadence is not flagged, and the threshold has deploy headroom", () => {
+    const full = healthySnapshot();
+    const row = {
+      job: "scheduled-emails",
+      cadence: "every minute",
+      lastStatus: "OK",
+      lastRunAt: "x",
+      lastDurationMs: 40,
+      lastError: null,
+      failed24h: 0,
+    };
+    full.jobs.rows = [{ ...row, ok24h: 1440 }];
+    expect(assessInfra(full).verdict).toBe("ok");
+
+    // A handful of deploy restarts must not raise a false alarm.
+    const dented = healthySnapshot();
+    dented.jobs.rows = [{ ...row, ok24h: 1200 }];
+    expect(assessInfra(dented).verdict).toBe("ok");
+
+    // But a real shortfall is caught.
+    const short = healthySnapshot();
+    short.jobs.rows = [{ ...row, ok24h: 1100 }];
+    expect(assessInfra(short).verdict).toBe("warn");
+  });
+
+  it("a monthly job is never judged against a 24h window", () => {
+    const s = healthySnapshot();
+    s.jobs.rows = [
+      {
+        job: "log-archive",
+        cadence: "monthly (1st, 03:30)",
+        lastStatus: "OK",
+        lastRunAt: "x",
+        lastDurationMs: 40,
+        lastError: null,
+        ok24h: 0,
+        failed24h: 0,
+      },
+    ];
+    expect(assessInfra(s).verdict).toBe("ok");
+  });
+
+  it("a daily job that did not run at all IS flagged", () => {
+    const s = healthySnapshot();
+    s.jobs.rows = [
+      {
+        job: "system-log-prune",
+        cadence: "daily 04:45 UTC",
+        lastStatus: "OK",
+        lastRunAt: "x",
+        lastDurationMs: 40,
+        lastError: null,
+        ok24h: 0,
+        failed24h: 0,
+      },
+    ];
+    const a = assessInfra(s);
+    expect(a.verdict).toBe("warn");
+    expect(a.findings[0].label).toContain("system-log-prune");
+  });
+
   it("a stale database backup is CRITICAL", () => {
     const s = healthySnapshot();
     s.backup.info = { ...s.backup.info!, stale: true, ageHours: 30 };

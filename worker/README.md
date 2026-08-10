@@ -73,13 +73,42 @@ contention risk is not recovery but **coincident tick boundaries** sharing one
 why `cert-issue` runs `*/3` and the retention sweeps are staggered. Stagger any
 new job onto an odd offset rather than a round `*/5`.
 
-> ⚠️ **Before a SECOND worker ever runs against the same database**, fix "P3"
-> (see the caveat in `worker/lib/advisory-lock.ts`): the advisory lock that makes
-> a job a singleton is session-scoped, but the worker connects through the
-> *transaction* pooler, so the guarantee does not actually hold. Two workers on
-> one database means duplicate emails and duplicate certificates to real people.
-> The fix is pointing the worker at `DIRECT_URL` (port 5432). Separate silos with
-> separate databases are unaffected.
+### The worker uses DIRECT_URL, not the pooler — do not "simplify" this
+
+`docker-compose.prod.yml` overrides `DATABASE_URL` for this service to the
+session-mode `DIRECT_URL` (:5432). It looks redundant next to `env_file: .env`.
+It is not.
+
+Advisory locks are **session-scoped**: the backend that takes the lock must
+release it. The pooled URL (:6543, `pgbouncer=true`) is *transaction*-pooled, so
+each statement can land on a different backend — the lock was taken on one and
+the release ran on another, leaving it stuck until pgbouncer recycled that
+connection minutes later. Every tick in between skipped.
+
+**This was live for months and invisible.** Measured on prod 2026-08-10 over 24h:
+
+| Job | Expected | Actual |
+|---|---|---|
+| `scheduled-emails` | 1,440 | **435** |
+| `cert-issue` | 480 | **182** |
+| `oauth-cleanup` (hourly) | 24 | 24 |
+
+Nothing failed, the last run was always recent, and every dashboard was green —
+because every surface asked *"did the last run succeed?"* rather than *"did it
+run as often as it should?"*. Two changes make that impossible to repeat: the
+skip now logs at `warn` (it was `debug`, which reaches neither `/logs` nor
+CloudWatch), and the daily digest compares each job's 24h count against
+`expectedPerDay` in [src/lib/worker-jobs.ts](../src/lib/worker-jobs.ts).
+
+`assertSessionModeConnection()` in [index.ts](index.ts) re-checks at boot and
+logs at `error` (which emails the operator) if the worker is ever back on the
+pooler. It deliberately does **not** refuse to boot — a worker on the pooler is
+degraded, and degraded beats dead for this component.
+
+> This also removes the old precondition on running a **second** worker: with
+> session-mode connections the lock behaves, so a DR-failover worker no longer
+> risks duplicate emails and duplicate certificates. Separate silos with separate
+> databases were never affected.
 
 > `invoice-reconciliation` (audit Round 2, DATA-5) recovers post-payment
 > invoices the Stripe webhook failed to create — it sweeps for PAID

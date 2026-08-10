@@ -37,6 +37,7 @@
  */
 
 import { getInfraSnapshot, type InfraSnapshot } from "@/lib/infra/aws-ops";
+import { EXPECTED_JOBS, JOB_UNDERRUN_RATIO } from "@/lib/worker-jobs";
 import { apiLogger } from "@/lib/logger";
 
 // ── Thresholds ───────────────────────────────────────────────────────────
@@ -152,6 +153,7 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
 
   // ── Cron job outcomes ──────────────────────────────────────────────────
   note("jobs", snap.jobs);
+  const expectedRuns = new Map(EXPECTED_JOBS.map((j) => [j.name, j.expectedPerDay]));
   for (const j of snap.jobs.rows) {
     if (j.failed24h > 0) {
       findings.push({
@@ -159,6 +161,30 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
         label: `Job failing: ${j.job}`,
         detail: `${j.failed24h} failed run(s) in 24h${j.lastError ? ` — ${j.lastError}` : ""}.`,
       });
+    }
+
+    // Under-running: the job is not FAILING, it is quietly not happening often
+    // enough. Deliberately its own check, because every other signal answers
+    // "did the last run succeed?" and would call this healthy — which is how a
+    // pooler lock leak kept scheduled-emails at 435 of 1,440 runs a day for
+    // months while every dashboard showed green. Skipped for cadences longer
+    // than the 24h window (expectedPerDay 0).
+    const expected = expectedRuns.get(j.job) ?? 0;
+    if (expected > 0) {
+      const actual = j.ok24h + j.failed24h;
+      // max(1, …) matters for the daily jobs: floor(1 * 0.8) is 0, so without
+      // it a once-a-day job that never ran at all would clear the bar. The
+      // floor for anything scheduled within the window is "at least once".
+      const floorRuns = Math.max(1, Math.floor(expected * JOB_UNDERRUN_RATIO));
+      if (actual < floorRuns) {
+        findings.push({
+          severity: "warn",
+          label: `Job under-running: ${j.job} (${actual} of ~${expected})`,
+          detail:
+            `Runs ${j.cadence || "on a schedule"} but only ticked ${actual} times in 24h. ` +
+            "Not failing — skipping. Usual cause is a held advisory lock or worker restarts.",
+        });
+      }
     }
   }
 

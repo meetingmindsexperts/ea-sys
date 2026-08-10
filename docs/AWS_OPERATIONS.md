@@ -320,6 +320,56 @@ docker unpause ea-sys-worker  # then let it recover
 > the **watchdog** tries to fix it in ~6, and the **daily digest** reports an
 > unreachable worker as CRITICAL as a last backstop.
 
+**E. Are the background jobs actually running as often as they claim? (2026-08-10)**
+— the failure mode none of A–D catch. A job can tick far below its schedule while
+looking perfectly healthy: nothing fails, the last run is recent, the Cron / Jobs
+card is green. Every surface was asking *"did the last run succeed?"* and none was
+asking *"did it run as often as it should?"*.
+
+It was not hypothetical. Measured over 24h before the fix:
+
+| Job | Expected/day | Actual |
+|---|---|---|
+| `scheduled-emails` | 1,440 | **435** |
+| `crm-inbound-email` | 1,440 | **375** |
+| `cert-issue` | 480 | **182** |
+| `oauth-cleanup` (hourly) | 24 | 24 ✓ |
+
+**Cause:** the worker connected through the *transaction* pooler, but advisory
+locks are session-scoped — the lock was taken on one backend and released on
+another, so it stayed held until pgbouncer recycled that connection and every
+tick in between skipped. This is the "P3" caveat in
+`worker/lib/advisory-lock.ts`, previously believed latent because it needs two
+workers to cause *duplicate* work; with one worker it caused *skipped* work.
+Diagnosis was: gaps scattered all day, always exact multiples of the cadence,
+max 17 min, and **zero** `lock-acquire-transient-skip` warnings — i.e. cron
+fired and the tick was refused, not errored.
+
+**Effect:** nothing lost (every job re-reads what is due), but latency 10–20×
+worse than designed — bulk sends promised "within ~60s" took 5–17 minutes.
+
+**Fixed by** pinning the worker to the session-mode `DIRECT_URL` (`DATABASE_URL`
+override on the `ea-sys-worker` service in `docker-compose.prod.yml`; web keeps
+the pooler, which is correct for many short requests).
+
+Three guards so it cannot hide again:
+1. `assertSessionModeConnection()` at worker boot logs at **error** (→ operator
+   email) if the worker is ever back on the pooler. Deliberately does not refuse
+   to boot — degraded beats dead for this component.
+2. The skipped-tick log moved **debug → warn**; at debug it reached neither
+   `/logs`, CloudWatch, nor the digest. Should now be ~zero.
+3. The daily digest compares each job's 24h run count against `expectedPerDay`
+   in `src/lib/worker-jobs.ts` and warns below 80%.
+
+```bash
+# The query that found it — run any time to check job cadence health.
+npm run prod:psql   # then:
+#   SELECT job, count(*) FILTER (WHERE status::text='OK') AS ok_24h,
+#          count(*) FILTER (WHERE status::text<>'OK')     AS failed_24h
+#   FROM "JobRun" WHERE "startedAt" >= now() - interval '24 hours'
+#   GROUP BY job ORDER BY ok_24h DESC;
+```
+
 #### 1.7.1 Provisioning reference — the exact commands
 
 How the alerting above was built (2026-07-06). Reproducible: to rebuild on a new

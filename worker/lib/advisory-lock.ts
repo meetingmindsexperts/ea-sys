@@ -18,7 +18,25 @@
  * Per docs/WORKER_EXTRACTION_PLAN.md §3 — "the worker's singleton
  * guarantee is enforced by Postgres, not by process management."
  *
- * ⚠️ KNOWN LIMITATION — "P3" (2026-06-09): advisory locks are SESSION-
+ * ✅ P3 RESOLVED 2026-08-10 — the worker now connects via DIRECT_URL (session
+ * mode, :5432), pinned by the DATABASE_URL override on the ea-sys-worker
+ * service in docker-compose.prod.yml and re-checked at boot by
+ * `assertSessionModeConnection()` in worker/index.ts. The caveat below is kept
+ * because it explains WHY that override exists — delete the override and every
+ * word of it becomes true again.
+ *
+ * It was NOT merely latent. The note below reasoned that it "hasn't bitten us"
+ * because only one runner exists — correct about DUPLICATE work, wrong about
+ * SKIPPED work. With one worker on the pooler the lock leaked onto a backend
+ * that never released it, and every tick until pgbouncer recycled that
+ * connection skipped. Measured on prod before the fix (24h): scheduled-emails
+ * 435 runs of an expected 1,440; cert-issue 182 of 480; gaps up to 17 minutes,
+ * scattered, with zero connection errors. It hid for months because the skip
+ * logged at `debug` (now `warn`) and every health surface asked "did the last
+ * run succeed?" rather than "did it run as often as it should?" — the question
+ * the daily digest now asks.
+ *
+ * ⚠️ ORIGINAL LIMITATION — "P3" (2026-06-09): advisory locks are SESSION-
  * scoped, but the worker's Prisma client connects through the Supabase
  * TRANSACTION pooler (port 6543, pgbouncer=true). In transaction-pooling
  * mode each statement can land on a different backend session, so the
@@ -90,7 +108,19 @@ export async function withJobLock<T>(
   const locked = result[0]?.locked === true;
 
   if (!locked) {
-    apiLogger.debug({
+    // WARN, not debug (raised 2026-08-10). This was debug for a year, and
+    // `debug` is below the prod log level AND explicitly skipped by the
+    // SystemLog DB stream — so it reached neither /logs nor CloudWatch nor the
+    // daily digest. That invisibility is how ~1,000 skipped ticks a day went
+    // unnoticed for months (the pooler lock leak; see the DATABASE_URL comment
+    // on the worker service in docker-compose.prod.yml).
+    //
+    // With a session-mode connection and a single worker this should now be
+    // approximately ZERO, which is what makes warn the right level: it is
+    // self-limiting, and if it is ever noisy again that is exactly the signal
+    // we were missing. It stays below the `error` threshold that pages, so a
+    // legitimate two-worker race (DR failover) informs without waking anyone.
+    apiLogger.warn({
       msg: "worker:skip-tick-locked",
       job: jobName,
       jobId,

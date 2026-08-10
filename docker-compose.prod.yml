@@ -159,6 +159,35 @@ services:
     environment:
       - NODE_ENV=production
       - WORKER_HEALTH_PORT=3099
+      # ── The worker MUST use a SESSION-mode connection, not the pooler ──────
+      # Every job is wrapped in a Postgres advisory lock so a job can never run
+      # twice concurrently. Advisory locks are SESSION-scoped: the same backend
+      # that takes the lock must be the one that releases it.
+      #
+      # The pooled DATABASE_URL (:6543, pgbouncer=true) is TRANSACTION-pooled —
+      # each statement can land on a different backend. So the worker took the
+      # lock on backend A, and the unlock ran on backend B, which never held it.
+      # The lock stayed stuck on A until pgbouncer recycled that connection
+      # minutes later, and EVERY tick in between skipped.
+      #
+      # Measured on prod before this fix (2026-08-10, 24h): scheduled-emails ran
+      # 435 times out of an expected 1,440; cert-issue 182 of 480. Scattered
+      # gaps up to 17 minutes, all exact multiples of the cadence, with zero
+      # connection errors — i.e. the cron fired and the work was skipped. This
+      # is the "P3" limitation documented in worker/lib/advisory-lock.ts, which
+      # was believed to be latent (it needs two workers to cause DUPLICATE work)
+      # but with one worker still causes SKIPPED work.
+      #
+      # DIRECT_URL is :5432 session mode — one backend per connection, so
+      # lock/unlock pair correctly. Required, not defaulted: a silent fallback
+      # to the pooler is the exact failure this line exists to prevent.
+      #
+      # Pool sized modestly (5): direct connections are a scarcer Supabase
+      # resource than pooled ones, and the worker needs a handful of long-lived
+      # connections, not many short ones. pool_timeout matches the web tier.
+      # The web containers deliberately KEEP the pooler — many short requests is
+      # exactly what it is for.
+      - DATABASE_URL=${DIRECT_URL:?DIRECT_URL is required — the worker needs a session-mode connection for advisory locks}?connection_limit=5&pool_timeout=15
     # Same reasoning as the web slots. The worker renders PDFs and pulls Zoom
     # reports, so its peaks are spikier — but it must not be able to take the
     # host down with it.
