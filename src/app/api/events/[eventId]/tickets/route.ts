@@ -62,7 +62,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "tickets:list", eventId });
     if ("error" in orgGuard) return orgGuard.error;
 
     // Tenancy sweep (B1 fix): wrap opens BEFORE the swept ticketType read.
@@ -124,10 +124,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const orgGuard = requireOrgId(session);
+    const orgGuard = requireOrgId(session, { route: "tickets:create", eventId });
     if ("error" in orgGuard) return orgGuard.error;
 
-    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW });
+    const denied = denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "tickets:create", eventId });
     if (denied) return denied;
 
     const event = await db.event.findFirst({

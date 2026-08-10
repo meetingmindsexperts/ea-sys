@@ -110,10 +110,25 @@ void _assignableCoversTeamRoles;
  *   const denied = denyReviewer(session);                        // block all restricted
  *   const denied = denyReviewer(session, { allow: ["ONSITE"] }); // …but let ONSITE write here
  *   if (denied) return denied;
+ *
+ * PASS `route` ON ANY ROUTE A RESTRICTED ROLE CAN REACH:
+ *
+ *   denyReviewer(session, { allow: WEBINAR_STAFF_ALLOW, route: "tags:list", eventId })
+ *
+ * The refusal is logged here, and without `route` the line records WHO was
+ * refused but not WHAT they were refused. On Aug 10, 2026 that cost a five-step
+ * deduction (grep the page's hooks, cross-reference which of them carry which
+ * guard) to place 51 warnings that a single field would have named outright.
+ * Same `{ route, eventId }` shape as requireOrgId, deliberately, so the two
+ * read alike in /logs.
+ *
+ * Most of the ~212 call sites do not pass it and do not need to: a route no
+ * restricted role can reach never logs. Add it when you touch a route that
+ * can, rather than sweeping all of them.
  */
 export function denyReviewer(
   session: { user?: { id?: string; role?: string } } | null,
-  opts?: { allow?: readonly string[] },
+  opts?: { allow?: readonly string[]; route?: string; eventId?: string },
 ) {
   const role = session?.user?.role;
   if (role && RESTRICTED_WRITE_ROLES.includes(role) && !opts?.allow?.includes(role)) {
@@ -124,6 +139,13 @@ export function denyReviewer(
       role,
       userId: session?.user?.id ?? null,
       allow: opts?.allow ?? null,
+      // `route` is optional and unset on most call sites. Pass it on any route
+      // a restricted role can actually REACH — without it the warn line names
+      // who was refused but not what they were refused, and triage becomes
+      // "grep the page's hooks and infer" (Aug 10, 2026: 51 warns in 3h took a
+      // five-step deduction to place). See the docblock note above.
+      ...(opts?.route ? { route: opts.route } : {}),
+      ...(opts?.eventId ? { eventId: opts.eventId } : {}),
     });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -142,13 +164,19 @@ export function denyReviewer(
  *   const noFinance = denyFinance(session);
  *   if (noFinance) return noFinance;
  */
-export function denyFinance(session: { user?: { id?: string; role?: string } } | null) {
+export function denyFinance(
+  session: { user?: { id?: string; role?: string } } | null,
+  ctx?: { route?: string; eventId?: string },
+) {
   if (!canViewFinance(session?.user?.role)) {
     // Logged HERE so no call site can forget (payments review M12).
+    // `route` optional, same reasoning as denyReviewer above.
     apiLogger.warn({
       msg: "auth-guard:finance-denied",
       role: session?.user?.role ?? null,
       userId: session?.user?.id ?? null,
+      ...(ctx?.route ? { route: ctx.route } : {}),
+      ...(ctx?.eventId ? { eventId: ctx.eventId } : {}),
     });
     return NextResponse.json(
       { error: "Financial data is not available to your role", code: "FINANCE_FORBIDDEN" },

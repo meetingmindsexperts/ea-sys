@@ -1,4 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
+vi.mock("@/lib/logger", () => ({
+  apiLogger: { warn: warnSpy, info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -9,7 +14,7 @@ vi.mock("next/server", () => ({
   },
 }));
 
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
+import { denyReviewer, denyFinance, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 
 describe("denyReviewer", () => {
   it("returns 403 for REVIEWER role", async () => {
@@ -111,5 +116,64 @@ describe("denyReviewer", () => {
   it("still blocks abstract/attendee roles even with REGISTRATION_DESK_ALLOW", () => {
     expect(denyReviewer({ user: { role: "REVIEWER" } }, { allow: REGISTRATION_DESK_ALLOW })).not.toBeNull();
     expect(denyReviewer({ user: { role: "REGISTRANT" } }, { allow: REGISTRATION_DESK_ALLOW })).not.toBeNull();
+  });
+});
+
+/**
+ * The refusal is logged inside the guard so no call site can forget it. The
+ * cost of that is the log line only knows what the guard knows: on Aug 10, 2026
+ * a burst of 51 warnings carried role and userId but no route, and placing them
+ * took a five-step deduction (grep the page's hooks, cross-reference which of
+ * them carry which guard) that one field would have answered.
+ *
+ * Optional by design: a route no restricted role can reach never logs, so the
+ * ~212 call sites that omit it lose nothing. These pin that it survives to the
+ * log line when passed, since a context parameter that quietly gets dropped is
+ * worse than none (it reads as "this route has no route field" rather than
+ * "nobody passed one").
+ */
+describe("guard refusals carry route context when given", () => {
+  beforeEach(() => warnSpy.mockClear());
+
+  it("logs route + eventId on a denied write", () => {
+    denyReviewer({ user: { role: "SUBMITTER", id: "u1" } }, {
+      allow: ["WEBINARS"],
+      route: "tags:list",
+      eventId: "ev1",
+    });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toMatchObject({
+      msg: "auth-guard:write-denied",
+      role: "SUBMITTER",
+      userId: "u1",
+      route: "tags:list",
+      eventId: "ev1",
+    });
+  });
+
+  it("omits the keys entirely rather than logging undefined when not given", () => {
+    // An explicit `route: undefined` in the payload is noise in every log line
+    // from the ~212 sites that never pass one.
+    denyReviewer({ user: { role: "REVIEWER", id: "u2" } });
+    const payload = warnSpy.mock.calls[0][0];
+    expect(payload).not.toHaveProperty("route");
+    expect(payload).not.toHaveProperty("eventId");
+  });
+
+  it("does not log at all when the role is allowed through", () => {
+    warnSpy.mockClear();
+    expect(denyReviewer({ user: { role: "ONSITE" } }, {
+      allow: REGISTRATION_DESK_ALLOW, route: "registrations:create",
+    })).toBeNull();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("carries the same shape on a finance refusal", () => {
+    denyFinance({ user: { role: "REVIEWER", id: "u3" } }, { route: "invoices:list", eventId: "ev9" });
+    expect(warnSpy.mock.calls[0][0]).toMatchObject({
+      msg: "auth-guard:finance-denied",
+      route: "invoices:list",
+      eventId: "ev9",
+    });
   });
 });

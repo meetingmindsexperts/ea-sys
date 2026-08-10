@@ -272,6 +272,36 @@ Standard expand/contract: added, migrated, and now awaiting the contract step.
 Remove once no saved template references either key. Zero rows referenced them
 after the Aug 10 migration, so this can go whenever someone is in the file.
 
+### Guard warn lines: route context on the remaining call sites (Aug 10, 2026)
+
+`requireOrgId`, `denyReviewer` and `denyFinance` log the refusal **inside the
+guard** so no call site can forget it. The cost is that the line only knows what
+the guard knows: role and userId, not what was refused.
+
+Aug 10 triage: 51 warnings in 3 hours from one SUBMITTER took a five-step
+deduction to place (group by `msg`, notice the exact 2:1 ratio, list the hooks the
+shared abstracts page mounts, grep which of those routes carry which guard, match
+the arithmetic). One field would have answered it outright.
+
+**Shipped:** all three guards take `{ route, eventId }`, threaded at the three
+routes that actually fire today (`tickets:list`, `tickets:create`,
+`email-templates:list`, `email-templates:create`, `tags:list`). Keys are omitted
+rather than logged as `undefined`, pinned by test, mutation-verified.
+
+**Remaining:** ~142 `requireOrgId` and ~211 `denyReviewer` sites still pass none.
+That is fine and deliberate, because **a route no restricted role can reach never
+logs**, so this is opportunistic: add `route` when you touch a route a restricted
+role can reach. A 356-site sweep is a merge conflict, not a fix.
+
+**Negative result, recorded so nobody retries it.** Deriving the route inside the
+guard from `new Error().stack` was evaluated and **rejected**: the production
+build emits `.next/server/app/api/.../route.js` as a **764-byte re-export with
+none of the handler logic** (verified: zero occurrences of `requireOrgId` in it),
+so the handler runs from a shared chunk and stack frames name the chunk, not the
+route. It would have looked correct in dev and produced nothing in prod. Same
+verdict for `headers()`: it is async in Next 16 and these guards are sync, so
+adopting it would mean making ~356 call sites await.
+
 ### `npm run db:migrate` has no target guard (Aug 10, 2026)
 
 `db:push` is wrapped by [guard-db-target.sh](../scripts/guard-db-target.sh),
