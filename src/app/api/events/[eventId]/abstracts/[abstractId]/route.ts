@@ -549,6 +549,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
         eventId,
         organizationId: session.user.organizationId ?? null,
         eventName: abstract.event?.name || "",
+        eventSlug: abstract.event?.slug ?? null,
         abstractId: abstract.id,
         abstractTitle: abstract.title,
         serialId: abstract.serialId,

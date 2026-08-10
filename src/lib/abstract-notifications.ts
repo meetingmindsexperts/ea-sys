@@ -17,6 +17,33 @@ import { PRESENTATION_TYPE_LABELS } from "@/app/(dashboard)/events/[eventId]/abs
 
 const REVIEW_STATUSES = new Set(["UNDER_REVIEW", "ACCEPTED", "REJECTED", "REVISION_REQUESTED"]);
 
+/**
+ * The "View Your Abstract" destination for BOTH abstract emails.
+ *
+ * One builder because the two senders in this file had already drifted: the
+ * status-update email used the branded event login while the submission
+ * confirmation hardcoded the INTERNAL staff sign-in
+ * (`/login?callbackUrl=/events`), so a submitter clicking a button labelled
+ * "View Your Abstract" landed on an unbranded staff screen and, if they signed
+ * in, on the events list rather than their abstract. That is the same defect
+ * fixed for session proposals on Aug 6, 2026; abstracts were missed.
+ *
+ * `?redirect=abstracts` is a NAMED branch of the event login, which routes a
+ * SUBMITTER to My Details and fails safe for a REGISTRANT or a session that
+ * has not propagated yet (both go to the public register page rather than
+ * dead-ending on /my-registration).
+ *
+ * The slug-less fallback is deliberate and must stay: a missing slug would
+ * otherwise mint a broken `/e//login` URL, which is worse than the internal
+ * login it falls back to.
+ */
+export function buildAbstractManagementLink(eventSlug: string | null | undefined): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  return eventSlug
+    ? `${appUrl}/e/${eventSlug}/login?redirect=abstracts`
+    : `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -31,6 +58,12 @@ export interface SendAbstractSubmissionConfirmationParams {
   /** Organization that owns the event — threaded into the EmailLog row. */
   organizationId?: string | null;
   eventName: string;
+  /**
+   * Public event slug, for the branded `/e/{slug}/login` CTA. Optional so a
+   * caller that genuinely has no slug still sends (falling back to the
+   * internal login) rather than skipping the email.
+   */
+  eventSlug?: string | null;
   abstractId: string;
   abstractTitle: string;
   /** Per-event serial (A-###); null on pre-migration legacy rows → renders blank. */
@@ -103,7 +136,8 @@ export function buildAbstractConfirmationVars(input: AbstractConfirmationVarInpu
 export async function sendAbstractSubmissionConfirmation(
   params: SendAbstractSubmissionConfirmationParams,
 ): Promise<boolean> {
-  const { eventId, organizationId, eventName, abstractId, abstractTitle, serialId, speaker } = params;
+  const { eventId, organizationId, eventName, eventSlug, abstractId, abstractTitle, serialId, speaker } =
+    params;
 
   if (!speaker.email) {
     apiLogger.warn({ msg: "abstract-submission-confirmation:no-speaker-email", eventId, abstractId });
@@ -111,7 +145,6 @@ export async function sendAbstractSubmissionConfirmation(
   }
 
   try {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
     const details = await db.abstract
       .findUnique({
         where: { id: abstractId },
@@ -129,7 +162,7 @@ export async function sendAbstractSubmissionConfirmation(
         speaker,
       }),
       eventName,
-      managementLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`,
+      managementLink: buildAbstractManagementLink(eventSlug),
       ...(params.organizerSignature ? { organizerSignature: params.organizerSignature } : {}),
     };
 
@@ -233,10 +266,7 @@ export async function notifyAbstractStatusChange(params: NotifyAbstractStatusCha
   if (!shouldNotify) return;
 
   if (speaker.email) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
-    const managementLink = eventSlug
-      ? `${appUrl}/e/${eventSlug}/login?redirect=abstracts`
-      : `${appUrl}/login?callbackUrl=${encodeURIComponent("/events")}`;
+    const managementLink = buildAbstractManagementLink(eventSlug);
 
     // Self-fetch the abstract's presentation type / theme / co-authors so the
     // email vars resolve without every caller threading them through.

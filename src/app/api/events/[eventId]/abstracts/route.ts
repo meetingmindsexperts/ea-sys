@@ -337,12 +337,15 @@ export async function POST(req: Request, { params }: RouteParams) {
     // ONE implementation shared with the resubmit PUT + the manual resend
     // route: sendAbstractSubmissionConfirmation (never throws).
     if (abstract.speaker && status === "SUBMITTED") {
-      db.event.findUnique({ where: { id: eventId }, select: { name: true } })
+      db.event.findUnique({ where: { id: eventId }, select: { name: true, slug: true } })
         .then((ev) =>
           sendAbstractSubmissionConfirmation({
             eventId,
             organizationId: session.user.organizationId ?? null,
             eventName: ev?.name || "",
+            // Drives the branded /e/{slug}/login CTA. Null falls back to the
+            // internal login rather than minting a broken /e//login URL.
+            eventSlug: ev?.slug ?? null,
             abstractId: abstract.id,
             abstractTitle: abstract.title,
             serialId: abstract.serialId,

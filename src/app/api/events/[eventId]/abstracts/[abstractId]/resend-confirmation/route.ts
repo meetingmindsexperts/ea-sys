@@ -52,7 +52,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: { id: eventId, organizationId: orgGuard.orgId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, slug: true },
     });
     if (!event) {
       apiLogger.warn({ msg: "abstract-confirm-resend:event-not-found", eventId, userId: session.user.id });
@@ -109,6 +109,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventId,
       organizationId: orgGuard.orgId,
       eventName: event.name,
+      eventSlug: event.slug,
       abstractId: abstract.id,
       abstractTitle: abstract.title,
       serialId: abstract.serialId,

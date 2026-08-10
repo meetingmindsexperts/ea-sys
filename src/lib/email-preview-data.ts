@@ -28,6 +28,7 @@ import { db } from "./db";
 import { apiLogger } from "./logger";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "./event-time";
 import { buildSpeakerEmailContext } from "./speaker-agreement";
+import { buildAbstractManagementLink } from "./abstract-notifications";
 
 export async function buildRealPreviewOverrides(
   eventId: string,
@@ -80,6 +81,11 @@ export async function buildRealPreviewOverrides(
       loginLink: `${appUrl}/e/${event.slug}/login`,
       // Same static URL the real reviewer notifies build (abstract-reviewer-notify.ts).
       reviewLink: `${appUrl}/login?callbackUrl=${encodeURIComponent("/my-reviews")}`,
+      // The REAL "View Your Abstract" destination, from the one builder both
+      // abstract senders use. Not per-recipient and not a minted secret, so
+      // unlike the survey/agreement links it can be shown truthfully. This
+      // CTA's whole purpose is where it goes, which a sample "#" hides.
+      managementLink: buildAbstractManagementLink(event.slug),
     };
 
     const session = event.eventSessions[0];
