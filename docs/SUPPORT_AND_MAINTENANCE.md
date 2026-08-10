@@ -2,7 +2,7 @@
 
 **Audience:** Leadership / management review.
 **Author:** Krishna Pallapolu (Development Manager, MMG)
-**Last updated:** July 9, 2026
+**Last updated:** August 10, 2026
 **Purpose:** Establishes what it takes to run, monitor, and maintain the in-house event platform on an ongoing basis. Provides the operational baseline and surfaces decisions that need leadership input.
 
 ---
@@ -76,7 +76,13 @@ The platform's long-term maintainability is heavily front-loaded into existing d
 
 - **`docs/HANDOVER.md`** — full technical onboarding for a new engineer
 - **`docs/ARCHITECTURE.md`** — system design, data flow, decision history
-- **`docs/CLAUDE.md`** — current state + recent features in granular detail
+- **`CLAUDE.md`** (repo root) — current state + recent features in granular detail; the changelog
+- **`AGENTS.md`** (repo root) — the **invariants**: the seven hard rules and the six visibility boundaries. Deliberately carries no feature list, because that is what rotted its predecessor
+- **`docs/DOMAIN_MAP.html`** — the context-reload index: every domain's entry points, core files and gotchas. **The first thing to read before touching an unfamiliar area**
+- **`docs/BACKGROUND_JOBS.md`** — "I clicked send, where is it?" — the immediate-vs-queued split and how the worker jobs actually behave
+- **`docs/ROLLBACK.md`** — both rollback axes with measured RTOs
+- **`docs/INCIDENTS.md`** — outage post-mortems + how to diagnose a frozen box
+- **`docs/PLATFORM_DECISIONS.md`** — the open decisions gating a multi-tenant launch
 - **`docs/MUMBAI_SETUP.md`** — EC2 server bootstrap procedure
 - **`docs/EC2_HARDENING.html`** — security posture on the production instance
 - **`docs/ERRORS_AND_FIXES.md`** — known bugs, fixes, and lessons learned
@@ -88,18 +94,80 @@ The platform's long-term maintainability is heavily front-loaded into existing d
 
 This documentation is what makes the maintenance role transferable. The work isn't dependent on any one person's memory of how the system works — it's all written down.
 
+### Codebase health — is it becoming unmaintainable?
+
+Asked directly by leadership (Aug 10, 2026), so answered with measurements rather
+than opinion.
+
+| Measure | Today |
+|---|---|
+| TypeScript files (`src` + `worker`) | 942 |
+| Lines of application code | ~238,000 |
+| API route files | 316 |
+| Automated tests | **5,032** across 413 files |
+| Shared domain services | 9 |
+| Routes under 150 lines | 159 (~half) |
+| Routes over 400 lines | 20 |
+
+**The honest read: this is a large codebase, but it is not tangled.** "Spaghetti"
+means no boundaries — you change one thing and something unrelated breaks, and
+nobody can predict where logic lives. The evidence points the other way. There is
+a deliberate boundary architecture (a services layer for anything called from more
+than one place, one module per visibility question, one function for event
+scoping), and when a core permission rule was changed on Aug 10 the test suite
+identified **exactly the four places that cared** and nothing else. A genuinely
+tangled system answers that kind of change with silence, followed by a production
+incident.
+
+**Where the complexity actually is**, so it can be watched rather than feared:
+
+1. **Eight separate "who may see this" rules** (money, door barcodes, contacts,
+   Zoom host credentials, exports, sign-in activity, event fields, abstract
+   drafts) that **deliberately disagree** with each other — desk staff see
+   payments but not door codes; the read-only viewer is the exact inverse. That
+   is correct design, and it is genuinely hard to hold in one head. It is why
+   `AGENTS.md` states the rule: *if an existing predicate looks "close enough",
+   that is the signal to write a new one.* Four of the eight exist because
+   "close enough" leaked something.
+2. **A handful of very large files** — the email library (~3,600 lines), the
+   registration detail panel (~3,400), the client data layer (~2,700). These are
+   the ones an engineer hesitates to touch. None is urgent; all are candidates
+   for staged extraction the next time a feature lands in them.
+3. **Twenty API routes over 400 lines.** This is where review resistance lives —
+   long enough that a reviewer reads the part they came for and not the whole.
+
+**The evidence of strain, stated plainly.** On Aug 10 a permission bypass was found
+in two routes: a signed-in desk temp could read other events' speaker rosters.
+It had passed code review. The cause was not tangled code — both halves of the
+offending line were individually correct — but a **cross-cutting rule expressed at
+call sites instead of in one place**. That is the failure mode this codebase is
+actually susceptible to, and it is a different problem from spaghetti with a
+different fix: extract the rule, then gate it in CI. Both were done the same day.
+
+**What keeps it maintainable** is not tidiness, it is the machinery: the 5,032
+tests (several deliberately broken to prove they catch what they claim), the CI
+gates that fail a push when a required safety wrapper is missing, the additive
+migration discipline, and the rule that any operation reachable from more than one
+entry point must live in exactly one service. Those are the load-bearing items —
+if maintenance time is ever squeezed, protect those before anything else in this
+document.
+
+---
+
 ### Existing automation that reduces manual effort
 
 The platform invests heavily in self-monitoring + self-healing so the maintenance burden stays low:
 
 - **Three-layer error capture** — Sentry (cloud), SES admin-alert email (~10 sec latency), `/logs` dashboard (Postgres-persisted)
-- **Background worker tier** — cron jobs (scheduled emails, webinar recordings, certificate rendering, attendance sync) run automatically with Postgres advisory locks for singleton enforcement
+- **Background worker tier** — 15 cron jobs (scheduled emails, webinar recordings, certificate rendering, attendance sync, CRM inbound mail, retention sweeps, the daily digest) run automatically. Singleton enforcement is an **expiring `JobLease` row** — this replaced Postgres advisory locks on Aug 10, 2026 after the locks were found to be silently skipping ~70% of every job's ticks (see `docs/BACKGROUND_JOBS.md`)
 - **Blue-green Docker deploys** — zero-downtime via `scripts/deploy.sh`, no manual coordination. **CI→ECR complete (2026-07-01):** CI builds the image + pushes to ECR, the box **pulls** it instead of building (SSH step ~8 min → ~1–2 min; the box no longer runs a memory-heavy build). Rollback = redeploy a previous image tag; runbook in `docs/AWS_OPERATIONS.md §5.x`
-- **Automated DR backups** — hourly upload mirror + frequent Postgres dumps (hourly) to AWS Singapore, no human action required
+- **Automated DR backups** — hourly upload mirror + hourly Postgres dumps to AWS Singapore, no human action required
+- **Daily health digest** (Aug 2026) — one infrastructure email each morning at 09:30 Dubai, whether or not anything happened. A digest that *stops* arriving is itself a signal; silence from alarms alone is ambiguous. The OK/WARN/CRITICAL verdict is computed in code — the AI writes prose on top and cannot change it
+- **Worker watchdog** (Aug 2026) — a crashed container self-heals, but a *frozen* one stays `Up` and useless. A cron script restarts it after 3 consecutive unhealthy checks, caps at 3 restarts/hour, then escalates and goes quiet
 - **Automated Docker disk reclaim** — weekly `docker-prune.sh` cron (Fri 03:00 UTC) clears build cache + dangling images **and trims old pulled `:<sha>` images** (keeps the running + newest-3 rollback images) so the box disk doesn't fill from repeated deploys
 - **Health endpoints** — `/health` and `/worker/health` proxy through nginx for external uptime monitoring
 - **Dependabot** — automated PRs for vulnerable npm packages
-- **GitHub Actions CI** — every push runs tsc + lint + 1479 unit tests + production build; broken changes can't reach production
+- **GitHub Actions CI** — every push runs tsc + lint + **5,032** unit tests + production build, plus non-gating tenancy-isolation and fresh-DB migration-replay jobs; broken changes can't reach production
 
 This automation is the reason "8–14 hours / month of maintenance" is realistic. Without it, the same workload would require an order of magnitude more time.
 
@@ -209,6 +277,7 @@ Honest list of where the platform is exposed. Each row notes whether it's alread
 | Risk | Current state | Severity | Plan |
 |---|---|---|---|
 | **Maintenance time allocation** | Implicit in current role assignment | Medium | The 8–14 hr/month of recurring upkeep needs protected calendar time. Best mitigated by treating it as a budgeted commitment, not a "if there's time" fill-in. |
+| **Complexity outrunning review** | **Partly mitigated** — 5,032 tests + CI gates + a services layer catch most of it, but a permission bypass still reached production on Aug 10 and survived code review (both halves of the offending line were individually correct). See §3 "Codebase health". | Medium | The failure mode is cross-cutting rules written at call sites rather than in one place. Mitigation is mechanical, not cultural: extract the rule, then add a CI gate that fails a push which skips it. Two such gates exist; more are cheap. Reviewing harder is **not** a mitigation — this class is invisible to reading. |
 | **AWS IAM key in `.env` (overrides instance role)** | Identified, scheduled for removal | Medium | One-line change + redeploy; key rotation handled by AWS |
 | **No staging environment** | Intentional design choice (prod-only UAT) | Low–Medium | Documented; works at current scale but limits some kinds of testing |
 | **DR drill not auto-run** | Manual quarterly process — **but both rollback axes have now been drilled with measured RTOs** (code ~22 s / DB ~6 s; see [`docs/ROLLBACK.md`](ROLLBACK.md) §1.6 + §2.1) | Low–Medium | Script exists (`scripts/dr-restore-drill.sh`); could be CI-scheduled. One caveat found in the 2026-07-31 drill: the script's port `:55432` clashes with the tenancy test container — stop it first or use `npm run db:refresh`. |
@@ -362,9 +431,85 @@ These existing documents in the repository provide deeper context:
 
 ---
 
-## Appendix A — Recent feature additions (rolling log, June 24 – July 9, 2026)
+## Appendix A — Operational-surface changes (rolling log)
 
-A support-facing digest of what shipped in the last ~15 days. This section is **not** the changelog (the full per-commit history lives in git + `CLAUDE.md`); it exists so support/maintenance staff know what changed on the **operational surface** — new capabilities to support, new background jobs, new failure modes, and the prod migrations already applied. Items that add an ongoing operational consideration are flagged **⚙️ Ops**.
+**Scope discipline, so this section does not rot:** this is **not** a changelog and
+must not become one — the full history lives in git and `CLAUDE.md`. Record here
+only what changes the **operational surface**: a new background job, a new failure
+mode, a new manual step, a migration already applied to production, a new outbound
+data flow. If an item does not change what a support engineer must know or do,
+it belongs in `CLAUDE.md` and not here. Items carrying an ongoing operational
+consideration are flagged **⚙️ Ops**.
+
+*(A previous version of this appendix drifted toward being a feature digest. That
+is the same drift that made an earlier orientation doc unusable — a document that
+tries to list everything is guaranteed to be out of date, and a reader who finds
+one stale line stops trusting the rest.)*
+
+### July 9 – August 10, 2026
+
+**Background jobs — the big one. ⚙️ Ops.** Job singleton enforcement moved from
+Postgres advisory locks to an expiring **`JobLease`** row (migration applied Aug 10).
+The locks had been **silently skipping ~70% of every job's ticks for months**: nothing
+ever failed, so every dashboard stayed green, and the only symptom was bulk email
+taking 5–17 minutes instead of ~90 seconds. Cadence was verified restored on
+production within 4 minutes of deploy. Three guards now make the class visible:
+skipped ticks log at warn, the daily digest compares expected-vs-actual run counts,
+and a lease lost mid-tick logs at error. Full write-up: `docs/BACKGROUND_JOBS.md`.
+
+**New scheduled jobs. ⚙️ Ops.**
+- **Daily health digest** — 05:30 UTC (09:30 Dubai), infrastructure only. Arrives
+  every day by design; **if it stops arriving, that is the alert.**
+- **Worker watchdog** — cron every 2 minutes, restarts a *frozen* worker container
+  (a crashed one already self-heals). Emails on every restart on purpose. **Requires
+  a crontab line on the box** — see `docs/AWS_OPERATIONS.md §1.7 D`.
+- **`system-log-prune`** (04:45 UTC) and **`login-event-prune`** (04:15 UTC) — 30-day
+  and 180-day retention sweeps respectively. If the database grows unexpectedly,
+  confirm these are running.
+
+**Sign-in activity. ⚙️ Ops.** Every sign-in attempt is now recorded (who, when,
+approximate location) and readable by ADMIN+ under Settings. This also added the
+**web login's first rate limit** — until then only the mobile route was throttled,
+so dashboard passwords were brute-forceable. Known gap, stated plainly: **nothing
+can currently sign anyone out** — sessions are stateless tokens, so a compromised
+account cannot be revoked before its token expires (up to 24h). See
+`docs/SESSION_ARCHITECTURE.md §7`.
+
+**Per-tenant Stripe + AI keys. ⚙️ Ops.** An organisation can now hold its own Stripe
+and AI credentials, encrypted, with the environment keys as fallback. This introduces
+a **second Stripe webhook URL** (`/api/webhooks/stripe/{orgId}`) alongside the legacy
+one. Behaviour is unchanged while no org configures a key. **Caution for support:**
+if an org ever switches Stripe accounts, historical payments remain refundable only
+from the old account — deliberately no silent retry across accounts.
+
+**Self-service check-in kiosk. ⚙️ Ops.** Attendees scan their own emailed barcode and
+the badge prints automatically. Requires a prepared machine: Chrome launched with
+`--kiosk --kiosk-printing`, badge printer as system default, signed in as an ONSITE
+account, and a staff exit PIN set on that device. Runbook in user-guide §12.
+
+**Group registration.** A coordinator can register 2–50 people with one payer and
+one consolidated invoice, paid by card or later. Migration applied. **⚙️ Ops:** a
+refund on a group payment is **recorded and alerted, never auto-reconciled** — one
+charge covers many people and the system cannot know which of them dropped out, so
+a human decides.
+
+**Security fixes worth knowing.** The public **survey share link** no longer accepts a
+typed email as proof of identity — it emails the person their own secure link instead
+(the old behaviour could issue a CME certificate in someone else's name and lock the
+real attendee out permanently). Restricted roles had their payloads narrowed. On
+Aug 10 a **desk-staff cross-event read** was closed: a temp assigned to one conference
+could read every other event's agenda and full faculty roster.
+
+**Roles.** New **WEBINARS** (webinar team) role; as of Aug 10 it sees every event in the
+org and can work any registration desk, with full control still limited to webinar
+events. **`Event.settings.onsiteUserIds` no longer affects it** — that assignment now
+applies only to ONSITE.
+
+**Not deployed, but present in the repo:** the CRM module (its migrations are not
+applied to production) and the multi-tenancy row-level-security policies (never
+applied on this instance — they are for a future separate platform deployment).
+
+### June 24 – July 9, 2026
 
 **Finance & invoicing (the biggest area — July 1–8).**
 - Org-level **Invoices & Quotes hub** with per-event and org-wide **CSV + QuickBooks export** (bulk-download all matching PDFs as a ZIP; CSV formula-injection neutralised).
@@ -402,4 +547,4 @@ A support-facing digest of what shipped in the last ~15 days. This section is **
 
 ---
 
-*Document prepared by Krishna Pallapolu. For corrections or questions, contact via the usual channels. Last updated July 9, 2026.*
+*Document prepared by Krishna Pallapolu. For corrections or questions, contact via the usual channels. Last updated August 10, 2026.*
