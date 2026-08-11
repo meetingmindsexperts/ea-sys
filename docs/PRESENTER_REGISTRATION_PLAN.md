@@ -1,7 +1,7 @@
 # Presenter registration: abstract submitters pay like delegates
 
-**Status: PLANNED, not built.** Owner-driven, Aug 11 2026. Do not start without
-explicit go-ahead.
+**Status: PLANNED, not built. Decisions complete (D1-D6), ready to build.**
+Owner-driven, Aug 11 2026.
 
 ---
 
@@ -55,18 +55,27 @@ paid presenter link.
 |---|---|---|
 | D1 | Presenter rates are **tiers per profession**, not a separate registration type | `Presenter Early Bird` / `Presenter Standard` under Physician, Nurse, Student, ... Preserves per-profession pricing. Cost: ~6 tiers per type to maintain. |
 | D2 | **The submitter picks their registration type at signup**, like a delegate | Deriving it from the `role` enum was rejected: events carry `Nurse` and `Member`, which the enum cannot express, and the enum carries `Pharma` / `Academia` / `Medical Devices`, which have no rate. |
-| D3 | **The quote and Pay Now email go out at submission**, standard delegate behaviour | Owner decision, taken after the cost below was raised. |
+| D3 | **Quote at submission, but NO Pay Now.** Pay-later only for now | Revised by the owner Aug 11 after the cost below was raised. The submitter learns the amount; the system does not invite immediate payment. |
+| D4 | **No presenter tiers configured -> fall back to today's free comp** | Nothing breaks on any existing event until an organizer sets rates. Matches how `abstractLimits` and `abstractPresentationTypes` default. |
+| D5 | **A presenter registration does NOT burn tier inventory** | Same posture as speaker companions, which `seatCounter` already excludes. Presenter counts are not capacity-managed. |
+| D6 | **On rejection, nothing happens automatically** | The submitter decides: pay and attend, or do not pay and do not attend. The organizer may comp them. This is exactly what an unpaid registration already does, so there is nothing to build. |
 
-### The cost of D3, recorded
+### How D3 landed, recorded
 
-On the owner's own 1-in-20-30 figure, roughly **29 of every 30 submitters will
-be comped after acceptance**. Sending the quote at submission therefore means
-29 unnecessary invoices per 30 submissions, 29 manual comp actions, and refunds
-for whoever pays one by mistake. The alternative offered was to create and price
-the registration at submission but hold the payment request until acceptance;
-the owner chose to send at submission. Refunds are already supported
-(credit-note-gated, `payment-service.refundRegistration`), so the recovery path
-exists. Revisit if the refund load becomes real.
+The concern raised was that on the owner's own 1-in-20-30 figure roughly **29 of
+every 30 submitters get comped after acceptance**, so inviting payment at
+submission means 29 people are asked for money they will not owe, and refunds
+for whoever pays anyway.
+
+The owner's answer resolves it without holding the quote back: **send the quote,
+offer no Pay Now.** The submitter sees the amount, which is what the quote is
+for, and the system never invites a payment that is likely to be reversed.
+Payment happens later, once the organizer has decided comp / paid / discounted.
+
+**Interpretation to confirm at build time:** "no Pay Now" applies to the
+submission confirmation email. The registrant portal's Pay Now is left in place,
+because that IS the pay-later route; removing it too would leave no way to pay
+at all except an organizer-sent reminder, which contradicts "pay later".
 
 ## 4. What already exists and needs nothing
 
@@ -81,7 +90,8 @@ exists. Revisit if the refund load becomes real.
   of [grant-companion](../src/app/api/events/%5BeventId%5D/speakers/%5BspeakerId%5D/grant-companion/route.ts),
   which already calls `registration-service.createRegistration` and gets seat
   claim, payment-status defaulting, and the confirmation email with quote PDF
-  and Pay Now for free. **This is the reference implementation to reuse.**
+  for free. **This is the reference implementation to reuse**, with two
+  deliberate departures: no seat claim (D5) and no Pay Now (D3).
 - **Picking the tier that is on sale now** is `pickCurrentPricingTier`
   ([current-pricing-tier.ts](../src/lib/current-pricing-tier.ts)).
 
@@ -130,24 +140,28 @@ payable grant.
 - **Session proposals** stay `linkOnly` with the per-person grant (Aug 5).
 - **The 85 existing comp companions** are left alone. Forward-only.
 
-## 6. Open questions, needed before building
+## 6. Open questions
 
-1. **An event with no presenter tiers configured.** Every existing event has
-   only the dead single `Presenter`. Options: fall back to today's free comp
-   (recommended: nothing breaks, and it matches how `abstractLimits` and
-   `abstractPresentationTypes` default), or refuse signup until the organizer
-   configures rates.
-2. **The 69 dead `Presenter` tiers.** Leave them, rename them to
-   `Presenter Early Bird`, or delete? Recommended: leave, since renaming a tier
-   with a price is a pricing change we should not make on the organizer's
-   behalf, and add the new pair only to newly seeded types.
-3. **Does the submitter's presenter registration consume a seat?** Delegate
-   public registrations burn the tier's inventory (the Aug 6 group-registration
-   rule). Presumably yes for consistency, but presenter counts are usually
-   uncapped in practice.
-4. **What happens on rejection?** The registration exists and may be paid. Comp
-   it, refund it, or leave it as a normal attendee registration? This is
-   policy, not code.
+All four are now answered; see D3 to D6 above. The only one left open is the
+mechanical one:
+
+- **The 69 dead `Presenter` tiers.** Leave them, rename them to
+  `Presenter Early Bird`, or delete? Recommended: leave. Renaming a tier that
+  carries a price is a pricing change we should not make on an organizer's
+  behalf, and the new pair is seeded only onto newly created registration types.
+  Organizers add presenter rates per event when they want them, and until they
+  do, D4 keeps that event on today's free comp.
+
+### Consequences of D5 worth building deliberately
+
+A presenter registration must not touch either seat counter. The existing
+mechanism is `seatCounter` in
+[registration-seat.ts](../src/lib/registration-seat.ts), which already excludes
+`SPEAKER_COMPANION`. This needs its own `RegistrationCreatedSource` value
+(additive enum migration) rather than reusing `SPEAKER_COMPANION`, because these
+are payable registrations and every faculty-exclusion rule keyed on
+`SPEAKER_COMPANION` or the `isFaculty` ticket type would otherwise sweep them
+out of the delegate counts they belong in.
 
 ## 7. Not in scope
 
