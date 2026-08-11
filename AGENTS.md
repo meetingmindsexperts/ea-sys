@@ -59,6 +59,15 @@ of the five call it** — that question is the source of most bugs in this codeb
 | **MCP / AI agent** | `src/lib/agent/tools/*.ts` | Org API key or OAuth 2.1 (admin-equivalent) |
 | **Worker cron** | `worker/jobs/*.ts` | Singleton via an expiring `JobLease` row — **never** a connection-bound lock (see below) |
 
+**The privileged lane.** A few surfaces are cross-tenant by design and would
+see zero rows once the platform enables RLS: the worker candidate scans, the
+operator-global readers. They use `dbOperator` (`src/lib/db.ts`), which
+connects as the table-owner role. It is a separate export precisely so a CI
+allowlist can pin it (`check-tenant-als.sh`). Adding a file to that list is a
+security decision, not a build fix. In almost every case the right answer is
+not this client but `runWithTenant(theRowsOrg, …)`: **borrow the tenant's lane,
+do not stay privileged.** On master `dbOperator` IS `db`.
+
 The **MCP path is the one people forget.** It is a full write surface (n8n, claude.ai, Claude
 Desktop all drive it), it is admin-equivalent, and historically it has drifted from REST — silently.
 If you fix a bug in a REST route, check whether an MCP tool implements the same operation.
@@ -126,7 +135,7 @@ Eight roles: `SUPER_ADMIN` `ADMIN` `ORGANIZER` `MEMBER` `ONSITE` — org-bound;
 event assignment or linked entity. **Internal-domain emails get the org attached even as REGISTRANT**
 (see `src/lib/internal-domains.ts`), so "org-bound" alone is never a sufficient authorization check.
 
-**There is no single "can this role see it?" predicate — there are six, and they deliberately disagree:**
+**There is no single "can this role see it?" predicate. There are seven, and they deliberately disagree:**
 
 | Boundary | File | Notable |
 |---|---|---|
@@ -136,6 +145,7 @@ event assignment or linked entity. **Internal-domain emails get the org attached
 | Door credentials | `barcode-visibility.ts` | **Excludes MEMBER, includes ONSITE** — the exact inverse of the finance set. |
 | Contact store | `contact-visibility.ts` | **Includes MEMBER, excludes ONSITE.** |
 | Zoom host creds | `zoom-visibility.ts` | Staff only — narrower than finance. |
+| Cross-tenant reads | `platform-operator.ts` / `denyNonOperator()` | SUPER_ADMIN only, and **refuses org API keys**, which every other surface treats as admin-equivalent. Pair it with `dbOperator` (below); the DB lane and the RBAC check are two walls. |
 
 If you find yourself reaching for an existing predicate because it's "close enough", that is the
 signal to write a new one. Four of these exist precisely because "close enough" leaked something.

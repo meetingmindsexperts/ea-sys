@@ -17,9 +17,9 @@
 |---|------|--------|
 | 1 | Tenant-offboarding data handling | ✅ DECIDED — archive to S3, delete after years, offboarded badge in tenant mgmt |
 | 2 | NULL-org row purge | ✅ DECIDED — archive to S3, then delete from DB |
-| 3 | Org-null audit-write loss | ✅ DECIDED (one nuance to confirm) — stamp default MMG org id + tenant identifier |
-| 4 | The 16-instance `?? ""` fallback pass | ✅ DECIDED (same nuance) — default MMG org id + tenant identifier |
-| 5 | Privileged maintenance lane | 🔶 OPEN — inputs delivered (§5), discussion pending |
+| 3 | Org-null audit-write loss | ✅ DECIDED: stamp a **synthetic platform org**, not MMG's (nuance resolved Aug 11) |
+| 4 | The `?? ""` fallback pass | ✅ **DONE** Aug 11, 2026. Decision CORRECTED then shipped (§4) |
+| 5 | Privileged maintenance lane | ✅ **BUILT** Aug 11, 2026. All four decisions taken, code shipped (§5) |
 | 6 | Phase-1 identity model | 🔶 OPEN — owner thesis + counter-inputs recorded (§6), discussion pending |
 | 7 | Per-tenant Stripe / Zoom / Anthropic keys | ✅ DECIDED — **next immediate build priority** (not started) |
 | 8 | Master ops step (TenantDomain + DEFAULT_ORG_ID) | ✅ **DONE** Aug 4, 2026 — verified live (§8) |
@@ -110,7 +110,19 @@ tenant, an additional identifier — tenantName: MMG, ACME, GLOBEX and so on."*
   extension resolves explicit → ambient lane → eventId 1-hop; the loss case
   was only the residue with no org at all).
 
-**⚠ Open nuance (flagged by Claude, to confirm before build):** under RLS,
+**✅ Nuance RESOLVED Aug 11, 2026, option (b): a synthetic platform org.**
+The owner chose the dedicated org over MMG's id. Rationale as discussed: the
+org id a row carries *is* the lane that can read it, so stamping MMG's would
+make every ownerless/system row visible inside MMG's ordinary tenant lane,
+with `tenantName` describing them but not isolating them. A synthetic org that
+owns nothing and that nobody logs into costs one seed row and keeps those rows
+readable only from the privileged lane (§5). **Build-time items:** seed the
+row, a `PLATFORM_ORG_ID` env var beside `DEFAULT_ORG_ID`, and the audit-stamp
+extension's null branch resolving to it. Not built yet: the extension change
+lands with the tenant-management work, since it is inert until RLS is on.
+
+*(Original framing of the nuance, kept for the record.)* **⚠ Open nuance
+(flagged by Claude, to confirm before build):** under RLS,
 *whatever org id a row carries is the lane that can read it*. Rows stamped
 with MMG's id are therefore **visible in MMG's tenant lane** — the
 `tenantName` field labels them but does not isolate them. Two readings:
@@ -139,14 +151,100 @@ tenant"* — i.e. the same posture as §3: where no real org resolves, fall back
 to the default/operator org id (with the tenant-identifier label where
 applicable) instead of an empty-string dead lane.
 
-**Recorded design posture:** one mechanical pass replacing the `?? ""`
-fallback with resolution to `DEFAULT_ORG_ID` (now live on master — §8), with
-a log line when the fallback fires. Same §3 nuance applies (operator-lane
-visibility); same confirmation point.
+**⚠ CORRECTED AND SHIPPED Aug 11, 2026 (commit `fdf54c3c`). The recorded
+decision above does not work, and the correction is the useful part of this
+entry.**
+
+Measuring the sites before building showed there were **45, not 16**, and that
+**33 of them are lane wraps on routes that read a TENANT's event data**
+(check-in, refund, credit notes, badges, invoices, clone). For those, stamping
+the operator's org id gives a lane that still cannot read tenant ACME's
+registration. It swaps one dead lane for another *while looking like a fix*,
+the worst kind of change, because the symptom disappears from the plan without
+disappearing from the system. The org stamped on a row IS the lane that can
+read it; that is the same fact that drove §3 to a synthetic org.
+
+So the real question was never which org to stamp. It was **whether a platform
+operator with no org should be able to act inside a tenant's event at all.**
+
+**Owner decision: no.** The operator runs the platform, the tenant runs their
+events, and an operator who must act inside a tenant gets a membership there.
+This is also the only option that adds **no privileged surface**: check-in,
+refunds, credit notes and badge printing are precisely the handlers you least
+want executing with RLS switched off. (The two alternatives offered were:
+resolve the event's org on the privileged lane then borrow that tenant's lane;
+or run the whole handler privileged. Both were declined.)
+
+**What shipped:** `runWithTenantLane(orgId, { route, userId }, fn)`
+([src/lib/tenant-lane.ts](../src/lib/tenant-lane.ts)) still enters an empty
+lane when there is no org (fail-closed, unchanged) but logs
+`tenant:no-org-lane` with the route and caller first, so a platform 404 is
+traceable instead of mysterious. `route` is REQUIRED, unlike the optional one
+on `denyReviewer`, because this wrap only exists where an org-null caller is
+genuinely possible: a line naming who but not what would be useless every time
+it fired. Applied to all 33; master behaviour is unchanged (RLS off ⇒
+passthrough for any value including `""`), pinned by test.
+
+**Deliberately NOT converted:** the 15 public `tenant.orgId ?? ""` sites (host
+resolution, not an operator, and the resolver already logs its own unresolved-host
+ramp) and the 12 `organizationId: (… ?? "")` service arguments and Prisma
+predicates (not lanes at all; an empty string there fails closed inside the
+service or matches no rows).
 
 ---
 
-## 5. Privileged maintenance lane — 🔶 OPEN (owner asked for inputs; discussion pending)
+## 5. Privileged maintenance lane: ✅ BUILT (Aug 11, 2026)
+
+> **Status: decided and shipped**, commits `2b74dee4` (the lane + the CI gate),
+> `f763016c` (the surfaces), `fdf54c3c` (the `?? ""` correction, §4).
+>
+> **The four decisions (a–d), as taken:**
+>
+> | | Question | Decision |
+> |---|---|---|
+> | (a) | Surface list | Confirmed, and **narrowed by measurement**. Only jobs scanning an RLS-POLICIED model qualify: `system-log-prune`, `log-archive`, `oauth-cleanup` and `login-event-prune` scan SystemLog / McpOAuth* / LoginEvent, which carry no policy, so they need no exemption. When LoginEvent is swept its prune job joins the list. |
+> | (b) | Who is a platform operator | **SUPER_ADMIN.** No new role: reusing the existing one costs no migration and the operator surface is a handful of reads, not a job function. |
+> | (c) | Worker access | **Per-job, allowlisted.** A new job defaults to the tenant-scoped client and fails closed. |
+> | (d) | §3/§4 operator-org nuance | **Synthetic platform org** for ownerless rows (see §3); and for §4 the decision was *corrected* rather than applied, see §4. |
+>
+> **What shipped:**
+> - `dbOperator` ([src/lib/db.ts](../src/lib/db.ts)): a client on
+>   `DATABASE_URL_OPERATOR` (the table-owner role, exempt from the no-FORCE
+>   policies). **On master it is the SAME OBJECT as `db`**, so one client, one
+>   pool, byte-identical behaviour; pinned by test. Carries `audit-org-stamp`
+>   but deliberately NOT `tenant-set-local`.
+> - `denyNonOperator` ([src/lib/platform-operator.ts](../src/lib/platform-operator.ts))
+>   is the RBAC wall, the **seventh** visibility boundary and narrower than all
+>   six. **Refuses org API keys**, which every other surface treats as
+>   admin-equivalent: a key belongs to one tenant.
+> - An **allowlist CI gate** in
+>   [check-tenant-als.sh](../scripts/check-tenant-als.sh): any unlisted file
+>   importing `dbOperator` fails CI. Mutation-verified.
+> - **11 surfaces wired.** In 8 of the 9 jobs the privileged part is ONE
+>   statement: the candidate scan finds work across tenants, reads the org off
+>   the row, then does the work inside `runWithTenant` on the normal client.
+>   *Borrow the tenant's lane; do not stay privileged.* The exceptions are
+>   `email-log-prune` (privileged end to end: it reaps by row age across the
+>   NULL-org pool, which has no lane to borrow) and `crm-inbound-email` (the
+>   reply-token → thread lookup, where the tenant is the ANSWER).
+> - `/admin/infra` became **scope-aware** rather than operator-only: the
+>   platform operator gets totals across every tenant, a tenant's ADMIN gets
+>   their org. The scope picks the client AND the `organizationId` filter
+>   together, so the org view is correct on master too, and the 60s cache is
+>   keyed on the scope so one audience's totals can never be served to the
+>   other.
+>
+> **Two walls, always.** The DB lane removes RLS; `denyNonOperator` decides who
+> may ask. Neither substitutes for the other, and the gate's failure message
+> says so.
+>
+> **Remaining ops step (platform only):** provision the non-owner `app_user`
+> role, point `DATABASE_URL` at it and `DATABASE_URL_OPERATOR` at the owner
+> role. Until then both strings are the same and the lane is inert.
+
+*(Original inputs round below, kept for the record.)*
+
+## 5a. Privileged maintenance lane: the inputs that produced the decision
 
 **Background.** Several surfaces are *deliberately cross-tenant* and would
 see **zero rows** from any tenant lane under platform RLS:
@@ -315,12 +413,33 @@ row is a stray with 1 test event — never use it for platform config).
 
 ## What happens next
 
-- **Immediate build priority (on go-ahead): item 7** — per-tenant keys.
-- **Two discussions to schedule:** item 5 (privileged lane — decisions a–d in
-  §5) and item 6 (identity model). The §3/§4 operator-visibility nuance rides
-  along with the item-5 discussion.
-- **Build-later (decided, not scheduled):** items 1, 2, 3, 4 — each has its
-  "build-time items" listed in its section.
-- Once items 5 + 6 close, this document gets updated in place (statuses
-  flipped, decisions appended) — it is the single revisit point for this
-  round.
+**Updated Aug 11, 2026.** Items 4, 5, 7 and 8 are done; item 3's nuance is
+resolved. **Item 6 (identity model) is now the only decision still open**, and
+it is the last thing on this list that needs a conversation rather than a
+build.
+
+- **One discussion left:** item 6 (§6). Nothing else here is blocked by it.
+- **Build-later (decided, not scheduled):** items 1, 2 and the §3 stamp. Each
+  has its "build-time items" listed in its section, and all three now depend
+  on the privileged lane that item 5 shipped, so they are unblocked whenever
+  they are scheduled.
+- **Then it is the platform instance itself**, which is mostly not application
+  code: second box + fresh DB, the two DB roles, applying `prisma/rls/*.sql`,
+  turning on `RLS_SET_LOCAL` and `TENANCY_ENFORCE_HOST`, DR/monitoring/runbooks
+  before tenant #1 (guardrail 2), a tenant-onboarding flow, per-tenant custom
+  domain TLS, and dogfooding one real MMG event on it (guardrail 3). See
+  [MULTI_TENANCY.md](MULTI_TENANCY.md) §0.
+- **Still globally shared, and each a precondition:** SES + the CRM's single
+  `CRM_EMAIL_FROM_ADDRESS` reply-forward mailbox (a real cross-tenant leak on a
+  shared instance, see `MULTI_TENANCY_IMPACT.md` §7.1), MediaMTX as a singleton,
+  and the globally-unique `invoiceNumber` / `qrCode` / `dtcmBarcode` /
+  `stripePaymentId` namespaces.
+- **Six models carry tenant data with no `organizationId` and no RLS policy**,
+  and are not mentioned anywhere in MULTI_TENANCY.md: `EmailTemplate`,
+  `Notification`, `DeviceToken`, `InvoiceCounter`, `EventBillingAccount`,
+  `McpOAuthClient`, `EventStats`, `ImportLog`. RLS is opt-in per table, so a
+  table with no policy is readable from every lane. `InvoiceCounter` and
+  `McpOAuthClient` look like the two that matter. Needs a short audit pass to
+  classify each as genuinely global vs missed. Not a build.
+- This document stays the single revisit point: update it in place as items
+  close.
