@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { logMono } from "@/app/fonts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -277,7 +278,8 @@ export default function LogsPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[#0a0e16] overflow-hidden">
+    // logMono.variable defines --font-log-mono for the .font-mono rule below.
+    <div className={`${logMono.variable} h-screen flex flex-col bg-[#0a0e16] overflow-hidden`}>
       {/* Retro grid background */}
       <div className="absolute inset-0 bg-grid-pattern opacity-10 pointer-events-none" />
 
@@ -527,10 +529,16 @@ export default function LogsPage() {
       )}
 
       <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-
+        /*
+          Was an @import of Google Fonts, which fetched JetBrains Mono from
+          Google on every page view. Now served from src/app/fonts/ via
+          next/font/local. (The @import was also very likely inert: CSS
+          requires @import to precede all other rules, and this block is
+          injected after other styles, so browsers would have dropped it and
+          fallen back to Courier New.)
+        */
         .font-mono {
-          font-family: 'JetBrains Mono', 'Courier New', monospace;
+          font-family: var(--font-log-mono), 'JetBrains Mono', 'Courier New', monospace;
         }
 
         .bg-grid-pattern {

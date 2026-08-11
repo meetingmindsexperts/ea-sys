@@ -47,7 +47,7 @@ import { PresenterAgreementCard } from "@/components/abstracts/presenter-agreeme
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
 import { countWords } from "@/lib/abstract-content";
-import { readAbstractLimits } from "@/lib/abstract-limits";
+import { exceedsAbstractLimit, readAbstractLimits } from "@/lib/abstract-limits";
 
 interface Track {
   id: string;
@@ -98,14 +98,33 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   // they must contact the organizer. Organizers/reviewers keep the broader set.
   const canEdit = isSubmitter ? status === "DRAFT" : editableStatuses.includes(status);
   const submitterLocked = isSubmitter && status !== "DRAFT";
-  // Per-event caps. Grandfathering lives on the server: an abstract already
-  // over a lowered cap stays savable as long as it is not growing, so the
-  // counter here turns red without blocking a trim.
+  /**
+   * Per-event caps, mirroring the server's grandfathering rule exactly.
+   *
+   * The baseline is the value AS LOADED, which is what the server compares
+   * against: an abstract already over a lowered cap may be kept or trimmed,
+   * only growth is refused. Blocking Save on a plain `> cap` would make
+   * grandfathered work uneditable from the UI while the API still accepted it,
+   * which would defeat the whole point of grandfathering it.
+   *
+   * So there are two states, deliberately: `over` colours the counter (you are
+   * past the limit, worth knowing) while `blocked` disables Save (you are
+   * making it worse).
+   */
   const limits = readAbstractLimits((eventData as { settings?: unknown } | undefined)?.settings);
+  const originalTitleWords = countWords(abstract.title as string);
+  const originalContentWords = countWords(stripHtml((abstract.content as string) || ""));
   const contentWords = countWords(editData.content);
-  const overWords = contentWords > limits.maxContentWords;
   const titleWords = countWords(editData.title);
+  const overWords = contentWords > limits.maxContentWords;
   const overTitleWords = titleWords > limits.maxTitleWords;
+  const contentBlocked = exceedsAbstractLimit(
+    contentWords,
+    limits.maxContentWords,
+    originalContentWords,
+  );
+  const titleBlocked = exceedsAbstractLimit(titleWords, limits.maxTitleWords, originalTitleWords);
+  const limitBlocked = contentBlocked || titleBlocked;
   const speaker = abstract.speaker as {
     firstName: string;
     lastName: string;
@@ -269,9 +288,9 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   className="text-base h-12 font-medium"
                   disabled={!canEdit}
                 />
-                <p className={`text-xs text-right ${overTitleWords ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
+                <p className={`text-xs text-right ${titleBlocked ? "text-red-500 font-medium" : overTitleWords ? "text-amber-600 font-medium" : "text-muted-foreground"}`}>
                   {titleWords} / {limits.maxTitleWords} words
-                  {overTitleWords && " (over the limit)"}
+                  {overTitleWords && (titleBlocked ? " (over the limit)" : " (over the current limit, kept as-is)")}
                 </p>
               </div>
             </CardContent>
@@ -290,9 +309,9 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 className="resize-y min-h-[300px] text-base leading-relaxed"
                 disabled={!canEdit}
               />
-              <p className={`text-xs text-right ${overWords ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
+              <p className={`text-xs text-right ${contentBlocked ? "text-red-500 font-medium" : overWords ? "text-amber-600 font-medium" : "text-muted-foreground"}`}>
                 {contentWords} / {limits.maxContentWords} words
-                {overWords && " (over the limit)"}
+                {overWords && (contentBlocked ? " (over the limit)" : " (over the current limit, kept as-is)")}
               </p>
             </CardContent>
           </Card>
@@ -318,7 +337,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 {status === "DRAFT" && (
                   <Button
                     className="w-full btn-gradient font-semibold h-11"
-                    disabled={isPending || overWords || overTitleWords || !editData.presentationType}
+                    disabled={isPending || limitBlocked || !editData.presentationType}
                     onClick={() => {
                       if (!editData.presentationType) {
                         toast.error("Please select a presentation type to submit");
@@ -345,7 +364,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 <Button
                   variant={status === "DRAFT" ? "outline" : "default"}
                   className={status !== "DRAFT" ? "w-full btn-gradient font-semibold h-11" : "w-full"}
-                  disabled={isPending || overWords || overTitleWords}
+                  disabled={isPending || limitBlocked}
                   onClick={() => updateMutation.mutate({ ...editData, expectedUpdatedAt: abstractUpdatedAt })}
                 >
                   <Save className="mr-2 h-4 w-4" />

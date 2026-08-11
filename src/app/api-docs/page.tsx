@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { Fraunces } from "next/font/google";
+import { apiDisplay } from "../fonts";
 import { buildOpenApiSpec } from "@/lib/openapi-spec";
 import { ApiReference } from "./api-reference";
 
@@ -16,13 +16,6 @@ import { ApiReference } from "./api-reference";
  * No auth to VIEW (sharing is the point); calling any endpoint still needs an
  * org API key. Lives outside the (dashboard) route group, so no app chrome.
  */
-
-const apiDisplay = Fraunces({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-api-display",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "EA-SYS API Reference",

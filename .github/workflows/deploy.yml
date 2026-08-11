@@ -109,6 +109,13 @@ jobs:
       - name: datetime-local round-trip guard
         run: bash scripts/check-datetime-local.sh
 
+      # next/font/google downloads .woff2 at BUILD time, so a Google CDN
+      # rotation can block a hotfix (run 1309). Fonts are vendored; this keeps
+      # it that way, because reintroducing one builds fine every day until the
+      # day it doesn't.
+      - name: Hermetic build (no fetched fonts)
+        run: bash scripts/check-hermetic-build.sh
+
       # A null-org user (REVIEWER/SUBMITTER/REGISTRANT) hitting a route that
       # asserts session.user.organizationId! sends organizationId: null to
       # Prisma → a 500 (JAVASCRIPT-NEXTJS-1N). Keeps the event API swept.
