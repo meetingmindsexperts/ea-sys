@@ -36,6 +36,7 @@ import {
   Link2,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { DEFAULT_TIER_NAMES } from "@/lib/presenter-tiers";
 import {
   useTickets,
   useCreateTicket,
@@ -86,7 +87,6 @@ interface TicketType {
   _count: { registrations: number };
 }
 
-const DEFAULT_TIER_NAMES = ["Early Bird", "Standard", "Onsite", "Presenter"];
 
 // `quantity` >= this sentinel (the schema default) means "unlimited".
 // The UI shows an empty seat-limit input for it and sends it back for an
@@ -302,7 +302,7 @@ export default function TicketsPage() {
   const totalRegs = ticketTypes.reduce((sum, tt) => sum + tt._count.registrations, 0);
 
   const DEFAULT_TYPES = ["Physician", "Allied Health", "Student", "Resident", "Member"];
-  const DEFAULT_TIERS = ["Early Bird", "Standard", "Onsite", "Presenter"];
+  const DEFAULT_TIERS = DEFAULT_TIER_NAMES;
 
   const handleSeedDefaults = async () => {
     const existingNames = new Set(ticketTypes.map((tt) => tt.name));
@@ -596,7 +596,7 @@ export default function TicketsPage() {
           </li>
           <li className="flex gap-2.5">
             <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center font-bold shrink-0 mt-0.5">4</span>
-            <span>The main registration link (<code className="text-xs bg-white px-1.5 py-0.5 rounded border">/e/slug/register</code>) auto-redirects to the active tier (Early Bird → Standard → Onsite). <strong>Presenter</strong> is separate — share its direct link manually via email or your website.</span>
+            <span>The main registration link (<code className="text-xs bg-white px-1.5 py-0.5 rounded border">/e/slug/register</code>) auto-redirects to the active tier (Early Bird → Standard → Onsite). <strong>Presenter</strong> tiers are separate: they never appear on the delegate link, and abstract submitters are placed on whichever one is on sale when they sign up.</span>
           </li>
         </ul>
       </div>

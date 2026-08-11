@@ -18,7 +18,9 @@ export const DEFAULT_REG_TYPES = [
   { name: "Member", sortOrder: 4 },
 ];
 
-export const DEFAULT_TIER_NAMES = ["Early Bird", "Standard", "Onsite", "Presenter"];
+// Re-exported so existing importers keep working; the list itself lives with
+// the presenter-tier predicate, since the two have to agree.
+export { DEFAULT_TIER_NAMES } from "@/lib/presenter-tiers";
 
 const createTicketTypeSchema = z.object({
   name: z.string().min(1).max(255),

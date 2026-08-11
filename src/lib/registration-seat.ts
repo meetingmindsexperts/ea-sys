@@ -71,6 +71,14 @@ export interface SeatState {
 const TIER_CONSUMING_SOURCES: ReadonlySet<RegistrationCreatedSource> = new Set([
   "PUBLIC_REGISTER",
   "GROUP_REGISTER",
+  // Abstract submitters (Aug 11, 2026). They come through an unauthenticated
+  // public door on a priced presenter tier and are charged, which is the same
+  // shape as the two above, so they draw down that tier. Deliberately NOT
+  // treated like SPEAKER_COMPANION: that exclusion exists because comp faculty
+  // do not consume a venue seat, and a presenter who paid plainly does.
+  // Counting is not capping: leave the tier's quantity unlimited (the default)
+  // and this blocks nobody, it only keeps the numbers honest.
+  "PUBLIC_SUBMITTER",
 ]);
 
 /**
