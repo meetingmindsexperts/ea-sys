@@ -30,7 +30,7 @@
  *     path logs, never silent (matches the "every failure logs" rule)
  */
 
-import { db } from "@/lib/db";
+import { db, dbOperator } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { notifyEventAdmins } from "@/lib/notifications";
@@ -369,9 +369,16 @@ export async function runScheduledEmailsTick(): Promise<ScheduledEmailsTickRepor
   const startedAt = Date.now();
   apiLogger.debug({ msg: "scheduled-emails:tick-start" });
 
+  // Tenancy (item 5, Aug 11 2026): the two tick-level statements below are the
+  // ONLY privileged ones in this job. They have to be: a scan whose job is to
+  // find work across every tenant cannot itself run inside one tenant's lane.
+  // Everything after them is per-row and runs inside `runWithTenant(row.org)`
+  // on the normal client, so the actual sends and the money-adjacent writes
+  // stay under RLS. Borrow the tenant's lane; do not stay privileged.
+  //
   // Sweep stuck PROCESSING rows back to FAILED so users can retry them.
   const stuckCutoff = new Date(Date.now() - STUCK_PROCESSING_MS);
-  const swept = await db.scheduledEmail.updateMany({
+  const swept = await dbOperator.scheduledEmail.updateMany({
     where: { status: "PROCESSING", updatedAt: { lt: stuckCutoff } },
     data: {
       status: "FAILED",
@@ -384,7 +391,7 @@ export async function runScheduledEmailsTick(): Promise<ScheduledEmailsTickRepor
   }
 
   // Find due rows.
-  const due = await db.scheduledEmail.findMany({
+  const due = await dbOperator.scheduledEmail.findMany({
     where: { status: "PENDING", scheduledFor: { lte: new Date() } },
     orderBy: { scheduledFor: "asc" },
     take: MAX_PER_TICK,

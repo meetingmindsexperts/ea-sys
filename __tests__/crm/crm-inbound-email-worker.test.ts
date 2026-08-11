@@ -36,14 +36,18 @@ vi.mock("@aws-sdk/client-s3", () => ({
 vi.mock("@/lib/db", () => {
   const crmEmailMessage = { findFirst: vi.fn(), create: vi.fn() };
   const crmEmailThread = { findUnique: vi.fn(), update: vi.fn() };
+  const client = {
+    crmEmailMessage,
+    crmEmailThread,
+    user: { findUnique: vi.fn() },
+    // Legacy array-form kept harmless; the store now uses tenantTransaction.
+    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+  };
   return {
-    db: {
-      crmEmailMessage,
-      crmEmailThread,
-      user: { findUnique: vi.fn() },
-      // Legacy array-form kept harmless; the store now uses tenantTransaction.
-      $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
-    },
+    db: client,
+    // Same object as db, mirroring master. The reply-token thread resolve runs
+    // on the operator lane; the assertions still target crmEmailThread.
+    dbOperator: client,
     // Interactive tenantTransaction (flag off): run the callback with a tx that
     // forwards to the SAME mocked delegates, so db.crmEmailMessage.create /
     // crmEmailThread.update assertions + mockRejectedValueOnce still drive it.

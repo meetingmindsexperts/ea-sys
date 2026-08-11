@@ -660,7 +660,11 @@ export async function runDailyDigestTick(): Promise<DigestTickResult> {
 
   // force=true — the 60s dashboard cache would otherwise let the digest
   // report numbers from whenever an admin last opened /admin/infra.
-  const snap = await getInfraSnapshot(true);
+  // Explicit platform scope (item 5): this email is the operator's, so its
+  // counters are totals across every tenant. It is also the default, but
+  // saying so here means a future default flip cannot silently narrow the
+  // digest to one org while still sending daily and looking healthy.
+  const snap = await getInfraSnapshot(true, { kind: "platform" });
   const assessment = assessInfra(snap);
   const facts = buildFacts(snap);
 

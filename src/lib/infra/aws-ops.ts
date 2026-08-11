@@ -25,7 +25,16 @@ import {
 import { SESv2Client, GetAccountCommand } from "@aws-sdk/client-sesv2";
 import { S3Client, ListObjectsV2Command, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { apiLogger } from "@/lib/logger";
-import { db } from "@/lib/db";
+// Tenancy (item 5, Aug 11 2026): the snapshot is SCOPE-AWARE. Reads that touch
+// RLS-policied tables (Registration, Payment, EmailLog, ScheduledEmail,
+// CertificateIssueRun, Abstract) go through the privileged lane ONLY for the
+// platform view; an org view runs them on the normal client inside that org's
+// tenant lane, with an organizationId filter so it is correct on master too.
+// Un-policied infra tables (SystemLog, JobRun, Event) stay on the normal
+// client throughout, keeping the privileged surface as narrow as it can be.
+// See InfraScope below.
+import { db, dbOperator } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenant-context";
 import { EXPECTED_JOBS } from "@/lib/worker-jobs";
 import { getBuildInfo } from "@/lib/build-info";
 import { getAlertSilence } from "@/lib/admin-alert";
@@ -246,7 +255,49 @@ export interface InfraSnapshot {
   emailFailures: { status: SourceStatus; error?: string; rows: EmailFailRow[] };
 }
 
-let cache: { at: number; snap: InfraSnapshot } | null = null;
+/**
+ * Who is this snapshot for (multi-tenancy item 5, owner decision Aug 11 2026)?
+ *
+ * The infra cards (CPU, disk, alarms, SES, deploys) are the same for everyone.
+ * The BUSINESS counters are not: the platform operator wants the totals across
+ * every tenant, while a tenant's own ADMIN must see only their org. Rather
+ * than narrow the page to operators, the snapshot takes the audience as a
+ * parameter.
+ *
+ * The scope decides two things together, and they must agree:
+ *   - which client (privileged lane for platform, normal client for an org),
+ *   - and the org filter on each counted query.
+ * On master there is no RLS, so the FILTER is what actually scopes an org
+ * view; on the platform the lane enforces it as well. Belt and braces, and it
+ * means the org view is already correct today rather than only after RLS.
+ */
+export type InfraScope = { kind: "platform" } | { kind: "org"; orgId: string };
+
+/**
+ * Cache key. Keyed on the scope because the whole point of the scope is that
+ * two audiences get DIFFERENT numbers; a single shared cache entry would serve
+ * one audience's totals to the other, which is the exact leak the scope exists
+ * to prevent. Bounded by the number of orgs on the instance, and entries are
+ * tiny.
+ */
+function cacheKey(scope: InfraScope): string {
+  return scope.kind === "platform" ? "platform" : `org:${scope.orgId}`;
+}
+
+const cache = new Map<string, { at: number; snap: InfraSnapshot }>();
+
+/** Privileged lane for the platform view; the normal client for an org view. */
+function scopedClient(scope: InfraScope) {
+  return scope.kind === "platform" ? dbOperator : db;
+}
+/** Spread into every counted `where` so the org view is scoped on master too. */
+function scopeWhere(scope: InfraScope) {
+  return scope.kind === "org" ? { organizationId: scope.orgId } : {};
+}
+/** Run an org-scoped read inside its tenant lane; platform reads need none. */
+function inScope<T>(scope: InfraScope, fn: () => Promise<T>): Promise<T> {
+  return scope.kind === "org" ? runWithTenant(scope.orgId, fn) : fn();
+}
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -533,19 +584,22 @@ async function fetchRecentErrors(): Promise<InfraSnapshot["recentErrors"]> {
 // sat on the card forever.
 const EMAIL_FAILURE_WINDOW_DAYS = 7;
 
-async function fetchEmailFailures(): Promise<InfraSnapshot["emailFailures"]> {
+async function fetchEmailFailures(scope: InfraScope): Promise<InfraSnapshot["emailFailures"]> {
   try {
     // Recent failed sends — complements the SES aggregate rates with the
     // actual "which email didn't go and why". Our own EmailLog.
-    const rows = await db.emailLog.findMany({
+    const rows = await inScope(scope, () =>
+      scopedClient(scope).emailLog.findMany({
       where: {
+        ...scopeWhere(scope),
         status: "FAILED",
         createdAt: { gte: new Date(Date.now() - EMAIL_FAILURE_WINDOW_DAYS * 24 * 60 * 60 * 1000) },
       },
       orderBy: { createdAt: "desc" },
       take: 12,
       select: { to: true, subject: true, errorMessage: true, templateSlug: true, createdAt: true },
-    });
+      }),
+    );
     return {
       status: "ok",
       rows: rows.map((r) => ({
@@ -682,20 +736,24 @@ async function fetchWorker(): Promise<InfraSnapshot["worker"]> {
  * a privileged maintenance lane. Documented cross-sweep precondition,
  * MULTI_TENANCY.md §13. No-op concern on master (RLS never enabled there).
  */
-async function fetchQueues(): Promise<InfraSnapshot["queues"]> {
+async function fetchQueues(scope: InfraScope): Promise<InfraSnapshot["queues"]> {
   try {
     const now = new Date();
     const dayAgo = new Date(Date.now() - 24 * 3600_000);
+    const c = scopedClient(scope);
+    const org = scopeWhere(scope);
     const [emailsDue, emailsStuck, emailsFailed24h, certRunsActive, certRunsFailed24h] =
-      await Promise.all([
-        db.scheduledEmail.count({ where: { status: "PENDING", scheduledFor: { lte: now } } }),
-        db.scheduledEmail.count({ where: { status: "PROCESSING" } }),
-        db.scheduledEmail.count({ where: { status: "FAILED", updatedAt: { gte: dayAgo } } }),
-        db.certificateIssueRun.count({
-          where: { status: { in: ["PENDING", "RENDERING", "SENDING"] } },
-        }),
-        db.certificateIssueRun.count({ where: { status: "FAILED", triggeredAt: { gte: dayAgo } } }),
-      ]);
+      await inScope(scope, () =>
+        Promise.all([
+          c.scheduledEmail.count({ where: { ...org, status: "PENDING", scheduledFor: { lte: now } } }),
+          c.scheduledEmail.count({ where: { ...org, status: "PROCESSING" } }),
+          c.scheduledEmail.count({ where: { ...org, status: "FAILED", updatedAt: { gte: dayAgo } } }),
+          c.certificateIssueRun.count({
+            where: { ...org, status: { in: ["PENDING", "RENDERING", "SENDING"] } },
+          }),
+          c.certificateIssueRun.count({ where: { ...org, status: "FAILED", triggeredAt: { gte: dayAgo } } }),
+        ]),
+      );
 
     const rows: QueueDepth[] = [
       {
@@ -800,30 +858,37 @@ async function fetchAlerts(): Promise<InfraSnapshot["alerts"]> {
  * Stripe key expired. Zero registrations during a live event is an outage that
  * no infra metric can see.
  */
-async function fetchHeartbeat(): Promise<InfraSnapshot["heartbeat"]> {
+async function fetchHeartbeat(scope: InfraScope): Promise<InfraSnapshot["heartbeat"]> {
   try {
     const now = new Date();
     const dayAgo = new Date(Date.now() - 24 * 3600_000);
     const weekAgo = new Date(Date.now() - 7 * 24 * 3600_000);
     const weekAhead = new Date(Date.now() + 7 * 24 * 3600_000);
 
+    const c = scopedClient(scope);
+    const org = scopeWhere(scope);
     const [registrations24h, registrations7d, payments24h, checkIns24h, abstracts24h, emailsSent24h, liveEvents, nextEvent] =
-      await Promise.all([
-        db.registration.count({ where: { createdAt: { gte: dayAgo } } }),
-        db.registration.count({ where: { createdAt: { gte: weekAgo } } }),
-        db.payment.count({ where: { createdAt: { gte: dayAgo }, status: "PAID" } }),
-        db.registration.count({ where: { checkedInAt: { gte: dayAgo } } }),
-        db.abstract.count({ where: { createdAt: { gte: dayAgo } } }),
-        db.emailLog.count({ where: { createdAt: { gte: dayAgo }, status: "SENT" } }),
-        // An event running RIGHT NOW is the difference between "fix it tomorrow"
-        // and "fix it in the next ten minutes".
-        db.event.count({ where: { startDate: { lte: now }, endDate: { gte: now }, status: "PUBLISHED" } }),
-        db.event.findFirst({
-          where: { startDate: { gte: now, lte: weekAhead }, status: "PUBLISHED" },
-          orderBy: { startDate: "asc" },
-          select: { name: true, startDate: true },
-        }),
-      ]);
+      await inScope(scope, () =>
+        Promise.all([
+          c.registration.count({ where: { ...org, createdAt: { gte: dayAgo } } }),
+          c.registration.count({ where: { ...org, createdAt: { gte: weekAgo } } }),
+          c.payment.count({ where: { ...org, createdAt: { gte: dayAgo }, status: "PAID" } }),
+          c.registration.count({ where: { ...org, checkedInAt: { gte: dayAgo } } }),
+          c.abstract.count({ where: { ...org, createdAt: { gte: dayAgo } } }),
+          c.emailLog.count({ where: { ...org, createdAt: { gte: dayAgo }, status: "SENT" } }),
+          // An event running RIGHT NOW is the difference between "fix it tomorrow"
+          // and "fix it in the next ten minutes". Event carries no RLS policy, so
+          // the org filter alone scopes it in both views.
+          db.event.count({
+            where: { ...org, startDate: { lte: now }, endDate: { gte: now }, status: "PUBLISHED" },
+          }),
+          db.event.findFirst({
+            where: { ...org, startDate: { gte: now, lte: weekAhead }, status: "PUBLISHED" },
+            orderBy: { startDate: "asc" },
+            select: { name: true, startDate: true },
+          }),
+        ]),
+      );
 
     return {
       status: "ok",
@@ -1023,8 +1088,13 @@ export async function fetchDrHeartbeat(key: string): Promise<Date | null> {
 
 // ── Public ─────────────────────────────────────────────────────────
 
-export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
-  if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.snap;
+export async function getInfraSnapshot(
+  force = false,
+  scope: InfraScope = { kind: "platform" },
+): Promise<InfraSnapshot> {
+  const key = cacheKey(scope);
+  const hit = cache.get(key);
+  if (!force && hit && Date.now() - hit.at < CACHE_MS) return hit.snap;
 
   const instanceId = await getInstanceId();
   const [deploys, alarms, ses, metrics, jobs, recentErrors, emailFailures, database, worker, queues, backup, alerts, heartbeat, errorTrend, abuse, dr] =
@@ -1035,13 +1105,13 @@ export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
       fetchMetrics(instanceId),
       fetchJobs(),
       fetchRecentErrors(),
-      fetchEmailFailures(),
+      fetchEmailFailures(scope),
       fetchDatabase(),
       fetchWorker(),
-      fetchQueues(),
+      fetchQueues(scope),
       fetchBackup(),
       fetchAlerts(),
-      fetchHeartbeat(),
+      fetchHeartbeat(scope),
       fetchErrorTrend(),
       fetchAbuse(),
       fetchDr(),
@@ -1067,6 +1137,6 @@ export async function getInfraSnapshot(force = false): Promise<InfraSnapshot> {
     recentErrors,
     emailFailures,
   };
-  cache = { at: Date.now(), snap };
+  cache.set(key, { at: Date.now(), snap });
   return snap;
 }

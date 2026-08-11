@@ -27,7 +27,7 @@
  * result. Both runs share the same tick-level rate-limit delay.
  */
 
-import { db } from "@/lib/db";
+import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
   syncWebinarAttendance,
@@ -91,7 +91,10 @@ export async function runWebinarAttendanceTick(): Promise<WebinarAttendanceTickR
   // 30 min and 30 days ago. Either:
   //   (a) never synced (catches every eligible row regardless of age), or
   //   (b) last synced >1h ago AND session ended <24h ago (late-reconcile).
-  const candidates = await db.zoomMeeting.findMany({
+  // Privileged lane (item 5): a scan whose job is to find work across every
+  // tenant cannot run inside one tenant's lane. Everything downstream runs
+  // inside runWithTenant on the normal client, so the writes stay under RLS.
+  const candidates = await dbOperator.zoomMeeting.findMany({
     where: {
       AND: [
         {

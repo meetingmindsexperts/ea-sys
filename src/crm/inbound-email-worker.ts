@@ -31,7 +31,7 @@ import { simpleParser, type ParsedMail, type AddressObject } from "mailparser";
 // Value import (not `import type`): Prisma.PrismaClientKnownRequestError is used
 // at runtime in the P2002 race check, and Prisma.InputJsonValue as a type.
 import { Prisma } from "@prisma/client";
-import { db, tenantTransaction } from "@/lib/db";
+import { db, dbOperator, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail } from "@/lib/email";
@@ -368,8 +368,12 @@ async function processObject(bucket: string, key: string, replyDomain: string | 
   }
 
   const token = extractReplyToken(recipientAddresses(parsed), replyDomain);
+  // Privileged lane (item 5): an inbound reply arrives carrying only a token.
+  // Which tenant it belongs to is precisely what this lookup answers, so it
+  // cannot be scoped by the answer. Everything after it runs inside
+  // runWithTenant(thread.organizationId).
   const thread = token
-    ? await db.crmEmailThread.findUnique({
+    ? await dbOperator.crmEmailThread.findUnique({
         where: { replyToken: token },
         select: {
           id: true,

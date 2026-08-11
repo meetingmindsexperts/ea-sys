@@ -19,7 +19,7 @@
  * rows so a re-run never duplicates.
  */
 
-import { db } from "@/lib/db";
+import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { issuePaidRegistrationDocuments, InvoiceVoidedError } from "@/lib/invoice-service";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -51,7 +51,10 @@ export async function runInvoiceReconciliationTick(): Promise<InvoiceReconciliat
   const startedAt = Date.now();
   const cutoff = new Date(startedAt - RECONCILE_LOOKBACK_MS);
 
-  const candidates = await db.registration.findMany({
+  // Privileged lane (item 5): a scan whose job is to find work across every
+  // tenant cannot run inside one tenant's lane. Everything downstream runs
+  // inside runWithTenant on the normal client, so the writes stay under RLS.
+  const candidates = await dbOperator.registration.findMany({
     where: {
       paymentStatus: "PAID",
       updatedAt: { gte: cutoff },

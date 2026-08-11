@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 
 /**
@@ -30,6 +30,11 @@ import { apiLogger } from "@/lib/logger";
  * falls into that pool; the purge-vs-Cascade decision is recorded in
  * ROADMAP §"Comms-log sweep — deferred decisions"). No-op concern on master
  * (RLS never enabled there).
+ *
+ * WIRED Aug 11, 2026 (item 5): this job runs entirely on `dbOperator`, the
+ * privileged maintenance lane. Unlike the per-row jobs below it, there is no
+ * tenant lane to borrow at any point: retention is a property of the row's
+ * AGE, not of any tenant, and the null pool has no owning org at all.
  */
 
 export const EMAIL_BODY_RETENTION_DAYS = 180;
@@ -51,14 +56,14 @@ export async function runEmailLogPruneTick(now: Date = new Date()): Promise<{
   let capped = false;
 
   for (let batch = 0; batch < MAX_BATCHES_PER_TICK; batch++) {
-    const rows = await db.emailLog.findMany({
+    const rows = await dbOperator.emailLog.findMany({
       where: { createdAt: { lt: cutoff }, htmlBody: { not: null } },
       select: { id: true },
       take: BATCH_SIZE,
     });
     if (rows.length === 0) break;
 
-    const res = await db.emailLog.updateMany({
+    const res = await dbOperator.emailLog.updateMany({
       where: { id: { in: rows.map((r) => r.id) } },
       data: { htmlBody: null },
     });

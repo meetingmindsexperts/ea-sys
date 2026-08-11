@@ -27,8 +27,11 @@ const tx = {
   registration: { update: (...a: unknown[]) => txRegistrationUpdate(...a) },
 };
 
-vi.mock("@/lib/db", () => ({
-  db: {
+// `dbOperator` is the SAME object as `db` here, which is exactly what it is on
+// master (one client, one pool). The worker's candidate scan runs on the
+// operator lane; every assertion below still drives the same fake delegates.
+vi.mock("@/lib/db", () => {
+  const client = {
     registration: {
       findMany: (...a: unknown[]) => registrationFindMany(...a),
       update: (...a: unknown[]) => registrationUpdate(...a),
@@ -36,11 +39,15 @@ vi.mock("@/lib/db", () => ({
     certificateTemplate: { findMany: (...a: unknown[]) => certificateTemplateFindMany(...a) },
     speaker: { findFirst: (...a: unknown[]) => speakerFindFirst(...a) },
     $transaction: (cb: (t: typeof tx) => unknown) => cb(tx),
-  },
-  // tenantTransaction with the flag off IS db.$transaction — delegate so the
-  // test's tx interception keeps working for the migrated sweep site.
-  tenantTransaction: (cb: (t: typeof tx) => unknown) => cb(tx),
-}));
+  };
+  return {
+    db: client,
+    dbOperator: client,
+    // tenantTransaction with the flag off IS db.$transaction, so delegate and the
+    // test's tx interception keeps working for the migrated sweep site.
+    tenantTransaction: (cb: (t: typeof tx) => unknown) => cb(tx),
+  };
+});
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { selectAutoIssueTargets, runAutoIssueSweep } from "@/lib/certificates/auto-issue";

@@ -27,7 +27,8 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { dbOperator } from "@/lib/db";
+import { denyNonOperator } from "@/lib/platform-operator";
 import { apiLogger } from "@/lib/logger";
 
 const DEFAULT_LIMIT = 25;
@@ -48,17 +49,12 @@ export async function GET(req: NextRequest) {
     apiLogger.warn({ msg: "help-chat-queries:unauthorized" });
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.user.role !== "SUPER_ADMIN") {
-    apiLogger.warn({
-      msg: "help-chat-queries:forbidden",
-      userId: session.user.id,
-      role: session.user.role,
-    });
-    return NextResponse.json(
-      { error: "Forbidden. Only super admins can read help-assistant queries." },
-      { status: 403 },
-    );
-  }
+  // Both walls (item 5): denyNonOperator is the RBAC one, dbOperator below is
+  // the database one. This route reads across every tenant, so it needs both;
+  // neither substitutes for the other. Replaces the hand-rolled SUPER_ADMIN
+  // check so the operator boundary is defined in exactly one place.
+  const denied = denyNonOperator(session, { route: "help-chat:queries" });
+  if (denied) return denied;
 
   const { searchParams } = req.nextUrl;
   const q = (searchParams.get("q") ?? "").trim();
@@ -89,13 +85,13 @@ export async function GET(req: NextRequest) {
 
   try {
     const [queries, total] = await Promise.all([
-      db.helpChatQuery.findMany({
+      dbOperator.helpChatQuery.findMany({
         where,
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      db.helpChatQuery.count({ where }),
+      dbOperator.helpChatQuery.count({ where }),
     ]);
 
     return NextResponse.json({ queries, total, page, limit });

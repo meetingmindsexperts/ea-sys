@@ -10,9 +10,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const updateMany = vi.fn();
 
-vi.mock("@/lib/db", () => ({
-  db: { certificateIssueRun: { updateMany: (...a: unknown[]) => updateMany(...a) } },
-}));
+// `dbOperator` is the SAME object as `db` here, which is exactly what it is on
+// master (one client, one pool). The worker's candidate scan runs on the
+// operator lane; every assertion below still drives the same fake delegates.
+vi.mock("@/lib/db", () => {
+  const client = { certificateIssueRun: { updateMany: (...a: unknown[]) => updateMany(...a) } };
+  return { db: client, dbOperator: client };
+});
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));

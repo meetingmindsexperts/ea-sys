@@ -11,7 +11,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
-import { getInfraSnapshot } from "@/lib/infra/aws-ops";
+import { getInfraSnapshot, type InfraScope } from "@/lib/infra/aws-ops";
+import { canActAsPlatformOperator } from "@/lib/platform-operator";
 
 export async function GET(req: Request) {
   try {
@@ -40,7 +41,22 @@ export async function GET(req: Request) {
     }
 
     const force = new URL(req.url).searchParams.get("refresh") === "1";
-    const snapshot = await getInfraSnapshot(force);
+    // Audience decides the business counters (multi-tenancy item 5). The
+    // platform operator gets totals across every tenant; a tenant's own ADMIN
+    // gets their org only. The infra cards (CPU, disk, alarms, SES, deploys)
+    // are identical either way. An ADMIN with no org would otherwise fall
+    // through to the platform view, so that case is refused rather than
+    // widened: on master every ADMIN has an org, so this never fires there.
+    let scope: InfraScope;
+    if (canActAsPlatformOperator(role)) {
+      scope = { kind: "platform" };
+    } else if (session.user.organizationId) {
+      scope = { kind: "org", orgId: session.user.organizationId };
+    } else {
+      apiLogger.warn({ userId: session.user.id, role }, "infra:admin-without-org");
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const snapshot = await getInfraSnapshot(force, scope);
     return NextResponse.json(snapshot);
   } catch (err) {
     apiLogger.error({ err }, "infra:snapshot-failed");

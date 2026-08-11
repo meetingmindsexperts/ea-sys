@@ -18,12 +18,16 @@ vi.mock("@/lib/logger", () => ({
   apiLogger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));
-vi.mock("@/lib/db", () => ({
-  db: {
+// `dbOperator` is the SAME object as `db` here, which is exactly what it is on
+// master (one client, one pool). The worker's candidate scan runs on the
+// operator lane; every assertion below still drives the same fake delegates.
+vi.mock("@/lib/db", () => {
+  const client = {
     crmTask: { findMany: vi.fn(), updateMany: vi.fn() },
     crmNotification: { create: vi.fn().mockResolvedValue({}) },
-  },
-}));
+  };
+  return { db: client, dbOperator: client };
+});
 
 import { db } from "@/lib/db";
 import { sendEmail } from "@/lib/email";

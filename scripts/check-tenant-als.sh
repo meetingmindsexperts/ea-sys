@@ -361,8 +361,35 @@ SWEPT_MODULES=(
 # really "I need to run inside the RIGHT tenant's lane", which is
 # `runWithTenant`, not this. Genuine members of this list are surfaces that are
 # cross-tenant BY DESIGN and would see zero rows from any single lane.
+#
+# Every entry below is a WORKER CANDIDATE SCAN and nothing more. In each case
+# the scan finds rows across tenants, reads the org OFF the row, and then does
+# the actual work inside `runWithTenant(thatOrg, …)` on the normal client. The
+# jobs are not privileged; two statements inside them are.
+#
+# The one exception is email-log-prune, which is privileged end to end: it
+# reaps by row AGE across every tenant plus the NULL-org pool, and that pool
+# has no owning org to borrow a lane from.
+#
+# NOT here, deliberately: system-log-prune, log-archive, oauth-cleanup and
+# login-event-prune. They scan SystemLog / McpOAuth* / LoginEvent, none of
+# which carry an RLS policy today, so they need no exemption. When LoginEvent
+# is swept, its prune job joins this list.
 OPERATOR_LANE_ALLOWLIST=(
-  # (empty until the surfaces are wired; grown per phase)
+  "src/lib/email-log-prune-worker.ts"        # privileged end to end (null-org pool's only reaper)
+  "src/lib/scheduled-emails-worker.ts"       # due-row scan + stuck sweep
+  "src/lib/invoice-reconciliation-worker.ts" # PAID-without-invoice candidate sweep
+  "src/lib/webinar-recordings-worker.ts"     # ZoomMeeting candidate scan
+  "src/lib/webinar-attendance-worker.ts"     # ZoomMeeting candidate scan
+  "src/lib/certificates/auto-issue.ts"       # survey-completed candidate sweep
+  "src/lib/certificates/issue-worker.ts"     # active-run scan + stall reclamation
+  "src/crm/reminders-worker.ts"              # due-task scan
+  "src/crm/inbound-email-worker.ts"          # reply-token → thread resolve (the tenant is the ANSWER)
+  # Operator read surfaces. Both pair the lane with an RBAC wall: the queries
+  # route calls denyNonOperator(); aws-ops is scope-aware and only takes the
+  # privileged path for the platform view, so its caller decides the audience.
+  "src/app/api/help-chat/queries/route.ts"   # operator-global captured Q&A
+  "src/lib/infra/aws-ops.ts"                 # platform-scope business counters
 )
 
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't

@@ -22,7 +22,9 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// Same object under both names, mirroring master (one client, one pool). The
+// route reads on the operator lane; the assertions still drive mockDb.
+vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDb }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

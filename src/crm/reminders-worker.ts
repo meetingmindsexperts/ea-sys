@@ -21,7 +21,7 @@
  * drops out of the queue via status alone — which is exactly why completeTask()
  * must not clear `remindedAt`.
  */
-import { db } from "@/lib/db";
+import { db, dbOperator } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { sendEmail } from "@/lib/email";
@@ -40,7 +40,10 @@ export interface CrmReminderTickResult {
 export async function runTick(): Promise<CrmReminderTickResult> {
   const now = new Date();
 
-  const due = await db.crmTask.findMany({
+  // Privileged lane (item 5): a scan whose job is to find work across every
+  // tenant cannot run inside one tenant's lane. Everything downstream runs
+  // inside runWithTenant on the normal client, so the writes stay under RLS.
+  const due = await dbOperator.crmTask.findMany({
     where: {
       status: "OPEN",
       // Archived (soft-deleted) tasks must not fire — archiving a follow-up is a

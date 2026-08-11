@@ -35,7 +35,7 @@
 
 import { Prisma } from "@prisma/client";
 import type { CertificateType, CertIssueRunStatus } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, dbOperator } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { renderCertificate } from "./render";
@@ -85,7 +85,10 @@ export async function tickAllRuns(): Promise<{
   // 2. Pull all non-terminal runs ordered by triggeredAt so the oldest
   //    finishes first. Bounded list (rarely > 10 active across all
   //    events) so no need to limit/paginate.
-  const runs = await db.certificateIssueRun.findMany({
+  // Privileged lane (item 5): a scan whose job is to find work across every
+  // tenant cannot run inside one tenant's lane. Everything downstream runs
+  // inside runWithTenant on the normal client, so the writes stay under RLS.
+  const runs = await dbOperator.certificateIssueRun.findMany({
     where: { status: { in: ["PENDING", "RENDERING", "SENDING"] } },
     orderBy: { triggeredAt: "asc" },
     take: 20,
@@ -127,14 +130,17 @@ export async function tickAllRuns(): Promise<{
  *  Exported for unit testing the autoIssue-aware SENDING branch. */
 export async function reclaimStalledRuns(): Promise<number> {
   const cutoff = new Date(Date.now() - STALL_THRESHOLD_MS);
-  const renderingStalls = await db.certificateIssueRun.updateMany({
+  // Privileged lane (item 5): stall reclamation is org-blind by nature. A run
+  // stalls because its worker died, and a dead worker leaves no tenant context
+  // behind to scope the recovery by.
+  const renderingStalls = await dbOperator.certificateIssueRun.updateMany({
     where: { status: "RENDERING", lastTickAt: { lt: cutoff } },
     data: { status: "PENDING" },
   });
   // MANUAL issue SENDING stalls → bounce to AWAITING_REVIEW so an operator
   // re-confirms before the rest of the batch goes out (the human-review gate is
   // the point). Excludes auto AND reissue runs — neither has that gate.
-  const sendingStalls = await db.certificateIssueRun.updateMany({
+  const sendingStalls = await dbOperator.certificateIssueRun.updateMany({
     where: { status: "SENDING", lastTickAt: { lt: cutoff }, autoIssue: false, reissue: false },
     data: { status: "AWAITING_REVIEW" },
   });
@@ -144,7 +150,7 @@ export async function reclaimStalledRuns(): Promise<number> {
   // phase to re-run). Keep them in SENDING and just refresh lastTickAt so the
   // next tick re-drains the remaining emailedAt-null items — the send/reissue
   // phase is re-entrant and per-item failures are already marked + excluded.
-  const autoSendingStalls = await db.certificateIssueRun.updateMany({
+  const autoSendingStalls = await dbOperator.certificateIssueRun.updateMany({
     where: {
       status: "SENDING",
       lastTickAt: { lt: cutoff },

@@ -437,7 +437,17 @@ describe("runDailyDigestTick", () => {
   it("forces a fresh snapshot so it never reports the dashboard's cached numbers", async () => {
     mockGetSnapshot.mockResolvedValue(healthySnapshot());
     await runDailyDigestTick();
-    expect(mockGetSnapshot).toHaveBeenCalledWith(true);
+    expect(mockGetSnapshot).toHaveBeenCalledWith(true, { kind: "platform" });
+  });
+
+  // The digest is the OPERATOR's email, so its counters must be totals across
+  // every tenant. Asserted explicitly because the alternative failure is
+  // silent: an org-scoped digest would still arrive daily, still look
+  // healthy, and simply under-report.
+  it("asks for the platform scope, not one org's numbers", async () => {
+    mockGetSnapshot.mockResolvedValue(healthySnapshot());
+    await runDailyDigestTick();
+    expect(mockGetSnapshot.mock.calls[0][1]).toEqual({ kind: "platform" });
   });
 
   it("logs and skips instead of throwing when no recipients are configured", async () => {

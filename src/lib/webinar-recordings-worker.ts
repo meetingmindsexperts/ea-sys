@@ -19,7 +19,7 @@
  * crash skipping the remaining candidates in the same tick.
  */
 
-import { db } from "@/lib/db";
+import { dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
   syncRecordingForZoomMeeting,
@@ -68,7 +68,10 @@ export async function runWebinarRecordingsTick(): Promise<WebinarRecordingsTickR
 
   // Candidates: webinar-type ZoomMeetings whose session ended between
   // 10 min and 7 days ago, that haven't been resolved yet.
-  const candidates = await db.zoomMeeting.findMany({
+  // Privileged lane (item 5): a scan whose job is to find work across every
+  // tenant cannot run inside one tenant's lane. Everything downstream runs
+  // inside runWithTenant on the normal client, so the writes stay under RLS.
+  const candidates = await dbOperator.zoomMeeting.findMany({
     where: {
       meetingType: { in: ["WEBINAR", "WEBINAR_SERIES"] },
       recordingStatus: { in: ["NOT_REQUESTED", "PENDING"] },

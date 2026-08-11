@@ -37,7 +37,7 @@
  */
 
 import type { CertificateType } from "@prisma/client";
-import { db, tenantTransaction } from "@/lib/db";
+import { db, dbOperator, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 
@@ -145,7 +145,10 @@ export async function runAutoIssueSweep(
   const now = opts.now ?? new Date();
   const batchSize = opts.batchSize ?? SWEEP_BATCH_SIZE;
 
-  const candidates = await db.registration.findMany({
+  // Privileged lane (item 5): a scan whose job is to find work across every
+  // tenant cannot run inside one tenant's lane. Everything downstream runs
+  // inside runWithTenant on the normal client, so the writes stay under RLS.
+  const candidates = await dbOperator.registration.findMany({
     where: {
       surveyCompletedAt: { not: null },
       certAutoIssueCheckedAt: null,
