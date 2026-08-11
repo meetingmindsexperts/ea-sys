@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { ASSIGNABLE_USER_ROLES } from "@/lib/auth-guards";
+import { removeUserFromEventSettings } from "@/lib/event-settings";
 
 const updateUserSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
@@ -13,6 +14,15 @@ const updateUserSchema = z.object({
   // which roles exist (they did: MEMBER, ONSITE, CRM_USER and WEBINARS were
   // invitable but not assignable to an existing member).
   role: z.enum(ASSIGNABLE_USER_ROLES).optional(),
+  /**
+   * Deactivate (true) or reactivate (false) an internal user.
+   *
+   * A flag, not a role: the role is preserved so reactivating restores exactly
+   * what they had, and every foreign key pointing at them (CRM deals, sent-email
+   * attribution, audit rows) survives and stays reassignable. See
+   * `User.deactivatedAt`.
+   */
+  deactivated: z.boolean().optional(),
 });
 
 interface RouteParams {
@@ -88,6 +98,31 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Cannot change your own role" }, { status: 403 });
     }
 
+    // Deactivation is an admin action, and never a self-service one: locking
+    // yourself out is not a mistake worth allowing, and the DELETE handler
+    // already refuses self-deletion for the same reason.
+    if (validated.data.deactivated !== undefined) {
+      if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
+        apiLogger.warn({
+          msg: "organization/users:deactivate-not-allowed",
+          callerRole: session.user.role,
+          userId: session.user.id,
+          targetUserId: userId,
+        });
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      if (session.user.id === userId) {
+        apiLogger.warn({
+          msg: "organization/users:deactivate-self-refused",
+          userId: session.user.id,
+        });
+        return NextResponse.json(
+          { error: "You cannot deactivate your own account", code: "CANNOT_DEACTIVATE_SELF" },
+          { status: 400 },
+        );
+      }
+    }
+
     const user = await db.user.findFirst({
       where: {
         id: userId,
@@ -99,18 +134,36 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    const { deactivated, ...rest } = validated.data;
+
     const updatedUser = await db.user.update({
       // Org-bound on the WRITE, not only on the read above — the house
       // invariant, so a future refactor that drops the lookup can't turn this
       // into a cross-org role change.
       where: { id: userId, organizationId: session.user.organizationId! },
-      data: validated.data,
+      data: {
+        ...rest,
+        // `deactivated` is the API's boolean; the column is a timestamp, so
+        // the trail records WHEN, not merely that it happened.
+        ...(deactivated === undefined
+          ? {}
+          : deactivated
+            ? {
+                deactivatedAt: new Date(),
+                // Kill every live session immediately rather than waiting for
+                // the next periodic check. Staff are re-validated on every
+                // request, so this takes effect on their next click.
+                tokenVersion: { increment: 1 },
+              }
+            : { deactivatedAt: null }),
+      },
       select: {
         id: true,
         email: true,
         firstName: true,
         lastName: true,
         role: true,
+        deactivatedAt: true,
         createdAt: true,
       },
     });
@@ -131,6 +184,9 @@ export async function PUT(req: Request, { params }: RouteParams) {
           ...(validated.data.role && validated.data.role !== user.role
             ? { previousRole: user.role }
             : {}),
+          // Deactivation is security-relevant, so record the role they HELD
+          // rather than leaving the trail to say only that a flag moved.
+          ...(deactivated === undefined ? {} : { roleAtDeactivation: user.role }),
           ip: getClientIp(req),
         },
       },
@@ -197,6 +253,20 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       where: { userId },
       data: { userId: null },
     });
+
+    // Strip per-event membership that lives in settings JSON. These are NOT
+    // foreign keys, so no cascade reaches them: deleting a reviewer used to
+    // leave their id in `reviewerUserIds` forever, which the Reviewers page
+    // then rendered as a phantom row. Best-effort — a stale id cannot grant
+    // access now that the session itself is invalidated, so this must never
+    // fail the delete.
+    await removeUserFromEventSettings(userId, session.user.organizationId ?? null).catch((err) =>
+      apiLogger.error({
+        err,
+        msg: "organization/users:settings-cleanup-failed",
+        targetUserId: userId,
+      }),
+    );
 
     await db.user.delete({
       where: { id: userId },

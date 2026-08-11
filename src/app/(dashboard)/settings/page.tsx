@@ -55,6 +55,8 @@ import {
   Receipt,
   CalendarClock,
   X as XIcon,
+  UserX,
+  UserCheck,
 } from "lucide-react";
 import {
   useApiKeys,
@@ -113,6 +115,8 @@ interface User {
   firstName: string;
   lastName: string;
   role: string;
+  /** Non-null when deactivated. Role is preserved, so reactivating restores it. */
+  deactivatedAt?: string | null;
   createdAt: string;
 }
 
@@ -359,6 +363,37 @@ export default function SettingsPage() {
       toast.error("An error occurred. Please try again.");
     } finally {
       setIsSubmittingUser(false);
+    }
+  };
+
+  const handleToggleDeactivated = async (user: User) => {
+    const deactivating = !user.deactivatedAt;
+    const name = `${user.firstName} ${user.lastName}`.trim() || user.email;
+    if (
+      !confirm(
+        deactivating
+          ? `Deactivate ${name}?\n\nThey are signed out immediately and cannot sign back in. Everything assigned to them (deals, sent emails, audit history) stays assigned to them, and their role is kept so you can reactivate at any time.`
+          : `Reactivate ${name}?\n\nThey get their previous role back and can sign in again.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/organization/users/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deactivated: deactivating }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        toast.error(body?.error || "Couldn't update this user");
+        return;
+      }
+      toast.success(deactivating ? `${name} deactivated` : `${name} reactivated`);
+      fetchUsers();
+    } catch (error) {
+      console.error("Error updating user:", error);
+      toast.error("Couldn't update this user");
     }
   };
 
@@ -998,9 +1033,18 @@ export default function SettingsPage() {
                       </TableCell>
                       <TableCell>{user.email}</TableCell>
                       <TableCell>
-                        <Badge className={roleColors[user.role]} variant="outline">
-                          {user.role}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge className={roleColors[user.role]} variant="outline">
+                            {user.role}
+                          </Badge>
+                          {/* Role is kept while deactivated, so both are shown:
+                              the badge says what they WOULD be if reactivated. */}
+                          {user.deactivatedAt && (
+                            <Badge variant="outline" className="border-slate-300 bg-slate-100 text-slate-600">
+                              Deactivated
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         {new Date(user.createdAt).toLocaleDateString()}
@@ -1015,6 +1059,24 @@ export default function SettingsPage() {
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
+                            {user.id !== session?.user?.id && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={
+                                  user.deactivatedAt
+                                    ? "Reactivate this user"
+                                    : "Deactivate: signs them out now, keeps everything assigned to them"
+                                }
+                                onClick={() => handleToggleDeactivated(user)}
+                              >
+                                {user.deactivatedAt ? (
+                                  <UserCheck className="h-4 w-4" />
+                                ) : (
+                                  <UserX className="h-4 w-4" />
+                                )}
+                              </Button>
+                            )}
                             {user.id !== session?.user?.id && (
                               <Button
                                 variant="ghost"

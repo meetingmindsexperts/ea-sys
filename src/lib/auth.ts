@@ -14,6 +14,7 @@ import {
 } from "@/lib/login-throttle";
 import { touchLastSeen, LAST_SEEN_STAMP_INTERVAL_MS } from "@/lib/active-users";
 import { decideSessionValidity } from "@/lib/session-validity";
+import { isTeamRole } from "@/lib/team-roles";
 import authConfig, { mapTokenToSessionUser } from "./auth.config";
 
 const loginSchema = z.object({
@@ -118,6 +119,7 @@ export const {
             // Session revocation counter — stamped into the token below and
             // compared on every periodic re-validation. See the jwt callback.
             tokenVersion: true,
+            deactivatedAt: true,
             organizationId: true,
             organization: {
               select: { name: true, logo: true, primaryColor: true },
@@ -211,6 +213,35 @@ export const {
           return null;
         }
 
+        // Deactivated accounts cannot sign in, even with the right password.
+        // Checked AFTER the password so the response cannot be used to probe
+        // which addresses are deactivated: a wrong password on a deactivated
+        // account still reads as a wrong password.
+        //
+        // The failure counter is deliberately NOT cleared and NOT incremented.
+        // Not incremented because they proved they know the password, so this
+        // is not an attack; not cleared because clearing is a reward for a
+        // successful sign-in, and this is not one.
+        if (user.deactivatedAt) {
+          authLogger.warn({
+            msg: "auth:login-deactivated",
+            email,
+            ipAddress,
+            userId: user.id,
+            deactivatedAt: user.deactivatedAt.toISOString(),
+          });
+          void recordLoginEvent({
+            email,
+            outcome: "BLOCKED_DEACTIVATED",
+            surface,
+            userId: user.id,
+            organizationId: user.organizationId,
+            ipAddress,
+            userAgent,
+          });
+          return null;
+        }
+
         // Two typos followed by a success should leave no trace, so the email
         // bucket is cleared. The IP bucket deliberately is not — see
         // login-throttle.ts.
@@ -289,18 +320,38 @@ export const {
       // Lightweight query: selects only `role` by primary key.
       const ROLE_CHECK_INTERVAL = LAST_SEEN_STAMP_INTERVAL_MS; // 5 minutes
       const lastChecked = (token.roleCheckedAt as number) || 0;
-      if (token.id && Date.now() - lastChecked > ROLE_CHECK_INTERVAL) {
-        // This block is also what drives "who is online now": it already
-        // self-throttles to once per 5 minutes per user, so stamping presence
-        // here costs one write per user per 5 min instead of one per request.
+      const dueForPeriodicCheck = Date.now() - lastChecked > ROLE_CHECK_INTERVAL;
+
+      // Internal staff are re-validated on EVERY request so that deactivating
+      // someone takes effect immediately rather than within 5 minutes (Aug 11,
+      // 2026). `isTeamRole` reads the token, so deciding this costs nothing.
+      //
+      // The split is deliberate. Staff are tens of people, so a primary-key
+      // lookup of three small columns per request is noise. Registrants and
+      // attendees are thousands — the webinar presence heartbeat alone is
+      // ~140 req/s at 5,000 attendees — and they are not a population you
+      // "deactivate" anyway, so they keep the 5-minute cycle. One auth policy
+      // for both populations is what would have made this expensive.
+      //
+      // If the pool ever objects, the lever is a short in-process cache on this
+      // lookup (the `lobby-status` 3s micro-cache pattern), NOT reverting to
+      // the periodic check.
+      const isStaff = isTeamRole(token.role as string | undefined);
+
+      if (token.id && (isStaff || dueForPeriodicCheck)) {
+        // Presence stays on the 5-minute clock even for staff: it is what
+        // drives "who is online now", and one write per user per 5 min is the
+        // whole reason `lastSeenAt` was cheap enough to put on the User row.
         // Fire-and-forget — presence must never delay authentication, and
         // `touchLastSeen` never throws.
-        void touchLastSeen(token.id as string);
+        if (dueForPeriodicCheck) {
+          void touchLastSeen(token.id as string);
+        }
 
         try {
           const dbUser = await db.user.findUnique({
             where: { id: token.id as string },
-            select: { role: true, tokenVersion: true },
+            select: { role: true, tokenVersion: true, deactivatedAt: true },
           });
 
           // The truth table lives in `decideSessionValidity` (pure, unit
@@ -326,7 +377,12 @@ export const {
           }
 
           token.role = decision.role;
-          token.roleCheckedAt = Date.now();
+          // Only the periodic pass moves the clock. If a staff per-request
+          // check refreshed it, `dueForPeriodicCheck` would never come true
+          // for staff and they would stop being stamped as online.
+          if (dueForPeriodicCheck) {
+            token.roleCheckedAt = Date.now();
+          }
         } catch (error) {
           authLogger.warn({ err: error, msg: "Role re-validation DB error, continuing with cached role", userId: token.id });
         }

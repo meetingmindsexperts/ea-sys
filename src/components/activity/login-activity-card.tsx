@@ -18,9 +18,16 @@ import {
   Smartphone, Globe, ChevronLeft, ChevronRight, RefreshCw, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { LoginOutcome, LoginSurface } from "@prisma/client";
 
-type Outcome = "SUCCESS" | "FAILED_PASSWORD" | "FAILED_UNKNOWN_EMAIL" | "BLOCKED_RATE_LIMIT";
-type Surface = "DASHBOARD" | "EVENT_PAGE" | "MOBILE";
+// Derived from the Prisma enums, NOT hand-copied. These used to be literal
+// unions whose comment claimed the map below was "exhaustive over the Prisma
+// enum" — it was exhaustive over a COPY of it, so adding an outcome compiled
+// cleanly and rendered an unlabelled badge at an admin. Caught when
+// BLOCKED_DEACTIVATED was added (Aug 11, 2026). Prisma enums are plain compiled
+// objects, so this costs a client bundle nothing.
+type Outcome = LoginOutcome;
+type Surface = LoginSurface;
 
 interface LoginEventRow {
   id: string;
@@ -67,6 +74,13 @@ const OUTCOME_DISPLAY: Record<Outcome, { label: string; className: string; Icon:
   BLOCKED_RATE_LIMIT: {
     label: "Blocked",
     className: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-900",
+    Icon: ShieldX,
+  },
+  // Right password, deactivated account. Distinct from "Blocked" (rate limit)
+  // and from "Wrong password" so the reason is readable at a glance.
+  BLOCKED_DEACTIVATED: {
+    label: "Deactivated",
+    className: "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600",
     Icon: ShieldX,
   },
 };

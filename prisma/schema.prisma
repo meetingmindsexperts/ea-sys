@@ -132,6 +132,24 @@ model User {
   /// already reads this row for `role`, so this is one more column in the same
   /// `select`. See docs/SESSION_ARCHITECTURE.md.
   tokenVersion    Int       @default(0)
+  /// Set to deactivate an INTERNAL user without deleting them (Aug 11, 2026).
+  /// Null means active. Their access stops immediately and they cannot sign
+  /// back in, but the row and every foreign key pointing at it survive.
+  ///
+  /// Deliberately a TIMESTAMP, not a `DEACTIVATED` role value. A role answers
+  /// "what may you do"; this answers "may you be here at all", and collapsing
+  /// the two axes causes three problems: it OVERWRITES the real role (so
+  /// reactivating means guessing what they were), it must be handled in every
+  /// role predicate (canViewFinance, denyReviewer, isTeamRole,
+  /// buildEventAccessWhere, the CRM set...) where a single miss leaves that
+  /// capability intact, and it breaks every exhaustive Record<UserRole, ...>.
+  /// As a flag it is checked in exactly ONE place and cannot fail open.
+  ///
+  /// Deactivating preserves ownership on purpose: CRM deals, sent-email
+  /// attribution, audit rows, group coordinator and document uploader all keep
+  /// pointing at them until someone reassigns. Deleting would SetNull most of
+  /// those and silently orphan the work.
+  deactivatedAt   DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -2030,6 +2048,11 @@ enum LoginOutcome {
   FAILED_PASSWORD
   FAILED_UNKNOWN_EMAIL
   BLOCKED_RATE_LIMIT
+  /// Correct password, but the account is deactivated. Distinct from
+  /// FAILED_PASSWORD on purpose: an admin reading a run of failures needs to
+  /// tell "they cannot get in because we switched them off" apart from "someone
+  /// is guessing passwords".
+  BLOCKED_DEACTIVATED
 }
 
 /// Which door the sign-in came through. A hint for the admin view, not a

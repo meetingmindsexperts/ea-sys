@@ -16,13 +16,15 @@
 
 /** What the caller should do with the token. */
 export type SessionDecision =
-  | { action: "invalidate"; reason: "user-deleted" | "token-revoked" }
+  | { action: "invalidate"; reason: "user-deleted" | "token-revoked" | "deactivated" }
   | { action: "refresh"; role: string };
 
 /** The subset of the user row the decision needs. */
 export interface SessionUserRow {
   role: string;
   tokenVersion: number;
+  /** Null when active. See `User.deactivatedAt` for why this is not a role. */
+  deactivatedAt?: Date | null;
 }
 
 export function decideSessionValidity(
@@ -41,6 +43,14 @@ export function decideSessionValidity(
   // never expired at all.
   if (!dbUser) {
     return { action: "invalidate", reason: "user-deleted" };
+  }
+
+  // Deactivated: the account still exists (so everything assigned to them
+  // stays assigned and reassignable) but may not be used. Checked BEFORE role
+  // is even read, so there is no path on which a deactivated user's role is
+  // consulted for anything.
+  if (dbUser.deactivatedAt) {
+    return { action: "invalidate", reason: "deactivated" };
   }
 
   // Explicit revocation: the counter was bumped after this token was minted.

@@ -240,6 +240,70 @@ that difference is rarely worth the cost above.
 
 ---
 
+## 7a. Deactivating an internal user (2026-08-11)
+
+`User.deactivatedAt`, a nullable timestamp. Null means active.
+
+**A flag, not a `DEACTIVATED` role value.** A role answers "what may you do";
+this answers "may you be here at all". Collapsing the two axes causes three
+problems, and all three are avoided by keeping them separate:
+
+1. It **overwrites the real role**, so reactivating means guessing what they
+   were.
+2. It must be handled in **every** role predicate (`canViewFinance`,
+   `denyReviewer`, `isTeamRole`, `buildEventAccessWhere`, `canViewContacts`,
+   the CRM set). One missed predicate leaves that capability intact, so the
+   failure mode is fail-OPEN.
+3. It breaks every exhaustive `Record<UserRole, ...>`.
+
+As a flag it is checked in exactly one place, `decideSessionValidity`, **before
+the role is read at all**, so no path exists on which a deactivated user's role
+is consulted. A test pins that ordering.
+
+Deactivating also **preserves ownership on purpose**: CRM deals, sent-email
+attribution, audit rows, group coordinator and document uploader all keep
+pointing at them until someone reassigns. Deleting would `SetNull` most of
+those and silently orphan the work, which is the second reason to prefer
+deactivation over deletion for a leaver.
+
+### Instant for staff, 5 minutes for everyone else
+
+The re-validation normally runs on a 5-minute clock. Deactivation is expected to
+be instant, and instant means a database read per request, which is the
+stateless trade-off arriving again.
+
+The split: **internal staff are re-validated on every request; everyone else
+keeps the periodic cycle.** `isTeamRole(token.role)` reads the token, so
+choosing costs nothing.
+
+That works because the two populations are nothing alike. Staff are tens of
+people, so a primary-key lookup of three small columns per request is noise.
+Registrants and attendees are thousands (the webinar presence heartbeat alone is
+~140 req/s at 5,000 attendees), and they are not a population anyone
+"deactivates". **Applying one auth policy to both is what would have made this
+expensive.**
+
+Two details that are easy to get wrong:
+
+- `lastSeenAt` stays on the 5-minute clock even for staff. It is what drives
+  "who is online now", and one write per user per 5 min is the entire reason it
+  was cheap enough to live on the `User` row.
+- `roleCheckedAt` is only moved by the periodic pass. If a staff per-request
+  check refreshed it, `dueForPeriodicCheck` would never come true for staff and
+  they would silently stop being stamped as online.
+
+If the pool ever objects, the lever is a short in-process cache on that lookup
+(the `lobby-status` 3s micro-cache pattern), **not** reverting to the periodic
+check.
+
+Sign-in is blocked too, checked **after** the password so the response cannot be
+used to probe which addresses are deactivated. Recorded as its own
+`BLOCKED_DEACTIVATED` outcome rather than `FAILED_PASSWORD`, because an admin
+reading a run of failures needs to tell "we switched them off" apart from
+"someone is guessing passwords".
+
+---
+
 ## 7b. Counting the compensations
 
 Worth recording, because no single change here was wrong and the accumulation
@@ -282,6 +346,8 @@ the missing half.
 | 2026-07-28 | `User.lastSeenAt` over database sessions for presence | Answers "who is active now" for a nullable column + one write per user per 5 min, vs a DB read on every request and signing everyone out at cutover |
 | 2026-07-28 | **Open:** no session revocation | Recorded as a real gap. Preferred fix is `tokenVersion` (§7), not a model change |
 | 2026-08-11 | Shipped `tokenVersion` + the missing `else` | Closed the gap above. Rides the query the 5-min block already runs, so marginal cost is one column in an existing `select`. Additive migration, and a missing claim reads as 0, so the deploy signs nobody out |
+| 2026-08-11 | `deactivatedAt` as a flag, not a `DEACTIVATED` role | A role would overwrite the real one, would have to be handled in ~10 predicates where a miss fails OPEN, and would break every exhaustive role map. As a flag it is one check, ahead of role, and cannot fail open |
+| 2026-08-11 | Deactivation is per-request for staff, periodic for everyone else | Instant where it is expected, free where the volume is. One policy for both populations is what would have made it expensive |
 | 2026-08-11 | **Stay hybrid; do not migrate to database sessions yet** | On a clean build I would pick stateful for a monolith with one database: it deletes `roleCheckedAt`, `lastSeenAt` and `tokenVersion` outright. Deferred on SEQUENCING, not merit: PLATFORM_DECISIONS item 6 (identity model, "email unique per tenant") reopens auth anyway, and migrating first means doing it twice, the second time under a constraint not yet chosen. **Revisit trigger: when the identity decision lands.** |
 
 ## 9. See also

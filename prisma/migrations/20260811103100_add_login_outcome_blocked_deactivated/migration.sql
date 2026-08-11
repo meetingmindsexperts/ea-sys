@@ -1,0 +1,11 @@
+-- Add BLOCKED_DEACTIVATED to LoginOutcome.
+--
+-- A deactivated user typing the CORRECT password must not be recorded as
+-- FAILED_PASSWORD: an admin investigating a run of failures would read it as a
+-- forgotten password or an attack rather than the account being switched off.
+--
+-- Additive + idempotent, so it is safe under blue-green: the currently-running
+-- container never emits the new value, and re-running is a no-op.
+-- `ALTER TYPE ... ADD VALUE` is run outside a transaction by Prisma's migrate
+-- engine automatically.
+ALTER TYPE "LoginOutcome" ADD VALUE IF NOT EXISTS 'BLOCKED_DEACTIVATED';

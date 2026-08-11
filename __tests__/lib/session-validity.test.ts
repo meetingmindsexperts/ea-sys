@@ -74,6 +74,59 @@ describe("decideSessionValidity", () => {
     });
   });
 
+  // ── Deactivation (Aug 11, 2026) ────────────────────────────────────────
+  //
+  // A flag rather than a `DEACTIVATED` role value, because a role answers
+  // "what may you do" and this answers "may you be here at all". As a role it
+  // would overwrite the real one (so reactivating means guessing), and would
+  // have to be handled in every role predicate, where one miss leaves that
+  // capability intact.
+
+  it("invalidates a deactivated user", () => {
+    expect(
+      decideSessionValidity(
+        { role: "ORGANIZER", tokenVersion: 0, deactivatedAt: new Date("2026-08-11T09:00:00Z") },
+        0,
+      ),
+    ).toEqual({ action: "invalidate", reason: "deactivated" });
+  });
+
+  it("treats a null deactivatedAt as active", () => {
+    expect(
+      decideSessionValidity({ role: "ORGANIZER", tokenVersion: 0, deactivatedAt: null }, 0),
+    ).toEqual({ action: "refresh", role: "ORGANIZER" });
+  });
+
+  it("treats an ABSENT deactivatedAt as active, so old callers keep working", () => {
+    expect(decideSessionValidity({ role: "ADMIN", tokenVersion: 0 }, 0)).toEqual({
+      action: "refresh",
+      role: "ADMIN",
+    });
+  });
+
+  /**
+   * Ordering property. Deactivation is checked BEFORE the role is read, so
+   * there is no path on which a deactivated user's role is consulted. If the
+   * checks were reordered, a deactivated user whose token version happens to
+   * match would be refreshed with their full role.
+   */
+  it("checks deactivation before anything role-related", () => {
+    const decision = decideSessionValidity(
+      { role: "SUPER_ADMIN", tokenVersion: 7, deactivatedAt: new Date() },
+      7, // versions MATCH, so only the deactivation check can reject this
+    );
+    expect(decision).toEqual({ action: "invalidate", reason: "deactivated" });
+  });
+
+  it("still reports a deleted user as deleted, not deactivated", () => {
+    // Deletion is checked first of all: the row is gone, so there is no flag
+    // to read. The two reasons stay distinct in the logs.
+    expect(decideSessionValidity(null, 0)).toEqual({
+      action: "invalidate",
+      reason: "user-deleted",
+    });
+  });
+
   it("does not treat a HIGHER token version as valid", () => {
     // A forged or replayed token claiming a future version must not pass. The
     // check is equality, deliberately, not >=.

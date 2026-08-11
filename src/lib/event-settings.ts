@@ -63,3 +63,46 @@ export function updateEventSettings(eventId: string, patch: SettingsPatch): Prom
 export function updateOrganizationSettings(organizationId: string, patch: SettingsPatch): Promise<SettingsObject> {
   return mergeSettingsLocked("Organization", organizationId, patch, "ORGANIZATION_NOT_FOUND");
 }
+
+/**
+ * Remove a user id from every event's `reviewerUserIds` / `onsiteUserIds`.
+ *
+ * Those lists live in settings JSON rather than as foreign keys, so nothing
+ * cascades when the user row is deleted: their id stayed in the array forever
+ * and the Reviewers / Onsite Staff pages rendered a phantom entry (found while
+ * adding session revocation, Aug 11 2026).
+ *
+ * Not a security fix. A stale id cannot grant anything now that the session is
+ * invalidated on delete, and cuids are never reissued. This is litter removal,
+ * so callers treat a failure as loggable rather than fatal.
+ *
+ * Goes through `updateEventSettings`, which takes the row lock, so a concurrent
+ * "add a reviewer" cannot be clobbered by this read-modify-write.
+ */
+export async function removeUserFromEventSettings(
+  userId: string,
+  organizationId: string | null,
+): Promise<{ eventsTouched: number }> {
+  const events = await db.event.findMany({
+    where: {
+      ...(organizationId ? { organizationId } : {}),
+      OR: [
+        { settings: { path: ["reviewerUserIds"], array_contains: userId } },
+        { settings: { path: ["onsiteUserIds"], array_contains: userId } },
+      ],
+    },
+    select: { id: true },
+  });
+
+  for (const { id } of events) {
+    await updateEventSettings(id, (cur) => {
+      const strip = (key: string) => {
+        const list = cur[key];
+        return Array.isArray(list) ? list.filter((v) => v !== userId) : list;
+      };
+      return { ...cur, reviewerUserIds: strip("reviewerUserIds"), onsiteUserIds: strip("onsiteUserIds") };
+    });
+  }
+
+  return { eventsTouched: events.length };
+}
