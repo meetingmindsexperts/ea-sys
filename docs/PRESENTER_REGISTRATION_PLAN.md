@@ -55,7 +55,7 @@ paid presenter link.
 |---|---|---|
 | D1 | Presenter rates are **tiers per profession**, not a separate registration type | `Presenter Early Bird` / `Presenter Standard` under Physician, Nurse, Student, ... Preserves per-profession pricing. Cost: ~6 tiers per type to maintain. |
 | D2 | **The submitter picks their registration type at signup**, like a delegate | Deriving it from the `role` enum was rejected: events carry `Nurse` and `Member`, which the enum cannot express, and the enum carries `Pharma` / `Academia` / `Medical Devices`, which have no rate. |
-| D3 | **Quote at submission, but NO Pay Now.** Pay-later only for now | Revised by the owner Aug 11 after the cost below was raised. The submitter learns the amount; the system does not invite immediate payment. |
+| D3 | **Quote at submission, no Pay Now BY DEFAULT**, with a per-event organizer toggle to turn it back on | Revised twice on Aug 11: first to drop Pay Now, then to make that a default rather than a rule. `settings.presenterRegistration.payNowEnabled`, off by default, confirmation dialog on the way up. |
 | D4 | **No presenter tiers configured -> fall back to today's free comp** | Nothing breaks on any existing event until an organizer sets rates. Matches how `abstractLimits` and `abstractPresentationTypes` default. |
 | D5 | **A presenter registration DOES count, on its tier**, exactly like `PUBLIC_REGISTER` | Reversed Aug 11 after the owner asked what was consistent with the platform. Reasoning below. |
 | D6 | **On rejection, nothing happens automatically** | The submitter decides: pay and attend, or do not pay and do not attend. The organizer may comp them. This is exactly what an unpaid registration already does, so there is nothing to build. |
@@ -72,10 +72,17 @@ offer no Pay Now.** The submitter sees the amount, which is what the quote is
 for, and the system never invites a payment that is likely to be reversed.
 Payment happens later, once the organizer has decided comp / paid / discounted.
 
-**Interpretation to confirm at build time:** "no Pay Now" applies to the
-submission confirmation email. The registrant portal's Pay Now is left in place,
+**Interpretation, now built:** "no Pay Now" applies to the submission
+confirmation. The registrant portal's Pay Now is left in place regardless,
 because that IS the pay-later route; removing it too would leave no way to pay
 at all except an organizer-sent reminder, which contradicts "pay later".
+
+**Made an option, not a rule (owner, Aug 11).** Some events do want payment up
+front, so `settings.presenterRegistration.payNowEnabled` turns it back on.
+Off by default; enabling it is behind a confirmation, because the consequence
+lands on every future submitter before their abstract has been read. The reader
+is strict `=== true`, so a malformed blob resolves to "do not ask for money"
+rather than to invoicing everyone.
 
 ## 4. What already exists and needs nothing
 
@@ -97,7 +104,20 @@ at all except an organizer-sent reminder, which contradicts "pay later".
 
 The build is therefore mostly composition, not new machinery.
 
-## 5. The change
+## 5. Build phases
+
+- **Phase 1 (shipped, `f6e0d7d4`)** presenter tier family + predicate,
+  `DEFAULT_TIER_NAMES` consolidated from three copies, redirect filter,
+  `PUBLIC_SUBMITTER` into `TIER_CONSUMING_SOURCES`. Inert: nothing writes that
+  source yet. **No migration needed**, the enum value has existed since June
+  for exactly this path and had never been written once.
+- **Phase 1b (shipped, `96b136c0`)** the Pay Now toggle + confirmation dialog.
+  Inert until the doors land.
+- **Phase 2 (next)** extract the payable-create-and-link operation currently
+  living inside the grant-companion route, refactor that route onto it, then
+  the type picker and both doors.
+
+## 6. The change
 
 ### 5.1 Tier naming and the one place that knows about it
 
@@ -140,7 +160,7 @@ payable grant.
 - **Session proposals** stay `linkOnly` with the per-person grant (Aug 5).
 - **The 85 existing comp companions** are left alone. Forward-only.
 
-## 6. Open questions
+## 7. Open questions
 
 None. All decisions are recorded as D1 to D6. Retained for the record:
 
@@ -196,7 +216,7 @@ door"), but it is no longer load-bearing for seat accounting. Faculty exclusion
 is unaffected either way, since `EXCLUDE_FACULTY_WHERE` keys on the `isFaculty`
 ticket type and a presenter sits on a real delegate type.
 
-## 7. Not in scope
+## 8. Not in scope
 
 - Automatic refund on rejection.
 - Any change to how accepted abstracts are comped or discounted; the existing
