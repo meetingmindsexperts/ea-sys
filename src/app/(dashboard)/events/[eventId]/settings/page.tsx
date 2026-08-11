@@ -50,7 +50,7 @@ import {
   Save,
   Trash2,
   Globe,
-  Bell,
+  FileText,
   Shield,
   ImageIcon,
   Ticket,
@@ -635,19 +635,11 @@ export default function EventSettingsPage() {
             <Shield className="h-4 w-4" />
             Registration
           </TabsTrigger>
-          <TabsTrigger value="notifications" className="flex items-center gap-2">
-            <Bell className="h-4 w-4" />
-            Notifications
-          </TabsTrigger>
           {!isWebinar(event) && (
-            <>
-              <TabsTrigger value="abstract-themes" className="flex items-center gap-2">
-                Abstract Themes
-              </TabsTrigger>
-              <TabsTrigger value="review-criteria" className="flex items-center gap-2">
-                Review Criteria
-              </TabsTrigger>
-            </>
+            <TabsTrigger value="abstracts" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Abstracts
+            </TabsTrigger>
           )}
           <TabsTrigger value="branding" className="flex items-center gap-2">
             <ImageIcon className="h-4 w-4" />
@@ -669,7 +661,7 @@ export default function EventSettingsPage() {
         </TabsList>
 
         {/* General Settings */}
-        <TabsContent value="general">
+        <TabsContent value="general" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>General Information</CardTitle>
@@ -912,6 +904,59 @@ export default function EventSettingsPage() {
                 <Button onClick={handleSaveGeneral} disabled={saving}>
                   <Save className="mr-2 h-4 w-4" />
                   {saving ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Notification Settings</CardTitle>
+              <CardDescription>
+                Configure when you receive notifications
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>New Registration Notifications</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Receive an email when someone registers for this event
+                  </p>
+                </div>
+                <Switch
+                  checked={notificationSettings.notifyOnRegistration}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings({
+                      ...notificationSettings,
+                      notifyOnRegistration: checked,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Abstract Submission Notifications</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Receive an email when a speaker submits an abstract
+                  </p>
+                </div>
+                <Switch
+                  checked={notificationSettings.notifyOnAbstractSubmission}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings({
+                      ...notificationSettings,
+                      notifyOnAbstractSubmission: checked,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <Button onClick={handleSaveSettings} disabled={saving}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {saving ? "Saving..." : "Save Notifications"}
                 </Button>
               </div>
             </CardContent>
@@ -1273,7 +1318,32 @@ export default function EventSettingsPage() {
                 </div>
               </div>
 
-              <div className="border-t pt-6">
+              <div className="flex justify-end">
+                <Button onClick={handleSaveSettings} disabled={saving}>
+                  <Save className="mr-2 h-4 w-4" />
+                  {saving ? "Saving..." : "Save Settings"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Abstracts: submission windows, themes and review criteria in one
+            place. Previously these lived across three surfaces - two sections
+            buried at the bottom of the Registration tab plus two top-level
+            tabs - so no single screen answered "how is abstract submission
+            configured for this event?". */}
+        <TabsContent value="abstracts" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Submissions</CardTitle>
+              <CardDescription>
+                Control who may submit, when the windows close, and the limits applied
+                to each submission.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
                 <h3 className="text-lg font-medium mb-4">Abstract Submissions</h3>
 
                 <div className="space-y-4">
@@ -1433,66 +1503,7 @@ export default function EventSettingsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Notification Settings */}
-        <TabsContent value="notifications">
-          <Card>
-            <CardHeader>
-              <CardTitle>Notification Settings</CardTitle>
-              <CardDescription>
-                Configure when you receive notifications
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>New Registration Notifications</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Receive an email when someone registers for this event
-                  </p>
-                </div>
-                <Switch
-                  checked={notificationSettings.notifyOnRegistration}
-                  onCheckedChange={(checked) =>
-                    setNotificationSettings({
-                      ...notificationSettings,
-                      notifyOnRegistration: checked,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Abstract Submission Notifications</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Receive an email when a speaker submits an abstract
-                  </p>
-                </div>
-                <Switch
-                  checked={notificationSettings.notifyOnAbstractSubmission}
-                  onCheckedChange={(checked) =>
-                    setNotificationSettings({
-                      ...notificationSettings,
-                      notifyOnAbstractSubmission: checked,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="flex justify-end">
-                <Button onClick={handleSaveSettings} disabled={saving}>
-                  <Save className="mr-2 h-4 w-4" />
-                  {saving ? "Saving..." : "Save Settings"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Abstract Themes */}
-        <TabsContent value="abstract-themes">
           <Card>
             <CardHeader>
               <CardTitle>Abstract Themes</CardTitle>
@@ -1504,10 +1515,7 @@ export default function EventSettingsPage() {
               <AbstractThemesSettings eventId={eventId} />
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* Review Criteria */}
-        <TabsContent value="review-criteria">
           <Card>
             <CardHeader>
               <CardTitle>Review Criteria</CardTitle>
