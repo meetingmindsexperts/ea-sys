@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { fromLocalDateTimeInput, toLocalDateTimeInput } from "@/lib/datetime-local";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -116,8 +117,13 @@ export function PromoCodesPanel({ eventId }: Props) {
       currency: promo.currency || "USD",
       maxUses: promo.maxUses !== null ? String(promo.maxUses) : "",
       maxUsesPerEmail: promo.maxUsesPerEmail !== null ? String(promo.maxUsesPerEmail) : "",
-      validFrom: promo.validFrom ? promo.validFrom.slice(0, 16) : "",
-      validUntil: promo.validUntil ? promo.validUntil.slice(0, 16) : "",
+      // `iso.slice(0, 16)` here dropped the UTC clock into an input the browser
+      // reads as local, so every edit-and-save moved the window by the offset
+      // and compounded. Same defect as the dinner console (review B2) and
+      // the submission deadlines. Browser-local is the recorded semantics for
+      // promo windows; see the note in src/lib/datetime-local.ts.
+      validFrom: promo.validFrom ? toLocalDateTimeInput(promo.validFrom) : "",
+      validUntil: promo.validUntil ? toLocalDateTimeInput(promo.validUntil) : "",
       isActive: promo.isActive,
       ticketTypeIds: promo.ticketTypes.map((t) => t.ticketType.id),
     });
@@ -139,8 +145,8 @@ export function PromoCodesPanel({ eventId }: Props) {
         currency: form.discountType === "FIXED_AMOUNT" ? form.currency : undefined,
         maxUses: form.maxUses ? Number(form.maxUses) : null,
         maxUsesPerEmail: form.maxUsesPerEmail ? Number(form.maxUsesPerEmail) : null,
-        validFrom: form.validFrom ? new Date(form.validFrom).toISOString() : null,
-        validUntil: form.validUntil ? new Date(form.validUntil).toISOString() : null,
+        validFrom: fromLocalDateTimeInput(form.validFrom),
+        validUntil: fromLocalDateTimeInput(form.validUntil),
         isActive: form.isActive,
         ticketTypeIds: form.ticketTypeIds.length > 0 ? form.ticketTypeIds : undefined,
       };

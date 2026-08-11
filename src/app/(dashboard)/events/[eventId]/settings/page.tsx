@@ -7,6 +7,7 @@ import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-s
 import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
 import { SpeakerAgreementTemplateCard } from "@/components/events/speaker-agreement-template-card";
 import { isWebinar } from "@/lib/webinar";
+import { localDateTimeInTz, resolveTimezone, tzLabel, wallTimeInTzToIso } from "@/lib/event-time";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -238,6 +239,15 @@ export default function EventSettingsPage() {
 
   const [sessionProposalDeadline, setSessionProposalDeadline] = useState("");
 
+  /**
+   * The event's SAVED timezone, kept separate from `generalFormData.timezone`
+   * (which is an editable draft). The deadline inputs below operate in the
+   * event's timezone, and they must convert against the timezone the stored
+   * instants were written under, not one the organizer has typed into the
+   * General tab but not yet saved.
+   */
+  const [eventTimezone, setEventTimezone] = useState("Asia/Dubai");
+
   const [notificationSettings, setNotificationSettings] = useState({
     notifyOnRegistration: true,
     notifyOnAbstractSubmission: true,
@@ -309,16 +319,24 @@ export default function EventSettingsPage() {
           maxMembers: gr.maxMembers ?? 10,
         });
 
+        // Deadlines are stored as UTC instants and edited as wall-clock times
+        // in the EVENT's timezone. `.toISOString().slice(0, 16)` used to be
+        // used here, which drops the UTC clock into an input the browser then
+        // reads as local, so every re-save shifted the instant by the offset
+        // and compounded. See src/lib/datetime-local.ts for the full write-up.
+        const tz = resolveTimezone(data.timezone);
+        setEventTimezone(tz);
+
         setAbstractSettings({
           allowAbstractSubmissions: settings.allowAbstractSubmissions ?? true,
           abstractDeadline: settings.abstractDeadline
-            ? new Date(settings.abstractDeadline).toISOString().slice(0, 16)
+            ? localDateTimeInTz(new Date(settings.abstractDeadline), tz)
             : "",
         });
 
         setSessionProposalDeadline(
           settings.sessionProposalDeadline
-            ? new Date(settings.sessionProposalDeadline).toISOString().slice(0, 16)
+            ? localDateTimeInTz(new Date(settings.sessionProposalDeadline), tz)
             : "",
         );
 
@@ -448,12 +466,8 @@ export default function EventSettingsPage() {
             ...abstractSettings,
             ...notificationSettings,
             groupRegistration: groupSettings,
-            abstractDeadline: abstractSettings.abstractDeadline
-              ? new Date(abstractSettings.abstractDeadline).toISOString()
-              : null,
-            sessionProposalDeadline: sessionProposalDeadline
-              ? new Date(sessionProposalDeadline).toISOString()
-              : null,
+            abstractDeadline: wallTimeInTzToIso(abstractSettings.abstractDeadline, eventTimezone),
+            sessionProposalDeadline: wallTimeInTzToIso(sessionProposalDeadline, eventTimezone),
           },
         }),
       });
@@ -1243,7 +1257,12 @@ export default function EventSettingsPage() {
 
                   {abstractSettings.allowAbstractSubmissions && (
                     <div className="space-y-2">
-                      <Label htmlFor="abstractDeadline">Abstract Submission Deadline</Label>
+                      <Label htmlFor="abstractDeadline">
+                        Abstract Submission Deadline{" "}
+                        <span className="font-normal text-muted-foreground">
+                          (event time, {tzLabel(new Date(), eventTimezone)})
+                        </span>
+                      </Label>
                       <Input
                         id="abstractDeadline"
                         type="datetime-local"
@@ -1264,14 +1283,20 @@ export default function EventSettingsPage() {
               <div className="border-t pt-6">
                 <h3 className="text-lg font-medium mb-4">Session Proposals</h3>
                 <div className="space-y-2">
-                  <Label htmlFor="sessionProposalDeadline">Session Proposal Deadline</Label>
+                  <Label htmlFor="sessionProposalDeadline">
+                    Session Proposal Deadline{" "}
+                    <span className="font-normal text-muted-foreground">
+                      (event time, {tzLabel(new Date(), eventTimezone)})
+                    </span>
+                  </Label>
                   <Input
                     id="sessionProposalDeadline"
                     type="datetime-local"
                     value={sessionProposalDeadline}
-                    min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
-                      .toISOString()
-                      .slice(0, 16)}
+                    // "now" in the EVENT's timezone. The value is event-local,
+                    // so a browser-local min would disagree with it and reject
+                    // genuinely-future deadlines.
+                    min={localDateTimeInTz(new Date(), eventTimezone)}
                     onChange={(e) => setSessionProposalDeadline(e.target.value)}
                     className="w-72"
                   />

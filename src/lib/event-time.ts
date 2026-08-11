@@ -98,21 +98,47 @@ function tzOffsetMs(date: Date, timeZone: string): number {
  * the event's timezone. Two-pass offset correction handles DST boundaries;
  * a nonexistent local time (spring-forward gap) resolves to the instant the
  * clocks skipped to. Returns an invalid Date for malformed input.
+ *
+ * "Malformed" includes values that are the right SHAPE but not a real date.
+ * `Date.UTC` rolls over silently: Feb 31 becomes Mar 3, month 13 becomes
+ * January of the next year, so the components are read back and compared.
+ * Without that, a typo in an agenda CSV would import as a plausible wrong
+ * date instead of a row error. Same rule the Freshsales importer adopted.
  */
 export function wallTimeInTzToDate(wallTime: string, timeZone: string): Date {
   const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(wallTime);
   if (!m) return new Date(NaN);
-  const asUtc = Date.UTC(
-    Number(m[1]),
-    Number(m[2]) - 1,
-    Number(m[3]),
-    Number(m[4]),
-    Number(m[5]),
-    m[6] ? Number(m[6]) : 0,
-  );
+  const [year, month, day, hour, minute] = [m[1], m[2], m[3], m[4], m[5]].map(Number);
+  const second = m[6] ? Number(m[6]) : 0;
+  const asUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  const probe = new Date(asUtc);
+  if (
+    probe.getUTCFullYear() !== year ||
+    probe.getUTCMonth() + 1 !== month ||
+    probe.getUTCDate() !== day ||
+    probe.getUTCHours() !== hour ||
+    probe.getUTCMinutes() !== minute ||
+    probe.getUTCSeconds() !== second
+  ) {
+    return new Date(NaN);
+  }
   let ts = asUtc - tzOffsetMs(new Date(asUtc), timeZone);
   ts = asUtc - tzOffsetMs(new Date(ts), timeZone);
   return new Date(ts);
+}
+
+/**
+ * The value of an event-timezone `datetime-local` input → the UTC ISO instant
+ * we persist, or null for empty/malformed input. Exact inverse of
+ * `localDateTimeInTz`, and the reason it exists as a pair is that the two
+ * directions are NOT symmetric: an input carries no timezone, so a value read
+ * back out with `.toISOString().slice(0, 16)` re-enters as a different instant
+ * and every re-save compounds the shift. Use this pair, never string slicing.
+ */
+export function wallTimeInTzToIso(value: string, timeZone: string): string | null {
+  if (!value) return null;
+  const d = wallTimeInTzToDate(value, timeZone);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 /**

@@ -101,6 +101,14 @@ jobs:
       - name: Tenant ALS (swept-domain runWithTenant wraps)
         run: bash scripts/check-tenant-als.sh
 
+      # A datetime-local input has no timezone, so slicing an ISO string into
+      # one shifts the stored instant on every re-save, compounding. Shipped
+      # and fixed three times (dinner console, submission deadlines, promo
+      # windows); unit tests can't see it because the helpers are individually
+      # correct and the bug is in which one a form calls.
+      - name: datetime-local round-trip guard
+        run: bash scripts/check-datetime-local.sh
+
       # A null-org user (REVIEWER/SUBMITTER/REGISTRANT) hitting a route that
       # asserts session.user.organizationId! sends organizationId: null to
       # Prisma → a 500 (JAVASCRIPT-NEXTJS-1N). Keeps the event API swept.
