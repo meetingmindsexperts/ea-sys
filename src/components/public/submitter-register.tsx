@@ -608,15 +608,36 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                         </p>
                       </>
                     ) : (
-                      <Button type="button" className="w-full rounded-lg font-semibold btn-gradient py-3 text-base"
-                        disabled={emailCheck.state === "checking"}
-                        onClick={handleContinue}>
-                        {emailCheck.state === "checking" ? (
-                          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking…</>
-                        ) : (
-                          <>Continue <ChevronRight className="ml-1 h-5 w-5" /></>
-                        )}
-                      </Button>
+                      <>
+                        <Button type="button" className="w-full rounded-lg font-semibold btn-gradient py-3 text-base"
+                          disabled={emailCheck.state === "checking"}
+                          onClick={handleContinue}>
+                          {emailCheck.state === "checking" ? (
+                            <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking…</>
+                          ) : (
+                            <>Continue <ChevronRight className="ml-1 h-5 w-5" /></>
+                          )}
+                        </Button>
+                        {/*
+                          Returning submitters had no way in from here. The
+                          Continue button DOES flip to sign-in mode when the
+                          typed email already has an account, but that is only
+                          discoverable by guessing; someone who knows they have
+                          an account looks for a Sign in link, exactly as on the
+                          delegate register page. Lands on the branded event
+                          login, which routes by variant to My Abstracts or My
+                          Session Proposals.
+                        */}
+                        <p className="text-center text-slate-400">
+                          <span className="text-xs">Already have an account?{" "}</span>
+                          <a
+                            href={`/e/${slug}/login?redirect=${copy.loginRedirect}`}
+                            className="text-md text-primary hover:underline font-medium"
+                          >
+                            Sign in
+                          </a>
+                        </p>
+                      </>
                     )}
                     </div>
                   </div>
