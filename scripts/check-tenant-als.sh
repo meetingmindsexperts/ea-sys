@@ -345,6 +345,26 @@ SWEPT_MODULES=(
   "src/lib/agent/tools/dinner.ts"           # dinner-rsvp agent / MCP executor (Aug 3, 2026)
 )
 
+# ---------------------------------------------------------------------------
+# PRIVILEGED-LANE ALLOWLIST (multi-tenancy item 5, Aug 11 2026)
+# ---------------------------------------------------------------------------
+# `dbOperator` (src/lib/db.ts) connects as the table-OWNER database role, which
+# is exempt from every RLS policy. It is the deliberate cross-tenant lane for
+# the worker's candidate scans and the operator-global readers.
+#
+# The whole reason it is a separate export rather than a flag on `db` is so
+# that privileged access is a GREPPABLE IMPORT this gate can pin. Only the
+# files below may import it; anything else fails CI.
+#
+# ADDING A FILE HERE IS A SECURITY DECISION, not a build fix. Before you add
+# one, check the alternative: nearly every "I need cross-tenant data" case is
+# really "I need to run inside the RIGHT tenant's lane", which is
+# `runWithTenant`, not this. Genuine members of this list are surfaces that are
+# cross-tenant BY DESIGN and would see zero rows from any single lane.
+OPERATOR_LANE_ALLOWLIST=(
+  # (empty until the surfaces are wired; grown per phase)
+)
+
 # Strip // line comments and /* */ blocks so prose / commented-out code isn't
 # counted (same technique as check-tenant-scoping.sh).
 executable_ts() {
@@ -463,6 +483,59 @@ for mod in "${SWEPT_MODULES[@]}"; do
   fi
 done
 
+# ---------------------------------------------------------------------------
+# Privileged-lane check: only allowlisted files may import dbOperator.
+# ---------------------------------------------------------------------------
+operator_violations=0
+# `--include` keeps this to source; the definition site and its own tests are
+# excluded by name below rather than by pattern, so a test file that starts
+# using the lane for real still has to be considered.
+while IFS= read -r file; do
+  rel="${file#"$REPO_ROOT"/}"
+  # The definition itself, and the tests that exist to pin its behaviour.
+  case "$rel" in
+    src/lib/db.ts|__tests__/*) continue ;;
+  esac
+  # Comment-stripped, so a file that merely NAMES the lane in a docblock (the
+  # guard module documents it at length) isn't treated as importing it.
+  if [ "$(count_fixed "$(executable_ts "$file")" "dbOperator")" -eq 0 ]; then
+    continue
+  fi
+  allowed=0
+  for entry in ${OPERATOR_LANE_ALLOWLIST+"${OPERATOR_LANE_ALLOWLIST[@]}"}; do
+    if [ "$rel" = "$entry" ]; then allowed=1; break; fi
+  done
+  if [ "$allowed" -eq 0 ]; then
+    if [ "$operator_violations" -eq 0 ]; then
+      echo ""
+      echo "✗ A file imports the privileged maintenance lane (dbOperator) without being allowlisted"
+      echo "  dbOperator connects as the table-owner role and bypasses EVERY RLS policy."
+      echo "  (docs/PLATFORM_DECISIONS.md §5)"
+      echo ""
+    fi
+    operator_violations=$((operator_violations + 1))
+    echo "  $rel: imports dbOperator but is not in OPERATOR_LANE_ALLOWLIST"
+  fi
+done < <(grep -rl --include='*.ts' --include='*.tsx' -F 'dbOperator' \
+           "$REPO_ROOT/src" "$REPO_ROOT/worker" "$REPO_ROOT/scripts" "$REPO_ROOT/__tests__" 2>/dev/null || true)
+
+if [ "$operator_violations" -gt 0 ]; then
+  cat <<'EOF'
+
+  Ask first: does this surface need CROSS-TENANT data, or does it need to run
+  inside the RIGHT tenant's lane? The second is far more common, and the answer
+  there is runWithTenant(orgId, …), not this client.
+
+  If it genuinely is cross-tenant by design (a worker candidate scan, an
+  operator-global reader), add the file to OPERATOR_LANE_ALLOWLIST in this
+  script AND pair it with denyNonOperator() if it is an HTTP route. The DB lane
+  and the RBAC check are two independent walls; neither substitutes for the
+  other.
+
+EOF
+  exit 1
+fi
+
 if [ "$violations" -gt 0 ]; then
   cat <<'EOF'
 
@@ -482,3 +555,4 @@ EOF
 fi
 
 echo "✓ Tenant ALS: all swept-domain handlers wrap in runWithTenant"
+echo "✓ Privileged lane: dbOperator imported only by allowlisted files"

@@ -4,6 +4,7 @@ import { enterTenantTx, getTenantOrgId, getTenantStore } from "./tenant-context"
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
+  prismaOperator: PrismaClient | undefined;
 };
 
 /**
@@ -154,7 +155,7 @@ function assertNotProdDbOutsideProduction() {
   );
 }
 
-function createPrismaClient() {
+function createPrismaClient(datasourceUrl: string | undefined = process.env.DATABASE_URL) {
   assertNotProdDbOutsideProduction();
   const client = new PrismaClient({
     // Only log errors - remove query logging to keep console clean
@@ -169,7 +170,7 @@ function createPrismaClient() {
       },
     ],
     // Connection pool settings for better reliability
-    datasourceUrl: process.env.DATABASE_URL,
+    datasourceUrl,
   });
 
   // Handle Prisma events with our logger
@@ -419,6 +420,63 @@ function buildDb(): PrismaClient {
 export const db = globalForPrisma.prisma ?? buildDb();
 
 /**
+ * THE PRIVILEGED MAINTENANCE LANE (multi-tenancy item 5, Aug 11 2026,
+ * docs/PLATFORM_DECISIONS.md §5).
+ *
+ * A handful of surfaces are *deliberately cross-tenant* and would see ZERO
+ * rows from any tenant lane once the platform enables RLS: the worker's
+ * candidate scans (email-log-prune is the NULL-org pool's only reaper),
+ * the operator-global readers, and the future tenant-management views.
+ *
+ * HOW IT BYPASSES RLS, and why that needs no special grant. The policies in
+ * `prisma/rls/*.sql` are created WITHOUT FORCE, so the *table-owner* database
+ * role is exempt automatically. The platform therefore runs two connection
+ * strings: the app serves requests as a non-owner role (`DATABASE_URL`,
+ * policies enforced) and this client connects as the owner role
+ * (`DATABASE_URL_OPERATOR`). That is exactly the two-role split the tenancy
+ * harness already runs as the reference architecture. No `BYPASSRLS` grant,
+ * no runtime flag on the normal `db`.
+ *
+ * WHY A SEPARATE EXPORT rather than an option on `db`: privileged access must
+ * be a *greppable import*. `scripts/check-tenant-als.sh` allowlists the files
+ * permitted to import this; anything else importing it fails CI. A boolean
+ * argument would have been invisible to that gate.
+ *
+ * ⚠ TWO WALLS, NOT ONE. This client only removes the DATABASE lane. Any HTTP
+ * route using it MUST also pass `denyNonOperator()` (src/lib/platform-operator.ts).
+ * The DB lane and the RBAC check are independent; neither substitutes for the
+ * other.
+ *
+ * ON MASTER this is the SAME OBJECT as `db`. `DATABASE_URL_OPERATOR` is unset
+ * (or equal to `DATABASE_URL`), so there is one client, one pool, and behavior
+ * is byte-identical to before this existed. Pinned by test.
+ *
+ * COMPOSITION: the audit-org-stamp extension IS applied (a job writing an
+ * audit row through this client must still stamp its org), but
+ * `tenant-set-local` is NOT: issuing SET LOCAL here would re-impose the very
+ * lane this client exists to step outside of.
+ */
+function buildOperatorDb(): PrismaClient {
+  const operatorUrl = process.env.DATABASE_URL_OPERATOR;
+  // Master (and any single-role deployment): no distinct owner string, so the
+  // operator lane IS the normal client. Returning `db` rather than building a
+  // second client keeps the connection pool unchanged; a second pool on the
+  // same URL would double the box's connection footprint for no isolation gain.
+  if (!operatorUrl || operatorUrl === process.env.DATABASE_URL) return db;
+
+  const base = createPrismaClient(operatorUrl);
+  dbLogger.info({ msg: "db:operator-lane-initialized" });
+  // Same cast rationale as buildDb() above: the extension changes only the
+  // client's TYPE, never an operation's runtime signature.
+  return withAuditOrgStamp(
+    base as unknown as ReturnType<typeof withTenantIsolation>,
+    base,
+  ) as unknown as PrismaClient;
+}
+
+export const dbOperator = globalForPrisma.prismaOperator ?? buildOperatorDb();
+
+/**
  * The sanctioned interactive-transaction entry point once tenancy is live:
  * issues the SET LOCAL on the transaction's own backend first, then marks the
  * async context `inTenantTx` so the query extension passes inner operations
@@ -441,4 +499,5 @@ export async function tenantTransaction<T>(
 // Cache the client in dev to prevent HMR from creating new connections
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = db;
+  globalForPrisma.prismaOperator = dbOperator;
 }
