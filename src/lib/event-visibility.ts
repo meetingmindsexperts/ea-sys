@@ -93,6 +93,8 @@ export const RESTRICTED_EVENT_DETAIL_SELECT = {
  * Settings keys an org-null role's pages read:
  *  - `abstractPresentationTypes` drives the presentation-type picker
  *  - `sessionProposalDeadline` client-gates the proposal form
+ *  - `abstractLimits` drives the live word/co-author counters and the submit
+ *    guard, and must match what the API will enforce
  *
  * Everything else in that blob is organiser business, and two of them are
  * pointed: `reviewerUserIds` would tell a submitter who is scoring their work,
@@ -101,6 +103,14 @@ export const RESTRICTED_EVENT_DETAIL_SELECT = {
 export const RESTRICTED_SETTINGS_KEYS = [
   "abstractPresentationTypes",
   "sessionProposalDeadline",
+  // Added Aug 11, 2026, and it was a real bug: the submission limits (title
+  // words, body words, co-authors, abstracts per person) are the RULES the
+  // submitter has to follow, and the server enforces them. Withholding them
+  // meant the form fell back to the defaults, so an organizer who set
+  // "5 co-authors" watched submitters keep getting 20 and then hit a 400 on
+  // save. A form that permits what the API refuses is worse than one that
+  // shows the wrong number.
+  "abstractLimits",
 ] as const;
 
 /**

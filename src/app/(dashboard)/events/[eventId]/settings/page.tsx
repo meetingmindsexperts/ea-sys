@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/hooks/use-api";
 import { useParams, useRouter } from "next/navigation";
 import { AbstractThemesSettings } from "@/components/abstracts/abstract-themes-settings";
 import { ReviewCriteriaSettings } from "@/components/abstracts/review-criteria-settings";
@@ -294,6 +296,16 @@ export default function EventSettingsPage() {
     emailCcAddresses: [] as string[],
   });
 
+  /**
+   * This page fetches the event with a plain fetch into local state, so saving
+   * left React Query's copy untouched, and useEvent caches for 5 minutes. An
+   * organizer who set the co-author limit and then opened the abstract form
+   * saw the OLD limit for up to five minutes and reasonably concluded the
+   * setting had not saved. Any page reading the event through useEvent needs
+   * telling.
+   */
+  const queryClient = useQueryClient();
+
   const fetchEvent = useCallback(async () => {
     try {
       const res = await fetch(`/api/events/${eventId}`);
@@ -467,6 +479,7 @@ export default function EventSettingsPage() {
           );
         } else {
           toast.success("General settings saved");
+        queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
         }
         fetchEvent();
       } else {
@@ -527,6 +540,7 @@ export default function EventSettingsPage() {
 
       if (res.ok) {
         toast.success("Settings saved");
+        queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
         fetchEvent();
       } else {
         const data = await res.json().catch(() => ({}));
@@ -561,6 +575,7 @@ export default function EventSettingsPage() {
 
       if (res.ok) {
         toast.success("Branding settings saved");
+        queryClient.invalidateQueries({ queryKey: queryKeys.event(eventId) });
         fetchEvent();
       } else {
         const data = await res.json().catch(() => ({}));

@@ -78,8 +78,16 @@ describe("event field visibility", () => {
 });
 
 describe("the settings a restricted role receives", () => {
-  it("keeps only the two keys their forms read", () => {
+  /**
+   * An exact list, not a minimum: adding a key here is a decision to show an
+   * org-null role something, so it should be a deliberate edit to this test
+   * rather than something that slips in. `abstractLimits` was added Aug 11,
+   * 2026 after a real bug (see the consumer-side block at the bottom of this
+   * file).
+   */
+  it("keeps only the keys their forms read", () => {
     expect([...RESTRICTED_SETTINGS_KEYS].sort()).toEqual([
+      "abstractLimits",
       "abstractPresentationTypes",
       "sessionProposalDeadline",
     ]);
@@ -114,5 +122,61 @@ describe("the settings a restricted role receives", () => {
     expect(pickRestrictedSettings(undefined)).toBeNull();
     expect(pickRestrictedSettings("not-an-object")).toBeNull();
     expect(pickRestrictedSettings([])).toBeNull();
+  });
+});
+
+/**
+ * The settings whitelist has to carry every key a submitter-facing form reads
+ * (Aug 11, 2026, organizer-reported).
+ *
+ * THE BUG: `abstractLimits` was missing. The whitelist did exactly what it was
+ * built to do, which is withhold a key nobody had explicitly allowed, and that
+ * was wrong for this one: the limits are the RULES the submitter must follow,
+ * and the API enforces them. So a form fell back to the defaults and let
+ * someone add 20 co-authors on an event capped at 5, and the save then 400'd.
+ * A form that permits what the API refuses is worse than one showing a stale
+ * number.
+ *
+ * The general shape is a guard that is correct by default and wrong for a
+ * specific case, which no test of the guard itself can catch. So this test
+ * asserts from the CONSUMER side: it lists the accessors a submitter page
+ * calls against `event.settings` and checks each one's key is allowed. Add an
+ * accessor to a submitter form, add it here.
+ */
+describe("RESTRICTED_SETTINGS_KEYS covers what submitter forms read", () => {
+  /**
+   * Every `readX(event?.settings)` on a page an org-null role can open, with
+   * the settings key it looks for.
+   */
+  const SUBMITTER_FORM_READS: { key: string; why: string }[] = [
+    { key: "abstractPresentationTypes", why: "presentation-type picker on the abstract form" },
+    { key: "abstractLimits", why: "word + co-author counters and the submit guard" },
+    { key: "sessionProposalDeadline", why: "client-side deadline gate on the proposal form" },
+  ];
+
+  it.each(SUBMITTER_FORM_READS)("allows $key ($why)", ({ key }) => {
+    expect(RESTRICTED_SETTINGS_KEYS as readonly string[]).toContain(key);
+  });
+
+  it("passes the limits through so the form agrees with the API", () => {
+    const picked = pickRestrictedSettings({
+      abstractLimits: { maxCoAuthors: 5, maxTitleWords: 12 },
+      reviewerUserIds: ["u1"],
+      surveyShareLink: { token: "secret" },
+    });
+    expect(picked?.abstractLimits).toEqual({ maxCoAuthors: 5, maxTitleWords: 12 });
+  });
+
+  /** The two pointed exclusions the whitelist exists for, still excluded. */
+  it("still withholds reviewer identities and the survey token", () => {
+    const picked = pickRestrictedSettings({
+      abstractLimits: { maxCoAuthors: 5 },
+      reviewerUserIds: ["u1"],
+      surveyShareLink: { token: "secret" },
+      emailCcAddresses: ["internal@x.com"],
+    });
+    expect(picked).not.toHaveProperty("reviewerUserIds");
+    expect(picked).not.toHaveProperty("surveyShareLink");
+    expect(picked).not.toHaveProperty("emailCcAddresses");
   });
 });
