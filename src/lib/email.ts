@@ -3449,6 +3449,12 @@ export interface RegistrationConfirmationParams {
    * group's consolidated invoice, sent to the payer + coordinator).
    */
   coveredByGroupPayerName?: string | null;
+  /**
+   * Show the amount and attach the quote, but do NOT invite immediate payment
+   * (plan D3). Distinct from `coveredByGroupPayerName`, which means somebody
+   * else is paying: here the registrant DOES owe it, just not yet.
+   */
+  suppressPayNow?: boolean;
 }
 
 export async function sendRegistrationConfirmation(params: RegistrationConfirmationParams) {
@@ -3511,16 +3517,33 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
       amountLineText = `Amount due: ${currency} ${baseAmount.toFixed(2)}`;
     }
 
+    // Plan D3: an abstract submitter is told the amount and gets the quote, but
+    // is not INVITED to pay yet, because most presenters are comped once their
+    // abstract is accepted and a payment taken now would need refunding. The
+    // quote still attaches (that is decided by price > 0, not here), so this
+    // drops only the Pay Now call to action and the "complete it now" framing.
+    // Organizers who do want payment up front flip
+    // settings.presenterRegistration.payNowEnabled.
+    const payNowCta = params.suppressPayNow
+      ? ""
+      : `<p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Should you wish to complete the payment online, please use the online form below.</p>
+      <a href="${escapeHtml(paymentLink)}" style="display: inline-block; background: #00aade; color: white; padding: 10px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px;">Pay Now</a>
+      <span style="font-size: 12px; color: #92400e; margin-left: 8px;">(This link must not be shared with others)</span>`;
+    const payNowCtaText = params.suppressPayNow
+      ? ""
+      : `\nShould you wish to complete the payment online, please use the online form below.\nPay Now: ${paymentLink} (This link must not be shared with others)`;
+    const settleLine = params.suppressPayNow
+      ? "The organizing team will confirm your registration fee once your submission has been reviewed."
+      : "Kindly note that your registration will be considered as complete only upon receipt of your payment.";
+
     paymentBlock = `<div style="background: #fef3c7; padding: 16px 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
-      <p style="margin: 0 0 8px 0; font-weight: 600; color: #92400e;">Payment Pending</p>
+      <p style="margin: 0 0 8px 0; font-weight: 600; color: #92400e;">${params.suppressPayNow ? "Registration Fee" : "Payment Pending"}</p>
       ${amountLine}
       <p style="margin: 0 0 8px 0; font-size: 14px; color: #78350f;">Please find attached the quote to make the bank transfer if you have chosen to pay later.</p>
-      <p style="margin: 0 0 12px 0; font-size: 14px; color: #78350f;">Should you wish to complete the payment online, please use the online form below.</p>
-      <a href="${escapeHtml(paymentLink)}" style="display: inline-block; background: #00aade; color: white; padding: 10px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 14px;">Pay Now</a>
-      <span style="font-size: 12px; color: #92400e; margin-left: 8px;">(This link must not be shared with others)</span>
-      <p style="margin: 12px 0 0 0; font-size: 13px; color: #92400e;"><strong>IMPORTANT:</strong> Kindly note that your registration will be considered as complete only upon receipt of your payment.</p>
+      ${payNowCta}
+      <p style="margin: 12px 0 0 0; font-size: 13px; color: #92400e;"><strong>IMPORTANT:</strong> ${settleLine}</p>
     </div>`;
-    paymentBlockText = `Payment Pending\n${amountLineText}\nPlease find attached the quote to make the bank transfer if you have chosen to pay later.\nShould you wish to complete the payment online, please use the online form below.\nPay Now: ${paymentLink} (This link must not be shared with others)\nIMPORTANT: Kindly note that your registration will be considered as complete only upon receipt of your payment.`;
+    paymentBlockText = `${params.suppressPayNow ? "Registration Fee" : "Payment Pending"}\n${amountLineText}\nPlease find attached the quote to make the bank transfer if you have chosen to pay later.${payNowCtaText}\nIMPORTANT: ${settleLine}`;
   }
 
   const vars: Record<string, string | number | undefined> = {

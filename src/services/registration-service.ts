@@ -109,11 +109,14 @@ export function sendRegistrationConfirmationEmail(args: {
   /** Group registration: payer covering this member — swaps the payment
    * block for a "covered by" note + suppresses the quote PDF. */
   coveredByGroupPayerName?: string | null;
+  /** D3: amount + quote, no Pay Now call to action. */
+  suppressPayNow?: boolean;
   logKey: string;
 }): void {
   const { event, registration, attendee } = args;
   sendRegistrationConfirmation({
     coveredByGroupPayerName: args.coveredByGroupPayerName ?? null,
+    suppressPayNow: args.suppressPayNow ?? false,
     ...buildEventConfirmationFields(event),
     to: attendee.email,
     additionalEmail: attendee.additionalEmail ?? null,
@@ -331,6 +334,12 @@ export interface CreateRegistrationInput {
    * staff-gated callers may set this — never thread it from public input.
    */
   overrideSalesWindow?: boolean;
+  /**
+   * Show the amount + attach the quote but do NOT invite immediate payment
+   * (presenter plan D3). Threaded to the confirmation email; changes nothing
+   * about what is owed or about seat/promo accounting.
+   */
+  suppressPayNow?: boolean;
 
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "api";
@@ -968,6 +977,7 @@ export async function createRegistration(
       ticketCurrency: ticketType.currency,
       price: effectiveTicketPrice,
       attendanceMode,
+      suppressPayNow: input.suppressPayNow ?? false,
       logKey: "registration-service:confirmation-send-failed",
     });
   }

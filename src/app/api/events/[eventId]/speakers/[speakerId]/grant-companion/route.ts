@@ -9,12 +9,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { rateLimited } from "@/lib/api-errors";
 import { ensureSpeakerCompanionRegistration } from "@/lib/speaker-companion";
-import {
-  createRegistration,
-  type RegistrationTitle,
-  type RegistrationAttendeeRole,
-} from "@/services/registration-service";
-import { cancelRegistration } from "@/services/payment-service";
+import { createAndLinkPayableRegistration } from "@/lib/presenter-registration";
 
 /**
  * POST — grant this speaker a registration by explicit organizer action, in
@@ -208,21 +203,21 @@ export async function POST(req: Request, { params }: RouteParams) {
         );
       }
 
-      const created = await createRegistration({
+      // The create + conditional link + compensating cancel now live in
+      // lib/presenter-registration, shared with the abstract signup doors. The
+      // audit row and the HTTP mapping stay here, because they are what makes
+      // this an ORGANIZER grant rather than a self-signup.
+      const outcome = await createAndLinkPayableRegistration({
         eventId,
         organizationId: session.user.organizationId ?? "",
-        userId: session.user.id,
-        ticketTypeId: body.ticketTypeId,
-        pricingTierId: body.pricingTierId ?? null,
-        attendee: {
-          // Speaker's Title/AttendeeRole enums are value-identical to the
-          // service's narrowed string unions.
-          title: (speaker.title as RegistrationTitle | null) ?? null,
-          role: (speaker.role as RegistrationAttendeeRole | null) ?? null,
+        speaker: {
+          id: speaker.id,
           email: speaker.email,
-          additionalEmail: speaker.additionalEmail,
           firstName: speaker.firstName,
           lastName: speaker.lastName,
+          title: speaker.title,
+          role: speaker.role,
+          additionalEmail: speaker.additionalEmail,
           organization: speaker.organization,
           jobTitle: speaker.jobTitle,
           phone: speaker.phone,
@@ -232,133 +227,31 @@ export async function POST(req: Request, { params }: RouteParams) {
           zipCode: speaker.zipCode,
           country: speaker.country,
           specialty: speaker.specialty,
+          sourceRegistrationId: speaker.sourceRegistrationId,
         },
-        source: "rest",
-        requestIp: getClientIp(req),
+        ticketTypeId: body.ticketTypeId,
+        pricingTierId: body.pricingTierId ?? null,
+        actorUserId: session.user.id,
         actorFirstName: session.user.firstName ?? null,
+        requestIp: getClientIp(req),
+        source: "rest",
         // Owner decision Aug 5, 2026 (review M5): a grant is an explicit
         // ORGANIZER action — proposal review happens after public sales
         // close, so the type's sales window must not block it. Capacity
         // (sold-out / event cap) still applies; the bypass is logged by
         // the service.
         overrideSalesWindow: true,
+        logPrefix: "grant-companion",
       });
 
-      if (!created.ok) {
-        // Same-email registration already exists → link it as the facet
-        // instead of failing (the service's dup check excludes CANCELLED,
-        // so the row is live).
-        const existingId =
-          created.code === "ALREADY_REGISTERED"
-            ? (created.meta?.existingRegistrationId as string | undefined)
-            : undefined;
-        if (existingId) {
-          // Conditional on the pointer we read — a concurrent grant that got
-          // there first simply wins (both outcomes are links; benign).
-          const linkClaim = await db.speaker.updateMany({
-            where: { id: speaker.id, sourceRegistrationId: speaker.sourceRegistrationId },
-            data: { sourceRegistrationId: existingId },
-          });
-          const finalId = linkClaim.count > 0
-            ? existingId
-            : (await db.speaker.findUnique({
-                where: { id: speaker.id },
-                select: { sourceRegistrationId: true },
-              }))?.sourceRegistrationId ?? existingId;
-          // H1: return the linked row's REAL state — the sheet must never
-          // fabricate COMPLIMENTARY for what may be a PAID delegate row.
-          const linkedRow = await db.registration.findFirst({
-            where: { id: finalId, eventId },
-            select: { status: true, paymentStatus: true },
-          });
-          // Review M4: this is the same state change the comp path audits —
-          // a payable attempt that resolved to a link must be accountable too
-          // (the organizer's chosen type/tier was NOT applied and NO payment
-          // email was sent; the dialog toasts that honestly).
-          db.auditLog
-            .create({
-              data: {
-                eventId,
-                userId: session.user.id,
-                action: "COMPANION_GRANTED",
-                entityType: "Speaker",
-                entityId: speaker.id,
-                changes: {
-                  mode: "payable",
-                  outcome: "linked-existing",
-                  registrationId: finalId,
-                  requestedTicketTypeId: body.ticketTypeId,
-                  requestedPricingTierId: body.pricingTierId ?? null,
-                },
-                ipAddress: getClientIp(req),
-              },
-            })
-            .catch((err) =>
-              apiLogger.warn({ err, msg: "grant-companion:audit-failed", speakerId }),
-            );
-          apiLogger.info({
-            msg: "grant-companion:linked-existing-payable",
-            eventId,
-            speakerId,
-            registrationId: finalId,
-          });
-          return NextResponse.json({
-            ok: true,
-            outcome: "linked-existing",
-            registrationId: finalId,
-            status: linkedRow?.status ?? null,
-            paymentStatus: linkedRow?.paymentStatus ?? null,
-          });
-        }
-        apiLogger.warn({
-          msg: "grant-companion:payable-rejected",
-          eventId,
-          speakerId,
-          code: created.code,
-          detail: created.message,
-        });
+      if (outcome.status === "rejected") {
         return NextResponse.json(
-          { error: created.message, code: created.code },
-          { status: created.code === "UNKNOWN" ? 500 : 400 },
+          { error: outcome.message, code: outcome.code },
+          { status: outcome.code === "UNKNOWN" ? 500 : 400 },
         );
       }
 
-      // CONDITIONAL claim on the pointer we validated (review H2): if a
-      // concurrent grant linked something else meanwhile, we just minted a
-      // DUPLICATE registration (whose confirmation email may already be out)
-      // — compensate by cancelling it so nobody holds two live registrations.
-      // A CRASH between the create above and this claim is self-healing: the
-      // registration exists + is visible in the list, and a re-grant hits the
-      // service's ALREADY_REGISTERED → links it (no duplicate email).
-      const claim = await db.speaker.updateMany({
-        where: { id: speaker.id, sourceRegistrationId: speaker.sourceRegistrationId },
-        data: { sourceRegistrationId: created.registration.id },
-      });
-      if (claim.count === 0) {
-        apiLogger.error({
-          msg: "grant-companion:payable-race-lost",
-          eventId,
-          speakerId,
-          duplicateRegistrationId: created.registration.id,
-          userId: session.user.id,
-        });
-        const compensated = await cancelRegistration({
-          registrationId: created.registration.id,
-          eventId,
-          organizationId: session.user.organizationId ?? "",
-          refund: false,
-          source: "rest",
-          issuedByUserId: session.user.id,
-        });
-        if (!compensated.ok) {
-          apiLogger.error({
-            msg: "grant-companion:race-compensation-failed",
-            eventId,
-            speakerId,
-            registrationId: created.registration.id,
-            code: compensated.code,
-          });
-        }
+      if (outcome.status === "race-lost") {
         return NextResponse.json(
           {
             error:
@@ -368,6 +261,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           { status: 409 },
         );
       }
+
+      const linkedOnly = outcome.status === "linked-existing";
+      // Review M4: a payable attempt that resolved to a link is the same state
+      // change the comp path audits, so it must be accountable too, recording
+      // that the organizer's chosen type/tier was NOT applied and no payment
+      // email went out (the dialog toasts that honestly).
       db.auditLog
         .create({
           data: {
@@ -376,36 +275,37 @@ export async function POST(req: Request, { params }: RouteParams) {
             action: "COMPANION_GRANTED",
             entityType: "Speaker",
             entityId: speaker.id,
-            changes: {
-              mode: "payable",
-              registrationId: created.registration.id,
-              ticketTypeId: body.ticketTypeId,
-              pricingTierId: body.pricingTierId ?? null,
-              paymentStatus: created.registration.paymentStatus,
-              outcome: "payable-created",
-            },
+            changes: linkedOnly
+              ? {
+                  mode: "payable",
+                  outcome: "linked-existing",
+                  registrationId: outcome.registrationId,
+                  requestedTicketTypeId: body.ticketTypeId,
+                  requestedPricingTierId: body.pricingTierId ?? null,
+                }
+              : {
+                  mode: "payable",
+                  registrationId: outcome.registrationId,
+                  ticketTypeId: body.ticketTypeId,
+                  pricingTierId: body.pricingTierId ?? null,
+                  paymentStatus: outcome.paymentStatus,
+                  outcome: "payable-created",
+                },
             ipAddress: getClientIp(req),
           },
         })
         .catch((err) =>
           apiLogger.warn({ err, msg: "grant-companion:audit-failed", speakerId }),
         );
-      apiLogger.info({
-        msg: "grant-companion:payable-created",
-        eventId,
-        speakerId,
-        registrationId: created.registration.id,
-        paymentStatus: created.registration.paymentStatus,
-        userId: session.user.id,
-      });
+
       return NextResponse.json({
         ok: true,
-        outcome: "payable-created",
-        registrationId: created.registration.id,
+        outcome: linkedOnly ? "linked-existing" : "payable-created",
+        registrationId: outcome.registrationId,
         // H1: real state — a requiresApproval type creates PENDING, not
-        // CONFIRMED; the sheet renders what actually happened.
-        status: created.registration.status,
-        paymentStatus: created.registration.paymentStatus,
+        // CONFIRMED, and a linked row may be a PAID delegate registration.
+        status: outcome.registrationStatus,
+        paymentStatus: outcome.paymentStatus,
       });
     }
 
