@@ -59,3 +59,72 @@ export function isPresenterTierName(name: string | null | undefined): boolean {
   if (slug === PRESENTER_PREFIX) return true;
   return slug.startsWith(`${PRESENTER_PREFIX}-`);
 }
+
+/** Minimal shape of a tier as the public event API returns it. */
+export interface PresenterTierCandidate {
+  id: string;
+  name: string;
+  price: number | string;
+  currency?: string | null;
+  sortOrder?: number | null;
+  /** Computed server-side: in its sales window and not sold out. */
+  canPurchase?: boolean;
+}
+
+export interface PresenterTicketTypeCandidate {
+  id: string;
+  name: string;
+  isActive?: boolean;
+  pricingTiers?: PresenterTierCandidate[] | null;
+}
+
+/** One registration type and the presenter rate currently on sale for it. */
+export interface PresenterRateOption {
+  ticketTypeId: string;
+  ticketTypeName: string;
+  tierId: string;
+  tierName: string;
+  price: number;
+  currency: string;
+}
+
+/**
+ * The presenter rates a submitter may pick from right now: for each
+ * registration type, the presenter tier that is on sale, lowest `sortOrder`
+ * first so Presenter Early Bird wins over Presenter Standard while both are
+ * open.
+ *
+ * Shared by the signup form (which renders these) and the door (which resolves
+ * the tier SERVER-side from the chosen type). The door must never take a tier
+ * id or a price from the client, and sharing the resolution is what keeps the
+ * price the submitter was shown identical to the one they are charged.
+ *
+ * An empty result is meaningful, not an error: it means this event has no
+ * presenter rates configured, which is plan decision D4, and the submitter
+ * falls back to the complimentary Faculty registration as before.
+ */
+export function presenterRateOptions(
+  ticketTypes: PresenterTicketTypeCandidate[] | null | undefined,
+): PresenterRateOption[] {
+  if (!Array.isArray(ticketTypes)) return [];
+  const options: PresenterRateOption[] = [];
+  for (const tt of ticketTypes) {
+    if (tt.isActive === false) continue;
+    const open = (tt.pricingTiers ?? [])
+      .filter((t) => isPresenterTierName(t.name) && t.canPurchase !== false)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    const tier = open[0];
+    if (!tier) continue;
+    const price = Number(tier.price);
+    if (!Number.isFinite(price)) continue;
+    options.push({
+      ticketTypeId: tt.id,
+      ticketTypeName: tt.name,
+      tierId: tier.id,
+      tierName: tier.name,
+      price,
+      currency: tier.currency || "USD",
+    });
+  }
+  return options;
+}

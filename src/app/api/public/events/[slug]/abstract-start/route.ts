@@ -7,7 +7,8 @@ import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 import { verifyPublicCredentials } from "@/lib/public-credential-door";
 import { readUserAgent } from "@/lib/login-audit";
-import { ensureSpeakerCompanionRegistration, upsertEventSpeaker } from "@/lib/speaker-companion";
+import { upsertEventSpeaker } from "@/lib/speaker-companion";
+import { ensureSubmitterRegistration } from "@/lib/presenter-signup";
 
 /**
  * "Start an abstract as an EXISTING user" — the sign-in half of the abstract
@@ -32,6 +33,8 @@ const bodySchema = z.object({
   // route's historical name it serves BOTH the abstract and the session-
   // proposal register pages' existing-account paths.
   source: z.enum(["abstract", "proposal"]).default("abstract"),
+  /** Presenter rate, for someone signing in who holds no registration yet. */
+  ticketTypeId: z.string().max(100).optional(),
 });
 
 interface RouteParams {
@@ -65,7 +68,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     const event = await db.event.findFirst({
       where: await publicEventWhere(req, slug, { allowIdFallback: true }),
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, settings: true },
     });
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
@@ -187,8 +190,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // PROPOSAL sign-ins are linkOnly (owner decision Aug 5, 2026): NO auto
     // comp — the organizer grants comp or payable per person; an existing
     // same-email registration is still linked.
-    try {
-      await ensureSpeakerCompanionRegistration({
+    await ensureSubmitterRegistration({
+      speaker: {
         id: speakerId,
         eventId: event.id,
         email: emailLower,
@@ -205,10 +208,19 @@ export async function POST(req: Request, { params }: RouteParams) {
         zipCode: att?.zipCode ?? null,
         country: att?.country ?? null,
         specialty: att?.specialty ?? null,
-      }, { linkOnly: parsed.data.source === "proposal" });
-    } catch (err) {
-      apiLogger.warn({ msg: "public/abstract-start:companion-failed", eventId: event.id, speakerId, err });
-    }
+      },
+      organizationId: event.organizationId,
+      eventSettings: event.settings,
+      source: parsed.data.source,
+      ticketTypeId: parsed.data.ticketTypeId ?? null,
+      // This door has no picker: someone signing in with an existing account
+      // goes straight to the abstract form. With no type chosen the rate
+      // resolver returns null, so they get the complimentary companion (D4) or
+      // simply keep the registration they already hold. The organizer can move
+      // them onto a paid rate with Grant registration.
+      expectedLink: null,
+      requestIp: getClientIp(req),
+    });
 
     apiLogger.info({ msg: "public/abstract-start:ready", eventId: event.id, email: emailLower, wasRegistrant });
     return NextResponse.json({ ok: true, eventId: event.id, wasRegistrant });

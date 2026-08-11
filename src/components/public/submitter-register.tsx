@@ -22,6 +22,10 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
+import {
+  presenterRateOptions,
+  type PresenterTicketTypeCandidate,
+} from "@/lib/presenter-tiers";
 import { EventBanner } from "@/components/public/event-banner";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -82,6 +86,8 @@ interface Event {
     allowAbstractSubmissions: boolean;
     abstractDeadline: string | null;
   };
+  /** Used to offer presenter rates on the abstract flow (plan D2). */
+  ticketTypes?: PresenterTicketTypeCandidate[];
 }
 
 const VARIANT_COPY: Record<
@@ -141,6 +147,8 @@ const registerSchema = z.object({
   country: z.string().min(1, "Country is required"),
   specialty: z.string().min(1, "Specialty is required"),
   customSpecialty: z.string().optional(),
+  /** Presenter rate. Only required when the event offers any (plan D4). */
+  ticketTypeId: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
@@ -227,10 +235,26 @@ function BrandedShell({
 
 export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterVariant }) {
   const copy = VARIANT_COPY[variant];
+
   const params = useParams();
   const slug = params.slug as string;
 
   const [event, setEvent] = useState<Event | null>(null);
+
+  /**
+   * Presenter rates on offer right now (plan D2). Abstracts only: session
+   * proposals create no registration at all (the Aug 5 decision) so they must
+   * never show a rate.
+   *
+   * An EMPTY list is the D4 fallback, not an error. It means this event has no
+   * presenter tiers configured, the step does not render, and the door mints
+   * the complimentary Faculty registration exactly as before. Every existing
+   * event is in that state until an organizer sets rates, which is what makes
+   * this safe to ship.
+   */
+  const rateOptions =
+    variant === "abstract" ? presenterRateOptions(event?.ticketTypes) : [];
+  const offersRates = rateOptions.length > 0;
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -255,6 +279,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
       additionalEmail: "", organization: "", jobTitle: "",
       phone: "", city: "", country: "",
       specialty: "", customSpecialty: "",
+      ticketTypeId: "",
     },
   });
 
@@ -303,6 +328,12 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
     variant === "proposal" ? event?.sessionProposalWelcomeHtml : event?.abstractWelcomeHtml;
 
   async function onSubmit(data: RegisterForm) {
+    // Required only when the event actually offers rates (D4). Enforced again
+    // server-side, since a form can be bypassed.
+    if (offersRates && !data.ticketTypeId) {
+      form.setError("ticketTypeId", { message: "Please choose a registration type" });
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch(`/api/public/events/${slug}/submitter`, {
@@ -322,6 +353,7 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
           organization: data.organization || undefined,
           jobTitle: data.jobTitle || undefined,
           phone: data.phone || undefined,
+          ticketTypeId: data.ticketTypeId || undefined,
           city: data.city || undefined,
           country: data.country || undefined,
           specialty: data.specialty || undefined,
@@ -761,6 +793,67 @@ export function SubmitterRegisterPage({ variant }: { variant: SubmitterRegisterV
                           </FormItem>
                         )} />
                     </div>
+
+                    {/*
+                      Presenter rate (plan D2). Rendered only when the event has
+                      presenter tiers configured: with none, the submitter still
+                      gets the complimentary Faculty registration and there is
+                      nothing to choose (D4).
+                    */}
+                    {offersRates && (
+                      <div className="space-y-5">
+                        <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
+                          Registration
+                        </h3>
+                        <FormField control={form.control} name="ticketTypeId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm font-medium text-slate-600">
+                                Registration type <span className="text-red-400">*</span>
+                              </FormLabel>
+                              <div className="space-y-2">
+                                {rateOptions.map((o) => (
+                                  <label
+                                    key={o.ticketTypeId}
+                                    className={cn(
+                                      "flex items-center justify-between gap-4 rounded-lg border p-4 cursor-pointer transition-colors",
+                                      field.value === o.ticketTypeId
+                                        ? "border-primary bg-primary/5"
+                                        : "border-slate-200 hover:border-slate-300",
+                                    )}
+                                  >
+                                    <span className="flex items-center gap-3 min-w-0">
+                                      <input
+                                        type="radio"
+                                        name="ticketTypeId"
+                                        value={o.ticketTypeId}
+                                        checked={field.value === o.ticketTypeId}
+                                        onChange={() => field.onChange(o.ticketTypeId)}
+                                        className="h-4 w-4 shrink-0 accent-[#00aade]"
+                                      />
+                                      <span className="min-w-0">
+                                        <span className="block text-base font-medium text-slate-800 truncate">
+                                          {o.ticketTypeName}
+                                        </span>
+                                        <span className="block text-xs text-slate-400">{o.tierName}</span>
+                                      </span>
+                                    </span>
+                                    <span className="text-base font-semibold text-slate-800 whitespace-nowrap tabular-nums">
+                                      {o.currency} {o.price.toFixed(2)}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                              <p className="text-sm text-slate-400">
+                                You will receive a quote by email. Payment is not required to
+                                submit your abstract, and the organizing team will confirm your
+                                fee once your submission has been reviewed.
+                              </p>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                      </div>
+                    )}
 
                     {/* Navigation */}
                     <div className="flex items-center justify-between pt-2">

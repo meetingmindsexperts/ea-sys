@@ -9,7 +9,8 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
 import { titleEnum, attendeeRoleEnum } from "@/lib/schemas";
 import { syncToContact } from "@/lib/contact-sync";
 import { notifyEventAdmins } from "@/lib/notifications";
-import { ensureSpeakerCompanionRegistration, upsertEventSpeaker } from "@/lib/speaker-companion";
+import { upsertEventSpeaker } from "@/lib/speaker-companion";
+import { ensureSubmitterRegistration } from "@/lib/presenter-signup";
 import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, brandingFrom, brandingCc } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { isDeadlinePassed, readSessionProposalDeadline } from "@/lib/submission-deadline";
@@ -36,6 +37,10 @@ const registerSchema = z.object({
   // behavior) or "proposal" (the session-proposal register page). Gates below
   // branch on it; the created account/Speaker is identical either way.
   source: z.enum(["abstract", "proposal"]).default("abstract"),
+  /** Presenter rate the submitter chose. Ignored on proposals and on events
+   *  with no presenter tiers configured (plan D4). The TIER and the price are
+   *  resolved server-side, never taken from the client. */
+  ticketTypeId: z.string().max(100).optional(),
 }).refine(
   (data) => data.specialty !== "Others" || (data.customSpecialty?.trim().length ?? 0) > 0,
   {
@@ -337,8 +342,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Failure-isolated: a hiccup must NOT fail the account create; the backfill
     // script recovers any that fail.
     if (speakerRow) {
-      try {
-        await ensureSpeakerCompanionRegistration({
+      await ensureSubmitterRegistration({
+        speaker: {
           id: speakerRow.id,
           eventId: event.id,
           email: emailLower,
@@ -360,18 +365,19 @@ export async function POST(req: Request, { params }: RouteParams) {
           // grant route already did this): a revoked person who re-registers
           // gets their LIVE registration linked instead of staying pointed at
           // the dead row. The raw pointer still rides as expectedLink so the
-          // helper's conditional claim asserts the true current value.
+          // conditional claim asserts the true current value.
           sourceRegistrationId:
             speakerRow.sourceRegistration?.status === "CANCELLED"
               ? null
               : speakerRow.sourceRegistrationId,
-        }, {
-          linkOnly: data.source === "proposal",
-          expectedLink: speakerRow.sourceRegistrationId,
-        });
-      } catch (err) {
-        apiLogger.error({ err, speakerId: speakerRow.id, eventId: event.id }, "submitter:companion-failed");
-      }
+        },
+        organizationId: event.organizationId,
+        eventSettings: event.settings,
+        source: data.source,
+        ticketTypeId: data.ticketTypeId ?? null,
+        expectedLink: speakerRow.sourceRegistrationId,
+        requestIp: getClientIp(req),
+      });
     }
 
     // Send welcome email (non-blocking)

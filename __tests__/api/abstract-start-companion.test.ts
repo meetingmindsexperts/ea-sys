@@ -95,13 +95,14 @@ describe("abstract-start — companion policy per source", () => {
     const res = await POST(makeReq(validBody), params);
     expect(res.status).toBe(200);
     expect(ensureCompanionSpy).toHaveBeenCalledTimes(1);
-    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: false });
+    // The decision, not the option object (see the submitter suite).
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).not.toBe(true);
   });
 
   it("a PROPOSAL sign-in is linkOnly — NO auto comp registration (owner decision Aug 5, 2026)", async () => {
     const res = await POST(makeReq({ ...validBody, source: "proposal" }), params);
     expect(res.status).toBe(200);
-    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: true });
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
   });
 
   it("a companion failure never fails the sign-in (failure-isolated)", async () => {

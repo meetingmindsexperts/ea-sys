@@ -115,12 +115,17 @@ describe("submitter route — companion registration", () => {
 
   it("ABSTRACT signups still auto-mint (linkOnly false)", async () => {
     await POST(makeReq(validBody), { params });
-    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: false, expectedLink: null });
+    // Asserted as the DECISION, not the option object: linkOnly absent and
+    // linkOnly:false mean the same thing to the helper, and the door now
+    // routes through ensureSubmitterRegistration which omits it.
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).not.toBe(true);
+    expect(ensureCompanionSpy.mock.calls[0][1]?.expectedLink).toBeNull();
   });
 
   it("PROPOSAL signups are linkOnly — NO auto comp registration (owner decision Aug 5, 2026)", async () => {
     await POST(makeReq({ ...validBody, source: "proposal" }), { params });
-    expect(ensureCompanionSpy.mock.calls[0][1]).toEqual({ linkOnly: true, expectedLink: null });
+    expect(ensureCompanionSpy.mock.calls[0][1]?.linkOnly).toBe(true);
+    expect(ensureCompanionSpy.mock.calls[0][1]?.expectedLink).toBeNull();
   });
 
   it("a CANCELLED linked registration counts as NO link — the door re-links a LIVE one (LOW fix Aug 5, 2026)", async () => {
@@ -134,7 +139,8 @@ describe("submitter route — companion registration", () => {
     // Effective pointer nulled so the helper links a live same-email row…
     expect(input.sourceRegistrationId).toBeNull();
     // …while the RAW pointer rides as expectedLink for the conditional claim.
-    expect(opts).toEqual({ linkOnly: false, expectedLink: "reg-dead" });
+    expect(opts?.linkOnly).not.toBe(true);
+    expect(opts?.expectedLink).toBe("reg-dead");
   });
 });
 
