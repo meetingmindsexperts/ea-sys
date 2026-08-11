@@ -8,6 +8,7 @@ import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
 import { SpeakerAgreementTemplateCard } from "@/components/events/speaker-agreement-template-card";
 import { isWebinar } from "@/lib/webinar";
 import { localDateTimeInTz, resolveTimezone, tzLabel, wallTimeInTzToIso } from "@/lib/event-time";
+import { readPresenterRegistrationSettings } from "@/lib/presenter-registration-settings";
 import {
   ABSTRACTS_PER_SUBMITTER_CEILING,
   CONTENT_WORDS_CEILING,
@@ -251,6 +252,15 @@ export default function EventSettingsPage() {
    * mid-edit without it snapping to 0; parsed on save, where an empty or
    * unparseable value falls back to the default rather than storing garbage.
    */
+  /**
+   * D3: abstract submitters are not invited to pay at submission by default,
+   * because roughly 29 in 30 get comped after acceptance. This turns Pay Now
+   * back on for events that do want payment up front. Enabling it is behind a
+   * confirmation, since the consequence lands on every future submitter.
+   */
+  const [presenterPayNow, setPresenterPayNow] = useState(false);
+  const [confirmPayNowOpen, setConfirmPayNowOpen] = useState(false);
+
   const [abstractLimits, setAbstractLimits] = useState({
     maxTitleWords: "",
     maxContentWords: "",
@@ -358,6 +368,8 @@ export default function EventSettingsPage() {
             ? localDateTimeInTz(new Date(settings.sessionProposalDeadline), tz)
             : "",
         );
+
+        setPresenterPayNow(readPresenterRegistrationSettings(settings).payNowEnabled);
 
         const lim = readAbstractLimits(settings);
         setAbstractLimits({
@@ -507,6 +519,7 @@ export default function EventSettingsPage() {
                   ? null
                   : Number(abstractLimits.maxAbstractsPerSubmitter) || null,
             },
+            presenterRegistration: { payNowEnabled: presenterPayNow },
             sessionProposalDeadline: wallTimeInTzToIso(sessionProposalDeadline, eventTimezone),
           },
         }),
@@ -1456,6 +1469,60 @@ export default function EventSettingsPage() {
                           />
                         </div>
                       </div>
+                      <div className="flex items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5 pr-6">
+                          <Label>Ask submitters to pay at submission</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Off by default. Submitters still receive their quote either way, so
+                            they know the amount; this only decides whether the confirmation
+                            invites them to pay straight away. They can always pay later from
+                            their registration portal.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={presenterPayNow}
+                          onCheckedChange={(checked) => {
+                            // Turning it ON is the consequential direction, so it
+                            // is confirmed. Turning it OFF just stops asking for
+                            // money and needs no ceremony.
+                            if (checked) setConfirmPayNowOpen(true);
+                            else setPresenterPayNow(false);
+                          }}
+                        />
+                      </div>
+
+                      <AlertDialog open={confirmPayNowOpen} onOpenChange={setConfirmPayNowOpen}>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Ask every submitter to pay at submission?</AlertDialogTitle>
+                            <AlertDialogDescription asChild>
+                              <div className="space-y-3 text-sm">
+                                <p>
+                                  Every future abstract submitter will get a Pay Now link with
+                                  their confirmation, before you have reviewed their abstract.
+                                </p>
+                                <p>
+                                  Most conferences comp or discount the majority of presenters
+                                  once abstracts are accepted. Anyone who pays and is later
+                                  comped has to be refunded, which needs a credit note.
+                                </p>
+                                <p>
+                                  Leaving this off does not stop anyone paying. They still get
+                                  the quote, and they can pay whenever they like from their
+                                  registration portal.
+                                </p>
+                              </div>
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Keep it off</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => setPresenterPayNow(true)}>
+                              Turn on Pay Now
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+
                       <p className="text-sm text-muted-foreground">
                         <strong>Abstracts per person</strong> counts only what is in the review
                         pool: drafts are free, and a withdrawn or rejected abstract returns the
