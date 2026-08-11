@@ -212,6 +212,41 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Presenter registration: the sign-in door still sends the delegate email (Aug 11, 2026, DEFERRED by owner)
+
+Recorded when the presenter feature shipped. Deliberately left as-is; not a
+defect, an inconsistency worth closing when someone hits it.
+
+**What happens.** There are two abstract doors. `/submitter` creates a new
+account and sends a welcome email, so the presenter fee and the quote PDF fold
+into that one email (owner decision D7: one email, not two). `/abstract-start`
+is the door a returning submitter uses when they already have an account. It
+sends no welcome, so `callerSendsFeeEmail` is left unset there and the person
+receives the ordinary delegate registration confirmation instead, subject line
+`Your registration for X`.
+
+**Why it was not simply suppressed too.** Suppression with nothing behind it
+silently drops the quote, which is worse than wrong wording. The flag is
+documented on
+[registration-service.ts](../src/services/registration-service.ts) as usable
+ONLY where the caller sends a replacement.
+
+**Why the wording still grates.** At that moment nothing has been accepted, so
+"Your registration for X" reads as a settled place at the event, which is the
+same objection that produced D7 for the other door.
+
+**The fix when it is wanted.** Either (a) a dedicated
+`presenter-registration-confirmation` system template with presenter wording,
+which also gives organizers a fee email they can edit independently, or (b)
+a small "here is your presenter fee" send on the sign-in door reusing
+`buildPresenterFeeEmailExtras`, which already returns the block, the text
+mirror and the attachment. Option (b) is roughly an hour; option (a) adds an
+editable template and its preview sample.
+
+**Note the volume is low.** This path only fires for someone who already has an
+account on this event AND signs in through the abstract link AND the event has
+presenter rates configured.
+
 ### Cloning a WEBINAR event produces a broken webinar (Aug 10, 2026, NOT FIXED)
 
 Found while triaging `zoom:webinar-non-anchor-create-refused` in prod. Not
