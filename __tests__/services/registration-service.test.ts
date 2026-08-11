@@ -20,8 +20,8 @@ const {
   return {
     mockDb: {
       event: { findFirst: vi.fn() },
-      ticketType: { findFirst: vi.fn(), updateMany: vi.fn() },
-      pricingTier: { findFirst: vi.fn() },
+      ticketType: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
+      pricingTier: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
       billingAccount: { findFirst: vi.fn() },
       registration: { findFirst: vi.fn(), create: vi.fn() },
       attendee: { create: vi.fn() },
@@ -42,9 +42,22 @@ const {
             create: (...a: unknown[]) =>
               (mockDb.attendee.create as (...a: unknown[]) => unknown)(...a),
           },
+          // The seat claim goes through `claimSeats`, which reads the cap
+          // first (Prisma updateMany cannot compare two columns) and then does
+          // the guarded increment. Both counters are wired because WHICH one is
+          // claimed is decided by `seatCounter` from the row's createdSource:
+          // staff/MCP → ticketType, tier-consuming public sources → pricingTier.
           ticketType: {
+            findUnique: (...a: unknown[]) =>
+              (mockDb.ticketType.findUnique as (...a: unknown[]) => unknown)(...a),
             updateMany: (...a: unknown[]) =>
               (mockDb.ticketType.updateMany as (...a: unknown[]) => unknown)(...a),
+          },
+          pricingTier: {
+            findUnique: (...a: unknown[]) =>
+              (mockDb.pricingTier.findUnique as (...a: unknown[]) => unknown)(...a),
+            updateMany: (...a: unknown[]) =>
+              (mockDb.pricingTier.updateMany as (...a: unknown[]) => unknown)(...a),
           },
           // Event-wide cap (Option B): claimEventSeats runs a raw conditional
           // UPDATE. Default 1 affected row = event not full.
@@ -169,7 +182,11 @@ beforeEach(() => {
   mockDb.ticketType.findFirst.mockResolvedValue(PAID_TICKET);
   mockDb.registration.findFirst.mockResolvedValue(null);
   mockDb.attendee.create.mockResolvedValue({ id: "att-1" });
+  // `claimSeats` reads the cap, then does the guarded increment.
+  mockDb.ticketType.findUnique.mockResolvedValue({ quantity: PAID_TICKET.quantity });
   mockDb.ticketType.updateMany.mockResolvedValue({ count: 1 });
+  mockDb.pricingTier.findUnique.mockResolvedValue({ quantity: 999999 });
+  mockDb.pricingTier.updateMany.mockResolvedValue({ count: 1 });
   mockDb.registration.create.mockResolvedValue(CREATED_REGISTRATION_PAID);
   mockDb.auditLog.create.mockResolvedValue({});
   mockSyncToContact.mockResolvedValue(undefined);
@@ -242,10 +259,47 @@ describe("createRegistration — happy path", () => {
 
   it("atomically increments ticketType.soldCount inside the transaction", async () => {
     await createRegistration(BASE_INPUT);
+    // Capacity-guarded increment: `soldCount <= quantity - 1` cannot exceed the
+    // cap even under a concurrent claim. A staff-created row claims the TICKET
+    // TYPE — see the createdSource-routing test below for the tier case.
     expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
-      where: { id: "tt-1", soldCount: { lt: 100 } },
+      where: { id: "tt-1", soldCount: { lte: PAID_TICKET.quantity - 1 } },
       data: { soldCount: { increment: 1 } },
     });
+    expect(mockDb.pricingTier.updateMany).not.toHaveBeenCalled();
+  });
+
+  /**
+   * REGRESSION (Aug 11, 2026). The claim used to be a hardcoded
+   * `ticketType.updateMany`, while the cancel/reactivate paths pick their
+   * counter with `seatCounter()`. For a tier-consuming source that meant the
+   * row claimed the TICKET TYPE and released the TIER: the guarded release
+   * floors at 0 so the tier no-ops, and the ticket type's soldCount leaks
+   * upward forever — the counter-drift class the June 29 fix killed.
+   *
+   * Both sides now derive from `seatCounter`, so they cannot disagree. These
+   * two tests pin the routing in BOTH directions, because a fix that always
+   * claimed the tier would make every courtesy grant burn a real paid seat.
+   */
+  it("a tier-consuming source claims the TIER's seat, not the ticket type's", async () => {
+    mockDb.pricingTier.findFirst.mockResolvedValue({ id: "tier-1", price: 450, currency: "USD" });
+    await createRegistration({
+      ...BASE_INPUT,
+      pricingTierId: "tier-1",
+      createdSource: "PUBLIC_SUBMITTER",
+    });
+    expect(mockDb.pricingTier.updateMany).toHaveBeenCalledWith({
+      where: { id: "tier-1", soldCount: { lte: 999998 } },
+      data: { soldCount: { increment: 1 } },
+    });
+    expect(mockDb.ticketType.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a staff grant on the SAME tier still claims the ticket type (courtesy seat)", async () => {
+    mockDb.pricingTier.findFirst.mockResolvedValue({ id: "tier-1", price: 450, currency: "USD" });
+    await createRegistration({ ...BASE_INPUT, pricingTierId: "tier-1" });
+    expect(mockDb.ticketType.updateMany).toHaveBeenCalled();
+    expect(mockDb.pricingTier.updateMany).not.toHaveBeenCalled();
   });
 
   it("skips soldCount increment when no ticketTypeId provided", async () => {

@@ -134,6 +134,9 @@ beforeEach(() => {
     lastName: "Doe",
     email: "john@example.com",
   });
+  // `claimSeats` reads the cap first (Prisma updateMany cannot compare two
+  // columns), then does the guarded increment.
+  mockDb.ticketType.findUnique.mockResolvedValue({ quantity: paidTicket.quantity });
   mockDb.ticketType.updateMany.mockResolvedValue({ count: 1 });
   // Service uses include: { attendee: true, ticketType: true } on
   // registration.create, so the mock must return both relations.
@@ -259,8 +262,12 @@ describe("MCP create_registration — REST parity", () => {
 
   it("atomically increments soldCount inside the transaction with a sold-out guard", async () => {
     await REGISTRATION_EXECUTORS.create_registration(baseInput, CTX);
+    // `soldCount <= quantity - 1` cannot exceed the cap even under a
+    // concurrent claim. MCP_AGENT is not a tier-consuming source, so the claim
+    // lands on the ticket type (see registration-service.test.ts for the
+    // routing matrix).
     expect(mockDb.ticketType.updateMany).toHaveBeenCalledWith({
-      where: { id: "tt-1", soldCount: { lt: 100 } },
+      where: { id: "tt-1", soldCount: { lte: paidTicket.quantity - 1 } },
       data: { soldCount: { increment: 1 } },
     });
   });

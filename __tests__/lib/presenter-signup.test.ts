@@ -16,9 +16,12 @@ type PayableInput = {
   pricingTierId: string | null;
   overrideSalesWindow?: boolean;
   suppressPayNow?: boolean;
+  createdSource?: string;
 };
 
-const { ensureCompanionSpy, createAndLinkSpy, findManySpy } = vi.hoisted(() => ({
+const { ensureCompanionSpy, createAndLinkSpy, findManySpy, findUniqueSpy, quotePdfSpy } = vi.hoisted(() => ({
+  findUniqueSpy: vi.fn(),
+  quotePdfSpy: vi.fn(),
   ensureCompanionSpy:
     vi.fn<(speaker: unknown, opts?: CompanionOpts) => Promise<Record<string, unknown>>>(),
   createAndLinkSpy:
@@ -29,8 +32,12 @@ const { ensureCompanionSpy, createAndLinkSpy, findManySpy } = vi.hoisted(() => (
 vi.mock("@/lib/logger", () => ({
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
+vi.mock("@/lib/quote-pdf", () => ({ buildQuotePDFFromRegistration: quotePdfSpy }));
 vi.mock("@/lib/db", () => ({
-  db: { ticketType: { findMany: findManySpy } },
+  db: {
+    ticketType: { findMany: findManySpy },
+    registration: { findUnique: findUniqueSpy },
+  },
   dbOperator: {},
   tenantTransaction: vi.fn(),
 }));
@@ -41,7 +48,11 @@ vi.mock("@/lib/presenter-registration", () => ({
   createAndLinkPayableRegistration: createAndLinkSpy,
 }));
 
-import { ensureSubmitterRegistration, resolvePresenterRate } from "@/lib/presenter-signup";
+import {
+  ensureSubmitterRegistration,
+  resolvePresenterRate,
+  buildPresenterFeeEmailExtras,
+} from "@/lib/presenter-signup";
 
 const SPEAKER = {
   id: "spk1",
@@ -165,6 +176,21 @@ describe("with presenter rates configured", () => {
     expect(createAndLinkSpy.mock.calls[0][0].overrideSalesWindow).toBe(false);
   });
 
+  /**
+   * REGRESSION (found by running the flow locally, Aug 11). The row was landing
+   * as ADMIN_DASHBOARD, because the service derives that from `source: "api"`.
+   *
+   * It reads cosmetic and is not: `seatCounter()` routes a tier-priced row to
+   * the TIER's counter only for TIER_CONSUMING_SOURCES. Mis-stamped, the
+   * presenter tier's soldCount stayed 0 and its seat limit could never fill,
+   * silently exempting presenters from the Aug 6 rule that a tier-priced public
+   * registration burns that tier's inventory.
+   */
+  it("stamps PUBLIC_SUBMITTER so the presenter TIER's seat is the one burned", async () => {
+    await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
+    expect(createAndLinkSpy.mock.calls[0][0].createdSource).toBe("PUBLIC_SUBMITTER");
+  });
+
   it("suppresses Pay Now by default (D3)", async () => {
     await ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" });
     expect(createAndLinkSpy.mock.calls[0][0].suppressPayNow).toBe(true);
@@ -202,14 +228,14 @@ describe("failure isolation", () => {
     createAndLinkSpy.mockRejectedValueOnce(new Error("boom"));
     await expect(
       ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
   });
 
   it("never throws when the tier lookup blows up", async () => {
     findManySpy.mockRejectedValueOnce(new Error("db down"));
     await expect(
       ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
   });
 
   it("does not throw when the service refuses (sold out, faculty type, ...)", async () => {
@@ -220,7 +246,7 @@ describe("failure isolation", () => {
     });
     await expect(
       ensureSubmitterRegistration({ ...BASE, ticketTypeId: "tt-phys" }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
   });
 });
 
@@ -231,5 +257,53 @@ describe("resolvePresenterRate", () => {
 
   it("returns null when nothing was chosen", async () => {
     expect(await resolvePresenterRate("ev1", null)).toBeNull();
+  });
+});
+
+
+/**
+ * The fee block is the ONLY thing that tells an abstract submitter what they
+ * owe, now that the delegate confirmation is suppressed on that door. Its
+ * closing sentence and its button are decided from ONE flag, because
+ * "payment is not required" printed above a Pay Now button is the kind of
+ * contradiction nobody reads twice.
+ */
+describe("presenter fee block copy follows the Pay Now toggle", () => {
+  beforeEach(() => {
+    findUniqueSpy.mockResolvedValue({
+      id: "reg-1",
+      originalPrice: 450,
+      attendee: { firstName: "Hana" },
+      ticketType: { name: "Physician", price: 100, currency: "USD" },
+      pricingTier: { name: "Presenter Early Bird", price: 450, currency: "USD" },
+      event: { slug: "MEHF2027", name: "MEHF", organization: {} },
+    });
+    quotePdfSpy.mockResolvedValue({ buffer: Buffer.from("pdf"), filename: "quote-1.pdf" });
+  });
+
+  it("says payment is NOT required, and shows no button, when Pay Now is off", async () => {
+    const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled: false });
+    expect(r?.text).toContain("Payment is not required");
+    expect(r?.html).not.toContain(">Pay Now<");
+  });
+
+  it("offers to pay, with a button, when the organizer turned Pay Now on", async () => {
+    const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled: true });
+    expect(r?.text).toContain("You can pay online now");
+    expect(r?.text).not.toContain("Payment is not required");
+    expect(r?.html).toContain(">Pay Now<");
+  });
+
+  it("attaches the quote", async () => {
+    const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled: false });
+    expect(r?.attachment?.name).toBe("quote-1.pdf");
+  });
+
+  /** A broken PDF must not cost someone the fee message, or their account. */
+  it("still returns the fee block when the quote PDF blows up", async () => {
+    quotePdfSpy.mockRejectedValueOnce(new Error("pdfkit exploded"));
+    const r = await buildPresenterFeeEmailExtras("reg-1", { payNowEnabled: false });
+    expect(r?.attachment).toBeNull();
+    expect(r?.text).toContain("USD 450.00");
   });
 });

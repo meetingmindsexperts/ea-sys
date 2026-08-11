@@ -21,7 +21,7 @@
  * See src/services/README.md for the shared conventions.
  */
 
-import type { Prisma } from "@prisma/client";
+import type { Prisma, RegistrationCreatedSource } from "@prisma/client";
 import { AttendanceMode, PaymentStatus, RegistrationStatus } from "@prisma/client";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
@@ -33,8 +33,8 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import { readSponsors } from "@/lib/webinar";
-import { needsQrCode } from "@/lib/registration-seat";
-import { applyRegistrationTransition, claimEventSeats } from "@/lib/registration-seat-db";
+import { needsQrCode, seatCounter } from "@/lib/registration-seat";
+import { applyRegistrationTransition, claimEventSeats, claimSeats } from "@/lib/registration-seat-db";
 import { resolveRepricing } from "@/lib/registration-repricing";
 import { expireOpenCheckoutSessionOnCancel } from "@/lib/checkout-session-cleanup";
 import { flagGroupInvoiceDriftForCancelledMembers } from "@/services/group-registration-service";
@@ -340,6 +340,40 @@ export interface CreateRegistrationInput {
    * about what is owed or about seat/promo accounting.
    */
   suppressPayNow?: boolean;
+
+  /**
+   * Do not send the delegate registration-confirmation email; the CALLER will
+   * tell the person about the money itself (owner decision Aug 11, 2026).
+   *
+   * The abstract-submitter signup already sends a "Welcome, account created"
+   * email, so the delegate confirmation arriving seconds later was both a
+   * second welcome and the wrong story: "Your registration for X" reads as a
+   * settled place at the event, when all that has happened is that someone
+   * signed up to SUBMIT and has not been accepted. The fee and the quote ride
+   * in the welcome instead.
+   *
+   * Only set this where the caller genuinely sends a replacement. Setting it
+   * with nothing behind it silently drops the quote.
+   */
+  suppressConfirmationEmail?: boolean;
+
+  /**
+   * Which entry path minted this row, when it cannot be inferred from `source`.
+   *
+   * `source` answers "which transport called me" (rest/mcp/api) and is derived
+   * into ADMIN_DASHBOARD / MCP_AGENT below, which is right for the dashboard
+   * and the agent. It is NOT right for a caller that reaches this service on a
+   * REST-shaped path but is really a PUBLIC door: the abstract-submitter signup
+   * creates a presenter registration through `source: "api"`, and without this
+   * it would be stamped ADMIN_DASHBOARD.
+   *
+   * That is not cosmetic. `seatCounter()` routes a tier-priced row to the
+   * TIER's counter only for `TIER_CONSUMING_SOURCES` (PUBLIC_REGISTER,
+   * GROUP_REGISTER, PUBLIC_SUBMITTER), so a mis-stamped row silently burns the
+   * ticket type's seat instead of the tier's and a presenter tier's seat limit
+   * would never fill.
+   */
+  createdSource?: RegistrationCreatedSource;
 
   /** Caller identity — written into `AuditLog.changes.source`. */
   source: "rest" | "mcp" | "api";
@@ -777,17 +811,45 @@ export async function createRegistration(
         select: { id: true },
       });
 
+      // Map the caller identity (already in service input) to the
+      // RegistrationCreatedSource enum so the detail sheet can
+      // surface "added via dashboard" vs "via MCP agent" at a glance.
+      // The "api" source is reserved for the future external public
+      // REST API (per src/services/README.md). REST callers from the
+      // admin dashboard route → ADMIN_DASHBOARD; MCP → MCP_AGENT.
+      // Declared BEFORE the seat claim because it decides WHICH counter is
+      // claimed — see the comment in that block.
+      const createdSource =
+        input.createdSource ?? (source === "mcp" ? "MCP_AGENT" : "ADMIN_DASHBOARD");
+
       // Atomic soldCount increment with sold-out guard inside the tx —
       // prevents overbooking under concurrent admin + public + MCP registrations.
       // VIRTUAL is uncapped: it does NOT consume a physical seat, so we skip
       // the increment AND the sold-out guard (a sold-out venue can still take
       // virtual signups).
       if (ticketType && ticketTypeId && !isVirtual) {
-        const updated = await tx.ticketType.updateMany({
-          where: { id: ticketTypeId, soldCount: { lt: ticketType.quantity } },
-          data: { soldCount: { increment: 1 } },
+        // WHICH counter is decided by `seatCounter()` — the SAME pure function
+        // the cancel/reactivate/type-change paths use to decide what to
+        // RELEASE. Deriving both from one predicate is what makes claim and
+        // release agree by construction; hardcoding the ticket type here (as
+        // this did until Aug 11) let a tier-consuming source claim one counter
+        // and release the other, which is exactly the counter-drift class the
+        // June 29 fix existed to kill. Found by running a presenter signup and
+        // seeing the tier's soldCount stay 0.
+        //
+        // For every staff path this is unchanged: ADMIN_DASHBOARD / MCP_AGENT /
+        // CSV_IMPORT are not tier-consuming, so `seatCounter` returns the ticket
+        // type and the courtesy-seat asymmetry documented above still holds.
+        const counter = seatCounter({
+          createdSource,
+          pricingTierId: validPricingTierId,
+          ticketTypeId,
         });
-        if (updated.count === 0) {
+        if (!counter) {
+          throw new RegistrationServiceSentinel("SOLD_OUT", {});
+        }
+        const claimed = await claimSeats(tx, counter, 1);
+        if (!claimed) {
           throw new RegistrationServiceSentinel("SOLD_OUT", {});
         }
         // Event-wide cap (Event.maxAttendees): a registration that holds a
@@ -806,14 +868,6 @@ export async function createRegistration(
       // registration to in-person.
       const qrCode = isVirtual ? null : generateBarcode();
       const serialId = await getNextSerialId(tx, eventId, organizationId);
-      // Map the caller identity (already in service input) to the
-      // RegistrationCreatedSource enum so the detail sheet can
-      // surface "added via dashboard" vs "via MCP agent" at a glance.
-      // The "api" source is reserved for the future external public
-      // REST API (per src/services/README.md). REST callers from the
-      // admin dashboard route → ADMIN_DASHBOARD; MCP → MCP_AGENT.
-      const createdSource =
-        source === "mcp" ? "MCP_AGENT" : "ADMIN_DASHBOARD";
       return tx.registration.create({
         data: {
           organizationId,
@@ -958,7 +1012,7 @@ export async function createRegistration(
   // joining-instructions block when attendanceMode is VIRTUAL.
   const owesMoney =
     effectiveTicketPrice > 0 && OUTSTANDING_PAYMENT_STATUSES.has(finalPaymentStatus);
-  if (ticketType && (owesMoney || isVirtual)) {
+  if (ticketType && (owesMoney || isVirtual) && !input.suppressConfirmationEmail) {
     sendRegistrationConfirmationEmail({
       event,
       registration,

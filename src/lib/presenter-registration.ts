@@ -27,6 +27,7 @@
  * COMPANION_GRANTED; a public self-signup is neither), so the result is
  * errors-as-values and each caller shapes its own response.
  */
+import type { RegistrationCreatedSource } from "@prisma/client";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import {
@@ -104,6 +105,18 @@ export interface CreateAndLinkPayableInput {
    * attaching the quote (plan D3). The registrant portal keeps its own.
    */
   suppressPayNow?: boolean;
+  /**
+   * Skip the delegate registration-confirmation email because this caller
+   * sends its own. See the field of the same name on the service input.
+   */
+  suppressConfirmationEmail?: boolean;
+  /**
+   * Entry path to stamp on the row. Omit for an organizer grant (the service
+   * derives ADMIN_DASHBOARD, which is what a grant is). The PUBLIC abstract
+   * door MUST pass PUBLIC_SUBMITTER — it is what routes a tier-priced row to
+   * the TIER's seat counter rather than the ticket type's, see `seatCounter`.
+   */
+  createdSource?: RegistrationCreatedSource;
   /** Prefix for this caller's log lines, e.g. "grant-companion". */
   logPrefix: string;
 }
@@ -143,6 +156,8 @@ export async function createAndLinkPayableRegistration(
     actorFirstName: input.actorFirstName ?? null,
     overrideSalesWindow: input.overrideSalesWindow,
     suppressPayNow: input.suppressPayNow,
+    suppressConfirmationEmail: input.suppressConfirmationEmail,
+    createdSource: input.createdSource,
   });
 
   if (!created.ok) {

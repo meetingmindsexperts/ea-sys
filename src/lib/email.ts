@@ -1392,6 +1392,7 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "lastName", description: "Submitter last name" },
     { key: "eventName", description: "Event name" },
     { key: "loginLink", description: "Login page link" },
+    { key: "presenterFeeBlock", description: "Presenter registration fee + quote note. Renders as NOTHING unless the event has presenter rates and this person was placed on one (plan D2/D3)" },
     { key: "organizerSignature", description: "Sender's personal email signature (HTML, from Profile → Email Signature) — empty on automated sends" },
   ],
   "session-proposal-welcome": [
@@ -1956,6 +1957,7 @@ View Your Abstract: {{managementLink}}
     <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0 0 20px 0;">
     <p>Dear <strong>{{title}} {{lastName}}</strong>,</p>
     <p>Your account has been created successfully for <strong>{{eventName}}</strong>. You can now log in to submit your abstracts.</p>
+    {{presenterFeeBlock}}
     <div style="text-align: center; margin: 30px 0;">
       <a href="{{loginLink}}" style="display: inline-block; background: #00aade; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 500;">Log In &amp; Submit Abstract</a>
     </div>
@@ -1967,6 +1969,8 @@ View Your Abstract: {{managementLink}}
 Dear {{title}} {{lastName}},
 
 Your account has been created successfully for {{eventName}}. You can now log in to submit your abstracts.
+
+{{presenterFeeBlockText}}
 
 Log In: {{loginLink}}
 
@@ -3029,6 +3033,13 @@ export function getSamplePreviewVariables(
     agreementBlock:
       '<div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;"><div style="text-align: center;"><a href="#" style="display: inline-block; background: #00aade; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600;">Review &amp; Agree</a></div></div>',
     agreementBlockText: "Review and accept the speaker agreement: #",
+    // Presenter fee on the abstract-submitter welcome (plan D2/D3). Renders as
+    // NOTHING on an event with no presenter rates, which is every event until
+    // an organizer configures one — the preview shows the populated shape.
+    presenterFeeBlock:
+      '<div style="margin:16px 0;padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;"><p style="margin:0 0 8px 0;font-weight:600;">Your presenter registration fee</p><p style="margin:0 0 4px 0;font-size:20px;font-weight:700;">USD 450.00</p><p style="margin:0 0 8px 0;color:#6b7280;font-size:14px;">Physician \u00b7 Presenter Early Bird</p><p style="margin:0;color:#6b7280;font-size:14px;">A quote is attached to this email. Payment is not required to submit your abstract; the organizing team will confirm your fee once your submission has been reviewed.</p></div>',
+    presenterFeeBlockText:
+      "Your presenter registration fee\nUSD 450.00\nPhysician \u00b7 Presenter Early Bird\nA quote is attached. Payment is not required to submit your abstract; the organizing team will confirm your fee once your submission has been reviewed.",
     // {{agreementAttachment}} is an invisible marker (drives the PDF
     // attachment only) — it renders as nothing everywhere, previews included.
     agreementAttachment: "",

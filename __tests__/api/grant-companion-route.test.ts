@@ -271,6 +271,23 @@ describe("grant-companion payable mode", () => {
     });
   });
 
+  /**
+   * The counterpart to the PUBLIC_SUBMITTER stamp on the abstract door: a GRANT
+   * is an organizer action, so it must keep the service's ADMIN_DASHBOARD
+   * derivation and must NOT burn the presenter tier's inventory. Pinning the
+   * absence matters as much as pinning the presence — the two doors share one
+   * helper, so a later "just always stamp it" would quietly make every
+   * courtesy grant consume a real paid seat.
+   */
+  it("does NOT stamp createdSource — a grant stays an organizer action", async () => {
+    await POST(
+      payableReq({ mode: "payable", ticketTypeId: "tt1", pricingTierId: "tier1" }),
+      routeParams,
+    );
+    const arg = createRegistrationSpy.mock.calls[0][0] as { createdSource?: string };
+    expect(arg.createdSource).toBeUndefined();
+  });
+
   it("400 TICKET_TYPE_REQUIRED without a ticketTypeId", async () => {
     const res = await POST(payableReq({ mode: "payable" }), routeParams);
     expect(res.status).toBe(400);

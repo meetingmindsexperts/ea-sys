@@ -341,8 +341,11 @@ export async function POST(req: Request, { params }: RouteParams) {
     // person; an existing same-email registration is still linked.
     // Failure-isolated: a hiccup must NOT fail the account create; the backfill
     // script recovers any that fail.
+    // Non-null only when a payable presenter registration was created; drives
+    // the fee block + quote attachment on the welcome email below.
+    let feeExtras: Awaited<ReturnType<typeof ensureSubmitterRegistration>> = null;
     if (speakerRow) {
-      await ensureSubmitterRegistration({
+      feeExtras = await ensureSubmitterRegistration({
         speaker: {
           id: speakerRow.id,
           eventId: event.id,
@@ -377,6 +380,11 @@ export async function POST(req: Request, { params }: RouteParams) {
         ticketTypeId: data.ticketTypeId ?? null,
         expectedLink: speakerRow.sourceRegistrationId,
         requestIp: getClientIp(req),
+        // This door has a welcome email, so the fee rides in THAT rather than
+        // in a second, delegate-shaped "Your registration for X" arriving
+        // seconds later (owner decision Aug 11, 2026). Non-null only when a
+        // payable presenter registration was actually created.
+        callerSendsFeeEmail: true,
       });
     }
 
@@ -387,7 +395,20 @@ export async function POST(req: Request, { params }: RouteParams) {
       firstName: data.firstName,
       lastName: data.lastName,
       eventName: event.name,
-      loginLink: `${appUrl}/login`,
+      // The EVENT-scoped login, not the internal staff one. `${appUrl}/login`
+      // is the MM Group staff sign-in: a submitter landing there sees a
+      // different product and no route back to the event. Same defect fixed
+      // on the session-proposal confirmation Aug 6, 2026; this door was
+      // missed. The fallback can never mint a broken `/e//login`.
+      loginLink: event.slug
+        ? `${appUrl}/e/${event.slug}/login?redirect=${
+            data.source === "proposal" ? "session-proposals" : "abstracts"
+          }`
+        : `${appUrl}/login`,
+      // Empty string, not undefined, so a template carrying the token renders
+      // NOTHING for a comp/proposal signup instead of the literal token.
+      presenterFeeBlock: feeExtras?.html ?? "",
+      presenterFeeBlockText: feeExtras?.text ?? "",
     };
     // Proposal signups get the proposal-worded welcome ("propose a session"),
     // abstract signups keep the historical submitter-welcome.
@@ -397,7 +418,22 @@ export async function POST(req: Request, { params }: RouteParams) {
       const t = tpl || getDefaultTemplate(welcomeSlug);
       if (!t) { apiLogger.warn({ msg: `No template found for ${welcomeSlug}` }); return; }
       const branding = tpl?.branding || { eventName: event.name };
-      const rendered = renderAndWrap(t, vars, branding);
+      // SELF-HEALING placement. Adding {{presenterFeeBlock}} to the DEFAULT
+      // template reaches nobody on an event that already materialised its own
+      // editable row — 24 of them had a saved submitter-welcome predating this
+      // change, so the quote would have arrived attached with nothing in the
+      // body explaining it. When the resolved template does not carry the
+      // token, append it, so the fee always lands INSIDE the branded body
+      // whether the organizer has customised the template or not.
+      const withFeeToken =
+        feeExtras && !t.htmlContent.includes("{{presenterFeeBlock}}")
+          ? {
+              ...t,
+              htmlContent: `${t.htmlContent}\n{{presenterFeeBlock}}`,
+              textContent: `${t.textContent}\n\n{{presenterFeeBlockText}}`,
+            }
+          : t;
+      const rendered = renderAndWrap(withFeeToken, vars, branding, new Set(["presenterFeeBlock"]));
       return sendEmail({
         to: [{ email: emailLower, name: data.firstName }],
         cc: brandingCc(branding, [{ email: emailLower }], [data.additionalEmail || null]),
@@ -405,6 +441,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         from: brandingFrom(branding),
         emailType: "submitter_welcome",
         stream: "transactional",
+        ...(feeExtras?.attachment ? { attachments: [feeExtras.attachment] } : {}),
         logContext: {
           organizationId: event.organizationId,
           eventId: event.id,
