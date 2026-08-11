@@ -7,7 +7,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { checkInGate, executeCheckIn, undoCheckIn } from "@/lib/check-in";
 import { scannedEntryCodeCandidates } from "@/lib/barcode";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -32,7 +32,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
-    return await runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
@@ -149,7 +149,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
-    return await runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only check in attendees for events they're assigned to. Org-scoped
@@ -262,7 +262,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
-    return await runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenantLane(session.user.organizationId, { route: "registrations:check-in", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE — an ONSITE user may only act on events
       // they're assigned to. Org-scoped (unchanged) for admin/organizer.

@@ -36,7 +36,7 @@
 import { Prisma } from "@prisma/client";
 import type { CertificateType, CertIssueRunStatus } from "@prisma/client";
 import { db, dbOperator } from "@/lib/db";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { renderCertificate } from "./render";
 import { uploadCertificatePdf } from "@/lib/storage";
@@ -105,7 +105,7 @@ export async function tickAllRuns(): Promise<{
       // swept cert-table writes + Registration/Speaker reads run inside the
       // SET LOCAL scope on the platform. Org-blind candidate scan above (the
       // established worker pattern); null org (legacy/master) → "" → passthrough.
-      const result = await runWithTenant(run.organizationId ?? "", () => processRun(run.id));
+      const result = await runWithTenantLane(run.organizationId, { route: "certificates:issue-worker" }, () => processRun(run.id));
       rendered += result.renderedThisTick;
       emailed += result.emailedThisTick;
       if (result.transitionedTo === "COMPLETED") completed++;

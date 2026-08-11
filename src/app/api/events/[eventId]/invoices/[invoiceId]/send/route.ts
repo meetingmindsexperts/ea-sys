@@ -5,7 +5,7 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { sendInvoiceEmail, sendGroupInvoiceEmail } from "@/lib/invoice-service";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 
 interface RouteParams {
   params: Promise<{ eventId: string; invoiceId: string }>;
@@ -25,7 +25,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session);
     if (denied) return denied;
 
-    return await runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenantLane(session.user.organizationId, { route: "invoices:send", userId: session.user.id }, async () => {
     const invoice = await db.invoice.findFirst({
       where: {
         id: invoiceId,

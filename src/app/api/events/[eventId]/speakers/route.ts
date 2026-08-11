@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { normalizeTag } from "@/lib/utils";
 import { denyReviewer, isTeamRole, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
@@ -81,8 +82,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
     // Mixed auth — API-key org, else the session user's org (org-null for a
     // linked SUBMITTER/REGISTRANT reader).
-    const tenantOrgId = orgCtx?.organizationId ?? session?.user.organizationId ?? "";
-    return await runWithTenant(tenantOrgId, async () => {
+    const tenantOrgId = orgCtx?.organizationId ?? session?.user.organizationId;
+    return await runWithTenantLane(tenantOrgId, { route: "events:speakers", userId: session?.user?.id }, async () => {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
 

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -98,8 +98,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
-    const orgId = session.user.organizationId ?? "";
-    return await runWithTenant(orgId, async () => {
+    const orgId = session.user.organizationId;
+    return await runWithTenantLane(orgId, { route: "speakers:grant-companion", userId: session.user.id }, async () => {
     const rate = checkRateLimit({
       key: `grant-companion:${session.user.id}`,
       limit: 60,

@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { buildSpeakerActivity } from "@/lib/activity-feed";
 import { canViewFinance } from "@/lib/finance-visibility";
@@ -43,8 +43,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
-    const orgId = session.user.organizationId ?? "";
-    return await runWithTenant(orgId, async () => {
+    const orgId = session.user.organizationId;
+    return await runWithTenantLane(orgId, { route: "speakers:activity", userId: session.user.id }, async () => {
     // Role-scoped event access (404 to avoid existence leak).
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),

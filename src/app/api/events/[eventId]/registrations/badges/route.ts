@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { formatSerialId } from "@/lib/registration-serial";
 import { renderBarcodePng, renderQrPng, entryBarcodeValue } from "@/lib/barcode";
 import { isPaymentAdmissible } from "@/lib/check-in";
@@ -45,7 +45,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
     if (denied) return denied;
 
-    return await runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenantLane(session.user.organizationId, { route: "registrations:badges", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-scoped for ONSITE (per-event desk staff) — an ONSITE user may
       // only print badges for events they're assigned to (badge PDFs carry entry

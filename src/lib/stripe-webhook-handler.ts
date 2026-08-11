@@ -8,6 +8,7 @@ import { notifyEventAdmins } from "@/lib/notifications";
 import { issuePaidRegistrationDocuments, issuePaidGroupDocuments } from "@/lib/invoice-service";
 import { issueCreditNoteForRegistration } from "@/services/payment-service";
 import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { refreshEventStats } from "@/lib/event-stats";
 import { computeRegistrationFinancials, readRegistrationBasePrice, round2 } from "@/lib/registration-financials";
 import { captureStripeReceipt } from "@/lib/stripe-receipt";
@@ -83,7 +84,7 @@ export async function handleStripeEvent(
       // the webhook has no session/host to resolve the org from — so wrap it in
       // the org carried on the checkout session metadata (added at checkout).
       // Passthrough on master; the money-writes below keep their own wrap.
-      const registration = await runWithTenant(session.metadata?.organizationId ?? "", () =>
+      const registration = await runWithTenantLane(session.metadata?.organizationId, { route: "stripe-webhook-handler" }, () =>
         db.registration.findUnique({
         where: { id: registrationId },
         include: {
@@ -410,7 +411,7 @@ export async function handleStripeEvent(
     const expiredGroupId = session.metadata?.groupId;
     if (expiredGroupId) {
       try {
-        await runWithTenant(session.metadata?.organizationId ?? "", async () => {
+        await runWithTenantLane(session.metadata?.organizationId, { route: "stripe-webhook-handler" }, async () => {
           const released = await db.registration.updateMany({
             where: {
               groupId: expiredGroupId,
@@ -444,7 +445,7 @@ export async function handleStripeEvent(
       // Tenancy sweep (H-1): wrap the swept pre-read in the org from the session
       // metadata (the webhook has no session/host context). Inert on master;
       // an unknown row leaves the updateMany a no-op either way.
-      const expiredReg = await runWithTenant(session.metadata?.organizationId ?? "", () =>
+      const expiredReg = await runWithTenantLane(session.metadata?.organizationId, { route: "stripe-webhook-handler" }, () =>
         db.registration.findUnique({
         where: { id: registrationId },
         select: { event: { select: { organizationId: true } } },
@@ -458,7 +459,7 @@ export async function handleStripeEvent(
           entityId: registrationId,
         });
       }
-      const updated = await runWithTenant(expiredReg?.event.organizationId ?? "", async () =>
+      const updated = await runWithTenantLane(expiredReg?.event.organizationId, { route: "stripe-webhook-handler" }, async () =>
         db.registration.updateMany({
           where: { id: registrationId, paymentStatus: "PENDING" },
           data: { paymentStatus: "UNPAID", stripeCheckoutSessionId: null },
@@ -550,7 +551,7 @@ export async function handleStripeEvent(
       if (payment.groupId) {
         const group = payment.group;
         const cumulative = fromStripeAmount(charge.amount_refunded, charge.currency.toUpperCase());
-        const orgId = group?.event.organizationId ?? "";
+        const orgId = group?.event.organizationId;
 
         if (opts?.expectedOrgId && group && group.event.organizationId !== opts.expectedOrgId) {
           return orgMismatchResponse({
@@ -561,7 +562,7 @@ export async function handleStripeEvent(
           });
         }
 
-        await runWithTenant(orgId, async () => {
+        await runWithTenantLane(orgId, { route: "stripe-webhook-handler" }, async () => {
           // Conditional on the counter moving forward, so a webhook retry (or
           // a second partial refund arriving out of order) can't double-count.
           const updated = await db.payment.updateMany({
@@ -838,7 +839,7 @@ async function handleGroupCheckoutCompleted(
   opts?: HandleStripeEventOptions,
 ): Promise<NextResponse> {
   try {
-    const group = await runWithTenant(session.metadata?.organizationId ?? "", () =>
+    const group = await runWithTenantLane(session.metadata?.organizationId, { route: "stripe-webhook-handler" }, () =>
       db.registrationGroup.findUnique({
         where: { id: groupId },
         include: {

@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { generateQuotePDF } from "@/lib/quote-pdf";
 import { formatQuoteNumber } from "@/lib/invoice-numbering";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -27,7 +27,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
-    return await runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenantLane(session.user.organizationId, { route: "registrations:quote", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
       where: { id: eventId, ...buildEventAccessWhere(session.user) },

@@ -20,7 +20,7 @@
 # WHAT IT CHECKS
 # --------------
 #   * SWEPT_ROUTE_DIRS: every route.ts under the dir must have at least as many
-#     `runWithTenant(` calls as it has exported HTTP handlers
+#     `runWithTenant(` / `runWithTenantLane(` calls as it has exported HTTP handlers
 #     (GET/POST/PUT/PATCH/DELETE) — i.e. no handler can silently lose its wrap.
 #     (Coarse-but-robust: a contrived double-wrap-in-one-handler could mask a
 #     missing wrap in another; the realistic regression — deleting a wrap —
@@ -404,6 +404,11 @@ count_fixed() { printf '%s' "$1" | { grep -oF "$2" || true; } | wc -l | tr -d ' 
 
 # `export async function GET(` — trailing `(` disambiguates GET from GETFoo and
 # keeps the regex portable (no \b, which BSD grep on macOS doesn't support).
+# Both lane entry points count as a wrap. `runWithTenantLane` (item 5) is
+# `runWithTenant` plus a warn line when the caller has no org, so a handler
+# using it is just as wrapped. Matched as a regex, not a fixed string,
+# because `runWithTenantLane(` does NOT contain the substring `runWithTenant(`.
+WRAP_RE='runWithTenant(Lane)?\('
 HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|PUT|PATCH|DELETE)[[:space:]]*\('
 
 # READ-PLACEMENT check (added after 3 sweeps shipped with a swept read placed
@@ -436,7 +441,7 @@ check_one_route_file() {
   rel="${file#"$REPO_ROOT"/}"
   src="$(executable_ts "$file")"
   handlers="$(count_re "$src" "$HANDLER_RE")"
-  wraps="$(count_fixed "$src" "runWithTenant(")"
+  wraps="$(count_re "$src" "$WRAP_RE")"
   if [ "$handlers" -gt 0 ] && [ "$wraps" -lt "$handlers" ]; then
     fail_header
     echo "  $rel — $handlers HTTP handler(s) but only $wraps runWithTenant( wrap(s)"
@@ -457,7 +462,7 @@ check_read_placement() {
     function endh(){ if (inh && rl>0 && (wl==0 || rl<wl)) { printf "  %s:%d — swept-model DB op before runWithTenant: %s\n", FN, rl, rt; found=1 } }
     { line=$0; sub(/\/\/.*$/,"",line) }
     line ~ /export[ \t]+(async[ \t]+)?function[ \t]+(GET|POST|PUT|PATCH|DELETE)[ \t]*\(/ { endh(); inh=1; wl=0; rl=0; rt="" }
-    inh && wl==0 && line ~ /runWithTenant\(/ { wl=NR }
+    inh && wl==0 && line ~ /runWithTenant(Lane)?\(/ { wl=NR }
     inh && rl==0 && line ~ RE { rl=NR; rt=line; sub(/^[ \t]+/,"",rt); sub(/[ \t]+$/,"",rt) }
     END { endh(); exit (found?1:0) }
   ' "$file")"; then
@@ -504,7 +509,7 @@ for mod in "${SWEPT_MODULES[@]}"; do
     continue
   fi
   src="$(executable_ts "$abs")"
-  if [ "$(count_fixed "$src" "runWithTenant(")" -eq 0 ]; then
+  if [ "$(count_re "$src" "$WRAP_RE")" -eq 0 ]; then
     fail_header
     echo "  $mod — no runWithTenant( call (executors must wrap in the tenant store)"
   fi

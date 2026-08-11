@@ -5,7 +5,7 @@ import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { canViewEntryBarcode } from "@/lib/barcode-visibility";
 import { renderBarcodePng, renderQrPng, entryBarcodeValue } from "@/lib/barcode";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 
 interface RouteParams {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -59,7 +59,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const wantDtcm = new URL(req.url).searchParams.get("code") === "dtcm";
 
-    return await runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenantLane(session.user.organizationId, { route: "registrations:barcode", userId: session.user.id }, async () => {
     const [event, registration] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),

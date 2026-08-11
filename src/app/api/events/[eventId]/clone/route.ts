@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { denyReviewer } from "@/lib/auth-guards";
@@ -25,7 +25,7 @@ export async function POST(
     // include reads the now-RLS'd Speaker table, so it must run inside the
     // tenant store or it fail-closes on the platform; likewise the cloned rows'
     // WITH CHECK. Passthrough on master (flag off).
-    return await runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenantLane(session.user.organizationId, { route: "events:clone", userId: session.user.id }, async () => {
     // Fetch source event with all structural data
     const source = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),

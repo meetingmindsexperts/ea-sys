@@ -4,7 +4,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -94,8 +94,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
-    const orgId = session.user.organizationId ?? "";
-    return await runWithTenant(orgId, async () => {
+    const orgId = session.user.organizationId;
+    return await runWithTenantLane(orgId, { route: "speakers:documents", userId: session.user.id }, async () => {
     const speaker = await loadSpeakerInEvent(session.user, eventId, speakerId);
     if (!speaker) {
       apiLogger.warn({ msg: "speaker-documents:not-found", eventId, speakerId, userId: session.user.id });
@@ -126,8 +126,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (denied) return denied;
 
     // Tenancy sweep: ALS tenant scope (no-op while RLS_SET_LOCAL is off).
-    const orgId = session.user.organizationId ?? "";
-    return await runWithTenant(orgId, async () => {
+    const orgId = session.user.organizationId;
+    return await runWithTenantLane(orgId, { route: "speakers:documents", userId: session.user.id }, async () => {
     const rl = checkRateLimit({
       key: `speaker-document-upload:${session.user.id}`,
       limit: 30,

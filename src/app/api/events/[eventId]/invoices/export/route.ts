@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { recordExport } from "@/lib/audit-data-transfer";
 import { generatePDFForInvoice } from "@/lib/invoice-service";
-import { runWithTenant } from "@/lib/tenant-context";
+import { runWithTenantLane } from "@/lib/tenant-lane";
 import {
   INVOICE_EXPORT_SELECT,
   buildInvoiceCsv,
@@ -41,7 +41,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     const noFinance = denyFinance(session);
     if (noFinance) return noFinance;
 
-    return await runWithTenant(session.user.organizationId ?? "", async () => {
+    return await runWithTenantLane(session.user.organizationId, { route: "invoices:export", userId: session.user.id }, async () => {
     const event = await db.event.findFirst({
       // Assignment-gated for finance-capable ONSITE/MEMBER (review H10).
       where: { id: eventId, ...buildEventAccessWhere(session.user) },
