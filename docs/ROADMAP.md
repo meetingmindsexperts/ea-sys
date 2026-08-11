@@ -299,6 +299,19 @@ a Dubai offset** (`4 * 60 * 60 * 1000`) while the form also collects a
 `timezone`. Inert today because every event is Dubai; wrong the moment one
 is not, and a hard blocker for the platform instance.
 
+**Aug 11 update, still open:** the same hardcoded-Dubai pair also backs the
+event **Start / End** fields in Settings -> General
+([settings/page.tsx](../src/app/%28dashboard%29/events/%5BeventId%5D/settings/page.tsx)
+`toDatetimeLocal` / `fromDatetimeLocal`). Unlike the deadline bug fixed that
+day it is **symmetric, so it does not drift** on re-save; it is simply wrong
+for the 2 live `Asia/Muscat` events, which are edited 4 hours out. Deliberately
+left out of the deadline fix to keep the blast radius small: event dates gate
+session validation, agenda day-bucketing and the M9 out-of-range guard, so
+moving them onto `wallTimeInTzToIso` deserves its own pass with those three
+re-checked. The settings page is the one entry on the
+[check-datetime-local.sh](../scripts/check-datetime-local.sh) allow-list, and
+that entry disappears when this is done.
+
 ### Public banner container widths have drifted (Aug 10, 2026)
 
 Found while fixing the confirmation page's squeezed banner. **Four different
