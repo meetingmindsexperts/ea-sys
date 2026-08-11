@@ -173,6 +173,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         endDate: true,
         venue: true,
         city: true,
+        country: true,
         organizationId: true,
         settings: true,
         maxAttendees: true,

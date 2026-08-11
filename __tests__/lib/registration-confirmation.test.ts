@@ -31,6 +31,7 @@ const event = {
   startDate: new Date("2026-11-01T09:00:00Z"),
   venue: "Madinat Jumeirah",
   city: "Dubai",
+  country: "United Arab Emirates",
   id: "ev1",
   organizationId: "org1",
   taxRate: decimal(5),
@@ -47,6 +48,7 @@ describe("buildEventConfirmationFields", () => {
       eventDate: event.startDate,
       eventVenue: "Madinat Jumeirah",
       eventCity: "Dubai",
+      eventCountry: "United Arab Emirates",
       eventId: "ev1",
       organizationId: "org1",
       taxRate: 5,
@@ -65,10 +67,18 @@ describe("buildEventConfirmationFields", () => {
     });
   });
 
-  it("venue/city null → empty string (matches `venue || \"\"`)", () => {
-    const r = buildEventConfirmationFields({ ...event, venue: null, city: null });
+  it("venue/city/country null → empty string (matches `venue || \"\"`)", () => {
+    const r = buildEventConfirmationFields({ ...event, venue: null, city: null, country: null });
     expect(r.eventVenue).toBe("");
     expect(r.eventCity).toBe("");
+    expect(r.eventCountry).toBe("");
+  });
+
+  // Country joined the block on Aug 11, 2026. It had NEVER been carried by any
+  // email except the CSV-completion one, which is why an organizer reported it
+  // as "no longer showing" — it was never showing.
+  it("carries country through", () => {
+    expect(buildEventConfirmationFields(event).eventCountry).toBe("United Arab Emirates");
   });
 
   it("taxRate null → null; a Decimal(0) → 0 (truthy Decimal, not null)", () => {

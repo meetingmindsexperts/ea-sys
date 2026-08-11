@@ -5,7 +5,7 @@ import { requireOrgId } from "@/lib/require-org";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc } from "@/lib/email";
+import { sendEmail, getEventTemplate, getDefaultTemplate, renderAndWrap, renderMessageValue, brandingFrom, brandingCc , eventLocationVars } from "@/lib/email";
 import { getTitleLabel } from "@/lib/utils";
 import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -194,6 +194,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventName: event.name,
       eventDate,
       eventVenue: event.venue || "TBA",
+      ...eventLocationVars(event),
       organizerName,
       organizerEmail,
       personalMessage: customMessage || "",

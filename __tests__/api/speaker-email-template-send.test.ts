@@ -49,7 +49,12 @@ vi.mock("@/lib/security", () => ({
   checkRateLimit: vi.fn().mockReturnValue({ allowed: true, retryAfterSeconds: 0, remaining: 1 }),
   getClientIp: () => "1.2.3.4",
 }));
-vi.mock("@/lib/email", () => ({
+vi.mock("@/lib/email", async (importOriginal) => {
+  // Spread the real module: a hand-listed mock silently returns undefined
+  // for any export added later, which breaks this suite for whoever adds it.
+  const actual = await importOriginal<typeof import("@/lib/email")>();
+  return {
+    ...actual,
   sendEmail: sendEmailSpy,
   getEventTemplate: getEventTemplateSpy,
   getDefaultTemplate: getDefaultTemplateSpy,
@@ -57,7 +62,8 @@ vi.mock("@/lib/email", () => ({
   renderMessageValue: vi.fn((v: string) => v),
   brandingFrom: vi.fn().mockReturnValue({ email: "from@x.com" }),
   brandingCc: vi.fn().mockReturnValue([]),
-}));
+  };
+});
 vi.mock("@/lib/email-change", () => ({
   normalizeEmail: (e: string) => e.toLowerCase(),
   repointOrgContactEmail: vi.fn(),

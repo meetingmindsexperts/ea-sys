@@ -12,6 +12,7 @@ import {
   renderAndWrap,
   brandingFrom,
   brandingCc,
+  eventLocationVars,
 } from "@/lib/email";
 import { denyReviewer } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
@@ -86,7 +87,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // INSIDE the wrap.
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, name: true, slug: true, venue: true, organizationId: true },
+      select: { id: true, name: true, slug: true, venue: true, city: true, country: true, organizationId: true },
     });
 
     if (!event) {
@@ -190,6 +191,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       eventName: event.name,
       eventDateRange: context.eventDateRange,
       eventVenue: event.venue || "TBA",
+      ...eventLocationVars(event),
       abstractTitles: context.abstractTitles,
       abstractCount: context.abstractCount,
       agreementLink,

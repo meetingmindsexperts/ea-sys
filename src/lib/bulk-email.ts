@@ -13,6 +13,7 @@ import {
   brandingFrom,
   brandingCc,
   type EmailBranding,
+  eventLocationVars,
 } from "./email";
 import {
   buildAgreementBlock,
@@ -642,6 +643,8 @@ const VIABILITY_EVENT_SELECT = {
   startDate: true,
   timezone: true,
   venue: true,
+  city: true,
+  country: true,
   address: true,
   settings: true,
   emailFromAddress: true,
@@ -950,6 +953,9 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       })
     : "TBA";
   const eventVenue = event.venue || "TBA";
+  // {{eventCity}} / {{eventCountry}} — see eventLocationVars in email.ts for
+  // why these are separate tokens rather than folded into eventVenue.
+  const { eventCity, eventCountry } = eventLocationVars(event);
 
   // ── Resolve recipients ──
   let recipients: ResolvedRecipient[] = [];
@@ -1405,6 +1411,8 @@ export async function executeBulkEmail(input: BulkEmailInput): Promise<BulkEmail
       eventName: event.name,
       eventDate,
       eventVenue,
+      eventCity,
+      eventCountry,
       eventAddress: event.address || "",
       organizerName,
       organizerEmail,

@@ -23,6 +23,7 @@ export type EventConfirmationFields = Pick<
   | "eventDate"
   | "eventVenue"
   | "eventCity"
+  | "eventCountry"
   | "eventId"
   | "organizationId"
   | "taxRate"
@@ -51,6 +52,7 @@ export function buildEventConfirmationFields(event: {
   startDate: Date;
   venue: string | null;
   city: string | null;
+  country: string | null;
   id: string;
   organizationId: string;
   taxRate: Prisma.Decimal | null;
@@ -75,6 +77,7 @@ export function buildEventConfirmationFields(event: {
     eventDate: event.startDate,
     eventVenue: event.venue || "",
     eventCity: event.city || "",
+    eventCountry: event.country || "",
     eventId: event.id,
     organizationId: event.organizationId,
     taxRate: event.taxRate ? Number(event.taxRate) : null,

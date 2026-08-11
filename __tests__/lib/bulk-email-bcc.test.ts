@@ -26,7 +26,12 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("@/lib/email", () => ({
+vi.mock("@/lib/email", async (importOriginal) => {
+  // Spread the real module: a hand-listed mock silently returns undefined
+  // for any export added later, which breaks this suite for whoever adds it.
+  const actual = await importOriginal<typeof import("@/lib/email")>();
+  return {
+    ...actual,
   sendEmail: (args: unknown) => mockSendEmail(args),
   getEventTemplate: (...args: unknown[]) => mockGetEventTemplate(...args),
   getDefaultTemplate: (slug: string) => mockGetDefaultTemplate(slug),
@@ -34,7 +39,8 @@ vi.mock("@/lib/email", () => ({
   renderAndWrap: (...args: unknown[]) => mockRenderAndWrap(...args),
   brandingFrom: vi.fn().mockReturnValue({ email: "from@x.com", name: "From" }),
   brandingCc: vi.fn().mockReturnValue([]),
-}));
+  };
+});
 vi.mock("@/lib/speaker-agreement", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/speaker-agreement")>();
   return {

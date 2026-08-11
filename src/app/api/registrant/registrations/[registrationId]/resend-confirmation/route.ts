@@ -68,6 +68,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             startDate: true,
             venue: true,
             city: true,
+            country: true,
             taxRate: true,
             taxLabel: true,
             bankDetails: true,

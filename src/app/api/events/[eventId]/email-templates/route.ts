@@ -79,7 +79,20 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return NextResponse.json({
       // Hide webinar templates on non-webinar events even if they were seeded
       // by an earlier build (before this filter existed).
-      templates: templates.filter((t) => isVisible(t.slug)),
+      //
+      // Sorted by name (Aug 11, 2026, organizer request). The query orders by
+      // createdAt, which is SEED order: an event seeded in one go lists in
+      // DEFAULT_TEMPLATES order, while one that picked up templates as they
+      // shipped lists them in release order, so no two events read the same.
+      //
+      // Sorted here rather than in the query so every consumer inherits it —
+      // the templates page, the bulk-email dialog's saved-template picker and
+      // the Communications "Your templates" tiles all read this endpoint.
+      // `localeCompare` rather than a DB sort: it is case-insensitive and
+      // locale-aware, where Postgres ordering depends on the column collation.
+      templates: templates
+        .filter((t) => isVisible(t.slug))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
       variables: TEMPLATE_VARIABLES,
     });
   } catch (error) {

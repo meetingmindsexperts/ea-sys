@@ -81,6 +81,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           id: true, organizationId: true,
           // Real event data so the preview reflects the actual event.
           name: true, startDate: true, endDate: true, venue: true, address: true, city: true,
+          country: true,
           timezone: true, supportEmail: true,
           organization: { select: { name: true } },
         },

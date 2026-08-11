@@ -184,6 +184,7 @@ export async function POST(req: Request, { params }: RouteParams) {
           emailFromAddress: true, emailFromName: true, emailCcAddresses: true,
           // Real event data so preview/test reflects the actual event.
           name: true, startDate: true, endDate: true, venue: true, address: true, city: true,
+          country: true,
           timezone: true, supportEmail: true,
           organization: { select: { name: true } },
           ticketTypes: { where: { isActive: true }, select: { name: true }, orderBy: { sortOrder: "asc" }, take: 1 },

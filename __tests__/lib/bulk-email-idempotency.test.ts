@@ -28,6 +28,9 @@ vi.mock("@/lib/email", async (importOriginal) => {
   // actual escaping/substitution behavior, not a mock's.
   const actual = await importOriginal<typeof import("@/lib/email")>();
   return {
+    // Spread first so a NEW export does not come back undefined; the explicit
+    // entries below still override the ones this suite controls.
+    ...actual,
     sendEmail: (args: unknown) => mockSendEmail(args),
     getEventTemplate: vi.fn().mockResolvedValue(null),
     getDefaultTemplate: (slug: string) => mockGetDefaultTemplate(slug),

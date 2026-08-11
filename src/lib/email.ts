@@ -1181,6 +1181,40 @@ export function stripDocumentWrapper(html: string): string {
   return html;
 }
 
+// ── Event location template variables ─────────────────────────────────────────
+
+/**
+ * `{{eventCity}}` / `{{eventCountry}}` for email templates.
+ *
+ * ONE definition, because these are produced by several senders and a
+ * per-caller copy is how `{{eventVenue}}` ended up meaning three different
+ * things: `venue` alone in bulk sends and speaker emails, `venue, city` in the
+ * registration confirmation, and `venue, city, country` in the CSV-completion
+ * email. An organizer reasonably read that as city and country having been
+ * removed, when they had never been present in most emails (investigated
+ * Aug 11, 2026: the `[venue, city]` join dates from the first
+ * public-registration commit and `eventCountry` had never existed at all).
+ *
+ * Deliberately does NOT touch `eventVenue`. Redefining an existing token edits
+ * every saved template at once, and templates that already write
+ * "{{eventVenue}}, {{eventCity}}" — the MMG faculty agreement does — would
+ * render "Raffles Hotel, Dubai, Dubai". Adding tokens is safe; changing the
+ * meaning of one is not.
+ *
+ * Empty string rather than a "TBA" placeholder: these usually render beside
+ * other fields, so a blank collapses cleanly where a placeholder reads as real
+ * content.
+ */
+export function eventLocationVars(event: {
+  city: string | null;
+  country: string | null;
+}): { eventCity: string; eventCountry: string } {
+  return {
+    eventCity: event.city || "",
+    eventCountry: event.country || "",
+  };
+}
+
 // ── Available template variables per slug ──────────────────────────────────────
 
 export const TEMPLATE_VARIABLES: Record<string, { key: string; description: string }[]> = {
@@ -1192,6 +1226,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventDateRange", description: "Event date range (e.g. 17th - 19th June 2026)" },
     { key: "eventDate", description: "Event start date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
+    { key: "eventCity", description: "Event city" },
+    { key: "eventCountry", description: "Event country" },
     { key: "venueLine", description: "\"at Venue, City, Country\" line (empty when no venue)" },
     { key: "organizationName", description: "Organization name" },
     { key: "certificateList", description: "One line per attached certificate: label + serial" },
@@ -1213,6 +1249,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
+    { key: "eventCity", description: "Event city" },
+    { key: "eventCountry", description: "Event country" },
     { key: "ticketType", description: "Registration/ticket type" },
     { key: "registrationId", description: "Confirmation number" },
     { key: "paymentBlock", description: "Payment pending block (auto-generated for paid tickets)" },
@@ -1227,6 +1265,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
+    { key: "eventCity", description: "Event city" },
+    { key: "eventCountry", description: "Event country" },
     { key: "personalMessage", description: "Personal message from organizer" },
     { key: "presentationDetails", description: "Pre-rendered presentation details block — a 'Your Presentation Details:' heading + the person's SPEAKING engagements only; sessions they moderate/chair render in {{moderatorDetails}} instead (HTML)" },
     { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation Details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
@@ -1246,6 +1286,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
+    { key: "eventCity", description: "Event city" },
+    { key: "eventCountry", description: "Event country" },
     { key: "sessionDetails", description: "Session details" },
     { key: "presentationDetails", description: "Pre-rendered presentation details block — a 'Your Presentation Details:' heading + the person's SPEAKING engagements only; sessions they moderate/chair render in {{moderatorDetails}} instead (HTML)" },
     { key: "moderatorDetails", description: "Sessions this speaker MODERATES or CHAIRS — a 'Your Moderation Details:' heading + Topic | Presented by run-sheet (HTML; empty when they run no session)" },
@@ -1264,6 +1306,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "eventDateRange", description: "Event date range (formatted, with leading separator)" },
     { key: "eventVenue", description: "Event venue" },
+    { key: "eventCity", description: "Event city" },
+    { key: "eventCountry", description: "Event country" },
     { key: "abstractTitles", description: "The presenter's submitted abstract titles (joined)" },
     { key: "abstractCount", description: "Number of abstracts the presenter submitted" },
     { key: "agreementLink", description: "Agreement acceptance link URL" },
@@ -1278,6 +1322,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
+    { key: "eventCity", description: "Event city" },
+    { key: "eventCountry", description: "Event country" },
     { key: "eventAddress", description: "Event address" },
     { key: "daysUntilEvent", description: "Number of days until event" },
     { key: "entryBarcode", description: "Attendee entry barcode image — in-person registrations only (omit to exclude it)" },
@@ -1390,6 +1436,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
+    { key: "eventCity", description: "Event city" },
+    { key: "eventCountry", description: "Event country" },
     { key: "registrationId", description: "Confirmation number" },
     { key: "ticketType", description: "Registration/ticket type" },
     { key: "amount", description: "Amount paid (e.g. USD 100.00)" },
@@ -1415,6 +1463,8 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "eventName", description: "Event name" },
     { key: "eventDate", description: "Event date (formatted)" },
     { key: "eventVenue", description: "Event venue" },
+    { key: "eventCity", description: "Event city" },
+    { key: "eventCountry", description: "Event country" },
     { key: "ticketType", description: "Registration/ticket type" },
     { key: "amount", description: "Amount due (e.g. USD 100.00)" },
     { key: "paymentBlock", description: "Pay Now button (auto-generated)" },
@@ -2864,6 +2914,8 @@ export function getSamplePreviewVariables(
     eventName: "Sample Conference 2026",
     eventDate: "Monday, March 15, 2026",
     eventVenue: "Convention Center, Dubai",
+    eventCity: "Dubai",
+    eventCountry: "United Arab Emirates",
     eventAddress: "123 Main Street",
     ticketType: "VIP Pass",
     registrationId: "ABCD1234",
@@ -3044,6 +3096,7 @@ export interface PreviewEventData {
   venue?: string | null;
   address?: string | null;
   city?: string | null;
+  country?: string | null;
   timezone?: string | null;
   supportEmail?: string | null;
   organization?: { name: string } | null;
@@ -3122,6 +3175,8 @@ export function buildEventPreviewVariables(
     // Always the start–end range on multi-day events; same string as eventDate.
     eventDateRange: eventDate,
     eventVenue: event.venue || "",
+    eventCity: event.city || "",
+    eventCountry: event.country || "",
     eventAddress: [event.address, event.city].filter(Boolean).join(", "),
     venueLine: venueParts.length ? `at ${venueParts.join(", ")}` : "",
     ...(event.organization?.name ? { organizationName: event.organization.name } : {}),
@@ -3332,6 +3387,7 @@ export interface RegistrationConfirmationParams {
   eventDate: Date;
   eventVenue: string;
   eventCity: string;
+  eventCountry?: string;
   ticketType: string;
   pricingTierName?: string | null;
   registrationId: string;
@@ -3478,7 +3534,14 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
     lastName: params.lastName ?? "",
     eventName: params.eventName,
     eventDate,
+    // eventVenue keeps its long-standing "venue, city" shape here — this join
+    // predates the first public-registration commit and every saved
+    // registration-confirmation template was written against it. City and
+    // country are ALSO exposed as their own tokens below so a template can use
+    // them independently.
     eventVenue: [params.eventVenue, params.eventCity].filter(Boolean).join(", "),
+    eventCity: params.eventCity || "",
+    eventCountry: params.eventCountry || "",
     ticketType: params.ticketType,
     registrationId: params.serialId != null
       ? String(params.serialId).padStart(3, "0")
