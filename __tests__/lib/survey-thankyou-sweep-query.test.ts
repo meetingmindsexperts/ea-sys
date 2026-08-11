@@ -16,50 +16,60 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb } = vi.hoisted(() => ({
-  mockDb: {
+const { mockDb, mockDbOperator } = vi.hoisted(() => ({
+  mockDb: {},
+  // Both sweep reads are privileged, and they must stay on the SAME client:
+  // a succeeding candidate read with a fail-closed dedup read re-thanks, and
+  // re-attaches certificates for, everyone in the window.
+  mockDbOperator: {
     registration: { findMany: vi.fn() },
     emailLog: { findMany: vi.fn() },
   },
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// `dbOperator` is a DISTINCT fake here, not an alias of `db`. Binding both to
+// one object is fine for master parity but makes the assertion meaningless:
+// reverting `dbOperator.x` to `db.x` would still pass. The scan below is the
+// one statement that MUST be privileged, and on the platform a revert makes
+// it return zero rows forever without erroring, so the test distinguishes them.
+// Both the dedup read AND the candidate read must ride it, together.
+vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDbOperator }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { runSurveyThankYouSweep } from "@/lib/certificates/survey-thankyou-sweep";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockDb.registration.findMany.mockResolvedValue([]); // no work to do; we assert the QUERY
+  mockDbOperator.registration.findMany.mockResolvedValue([]); // no work to do; we assert the QUERY
 });
 
 describe("H3 — the sweep must not starve older completions", () => {
   it("excludes already-thanked registrations IN THE QUERY (not after `take`)", async () => {
-    mockDb.emailLog.findMany.mockResolvedValue([{ entityId: "reg1" }, { entityId: "reg2" }]);
+    mockDbOperator.emailLog.findMany.mockResolvedValue([{ entityId: "reg1" }, { entityId: "reg2" }]);
 
     await runSurveyThankYouSweep();
 
-    const where = mockDb.registration.findMany.mock.calls[0][0].where;
+    const where = mockDbOperator.registration.findMany.mock.calls[0][0].where;
     // If the exclusion happens after `take`, the batch fills with rows that need
     // no work and the queue never drains. It must be part of the WHERE.
     expect(where.id).toEqual({ notIn: ["reg1", "reg2"] });
   });
 
   it("drains OLDEST-first so nobody starves", async () => {
-    mockDb.emailLog.findMany.mockResolvedValue([]);
+    mockDbOperator.emailLog.findMany.mockResolvedValue([]);
 
     await runSurveyThankYouSweep();
 
-    const orderBy = mockDb.registration.findMany.mock.calls[0][0].orderBy;
+    const orderBy = mockDbOperator.registration.findMany.mock.calls[0][0].orderBy;
     expect(orderBy).toEqual({ surveyCompletedAt: "asc" }); // was "desc"
   });
 
   it("applies no notIn when nobody has been thanked yet", async () => {
-    mockDb.emailLog.findMany.mockResolvedValue([]);
+    mockDbOperator.emailLog.findMany.mockResolvedValue([]);
 
     await runSurveyThankYouSweep();
 
-    const where = mockDb.registration.findMany.mock.calls[0][0].where;
+    const where = mockDbOperator.registration.findMany.mock.calls[0][0].where;
     expect(where.id).toBeUndefined(); // don't emit `notIn: []`
     expect(where.surveyCompletedAt).toMatchObject({ not: null });
   });
@@ -69,12 +79,12 @@ describe("H3 — the sweep must not starve older completions", () => {
     // newest 100 (all thanked) and did nothing, forever. The new query excludes
     // them, so `take` is spent entirely on the 50 that still need thanking.
     const thanked = Array.from({ length: 100 }, (_, i) => ({ entityId: `reg${i}` }));
-    mockDb.emailLog.findMany.mockResolvedValue(thanked);
+    mockDbOperator.emailLog.findMany.mockResolvedValue(thanked);
 
     await runSurveyThankYouSweep();
 
-    const where = mockDb.registration.findMany.mock.calls[0][0].where;
+    const where = mockDbOperator.registration.findMany.mock.calls[0][0].where;
     expect(where.id.notIn).toHaveLength(100);
-    expect(mockDb.registration.findMany.mock.calls[0][0].take).toBe(100);
+    expect(mockDbOperator.registration.findMany.mock.calls[0][0].take).toBe(100);
   });
 });

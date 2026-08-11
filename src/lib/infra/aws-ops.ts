@@ -103,7 +103,14 @@ async function listAllObjects(prefix: string): Promise<{ Key?: string; LastModif
 }
 
 // ── Types ──────────────────────────────────────────────────────────
-type SourceStatus = "ok" | "error" | "unconfigured";
+/**
+ * `operator-only` (Aug 11, 2026): the panel exists but this AUDIENCE may not
+ * see it. Distinct from `unconfigured` (nothing to show) and `error`
+ * (something broke), because both of those would misdescribe a deliberate
+ * boundary, and a panel that quietly renders empty is how a tenant concludes
+ * their logs are clean when they are simply not being shown.
+ */
+type SourceStatus = "ok" | "error" | "unconfigured" | "operator-only";
 
 export interface DeployRun {
   title: string;
@@ -290,10 +297,42 @@ const cache = new Map<string, { at: number; snap: InfraSnapshot }>();
 function scopedClient(scope: InfraScope) {
   return scope.kind === "platform" ? dbOperator : db;
 }
-/** Spread into every counted `where` so the org view is scoped on master too. */
+/**
+ * Org filter for a model whose `organizationId` is NOT NULL (ScheduledEmail,
+ * Event). Plain equality is exact here: there is no null pool to miss.
+ */
 function scopeWhere(scope: InfraScope) {
   return scope.kind === "org" ? { organizationId: scope.orgId } : {};
 }
+
+/**
+ * Org filter for a model whose `organizationId` is NULLABLE: Registration,
+ * Payment, Abstract, EmailLog, CertificateIssueRun. Matches the tenant's rows
+ * OR rows with no org at all, and the OR is load-bearing (added Aug 11, 2026
+ * after review).
+ *
+ * An equality filter drops NULL, and auth emails (password reset, team
+ * invitation, reviewer invitation) are written from unwrapped auth routes and
+ * are exactly that null population. Filtering them out gave the "recent email
+ * failures" card a silent blind spot on the one class of mail whose failure
+ * nobody would otherwise notice: an ADMIN sees an empty card and concludes
+ * mail is healthy.
+ *
+ * Including NULL is safe on the platform because the LANE already excludes it:
+ * every policy matches `organizationId = current_setting('app.current_org')`,
+ * which NULL never satisfies, and the asymmetric policies say so explicitly.
+ * The filter restores the correct master view; the lane keeps the tenant
+ * boundary. Each layer does its own job.
+ *
+ * ⚠ Spreads an `OR`, so never add it to a `where` that already has one: the
+ * later key wins and would silently drop the org scope.
+ */
+function scopeWhereWithNullPool(scope: InfraScope) {
+  return scope.kind === "org"
+    ? { OR: [{ organizationId: scope.orgId }, { organizationId: null }] }
+    : {};
+}
+
 /** Run an org-scoped read inside its tenant lane; platform reads need none. */
 function inScope<T>(scope: InfraScope, fn: () => Promise<T>): Promise<T> {
   return scope.kind === "org" ? runWithTenant(scope.orgId, fn) : fn();
@@ -552,7 +591,14 @@ async function fetchJobs(): Promise<InfraSnapshot["jobs"]> {
   }
 }
 
-async function fetchRecentErrors(): Promise<InfraSnapshot["recentErrors"]> {
+async function fetchRecentErrors(scope: InfraScope): Promise<InfraSnapshot["recentErrors"]> {
+  // SystemLog is NOT policied and has NO organizationId column, so neither the
+  // lane nor a filter can scope it, and `SystemLog.message` stores the ENTIRE
+  // raw pino line, meaning userId, email, subject, registrationId and error
+  // text. On the platform that makes this panel cross-tenant by construction,
+  // so a tenant audience gets the boundary stated rather than a silently empty
+  // card. Giving SystemLog an org column would let this be scoped properly.
+  if (scope.kind === "org") return { status: "operator-only", rows: [] };
   try {
     // Latest error/warn lines across app + worker — our own SystemLog (the
     // same source the /logs page reads). Zero AWS cost.
@@ -591,7 +637,7 @@ async function fetchEmailFailures(scope: InfraScope): Promise<InfraSnapshot["ema
     const rows = await inScope(scope, () =>
       scopedClient(scope).emailLog.findMany({
       where: {
-        ...scopeWhere(scope),
+        ...scopeWhereWithNullPool(scope),
         status: "FAILED",
         createdAt: { gte: new Date(Date.now() - EMAIL_FAILURE_WINDOW_DAYS * 24 * 60 * 60 * 1000) },
       },
@@ -741,7 +787,10 @@ async function fetchQueues(scope: InfraScope): Promise<InfraSnapshot["queues"]> 
     const now = new Date();
     const dayAgo = new Date(Date.now() - 24 * 3600_000);
     const c = scopedClient(scope);
+    // ScheduledEmail.organizationId is NOT NULL; CertificateIssueRun's IS
+    // nullable, so the two counters take different filters deliberately.
     const org = scopeWhere(scope);
+    const orgOrNull = scopeWhereWithNullPool(scope);
     const [emailsDue, emailsStuck, emailsFailed24h, certRunsActive, certRunsFailed24h] =
       await inScope(scope, () =>
         Promise.all([
@@ -749,9 +798,9 @@ async function fetchQueues(scope: InfraScope): Promise<InfraSnapshot["queues"]> 
           c.scheduledEmail.count({ where: { ...org, status: "PROCESSING" } }),
           c.scheduledEmail.count({ where: { ...org, status: "FAILED", updatedAt: { gte: dayAgo } } }),
           c.certificateIssueRun.count({
-            where: { ...org, status: { in: ["PENDING", "RENDERING", "SENDING"] } },
+            where: { ...orgOrNull, status: { in: ["PENDING", "RENDERING", "SENDING"] } },
           }),
-          c.certificateIssueRun.count({ where: { ...org, status: "FAILED", triggeredAt: { gte: dayAgo } } }),
+          c.certificateIssueRun.count({ where: { ...orgOrNull, status: "FAILED", triggeredAt: { gte: dayAgo } } }),
         ]),
       );
 
@@ -866,16 +915,18 @@ async function fetchHeartbeat(scope: InfraScope): Promise<InfraSnapshot["heartbe
     const weekAhead = new Date(Date.now() + 7 * 24 * 3600_000);
 
     const c = scopedClient(scope);
+    // Everything counted here except Event has a NULLABLE organizationId.
+    const orgOrNull = scopeWhereWithNullPool(scope);
     const org = scopeWhere(scope);
     const [registrations24h, registrations7d, payments24h, checkIns24h, abstracts24h, emailsSent24h, liveEvents, nextEvent] =
       await inScope(scope, () =>
         Promise.all([
-          c.registration.count({ where: { ...org, createdAt: { gte: dayAgo } } }),
-          c.registration.count({ where: { ...org, createdAt: { gte: weekAgo } } }),
-          c.payment.count({ where: { ...org, createdAt: { gte: dayAgo }, status: "PAID" } }),
-          c.registration.count({ where: { ...org, checkedInAt: { gte: dayAgo } } }),
-          c.abstract.count({ where: { ...org, createdAt: { gte: dayAgo } } }),
-          c.emailLog.count({ where: { ...org, createdAt: { gte: dayAgo }, status: "SENT" } }),
+          c.registration.count({ where: { ...orgOrNull, createdAt: { gte: dayAgo } } }),
+          c.registration.count({ where: { ...orgOrNull, createdAt: { gte: weekAgo } } }),
+          c.payment.count({ where: { ...orgOrNull, createdAt: { gte: dayAgo }, status: "PAID" } }),
+          c.registration.count({ where: { ...orgOrNull, checkedInAt: { gte: dayAgo } } }),
+          c.abstract.count({ where: { ...orgOrNull, createdAt: { gte: dayAgo } } }),
+          c.emailLog.count({ where: { ...orgOrNull, createdAt: { gte: dayAgo }, status: "SENT" } }),
           // An event running RIGHT NOW is the difference between "fix it tomorrow"
           // and "fix it in the next ten minutes". Event carries no RLS policy, so
           // the org filter alone scopes it in both views.
@@ -917,7 +968,9 @@ async function fetchHeartbeat(scope: InfraScope): Promise<InfraSnapshot["heartbe
  * you whether this is normal. A shape does: a flat line with a cliff at 14:00 is
  * a deploy; a rising ramp is a leak; a spike at 02:00 is a cron.
  */
-async function fetchErrorTrend(): Promise<InfraSnapshot["errorTrend"]> {
+async function fetchErrorTrend(scope: InfraScope): Promise<InfraSnapshot["errorTrend"]> {
+  // Same reason as fetchRecentErrors: SystemLog cannot be scoped.
+  if (scope.kind === "org") return { status: "operator-only", buckets: [] };
   try {
     const rows = await db.$queryRaw<Array<{ hour: Date; level: string; count: bigint }>>`
       SELECT date_trunc('hour', "timestamp") AS hour, level, COUNT(*) AS count
@@ -952,7 +1005,9 @@ async function fetchErrorTrend(): Promise<InfraSnapshot["errorTrend"]> {
  * Abuse / auth signals. Cheap, and the only place a brute-force attempt or a
  * client hammering the API would ever surface on this page.
  */
-async function fetchAbuse(): Promise<InfraSnapshot["abuse"]> {
+async function fetchAbuse(scope: InfraScope): Promise<InfraSnapshot["abuse"]> {
+  // Same reason as fetchRecentErrors: SystemLog cannot be scoped.
+  if (scope.kind === "org") return { status: "operator-only", rows: [] };
   try {
     const dayAgo = new Date(Date.now() - 24 * 3600_000);
     // Substrings match the codebase's REAL log-message taxonomy (Aug 4, 2026
@@ -1104,7 +1159,7 @@ export async function getInfraSnapshot(
       fetchSes(),
       fetchMetrics(instanceId),
       fetchJobs(),
-      fetchRecentErrors(),
+      fetchRecentErrors(scope),
       fetchEmailFailures(scope),
       fetchDatabase(),
       fetchWorker(),
@@ -1112,8 +1167,8 @@ export async function getInfraSnapshot(
       fetchBackup(),
       fetchAlerts(),
       fetchHeartbeat(scope),
-      fetchErrorTrend(),
-      fetchAbuse(),
+      fetchErrorTrend(scope),
+      fetchAbuse(scope),
       fetchDr(),
     ]);
   const snap: InfraSnapshot = {

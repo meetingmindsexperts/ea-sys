@@ -17,7 +17,7 @@
  *    silent cross-tenant hole.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { canActAsPlatformOperator, denyNonOperator } from "@/lib/platform-operator";
 
 const { warnCalls } = vi.hoisted(() => ({ warnCalls: [] as Record<string, unknown>[] }));
@@ -46,7 +46,7 @@ beforeEach(() => {
 
 describe("canActAsPlatformOperator", () => {
   it("admits SUPER_ADMIN", () => {
-    expect(canActAsPlatformOperator("SUPER_ADMIN")).toBe(true);
+    expect(canActAsPlatformOperator({ role: "SUPER_ADMIN" })).toBe(true);
   });
 
   it.each([
@@ -60,19 +60,56 @@ describe("canActAsPlatformOperator", () => {
     "SUBMITTER",
     "REGISTRANT",
   ])("refuses %s", (role) => {
-    expect(canActAsPlatformOperator(role)).toBe(false);
+    expect(canActAsPlatformOperator({ role })).toBe(false);
   });
 
   it("fails closed on an org API key (role null): a key belongs to ONE tenant", () => {
-    expect(canActAsPlatformOperator(null)).toBe(false);
+    expect(canActAsPlatformOperator({ role: null })).toBe(false);
   });
 
   it.each([undefined, "", "FUTURE_ROLE_NOBODY_CLASSIFIED"])(
     "fails closed on %s",
     (role) => {
-      expect(canActAsPlatformOperator(role as string | undefined)).toBe(false);
+      expect(canActAsPlatformOperator({ role })).toBe(false);
     },
   );
+
+  it("fails closed on a null/undefined user", () => {
+    expect(canActAsPlatformOperator(null)).toBe(false);
+    expect(canActAsPlatformOperator(undefined)).toBe(false);
+  });
+});
+
+/**
+ * The org binding. Without it "SUPER_ADMIN" is unqualified, so a SUPER_ADMIN
+ * row belonging to a TENANT would be a platform operator and could read every
+ * other tenant's data. Nothing but a UI convention (SUPER_ADMIN is absent from
+ * ASSIGNABLE_USER_ROLES) stops such a row existing, and the tenant-onboarding
+ * flow that would have to inherit that convention is not built yet.
+ */
+describe("PLATFORM_ORG_ID binding", () => {
+  const ORIGINAL = process.env.PLATFORM_ORG_ID;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.PLATFORM_ORG_ID;
+    else process.env.PLATFORM_ORG_ID = ORIGINAL;
+  });
+
+  it("unset (master): any SUPER_ADMIN is the operator, exactly as before", () => {
+    delete process.env.PLATFORM_ORG_ID;
+    expect(canActAsPlatformOperator({ role: "SUPER_ADMIN", organizationId: "mmg" })).toBe(true);
+    expect(canActAsPlatformOperator({ role: "SUPER_ADMIN", organizationId: null })).toBe(true);
+  });
+
+  it("set: only the platform org's SUPER_ADMIN qualifies", () => {
+    process.env.PLATFORM_ORG_ID = "platform-org";
+    expect(canActAsPlatformOperator({ role: "SUPER_ADMIN", organizationId: "platform-org" })).toBe(true);
+  });
+
+  it("set: a TENANT's SUPER_ADMIN is refused", () => {
+    process.env.PLATFORM_ORG_ID = "platform-org";
+    expect(canActAsPlatformOperator({ role: "SUPER_ADMIN", organizationId: "acme" })).toBe(false);
+    expect(canActAsPlatformOperator({ role: "SUPER_ADMIN", organizationId: null })).toBe(false);
+  });
 });
 
 describe("denyNonOperator", () => {

@@ -6,17 +6,25 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockApiLogger, refundsList, notifySpy } = vi.hoisted(() => ({
+const { mockDb, mockDbOperator, mockApiLogger, refundsList, notifySpy } = vi.hoisted(() => ({
   mockDb: {
+    // Per-attempt work; stays on the normal client inside the row's own lane.
     refundAttempt: { findMany: vi.fn(), update: vi.fn() },
     registration: { updateMany: vi.fn() },
   },
+  // The privileged candidate scan, and ONLY that.
+  mockDbOperator: { refundAttempt: { findMany: vi.fn() } },
   mockApiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   refundsList: vi.fn(),
   notifySpy: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/db", () => ({ db: mockDb }));
+// `dbOperator` is a DISTINCT fake here, not an alias of `db`. Binding both to
+// one object is fine for master parity but makes the assertion meaningless:
+// reverting `dbOperator.x` to `db.x` would still pass. The scan below is the
+// one statement that MUST be privileged, and on the platform a revert makes
+// it return zero rows forever without erroring, so the test distinguishes them.
+vi.mock("@/lib/db", () => ({ db: mockDb, dbOperator: mockDbOperator }));
 vi.mock("@/lib/logger", () => ({ apiLogger: mockApiLogger }));
 vi.mock("@/lib/stripe", () => ({ getStripe: () => ({ refunds: { list: refundsList } }) }));
 vi.mock("@/lib/notifications", () => ({ notifyEventAdmins: notifySpy }));
@@ -68,7 +76,7 @@ describe("findStripeRefundForAttempt", () => {
 
 describe("resolveStaleRefundAttempts", () => {
   it("confirms a stale MANUAL attempt (booking is the record)", async () => {
-    mockDb.refundAttempt.findMany.mockResolvedValue([attempt({ kind: "manual", stripePaymentIntentId: null })]);
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt({ kind: "manual", stripePaymentIntentId: null })]);
     const r = await resolveStaleRefundAttempts();
     expect(r).toMatchObject({ scanned: 1, confirmed: 1, rolledBack: 0 });
     expect(mockDb.refundAttempt.update).toHaveBeenCalledWith({ where: { id: "att1" }, data: { status: "SUCCEEDED" } });
@@ -76,7 +84,7 @@ describe("resolveStaleRefundAttempts", () => {
   });
 
   it("confirms a stripe attempt whose refund exists at Stripe (crash AFTER the Stripe call)", async () => {
-    mockDb.refundAttempt.findMany.mockResolvedValue([attempt()]);
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt()]);
     refundsList.mockResolvedValue({ data: [{ id: "re_found", metadata: { refundAttemptId: "att1" } }] });
     const r = await resolveStaleRefundAttempts();
     expect(r).toMatchObject({ confirmed: 1, rolledBack: 0 });
@@ -88,7 +96,7 @@ describe("resolveStaleRefundAttempts", () => {
   });
 
   it("rolls back the booking when the refund provably never happened (crash BEFORE the Stripe call, H4)", async () => {
-    mockDb.refundAttempt.findMany.mockResolvedValue([attempt({ flippedToRefunded: true })]);
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt({ flippedToRefunded: true })]);
     const r = await resolveStaleRefundAttempts();
     expect(r).toMatchObject({ rolledBack: 1 });
     // Guarded decrement — sibling slices / webhook adjustments preserved.
@@ -104,7 +112,7 @@ describe("resolveStaleRefundAttempts", () => {
   });
 
   it("does not flip paymentStatus back when the attempt never flipped it (partial refund)", async () => {
-    mockDb.refundAttempt.findMany.mockResolvedValue([attempt({ flippedToRefunded: false, refundedBefore: 20, refundedAfter: 70 })]);
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt({ flippedToRefunded: false, refundedBefore: 20, refundedAfter: 70 })]);
     await resolveStaleRefundAttempts();
     expect(mockDb.registration.updateMany).toHaveBeenCalledWith({
       where: { id: "reg1", refundedAmount: { gte: 50 } },
@@ -113,7 +121,7 @@ describe("resolveStaleRefundAttempts", () => {
   });
 
   it("goes terminal (manual review, no churn) when the rollback loses its race", async () => {
-    mockDb.refundAttempt.findMany.mockResolvedValue([attempt()]);
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt()]);
     mockDb.registration.updateMany.mockResolvedValue({ count: 0 });
     const r = await resolveStaleRefundAttempts();
     expect(r).toMatchObject({ needsReview: 1, rolledBack: 0 });
@@ -124,7 +132,7 @@ describe("resolveStaleRefundAttempts", () => {
   });
 
   it("leaves the attempt for the next tick when Stripe is unreachable", async () => {
-    mockDb.refundAttempt.findMany.mockResolvedValue([attempt()]);
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([attempt()]);
     refundsList.mockRejectedValue(new Error("down"));
     const r = await resolveStaleRefundAttempts();
     expect(r).toMatchObject({ unverifiable: 1 });
@@ -133,7 +141,7 @@ describe("resolveStaleRefundAttempts", () => {
   });
 
   it("one bad row cannot kill the tick (per-attempt try/catch)", async () => {
-    mockDb.refundAttempt.findMany.mockResolvedValue([
+    mockDbOperator.refundAttempt.findMany.mockResolvedValue([
       attempt({ id: "att-bad" }),
       attempt({ id: "att-good", kind: "manual", stripePaymentIntentId: null }),
     ]);

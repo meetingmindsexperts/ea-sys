@@ -37,12 +37,32 @@ import { NextResponse } from "next/server";
 import { apiLogger } from "@/lib/logger";
 
 /**
- * May this role act as the platform operator (read/act across tenants)?
+ * May this user act as the platform operator (read/act across tenants)?
  *
- * Fails closed: unknown, absent and API-key (`null`) roles all return false.
+ * TWO conditions, and the second only exists on the platform:
+ *   1. the role is SUPER_ADMIN, and
+ *   2. IF `PLATFORM_ORG_ID` is set, the user belongs to that org.
+ *
+ * Condition 2 was added Aug 11, 2026 after review. Without it "SUPER_ADMIN" is
+ * unqualified, so a SUPER_ADMIN row belonging to any TENANT would be a platform
+ * operator and could read every tenant's captured help-chat questions and
+ * business counters. `ASSIGNABLE_USER_ROLES` excludes SUPER_ADMIN so the role
+ * cannot be granted through the admin UI today, but that is a property of one
+ * screen, not an invariant, and the tenant-onboarding flow does not exist yet
+ * to inherit it.
+ *
+ * `PLATFORM_ORG_ID` is the synthetic operator org decided in
+ * PLATFORM_DECISIONS §3. It is UNSET on master, where condition 2 is skipped
+ * and behaviour is exactly as before: MMG's SUPER_ADMIN stays the operator.
+ * Fails closed on unknown, absent and API-key (`null`) roles.
  */
-export function canActAsPlatformOperator(role: string | null | undefined): boolean {
-  return role === "SUPER_ADMIN";
+export function canActAsPlatformOperator(
+  user: { role?: string | null; organizationId?: string | null } | null | undefined,
+): boolean {
+  if (user?.role !== "SUPER_ADMIN") return false;
+  const platformOrgId = process.env.PLATFORM_ORG_ID;
+  if (!platformOrgId) return true;
+  return user.organizationId === platformOrgId;
 }
 
 /**
@@ -61,10 +81,10 @@ export function canActAsPlatformOperator(role: string | null | undefined): boole
  * have to place by grepping.
  */
 export function denyNonOperator(
-  session: { user?: { id?: string; role?: string } } | null,
+  session: { user?: { id?: string; role?: string; organizationId?: string | null } } | null,
   ctx?: { route?: string },
 ) {
-  if (canActAsPlatformOperator(session?.user?.role)) return null;
+  if (canActAsPlatformOperator(session?.user)) return null;
 
   apiLogger.warn({
     msg: "platform-operator:denied",

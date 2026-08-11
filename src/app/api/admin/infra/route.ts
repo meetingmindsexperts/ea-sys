@@ -48,7 +48,7 @@ export async function GET(req: Request) {
     // through to the platform view, so that case is refused rather than
     // widened: on master every ADMIN has an org, so this never fires there.
     let scope: InfraScope;
-    if (canActAsPlatformOperator(role)) {
+    if (canActAsPlatformOperator(session.user)) {
       scope = { kind: "platform" };
     } else if (session.user.organizationId) {
       scope = { kind: "org", orgId: session.user.organizationId };

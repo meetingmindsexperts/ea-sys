@@ -26,7 +26,7 @@
  */
 
 import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db, dbOperator } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import {
@@ -148,7 +148,13 @@ export async function runSurveyThankYouSweep(
   // privileged scan lane, BOTH reads must ride it — never split their lanes,
   // or a succeeding candidate read + a fail-closed dedup read would re-thank
   // (and re-attach certificates for) everyone in the window.
-  const thankedRows = await db.emailLog.findMany({
+  // WIRED Aug 11, 2026 (review H1): BOTH reads ride the privileged lane, and
+  // they must stay together. The lane shipped without this module because the
+  // surface list was built job by job and this is a SIBLING inside cert-issue,
+  // whose other two modules were found. Splitting the lanes would be worse than
+  // leaving both unwired: a succeeding candidate read with a fail-closed dedup
+  // read re-thanks, and re-attaches certificates for, everyone in the window.
+  const thankedRows = await dbOperator.emailLog.findMany({
     where: {
       entityType: "REGISTRATION",
       templateSlug: THANKYOU_SLUG,
@@ -165,7 +171,7 @@ export async function runSurveyThankYouSweep(
   // swept table — under RLS this fail-closes; the known cross-sweep worker
   // precondition, see MULTI_TENANCY.md §13). Per-row processing below wraps in
   // the row's own event org.
-  const candidates = await db.registration.findMany({
+  const candidates = await dbOperator.registration.findMany({
     where: {
       surveyCompletedAt: { not: null, gte: windowStart },
       ...(thanked.size ? { id: { notIn: [...thanked] } } : {}),

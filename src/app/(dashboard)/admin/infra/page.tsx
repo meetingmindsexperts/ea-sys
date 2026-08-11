@@ -172,6 +172,16 @@ function StatusNote({ status, error, unconfiguredHint }: { status: string; error
     return <p className="text-sm text-amber-600 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{error}</p>;
   if (status === "unconfigured")
     return <p className="text-sm text-muted-foreground">{unconfiguredHint}</p>;
+  // The panel exists, this audience may not see it. Said out loud rather than
+  // rendered as an empty card, because an empty "recent errors" panel reads as
+  // "nothing is wrong" and that is the wrong thing to tell someone.
+  if (status === "operator-only")
+    return (
+      <p className="text-sm text-muted-foreground">
+        Platform operator only. This panel spans every organization, so it is
+        not shown in an organization-scoped view.
+      </p>
+    );
   return null;
 }
 

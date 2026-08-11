@@ -139,12 +139,23 @@ const PROD_DB_MARKER = "nifaqvgnfwddgsusxapy";
  * this is completely inert in prod. `DANGEROUSLY_ALLOW_PROD_DB=1` is the explicit,
  * deliberate escape hatch (you almost never should).
  */
-function assertNotProdDbOutsideProduction() {
+function assertNotProdDbOutsideProduction(datasourceUrl?: string) {
   if (process.env.NODE_ENV === "production") return;
   if (process.env.DANGEROUSLY_ALLOW_PROD_DB === "1") return;
-  const urls = [process.env.DATABASE_URL, process.env.DIRECT_URL].filter(
-    (u): u is string => typeof u === "string" && u.length > 0,
-  );
+  // Checks the URL this client is ACTUALLY being built from, not just the
+  // ambient env. The guard originally read the two env vars only, which left
+  // `DATABASE_URL_OPERATOR` unchecked when it was added on Aug 11, 2026, and
+  // that is the single worst string to leave unguarded, because it is meant to
+  // hold the table-OWNER role: a dev `.env` with a local DATABASE_URL and a
+  // prod operator URL would have connected a laptop to production as the role
+  // INC-002's `db push --force-reset` ran as. Taking the argument means a
+  // future third client cannot reopen the same hole by construction.
+  const urls = [
+    datasourceUrl,
+    process.env.DATABASE_URL,
+    process.env.DIRECT_URL,
+    process.env.DATABASE_URL_OPERATOR,
+  ].filter((u): u is string => typeof u === "string" && u.length > 0);
   if (!urls.some((u) => u.includes(PROD_DB_MARKER))) return;
   throw new Error(
     `[INC-002 guard] Refusing to connect: DATABASE_URL/DIRECT_URL point at the PRODUCTION ` +
@@ -156,7 +167,7 @@ function assertNotProdDbOutsideProduction() {
 }
 
 function createPrismaClient(datasourceUrl: string | undefined = process.env.DATABASE_URL) {
-  assertNotProdDbOutsideProduction();
+  assertNotProdDbOutsideProduction(datasourceUrl);
   const client = new PrismaClient({
     // Only log errors - remove query logging to keep console clean
     log: [

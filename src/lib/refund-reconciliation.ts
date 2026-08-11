@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db, dbOperator } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
 import { getStripe } from "@/lib/stripe";
@@ -66,7 +66,17 @@ export interface RefundSweepResult {
  * event admins (over-alerting on money is deliberate).
  */
 export async function resolveStaleRefundAttempts(limit = 25): Promise<RefundSweepResult> {
-  const stale = await db.refundAttempt.findMany({
+  // Privileged lane (item 5, wired Aug 11 2026 after review H2). Missed in the
+  // first pass because the surface list was built job by job and this is a
+  // SIBLING inside invoice-reconciliation, whose main module was found.
+  //
+  // This is the worst place for that miss: the sweep exists to catch money that
+  // got stuck, and an empty lane returns zero stale attempts, which is
+  // indistinguishable from nothing being stuck. Refunds would sit PENDING
+  // forever, never settle, never roll back, never raise manual review, and the
+  // tick would log success. Per-attempt work below is already inside the row's
+  // own tenant lane.
+  const stale = await dbOperator.refundAttempt.findMany({
     where: {
       status: { in: ["PENDING", "UNKNOWN"] },
       createdAt: { lt: new Date(Date.now() - STALE_AFTER_MS) },
