@@ -98,7 +98,16 @@ export async function POST(req: Request) {
     await db.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: user.id },
-        data: { passwordHash },
+        data: {
+          passwordHash,
+          // Revoke every existing session (Aug 11, 2026). Sessions are
+          // stateless JWTs, so before this a password reset stopped the holder
+          // getting a NEW token while leaving the one they already had fully
+          // working — the opposite of what someone resetting a password after
+          // a suspected compromise expects. Bumping the counter kills every
+          // token minted before this moment, at the next re-validation.
+          tokenVersion: { increment: 1 },
+        },
       });
 
       await tx.verificationToken.delete({

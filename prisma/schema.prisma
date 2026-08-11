@@ -108,6 +108,30 @@ model User {
   /// accounts at 5-minute granularity — nowhere near enough row churn to be
   /// worth a join on every read.
   lastSeenAt      DateTime?
+  /// Session revocation counter (Aug 11, 2026). Sessions are stateless JWTs, so
+  /// there is no session row to delete — a cookie keeps working until it
+  /// expires no matter what happens to this user. Deleting the account did NOT
+  /// log anyone out; their token kept its cached role indefinitely, because the
+  /// rolling 24h window only expires on IDLE.
+  ///
+  /// This is the standard fix: the value is stamped into the token at sign-in
+  /// and compared on the periodic re-validation that already runs. Bump it and
+  /// every token issued for this user stops matching, so they are signed out.
+  ///
+  /// Bump on: password reset, and any explicit "sign this person out" action.
+  /// Deliberately NOT on an ordinary role change — the same re-validation
+  /// already rewrites the role in place, and bumping would only convert a
+  /// silent downgrade into a forced sign-out WITHOUT making it any faster
+  /// (both are bounded by the same 5-minute cycle). Promoting a colleague
+  /// should not log them out.
+  ///
+  /// Deletion needs no bump either: the row is gone, so the re-validation's
+  /// "user not found" branch invalidates the session on its own.
+  ///
+  /// It rides an existing query rather than adding one — the 5-minute block
+  /// already reads this row for `role`, so this is one more column in the same
+  /// `select`. See docs/SESSION_ARCHITECTURE.md.
+  tokenVersion    Int       @default(0)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

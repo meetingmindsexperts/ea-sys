@@ -175,19 +175,48 @@ who holds a valid cookie. Someone who closed their laptop is still signed in for
 up to 24 hours and will not appear online — which is usually what an operator
 actually means by the question, but is not the same statement.
 
-### The honest limitation that remains
+### The limitation that remained, and was closed on 2026-08-11
 
-There is still **no way to sign someone out**. If an account is compromised
-today, the options are: change the password (which does *not* invalidate the
-existing token) or delete the account (whose cookie keeps working until it
-expires — up to 24 hours).
+There used to be **no way to sign anyone out**. Deleting an account did not do
+it: the JWT callback's re-validation read the row, and the only thing it acted
+on was a role change.
 
-That is a real security gap, and it is the strongest argument for revisiting
-this. It does **not** require full database sessions to fix — see §7.
+```ts
+if (dbUser) { token.role = dbUser.role; }   // no else
+```
+
+A deleted user produced `dbUser === null`, the `if` did nothing, and the request
+continued **with the cached role**. A deleted ADMIN stayed an ADMIN. And because
+the 24h window is a ROLLING idle timeout, an actively-used session never expired
+at all, so "up to 24 hours" was the optimistic reading rather than a bound.
+
+Closed by shipping §7 (`tokenVersion`) together with the missing `else`. The
+decision now lives in a pure `decideSessionValidity` so the truth table is unit
+testable without standing up NextAuth, and the callback is a thin caller.
+
+Three properties worth keeping in mind:
+
+1. **A deleted user is not the same as a database error.** The `catch` around
+   the re-read deliberately keeps the cached role, because a pooler blip must
+   not sign the company out. A confirmed `null` is an answer; a thrown error is
+   the absence of one, and they get opposite treatment.
+2. **An ordinary role change does not sign anyone out.** The same cycle rewrites
+   the role in place, and bumping the counter would not make it any faster
+   (both are bounded by the same 5-minute check). Promoting a colleague should
+   not eject them.
+3. **Latency is up to 5 minutes**, the re-validation interval, not instant.
+
+**Still open: the mobile token path.** [mobile-jwt.ts](../src/lib/mobile-jwt.ts)
+is a separate token system, not NextAuth, with a 24h access token and a **30-day
+refresh token**. `mobile-refresh` does re-read the user, so a *deleted* account
+is refused there, but it does not check `tokenVersion`, so an explicit
+revocation (password reset) does not reach a mobile session. Entirely
+theoretical today: prod has **0 device tokens and 0 mobile logins, ever**. The
+fix is the same three lines in `mobile-refresh` plus the claim in the payload.
 
 ---
 
-## 7. If we need revocation later: the middle path
+## 7. Revocation: the middle path (SHIPPED 2026-08-11)
 
 The cheapest fix that gets "sign out everywhere" **without** changing the
 session model:
@@ -211,6 +240,39 @@ that difference is rarely worth the cost above.
 
 ---
 
+## 7b. Counting the compensations
+
+Worth recording, because no single change here was wrong and the accumulation
+still is. Three columns exist to compensate for **one** design decision:
+
+| Column | Exists because |
+|---|---|
+| `roleCheckedAt` | The token carries a stale role |
+| `lastSeenAt` | There is no session table to enumerate |
+| `tokenVersion` | There is no session row to delete |
+
+Each adds a database touch to the auth path, which is the cost stateless
+sessions exist to avoid. If you already re-read the row every 5 minutes, you
+have paid most of the price of database sessions while collecting none of their
+benefits.
+
+A useful heuristic, and it generalises well past auth: **count the
+compensations for a single design decision. One is normal. Two is a trade-off
+you accepted. Three means re-examine. Four means you are paying for both
+designs.**
+
+Three is why this section exists. The call was to finish the third properly
+rather than migrate, for the sequencing reason in the decision record. **If a
+fourth appears, that is the signal.**
+
+Framed correctly, the current design is not "stateless JWT" at all. It is a
+**hybrid**: a short re-validation cycle against the source of truth, with cheap
+requests in between. That is the same shape as the industry's short-lived
+access token plus stateful refresh check, arrived at without naming it. §7 was
+the missing half.
+
+---
+
 ## 8. Decision record
 
 | Date | Decision | Rationale |
@@ -219,6 +281,8 @@ that difference is rarely worth the cost above.
 | (original) | 5-min periodic role re-validation | Closes the one staleness hole that matters without abandoning stateless |
 | 2026-07-28 | `User.lastSeenAt` over database sessions for presence | Answers "who is active now" for a nullable column + one write per user per 5 min, vs a DB read on every request and signing everyone out at cutover |
 | 2026-07-28 | **Open:** no session revocation | Recorded as a real gap. Preferred fix is `tokenVersion` (§7), not a model change |
+| 2026-08-11 | Shipped `tokenVersion` + the missing `else` | Closed the gap above. Rides the query the 5-min block already runs, so marginal cost is one column in an existing `select`. Additive migration, and a missing claim reads as 0, so the deploy signs nobody out |
+| 2026-08-11 | **Stay hybrid; do not migrate to database sessions yet** | On a clean build I would pick stateful for a monolith with one database: it deletes `roleCheckedAt`, `lastSeenAt` and `tokenVersion` outright. Deferred on SEQUENCING, not merit: PLATFORM_DECISIONS item 6 (identity model, "email unique per tenant") reopens auth anyway, and migrating first means doing it twice, the second time under a constraint not yet chosen. **Revisit trigger: when the identity decision lands.** |
 
 ## 9. See also
 

@@ -13,6 +13,7 @@ import {
   clearLoginFailures,
 } from "@/lib/login-throttle";
 import { touchLastSeen, LAST_SEEN_STAMP_INTERVAL_MS } from "@/lib/active-users";
+import { decideSessionValidity } from "@/lib/session-validity";
 import authConfig, { mapTokenToSessionUser } from "./auth.config";
 
 const loginSchema = z.object({
@@ -114,6 +115,9 @@ export const {
             firstName: true,
             lastName: true,
             role: true,
+            // Session revocation counter — stamped into the token below and
+            // compared on every periodic re-validation. See the jwt callback.
+            tokenVersion: true,
             organizationId: true,
             organization: {
               select: { name: true, logo: true, primaryColor: true },
@@ -232,6 +236,7 @@ export const {
           email: user.email,
           name: `${user.firstName} ${user.lastName}`,
           role: user.role,
+          tokenVersion: user.tokenVersion,
           organizationId: user.organizationId ?? null,
           organizationName: user.organization?.name ?? null,
           organizationLogo: user.organization?.logo ?? null,
@@ -258,6 +263,7 @@ export const {
         token.organizationPrimaryColor = user.organizationPrimaryColor ?? null;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
+        token.tokenVersion = user.tokenVersion ?? 0;
         token.roleCheckedAt = Date.now();
       }
 
@@ -294,11 +300,32 @@ export const {
         try {
           const dbUser = await db.user.findUnique({
             where: { id: token.id as string },
-            select: { role: true },
+            select: { role: true, tokenVersion: true },
           });
-          if (dbUser) {
-            token.role = dbUser.role;
+
+          // The truth table lives in `decideSessionValidity` (pure, unit
+          // tested). Returning null from this callback signs the holder out.
+          //
+          // Deliberately distinct from the `catch` below: a confirmed answer
+          // ("no such user") is not the same as the ABSENCE of one (a thrown
+          // pooler error). Treating a blip as a deletion would sign the whole
+          // company out, so the catch keeps the cached role on purpose.
+          const decision = decideSessionValidity(
+            dbUser,
+            token.tokenVersion as number | undefined,
+          );
+          if (decision.action === "invalidate") {
+            authLogger.warn({
+              msg: "auth:session-invalidated",
+              reason: decision.reason,
+              userId: token.id,
+              tokenVersion: (token.tokenVersion as number | undefined) ?? 0,
+              currentVersion: dbUser?.tokenVersion ?? null,
+            });
+            return null;
           }
+
+          token.role = decision.role;
           token.roleCheckedAt = Date.now();
         } catch (error) {
           authLogger.warn({ err: error, msg: "Role re-validation DB error, continuing with cached role", userId: token.id });
