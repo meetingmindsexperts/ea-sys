@@ -58,6 +58,8 @@ paid presenter link.
 | D3 | **Quote at submission, no Pay Now BY DEFAULT**, with a per-event organizer toggle to turn it back on | Revised twice on Aug 11: first to drop Pay Now, then to make that a default rather than a rule. `settings.presenterRegistration.payNowEnabled`, off by default, confirmation dialog on the way up. |
 | D4 | **No presenter tiers configured -> fall back to today's free comp** | Nothing breaks on any existing event until an organizer sets rates. Matches how `abstractLimits` and `abstractPresentationTypes` default. |
 | D5 | **A presenter registration DOES count, on its tier**, exactly like `PUBLIC_REGISTER` | Reversed Aug 11 after the owner asked what was consistent with the platform. Reasoning below. |
+| D7 | **One email, not two: the fee rides in the submitter WELCOME** | Taken Aug 11 after seeing the real inbox: a presenter received the welcome AND, seconds later, the delegate `Your registration for X` carrying the quote. At that point nothing has been accepted, so the delegate wording claims a settled place at the event. The confirmation is suppressed on the `/submitter` door only. |
+| D8 | **A presenter registration burns the presenter TIER's seat, capped** | Taken Aug 11 when running the flow showed the tier counter stuck at 0. Consistent with the Aug 6 group-registration ruling: a public self-service door sells the tier, so price carries allocation and a `Presenter Early Bird: 20 seats` limit is real. A staff GRANT still claims the ticket type, because a courtesy seat must not burn a paid one. |
 | D6 | **On rejection, nothing happens automatically** | The submitter decides: pay and attend, or do not pay and do not attend. The organizer may comp them. This is exactly what an unpaid registration already does, so there is nothing to build. |
 
 ### How D3 landed, recorded
@@ -113,9 +115,45 @@ The build is therefore mostly composition, not new machinery.
   for exactly this path and had never been written once.
 - **Phase 1b (shipped, `96b136c0`)** the Pay Now toggle + confirmation dialog.
   Inert until the doors land.
-- **Phase 2 (next)** extract the payable-create-and-link operation currently
-  living inside the grant-companion route, refactor that route onto it, then
-  the type picker and both doors.
+- **Phase 2a (shipped, `96f3a1c2`)** extracted the payable-create-and-link
+  operation out of the grant-companion route into
+  [presenter-registration.ts](../src/lib/presenter-registration.ts) and
+  refactored that route onto it; `suppressPayNow` threaded through the
+  confirmation email.
+- **Phase 2b + 2c (shipped, `2cb325ae`)** the signup form's rate step and both
+  abstract doors routed through
+  [presenter-signup.ts](../src/lib/presenter-signup.ts), with the D4 comp
+  fallback.
+- **Phase 3 (shipped, `4c950a2a`)** the three defects that only appeared when
+  the flow was RUN. See §9.
+
+## 9. What running it locally found
+
+The build passed its gate three times before any of this surfaced. Each defect
+was correct code that nothing reached, or two correct halves that disagreed.
+
+**1. The tier's seat was never burned.** The row claimed the ticket type's seat
+and would have released the presenter tier's, because the door never stamped
+`createdSource` (so the service derived `ADMIN_DASHBOARD` from `source: "api"`)
+*and* the service hardcoded a `ticketType` increment while the release path
+picks its counter with `seatCounter()`. A guarded release floors at 0, so the
+tier no-oped and the ticket type leaked upward forever: exactly the drift class
+the June 29 fix existed to kill. Both sides now derive from `seatCounter()`, so
+they cannot disagree again. Pinned in both directions, mutation-verified.
+
+**2. Two emails, one of them wrong.** See D7.
+
+**3. The welcome CTA pointed at the internal staff login.** `${appUrl}/login`
+is the MM Group sign-in; a submitter landing there sees a different product
+with no route back to their event. The identical defect was fixed Aug 6 for the
+session-proposal confirmation and this door was missed.
+
+**A trap worth remembering, from fix 2.** Adding `{{presenterFeeBlock}}` to the
+DEFAULT template reached nobody: **24 events already had a saved
+`submitter-welcome` row**, so the quote would have arrived attached with nothing
+in the body explaining it. The token is therefore appended when the resolved
+template does not carry it. *Editing a default template does not reach an event
+that has already materialised its own copy.*
 
 ## 6. The change
 
