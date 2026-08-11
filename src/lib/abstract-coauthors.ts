@@ -5,8 +5,18 @@ import { z } from "zod";
  * a JSON array on `Abstract.coAuthors`. Shared by the submit/edit forms
  * (the `CoAuthor` type) and the abstract create/update API routes (the Zod
  * schema). `name` is required; everything else is optional.
+ *
+ * How many co-authors are ALLOWED is a per-event setting, not a constant here.
  */
-export const MAX_CO_AUTHORS = 20;
+
+/**
+ * Absolute ceiling on the stored array, independent of the per-event cap in
+ * src/lib/abstract-limits.ts. The Zod schema is shared and static so it cannot
+ * see event settings; it guards the SHAPE, and the route enforces the event's
+ * own (lower) limit with a message naming the number. Keep in step with
+ * CO_AUTHORS_CEILING.
+ */
+export const CO_AUTHORS_HARD_CEILING = 50;
 
 export const coAuthorSchema = z.object({
   firstName: z.string().trim().min(1).max(100),
@@ -16,7 +26,7 @@ export const coAuthorSchema = z.object({
   country: z.string().trim().max(100).optional().or(z.literal("")),
 });
 
-export const coAuthorsSchema = z.array(coAuthorSchema).max(MAX_CO_AUTHORS);
+export const coAuthorsSchema = z.array(coAuthorSchema).max(CO_AUTHORS_HARD_CEILING);
 
 export type CoAuthor = z.infer<typeof coAuthorSchema>;
 
@@ -52,5 +62,5 @@ export function normalizeCoAuthors(input: unknown): CoAuthor[] {
       country: clean(r.country),
     });
   }
-  return out.slice(0, MAX_CO_AUTHORS);
+  return out.slice(0, CO_AUTHORS_HARD_CEILING);
 }

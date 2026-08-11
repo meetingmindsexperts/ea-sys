@@ -31,7 +31,8 @@ import { AbstractSubThemeSelect, subThemesOf } from "@/components/abstracts/abst
 import { AbstractGuidelines } from "@/components/abstracts/abstract-guidelines";
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
 import type { CoAuthor } from "@/lib/abstract-coauthors";
-import { MAX_ABSTRACT_WORDS, countWords } from "@/lib/abstract-content";
+import { countWords } from "@/lib/abstract-content";
+import { readAbstractLimits } from "@/lib/abstract-limits";
 import { AbstractThemeSelect } from "@/components/abstracts/abstract-theme-select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -127,8 +128,13 @@ export default function NewAbstractPage() {
     },
   });
 
+  // Per-event caps (Settings -> Registration -> Abstracts). Falls back to the
+  // historical defaults while the event is still loading.
+  const limits = readAbstractLimits(event?.settings);
   const contentWords = countWords(formData.content);
-  const overWords = contentWords > MAX_ABSTRACT_WORDS;
+  const overWords = contentWords > limits.maxContentWords;
+  const titleWords = countWords(formData.title);
+  const overTitleWords = titleWords > limits.maxTitleWords;
 
   const handleSubmit = (asDraft: boolean) => {
     if (!formData.title.trim()) {
@@ -139,8 +145,12 @@ export default function NewAbstractPage() {
       toast.error("Abstract content is required");
       return;
     }
-    if (countWords(formData.content) > MAX_ABSTRACT_WORDS) {
-      toast.error(`Abstract must be ${MAX_ABSTRACT_WORDS} words or fewer`);
+    if (overTitleWords) {
+      toast.error(`The title must be ${limits.maxTitleWords} words or fewer`);
+      return;
+    }
+    if (contentWords > limits.maxContentWords) {
+      toast.error(`The abstract must be ${limits.maxContentWords} words or fewer`);
       return;
     }
     if (!asDraft && !formData.presentationType) {
@@ -207,6 +217,10 @@ export default function NewAbstractPage() {
                   placeholder="Enter a concise, descriptive title for your abstract"
                   className="text-base h-12 font-medium"
                 />
+                <p className={`text-xs text-right ${overTitleWords ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
+                  {titleWords} / {limits.maxTitleWords} words
+                  {overTitleWords && " (over the limit)"}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -228,9 +242,9 @@ export default function NewAbstractPage() {
                 placeholder="Enter your abstract content here..."
                 className="resize-y min-h-[300px] text-base leading-relaxed"
               />
-              <p className={`text-xs text-right ${contentWords > MAX_ABSTRACT_WORDS ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
-                {contentWords} / {MAX_ABSTRACT_WORDS} words
-                {contentWords > MAX_ABSTRACT_WORDS && " — over the limit"}
+              <p className={`text-xs text-right ${overWords ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
+                {contentWords} / {limits.maxContentWords} words
+                {overWords && " (over the limit)"}
               </p>
             </CardContent>
           </Card>
@@ -239,6 +253,7 @@ export default function NewAbstractPage() {
           <Card>
             <CardContent className="pt-6">
               <CoAuthorFields
+                max={limits.maxCoAuthors}
                 value={formData.coAuthors}
                 onChange={(coAuthors) => setFormData({ ...formData, coAuthors })}
               />
@@ -253,7 +268,7 @@ export default function NewAbstractPage() {
             <CardContent className="pt-5 space-y-3">
               <Button
                 className="w-full btn-gradient font-semibold h-11"
-                disabled={createMutation.isPending || overWords}
+                disabled={createMutation.isPending || overWords || overTitleWords}
                 onClick={() => handleSubmit(false)}
               >
                 {createMutation.isPending ? (
@@ -265,7 +280,7 @@ export default function NewAbstractPage() {
               <Button
                 variant="outline"
                 className="w-full"
-                disabled={createMutation.isPending || overWords}
+                disabled={createMutation.isPending || overWords || overTitleWords}
                 onClick={() => handleSubmit(true)}
               >
                 <Save className="mr-2 h-4 w-4" /> Save as Draft

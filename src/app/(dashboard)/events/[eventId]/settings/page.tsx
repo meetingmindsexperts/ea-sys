@@ -8,6 +8,13 @@ import { ZoomSettingsCard } from "@/components/zoom/zoom-settings-card";
 import { SpeakerAgreementTemplateCard } from "@/components/events/speaker-agreement-template-card";
 import { isWebinar } from "@/lib/webinar";
 import { localDateTimeInTz, resolveTimezone, tzLabel, wallTimeInTzToIso } from "@/lib/event-time";
+import {
+  ABSTRACTS_PER_SUBMITTER_CEILING,
+  CONTENT_WORDS_CEILING,
+  CO_AUTHORS_CEILING,
+  TITLE_WORDS_CEILING,
+  readAbstractLimits,
+} from "@/lib/abstract-limits";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -240,6 +247,18 @@ export default function EventSettingsPage() {
   const [sessionProposalDeadline, setSessionProposalDeadline] = useState("");
 
   /**
+   * Per-event abstract limits. Held as STRINGS so an organizer can clear a box
+   * mid-edit without it snapping to 0; parsed on save, where an empty or
+   * unparseable value falls back to the default rather than storing garbage.
+   */
+  const [abstractLimits, setAbstractLimits] = useState({
+    maxTitleWords: "",
+    maxContentWords: "",
+    maxCoAuthors: "",
+    maxAbstractsPerSubmitter: "",
+  });
+
+  /**
    * The event's SAVED timezone, kept separate from `generalFormData.timezone`
    * (which is an editable draft). The deadline inputs below operate in the
    * event's timezone, and they must convert against the timezone the stored
@@ -339,6 +358,16 @@ export default function EventSettingsPage() {
             ? localDateTimeInTz(new Date(settings.sessionProposalDeadline), tz)
             : "",
         );
+
+        const lim = readAbstractLimits(settings);
+        setAbstractLimits({
+          maxTitleWords: String(lim.maxTitleWords),
+          maxContentWords: String(lim.maxContentWords),
+          maxCoAuthors: String(lim.maxCoAuthors),
+          // Blank means unlimited, which is what null reads as in the input.
+          maxAbstractsPerSubmitter:
+            lim.maxAbstractsPerSubmitter === null ? "" : String(lim.maxAbstractsPerSubmitter),
+        });
 
         setNotificationSettings({
           notifyOnRegistration: settings.notifyOnRegistration ?? true,
@@ -467,6 +496,17 @@ export default function EventSettingsPage() {
             ...notificationSettings,
             groupRegistration: groupSettings,
             abstractDeadline: wallTimeInTzToIso(abstractSettings.abstractDeadline, eventTimezone),
+            // Sent raw; readAbstractLimits clamps and falls back, so a blank or
+            // silly value can never brick submissions.
+            abstractLimits: {
+              maxTitleWords: Number(abstractLimits.maxTitleWords) || undefined,
+              maxContentWords: Number(abstractLimits.maxContentWords) || undefined,
+              maxCoAuthors: Number(abstractLimits.maxCoAuthors) || undefined,
+              maxAbstractsPerSubmitter:
+                abstractLimits.maxAbstractsPerSubmitter.trim() === ""
+                  ? null
+                  : Number(abstractLimits.maxAbstractsPerSubmitter) || null,
+            },
             sessionProposalDeadline: wallTimeInTzToIso(sessionProposalDeadline, eventTimezone),
           },
         }),
@@ -1275,6 +1315,83 @@ export default function EventSettingsPage() {
                         }
                         className="w-72"
                       />
+                    </div>
+                  )}
+
+                  {abstractSettings.allowAbstractSubmissions && (
+                    <div className="space-y-4 pt-2">
+                      <div>
+                        <h4 className="text-sm font-medium">Submission limits</h4>
+                        <p className="text-sm text-muted-foreground">
+                          Applied to new submissions. Lowering a limit never invalidates
+                          abstracts that already exist; they stay editable and can be
+                          shortened, just not extended.
+                        </p>
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="maxTitleWords">Title word limit</Label>
+                          <Input
+                            id="maxTitleWords"
+                            type="number"
+                            min={1}
+                            max={TITLE_WORDS_CEILING}
+                            value={abstractLimits.maxTitleWords}
+                            onChange={(e) =>
+                              setAbstractLimits({ ...abstractLimits, maxTitleWords: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="maxContentWords">Abstract word limit</Label>
+                          <Input
+                            id="maxContentWords"
+                            type="number"
+                            min={1}
+                            max={CONTENT_WORDS_CEILING}
+                            value={abstractLimits.maxContentWords}
+                            onChange={(e) =>
+                              setAbstractLimits({ ...abstractLimits, maxContentWords: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="maxCoAuthors">Co-authors per abstract</Label>
+                          <Input
+                            id="maxCoAuthors"
+                            type="number"
+                            min={1}
+                            max={CO_AUTHORS_CEILING}
+                            value={abstractLimits.maxCoAuthors}
+                            onChange={(e) =>
+                              setAbstractLimits({ ...abstractLimits, maxCoAuthors: e.target.value })
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="maxAbstractsPerSubmitter">Abstracts per person</Label>
+                          <Input
+                            id="maxAbstractsPerSubmitter"
+                            type="number"
+                            min={1}
+                            max={ABSTRACTS_PER_SUBMITTER_CEILING}
+                            placeholder="Unlimited"
+                            value={abstractLimits.maxAbstractsPerSubmitter}
+                            onChange={(e) =>
+                              setAbstractLimits({
+                                ...abstractLimits,
+                                maxAbstractsPerSubmitter: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        <strong>Abstracts per person</strong> counts only what is in the review
+                        pool: drafts are free, and a withdrawn or rejected abstract returns the
+                        slot. Leave it empty for no limit. Your team can still add abstracts on
+                        someone&apos;s behalf past the limit.
+                      </p>
                     </div>
                   )}
                 </div>

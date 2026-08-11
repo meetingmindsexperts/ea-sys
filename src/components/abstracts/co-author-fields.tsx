@@ -5,26 +5,37 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { CountrySelect } from "@/components/ui/country-select";
 import { Plus, Trash2, Users } from "lucide-react";
-import { type CoAuthor, EMPTY_CO_AUTHOR, MAX_CO_AUTHORS } from "@/lib/abstract-coauthors";
+import { type CoAuthor, EMPTY_CO_AUTHOR } from "@/lib/abstract-coauthors";
+import { DEFAULT_MAX_CO_AUTHORS } from "@/lib/abstract-limits";
 
 interface CoAuthorFieldsProps {
   value: CoAuthor[];
   onChange: (rows: CoAuthor[]) => void;
   disabled?: boolean;
+  /** The event's cap (Settings -> Registration). Omitted while the event loads. */
+  max?: number;
 }
 
 /**
  * Repeatable co-author editor (name*, email, phone, job title, organization,
  * country). Shared by the abstract submit + edit forms.
  */
-export function CoAuthorFields({ value, onChange, disabled = false }: CoAuthorFieldsProps) {
+export function CoAuthorFields({
+  value,
+  onChange,
+  disabled = false,
+  max = DEFAULT_MAX_CO_AUTHORS,
+}: CoAuthorFieldsProps) {
   const rows = value ?? [];
+  // Grandfathering: an abstract that already exceeds a newly-lowered cap stays
+  // editable. Adding is blocked, removing is not.
+  const atLimit = rows.length >= max;
 
   const update = (i: number, field: keyof CoAuthor, v: string) => {
     onChange(rows.map((r, idx) => (idx === i ? { ...r, [field]: v } : r)));
   };
   const add = () => {
-    if (rows.length >= MAX_CO_AUTHORS) return;
+    if (atLimit) return;
     onChange([...rows, { ...EMPTY_CO_AUTHOR }]);
   };
   const remove = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
@@ -34,14 +45,17 @@ export function CoAuthorFields({ value, onChange, disabled = false }: CoAuthorFi
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Users className="h-4 w-4 text-muted-foreground" />
-          Co-authors {rows.length > 0 && <span className="text-muted-foreground">({rows.length})</span>}
+          Co-authors{" "}
+          <span className="font-normal text-muted-foreground">
+            {rows.length} / {max}
+          </span>
         </div>
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={add}
-          disabled={disabled || rows.length >= MAX_CO_AUTHORS}
+          disabled={disabled || atLimit}
         >
           <Plus className="h-4 w-4 mr-1.5" /> Add co-author
         </Button>

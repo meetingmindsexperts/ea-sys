@@ -8,7 +8,13 @@ import { buildEventAccessWhere } from "@/lib/event-access";
 import { getClientIp } from "@/lib/security";
 import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
-import { MAX_ABSTRACT_WORDS, withinAbstractWordLimit } from "@/lib/abstract-content";
+import { countWords } from "@/lib/abstract-content";
+import {
+  ABSTRACT_STATUSES_COUNTING_TOWARD_LIMIT,
+  LIMIT_ERROR_CODES,
+  exceedsAbstractLimit,
+  readAbstractLimits,
+} from "@/lib/abstract-limits";
 import {
   changeAbstractStatus,
   type AbstractTransitionStatus,
@@ -41,12 +47,10 @@ const HTTP_STATUS_FOR_ABSTRACT_ERROR: Record<ChangeAbstractStatusErrorCode, numb
 const updateAbstractSchema = z.object({
   ...optimisticLockField,
   title: z.string().min(1).max(500).optional(),
-  content: z
-    .string()
-    .min(1)
-    .max(50000)
-    .refine(withinAbstractWordLimit, { message: `Abstract must be ${MAX_ABSTRACT_WORDS} words or fewer` })
-    .optional(),
+  // Word caps are per-event (settings.abstractLimits); enforced in the handler
+  // once the event and the abstract's CURRENT values are both known, because
+  // lowering a cap must never make existing work unsavable.
+  content: z.string().min(1).max(50000).optional(),
   trackId: z.string().max(100).nullable().optional(),
   themeId: z.string().max(100).nullable().optional(),
   subThemeId: z.string().max(100).nullable().optional(),
@@ -298,6 +302,75 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const isSubmission =
       data.status === "SUBMITTED" &&
       (existingAbstract.status === "DRAFT" || existingAbstract.status === "REVISION_REQUESTED");
+    // Per-event limits, with the grandfathering rule: a value already over a
+    // newly-lowered cap may be kept or trimmed, never grown. Passing the
+    // EXISTING count as the third argument is what encodes that.
+    const limits = readAbstractLimits(event.settings);
+
+    if (data.title !== undefined) {
+      const nextWords = countWords(data.title);
+      if (exceedsAbstractLimit(nextWords, limits.maxTitleWords, countWords(existingAbstract.title))) {
+        apiLogger.warn({ msg: "abstract-update:title-too-long", eventId, abstractId, userId: session.user.id, nextWords, cap: limits.maxTitleWords });
+        return NextResponse.json(
+          { error: `The title must be ${limits.maxTitleWords} words or fewer (yours is ${nextWords}).`, code: LIMIT_ERROR_CODES.title },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (data.content !== undefined) {
+      const nextWords = countWords(data.content);
+      if (exceedsAbstractLimit(nextWords, limits.maxContentWords, countWords(existingAbstract.content))) {
+        apiLogger.warn({ msg: "abstract-update:content-too-long", eventId, abstractId, userId: session.user.id, nextWords, cap: limits.maxContentWords });
+        return NextResponse.json(
+          { error: `The abstract must be ${limits.maxContentWords} words or fewer (yours is ${nextWords}).`, code: LIMIT_ERROR_CODES.content },
+          { status: 400 },
+        );
+      }
+    }
+
+    if (data.coAuthors !== undefined) {
+      const nextCount = normalizeCoAuthors(data.coAuthors).length;
+      const existingCount = normalizeCoAuthors(existingAbstract.coAuthors).length;
+      if (exceedsAbstractLimit(nextCount, limits.maxCoAuthors, existingCount)) {
+        apiLogger.warn({ msg: "abstract-update:too-many-co-authors", eventId, abstractId, userId: session.user.id, nextCount, cap: limits.maxCoAuthors });
+        return NextResponse.json(
+          { error: `This event allows up to ${limits.maxCoAuthors} co-authors per abstract.`, code: LIMIT_ERROR_CODES.coAuthors },
+          { status: 400 },
+        );
+      }
+    }
+
+    // Pool limit, on the DRAFT/REVISION_REQUESTED -> SUBMITTED transition only.
+    // THIS abstract is excluded from the count: it is the one being submitted,
+    // and it is not yet in a counting status.
+    if (
+      isSubmission &&
+      session.user.role === "SUBMITTER" &&
+      limits.maxAbstractsPerSubmitter !== null &&
+      existingAbstract.speakerId
+    ) {
+      const held = await db.abstract.count({
+        where: {
+          eventId,
+          speakerId: existingAbstract.speakerId,
+          id: { not: abstractId },
+          status: { in: ABSTRACT_STATUSES_COUNTING_TOWARD_LIMIT },
+        },
+      });
+      if (held >= limits.maxAbstractsPerSubmitter) {
+        apiLogger.warn({ msg: "abstract-update:submitter-limit-reached", eventId, abstractId, userId: session.user.id, held, cap: limits.maxAbstractsPerSubmitter });
+        return NextResponse.json(
+          {
+            error: `You have reached this event's limit of ${limits.maxAbstractsPerSubmitter} abstract${limits.maxAbstractsPerSubmitter === 1 ? "" : "s"}. Withdraw one before submitting another, or contact the organizing team.`,
+            code: LIMIT_ERROR_CODES.perSubmitter,
+            meta: { held, limit: limits.maxAbstractsPerSubmitter },
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     // Presentation type is mandatory to submit (a DRAFT can have it blank).
     if (isSubmission && !(data.presentationType ?? existingAbstract.presentationType)) {
       return NextResponse.json(

@@ -15,7 +15,13 @@ import { sendAbstractSubmissionConfirmation } from "@/lib/abstract-notifications
 import { notifyEventAdmins } from "@/lib/notifications";
 import { refreshEventStats } from "@/lib/event-stats";
 import { coAuthorsSchema, normalizeCoAuthors } from "@/lib/abstract-coauthors";
-import { MAX_ABSTRACT_WORDS, withinAbstractWordLimit } from "@/lib/abstract-content";
+import { countWords } from "@/lib/abstract-content";
+import {
+  ABSTRACT_STATUSES_COUNTING_TOWARD_LIMIT,
+  LIMIT_ERROR_CODES,
+  exceedsAbstractLimit,
+  readAbstractLimits,
+} from "@/lib/abstract-limits";
 import { isPresentationTypeEnabled, readEnabledPresentationTypes } from "@/lib/abstract-presentation-types";
 import { missingProfileFields, profileIncompletePayload, PROFILE_COMPLETENESS_SELECT } from "@/lib/submitter-profile-completeness";
 import {
@@ -30,11 +36,9 @@ const presentationTypeSchema = z.nativeEnum(PresentationType);
 const createAbstractSchema = z.object({
   speakerId: z.string().min(1).max(100),
   title: z.string().min(1).max(500),
-  content: z
-    .string()
-    .min(1)
-    .max(50000)
-    .refine(withinAbstractWordLimit, { message: `Abstract must be ${MAX_ABSTRACT_WORDS} words or fewer` }),
+  // Word caps are per-event (settings.abstractLimits) so they cannot live in
+  // this static schema; the route enforces them once the event is loaded.
+  content: z.string().min(1).max(50000),
   specialty: z.string().max(255).optional(),
   presentationType: presentationTypeSchema.optional(),
   trackId: z.string().max(100).optional(),
@@ -283,6 +287,67 @@ export async function POST(req: Request, { params }: RouteParams) {
         { error: SUB_THEME_REQUIRED_MESSAGE, code: SUB_THEME_REQUIRED_CODE },
         { status: 400 },
       );
+    }
+
+    // Per-event submission limits (settings.abstractLimits). Title and body
+    // word caps and the co-author cap are FORMAT rules, so they apply to drafts
+    // too; the per-submitter cap is a POOL rule and only bites at Submit.
+    const limits = readAbstractLimits(event.settings);
+
+    const titleWords = countWords(title);
+    if (exceedsAbstractLimit(titleWords, limits.maxTitleWords)) {
+      apiLogger.warn({ msg: "abstract-create:title-too-long", eventId, userId: session.user.id, titleWords, cap: limits.maxTitleWords });
+      return NextResponse.json(
+        { error: `The title must be ${limits.maxTitleWords} words or fewer (yours is ${titleWords}).`, code: LIMIT_ERROR_CODES.title },
+        { status: 400 },
+      );
+    }
+
+    const contentWords = countWords(content);
+    if (exceedsAbstractLimit(contentWords, limits.maxContentWords)) {
+      apiLogger.warn({ msg: "abstract-create:content-too-long", eventId, userId: session.user.id, contentWords, cap: limits.maxContentWords });
+      return NextResponse.json(
+        { error: `The abstract must be ${limits.maxContentWords} words or fewer (yours is ${contentWords}).`, code: LIMIT_ERROR_CODES.content },
+        { status: 400 },
+      );
+    }
+
+    const coAuthorCount = normalizeCoAuthors(coAuthors).length;
+    if (exceedsAbstractLimit(coAuthorCount, limits.maxCoAuthors)) {
+      apiLogger.warn({ msg: "abstract-create:too-many-co-authors", eventId, userId: session.user.id, coAuthorCount, cap: limits.maxCoAuthors });
+      return NextResponse.json(
+        { error: `This event allows up to ${limits.maxCoAuthors} co-authors per abstract.`, code: LIMIT_ERROR_CODES.coAuthors },
+        { status: 400 },
+      );
+    }
+
+    // How many abstracts one person may hold in the review pool. Counted per
+    // SPEAKER row, which is the identity an abstract hangs off. Staff creating
+    // on someone's behalf are exempt, matching the deadline and profile gates:
+    // an organizer entering a late or extra abstract is a deliberate act.
+    if (
+      status === "SUBMITTED" &&
+      session.user.role === "SUBMITTER" &&
+      limits.maxAbstractsPerSubmitter !== null
+    ) {
+      const held = await db.abstract.count({
+        where: {
+          eventId,
+          speakerId,
+          status: { in: ABSTRACT_STATUSES_COUNTING_TOWARD_LIMIT },
+        },
+      });
+      if (held >= limits.maxAbstractsPerSubmitter) {
+        apiLogger.warn({ msg: "abstract-create:submitter-limit-reached", eventId, speakerId, userId: session.user.id, held, cap: limits.maxAbstractsPerSubmitter });
+        return NextResponse.json(
+          {
+            error: `You have reached this event's limit of ${limits.maxAbstractsPerSubmitter} abstract${limits.maxAbstractsPerSubmitter === 1 ? "" : "s"}. Withdraw one before submitting another, or contact the organizing team.`,
+            code: LIMIT_ERROR_CODES.perSubmitter,
+            meta: { held, limit: limits.maxAbstractsPerSubmitter },
+          },
+          { status: 400 },
+        );
+      }
     }
 
     // The event only offers the presentation types its organizer enabled

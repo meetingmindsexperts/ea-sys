@@ -46,7 +46,8 @@ import { AbstractReviewersCard } from "@/components/abstracts/abstract-reviewers
 import { PresenterAgreementCard } from "@/components/abstracts/presenter-agreement-card";
 import { CoAuthorFields } from "@/components/abstracts/co-author-fields";
 import { normalizeCoAuthors } from "@/lib/abstract-coauthors";
-import { MAX_ABSTRACT_WORDS, countWords } from "@/lib/abstract-content";
+import { countWords } from "@/lib/abstract-content";
+import { readAbstractLimits } from "@/lib/abstract-limits";
 
 interface Track {
   id: string;
@@ -97,8 +98,14 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
   // they must contact the organizer. Organizers/reviewers keep the broader set.
   const canEdit = isSubmitter ? status === "DRAFT" : editableStatuses.includes(status);
   const submitterLocked = isSubmitter && status !== "DRAFT";
+  // Per-event caps. Grandfathering lives on the server: an abstract already
+  // over a lowered cap stays savable as long as it is not growing, so the
+  // counter here turns red without blocking a trim.
+  const limits = readAbstractLimits((eventData as { settings?: unknown } | undefined)?.settings);
   const contentWords = countWords(editData.content);
-  const overWords = contentWords > MAX_ABSTRACT_WORDS;
+  const overWords = contentWords > limits.maxContentWords;
+  const titleWords = countWords(editData.title);
+  const overTitleWords = titleWords > limits.maxTitleWords;
   const speaker = abstract.speaker as {
     firstName: string;
     lastName: string;
@@ -262,6 +269,10 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                   className="text-base h-12 font-medium"
                   disabled={!canEdit}
                 />
+                <p className={`text-xs text-right ${overTitleWords ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
+                  {titleWords} / {limits.maxTitleWords} words
+                  {overTitleWords && " (over the limit)"}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -280,8 +291,8 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 disabled={!canEdit}
               />
               <p className={`text-xs text-right ${overWords ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
-                {contentWords} / {MAX_ABSTRACT_WORDS} words
-                {overWords && " — over the limit"}
+                {contentWords} / {limits.maxContentWords} words
+                {overWords && " (over the limit)"}
               </p>
             </CardContent>
           </Card>
@@ -290,6 +301,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
           <Card>
             <CardContent className="pt-6">
               <CoAuthorFields
+                max={limits.maxCoAuthors}
                 value={editData.coAuthors}
                 onChange={(coAuthors) => setEditData({ ...editData, coAuthors })}
                 disabled={!canEdit}
@@ -306,7 +318,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 {status === "DRAFT" && (
                   <Button
                     className="w-full btn-gradient font-semibold h-11"
-                    disabled={isPending || overWords || !editData.presentationType}
+                    disabled={isPending || overWords || overTitleWords || !editData.presentationType}
                     onClick={() => {
                       if (!editData.presentationType) {
                         toast.error("Please select a presentation type to submit");
@@ -333,7 +345,7 @@ function EditForm({ abstract, eventId, abstractId, tracks }: {
                 <Button
                   variant={status === "DRAFT" ? "outline" : "default"}
                   className={status !== "DRAFT" ? "w-full btn-gradient font-semibold h-11" : "w-full"}
-                  disabled={isPending || overWords}
+                  disabled={isPending || overWords || overTitleWords}
                   onClick={() => updateMutation.mutate({ ...editData, expectedUpdatedAt: abstractUpdatedAt })}
                 >
                   <Save className="mr-2 h-4 w-4" />
