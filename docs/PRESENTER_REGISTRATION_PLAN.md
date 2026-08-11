@@ -57,7 +57,7 @@ paid presenter link.
 | D2 | **The submitter picks their registration type at signup**, like a delegate | Deriving it from the `role` enum was rejected: events carry `Nurse` and `Member`, which the enum cannot express, and the enum carries `Pharma` / `Academia` / `Medical Devices`, which have no rate. |
 | D3 | **Quote at submission, but NO Pay Now.** Pay-later only for now | Revised by the owner Aug 11 after the cost below was raised. The submitter learns the amount; the system does not invite immediate payment. |
 | D4 | **No presenter tiers configured -> fall back to today's free comp** | Nothing breaks on any existing event until an organizer sets rates. Matches how `abstractLimits` and `abstractPresentationTypes` default. |
-| D5 | **A presenter registration does NOT burn tier inventory** | Same posture as speaker companions, which `seatCounter` already excludes. Presenter counts are not capacity-managed. |
+| D5 | **A presenter registration DOES count, on its tier**, exactly like `PUBLIC_REGISTER` | Reversed Aug 11 after the owner asked what was consistent with the platform. Reasoning below. |
 | D6 | **On rejection, nothing happens automatically** | The submitter decides: pay and attend, or do not pay and do not attend. The organizer may comp them. This is exactly what an unpaid registration already does, so there is nothing to build. |
 
 ### How D3 landed, recorded
@@ -90,8 +90,8 @@ at all except an organizer-sent reminder, which contradicts "pay later".
   of [grant-companion](../src/app/api/events/%5BeventId%5D/speakers/%5BspeakerId%5D/grant-companion/route.ts),
   which already calls `registration-service.createRegistration` and gets seat
   claim, payment-status defaulting, and the confirmation email with quote PDF
-  for free. **This is the reference implementation to reuse**, with two
-  deliberate departures: no seat claim (D5) and no Pay Now (D3).
+  for free. **This is the reference implementation to reuse**, with one
+  deliberate departure: no Pay Now (D3). Seat claim now applies (D5).
 - **Picking the tier that is on sale now** is `pickCurrentPricingTier`
   ([current-pricing-tier.ts](../src/lib/current-pricing-tier.ts)).
 
@@ -142,26 +142,59 @@ payable grant.
 
 ## 6. Open questions
 
-All four are now answered; see D3 to D6 above. The only one left open is the
-mechanical one:
+None. All decisions are recorded as D1 to D6. Retained for the record:
 
 - **The 69 dead `Presenter` tiers.** Leave them, rename them to
   `Presenter Early Bird`, or delete? Recommended: leave. Renaming a tier that
   carries a price is a pricing change we should not make on an organizer's
   behalf, and the new pair is seeded only onto newly created registration types.
   Organizers add presenter rates per event when they want them, and until they
-  do, D4 keeps that event on today's free comp.
+  do, D4 keeps that event on today's free comp. **Owner confirmed Aug 11: leave
+  them as is.**
 
-### Consequences of D5 worth building deliberately
+### How D5 was reversed, and why
 
-A presenter registration must not touch either seat counter. The existing
-mechanism is `seatCounter` in
-[registration-seat.ts](../src/lib/registration-seat.ts), which already excludes
-`SPEAKER_COMPANION`. This needs its own `RegistrationCreatedSource` value
-(additive enum migration) rather than reusing `SPEAKER_COMPANION`, because these
-are payable registrations and every faculty-exclusion rule keyed on
-`SPEAKER_COMPANION` or the `isFaculty` ticket type would otherwise sweep them
-out of the delegate counts they belong in.
+The first answer was "do not count them", by analogy with speaker companions.
+The owner asked what was actually consistent with the platform, and it is the
+opposite.
+
+`seatCounter` in [registration-seat.ts](../src/lib/registration-seat.ts)
+excludes `SPEAKER_COMPANION` for a stated reason: *"faculty don't consume a
+venue seat"*, and the comment is careful that the exclusion is by
+`createdSource` and NOT by the Faculty ticket type, because an admin who puts
+someone on that type through the normal create path DOES increment the counter.
+The exclusion is narrow and specific to the auto-minted **comp** companion of an
+invited speaker.
+
+An abstract presenter is not that. They signed up through an unauthenticated
+public door, on a priced tier, and were charged. By the platform's own test that
+is `PUBLIC_REGISTER`, and excluding them would make the abstract door the only
+public paid entrance that does not count.
+
+D1 also removed the one argument that could have supported excluding them. The
+Aug 6 group-registration rule burns the tier because *"one 40-person group
+drains the discount budget invisibly and Early Bird never advances to Standard
+for individual registrants."* Presenters now have their own ladder, so a
+presenter burning Presenter Early Bird cannot touch delegate Early Bird. The
+drain risk does not exist here.
+
+**Counting is not capping**, which is what resolved the owner's concern.
+Measured on prod Aug 11: 334 pricing tiers of which **0** carry a real cap, 148
+registration types of which 6 do, and **0** events with Maximum Attendees set.
+`soldCount` on an unlimited tier blocks nobody; it only makes the number true.
+"Presenters are not capacity-managed" is an argument for leaving the quantity
+unlimited, which is already the default, not for leaving them out of the count.
+Not counting would silently under-report people who were charged, in
+"Registrations by Tier", in revenue by tier, and in any venue cap set later:
+the same class of defect as the June `soldCount` leak.
+
+**Build consequence, and it is simpler than the original plan.** The new
+`RegistrationCreatedSource` value joins `TIER_CONSUMING_SOURCES` and is excluded
+from nothing. No new exclusion logic. The distinct source is still worth having
+for traceability and reporting ("which registrations came from the abstract
+door"), but it is no longer load-bearing for seat accounting. Faculty exclusion
+is unaffected either way, since `EXCLUDE_FACULTY_WHERE` keys on the `isFaculty`
+ticket type and a presenter sits on a real delegate type.
 
 ## 7. Not in scope
 
