@@ -3008,6 +3008,34 @@ independently shippable.
 | ~~**Re-tier L2 — reject simultaneous type + tier change**~~ | **STALE (verified July 16)** — `resolveRepricing` (the shared re-tier resolver) explicitly VALIDATES a provided tier against the NEW type when both change, and the detail sheet's `tierSelectionRequired` guard makes the combined change the required flow for tier-priced types. Not ambiguous anymore; a guard would break the supported path. | — | Closed. |
 | **Resident "official letter" — capture the file** | The public register form shows a Resident/Trainee "upload an official letter" **notice** (text-only, shipped July 7). Actually capturing + storing the file (additive `Attendee` column + upload UI + dashboard display) was deferred per the organizer's "text only" choice. | ~half day | If the organizer later wants the letter collected in-system rather than emailed/brought out-of-band. |
 
+### Privileged maintenance lane review: live fix + all HIGHs SHIPPED; guard rails deferred (August 11, 2026)
+
+Three-lens adversarial review of the multi-tenancy item 5 commits (`2b74dee4`,
+`f763016c`, `fdf54c3c`): **0 BLOCKER / 4 HIGH / ~10 MED / ~8 LOW**. The live
+finding and all four HIGHs shipped in `86e6da6e`. Owner-selected scope; the
+rest is here.
+
+**The meta-lesson, worth carrying:** two of the four HIGHs were surfaces I
+missed because I enumerated the worker jobs by name rather than transitively
+from `worker/jobs/*.ts`. Both misses were sibling modules inside jobs whose
+main module I did find. That is the same "did anything actually call it?"
+question that produced the optimistic-lock and `orgCtx` ternary findings on
+Aug 10. **When rebuilding a surface list, walk the import graph, not the
+directory listing.**
+
+| # | Sev | Finding | Status |
+|---|-----|---------|--------|
+| **M-B** | MED | **A revert of any `dbOperator.` back to `db.` passes everything.** The allowlist gate is one-directional: it fails on an *unlisted* file that imports the lane, but never checks an *allowlisted* file still uses it. Two modules now have distinct-fake tests that catch it; the other nine do not. **Fix:** add a reverse check so each `OPERATOR_LANE_ALLOWLIST` entry must still contain `dbOperator`, which forces a revert to be a deliberate two-file edit. | Deferred. |
+| **M-C** | MED | **Nothing asserts at boot that the lane is genuinely privileged.** If `RLS_SET_LOCAL=1` but `DATABASE_URL_OPERATOR` is unset or equal to `DATABASE_URL`, `dbOperator` IS `db`, so it carries `tenant-set-local` and every wired scan runs in whatever lane it happens to be in (usually none, so zero rows). The instance boots green and nothing errors. **Fix:** mirror the existing `rls-assert` tripwire: under `RLS_SET_LOCAL=1`, refuse to boot unless the operator URL is set and distinct, and assert `row_security_active()` is FALSE for `dbOperator`. | Deferred. |
+| **M-D** | MED | `getInfraSnapshot`'s `scope` defaults to `{ kind: "platform" }`. A fail-OPEN default in the one function choosing between the privileged lane and a tenant filter. Both callers pass explicitly today. **Fix:** make it required. | Deferred. |
+| **M-E** | MED | **The two webinar sync functions read before entering the lane.** `webinar-recording-sync.ts:47` and `webinar-attendance.ts:139` do `db.zoomMeeting.findUnique` *before* their `runWithTenant`. ZoomMeeting is policied, so on the platform that read fail-closes and both jobs become permanent no-ops. Wiring the worker's candidate scan moved the death one statement later without curing it, and the comments I added to those workers claim otherwise. **Fix:** select the event org in the candidate scan and pass it down, or run the resolving lookup on `dbOperator`. | Deferred. |
+| **M-G** | MED | The gate never scans `prisma/`, `tests/`, `e2e/`. `prisma/seed-*.ts` is on the platform-bootstrap path and `tests/tenancy/` connects to a real Postgres. **Fix:** add the roots; `tests/tenancy/` probably wants an explicit allowlist entry rather than exclusion by omission. | Deferred. |
+| **M-H** | MED | The gate greps the identifier `dbOperator`, so a hand-built `new PrismaClient({ datasourceUrl: process.env.DATABASE_URL_OPERATOR })` gets the same owner connection and passes CI. **Fix:** add the env var name to the same allowlisted-import check. | Deferred. |
+| **M-I** | MED | Nothing pins that a scope-aware counter carries the org filter. Omitting it compiles, passes the route test (which asserts the argument, not the queries), and on master returns identical numbers. **Fix:** a test driving the three fetchers with an org scope against a mock client, asserting every captured `where` is scoped. | Deferred. |
+| **M-F** | MED | `tenant:no-org-lane` fires on a routine path. `speakers/route.ts` is org-null by design for a linked SUBMITTER/REGISTRANT reader, so every submitter page view now writes a warn row that persists 30 days. **Fix:** an `{ expected: true }` opt-out that downgrades to debug where org-null is the designed case. | Deferred. |
+| **M-2** | MED | The gate is an allowlist of swept files, not a detector of unswept ones. A scan found **20** `route.ts` files touching a policied model with neither `runWithTenant` nor `dbOperator`, several outside the documented identity deferrals (`events/[eventId]/tags`, `speaker-agreement-template`, `registration-types`, the main public event API). Pre-existing, but it is why "every cross-tenant surface is wired" cannot be verified from CI. | Deferred. |
+| **L** | LOW | Doc arithmetic: PLATFORM_DECISIONS §4 says "45" where 33 converted + 15 untouched = **48**, and "Six models" lists eight. The stale `help-chat-queries:forbidden` log string (now `platform-operator:denied`) breaks saved `/logs` searches. Gate failure text still says "runWithTenant(". `aws-ops` cache Map has no eviction. `auto-issue`'s per-event org resolution uses a falsy check. `tenant-context.ts`'s docblock still claims only Contacts is swept. | Deferred. |
+
 ### Contacts review — H1 + H2 + H4 + M3 SHIPPED; H3 + rest deferred (July 13–14, 2026)
 
 Full report: [docs/CODE_REVIEW_CONTACTS.html](docs/CODE_REVIEW_CONTACTS.html)
