@@ -498,12 +498,68 @@ createPaidInvoice:
 ```
 
 This prevents "one event, two invoice numbers for the same registration." Invoice
-numbers are sequential **per event**, prefixed with the event code. (Historical
-`RECEIPT`‑type rows may exist in the DB; the system now only emits `INVOICE`.
-`createReceipt` is a backward‑compat alias of `createPaidInvoice`.)
+numbers are sequential **per event**, prefixed with the event code.
 
 Both PDFs read their line items and VAT from the **same** financials math, so the
 quote a registrant sees and the invoice they later receive always agree.
+
+> **Doc drift corrected Aug 12, 2026.** This section used to say "the system now
+> only emits `INVOICE`" and that `createReceipt` was a backward-compat alias.
+> That is **false** for the single-registration path: `issuePaidRegistrationDocuments`
+> — the ONE post-payment fan-out used by the Stripe webhook, manual capture and
+> the reconciliation worker — calls `createPaidInvoice` **and** `createPaidReceipt`,
+> then sends one combined email carrying both PDFs. `RECEIPT` rows are minted on
+> every settled single registration, and [receipt-pdf.ts](../src/lib/receipt-pdf.ts)
+> is live code, not a legacy renderer. The claim IS true of the **group** path,
+> which deliberately promotes the consolidated invoice instead of minting a
+> second numbered document (see `issuePaidGroupDocuments`).
+
+### 11.1 How the documents present themselves
+
+Two presentation rules that are easy to get wrong and cost real money when they
+go wrong.
+
+**Dates are `dd/MM/yyyy`, zero-padded, in Asia/Dubai.** `formatDateShort`
+([pdf/document-layout.ts](../src/lib/pdf/document-layout.ts)) is the single
+helper behind the invoice, quote, credit note and CRM quote, so two documents
+describing one transaction cannot disagree about the convention. It used to be
+month-first: 9 April printed as `4/9/2026`, which a UAE or European finance team
+files as 4 September. On an invoice that ambiguity lands squarely on the issue
+date (which starts the payment clock) and the due date. Zero-padding is part of
+the fix, not decoration — unpadded `4/9` gives a reader nothing to infer the
+convention from, whereas fixed-width at least signals one is in force.
+
+The receipt's *Payment Date* deliberately stays on `formatDate` (`Apr 9, 2026`),
+which is unambiguous by construction and needs no convention.
+
+**The receipt masthead is the org logo, at 100pt wide.** Before this it was the
+company name at 20pt — a duplicate of the FROM block directly beneath it — and
+`logoPath` was simply never passed to `generateReceiptPDF` (the invoice and
+credit note both had it). The name still appears once, in FROM, which is what
+makes replacing the masthead copy lossless. The 100 is a width; the height beside
+it is a **ceiling** — pdfkit's `fit` preserves aspect ratio, so a tall or square
+logo shrinks to stay inside the box rather than growing down into the
+"PAYMENT RECEIPT" line.
+
+Two fallbacks keep the original text masthead: no logo configured, and a logo
+whose bytes will not decode. The second matters more than it looks. A receipt is
+proof of a payment that **already happened**, so failing the render over a
+corrupt image would withhold the artifact over the one element on it carrying no
+financial information. The decode failure logs `receipt-pdf:logo-image-decode-failed`,
+so it stays answerable rather than silent.
+
+Only `/uploads/...` paths embed (see `loadLocalLogo`) — a Supabase or `https://`
+logo URL is skipped with a logged reason, because fetching it would add latency
+and a failure mode to PDF generation.
+
+> **Testing note, if you touch these renderers.** Do not assert on the text of
+> the finished PDF. pdfkit Flate-compresses its content streams **and** subsets
+> the font, so the words on the page are glyph indices — `pdf.includes("PAYMENT
+> RECEIPT")` returns false for text that is plainly there, i.e. an assertion
+> that can only fail, or worse, pass in the negative direction.
+> [receipt-pdf-masthead.test.ts](../__tests__/lib/receipt-pdf-masthead.test.ts)
+> spies on `PDFDocument.prototype` `image`/`text` with call-through instead, so
+> pdfkit still genuinely renders and the branch is still observable.
 
 ---
 

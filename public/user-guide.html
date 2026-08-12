@@ -1199,6 +1199,14 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Quote vs. Invoice</div><div class="c-text">When a registration is created (admin or public) with outstanding payment, the system generates a <strong>Quote</strong> PDF and emails it. When the registrant pays via Stripe, the quote is <em>promoted</em> in place to a status-PAID <strong>Invoice</strong> &mdash; no duplicate numbers, the same record flows through both stages.</div></div></div>
       </div>
 
+      <div class="sub" id="s8-branding">
+        <div class="sub-title">How the documents look &mdash; dates and your logo</div>
+        <p>Two things on every quote, invoice, receipt and credit note are worth knowing, because both have caught people out.</p>
+        <p><strong>Dates read day-first.</strong> An <em>Issue Date</em> of <code>09/04/2026</code> means <strong>9 April</strong>, not 4 September. Every financial document uses the same day/month/year format, always zero-padded, always in Dubai time &mdash; so a quote and the invoice that follows it can never disagree about a date. (Until August 2026 these printed month-first, which read as the wrong date to most UAE and European finance teams. If you are looking at a PDF issued before then, check it against the registration record.)</p>
+        <p><strong>Your logo appears at the top of the receipt.</strong> It is taken from the organisation logo in <strong>Settings &rarr; Branding</strong> &mdash; there is nothing extra to upload for receipts. It renders about 100pt wide, and tall or square logos are scaled down to fit rather than cropped, so a wide horizontal logo looks best.</p>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">No logo? Nothing breaks</div><div class="c-text">If your organisation has not uploaded a logo, the receipt shows your company name in its place instead. Your full company name, address and TRN always appear in the <strong>FROM</strong> block further down the page either way &mdash; the logo replaces a repeat of the name, not the details a finance team needs.</div></div></div>
+      </div>
+
       <div class="sub" id="s8-2">
         <div class="sub-title">Invoice types</div>
         <div class="ig-3">
