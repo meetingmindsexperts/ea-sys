@@ -36,7 +36,7 @@ import {
   Link2,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import { DEFAULT_TIER_NAMES } from "@/lib/presenter-tiers";
+import { DEFAULT_TIER_NAMES, isPresenterTierName } from "@/lib/presenter-tiers";
 import {
   useTickets,
   useCreateTicket,
@@ -535,8 +535,15 @@ export default function TicketsPage() {
                               : formatCurrency(Number(tier.price), tier.currency)}
                           </span>
 
-                          {/* Copy form link */}
-                          {event?.slug && (
+                          {/* Copy form link. NOT offered for a presenter tier:
+                              that URL opens the DELEGATE form, and since a
+                              presenter rate is usually set below the delegate
+                              one, a forwarded link behaved like a discount code
+                              with no code on it. Presenters reach their rate
+                              through the abstract signup; the public page and
+                              the register API both refuse the tier now, so this
+                              only stops the link being handed out by accident. */}
+                          {event?.slug && !isPresenterTierName(tier.name) && (
                             <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0"
                               title="Copy registration form link"
                               onClick={() => {

@@ -5,6 +5,7 @@ import { generateBarcode } from "@/lib/utils";
 import { getNextSerialId } from "@/lib/registration-serial";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { isPresenterTierName } from "@/lib/presenter-tiers";
 import { runWithTenant } from "@/lib/tenant-context";
 import { sendRegistrationConfirmation } from "@/lib/email";
 import { sendWebinarConfirmationForRegistration } from "@/lib/webinar-email-sequence";
@@ -253,6 +254,35 @@ export async function POST(req: Request, { params }: RouteParams) {
         // M12: log every rejection on the money-critical public path.
         apiLogger.warn({ msg: "public/register:pricing-tier-not-found", eventId: event.id, ticketTypeId, pricingTierId });
         return NextResponse.json({ error: "Pricing tier not found or inactive" }, { status: 404 });
+      }
+      // A presenter rate is NOT a delegate rate. The tier's own form URL is
+      // shareable (`/e/<slug>/register/presenter-early-bird`) and the
+      // organizer UI even has a copy-link button, so without this a forwarded
+      // link works like a discount code with no code on it: presenter rates
+      // are usually set BELOW the delegate ones, the person gets no abstract
+      // and no speaker record, and they consume the presenter tier's seat
+      // allocation. Presenters register through the abstract signup, which is
+      // where the rate is actually offered (owner decision Aug 12, 2026).
+      //
+      // Enforced HERE and not only on the page, because this endpoint accepts
+      // a pricingTierId directly: a UI-only refusal would be theatre.
+      if (isPresenterTierName(tier.name)) {
+        apiLogger.warn({
+          msg: "public/register:presenter-tier-refused",
+          eventId: event.id,
+          ticketTypeId,
+          pricingTierId,
+          tierName: tier.name,
+        });
+        return NextResponse.json(
+          {
+            error:
+              "This rate is for abstract presenters. Please submit an abstract to register at this rate.",
+            code: "PRESENTER_TIER_NOT_PUBLIC",
+            abstractRegisterPath: `/e/${slug}/abstract/register`,
+          },
+          { status: 403 },
+        );
       }
       pricingTier = tier;
     }

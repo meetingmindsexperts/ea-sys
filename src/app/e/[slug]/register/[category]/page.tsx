@@ -38,6 +38,7 @@ import { RoleSelect } from "@/components/ui/role-select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
+import { isPresenterTierName } from "@/lib/presenter-tiers";
 
 function toSlug(name: string): string {
   return name
@@ -191,6 +192,9 @@ function CategoryRegistrationContent() {
   const router = useRouter();
   const slug = params.slug as string;
   const categorySlug = params.category as string;
+  // `isPresenterTierName` slugifies its input, so the URL segment
+  // ("presenter-early-bird") matches the same family the tier name does.
+  const isPresenterCategory = isPresenterTierName(categorySlug);
 
   const searchParams = useSearchParams();
 
@@ -454,6 +458,42 @@ function CategoryRegistrationContent() {
             <Loader2 className="h-10 w-10 animate-spin text-primary absolute inset-0" />
           </div>
           <p className="text-slate-400 text-sm">Loading event…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Presenter rates are offered on the abstract signup, never on the delegate
+  // path. The tier's form URL is shareable and the organizer UI had a copy
+  // button for it, so a forwarded link used to open a working delegate form at
+  // the presenter price (owner decision Aug 12, 2026). Send them where the
+  // rate actually applies rather than showing a dead end. The register API
+  // refuses the tier too, so this is signposting, not the gate.
+  if (isPresenterCategory && event) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 w-full max-w-md text-center">
+          <div className="mx-auto mb-4 h-14 w-14 rounded-full bg-sky-50 flex items-center justify-center">
+            <FileText className="h-7 w-7 text-primary" />
+          </div>
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">
+            This rate is for abstract presenters
+          </h2>
+          <p className="text-slate-500 text-sm mb-5">
+            Presenter rates are offered when you sign up to submit an abstract, so that
+            your submission and your registration stay together.
+          </p>
+          <Link
+            href={`/e/${slug}/abstract/register`}
+            className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-white hover:opacity-90"
+          >
+            Submit an abstract
+          </Link>
+          <div className="mt-4">
+            <Link href={`/e/${slug}/register`} className="text-primary text-sm font-medium hover:underline">
+              I am attending as a delegate
+            </Link>
+          </div>
         </div>
       </div>
     );

@@ -127,6 +127,42 @@ The build is therefore mostly composition, not new machinery.
 - **Phase 3 (shipped, `4c950a2a`)** the three defects that only appeared when
   the flow was RUN. See §9.
 
+## 9a. D9: a presenter rate is not bookable as a delegate (Aug 12, 2026)
+
+Found by the owner asking a plain question: what happens if I share the
+Presenter tier's link?
+
+**What happened.** Every pricing tier has its own public form URL
+(`/e/<slug>/register/<tier-slug>`) and the Registration Types page has a
+**Copy registration form link** button on each tier row. So
+`/register/presenter-early-bird` rendered a fully working DELEGATE
+registration form at the presenter price. The person got no abstract, no
+speaker record, and consumed the presenter tier's seat allocation. Presenter
+rates are usually set BELOW the delegate ones, so a forwarded link behaved like
+a discount code with no code on it.
+
+The auto-redirect at `/e/<slug>/register` had excluded presenter tiers since
+Phase 1, which is exactly what made this easy to miss: the exclusion was real,
+it just only covered the path nobody needed to be protected on.
+
+**Decision (owner):** presenters register through the abstract signup. Three
+layers, in the order that matters:
+
+1. **The register API refuses the tier** (403 `PRESENTER_TIER_NOT_PUBLIC`,
+   logged). This is the gate. The endpoint takes a `pricingTierId` directly, so
+   a page-only refusal would have been theatre.
+2. **The public page signposts** rather than dead-ending: a short branded page
+   offering *Submit an abstract* and *I am attending as a delegate*.
+3. **The copy-link button is hidden** on presenter tier rows, so the URL is not
+   handed out by accident in the first place.
+
+Delegate tiers are untouched, verified both ways against the running app:
+presenter tier POST -> 403, delegate Early Bird POST -> 201.
+
+**Doc correction.** The user guide claimed presenter tiers "never appear on the
+public delegate registration link, so nobody can accidentally book a presenter
+rate". Only the first half was true. Corrected.
+
 ## 9. What running it locally found
 
 The build passed its gate three times before any of this surfaced. Each defect
