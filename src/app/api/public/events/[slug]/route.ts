@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
+import { readResidentLetterSettings } from "@/lib/resident-letter";
 import { readGroupRegistrationSettings } from "@/lib/group-registration-settings";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
@@ -235,6 +236,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       // the organizer explicitly enabled it AND the tier/type has a real seat
       // limit (quantity < 999999 sentinel).
       showRemainingTickets: settings.showRemainingTickets === true,
+      // Whether the Resident/Trainee official letter BLOCKS submission
+      // (Settings → Registration). The upload always appears on a resident
+      // rate; this only decides whether the form can be submitted without it.
+      residentLetter: readResidentLetterSettings(event.settings),
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching public event" });

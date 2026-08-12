@@ -152,6 +152,11 @@ export interface Registration {
   /** When this registrant completed the event survey (write-once, set on submit). */
   surveyCompletedAt?: string | null;
   notes: string | null;
+  /** Path to the uploaded Resident/Trainee official letter (null = none on
+   *  file). Read only through the authed resident-letter route. */
+  residentLetterUrl?: string | null;
+  /** The registrant's own filename for that letter. */
+  residentLetterFilename?: string | null;
   // Billing block — optional overrides of the attendee's personal address.
   // All null when the registrant left "billing same as personal" checked.
   taxNumber: string | null;

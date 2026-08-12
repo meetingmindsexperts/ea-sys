@@ -17,6 +17,11 @@ import { refreshEventStats } from "@/lib/event-stats";
 import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { claimEventSeats } from "@/lib/registration-seat-db";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
+import {
+  isResidentLetterPath,
+  readResidentLetterSettings,
+  requiresResidentLetter,
+} from "@/lib/resident-letter";
 
 const registrationSchema = z.object({
   ticketTypeId: z.string().min(1).max(100),
@@ -51,6 +56,10 @@ const registrationSchema = z.object({
   // Student-specific fields
   studentId: z.string().max(100).optional(),
   studentIdExpiry: z.string().max(20).optional(),
+  // Resident/trainee official letter — the path returned by the upload route,
+  // shape-validated below before it is trusted.
+  residentLetterUrl: z.string().max(500).optional(),
+  residentLetterFilename: z.string().max(255).optional(),
   // Billing details
   taxNumber: z.string().max(100).optional(),
   billingFirstName: z.string().max(100).optional(),
@@ -138,7 +147,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, promoCode, referrer, utmSource, utmMedium, utmCampaign } =
+    const { ticketTypeId, pricingTierId, title, role, firstName, lastName, additionalEmail, organization, jobTitle, phone, city, state, zipCode, country, specialty, customSpecialty, dietaryReqs, associationName, memberId, studentId, studentIdExpiry, residentLetterUrl, residentLetterFilename, taxNumber, billingFirstName, billingLastName, billingEmail, billingPhone, billingAddress, billingCity, billingState, billingZipCode, billingCountry, password, promoCode, referrer, utmSource, utmMedium, utmCampaign } =
       validated.data;
     const email = validated.data.email.toLowerCase();
     const attendanceModeInput = validated.data.attendanceMode;
@@ -345,6 +354,46 @@ export async function POST(req: Request, { params }: RouteParams) {
       }
     }
 
+    // Resident/trainee official letter. The path comes from the client, so its
+    // shape is checked before it is stored — the staff download route later
+    // resolves this value against the filesystem, and a stored `../../` would
+    // be an arbitrary-read primitive. Anything that is not a path our own
+    // upload route produced is DROPPED (not 400'd): a malformed value can only
+    // come from a tampered request, and failing the whole registration would
+    // punish the honest case where a proxy mangled the field.
+    const needsResidentLetter = requiresResidentLetter(ticketType.name);
+    let letterUrl: string | null = null;
+    let letterFilename: string | null = null;
+    if (needsResidentLetter && residentLetterUrl) {
+      if (isResidentLetterPath(residentLetterUrl)) {
+        letterUrl = residentLetterUrl;
+        letterFilename = residentLetterFilename?.trim() || null;
+      } else {
+        apiLogger.warn({
+          msg: "public/register:resident-letter-path-rejected",
+          eventId: event.id,
+          email,
+          residentLetterUrl,
+        });
+      }
+    }
+    if (needsResidentLetter && !letterUrl && readResidentLetterSettings(event.settings).required) {
+      apiLogger.warn({
+        msg: "public/register:resident-letter-missing",
+        eventId: event.id,
+        email,
+        registrationType,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "An official letter from your institution confirming your Resident or Trainee status is required for this rate.",
+          code: "RESIDENT_LETTER_REQUIRED",
+        },
+        { status: 400 },
+      );
+    }
+
     // Atomic transaction: attendee create + duplicate check + soldCount increment + registration create
     const result = await tenantTransaction(async (tx) => {
       // Check if already registered (same email + same event)
@@ -539,6 +588,8 @@ export async function POST(req: Request, { params }: RouteParams) {
           utmSource: utmSource || null,
           utmMedium: utmMedium || null,
           utmCampaign: utmCampaign || null,
+          residentLetterUrl: letterUrl,
+          residentLetterFilename: letterFilename,
           taxNumber: taxNumber || null,
           billingFirstName: billingFirstName || null,
           billingLastName: billingLastName || null,

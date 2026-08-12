@@ -71,6 +71,18 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
+  // Resident/trainee official letters. PRIVATE for the same reason as the
+  // documents above: the letter names a person, names their employer and
+  // carries an authorised signature and stamp. Uploaded by an UNAUTHENTICATED
+  // public form, so unlike the others there is no token bounding who can write
+  // here — which makes it all the more important that nobody can read back.
+  // Streams only through
+  // /api/events/[eventId]/registrations/[registrationId]/resident-letter.
+  if (path[0] === "resident-letters") {
+    apiLogger.warn({ msg: "Private resident letter blocked on public route", path: path.join("/") });
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
   // Only serve from /uploads/ — no other subdirectory of public
   const uploadsRoot = resolve(process.cwd(), "public", "uploads");
   const filePath = join(uploadsRoot, ...path);

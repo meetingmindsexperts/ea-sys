@@ -73,6 +73,7 @@ import {
   Radar,
   StickyNote,
 } from "lucide-react";
+import { requiresResidentLetter } from "@/lib/resident-letter";
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { computeCancelledCreditState } from "@/lib/registration-financials";
@@ -1358,6 +1359,30 @@ export function RegistrationDetailSheet({
                           <div className="text-sm">{selectedRegistration.attendee.studentIdExpiry ? new Date(selectedRegistration.attendee.studentIdExpiry).toLocaleDateString() : "—"}</div>
                         </div>
                       </>
+                    )}
+
+                    {/* Resident/trainee official letter. Rendered whenever the
+                        registration sits on a resident rate, INCLUDING when no
+                        letter was attached — a silent absence is exactly what
+                        an organizer needs to see in order to chase it. Opens
+                        the authed stream; the file is not publicly readable. */}
+                    {requiresResidentLetter(selectedRegistration.ticketType?.name) && (
+                      <div className="col-span-2">
+                        <div className="text-xs text-muted-foreground">Official Letter (Resident/Trainee)</div>
+                        {selectedRegistration.residentLetterUrl ? (
+                          <a
+                            href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/resident-letter`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-primary hover:underline inline-flex items-center gap-1.5"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            {selectedRegistration.residentLetterFilename || "View letter"}
+                          </a>
+                        ) : (
+                          <div className="text-sm text-amber-600">Not provided</div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}

@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Lock,
   CheckCircle2,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +36,11 @@ import { CountrySelect } from "@/components/ui/country-select";
 import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
+import {
+  RESIDENT_LETTER_ACCEPT,
+  RESIDENT_LETTER_MAX_SIZE,
+  requiresResidentLetter,
+} from "@/lib/resident-letter";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
@@ -113,6 +119,8 @@ interface Event {
   showRemainingTickets?: boolean;
   /** Event-wide attendee cap reached (Settings → Maximum Attendees). */
   eventFull?: boolean;
+  /** Whether the Resident/Trainee official letter blocks submission. */
+  residentLetter?: { required: boolean };
 }
 
 // quantity >= this sentinel means "unlimited" — never show a seats-left count.
@@ -205,6 +213,12 @@ function CategoryRegistrationContent() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+  // Resident/trainee official letter. Uploaded to its own endpoint BEFORE
+  // submit (the registration POST is JSON and the body limit is 1MB, far under
+  // a scanned letter), so what travels with the form is just the stored path.
+  const [residentLetter, setResidentLetter] = useState<{ url: string; filename: string } | null>(null);
+  const [residentLetterUploading, setResidentLetterUploading] = useState(false);
+  const [residentLetterError, setResidentLetterError] = useState<string | null>(null);
   const [billingSame, setBillingSame] = useState(true);
   const [promoCode, setPromoCode] = useState("");
   const [promoValidating, setPromoValidating] = useState(false);
@@ -352,6 +366,40 @@ function CategoryRegistrationContent() {
     };
   }, [event]);
 
+  async function handleResidentLetterChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Clear the input immediately so picking the SAME file again after an
+    // error still fires a change event.
+    e.target.value = "";
+    if (!file) return;
+
+    setResidentLetterError(null);
+    // Checked here purely to fail fast with a clear message — the server
+    // re-checks size, type and magic bytes, and is the authority.
+    if (file.size > RESIDENT_LETTER_MAX_SIZE) {
+      setResidentLetterError("The file must be under 5MB.");
+      return;
+    }
+
+    setResidentLetterUploading(true);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch(`/api/public/events/${slug}/resident-letter`, { method: "POST", body });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        setResidentLetterError(json?.error || "Could not upload the letter. Please try again.");
+        return;
+      }
+      setResidentLetter({ url: json.url, filename: json.filename });
+    } catch (err) {
+      console.error("resident letter upload failed", err);
+      setResidentLetterError("Could not upload the letter. Please check your connection and try again.");
+    } finally {
+      setResidentLetterUploading(false);
+    }
+  }
+
   async function onSubmit(data: RegistrationForm) {
     // Validate conditional required fields based on registration type
     const selectedName = regTypeOptions.find((o) => o.ticketTypeId === data.ticketTypeId)?.regTypeName?.toLowerCase() ?? "";
@@ -368,6 +416,14 @@ function CategoryRegistrationContent() {
         form.setError("studentIdExpiry", { message: "Student ID expiry date is required" });
         return;
       }
+    }
+
+    // The letter appears on every resident rate; whether a missing one BLOCKS
+    // is the organizer's per-event setting. The server enforces the same rule —
+    // this is the friendly half.
+    if (requiresResidentLetter(selectedName) && residentLetterRequired && !residentLetter) {
+      setResidentLetterError("Please attach the official letter to continue.");
+      return;
     }
 
     // Validate billing fields when not using personal details
@@ -411,6 +467,8 @@ function CategoryRegistrationContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...data,
+          residentLetterUrl: residentLetter?.url,
+          residentLetterFilename: residentLetter?.filename,
           promoCode: promoResult?.valid ? promoResult.code : undefined,
           referrer: trackingRef.current.referrer || undefined,
           utmSource: trackingRef.current.utmSource || undefined,
@@ -530,7 +588,11 @@ function CategoryRegistrationContent() {
   const selectedRegTypeName = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId)?.regTypeName?.toLowerCase() ?? "";
   const isMember = selectedRegTypeName.includes("member");
   const isStudent = selectedRegTypeName.includes("student");
-  const isResident = form.watch("role") === "RESIDENT";
+  // Keyed on the TICKET TYPE, not the role dropdown: the letter substantiates
+  // entitlement to a discounted RATE, and the rate is the ticket type. A
+  // resident paying the full Physician rate is claiming no discount.
+  const isResident = requiresResidentLetter(selectedRegTypeName);
+  const residentLetterRequired = event.residentLetter?.required === true;
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
   // Closed when the master switch is off (Settings → Registration) OR this tier
   // has no purchasable option. The master switch wins regardless of tier state.
@@ -1283,10 +1345,12 @@ function CategoryRegistrationContent() {
                     </div>
                   )}
 
-                  {/* Section: Official Letter (conditional — Role = Resident) */}
+                  {/* Section: Official Letter (conditional — Resident/Trainee rate) */}
                   {isResident && (
                     <div className="space-y-5">
-                      <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">Official Letter</h3>
+                      <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
+                        Official Letter {residentLetterRequired && <span className="text-red-400">*</span>}
+                      </h3>
                       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
                         <p className="text-sm text-amber-800">
                           Please upload an official letter from your current institution confirming your status as a Resident or Trainee.
@@ -1294,7 +1358,57 @@ function CategoryRegistrationContent() {
                         <p className="mt-2 text-sm text-amber-800">
                           The letter must be in English, printed on official letterhead, and signed and stamped by the relevant authority.
                         </p>
+                        {!residentLetterRequired && (
+                          <p className="mt-2 text-sm text-amber-700">
+                            You can complete your registration without it, but we will need the letter before the event.
+                          </p>
+                        )}
                       </div>
+
+                      {residentLetter ? (
+                        <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                            <span className="truncate text-sm text-emerald-900" title={residentLetter.filename}>
+                              {residentLetter.filename}
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 rounded-lg"
+                            onClick={() => { setResidentLetter(null); setResidentLetterError(null); }}
+                          >
+                            Replace
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <label
+                            htmlFor="residentLetterFile"
+                            className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600 transition hover:border-primary/50 hover:bg-slate-100"
+                          >
+                            {residentLetterUploading ? (
+                              <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</>
+                            ) : (
+                              <><Upload className="h-4 w-4" /> Choose a file (PDF, JPG or PNG, up to 5MB)</>
+                            )}
+                          </label>
+                          <input
+                            id="residentLetterFile"
+                            type="file"
+                            className="sr-only"
+                            accept={RESIDENT_LETTER_ACCEPT}
+                            disabled={residentLetterUploading}
+                            onChange={handleResidentLetterChange}
+                          />
+                        </div>
+                      )}
+
+                      {residentLetterError && (
+                        <p className="text-sm text-red-500">{residentLetterError}</p>
+                      )}
                     </div>
                   )}
 

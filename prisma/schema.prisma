@@ -1049,6 +1049,15 @@ model Registration {
   /// column; the detail sheet renders "Unknown" for those.
   createdSource              RegistrationCreatedSource?
   notes                      String?                    @db.Text
+  /// Official letter substantiating a Resident/Trainee rate — the path to the
+  /// uploaded file, always under /uploads/resident-letters/. Served ONLY via
+  /// the authed staff route (the public /uploads catch-all blocks the prefix):
+  /// it names a person, their employer and carries a signature.
+  /// See src/lib/resident-letter.ts.
+  residentLetterUrl          String?
+  /// The registrant's own filename, kept for the download and so staff can see
+  /// what was sent. The stored file is renamed to a uuid.
+  residentLetterFilename     String?
   // Billing details (for invoices/tax)
   taxNumber                  String?
   billingFirstName           String?

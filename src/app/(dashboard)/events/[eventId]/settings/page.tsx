@@ -122,6 +122,7 @@ interface Event {
     requireApproval?: boolean;
     maxAttendees?: number;
     showRemainingTickets?: boolean;
+    residentLetter?: { required?: boolean };
     allowAbstractSubmissions?: boolean;
     abstractDeadline?: string;
     sessionProposalDeadline?: string;
@@ -231,6 +232,14 @@ export default function EventSettingsPage() {
 
   const [agendaSettings, setAgendaSettings] = useState({
     agendaPublished: false,
+  });
+
+  // Whether the Resident/Trainee official letter BLOCKS a registration. The
+  // upload always shows on a resident rate; this is only about enforcement.
+  // Own state slice (not folded into registrationSettings) because it is
+  // stored nested, like groupRegistration.
+  const [residentLetterSettings, setResidentLetterSettings] = useState({
+    required: false,
   });
 
   // Group registration (docs/GROUP_REGISTRATION_PLAN.md): link-only public
@@ -351,6 +360,10 @@ export default function EventSettingsPage() {
 
         setAgendaSettings({
           agendaPublished: settings.agendaPublished ?? settings.programmePublished ?? false,
+        });
+
+        setResidentLetterSettings({
+          required: settings.residentLetter?.required ?? false,
         });
 
         const gr = settings.groupRegistration ?? {};
@@ -520,6 +533,7 @@ export default function EventSettingsPage() {
             ...abstractSettings,
             ...notificationSettings,
             groupRegistration: groupSettings,
+            residentLetter: residentLetterSettings,
             abstractDeadline: wallTimeInTzToIso(abstractSettings.abstractDeadline, eventTimezone),
             // Sent raw; readAbstractLimits clamps and falls back, so a blank or
             // silly value can never brick submissions.
@@ -1106,6 +1120,22 @@ export default function EventSettingsPage() {
                       showRemainingTickets: checked,
                     })
                   }
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Require the Resident/Trainee official letter</Label>
+                  <p className="text-sm text-muted-foreground">
+                    On registration types named Resident or Trainee, the public form always
+                    offers the official-letter upload. Turn this on to make it mandatory —
+                    the registration cannot be completed without it. Off means it is
+                    requested but optional, and you chase anyone who skipped it.
+                  </p>
+                </div>
+                <Switch
+                  checked={residentLetterSettings.required}
+                  onCheckedChange={(checked) => setResidentLetterSettings({ required: checked })}
                 />
               </div>
 
