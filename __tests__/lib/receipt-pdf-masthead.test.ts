@@ -33,11 +33,28 @@ import { generateReceiptPDF, type ReceiptPDFData } from "@/lib/receipt-pdf";
 import { loadLocalLogo } from "@/lib/pdf/document-layout";
 import { apiLogger } from "@/lib/logger";
 
-/** Smallest valid PNG pdfkit will embed: 1x1, transparent. */
-const TINY_PNG = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+/**
+ * Real PNGs with KNOWN aspect ratios, because the whole point of the masthead
+ * box is which dimension binds. A single square fixture could not tell the two
+ * cases apart, and the shipped bug was precisely that the wrong one bound.
+ *
+ *   4:3  -> width binds  -> 100 x 75  (an ordinary logo; MM Group's is 1.45:1)
+ *   1:4  -> height binds ->  20 x 80  (a vertical lockup; the ceiling's reason to exist)
+ */
+const WIDE_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAADklEQVR4nGNoQAIMODkAXzYSAY5zHKsAAAAASUVORK5CYII=",
   "base64",
 );
+const TALL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAECAIAAADAusJtAAAADklEQVR4nGNoaGhgQMIAMBAGAU0JnIUAAAAASUVORK5CYII=",
+  "base64",
+);
+
+/** The y the "PAYMENT RECEIPT" label was drawn at — it must follow the logo. */
+function labelY(calls: unknown[][]): number | undefined {
+  const call = calls.find((a) => a[0] === "PAYMENT RECEIPT");
+  return call?.[2] as number | undefined;
+}
 
 function receiptData(overrides: Partial<ReceiptPDFData> = {}): ReceiptPDFData {
   return {
@@ -125,7 +142,7 @@ describe("receipt masthead", () => {
   });
 
   it("embeds the logo at 100pt wide, in place of the duplicated company name", async () => {
-    vi.mocked(loadLocalLogo).mockResolvedValue(TINY_PNG);
+    vi.mocked(loadLocalLogo).mockResolvedValue(WIDE_PNG);
 
     const pdf = await generateReceiptPDF(receiptData());
 
@@ -136,16 +153,55 @@ describe("receipt masthead", () => {
     // aspect ratio, so a tall logo shrinks rather than growing into the
     // "PAYMENT RECEIPT" line below it.
     expect(spies.image).toHaveBeenCalledWith(
-      TINY_PNG,
+      WIDE_PNG,
       50,
       26,
-      expect.objectContaining({ fit: [100, 36] }),
+      expect.objectContaining({ fit: [100, 80] }),
     );
 
     // The 20pt masthead copy is gone. The name still appears exactly once,
     // in the FROM block — that is what makes replacing this one lossless.
     expect(countTextDraws(spies.text.mock.calls, "Meeting Minds FZ LLC")).toBe(1);
     expect(drewTextStartingWith(spies.text.mock.calls, "PAYMENT RECEIPT")).toBe(true);
+  });
+
+  it("lets the WIDTH bind for an ordinary logo, and everything below follows it", async () => {
+    // The regression this exists for: the box first shipped as a 36pt height
+    // ceiling, which bound before 100pt of width on any logo squarer than
+    // 2.8:1 — MM Group's 245x169 rendered 52pt wide, half what was asked for.
+    // A 4:3 fixture discriminates; a square one could not.
+    vi.mocked(loadLocalLogo).mockResolvedValue(WIDE_PNG);
+
+    await generateReceiptPDF(receiptData());
+
+    // 4:3 into a 100x80 box -> 100 wide, 75 tall. Drawn from y=26, so the label
+    // sits just under 101 — asserted as a range, since the point is that it
+    // TRACKS the logo, not that it equals a magic number.
+    const y = labelY(spies.text.mock.calls);
+    expect(y).toBeGreaterThan(95);
+    expect(y).toBeLessThan(115);
+  });
+
+  it("lets the HEIGHT bind for a vertical logo, so it cannot run into the info block", async () => {
+    // 1:4 into a 100x80 box -> 20 wide, 80 tall. Without the ceiling this would
+    // be 100 x 400 and would print straight through the FROM block.
+    vi.mocked(loadLocalLogo).mockResolvedValue(TALL_PNG);
+
+    await generateReceiptPDF(receiptData());
+
+    const y = labelY(spies.text.mock.calls);
+    expect(y).toBeGreaterThan(100);
+    expect(y).toBeLessThan(120);
+  });
+
+  it("keeps the original masthead geometry when there is no logo", async () => {
+    // The fallback path must not drift as the logo path grows: a logo-less org
+    // should get byte-identical placement to what shipped before any of this.
+    vi.mocked(loadLocalLogo).mockResolvedValue(null);
+
+    await generateReceiptPDF(receiptData({ logoPath: null }));
+
+    expect(labelY(spies.text.mock.calls)).toBe(55);
   });
 
   it("falls back to the org-name masthead when there is no logo", async () => {

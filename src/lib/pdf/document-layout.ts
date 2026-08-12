@@ -17,6 +17,8 @@ import { getTitleLabel } from "../utils";
 
 // ── Constants ──
 export const PAGE_MARGIN = 50;
+/** Breathing room between the header's three columns. */
+export const COLUMN_GAP = 10;
 export const COLOR_TEXT = "#1f2937";
 export const COLOR_MUTED = "#6b7280";
 export const COLOR_LIGHT = "#9ca3af";
@@ -216,26 +218,49 @@ export function drawHeader(doc: PDFKit.PDFDocument, input: HeaderInput): number 
   const startY = PAGE_MARGIN;
   const pageWidth = doc.page.width;
 
-  // ── Left column: company block ──
+  // ── Column geometry ──
+  //
+  // The three columns are DERIVED from the centre column's position so they
+  // cannot overlap. They used to be independent constants and they disagreed:
+  // the left column was declared 180pt wide from x=50 (ending at 230) while the
+  // centre began at 187.6 — a 42pt overlap baked into the layout. It stayed
+  // invisible only while every company address line happened to be short.
+  // Meeting Minds' real address renders 145pt, ending 8pt inside the centre
+  // column, so "Dubai Studio City" printed on top of the event name.
+  const centerWidth = 220;
+  const centerX = (pageWidth - centerWidth) / 2;
   const leftX = PAGE_MARGIN;
+  const leftWidth = centerX - leftX - COLUMN_GAP;
+
+  // ── Left column: company block ──
+  //
+  // Each line advances by `max(its old constant, its MEASURED height)`.
+  // Narrowing the column is what makes a long address wrap instead of colliding
+  // sideways — but the loop used to advance a constant 11pt per entry, which
+  // assumes one rendered line per entry, so fixing only the width would have
+  // traded a collision with the centre column for a collision with the line
+  // below. The `max` is what makes this a genuine no-op: a single line is
+  // shorter than its constant, so every address that already fitted keeps its
+  // exact spacing, and the measurement only takes over where the old layout was
+  // already broken. (A tuned gap term was tried first and drifted the spacing by
+  // 0.01pt, which is invisible but makes "unchanged" untrue — and an
+  // almost-true invariant is one nobody can test.)
   let leftY = startY;
   doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica-Bold")
-    .text(input.companyBlock.companyName, leftX, leftY, { width: 180 });
-  leftY += 12;
+    .text(input.companyBlock.companyName, leftX, leftY, { width: leftWidth });
+  leftY += Math.max(12, doc.heightOfString(input.companyBlock.companyName, { width: leftWidth }));
 
   doc.fontSize(8).fillColor(COLOR_TEXT).font("Helvetica");
-  for (const line of input.companyBlock.addressLines) {
-    doc.text(line, leftX, leftY, { width: 180 });
-    leftY += 11;
-  }
-  if (input.companyBlock.taxId) {
-    doc.text(`TRN: ${input.companyBlock.taxId}`, leftX, leftY, { width: 180 });
-    leftY += 11;
+  // TRN joins the same list so it cannot drift from the address lines' spacing
+  // rule; trimmed because the live org record stores "100352048100003  ".
+  const companyLines = [...input.companyBlock.addressLines];
+  if (input.companyBlock.taxId) companyLines.push(`TRN: ${input.companyBlock.taxId.trim()}`);
+  for (const line of companyLines) {
+    doc.text(line, leftX, leftY, { width: leftWidth });
+    leftY += Math.max(11, doc.heightOfString(line, { width: leftWidth }));
   }
 
   // ── Center column: event name + document title ──
-  const centerWidth = 220;
-  const centerX = (pageWidth - centerWidth) / 2;
   let centerY = startY + 12;
 
   // Measure the (possibly multi-line) event name and advance by its real

@@ -4,12 +4,40 @@ import { formatDate } from "@/lib/utils";
 import { formatRecipientName, loadLocalLogo, toAddressLines } from "@/lib/pdf/document-layout";
 
 /**
- * Masthead logo box. Width is the organizer-specified 100pt; the height is a
- * CEILING, not a size — `fit` preserves aspect ratio, so a tall logo shrinks to
- * stay inside the box rather than growing down into "PAYMENT RECEIPT".
+ * Masthead logo box: **100pt wide**, as specified.
+ *
+ * The height is a far-off CEILING rather than a target, so for any normally
+ * proportioned logo the WIDTH is what binds and the logo renders at exactly
+ * 100pt. It first shipped as a 36pt ceiling, which quietly inverted that: MM
+ * Group's logo is 245×169 (1.45:1), so 36pt of height bound before 100pt of
+ * width did and it drew 52pt wide — half what was asked for. The ceiling exists
+ * only to stop a pathologically tall logo (a vertical lockup, say) running down
+ * into the receipt's info block; at 80pt a 1:4 logo lands 20×80 instead of
+ * 100×400.
+ *
+ * Everything below the masthead flows from the logo's REAL drawn height rather
+ * than a constant, so a taller logo pushes the divider down instead of being
+ * drawn over.
  */
 const LOGO_WIDTH = 100;
-const LOGO_MAX_HEIGHT = 36;
+const LOGO_MAX_HEIGHT = 80;
+const LOGO_X = 50;
+const LOGO_Y = 26;
+
+/**
+ * pdfkit's own decoder, used to learn the logo's pixel dimensions so the layout
+ * below it can be computed. Deliberately NOT a second image parser — there is
+ * already a hand-rolled PNG/JPEG header probe in `speaker-agreement.ts`, and a
+ * copy here could disagree with what pdfkit actually draws. `openImage` cannot
+ * disagree with pdfkit, because it IS pdfkit. It is absent from
+ * `@types/pdfkit`, hence the narrow cast.
+ */
+function imageSize(doc: PDFKit.PDFDocument, buffer: Buffer): { width: number; height: number } {
+  const opener = doc as unknown as {
+    openImage(src: Buffer): { width: number; height: number };
+  };
+  return opener.openImage(buffer);
+}
 
 export interface ReceiptPDFData {
   // Document identity
@@ -96,11 +124,15 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       // A receipt with a blank top-left is worse than one repeating the name,
       // so the text treatment survives for logo-less orgs (and for a logo that
       // fails to decode) with its original geometry untouched.
-      let drewLogo = false;
+      let logoHeight = 0;
       if (logoBuffer) {
         try {
-          doc.image(logoBuffer, 50, 26, { fit: [LOGO_WIDTH, LOGO_MAX_HEIGHT] });
-          drewLogo = true;
+          // Same scale pdfkit's `fit` will apply, computed up front purely so
+          // the divider below knows how far down the masthead actually reaches.
+          const { width: iw, height: ih } = imageSize(doc, logoBuffer);
+          const scale = Math.min(LOGO_WIDTH / iw, LOGO_MAX_HEIGHT / ih);
+          doc.image(logoBuffer, LOGO_X, LOGO_Y, { fit: [LOGO_WIDTH, LOGO_MAX_HEIGHT] });
+          logoHeight = ih * scale;
         } catch (err) {
           // Corrupt bytes / unsupported codec. Skip rather than fail the whole
           // receipt — this document is proof of a payment that already happened.
@@ -113,15 +145,19 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       }
 
       let mastheadBottom: number;
-      if (drewLogo) {
-        mastheadBottom = 26 + LOGO_MAX_HEIGHT;
+      if (logoHeight > 0) {
+        mastheadBottom = LOGO_Y + logoHeight;
       } else {
         doc.fontSize(20).fillColor(color).font("Helvetica-Bold")
           .text(data.companyName || data.orgName, 50, 30);
         mastheadBottom = 51;
       }
+      const labelY = mastheadBottom + 4;
       doc.fontSize(10).fillColor("#64748b").font("Helvetica")
-        .text("PAYMENT RECEIPT", 50, mastheadBottom + 4);
+        .text("PAYMENT RECEIPT", 50, labelY);
+      // Bottom of the whole masthead block, label included — the divider has to
+      // clear THIS, not just the info column on the right.
+      const mastheadBlockBottom = labelY + 12;
 
       // ── Receipt info (right) ──
       // Values get an explicit column width and the rows flow from the
@@ -150,8 +186,9 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
         infoY += doc.heightOfString(data.paymentReference, { width: infoValW });
       }
 
-      // ── Divider ── (pushed down when the info block wrapped)
-      const dividerY = Math.max(90, infoY + 8);
+      // ── Divider ── (clears whichever column reaches lowest: the info block
+      // when its values wrapped, or the masthead when the logo is tall)
+      const dividerY = Math.max(90, infoY + 8, mastheadBlockBottom + 8);
       doc.moveTo(50, dividerY).lineTo(50 + pageWidth, dividerY).lineWidth(0.5).strokeColor("#e2e8f0").stroke();
 
       // ── From (left) ──
