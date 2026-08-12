@@ -888,6 +888,11 @@ belt-and-braces (it still reaps the pulled-image churn / dangling layers).
 > **Under attack right now?** This section is the *static posture*; the
 > during-the-incident runbook (triage commands, response ladder, live-event
 > rules, stand-down) is **[DDOS_RESPONSE_PLAN.md](DDOS_RESPONSE_PLAN.md)**.
+>
+> **"Can an external AI agent talk to our system?"** is a different question and
+> lives one layer up, in the application: **[MCP_SECURITY.md](MCP_SECURITY.md)**
+> covers the `/api/mcp` doors, the OAuth consent gate, the Aug 2026 audit, and
+> the who-currently-has-access runbook. This section is the network layer only.
 
 **Verified state (June 2026).** EA-SYS runs on a single directly-exposed EC2.
 There is **no CDN, no AWS WAF, and no host WAF**. Defense is entirely

@@ -1,5 +1,76 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getClientIp, checkRateLimit, hashVerificationToken } from "@/lib/security";
+import {
+  getClientIp,
+  checkRateLimit,
+  hashVerificationToken,
+  isSameOriginRequest,
+} from "@/lib/security";
+
+// ── isSameOriginRequest ────────────────────────────────────────────────────
+//
+// Guards the OAuth consent decision endpoint, which is cookie-authenticated
+// and mints a credential, and which `src/proxy.ts` deliberately excludes from
+// its own CSRF check because the whole `/api/mcp` prefix is passed through.
+
+function post(headers: Record<string, string>): Request {
+  return new Request("http://localhost/api/mcp/oauth/authorize/decision", {
+    method: "POST",
+    headers,
+  });
+}
+
+describe("isSameOriginRequest", () => {
+  it("allows a same-origin form POST", () => {
+    const r = post({ host: "events.example.com", origin: "https://events.example.com" });
+    expect(isSameOriginRequest(r)).toEqual({ ok: true });
+  });
+
+  it("refuses a cross-site POST (the CSRF case)", () => {
+    const r = post({ host: "events.example.com", origin: "https://evil.example" });
+    expect(isSameOriginRequest(r)).toEqual({ ok: false, reason: "origin-mismatch" });
+  });
+
+  it("refuses an opaque origin rather than falling through to Referer", () => {
+    // A sandboxed iframe sends `Origin: null`. Treating that as "absent" would
+    // hand the decision to a Referer the same attacker controls.
+    const r = post({
+      host: "events.example.com",
+      origin: "null",
+      referer: "https://events.example.com/mcp-authorize",
+    });
+    expect(isSameOriginRequest(r)).toEqual({ ok: false, reason: "opaque-origin" });
+  });
+
+  it("falls back to Referer when Origin is stripped", () => {
+    const r = post({
+      host: "events.example.com",
+      referer: "https://events.example.com/mcp-authorize?client_id=x",
+    });
+    expect(isSameOriginRequest(r)).toEqual({ ok: true });
+  });
+
+  it("refuses a cross-site Referer", () => {
+    const r = post({ host: "events.example.com", referer: "https://evil.example/x" });
+    expect(isSameOriginRequest(r)).toEqual({ ok: false, reason: "referer-mismatch" });
+  });
+
+  it("refuses when neither Origin nor Referer is present", () => {
+    // Not a browser form post, and a browser form post is the only legitimate
+    // caller. Same posture the proxy takes for an origin-less mutation.
+    const r = post({ host: "events.example.com" });
+    expect(isSameOriginRequest(r)).toEqual({ ok: false, reason: "no-origin-or-referer" });
+  });
+
+  it("refuses an unparseable Origin instead of throwing", () => {
+    const r = post({ host: "events.example.com", origin: "%%%" });
+    expect(isSameOriginRequest(r)).toEqual({ ok: false, reason: "unparseable-origin" });
+  });
+
+  it("compares host WITH port, so a different port is a different origin", () => {
+    const r = post({ host: "events.example.com:8443", origin: "https://events.example.com" });
+    expect(isSameOriginRequest(r).ok).toBe(false);
+  });
+});
 
 // ── getClientIp ────────────────────────────────────────────────────────────
 

@@ -453,6 +453,7 @@ curl -s -X POST https://events.meetingmindsgroup.com/api/mcp \
 - **No financial movement**. `update_invoice_status: REFUNDED` is DB-only — Stripe refunds stay dashboard-only.
 - **File uploads (.docx templates, media) stay dashboard-only** — JSON-RPC transport isn't a good fit for binary blobs.
 - **Cross-org isolation enforced**. Every tool scopes by `organizationId` from the auth context. A key from org A literally cannot touch org B's data.
+- **Registration is open, approval is not**. `/api/mcp/oauth/register` is unauthenticated by RFC 7591 design, but a `client_id` grants nothing: every path to data runs through one ADMIN/ORGANIZER approving the `/mcp-authorize` screen, which names the destination the code will be sent to. See **[MCP_SECURITY.md](MCP_SECURITY.md)**.
 
 ## Deferred / not yet implemented
 
@@ -465,6 +466,7 @@ See `docs/MCP_AUDIT_RESPONSE.html` for the full post-audit status and Sprint B p
 
 ## Further reading
 
+- **`docs/MCP_SECURITY.md`**: can an external agent reach us, and are we protected. Doors, gates, the Aug 2026 audit, and the who-has-access runbook
 - **`docs/MCP_OAUTH.html`** — OAuth 2.1 architecture + claude.ai connection flow (local-only, not in git)
 - **`docs/MCP_AUDIT_RESPONSE.html`** — Structured response to external audit + Sprint B roadmap
 - **`CLAUDE.md`** — Full feature index + recent changes

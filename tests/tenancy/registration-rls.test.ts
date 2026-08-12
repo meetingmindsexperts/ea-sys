@@ -73,9 +73,16 @@ describe("Registration-core RLS (prisma/rls/registration.sql) via the SET LOCAL 
     expect(b.map((r) => r.id)).toEqual([ATTENDEE_B_ID]);
   });
 
-  it("Payment: per-lane counts + B's globally-unique stripePaymentId invisible under A", async () => {
-    expect(await runWithTenant(ORG_A_ID, () => db.payment.count())).toBe(1);
-    expect(await runWithTenant(ORG_B_ID, () => db.payment.count())).toBe(1);
+  it("Payment: each lane sees its OWN row + B's globally-unique stripePaymentId invisible under A", async () => {
+    // Identity, not just count. A count of 1 per lane also passes if the two
+    // lanes are SWAPPED, which is the mis-routing this suite exists to catch
+    // and the one shape a count can never see.
+    expect(
+      await runWithTenant(ORG_A_ID, () => db.payment.findMany({ select: { id: true } })),
+    ).toEqual([{ id: PAYMENT_A_ID }]);
+    expect(
+      await runWithTenant(ORG_B_ID, () => db.payment.findMany({ select: { id: true } })),
+    ).toEqual([{ id: PAYMENT_B_ID }]);
     const leaked = await runWithTenant(ORG_A_ID, () =>
       db.payment.findUnique({ where: { stripePaymentId: PAYMENT_B_STRIPE_PI }, select: { id: true } }),
     );

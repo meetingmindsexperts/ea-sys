@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getClient, issueAuthCode } from "@/lib/mcp-oauth";
 import { apiLogger } from "@/lib/logger";
-import { checkRateLimit, getClientIp } from "@/lib/security";
+import { checkRateLimit, getClientIp, isSameOriginRequest } from "@/lib/security";
+import { describeRedirectTarget } from "@/lib/mcp-client-trust";
 
 /**
  * POST handler for the consent form at /mcp-authorize.
@@ -17,6 +18,27 @@ import { checkRateLimit, getClientIp } from "@/lib/security";
  * `redirectUris` list — never a user-supplied URL.
  */
 export async function POST(req: Request) {
+  // ── CSRF: this route is cookie-authenticated and mints a credential ──
+  // `src/proxy.ts` skips its Origin/Host check for the whole `/api/mcp`
+  // prefix so browser-based MCP clients are not blocked by the mobile CORS
+  // allow-list. Correct for the transport endpoint (Bearer auth, not
+  // CSRF-able), WRONG here: this one reads the session cookie. Until now the
+  // only thing stopping a cross-site POST was Auth.js defaulting the cookie
+  // to SameSite=Lax, which is real but is a browser default we inherited
+  // rather than a guarantee we wrote. See `isSameOriginRequest`.
+  const sameOrigin = isSameOriginRequest(req);
+  if (!sameOrigin.ok) {
+    apiLogger.warn({
+      msg: "mcp-oauth:decision-cross-origin-refused",
+      reason: sameOrigin.reason,
+      ip: getClientIp(req),
+    });
+    return NextResponse.json(
+      { error: "invalid_request", error_description: "Cross-origin authorization request refused" },
+      { status: 403 },
+    );
+  }
+
   const formData = await req.formData().catch(() => null);
   if (!formData) {
     return NextResponse.json({ error: "invalid_request", error_description: "Missing form body" }, { status: 400 });
@@ -116,14 +138,27 @@ export async function POST(req: Request) {
       scope,
     });
 
-    apiLogger.info({
+    // Log the DESTINATION, not just the client id. If a grant is ever phished,
+    // the question asked afterwards is "where did it go", and a client id alone
+    // cannot answer it once the row is gone. An approval to an unrecognised
+    // host logs at warn so it surfaces without anyone going looking.
+    const destination = describeRedirectTarget(redirectUri);
+    const approvalLog = {
       msg: "mcp-oauth:authorize-approved",
       clientId,
+      clientName: client.clientName,
       userId: user.id,
       organizationId: user.organizationId,
+      redirectHost: destination.host,
+      recognizedDestination: destination.recognized,
       // NEVER log the raw code — only its prefix for debugging
       codePrefix: rawCode.slice(0, 12),
-    });
+    };
+    if (destination.recognized && !destination.insecure) {
+      apiLogger.info(approvalLog);
+    } else {
+      apiLogger.warn({ ...approvalLog, msg: "mcp-oauth:authorize-approved-unrecognized-destination" });
+    }
 
     target.searchParams.set("code", rawCode);
     return NextResponse.redirect(target.toString(), 302);

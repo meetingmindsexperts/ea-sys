@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getClient } from "@/lib/mcp-oauth";
+import { describeRedirectTarget } from "@/lib/mcp-client-trust";
 import { apiLogger } from "@/lib/logger";
 
 /**
@@ -138,7 +139,23 @@ export default async function McpAuthorizePage({ searchParams }: PageProps) {
   }
 
   // ── Render the consent UI ───────────────────────────────────────────
+  //
+  // `clientName` is FREE TEXT chosen by whoever registered the client, and
+  // registration is unauthenticated by RFC 7591. So it is rendered as a claim,
+  // not as an identity: the destination below it is the fact.
   const clientName = client.clientName ?? "An MCP client";
+  const target = describeRedirectTarget(redirectUri);
+  const trusted = target.recognized && !target.insecure;
+
+  apiLogger.info({
+    msg: "mcp-oauth:consent-shown",
+    clientId,
+    userId: session.user.id,
+    organizationId: user.organizationId,
+    redirectHost: target.host,
+    recognized: target.recognized,
+    insecure: target.insecure,
+  });
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
@@ -154,12 +171,50 @@ export default async function McpAuthorizePage({ searchParams }: PageProps) {
         </div>
 
         <h1 className="text-xl font-semibold text-gray-900 mb-2">
-          {clientName} wants access
+          A client calling itself &ldquo;{clientName}&rdquo; wants access
         </h1>
-        <p className="text-sm text-gray-600 mb-6 leading-relaxed">
-          This MCP client is requesting read and write access to your EA-SYS organization{" "}
+        <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+          It is requesting read and write access to your EA-SYS organization{" "}
           <strong className="text-gray-900">{user.organization.name}</strong>.
         </p>
+
+        {/*
+          THE DESTINATION IS THE HEADLINE. The name above is typed by whoever
+          registered the client and proves nothing; this address is where the
+          access code is actually delivered, so it is what the admin must read.
+        */}
+        <div
+          className={`rounded-md border p-4 mb-4 ${
+            trusted ? "border-gray-200 bg-gray-50" : "border-red-300 bg-red-50"
+          }`}
+        >
+          <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">
+            Access will be sent to
+          </p>
+          <p
+            className={`font-mono text-sm break-all ${
+              trusted ? "text-gray-900" : "text-red-800 font-semibold"
+            }`}
+          >
+            {target.origin ?? "an address we could not read"}
+          </p>
+          {trusted ? (
+            <p className="mt-2 text-xs text-gray-600">
+              This is a known Anthropic address.
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-red-800 leading-relaxed">
+              <strong>This is not an address we recognise.</strong>{" "}
+              {target.insecure
+                ? "It is also an unencrypted http address, so the access code would cross the network in the clear. "
+                : ""}
+              Approving gives whoever controls it full access to{" "}
+              {user.organization.name}, including attendee and finance data. Only
+              continue if you set this integration up yourself and recognise that
+              address.
+            </p>
+          )}
+        </div>
 
         <div className="rounded-md border border-gray-200 bg-gray-50 p-4 mb-6 space-y-2">
           <div className="flex justify-between text-xs">
@@ -197,22 +252,50 @@ export default async function McpAuthorizePage({ searchParams }: PageProps) {
           <input type="hidden" name="state" value={state} />
           <input type="hidden" name="scope" value={scope} />
 
-          <button
-            type="submit"
-            name="decision"
-            value="approve"
-            className="w-full rounded-md bg-[#00aade] hover:bg-[#0097c2] text-white font-medium py-2.5 px-4 text-sm transition-colors"
-          >
-            Approve access
-          </button>
-          <button
-            type="submit"
-            name="decision"
-            value="deny"
-            className="w-full rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-medium py-2.5 px-4 text-sm transition-colors"
-          >
-            Deny
-          </button>
+          {/*
+            On an unrecognised destination the SAFE action becomes the primary
+            button. A consent screen that makes "Approve" the inviting default
+            regardless of who is asking is doing the attacker's layout work.
+          */}
+          {trusted ? (
+            <>
+              <button
+                type="submit"
+                name="decision"
+                value="approve"
+                className="w-full rounded-md bg-[#00aade] hover:bg-[#0097c2] text-white font-medium py-2.5 px-4 text-sm transition-colors"
+              >
+                Approve access
+              </button>
+              <button
+                type="submit"
+                name="decision"
+                value="deny"
+                className="w-full rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 font-medium py-2.5 px-4 text-sm transition-colors"
+              >
+                Deny
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="submit"
+                name="decision"
+                value="deny"
+                className="w-full rounded-md bg-gray-900 hover:bg-gray-800 text-white font-medium py-2.5 px-4 text-sm transition-colors"
+              >
+                Deny (recommended)
+              </button>
+              <button
+                type="submit"
+                name="decision"
+                value="approve"
+                className="w-full rounded-md border border-red-300 bg-white hover:bg-red-50 text-red-700 font-medium py-2.5 px-4 text-sm transition-colors"
+              >
+                Approve anyway, I recognise {target.host ?? "this address"}
+              </button>
+            </>
+          )}
         </form>
 
         <p className="mt-6 text-xs text-gray-500 text-center">

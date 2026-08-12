@@ -106,6 +106,13 @@ describe("Abstract RLS (prisma/rls/abstract.sql) via the SET LOCAL extension", (
       db.abstractReviewSubmission.findMany({ where: { abstractId: ABSTRACT_B_ID }, select: { id: true } }),
     );
     expect(bOwn.map((r) => r.id)).toEqual([ABSTRACT_SUBMISSION_B_ID]);
+    // A's own submission must still be visible in A's own lane. Without this
+    // the suite only proves the lane hides things, never that it shows the
+    // right ones, and a policy that returns nothing at all would pass.
+    const aOwn = await runWithTenant(ORG_A_ID, () =>
+      db.abstractReviewSubmission.findMany({ where: { abstractId: ABSTRACT_A_ID }, select: { id: true } }),
+    );
+    expect(aOwn.map((r) => r.id)).toEqual([ABSTRACT_SUBMISSION_A_ID]);
     const leaked = await runWithTenant(ORG_A_ID, () =>
       db.abstractReviewSubmission.findUnique({ where: { id: ABSTRACT_SUBMISSION_B_ID }, select: { id: true } }),
     );

@@ -115,3 +115,63 @@ export function hashVerificationToken(token: string): string {
   }
   return crypto.createHash("sha256").update(`${token}:${pepper}`).digest("hex");
 }
+
+export type SameOriginCheck = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Assert that a cookie-authenticated, state-changing POST came from our own
+ * page (Aug 12, 2026).
+ *
+ * WHY THIS IS NEEDED AT ALL, given `src/proxy.ts` already does an Origin/Host
+ * check on API mutations: that check EXCLUDES `/api/mcp/**`, deliberately, so
+ * browser-based MCP clients are not blocked by the mobile-only CORS allow-list.
+ * The exclusion is correct for the transport endpoint, which authenticates by
+ * Bearer token and is therefore not CSRF-able. It is NOT correct for the OAuth
+ * consent decision route, which sits under the same prefix but authenticates by
+ * SESSION COOKIE and mints an authorization code.
+ *
+ * That route was safe only because Auth.js defaults the session cookie to
+ * `SameSite=Lax`, which browsers do not attach to a cross-site POST. That is a
+ * real protection, but it is a protection we INHERITED rather than wrote: one
+ * `sameSite: "none"` in the auth config (to embed the dashboard, to support a
+ * webview) would silently re-open it, and nothing in the repo would fail. A
+ * guarantee you did not write is a guarantee you cannot test, so we write it.
+ *
+ * Modern browsers send `Origin` on every POST, same-origin included. `Referer`
+ * is the fallback for older clients and for the rare privacy setting that
+ * strips Origin. Neither present means it is not a browser form post, which is
+ * the only legitimate caller here, so it is refused: same posture the proxy
+ * takes for an origin-less mutation with no API key.
+ */
+export function isSameOriginRequest(req: Request): SameOriginCheck {
+  const host = req.headers.get("host");
+  if (!host) return { ok: false, reason: "no-host-header" };
+
+  const origin = req.headers.get("origin");
+  if (origin) {
+    // "null" is what a sandboxed iframe or a redirect-laundered form sends. It
+    // is not our origin, and treating it as absent would fall through to the
+    // Referer branch an attacker also controls.
+    if (origin === "null") return { ok: false, reason: "opaque-origin" };
+    let originHost: string;
+    try {
+      originHost = new URL(origin).host;
+    } catch {
+      return { ok: false, reason: "unparseable-origin" };
+    }
+    return originHost === host ? { ok: true } : { ok: false, reason: "origin-mismatch" };
+  }
+
+  const referer = req.headers.get("referer");
+  if (referer) {
+    let refererHost: string;
+    try {
+      refererHost = new URL(referer).host;
+    } catch {
+      return { ok: false, reason: "unparseable-referer" };
+    }
+    return refererHost === host ? { ok: true } : { ok: false, reason: "referer-mismatch" };
+  }
+
+  return { ok: false, reason: "no-origin-or-referer" };
+}
