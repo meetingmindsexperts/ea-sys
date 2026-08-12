@@ -20,6 +20,7 @@ one-page index plus the commands you reach for most.
 | Primary public IP (Elastic IP) | `3.108.247.193` | ap-south-1 |
 | Primary security group | `sg-01da66338a3c4ce46` | ap-south-1 |
 | Primary instance role | `ea-sys-mumbai-ec2-role` | — |
+| Instance-role policies | inline: `EaSysSesSend`, `EaSysInfraRead`, `DRBackupToSingapore`, `CrmInboundEmailS3`, `ecr-pull`; attached: `CloudWatchAgentServerPolicy`, `AmazonSSMManagedInstanceCore` | — |
 | **DR EC2** (break-glass, normally **destroyed**) | `i-075c400567ed002e6` | `ap-southeast-1` (Singapore) — terraform-managed |
 | **DR S3 bucket** | `s3://ea-sys-dr-singapore/` (`uploads/`, `env/`, `db/`) | ap-southeast-1 |
 | DR KMS key | customer-managed (see `infra/dr/terraform.tfvars`) | ap-southeast-1 |
@@ -36,6 +37,22 @@ one-page index plus the commands you reach for most.
 **Prereqs:** `aws --version` (v2), the Session Manager plugin for `aws ssm
 start-session`, and `aws sts get-caller-identity` returning your identity. The
 box itself uses its **instance role** — no AWS keys live in `.env`.
+
+> **This became true on 2026-08-12; before that it was aspirational.** The line
+> above had been in this doc for months while `/home/ubuntu/ea-sys/.env` in fact
+> carried `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` for the IAM **user**
+> `krishna@meetingmindsdubai.com`, which holds `AdministratorAccess`. The SDK
+> credential chain prefers env over the instance role, so production was
+> authenticating as a human administrator, and the instance role beside it was
+> largely unused. It surfaced through the `ses:env-credentials-in-use` warn line,
+> which exists precisely to say the env key is winning.
+>
+> Removing it required attaching `EaSysInfraRead` first, because three infra
+> reads (`ses:GetAccount`, `cloudwatch:DescribeAlarms`, `cloudwatch:GetMetricData`)
+> were documented in INFRA_OPS.md but had never actually been granted to the
+> role. They were working only because the admin key covered them. **Order
+> matters: grant, verify, then remove.** The full sequence is in
+> `docs/runbook-ses.md` §"Retiring an env credential".
 
 ---
 

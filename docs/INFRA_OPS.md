@@ -47,6 +47,26 @@ CloudWatch/SES read actions don't support resource-level scoping, so `Resource: 
 standard for them. Until this is attached, the **Alarms**, **Host metrics** and **Email**
 cards show *"Missing IAM permission…"* — that's expected, not a bug.
 
+> **✅ Attached 2026-08-12** as inline policy **`EaSysInfraRead`** on
+> `ea-sys-mumbai-ec2-role`. Verify with:
+>
+> ```bash
+> aws iam get-role-policy --role-name ea-sys-mumbai-ec2-role --policy-name EaSysInfraRead
+> ```
+>
+> **It had never been attached before that**, and the three cards worked anyway
+> because `/home/ubuntu/ea-sys/.env` carried a long-lived access key for an
+> IAM user holding `AdministratorAccess`, and the SDK credential chain prefers
+> env over the instance role. So this section described the intended state
+> while production ran on a human's admin credential. Attaching the policy was
+> the precondition for removing that key; the full sequence is in
+> `docs/runbook-ses.md` §"Retiring an env credential".
+>
+> The lesson generalises past this feature: **a permission that is documented
+> but never attached is indistinguishable from one that works, for as long as
+> something broader is quietly covering it.** If a doc says a role needs X,
+> check the role actually has X rather than checking the feature works.
+
 ### 2. GitHub token (optional — only the Deploys card)
 Add a **fine-grained PAT** with **read-only Actions** on the repo to the app's env:
 ```

@@ -3043,6 +3043,49 @@ independently shippable.
 | ~~**Re-tier L2 — reject simultaneous type + tier change**~~ | **STALE (verified July 16)** — `resolveRepricing` (the shared re-tier resolver) explicitly VALIDATES a provided tier against the NEW type when both change, and the detail sheet's `tierSelectionRequired` guard makes the combined change the required flow for tier-priced types. Not ambiguous anymore; a guard would break the supported path. | — | Closed. |
 | **Resident "official letter" — capture the file** | The public register form shows a Resident/Trainee "upload an official letter" **notice** (text-only, shipped July 7). Actually capturing + storing the file (additive `Attendee` column + upload UI + dashboard display) was deferred per the organizer's "text only" choice. | ~half day | If the organizer later wants the letter collected in-system rather than emailed/brought out-of-band. |
 
+### Worker DB pool pressure: staggered, now a watch item (August 12, 2026)
+
+Two database events on 12 August, **zero in the preceding four weeks** of
+SystemLog history:
+
+```
+06:30:15  DB connection pool timeout   P2024, crm-reminders lease claim (ours)
+06:45:50  DB connectivity timeout      code 110, Supabase side
+```
+
+Both were handled: the first is classified retryable so the tick skipped and
+ran five minutes later, the second fired the one-summarized-alert-per-outage
+email by design. Nothing was lost.
+
+**Fixed:** the cadence convergence behind the first one. Nine sub-hourly
+pollers were all bare step expressions, so eight jobs ticked on the same second
+against a pool of ten. Phases staggered, peak now 4
+(`7669bae2`), pinned by `__tests__/lib/worker-cadence-stagger.test.ts`.
+
+**Watch, do not act yet (n=2):** whether the pair recurs. The plausible single
+story is a slow database first, both symptoms after: queries hold connections
+longer, the pool empties at the convergence, and a connection attempt times out
+soon after. If it recurs after the stagger, that story is wrong and the next
+levers are the pool size (`connection_limit=10`, `pool_timeout=15`; prod uses
+~24 of `max_connections=90`, so there is headroom) and Supabase-side latency.
+**Size the pool, keep the timeout modest**: a long timeout hides
+under-provisioning behind slow hangs.
+
+Useful query:
+
+```sql
+SELECT date_trunc('day',timestamp)::date, count(*) FROM "SystemLog"
+ WHERE message LIKE '%DB connection%' GROUP BY 1 ORDER BY 1 DESC;
+```
+
+**Also settled this day, and recorded elsewhere rather than here:** production
+was authenticating to AWS as an IAM user holding `AdministratorAccess`, via a
+long-lived key in the box `.env` that overrode the instance role. The
+`ses:env-credentials-in-use` warn line is what surfaced it. Full sequence and
+the ordering trap (three documented IAM permissions had never actually been
+attached, and were working only because the admin key covered them) are in
+`docs/runbook-ses.md` §"Retiring an env credential" and `docs/INFRA_OPS.md` §1.
+
 ### Privileged maintenance lane review: live fix + all HIGHs SHIPPED; guard rails deferred (August 11, 2026)
 
 Three-lens adversarial review of the multi-tenancy item 5 commits (`2b74dee4`,

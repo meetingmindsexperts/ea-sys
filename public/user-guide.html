@@ -2445,6 +2445,18 @@ code{background:rgba(13,42,74,0.07);padding:1px 6px;border-radius:3px;font-size:
         <p>The background service is a separate component from the website, which is why the site stays fast and responsive even while thousands of emails are going out &mdash; and why registration and check-in keep working normally even if that service is having a bad day.</p>
         <p>It is watched three ways: an external monitor alerts within about two minutes if it stops responding, an automatic watchdog restarts it if it freezes, and the <strong>daily health email</strong> reports its status every morning whether or not anything went wrong &mdash; so if that email ever <em>stops arriving</em>, that itself is worth investigating.</p>
       </div>
+
+      <div class="sub" id="s20-nothing-sending">
+        <div class="sub-title">&ldquo;Nothing at all is sending&rdquo; is a different problem</div>
+        <p>Everything above is about an email being <em>slow</em>. If <strong>no</strong> email is going out anywhere in the system &mdash; not confirmations, not bulk sends, not password resets &mdash; that is not a queue delay and waiting will not fix it. It is almost always the mail service refusing us rather than anything on the event.</p>
+        <p>Two places tell you within seconds:</p>
+        <ul>
+          <li><strong>Settings &rarr; System logs</strong> (or <code>/logs</code>): search for <code>email</code>. A failed send always writes a line, and the AWS error name in it is the whole diagnosis.</li>
+          <li><strong>Admin &rarr; Infra / Ops</strong>: the <strong>Email (SES)</strong> card shows whether sending is switched on at the provider and how much of the daily quota is used. A red or errored card there, with a healthy site otherwise, points squarely at credentials or quota.</li>
+        </ul>
+        <p>The two causes that actually occur are the account&rsquo;s AWS credentials being rejected, and the daily send quota being exhausted by a very large blast. Neither is fixable from the dashboard &mdash; send the log line to whoever runs the infrastructure and they have a runbook for it.</p>
+        <div class="callout c-info"><div class="c-icon">&#x2139;&#xFE0F;</div><div class="c-body"><div class="c-title">Nothing is lost while mail is down</div><div class="c-text">Queued sends keep retrying, and every attempt &mdash; including the failures &mdash; is recorded against the person on their <strong>Email History</strong>. Once sending is restored you can see exactly who did and did not receive each message, so nobody gets silently skipped and nobody needs a blind re-send to everyone.</div></div></div>
+      </div>
     </div>
 
     <div class="divider"></div>

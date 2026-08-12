@@ -83,6 +83,91 @@ The two outputs **must match** if you intend to use the instance role.
 
 ---
 
+## Retiring an env credential (planned, not an incident)
+
+> Done once, on **2026-08-12**. Written down because the ORDER is the whole
+> lesson and the next person will meet the same trap.
+
+Step 3A below tells you to delete the two env keys when they are *stale and
+breaking sending*. Doing the same thing **deliberately**, while everything
+works, is a different job: the env key may be silently propping up permissions
+the instance role never had, and you find that out by breaking them.
+
+That is exactly what happened here. The key belonged to the IAM **user**
+`krishna@meetingmindsdubai.com`, which holds `AdministratorAccess`, so it
+covered everything. The instance role had SES *send* but not `ses:GetAccount`,
+`cloudwatch:DescribeAlarms` or `cloudwatch:GetMetricData`: the three reads
+behind the Infra/Ops SES, Alarms and Metrics cards, documented in
+`docs/INFRA_OPS.md` and never actually attached. Removing the key first would
+have kept email working and quietly blinded the health dashboard and the daily
+digest.
+
+**The order: grant, verify, remove, verify, revoke.**
+
+```bash
+# 1. FROM YOUR MAC (the box has no IAM write permission, deliberately).
+cat > /tmp/EaSysInfraRead.json <<'JSON'
+{ "Version": "2012-10-17", "Statement": [{
+    "Sid": "EaSysInfraRead", "Effect": "Allow",
+    "Action": ["ses:GetAccount","cloudwatch:DescribeAlarms","cloudwatch:GetMetricData"],
+    "Resource": "*" }] }
+JSON
+aws iam put-role-policy --role-name ea-sys-mumbai-ec2-role \
+  --policy-name EaSysInfraRead --policy-document file:///tmp/EaSysInfraRead.json
+
+# 2. ON THE BOX: prove the role can do the job BEFORE removing the fallback.
+#    `env -u` strips the two vars for this one command, so the CLI drops to the
+#    instance role: the exact credential path the app will use afterwards.
+
+#    2a. Confirm you are actually ON the role and not a ~/.aws/credentials file,
+#        which would take precedence and make the next test prove nothing.
+env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY \
+  aws sts get-caller-identity --query Arn --output text
+#    → must read assumed-role/ea-sys-mumbai-ec2-role/i-...
+
+#    2b. Send a REAL email through the configuration set. Do not settle for
+#        `iam simulate-principal-policy` here: it reported implicitDeny for
+#        ses:SendEmail on the config-set ARN while allowing SendRawEmail from
+#        the same statement, which is a gap in the simulator's resource-type
+#        model, not in the policy. A MessageId settles it in five seconds.
+env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY \
+  aws sesv2 send-email --region ap-south-1 \
+  --from-email-address alerts@meetingmindsexperts.com \
+  --destination ToAddresses=<you@yourdomain> \
+  --configuration-set-name my-first-configuration-set \
+  --content '{"Simple":{"Subject":{"Data":"instance-role SES test"},"Body":{"Text":{"Data":"via the role"}}}}'
+```
+
+```bash
+# 3. FROM YOUR MAC: containers sit one network hop further from the metadata
+#    service than your shell does. IMDSv2 defaults to a hop limit of 1, which
+#    blocks them entirely. Ours is 2; check before assuming.
+aws ec2 describe-instances --instance-ids i-0b51ab1213d084640 --region ap-south-1 \
+  --query 'Reservations[].Instances[].MetadataOptions.HttpPutResponseHopLimit'
+```
+
+```bash
+# 4. ON THE BOX: now remove BOTH lines. Commenting out only the key id would
+#    have worked by accident (the SDK needs both) but leaves an orphan secret.
+sudo nano /home/ubuntu/ea-sys/.env       # comment out AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+sudo bash scripts/deploy.sh              # docker compose restart does NOT re-read env_file
+```
+
+**5. Verify, in this order:** an email actually sends; `/admin/infra` SES,
+Alarms and Metrics cards are healthy (those three were the ones riding on the
+key); `ses:env-credentials-in-use` stops appearing in `/logs`; and the next
+morning's daily digest still carries its SES and alarms sections rather than
+reporting them unchecked.
+
+**6. Only then revoke the key**: *deactivate*, do not delete, so a forgotten
+consumer is one click from recovery. Note it is probably also what your local
+`aws` CLI uses.
+
+Rollback at any point is uncommenting the two lines and re-running
+`deploy.sh`, about 30 seconds.
+
+---
+
 ## Step 3 — Remediation by symptom
 
 ### A) `UnrecognizedClientException` + `envKeySet: true` in the diagnostic
