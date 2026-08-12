@@ -9,6 +9,10 @@ The general method that worked for INC-001 is captured in
 ["How to diagnose a frozen box"](#appendix--how-to-diagnose-a-frozen-box) below.
 For **data-loss** incidents, the recovery path is the DR restore in
 [infra/dr/README.md](../infra/dr/README.md) and [docs/ROLLBACK.md](ROLLBACK.md).
+For a **ransomware or extortion demand**, do not start with either of those:
+[docs/RANSOMWARE_RESPONSE.md](RANSOMWARE_RESPONSE.md) covers contain-before-you-
+reboot, evidence preservation, and the rotation order (in particular, what
+rotating `NEXTAUTH_SECRET` breaks).
 
 ---
 

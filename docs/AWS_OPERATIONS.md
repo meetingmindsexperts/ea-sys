@@ -893,6 +893,12 @@ belt-and-braces (it still reaps the pulled-image churn / dangling layers).
 > lives one layer up, in the application: **[MCP_SECURITY.md](MCP_SECURITY.md)**
 > covers the `/api/mcp` doors, the OAuth consent gate, the Aug 2026 audit, and
 > the who-currently-has-access runbook. This section is the network layer only.
+>
+> **Ransomware or a data-extortion demand** is a third, different incident:
+> **[RANSOMWARE_RESPONSE.md](RANSOMWARE_RESPONSE.md)** has the contain / preserve
+> / rebuild / restore / rotate runbook, what the backups actually survive (the
+> instance role cannot delete them, but a lifecycle rule can), and the ranked
+> gap list.
 
 **Verified state (June 2026).** EA-SYS runs on a single directly-exposed EC2.
 There is **no CDN, no AWS WAF, and no host WAF**. Defense is entirely
