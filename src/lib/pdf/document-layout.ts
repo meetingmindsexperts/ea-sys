@@ -39,10 +39,25 @@ function toDubai(date: Date): Date {
   return new Date(date.getTime() + DUBAI_OFFSET_MS);
 }
 
-/** Sample-style short date: "4/9/2026" — Asia/Dubai */
+/**
+ * Short date: "09/04/2026" — **dd/MM/yyyy**, Asia/Dubai.
+ *
+ * Day-first, not month-first. These documents are issued from the UAE and read
+ * by UAE and European finance teams, for whom `4/9/2026` reads as 4 September
+ * while the renderer meant 9 April. On an invoice that ambiguity lands on the
+ * two fields it can cost money: the issue date (which starts the payment clock)
+ * and the due date. Zero-padding both parts is deliberate — an unpadded `4/9`
+ * gives a reader no clue which convention is in force, whereas `04/09` at least
+ * signals a fixed-width format.
+ *
+ * Shared by the invoice, quote, credit-note and CRM-quote renderers, so the
+ * convention cannot differ between two documents describing one transaction.
+ */
 export function formatDateShort(date: Date): string {
   const d = toDubai(date);
-  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${d.getUTCFullYear()}`;
 }
 
 /** Footer timestamp: "Thu April 09, 2026 12:24:05 PM GST" — Asia/Dubai */

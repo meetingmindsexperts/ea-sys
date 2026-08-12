@@ -785,6 +785,7 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
       paymentDate: invoice.paidDate || invoice.issueDate,
       paymentMethod: invoice.paymentMethod,
       paymentReference: invoice.paymentReference,
+      logoPath: org.logo,
       orgName: org.name,
       companyName: org.companyName,
       companyAddress: org.companyAddress,

@@ -1,6 +1,15 @@
 import PDFDocument from "pdfkit";
+import { apiLogger } from "@/lib/logger";
 import { formatDate } from "@/lib/utils";
-import { formatRecipientName, toAddressLines } from "@/lib/pdf/document-layout";
+import { formatRecipientName, loadLocalLogo, toAddressLines } from "@/lib/pdf/document-layout";
+
+/**
+ * Masthead logo box. Width is the organizer-specified 100pt; the height is a
+ * CEILING, not a size — `fit` preserves aspect ratio, so a tall logo shrinks to
+ * stay inside the box rather than growing down into "PAYMENT RECEIPT".
+ */
+const LOGO_WIDTH = 100;
+const LOGO_MAX_HEIGHT = 36;
 
 export interface ReceiptPDFData {
   // Document identity
@@ -10,6 +19,14 @@ export interface ReceiptPDFData {
   paymentReference: string | null;
   // From (organization)
   orgName: string;
+  /**
+   * `Organization.logo`. Rendered as the masthead in place of the company name
+   * repeated in 20pt type — the name still appears in full in the FROM block,
+   * so this replaces a duplicate rather than dropping information. Only
+   * `/uploads/...` paths embed (see loadLocalLogo); anything else, or a
+   * logo-less org, falls back to the original text masthead.
+   */
+  logoPath: string | null;
   companyName: string | null;
   companyAddress: string | null;
   companyCity: string | null;
@@ -57,6 +74,10 @@ export interface ReceiptPDFData {
 }
 
 export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> {
+  // Read before opening the document: pdfkit's writer is synchronous, so the
+  // bytes have to be in hand before the first draw call.
+  const logoBuffer = await loadLocalLogo(data.logoPath);
+
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ size: "A4", margin: 50 });
@@ -71,11 +92,36 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       // ── Header bar ──
       doc.rect(0, 0, doc.page.width, 4).fill(color);
 
-      // ── Title ──
-      doc.fontSize(20).fillColor(color).font("Helvetica-Bold")
-        .text(data.companyName || data.orgName, 50, 30);
+      // ── Masthead: org logo, falling back to the org name ──
+      // A receipt with a blank top-left is worse than one repeating the name,
+      // so the text treatment survives for logo-less orgs (and for a logo that
+      // fails to decode) with its original geometry untouched.
+      let drewLogo = false;
+      if (logoBuffer) {
+        try {
+          doc.image(logoBuffer, 50, 26, { fit: [LOGO_WIDTH, LOGO_MAX_HEIGHT] });
+          drewLogo = true;
+        } catch (err) {
+          // Corrupt bytes / unsupported codec. Skip rather than fail the whole
+          // receipt — this document is proof of a payment that already happened.
+          apiLogger.warn({
+            err,
+            msg: "receipt-pdf:logo-image-decode-failed",
+            bufferSize: logoBuffer.length,
+          });
+        }
+      }
+
+      let mastheadBottom: number;
+      if (drewLogo) {
+        mastheadBottom = 26 + LOGO_MAX_HEIGHT;
+      } else {
+        doc.fontSize(20).fillColor(color).font("Helvetica-Bold")
+          .text(data.companyName || data.orgName, 50, 30);
+        mastheadBottom = 51;
+      }
       doc.fontSize(10).fillColor("#64748b").font("Helvetica")
-        .text("PAYMENT RECEIPT", 50, 55);
+        .text("PAYMENT RECEIPT", 50, mastheadBottom + 4);
 
       // ── Receipt info (right) ──
       // Values get an explicit column width and the rows flow from the

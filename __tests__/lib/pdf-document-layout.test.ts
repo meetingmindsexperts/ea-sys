@@ -16,7 +16,36 @@
  *    multi-line address arriving as ONE entry draws over the line beneath it.
  */
 import { describe, it, expect } from "vitest";
-import { formatRecipientName, toAddressLines } from "@/lib/pdf/document-layout";
+import { formatDateShort, formatRecipientName, toAddressLines } from "@/lib/pdf/document-layout";
+
+describe("formatDateShort", () => {
+  it("renders day-first, not month-first", () => {
+    // The organizer-reported defect: 9 April printed as "4/9/2026", which a
+    // UAE or European reader files as 4 September. On an invoice this lands on
+    // the issue date and the due date, i.e. on the payment clock.
+    expect(formatDateShort(new Date("2026-04-09T08:00:00Z"))).toBe("09/04/2026");
+  });
+
+  it("zero-pads both parts so the format is self-evident", () => {
+    // Unpadded "4/9" gives a reader nothing to infer the convention from;
+    // fixed-width "04/09" at least signals one is in force.
+    expect(formatDateShort(new Date("2026-01-02T08:00:00Z"))).toBe("02/01/2026");
+    expect(formatDateShort(new Date("2026-12-25T08:00:00Z"))).toBe("25/12/2026");
+  });
+
+  it("is unambiguous on a date where the two conventions cannot be told apart", () => {
+    // 5/5 reads the same either way — a passing assertion here would prove
+    // nothing, so it is paired with a date that discriminates.
+    expect(formatDateShort(new Date("2026-05-05T08:00:00Z"))).toBe("05/05/2026");
+    expect(formatDateShort(new Date("2026-05-11T08:00:00Z"))).toBe("11/05/2026");
+  });
+
+  it("renders in Asia/Dubai, not the server's timezone", () => {
+    // 21:30 UTC on the 8th is 01:30 on the 9th in Dubai. Without the shift the
+    // same document would date differently depending on where it rendered.
+    expect(formatDateShort(new Date("2026-04-08T21:30:00Z"))).toBe("09/04/2026");
+  });
+});
 
 describe("formatRecipientName", () => {
   it("maps the raw Prisma enum to a written honorific (the quote path)", () => {
