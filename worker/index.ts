@@ -60,6 +60,7 @@ import * as emailLogPrune from "./jobs/email-log-prune";
 import * as crmInboundEmail from "./jobs/crm-inbound-email";
 import * as loginEventPrune from "./jobs/login-event-prune";
 import * as systemLogPrune from "./jobs/system-log-prune";
+import * as residentLetterPrune from "./jobs/resident-letter-prune";
 import * as dailyDigest from "./jobs/daily-digest";
 
 import { startHealthServer, type HealthState } from "./lib/health-server";
@@ -95,6 +96,7 @@ const JOBS = [
   crmInboundEmail,
   loginEventPrune,
   systemLogPrune,
+  residentLetterPrune,
   dailyDigest,
 ];
 

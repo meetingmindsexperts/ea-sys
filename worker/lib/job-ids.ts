@@ -30,6 +30,7 @@ export const JOB_IDS = {
   LOGIN_EVENT_PRUNE: 1013,
   SYSTEM_LOG_PRUNE: 1014,
   DAILY_DIGEST: 1015,
+  RESIDENT_LETTER_PRUNE: 1016,
 } as const;
 
 export type JobId = (typeof JOB_IDS)[keyof typeof JOB_IDS];
