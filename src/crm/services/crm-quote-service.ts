@@ -35,6 +35,7 @@ import {
   ensureSpace,
   formatDateShort,
   loadLocalLogo,
+  toAddressLines,
   type LineItemCategory,
 } from "@/lib/pdf/document-layout";
 
@@ -177,11 +178,11 @@ export async function generateDealQuote(
         let y = drawHeader(doc, {
           companyBlock: {
             companyName: org.companyName || org.name,
-            addressLines: [
+            addressLines: toAddressLines(
               org.companyAddress,
               [org.companyCity, org.companyState, org.companyZipCode].filter(Boolean).join(" "),
               org.companyCountry,
-            ].filter((l): l is string => !!l && l.trim() !== ""),
+            ),
             taxId: org.taxId,
           },
           centerTitle: deal.event?.name ?? deal.name,

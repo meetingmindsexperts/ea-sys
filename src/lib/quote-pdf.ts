@@ -14,6 +14,8 @@ import {
   ensureSpace,
   loadLocalLogo,
   formatDateShort,
+  toAddressLines,
+  formatRecipientName,
 } from "./pdf/document-layout";
 
 interface QuoteData {
@@ -132,11 +134,11 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
       });
 
       // ── 1. Header (3 columns: company / centered title / logo) ──
-      const addressLines = [
+      const addressLines = toAddressLines(
         data.companyAddress,
         [data.companyCity, data.companyZipCode].filter(Boolean).join(" "),
         data.companyCountry,
-      ].filter((line): line is string => !!line && line.trim().length > 0);
+      );
 
       let y = drawHeader(doc, {
         companyBlock: {
@@ -155,6 +157,7 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
       // unchecked, these diverge). Falls back to personal name otherwise.
       let nameLine: string;
       let secondLine: string | null;
+      let organizationLine: string | null;
       let addressLine: string | null;
       let locationLine: string | null;
 
@@ -168,6 +171,8 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
         // reference line so AP knows which registration this covers.
         nameLine = data.payer.name;
         secondLine = data.payer.contactName || null;
+        // The payer IS the organization here, so there is no second one to add.
+        organizationLine = null;
         addressLine = data.payer.address || null;
         locationLine = [
           data.payer.city,
@@ -175,10 +180,10 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
           data.payer.country,
         ].filter(Boolean).join(", ") || null;
 
-        const attendeeName = [data.title, data.firstName, data.lastName]
-          .filter(Boolean)
-          .join(" ");
-        meta.push({ label: "Attendee", value: attendeeName });
+        meta.push({
+          label: "Attendee",
+          value: formatRecipientName(data.title, data.firstName, data.lastName),
+        });
         if (data.payer.reference)
           meta.push({ label: "PO / Reference", value: data.payer.reference });
         if (data.payer.taxNumber)
@@ -188,13 +193,19 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
         if (data.payer.phone)
           meta.push({ label: "Billing Phone", value: data.payer.phone });
       } else {
-        // Self-pay (unchanged): prefer explicit billing name over personal.
+        // Self-pay: prefer explicit billing name over personal.
+        //
+        // Addressed the way a letter would be — "Dr. Ahmed Osman", not
+        // "Osman, DR Ahmed". The old form was wrong twice over: surname-first
+        // is a directory sort order rather than a form of address, and
+        // `data.title` is the raw Prisma enum, so every doctor's quote read
+        // "DR" instead of "Dr.". `formatRecipientName` owns that mapping.
         const billFirst = data.billingFirstName || data.firstName;
         const billLast = data.billingLastName || data.lastName;
-        const namePart = [data.title, billFirst].filter(Boolean).join(" ");
-        nameLine = namePart ? `${billLast}, ${namePart}` : billLast;
+        nameLine = formatRecipientName(data.title, billFirst, billLast);
 
-        secondLine = data.jobTitle || data.organization;
+        secondLine = data.jobTitle || null;
+        organizationLine = data.organization || null;
         addressLine = data.billingAddress || null;
         locationLine = [
           data.billingCity,
@@ -212,6 +223,7 @@ export async function generateQuotePDF(data: QuoteData): Promise<Buffer> {
         billTo: {
           nameLine,
           secondLine,
+          organizationLine,
           addressLine,
           locationLine,
         },

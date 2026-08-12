@@ -799,6 +799,11 @@ function buildPDFFromLoadedInvoice(invoice: any): Promise<Buffer> {
       email: reg.attendee.email,
       organization: reg.attendee.organization,
       title: titleLabel || null,
+      // Payer-first, matching what the quote and invoice already print in
+      // their info box: when the registration is charged to a third-party
+      // account, the TRN belonging on the receipt is that account's.
+      taxNumber: reg.billingAccount?.taxNumber ?? reg.taxNumber ?? null,
+      payerName: reg.billingAccount?.name ?? null,
       eventName: reg.event.name,
       eventDate: reg.event.startDate,
       eventVenue: reg.event.venue,

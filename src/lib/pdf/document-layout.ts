@@ -13,6 +13,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { apiLogger } from "../logger";
+import { getTitleLabel } from "../utils";
 
 // ── Constants ──
 export const PAGE_MARGIN = 50;
@@ -104,6 +105,63 @@ export async function loadLocalLogo(logoPath: string | null): Promise<Buffer | n
     });
     return null;
   }
+}
+
+// ── Recipient naming ──
+
+/**
+ * How a document addresses its recipient: "Dr. Ahmed Osman".
+ *
+ * Deliberately tolerant of BOTH title shapes, because the callers disagree and
+ * have for a long time: `buildQuotePDFFromRegistration` passes the raw Prisma
+ * enum (`"DR"`) while `buildPDFFromLoadedInvoice` passes the already-formatted
+ * label (`"Dr."`). Handling only the enum would silently DROP the title from
+ * every invoice; handling neither prints a bare "DR" on every quote, which is
+ * what the live quotes were doing.
+ *
+ * Normalising here rather than sweeping the call sites is the safer trade: a
+ * missed call site in a sweep fails *silently* (a dropped honorific nobody
+ * notices in review), whereas one tolerant function cannot be missed.
+ */
+export function formatRecipientName(
+  title: string | null | undefined,
+  firstName: string,
+  lastName: string,
+): string {
+  // getTitleLabel maps the enum and returns "" for anything else, so an
+  // already-formatted label falls through to itself.
+  const label = getTitleLabel(title) || (title ?? "").trim();
+  return [label, firstName, lastName].filter(Boolean).join(" ").trim();
+}
+
+// ── Address formatting ──
+
+/**
+ * Normalises free-text address parts into the one-string-per-rendered-line
+ * array the header expects.
+ *
+ * Two things it fixes, both seen on the live MM Group record:
+ *
+ *  1. **Embedded line breaks.** `Organization.companyAddress` is a textarea, so
+ *     an admin can already type `508 & 509, DSC tower\nDubai Studio City`. The
+ *     header draws one array entry per line and advances a FIXED 11pt for it, so
+ *     passing that through as a single entry renders two lines of text in one
+ *     line of space and the next address line lands on top of it. Splitting here
+ *     means the admin controls where the address breaks and the height math
+ *     stays correct.
+ *
+ *  2. **Trailing separators.** The stored value ends `…Dubai Studio City,` and a
+ *     dangling comma at the end of an address line is always a typo, so it is
+ *     stripped rather than printed.
+ *
+ * Shared by the quote, invoice and CRM quote renderers, which each used to build
+ * this array inline and would otherwise drift.
+ */
+export function toAddressLines(...parts: (string | null | undefined)[]): string[] {
+  return parts
+    .flatMap((part) => (part ?? "").split(/\r?\n/))
+    .map((line) => line.trim().replace(/[,;]+$/, "").trim())
+    .filter((line) => line.length > 0);
 }
 
 // ── Region 1: header (3 columns) ──
@@ -208,11 +266,18 @@ export function drawHeader(doc: PDFKit.PDFDocument, input: HeaderInput): number 
 // ── Region 2: bill-to + meta info boxes ──
 
 export interface BillToInput {
-  /** "Lastname, Dr. Firstname" */
+  /** How the recipient is addressed: "Dr. Firstname Lastname" */
   nameLine: string;
-  /** Job title / organization (optional) */
+  /** Job title (optional) */
   secondLine: string | null;
-  /** Billing street address (optional) — rendered between secondLine and locationLine */
+  /**
+   * Employer / institution (optional). Its own line rather than sharing one
+   * with the job title: a doctor's title and their hospital are both needed by
+   * the payer's AP team, and the previous `jobTitle || organization` printed
+   * whichever came first and silently dropped the other.
+   */
+  organizationLine?: string | null;
+  /** Billing street address (optional) — rendered between organizationLine and locationLine */
   addressLine?: string | null;
   /** "City, State Zip, Country" (optional) */
   locationLine: string | null;
@@ -256,6 +321,7 @@ export function drawInfoBoxes(
   const lineH = 12;
   let leftLines = 1; // name line always present
   if (input.billTo.secondLine) leftLines++;
+  if (input.billTo.organizationLine) leftLines++;
   if (input.billTo.addressLine) leftLines++;
   if (input.billTo.locationLine) leftLines++;
   const leftHeight = 12 + leftLines * lineH + 8;
@@ -278,6 +344,11 @@ export function drawInfoBoxes(
   if (input.billTo.secondLine) {
     doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica-Bold")
       .text(input.billTo.secondLine, leftX + 30, lY);
+    lY += lineH;
+  }
+  if (input.billTo.organizationLine) {
+    doc.fontSize(9).fillColor(COLOR_TEXT).font("Helvetica-Bold")
+      .text(input.billTo.organizationLine, leftX + 30, lY);
     lY += lineH;
   }
   if (input.billTo.addressLine) {

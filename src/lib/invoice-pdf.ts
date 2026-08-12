@@ -13,6 +13,8 @@ import {
   ensureSpace,
   loadLocalLogo,
   formatDateShort,
+  toAddressLines,
+  formatRecipientName,
 } from "./pdf/document-layout";
 
 export interface InvoicePDFData {
@@ -148,11 +150,11 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
       const documentTitle = data.isTaxInvoice ? "TAX INVOICE" : "INVOICE";
 
       // ── 1. Header ──
-      const addressLines = [
+      const addressLines = toAddressLines(
         data.companyAddress,
         [data.companyCity, data.companyZipCode].filter(Boolean).join(" "),
         data.companyCountry,
-      ].filter((line): line is string => !!line && line.trim().length > 0);
+      );
 
       let y = drawHeader(doc, {
         companyBlock: {
@@ -168,6 +170,7 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
       // ── 2. Bill-to + meta boxes (4 meta rows for invoice) ──
       let nameLine: string;
       let secondLine: string | null;
+      let organizationLine: string | null;
       let locationLine: string | null;
       const meta = [
         { label: "Invoice Number", value: data.invoiceNumber },
@@ -183,6 +186,8 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
         // Third-party billing: bill-to = payer; attendee → reference line.
         nameLine = data.payer.name;
         secondLine = data.payer.contactName || null;
+        // The payer IS the organization here, so there is no second one to add.
+        organizationLine = null;
         const cityLine = [data.payer.city, data.payer.state, data.payer.zipCode]
           .filter(Boolean)
           .join(", ");
@@ -192,26 +197,29 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
           meta.push({ label: "Coordinator", value: data.groupMeta.coordinatorName });
           meta.push({ label: "Attendees", value: String(data.groupMeta.memberCount) });
         } else {
-          const attendeeName = [data.title, data.firstName, data.lastName]
-            .filter(Boolean)
-            .join(" ");
-          meta.push({ label: "Attendee", value: attendeeName });
+          meta.push({
+            label: "Attendee",
+            value: formatRecipientName(data.title, data.firstName, data.lastName),
+          });
         }
         if (data.payer.reference)
           meta.push({ label: "PO / Reference", value: data.payer.reference });
         if (data.payer.taxNumber)
-          meta.push({ label: "Tax No", value: data.payer.taxNumber });
+          meta.push({ label: "Tax Number", value: data.payer.taxNumber });
       } else {
-        const namePart = [data.title, data.firstName].filter(Boolean).join(" ");
-        nameLine = namePart ? `${data.lastName}, ${namePart}` : data.lastName;
-        secondLine = data.jobTitle || data.organization;
+        // Addressed as a letter would be — "Dr. Ahmed Osman". See the matching
+        // comment in quote-pdf.ts: surname-first is a sort order, not a form of
+        // address, and `data.title` is the raw Prisma enum ("DR").
+        nameLine = formatRecipientName(data.title, data.firstName, data.lastName);
+        secondLine = data.jobTitle || null;
+        organizationLine = data.organization || null;
         const cityLine = [data.billingCity, data.billingState, data.billingZipCode]
           .filter(Boolean)
           .join(", ");
         locationLine =
           [cityLine, data.billingCountry].filter(Boolean).join(" ") || null;
         // Tax No (registrant TRN) lives inside the right-hand info box.
-        if (data.taxNumber) meta.push({ label: "Tax No", value: data.taxNumber });
+        if (data.taxNumber) meta.push({ label: "Tax Number", value: data.taxNumber });
       }
 
       y = ensureSpace(doc, y, 90);
@@ -219,6 +227,7 @@ export async function generateInvoicePDF(data: InvoicePDFData): Promise<Buffer> 
         billTo: {
           nameLine,
           secondLine,
+          organizationLine,
           locationLine,
         },
         meta,

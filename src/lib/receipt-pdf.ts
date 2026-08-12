@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import { formatDate } from "@/lib/utils";
+import { formatRecipientName, toAddressLines } from "@/lib/pdf/document-layout";
 
 export interface ReceiptPDFData {
   // Document identity
@@ -23,6 +24,19 @@ export interface ReceiptPDFData {
   email: string;
   organization: string | null;
   title: string | null;
+  /**
+   * The payer's tax number (TRN/VAT). Sourced payer-first: the third-party
+   * billing account's number when the registration is charged to one, else the
+   * registrant's own from their billing details. Quote and invoice have always
+   * carried this; the receipt did not, so the one document a finance team files
+   * against a payment was the one missing the number they file it under.
+   */
+  taxNumber?: string | null;
+  /**
+   * Set only when a third-party billing account is paying, so the receipt does
+   * not attribute the payer's TRN to the attendee whose name sits above it.
+   */
+  payerName?: string | null;
   // Event
   eventName: string;
   eventDate: Date;
@@ -102,7 +116,10 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
         .text(data.companyName || data.orgName, 50, y);
       y += 13;
       doc.fontSize(8).fillColor("#475569").font("Helvetica");
-      if (data.companyAddress) { doc.text(data.companyAddress, 50, y); y += 11; }
+      // toAddressLines splits an admin-entered line break into its own entry.
+      // This block advances a fixed 11pt per entry, so a multi-line address
+      // passed as one string would draw over the line below it.
+      for (const line of toAddressLines(data.companyAddress)) { doc.text(line, 50, y); y += 11; }
       const fromCity = [data.companyCity, data.companyState, data.companyZipCode].filter(Boolean).join(", ");
       if (fromCity) { doc.text(fromCity, 50, y); y += 11; }
       if (data.companyCountry) { doc.text(data.companyCountry, 50, y); y += 11; }
@@ -113,12 +130,17 @@ export async function generateReceiptPDF(data: ReceiptPDFData): Promise<Buffer> 
       let rY = dividerY + 15;
       doc.fontSize(9).fillColor("#64748b").font("Helvetica-Bold").text("RECEIVED FROM", 320, rY);
       rY += 14;
-      const nameStr = [data.title, data.firstName, data.lastName].filter(Boolean).join(" ");
+      const nameStr = formatRecipientName(data.title, data.firstName, data.lastName);
       doc.fontSize(9).fillColor("#1e293b").font("Helvetica-Bold").text(nameStr, 320, rY);
       rY += 13;
       doc.fontSize(8).fillColor("#475569").font("Helvetica");
       if (data.organization) { doc.text(data.organization, 320, rY); rY += 11; }
       doc.text(data.email, 320, rY); rY += 11;
+      // Attribute the TRN before printing it: on a third-party-paid
+      // registration the number belongs to the payer, not to the attendee
+      // named above it.
+      if (data.payerName) { doc.text(`Paid by: ${data.payerName}`, 320, rY); rY += 11; }
+      if (data.taxNumber) { doc.text(`TRN: ${data.taxNumber}`, 320, rY); rY += 11; }
 
       y = Math.max(y, rY) + 10;
 
