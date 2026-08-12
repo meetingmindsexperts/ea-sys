@@ -19,7 +19,7 @@ import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "crm-reminders";
 export const JOB_ID = JOB_IDS.CRM_REMINDERS;
-export const SCHEDULE = "*/5 * * * *"; // every 5 minutes
+export const SCHEDULE = "2-59/5 * * * *"; // every 5 min, offset to :02
 
 export async function tick(): Promise<void> {
   await withJobLock(JOB_ID, JOB_NAME, async () => {

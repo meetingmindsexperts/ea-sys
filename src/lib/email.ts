@@ -73,6 +73,13 @@ export interface SendEmailParams {
    */
   logContext?: EmailLogContext;
   /**
+   * Set when this email deliberately has no entity to attach to (operator
+   * alerts, the daily health digest). Suppresses the "forgot logContext" warn;
+   * the row is still written as entityType=OTHER. Do NOT set it to quieten a
+   * send that SHOULD have a context. That is the case the warning exists for.
+   */
+  noEntityContext?: boolean;
+  /**
    * Short slug identifying the kind of email — e.g. "registration_confirmation",
    * "payment_confirmation", "speaker_invitation", "speaker_agreement",
    * "abstract_status", "refund_confirmation", "password_reset",
@@ -628,11 +635,20 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
   // without any per-caller wiring. Names only; the bytes never reach the log.
   const attachmentNames = params.attachments?.map((a) => a.name) ?? [];
 
-  // Surface any sendEmail caller that forgot to pass logContext — the row
+  // Surface any sendEmail caller that FORGOT to pass logContext. The row
   // still gets written (as entityType=OTHER) but won't link to a detail
   // sheet. This log line lets us find the caller during audits instead of
   // chasing silent symptoms like "I sent an email but no history row".
-  if (!params.logContext) {
+  //
+  // `noEntityContext: true` says the omission is DELIBERATE (2026-08-12). Some
+  // mail genuinely has no entity in the system: the admin alert and the daily
+  // health digest go to operators about the platform itself, not to a person
+  // with a detail sheet. Those callers were taking this warning on every send,
+  // which is worse than useless on the admin-alert path: an alert about a
+  // problem generated a warning about itself, on the very log surface you were
+  // being pointed at. Silence the deliberate case so the warning keeps meaning
+  // "someone forgot".
+  if (!params.logContext && !params.noEntityContext) {
     apiLogger.warn({
       msg: "sendEmail called without logContext — row will orphan as OTHER",
       to: toEmails,
@@ -825,6 +841,13 @@ interface SendFailureAlertInput {
   subject: string;
   from?: string;
   logContext?: EmailLogContext;
+  /**
+   * Set when this email deliberately has no entity to attach to (operator
+   * alerts, the daily health digest). Suppresses the "forgot logContext" warn;
+   * the row is still written as entityType=OTHER. Do NOT set it to quieten a
+   * send that SHOULD have a context. That is the case the warning exists for.
+   */
+  noEntityContext?: boolean;
 }
 
 async function notifyAdminOfSendFailure(input: SendFailureAlertInput): Promise<void> {

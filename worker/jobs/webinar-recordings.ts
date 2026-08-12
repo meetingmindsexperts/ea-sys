@@ -11,7 +11,7 @@ import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "webinar-recordings";
 export const JOB_ID = JOB_IDS.WEBINAR_RECORDINGS;
-export const SCHEDULE = "*/5 * * * *"; // every 5 minutes
+export const SCHEDULE = "4-59/5 * * * *"; // every 5 min, offset to :04
 
 export async function tick(): Promise<void> {
   await withJobLock(JOB_ID, JOB_NAME, async () => {

@@ -697,6 +697,9 @@ export async function runDailyDigestTick(): Promise<DigestTickResult> {
     subject,
     htmlContent: html,
     textContent: text,
+    // Deliberately entity-less: this goes to operators about the platform, not
+    // to anyone with a detail sheet to attach it to.
+    noEntityContext: true,
     emailType: "daily_digest",
     stream: "transactional",
     // Deliberately no logContext (same as admin-alert): an out-of-band

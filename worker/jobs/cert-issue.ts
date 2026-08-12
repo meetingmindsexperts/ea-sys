@@ -21,7 +21,7 @@ import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "cert-issue";
 export const JOB_ID = JOB_IDS.CERT_ISSUE;
-export const SCHEDULE = "*/3 * * * *"; // every 3 minutes
+export const SCHEDULE = "1-59/3 * * * *"; // every 3 min, offset to :01 (see worker/index.ts staggering note)
 
 export async function tick(): Promise<void> {
   await withJobLock(JOB_ID, JOB_NAME, async () => {

@@ -16,7 +16,7 @@ import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "invoice-reconciliation";
 export const JOB_ID = JOB_IDS.INVOICE_RECONCILIATION;
-export const SCHEDULE = "*/10 * * * *"; // every 10 minutes
+export const SCHEDULE = "5-59/10 * * * *"; // every 10 min, offset to :05
 
 export async function tick(): Promise<void> {
   await withJobLock(JOB_ID, JOB_NAME, async () => {

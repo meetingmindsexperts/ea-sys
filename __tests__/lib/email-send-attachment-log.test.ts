@@ -88,3 +88,43 @@ describe("sendEmail — attachmentNames reach the EmailLog row", () => {
     expect(row.attachmentNames).toEqual([]);
   });
 });
+
+/**
+ * The "forgot logContext" warning must keep meaning "someone forgot".
+ *
+ * Two senders legitimately have no entity: the admin alert and the daily health
+ * digest go to operators about the platform itself, not to a person with a
+ * detail sheet. Before `noEntityContext` both took this warning on every send,
+ * which was worst on the admin-alert path: an alert about a problem wrote a
+ * warning about itself, onto the very log surface the alert points you at.
+ *
+ * Asserted in both directions, because a flag that silences too much is the
+ * failure mode here: the warning's whole value is catching a real omission.
+ */
+describe("noEntityContext: declaring an entity-less send", () => {
+  const warnedAboutContext = async () => {
+    const { apiLogger } = await import("@/lib/logger");
+    return (apiLogger.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+      (c) => JSON.stringify(c[0] ?? "").includes("without logContext"),
+    );
+  };
+
+  it("still warns when logContext was simply forgotten", async () => {
+    sesSendMock.mockResolvedValue({ MessageId: "m1" });
+    await sendEmail({ ...BASE });
+    expect(await warnedAboutContext()).toBe(true);
+  });
+
+  it("stays silent when the omission is declared deliberate", async () => {
+    sesSendMock.mockResolvedValue({ MessageId: "m2" });
+    await sendEmail({ ...BASE, noEntityContext: true });
+    expect(await warnedAboutContext()).toBe(false);
+  });
+
+  it("still writes the EmailLog row either way; silence is not skipping", async () => {
+    sesSendMock.mockResolvedValue({ MessageId: "m3" });
+    await sendEmail({ ...BASE, noEntityContext: true });
+    const row = await lastLoggedRow();
+    expect(row.status).toBe("SENT");
+  });
+});

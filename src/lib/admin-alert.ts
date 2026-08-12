@@ -303,6 +303,7 @@ export async function notifyAdminAlert(input: AdminAlertInput): Promise<void> {
       textContent: body,
       emailType: "admin_alert",
       stream: "transactional",
+      noEntityContext: true,
       // No logContext: this is an out-of-band administrative ping, not
       // an entity-bound email.
     });

@@ -44,6 +44,21 @@ const loggerConfig: pino.LoggerOptions = {
   base: {
     env: process.env.NODE_ENV,
     app: "ea-sys",
+    /**
+     * Which container emitted this line. Both the web app and the background
+     * worker write to the SAME stdout, log files and `SystemLog` table, and
+     * until 2026-08-12 nothing distinguished them: an `event-loop:stall` could
+     * only be attributed to the worker by noticing it happened at exactly the
+     * daily-digest's scheduled minute. That is a correlation, not an answer,
+     * and it stops working the moment two things run at similar times.
+     *
+     * `worker` is set by worker/lib/tier.ts, imported before anything that can
+     * reach this module. Anything else reads `web`, which is right for the
+     * Next.js server and is a harmless approximation for a one-off `tsx`
+     * script (set EA_SYS_TIER explicitly if a script's lines need telling
+     * apart).
+     */
+    tier: process.env.EA_SYS_TIER ?? "web",
   },
 
   timestamp: pino.stdTimeFunctions.isoTime,

@@ -13,7 +13,7 @@ import { JOB_IDS } from "../lib/job-ids";
 
 export const JOB_NAME = "oauth-cleanup";
 export const JOB_ID = JOB_IDS.OAUTH_CLEANUP;
-export const SCHEDULE = "0 * * * *"; // every hour at :00
+export const SCHEDULE = "11 * * * *"; // hourly at :11 (moved off :00, where everything converged)
 
 export async function tick(): Promise<void> {
   await withJobLock(JOB_ID, JOB_NAME, async () => {

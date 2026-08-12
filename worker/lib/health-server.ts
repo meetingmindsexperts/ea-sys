@@ -41,9 +41,16 @@ export interface HealthState {
  * Longest plausible gap between ticks for a cron expression, in ms.
  *
  * Only handles the shapes we actually use (`* * * * *`, `*​/N * * * *`,
- * `M * * * *`, `M,M * * * *`, `M H * * *`, `M H D * *`). Anything unrecognised
- * returns null, which the caller reads as "can't judge" — an unknown schedule
- * must never be reported as stale.
+ * `A-59/N * * * *`, `M * * * *`, `M,M * * * *`, `M H * * *`, `M H D * *`).
+ * Anything unrecognised returns null, which the caller reads as "can't judge";
+ * an unknown schedule must never be reported as stale.
+ *
+ * The `A-59/N` (offset step) form was added 2026-08-12 alongside staggering the
+ * job cadences, and it had to come FIRST. Without it `2-59/5` fell through to
+ * the comma branch, split to one element, and was read as HOURLY, so a
+ * five-minute job's stale threshold would have silently gone from 15 minutes to
+ * three hours, and the staleness check would have stopped catching a dead job
+ * exactly when we made the schedules harder to eyeball.
  */
 export function maxIntervalMs(schedule: string): number | null {
   const parts = schedule.trim().split(/\s+/);
@@ -63,6 +70,21 @@ export function maxIntervalMs(schedule: string): number | null {
 
   const everyN = min.match(/^\*\/(\d+)$/);
   if (everyN) return Number(everyN[1]) * MIN;
+  // Offset step, e.g. "2-59/5" → 2,7,12,…,57. Same frequency as */5; the phase
+  // is shifted so jobs stop converging on :00 and :30. The largest gap is the
+  // wrap from the last tick of one hour to the first of the next, which for
+  // `A-59/N` is N minutes whenever A < N, and that holds for every schedule we
+  // use. Guard the general case by taking whichever is larger.
+  const offsetStep = min.match(/^(\d+)-59\/(\d+)$/);
+  if (offsetStep) {
+    const start = Number(offsetStep[1]);
+    const step = Number(offsetStep[2]);
+    if (step > 0) {
+      const last = start + Math.floor((59 - start) / step) * step;
+      const wrap = 60 - last + start;
+      return Math.max(step, wrap) * MIN;
+    }
+  }
   if (min === "*") return MIN;
 
   // Fixed minute(s) of every hour, e.g. "0 * * * *" or "16,53 * * * *".

@@ -28,6 +28,10 @@
  */
 
 import "dotenv/config";
+// Must be the first import that can reach the logger: it stamps EA_SYS_TIER,
+// which pino reads into its base fields at module evaluation. See its docblock
+// for why this cannot be an assignment in this file's body.
+import "./lib/tier";
 // Sentry must initialize BEFORE any other code path can throw —
 // otherwise early-boot errors (env validation, Prisma client init,
 // node-cron schedule parsing) won't reach Sentry. This is a side-
@@ -165,6 +169,20 @@ function wrapTick(job: {
 // node-cron 5-field expressions (minute hour day-of-month month
 // day-of-week). Each schedule string also lives on the job module
 // (`SCHEDULE`) so adding/changing one job touches a single file.
+//
+// ⚠ STAGGER A NEW SUB-HOURLY JOB. Do not write a bare star-slash-N: every one
+// of those fires on :00, and most on :30 as well. With all nine pollers on
+// plain steps, EIGHT jobs ticked on the same second against a Prisma pool of
+// ten, and on 2026-08-12 that produced a P2024 pool timeout on the
+// crm-reminders lease claim. It was handled (retryable, so the tick skipped),
+// but the shape is nasty: it is invisible while the database is fast and shows
+// up only when it is slow, which is when you can least afford it.
+//
+// Use the offset form instead: "7-59/5" runs every 5 minutes starting at :07,
+// same frequency, different phase. Peak concurrency is now 4, two of which are
+// the two every-minute jobs and cannot be moved.
+// __tests__/lib/worker-cadence-stagger.test.ts fails if a new job pushes the
+// peak past 4, and names the minute and the jobs sharing it.
 
 /**
  * Advisory locks are SESSION-scoped, so the worker must hold a session-mode
