@@ -21,6 +21,7 @@ export type EventConfirmationFields = Pick<
   RegistrationConfirmationParams,
   | "eventName"
   | "eventDate"
+  | "eventEndDate"
   | "eventTimezone"
   | "eventVenue"
   | "eventCity"
@@ -51,6 +52,7 @@ export type EventConfirmationFields = Pick<
 export function buildEventConfirmationFields(event: {
   name: string;
   startDate: Date;
+  endDate: Date | null;
   timezone: string | null;
   venue: string | null;
   city: string | null;
@@ -77,6 +79,7 @@ export function buildEventConfirmationFields(event: {
   return {
     eventName: event.name,
     eventDate: event.startDate,
+    eventEndDate: event.endDate,
     eventTimezone: event.timezone,
     eventVenue: event.venue || "",
     eventCity: event.city || "",

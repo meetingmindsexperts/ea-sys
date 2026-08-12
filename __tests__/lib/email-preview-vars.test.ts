@@ -45,7 +45,12 @@ describe("buildEventPreviewVariables", () => {
     expect(v.lastName).toBe("Khan");
   });
 
-  it("formats a single-day event as one date, multi-day as a range", () => {
+  // MEANING CHANGED (Aug 12, 2026). This used to assert that {{eventDate}}
+  // became a RANGE on a multi-day event. That was the preview disagreeing with
+  // the send, which renders only the start — so an organizer previewed
+  // "October 2 – 3" and their registrants received "October 2". The date and
+  // the range are now separate tokens, both provided by both paths.
+  it("keeps eventDate as the START date, even on a multi-day event", () => {
     const single = buildEventPreviewVariables(baseEvent, USER);
     expect(String(single.eventDate)).not.toContain("–");
 
@@ -53,7 +58,25 @@ describe("buildEventPreviewVariables", () => {
       { ...baseEvent, endDate: new Date("2026-09-12T18:00:00+04:00") },
       USER,
     );
-    expect(String(multi.eventDate)).toContain("–");
+    expect(String(multi.eventDate)).not.toContain("–");
+    expect(String(multi.eventDate)).toBe(String(single.eventDate));
+  });
+
+  it("puts the span in eventDateRange, collapsing it on a single-day event", () => {
+    const single = buildEventPreviewVariables(baseEvent, USER);
+    expect(String(single.eventDateRange)).not.toContain("–");
+    expect(String(single.eventDateRange)).toBe(String(single.eventDate));
+
+    const multi = buildEventPreviewVariables(
+      { ...baseEvent, endDate: new Date("2026-09-12T18:00:00+04:00") },
+      USER,
+    );
+    expect(String(multi.eventDateRange)).toContain("–");
+  });
+
+  it("offers eventStartDate as an alias, so a template can say what it means", () => {
+    const v = buildEventPreviewVariables(baseEvent, USER);
+    expect(v.eventStartDate).toBe(v.eventDate);
   });
 
   it("falls back to the user + defaults when event fields are absent", () => {

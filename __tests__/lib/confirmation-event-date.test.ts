@@ -43,7 +43,7 @@ vi.mock("@aws-sdk/client-sesv2", () => ({
   },
 }));
 
-import { sendRegistrationConfirmation } from "@/lib/email";
+import { buildEventDateTokens, sendRegistrationConfirmation } from "@/lib/email";
 
 /** The real EHS event: 08:00 Dubai on 2 Oct, stored as 04:00Z. */
 const EHS = {
@@ -106,6 +106,60 @@ describe("{{eventDate}} carries no time", () => {
       eventDate: new Date("2026-10-02T13:30:00.000Z"),
     });
     expect(renderedHtml()).not.toMatch(/\d{1,2}:\d{2}\s?(AM|PM)/i);
+  });
+});
+
+describe("buildEventDateTokens — both spellings of when", () => {
+  const START = new Date("2026-10-02T04:00:00.000Z"); // 08:00 Dubai, 2 Oct
+  const END = new Date("2026-10-03T14:00:00.000Z"); // 18:00 Dubai, 3 Oct
+
+  it("{{eventDateRange}} spans first to last day", () => {
+    // This token used to resolve in the template PREVIEW and nowhere else, so
+    // an organizer who used it saw it work on screen and then shipped copy
+    // that printed the raw "{{eventDateRange}}" to every registrant.
+    expect(buildEventDateTokens(START, END, "Asia/Dubai").eventDateRange).toBe(
+      "October 2 – 3, 2026",
+    );
+  });
+
+  it("collapses to a single date when the event runs one day", () => {
+    // A one-day event must not read "October 2 – 2".
+    const t = buildEventDateTokens(START, new Date("2026-10-02T14:00:00.000Z"), "Asia/Dubai");
+    expect(t.eventDateRange).toBe("October 2, 2026");
+    expect(t.eventDateRange).not.toContain("–");
+  });
+
+  it("collapses when no end date is available at all", () => {
+    expect(buildEventDateTokens(START, null, "Asia/Dubai").eventDateRange).toBe("October 2, 2026");
+    expect(buildEventDateTokens(START, undefined, "Asia/Dubai").eventDateRange).toBe(
+      "October 2, 2026",
+    );
+  });
+
+  it("leaves eventDate as the START even on a multi-day event", () => {
+    // The point of splitting them: adding a range must not silently change
+    // what every template already using {{eventDate}} prints.
+    const t = buildEventDateTokens(START, END, "Asia/Dubai");
+    expect(t.eventDate).toBe("Friday, October 2, 2026");
+    expect(t.eventDate).not.toContain("October 3");
+  });
+
+  it("anchors the RANGE to the event timezone too", () => {
+    // 20:00Z on 1 Oct is still 1 Oct in London but already 2 Oct in Dubai.
+    // Discriminates in any runtime zone, unlike a Dubai-vs-UTC pair on a
+    // laptop that is itself set to Dubai.
+    const london = buildEventDateTokens(
+      new Date("2026-10-01T20:00:00.000Z"),
+      new Date("2026-10-02T20:00:00.000Z"),
+      "Europe/London",
+    );
+    expect(london.eventDateRange).toBe("October 1 – 2, 2026");
+  });
+
+  it("carries no clock in either token", () => {
+    const t = buildEventDateTokens(START, END, "Asia/Dubai");
+    expect(t.eventDate).not.toMatch(/\d{1,2}:\d{2}/);
+    expect(t.eventDateRange).not.toMatch(/\d{1,2}:\d{2}/);
   });
 });
 

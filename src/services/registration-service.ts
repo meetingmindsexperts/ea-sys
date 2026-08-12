@@ -58,8 +58,10 @@ export const CONFIRMATION_EVENT_SELECT = {
   name: true,
   slug: true,
   startDate: true,
-  // Anchors {{eventDate}} to the event's own calendar day rather than the
-  // server's zone — see the formatter in sendRegistrationConfirmation.
+  // endDate drives {{eventDateRange}}; timezone anchors {{eventDate}} to the
+  // event's own calendar day rather than the server's zone — see the
+  // formatter in sendRegistrationConfirmation.
+  endDate: true,
   timezone: true,
   venue: true,
   city: true,
@@ -517,6 +519,7 @@ export async function createRegistration(
         name: true,
         slug: true,
         startDate: true,
+        endDate: true,
         timezone: true,
         venue: true,
         city: true,

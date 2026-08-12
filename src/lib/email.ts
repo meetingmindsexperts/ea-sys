@@ -13,7 +13,7 @@ import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
 import { getTitleLabel } from "./utils";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
-import { formatDateInTz, resolveTimezone } from "./event-time";
+import { formatDateInTz, formatEventDateRange, resolveTimezone } from "./event-time";
 import { getBreaker } from "./circuit-breaker";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
@@ -1270,7 +1270,9 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "firstName", description: "Attendee first name" },
     { key: "lastName", description: "Attendee last name" },
     { key: "eventName", description: "Event name" },
-    { key: "eventDate", description: "Event date (formatted)" },
+    { key: "eventDate", description: "Event START date, no time (e.g. Friday, October 2, 2026)" },
+    { key: "eventStartDate", description: "Same as eventDate — the start date, spelled out" },
+    { key: "eventDateRange", description: "First to last day (e.g. October 2 – 3, 2026); collapses to the single date on a one-day event" },
     { key: "eventVenue", description: "Event venue" },
     { key: "eventCity", description: "Event city" },
     { key: "eventCountry", description: "Event country" },
@@ -3027,7 +3029,8 @@ export function getSamplePreviewVariables(
     documentTypeLower: "credit note",
     documentNumber: "EVT2026-CN-001",
     // Real event values override these in buildEventPreviewVariables.
-    eventDateRange: "Monday, March 15, 2026",
+    eventDateRange: "March 15 – 17, 2026",
+    eventStartDate: "Monday, March 15, 2026",
     organizationName: "Sample Organization",
     venueLine: "at Convention Center, Dubai",
     // Certificate cover tokens — the cert send dialog previews through the
@@ -3180,7 +3183,13 @@ export function buildEventPreviewVariables(
   const multiDay =
     event.endDate != null &&
     formatDateInTz(event.endDate, tz ?? "") !== start;
-  const eventDate = multiDay
+  // {{eventDate}} is the START date, matching what the real send renders.
+  // It used to show the RANGE on multi-day events while the send showed only
+  // the start, so an organizer previewed "October 2 – 3" and their registrants
+  // received "October 2". The range now lives in its own token, which the send
+  // provides too.
+  const eventDate = start;
+  const eventDateRange = multiDay
     ? `${start} – ${formatDateInTz(event.endDate as Date, tz ?? "")}`
     : start;
   const daysUntilEvent = Math.max(
@@ -3206,8 +3215,8 @@ export function buildEventPreviewVariables(
     registrationId,
     eventName: event.name,
     eventDate,
-    // Always the start–end range on multi-day events; same string as eventDate.
-    eventDateRange: eventDate,
+    eventStartDate: eventDate,
+    eventDateRange,
     eventVenue: event.venue || "",
     eventCity: event.city || "",
     eventCountry: event.country || "",
@@ -3419,6 +3428,9 @@ export interface RegistrationConfirmationParams {
   organization?: string | null;
   eventName: string;
   eventDate: Date;
+  /** Last day, when the event runs over more than one. Drives
+   *  {{eventDateRange}}; absent collapses the range to the start date. */
+  eventEndDate?: Date | null;
   /** IANA zone the event runs in. Anchors {{eventDate}} so the DATE is the
    *  event's own calendar day, not the server's. Defaults to Asia/Dubai. */
   eventTimezone?: string | null;
@@ -3494,6 +3506,46 @@ export interface RegistrationConfirmationParams {
   suppressPayNow?: boolean;
 }
 
+/**
+ * The two ways a confirmation email can say "when".
+ *
+ *   {{eventDate}} / {{eventStartDate}}  "Friday, October 2, 2026"
+ *   {{eventDateRange}}                  "October 2 – 3, 2026"
+ *
+ * Exported and pure because neither value is observable through the default
+ * template (which references only {{eventDate}}), so a test driving the sender
+ * could not see the other two. A contract that cannot be asserted is a
+ * contract that drifts — which is exactly how {{eventDateRange}} came to
+ * resolve in the template PREVIEW and nowhere else, letting an organizer see
+ * it work on screen and then ship copy that printed the raw token to every
+ * registrant.
+ *
+ * Both are anchored to the EVENT's timezone. Without that the server's zone
+ * decides, and a start before 04:00 Dubai renders as the previous day — the
+ * date itself, not just the clock, comes out wrong.
+ *
+ * A missing end date collapses the range to the start rather than rendering a
+ * half-range, so a one-day event reads naturally either way.
+ */
+export function buildEventDateTokens(
+  startDate: Date,
+  endDate: Date | null | undefined,
+  timezone: string | null | undefined,
+): { eventDate: string; eventDateRange: string } {
+  const tz = resolveTimezone(timezone);
+  const start = new Date(startDate);
+  return {
+    eventDate: new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: tz,
+    }).format(start),
+    eventDateRange: formatEventDateRange(start, new Date(endDate ?? startDate), tz),
+  };
+}
+
 export async function sendRegistrationConfirmation(params: RegistrationConfirmationParams) {
   // {{eventDate}} is a DATE. It used to append hour+minute, which produced
   // "Friday, October 2, 2026 at 04:00 AM" in organizer templates that only ever
@@ -3512,13 +3564,11 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
   //      starting before 04:00 Dubai — 02:00 on the 3rd is 22:00Z on the 2nd,
   //      so the email would name the wrong day. Anchoring to the event's own
   //      timezone is the same rule the agenda and the deadline fields follow.
-  const eventDate = new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: resolveTimezone(params.eventTimezone),
-  }).format(new Date(params.eventDate));
+  const { eventDate, eventDateRange } = buildEventDateTokens(
+    params.eventDate,
+    params.eventEndDate,
+    params.eventTimezone,
+  );
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
   const paymentLink = params.eventSlug
@@ -3610,6 +3660,10 @@ export async function sendRegistrationConfirmation(params: RegistrationConfirmat
     lastName: params.lastName ?? "",
     eventName: params.eventName,
     eventDate,
+    // Explicit alias: the name says what the value is, without renaming
+    // {{eventDate}} out from under the templates already using it.
+    eventStartDate: eventDate,
+    eventDateRange,
     // eventVenue keeps its long-standing "venue, city" shape here — this join
     // predates the first public-registration commit and every saved
     // registration-confirmation template was written against it. City and

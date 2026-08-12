@@ -382,7 +382,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         event: {
           select: {
-            id: true, name: true, slug: true, startDate: true, timezone: true,
+            id: true, name: true, slug: true, startDate: true, endDate: true, timezone: true,
             venue: true, city: true, country: true, organizationId: true,
             taxRate: true, taxLabel: true,
             bankDetails: true, supportEmail: true,
