@@ -29,6 +29,7 @@ const org = {
 const event = {
   name: "IOHNC 2026",
   startDate: new Date("2026-11-01T09:00:00Z"),
+  timezone: "Asia/Dubai",
   venue: "Madinat Jumeirah",
   city: "Dubai",
   country: "United Arab Emirates",
@@ -46,6 +47,7 @@ describe("buildEventConfirmationFields", () => {
     expect(buildEventConfirmationFields(event)).toEqual({
       eventName: "IOHNC 2026",
       eventDate: event.startDate,
+      eventTimezone: "Asia/Dubai",
       eventVenue: "Madinat Jumeirah",
       eventCity: "Dubai",
       eventCountry: "United Arab Emirates",

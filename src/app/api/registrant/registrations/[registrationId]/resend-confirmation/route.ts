@@ -66,6 +66,7 @@ export async function POST(req: Request, { params }: RouteParams) {
             name: true,
             slug: true,
             startDate: true,
+            timezone: true,
             venue: true,
             city: true,
             country: true,

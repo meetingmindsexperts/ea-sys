@@ -180,6 +180,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         name: true,
         eventType: true,
         startDate: true,
+        timezone: true,
         endDate: true,
         venue: true,
         city: true,

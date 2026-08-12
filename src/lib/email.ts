@@ -13,7 +13,7 @@ import { apiLogger } from "./logger";
 import { logEmail, type EmailLogContext } from "./email-log";
 import { getTitleLabel } from "./utils";
 import { buildEntryBarcode, templateUsesEntryBarcode } from "./email-barcode";
-import { formatDateInTz } from "./event-time";
+import { formatDateInTz, resolveTimezone } from "./event-time";
 import { getBreaker } from "./circuit-breaker";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────────
@@ -3419,6 +3419,9 @@ export interface RegistrationConfirmationParams {
   organization?: string | null;
   eventName: string;
   eventDate: Date;
+  /** IANA zone the event runs in. Anchors {{eventDate}} so the DATE is the
+   *  event's own calendar day, not the server's. Defaults to Asia/Dubai. */
+  eventTimezone?: string | null;
   eventVenue: string;
   eventCity: string;
   eventCountry?: string;
@@ -3492,13 +3495,29 @@ export interface RegistrationConfirmationParams {
 }
 
 export async function sendRegistrationConfirmation(params: RegistrationConfirmationParams) {
+  // {{eventDate}} is a DATE. It used to append hour+minute, which produced
+  // "Friday, October 2, 2026 at 04:00 AM" in organizer templates that only ever
+  // asked for a date — and 04:00 was not even the event's start. Two faults in
+  // one formatter:
+  //
+  //   1. The time does not belong here. An event-level clock is meaningless on
+  //      a multi-day conference (the real per-day times live on the agenda),
+  //      which is why the same line was pulled from the public event pages back
+  //      in July. If a time is ever wanted in an email it belongs in its own
+  //      token, not smuggled into the date.
+  //
+  //   2. No `timeZone`, so it rendered in the SERVER's zone (UTC in prod). The
+  //      organizer's 08:00 Dubai start is stored as 04:00Z and printed as
+  //      "04:00 AM". Worse, this silently corrupts the DATE for any event
+  //      starting before 04:00 Dubai — 02:00 on the 3rd is 22:00Z on the 2nd,
+  //      so the email would name the wrong day. Anchoring to the event's own
+  //      timezone is the same rule the agenda and the deadline fields follow.
   const eventDate = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    timeZone: resolveTimezone(params.eventTimezone),
   }).format(new Date(params.eventDate));
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://events.meetingmindsgroup.com";
