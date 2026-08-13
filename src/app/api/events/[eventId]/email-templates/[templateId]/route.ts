@@ -255,6 +255,21 @@ export async function POST(req: Request, { params }: RouteParams) {
         from: brandingFrom(branding),
         emailType: "template_test",
         stream: "transactional",
+        // A test send DOES have an entity: the staff member who clicked it,
+        // and who is also the sole recipient (the user row above is looked up
+        // by `session.user.id`). So it files under USER like every other
+        // self-directed email — password reset, org invite, reviewer invite,
+        // email verification — rather than taking `noEntityContext`, which
+        // would claim the mail belongs to nobody and drop the one record that
+        // answers "did I actually send myself that test, and when?".
+        logContext: {
+          organizationId: session.user.organizationId,
+          eventId,
+          entityType: "USER",
+          entityId: session.user.id,
+          templateSlug: template.slug,
+          triggeredByUserId: session.user.id,
+        },
       });
 
       return NextResponse.json({
