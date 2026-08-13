@@ -6,7 +6,7 @@
  * bound to the event via buildEventAccessWhere, then the on-disk path verified
  * to sit inside public/uploads/resident-letters/ before the read.
  *
- * The stored column is validated on the way IN (`isResidentLetterPath` in the
+ * The stored column is validated on the way IN (`isSupportingDocumentPath` in the
  * register POST), and re-validated here. Both, deliberately: the column is
  * written from an attacker-controlled form field, and a read path that trusts
  * the database is one bad write away from arbitrary file disclosure.
@@ -20,7 +20,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
-import { RESIDENT_LETTER_PATH_PREFIX, isResidentLetterPath } from "@/lib/resident-letter";
+import { SUPPORTING_DOCUMENT_PATH_PREFIX, isSupportingDocumentPath } from "@/lib/supporting-document";
 
 type RouteParams = {
   params: Promise<{ eventId: string; registrationId: string }>;
@@ -56,23 +56,23 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const registration = await runWithTenant(event.organizationId, () =>
       db.registration.findFirst({
         where: { id: registrationId, eventId },
-        select: { residentLetterUrl: true, residentLetterFilename: true },
+        select: { supportingDocumentUrl: true, supportingDocumentFilename: true },
       }),
     );
-    if (!registration?.residentLetterUrl) {
+    if (!registration?.supportingDocumentUrl) {
       apiLogger.warn({ eventId, registrationId, userId: session.user.id }, "resident-letter-file:not-found");
       return NextResponse.json({ error: "No letter on file" }, { status: 404 });
     }
 
-    const url = registration.residentLetterUrl;
-    if (!isResidentLetterPath(url)) {
+    const url = registration.supportingDocumentUrl;
+    if (!isSupportingDocumentPath(url)) {
       // Only reachable if something wrote the column without going through the
       // register POST's validation. Loud, because that is a bug worth finding.
       apiLogger.error({ eventId, registrationId, url }, "resident-letter-file:url-outside-root");
       return NextResponse.json({ error: "No letter on file" }, { status: 404 });
     }
 
-    const allowedRoot = path.resolve(process.cwd(), "public", RESIDENT_LETTER_PATH_PREFIX.slice(1));
+    const allowedRoot = path.resolve(process.cwd(), "public", SUPPORTING_DOCUMENT_PATH_PREFIX.slice(1));
     const abs = path.resolve(process.cwd(), "public", url.slice(1));
     let resolved: string;
     try {
@@ -98,7 +98,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     const file = await readFile(resolved);
     const ext = (url.split(".").pop() ?? "").toLowerCase();
     const safeName =
-      (registration.residentLetterFilename ?? "official-letter")
+      (registration.supportingDocumentFilename ?? "official-letter")
         .replace(/[^\w.\- ]+/g, "_")
         .slice(0, 120) || "official-letter";
     return new NextResponse(new Uint8Array(file), {

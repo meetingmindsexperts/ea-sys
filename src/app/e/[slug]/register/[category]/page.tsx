@@ -37,10 +37,13 @@ import { SpecialtySelect } from "@/components/ui/specialty-select";
 import { TitleSelect } from "@/components/ui/title-select";
 import { RoleSelect } from "@/components/ui/role-select";
 import {
-  RESIDENT_LETTER_ACCEPT,
-  RESIDENT_LETTER_MAX_SIZE,
-  requiresResidentLetter,
-} from "@/lib/resident-letter";
+  SUPPORTING_DOCUMENT_ACCEPT,
+  SUPPORTING_DOCUMENT_MAX_SIZE,
+  requiresSupportingDocument,
+  supportingDocumentBlocks,
+  supportingDocumentLabel,
+  supportingDocumentInstructions,
+} from "@/lib/supporting-document";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DEFAULT_REGISTRATION_TERMS_HTML } from "@/lib/default-terms";
@@ -82,6 +85,12 @@ interface TicketType {
   canPurchase: boolean;
   salesStarted: boolean;
   salesEnded: boolean;
+  // Supporting-document policy — per TYPE, so the form reads it off whichever
+  // type the registrant picked rather than matching the type's name.
+  requiresDocument?: boolean;
+  documentRequired?: boolean;
+  documentLabel?: string | null;
+  documentInstructions?: string | null;
   pricingTiers?: PricingTierData[];
 }
 
@@ -119,8 +128,6 @@ interface Event {
   showRemainingTickets?: boolean;
   /** Event-wide attendee cap reached (Settings → Maximum Attendees). */
   eventFull?: boolean;
-  /** Whether the Resident/Trainee official letter blocks submission. */
-  residentLetter?: { required: boolean };
 }
 
 // quantity >= this sentinel means "unlimited" — never show a seats-left count.
@@ -140,6 +147,11 @@ interface RegTypeOption {
   canPurchase: boolean;
   /** True when the tier/type has a real seat limit (quantity < sentinel). */
   hasSeatLimit: boolean;
+  /** Supporting-document policy, carried from the ticket type. */
+  requiresDocument: boolean;
+  documentRequired: boolean;
+  documentLabel: string | null;
+  documentInstructions: string | null;
 }
 
 const registrationSchema = z.object({
@@ -213,12 +225,12 @@ function CategoryRegistrationContent() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
-  // Resident/trainee official letter. Uploaded to its own endpoint BEFORE
+  // Supporting document. Uploaded to its own endpoint BEFORE
   // submit (the registration POST is JSON and the body limit is 1MB, far under
   // a scanned letter), so what travels with the form is just the stored path.
-  const [residentLetter, setResidentLetter] = useState<{ url: string; filename: string } | null>(null);
-  const [residentLetterUploading, setResidentLetterUploading] = useState(false);
-  const [residentLetterError, setResidentLetterError] = useState<string | null>(null);
+  const [supportingDoc, setSupportingDoc] = useState<{ url: string; filename: string } | null>(null);
+  const [docUploading, setDocUploading] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
   const [billingSame, setBillingSame] = useState(true);
   const [promoCode, setPromoCode] = useState("");
   const [promoValidating, setPromoValidating] = useState(false);
@@ -289,6 +301,10 @@ function CategoryRegistrationContent() {
                 available: tier.available,
                 canPurchase: tier.canPurchase,
                 hasSeatLimit: tier.quantity < UNLIMITED_SENTINEL,
+                requiresDocument: tt.requiresDocument === true,
+                documentRequired: tt.documentRequired === true,
+                documentLabel: tt.documentLabel ?? null,
+                documentInstructions: tt.documentInstructions ?? null,
               });
             }
           }
@@ -337,6 +353,10 @@ function CategoryRegistrationContent() {
               available: t.available,
               canPurchase: t.canPurchase,
               hasSeatLimit: t.quantity < UNLIMITED_SENTINEL,
+              requiresDocument: t.requiresDocument === true,
+              documentRequired: t.documentRequired === true,
+              documentLabel: t.documentLabel ?? null,
+              documentInstructions: t.documentInstructions ?? null,
             }));
 
           setRegTypeOptions(options);
@@ -366,37 +386,37 @@ function CategoryRegistrationContent() {
     };
   }, [event]);
 
-  async function handleResidentLetterChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleSupportingDocChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     // Clear the input immediately so picking the SAME file again after an
     // error still fires a change event.
     e.target.value = "";
     if (!file) return;
 
-    setResidentLetterError(null);
+    setDocError(null);
     // Checked here purely to fail fast with a clear message — the server
     // re-checks size, type and magic bytes, and is the authority.
-    if (file.size > RESIDENT_LETTER_MAX_SIZE) {
-      setResidentLetterError("The file must be under 5MB.");
+    if (file.size > SUPPORTING_DOCUMENT_MAX_SIZE) {
+      setDocError("The file must be under 5MB.");
       return;
     }
 
-    setResidentLetterUploading(true);
+    setDocUploading(true);
     try {
       const body = new FormData();
       body.append("file", file);
-      const res = await fetch(`/api/public/events/${slug}/resident-letter`, { method: "POST", body });
+      const res = await fetch(`/api/public/events/${slug}/supporting-document`, { method: "POST", body });
       const json = await res.json().catch(() => null);
       if (!res.ok) {
-        setResidentLetterError(json?.error || "Could not upload the letter. Please try again.");
+        setDocError(json?.error || "Could not upload the file. Please try again.");
         return;
       }
-      setResidentLetter({ url: json.url, filename: json.filename });
+      setSupportingDoc({ url: json.url, filename: json.filename });
     } catch (err) {
-      console.error("resident letter upload failed", err);
-      setResidentLetterError("Could not upload the letter. Please check your connection and try again.");
+      console.error("supporting document upload failed", err);
+      setDocError("Could not upload the file. Please check your connection and try again.");
     } finally {
-      setResidentLetterUploading(false);
+      setDocUploading(false);
     }
   }
 
@@ -418,11 +438,12 @@ function CategoryRegistrationContent() {
       }
     }
 
-    // The letter appears on every resident rate; whether a missing one BLOCKS
-    // is the organizer's per-event setting. The server enforces the same rule —
-    // this is the friendly half.
-    if (requiresResidentLetter(selectedName) && residentLetterRequired && !residentLetter) {
-      setResidentLetterError("Please attach the official letter to continue.");
+    // The upload appears whenever the type asks for one; whether a MISSING
+    // one blocks is the organizer's Required/Optional choice on that type. The
+    // server enforces the same rule — this is the friendly half.
+    const picked = regTypeOptions.find((o) => o.ticketTypeId === data.ticketTypeId);
+    if (supportingDocumentBlocks(picked) && !supportingDoc) {
+      setDocError(`Please attach the ${supportingDocumentLabel(picked).toLowerCase()} to continue.`);
       return;
     }
 
@@ -467,8 +488,8 @@ function CategoryRegistrationContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...data,
-          residentLetterUrl: residentLetter?.url,
-          residentLetterFilename: residentLetter?.filename,
+          supportingDocumentUrl: supportingDoc?.url,
+          supportingDocumentFilename: supportingDoc?.filename,
           promoCode: promoResult?.valid ? promoResult.code : undefined,
           referrer: trackingRef.current.referrer || undefined,
           utmSource: trackingRef.current.utmSource || undefined,
@@ -585,14 +606,18 @@ function CategoryRegistrationContent() {
     .map((o) => (isVirtualMode && o.virtualPrice != null ? { ...o, price: o.virtualPrice } : o));
   const selectedTicketId = form.watch("ticketTypeId");
   const selectedSpecialty = form.watch("specialty");
-  const selectedRegTypeName = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId)?.regTypeName?.toLowerCase() ?? "";
+  const selectedOption = regTypeOptions.find((o) => o.ticketTypeId === selectedTicketId);
+  const selectedRegTypeName = selectedOption?.regTypeName?.toLowerCase() ?? "";
   const isMember = selectedRegTypeName.includes("member");
   const isStudent = selectedRegTypeName.includes("student");
-  // Keyed on the TICKET TYPE, not the role dropdown: the letter substantiates
-  // entitlement to a discounted RATE, and the rate is the ticket type. A
-  // resident paying the full Physician rate is claiming no discount.
-  const isResident = requiresResidentLetter(selectedRegTypeName);
-  const residentLetterRequired = event.residentLetter?.required === true;
+  // Read off the SELECTED TYPE's own policy. This used to match the type's
+  // NAME against /resident|trainee/i, which meant renaming a type silently
+  // switched the requirement off, and made "ask Members but not Residents"
+  // impossible to express. It is an organizer switch now.
+  const needsDocument = requiresSupportingDocument(selectedOption);
+  const documentRequired = supportingDocumentBlocks(selectedOption);
+  const documentLabel = supportingDocumentLabel(selectedOption);
+  const documentInstructions = supportingDocumentInstructions(selectedOption);
   const locationParts = [event.venue, event.city, event.country].filter(Boolean);
   // Closed when the master switch is off (Settings → Registration) OR this tier
   // has no purchasable option. The master switch wins regardless of tier state.
@@ -1345,32 +1370,38 @@ function CategoryRegistrationContent() {
                     </div>
                   )}
 
-                  {/* Section: Official Letter (conditional — Resident/Trainee rate) */}
-                  {isResident && (
+                  {/* Section: Supporting document. Rendered from the SELECTED
+                      ticket type's own policy, so the heading and instructions
+                      are the organizer's words rather than hardcoded Resident
+                      copy, and the requirement survives a type being renamed. */}
+                  {needsDocument && (
                     <div className="space-y-5">
                       <h3 className="text-base font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-1">
-                        Official Letter {residentLetterRequired && <span className="text-red-400">*</span>}
+                        {documentLabel} {documentRequired && <span className="text-red-400">*</span>}
                       </h3>
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                        <p className="text-sm text-amber-800">
-                          Please upload an official letter from your current institution confirming your status as a Resident or Trainee.
-                        </p>
-                        <p className="mt-2 text-sm text-amber-800">
-                          The letter must be in English, printed on official letterhead, and signed and stamped by the relevant authority.
-                        </p>
-                        {!residentLetterRequired && (
-                          <p className="mt-2 text-sm text-amber-700">
-                            You can complete your registration without it, but we will need the letter before the event.
-                          </p>
-                        )}
-                      </div>
+                      {(documentInstructions || !documentRequired) && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                          {documentInstructions && (
+                            // Organizer-authored plain text. Rendered as TEXT,
+                            // never HTML: it is typed into a textarea by a
+                            // staff member and has no reason to carry markup.
+                            <p className="text-sm text-amber-800 whitespace-pre-line">{documentInstructions}</p>
+                          )}
+                          {!documentRequired && (
+                            <p className="mt-2 text-sm text-amber-700">
+                              You can complete your registration without it, but we will
+                              need it before the event.
+                            </p>
+                          )}
+                        </div>
+                      )}
 
-                      {residentLetter ? (
+                      {supportingDoc ? (
                         <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
                           <div className="flex items-center gap-2 min-w-0">
                             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                            <span className="truncate text-sm text-emerald-900" title={residentLetter.filename}>
-                              {residentLetter.filename}
+                            <span className="truncate text-sm text-emerald-900" title={supportingDoc.filename}>
+                              {supportingDoc.filename}
                             </span>
                           </div>
                           <Button
@@ -1378,7 +1409,7 @@ function CategoryRegistrationContent() {
                             variant="outline"
                             size="sm"
                             className="shrink-0 rounded-lg"
-                            onClick={() => { setResidentLetter(null); setResidentLetterError(null); }}
+                            onClick={() => { setSupportingDoc(null); setDocError(null); }}
                           >
                             Replace
                           </Button>
@@ -1386,29 +1417,27 @@ function CategoryRegistrationContent() {
                       ) : (
                         <div className="space-y-2">
                           <label
-                            htmlFor="residentLetterFile"
+                            htmlFor="supportingDocFile"
                             className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600 transition hover:border-primary/50 hover:bg-slate-100"
                           >
-                            {residentLetterUploading ? (
+                            {docUploading ? (
                               <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</>
                             ) : (
                               <><Upload className="h-4 w-4" /> Choose a file (PDF, JPG or PNG, up to 5MB)</>
                             )}
                           </label>
                           <input
-                            id="residentLetterFile"
+                            id="supportingDocFile"
                             type="file"
                             className="sr-only"
-                            accept={RESIDENT_LETTER_ACCEPT}
-                            disabled={residentLetterUploading}
-                            onChange={handleResidentLetterChange}
+                            accept={SUPPORTING_DOCUMENT_ACCEPT}
+                            disabled={docUploading}
+                            onChange={handleSupportingDocChange}
                           />
                         </div>
                       )}
 
-                      {residentLetterError && (
-                        <p className="text-sm text-red-500">{residentLetterError}</p>
-                      )}
+                      {docError && <p className="text-sm text-red-500">{docError}</p>}
                     </div>
                   )}
 

@@ -893,6 +893,28 @@ model TicketType {
   salesEnd         DateTime?
   requiresApproval Boolean   @default(false)
 
+  /// Supporting-document policy for this rate (Aug 13, 2026). Replaces the
+  /// name-pattern guess (/resident|trainee/i) the Resident letter shipped
+  /// with: configuration encoded in a NAME is configuration nobody can see,
+  /// change or audit — renaming "Resident" to "Junior Doctor" silently turned
+  /// the requirement off. See docs/PER_TYPE_DOCUMENT_UPLOAD_PLAN.md.
+  ///
+  /// The two booleans are deliberately NOT one tri-state enum: collapsing them
+  /// makes "show the field but do not block" unrepresentable, and that is the
+  /// default the letter shipped with for a real reason — some events would
+  /// rather take the registration and chase the paperwork than lose a delegate
+  /// at the form at 11pm.
+  ///
+  /// Asks this type's registrants for a document.
+  requiresDocument     Boolean @default(false)
+  /// ...and refuses the registration when it is missing. Ignored unless
+  /// `requiresDocument` is true.
+  documentRequired     Boolean @default(false)
+  /// Organizer-authored field label, e.g. "Official Letter" / "Membership Card".
+  documentLabel        String?
+  /// Organizer-authored instructions rendered above the file input.
+  documentInstructions String? @db.Text
+
   /// Denormalized tenant key (multi-tenancy Phase 2, ticketing follow-on).
   /// Scalar, no FK — backfilled 1-hop from Event; RLS-gated on the platform.
   organizationId String?
@@ -1049,15 +1071,22 @@ model Registration {
   /// column; the detail sheet renders "Unknown" for those.
   createdSource              RegistrationCreatedSource?
   notes                      String?                    @db.Text
-  /// Official letter substantiating a Resident/Trainee rate — the path to the
-  /// uploaded file, always under /uploads/resident-letters/. Served ONLY via
-  /// the authed staff route (the public /uploads catch-all blocks the prefix):
-  /// it names a person, their employer and carries a signature.
-  /// See src/lib/resident-letter.ts.
-  residentLetterUrl          String?
+  /// Supporting document substantiating this registration's rate (an
+  /// institutional letter, a membership card, a certificate) — the path to the
+  /// uploaded file. Served ONLY via the authed staff route (the public
+  /// /uploads catch-all blocks the prefix): it names a person, their employer
+  /// and may carry a signature. See src/lib/supporting-document.ts.
+  ///
+  /// @map to the ORIGINAL column names: this shipped Aug 12 2026 as a
+  /// Resident-only letter and was generalised Aug 13. Deploys are blue/green
+  /// (migrations run BEFORE the container swap), so an ALTER ... RENAME COLUMN
+  /// would leave the still-live old container querying a column that no longer
+  /// exists. @map gives the honest field name at zero migration risk; the
+  /// physical rename is a later cleanup, not a blocker.
+  supportingDocumentUrl      String?                    @map("residentLetterUrl")
   /// The registrant's own filename, kept for the download and so staff can see
   /// what was sent. The stored file is renamed to a uuid.
-  residentLetterFilename     String?
+  supportingDocumentFilename String?                    @map("residentLetterFilename")
   // Billing details (for invoices/tax)
   taxNumber                  String?
   billingFirstName           String?

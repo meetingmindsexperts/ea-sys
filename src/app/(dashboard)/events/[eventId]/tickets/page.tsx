@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -83,6 +84,11 @@ interface TicketType {
   sortOrder: number;
   quantity: number;
   soldCount: number;
+  // Supporting-document policy — see src/lib/supporting-document.ts.
+  requiresDocument: boolean;
+  documentRequired: boolean;
+  documentLabel: string | null;
+  documentInstructions: string | null;
   pricingTiers: PricingTier[];
   _count: { registrations: number };
 }
@@ -145,6 +151,12 @@ export default function TicketsPage() {
   const [typeApproval, setTypeApproval] = useState(false);
   // Seat limit as raw input text; "" = unlimited (999999 sentinel).
   const [typeSeatLimit, setTypeSeatLimit] = useState("");
+  // Supporting-document policy. Two flags, not one enum: "ask but do not
+  // block" must stay expressible (src/lib/supporting-document.ts).
+  const [typeRequiresDoc, setTypeRequiresDoc] = useState(false);
+  const [typeDocBlocks, setTypeDocBlocks] = useState(false);
+  const [typeDocLabel, setTypeDocLabel] = useState("");
+  const [typeDocInstructions, setTypeDocInstructions] = useState("");
 
   const [tierDialogOpen, setTierDialogOpen] = useState(false);
   const [editingTier, setEditingTier] = useState<PricingTier | null>(null);
@@ -168,6 +180,10 @@ export default function TicketsPage() {
     setTypeDesc("");
     setTypeApproval(false);
     setTypeSeatLimit("");
+    setTypeRequiresDoc(false);
+    setTypeDocBlocks(false);
+    setTypeDocLabel("");
+    setTypeDocInstructions("");
     setTypeDialogOpen(true);
   };
 
@@ -177,6 +193,10 @@ export default function TicketsPage() {
     setTypeDesc(tt.description || "");
     setTypeApproval(!!tt.requiresApproval);
     setTypeSeatLimit(hasSeatLimit(tt.quantity) ? String(tt.quantity) : "");
+    setTypeRequiresDoc(!!tt.requiresDocument);
+    setTypeDocBlocks(!!tt.documentRequired);
+    setTypeDocLabel(tt.documentLabel || "");
+    setTypeDocInstructions(tt.documentInstructions || "");
     setTypeDialogOpen(true);
   };
 
@@ -188,12 +208,20 @@ export default function TicketsPage() {
       toast.error(`Seat limit cannot be less than seats already sold (${editingType.soldCount})`);
       return;
     }
+    // Always send all four, so unticking the box actually clears the policy
+    // rather than leaving a stale label behind on the row.
+    const documentPolicy = {
+      requiresDocument: typeRequiresDoc,
+      documentRequired: typeRequiresDoc && typeDocBlocks,
+      documentLabel: typeRequiresDoc ? typeDocLabel : "",
+      documentInstructions: typeRequiresDoc ? typeDocInstructions : "",
+    };
     try {
       if (editingType) {
-        await updateTicket.mutateAsync({ ticketId: editingType.id, data: { name: typeName, description: typeDesc, requiresApproval: typeApproval, quantity } });
+        await updateTicket.mutateAsync({ ticketId: editingType.id, data: { name: typeName, description: typeDesc, requiresApproval: typeApproval, quantity, ...documentPolicy } });
         toast.success("Registration type updated");
       } else {
-        await createTicket.mutateAsync({ name: typeName, description: typeDesc, requiresApproval: typeApproval, quantity });
+        await createTicket.mutateAsync({ name: typeName, description: typeDesc, requiresApproval: typeApproval, quantity, ...documentPolicy });
         toast.success("Registration type created");
       }
       setTypeDialogOpen(false);
@@ -668,6 +696,100 @@ export default function TicketsPage() {
                   A pricing tier&apos;s own approval setting overrides this when a tier is picked.
                 </p>
               </div>
+            </div>
+
+            {/* Supporting document. Replaces the old name-pattern guess: the
+                letter used to appear only on types whose NAME contained
+                "resident" or "trainee", so renaming a type silently switched
+                it off. Now it is a visible switch on any type. */}
+            <div className="rounded-lg border p-4 space-y-3">
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="type-requires-doc"
+                  checked={typeRequiresDoc}
+                  onCheckedChange={(checked) => setTypeRequiresDoc(!!checked)}
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="type-requires-doc" className="cursor-pointer">
+                    Require a supporting document
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Adds a file upload (PDF, JPG or PNG, up to 5MB) to the public
+                    registration form for this type. Use it for anything that
+                    substantiates the rate: an institutional letter for a Resident,
+                    a membership card for a Member.
+                  </p>
+                </div>
+              </div>
+
+              {typeRequiresDoc && (
+                <div className="space-y-3 border-t pt-3">
+                  <div className="space-y-2">
+                    <Label>Document name</Label>
+                    <Input
+                      placeholder="e.g., Official Letter, Membership Card"
+                      value={typeDocLabel}
+                      onChange={(e) => setTypeDocLabel(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Shown as the field heading. Defaults to &quot;Supporting Document&quot;.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Instructions for the registrant</Label>
+                    <Textarea
+                      rows={3}
+                      placeholder="e.g., Please upload an official letter from your current institution confirming your status..."
+                      value={typeDocInstructions}
+                      onChange={(e) => setTypeDocInstructions(e.target.value)}
+                    />
+                  </div>
+                  {/* Asked as an explicit Required / Optional choice rather
+                      than a negative checkbox ("refuse without it"), because
+                      the organizer is choosing a policy, not opting out of
+                      one. Both options spell out their consequence: the whole
+                      point of the pair is that neither is obviously correct. */}
+                  <div className="space-y-2">
+                    <Label>Is the upload required?</Label>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => setTypeDocBlocks(true)}
+                        className={`rounded-lg border p-3 text-left transition ${
+                          typeDocBlocks
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "hover:border-primary/40 hover:bg-muted/40"
+                        }`}
+                      >
+                        <span className="block text-sm font-medium">Required</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          They cannot complete the registration without attaching it.
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTypeDocBlocks(false)}
+                        className={`rounded-lg border p-3 text-left transition ${
+                          !typeDocBlocks
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "hover:border-primary/40 hover:bg-muted/40"
+                        }`}
+                      >
+                        <span className="block text-sm font-medium">Optional</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          The field is shown and collected, but they can register now
+                          and send it before the event.
+                        </span>
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Optional is the safer default: someone filling the form at 11pm
+                      without the document to hand still registers, and you chase the
+                      paperwork by email instead of losing the delegate.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>

@@ -62,6 +62,10 @@ export interface TicketType {
   soldCount: number;
   /** Hidden Faculty companion ticket type (excluded from delegate counts). */
   isFaculty?: boolean;
+  /** Supporting-document policy — see src/lib/supporting-document.ts. */
+  requiresDocument?: boolean;
+  documentRequired?: boolean;
+  documentLabel?: string | null;
   // /api/events/[eventId]/tickets returns ALL pricing tiers (active AND closed)
   // nested under each ticket type so admin forms can render a tier picker
   // without a second fetch — closed tiers are shown labelled "(closed)" and can
@@ -152,11 +156,11 @@ export interface Registration {
   /** When this registrant completed the event survey (write-once, set on submit). */
   surveyCompletedAt?: string | null;
   notes: string | null;
-  /** Path to the uploaded Resident/Trainee official letter (null = none on
-   *  file). Read only through the authed resident-letter route. */
-  residentLetterUrl?: string | null;
-  /** The registrant's own filename for that letter. */
-  residentLetterFilename?: string | null;
+  /** Path to the uploaded supporting document (null = none on file). Read
+   *  only through the authed supporting-document route. */
+  supportingDocumentUrl?: string | null;
+  /** The registrant's own filename for that document. */
+  supportingDocumentFilename?: string | null;
   // Billing block — optional overrides of the attendee's personal address.
   // All null when the registrant left "billing same as personal" checked.
   taxNumber: string | null;

@@ -487,3 +487,102 @@ describe("Tier slug generation", () => {
     expect(toSlug("")).toBe("");
   });
 });
+
+// ── Supporting-document policy (Aug 13, 2026) ────────────────────────────────
+//
+// The organizer WRITE path for the four columns that replaced the
+// /resident|trainee/i name match. The read side (does a given policy ask? does
+// it block?) is pinned in __tests__/lib/supporting-document.test.ts; what is
+// only testable here is that the route persists what the dialog sent, and —
+// the case worth having — that unticking the box actually CLEARS the policy
+// rather than leaving a stale label on the row.
+
+describe("supporting-document policy on a registration type", () => {
+  beforeEach(() => {
+    mockAuth.mockResolvedValue(adminSession);
+  });
+
+  it("POST persists all four fields", async () => {
+    mockDb.ticketType.findFirst.mockResolvedValue(null); // no name clash
+    mockDb.ticketType.create.mockResolvedValue({ ...sampleTicketType, id: "tt-new" });
+
+    await CreateTicket(
+      makeRequest("POST", {
+        name: "Member",
+        requiresDocument: true,
+        documentRequired: true,
+        documentLabel: "Membership Card",
+        documentInstructions: "Upload a photo of your current membership card.",
+      }),
+      makeListParams("evt-1"),
+    );
+
+    const data = mockDb.ticketType.create.mock.calls[0][0].data;
+    expect(data).toMatchObject({
+      requiresDocument: true,
+      documentRequired: true,
+      documentLabel: "Membership Card",
+      documentInstructions: "Upload a photo of your current membership card.",
+    });
+  });
+
+  it("POST defaults to asking for nothing, so existing behaviour is unchanged", async () => {
+    // Every type created before this feature, and every one created without
+    // touching the new controls, must be indistinguishable from before.
+    mockDb.ticketType.findFirst.mockResolvedValue(null);
+    mockDb.ticketType.create.mockResolvedValue(sampleTicketType);
+
+    await CreateTicket(makeRequest("POST", { name: "Physician" }), makeListParams("evt-1"));
+
+    const data = mockDb.ticketType.create.mock.calls[0][0].data;
+    expect(data.requiresDocument).toBe(false);
+    expect(data.documentRequired).toBe(false);
+    expect(data.documentLabel).toBeNull();
+    expect(data.documentInstructions).toBeNull();
+  });
+
+  it("PUT clears the label and instructions when the organizer unticks the box", async () => {
+    // The dialog sends empty strings for the text when the box is unticked.
+    // Storing "" instead of null would leave a heading configured on a type
+    // that no longer asks for anything — invisible until it is re-enabled.
+    mockDb.ticketType.findFirst.mockResolvedValue({ ...sampleTicketType, requiresDocument: true });
+    mockDb.ticketType.update.mockResolvedValue(sampleTicketType);
+
+    await UpdateTicket(
+      makeRequest("PUT", {
+        requiresDocument: false,
+        documentRequired: false,
+        documentLabel: "",
+        documentInstructions: "",
+      }),
+      makeDetailParams("evt-1", "tt-1"),
+    );
+
+    const data = mockDb.ticketType.update.mock.calls[0][0].data;
+    expect(data.requiresDocument).toBe(false);
+    expect(data.documentLabel).toBeNull();
+    expect(data.documentInstructions).toBeNull();
+  });
+
+  it("PUT leaves the policy untouched when the payload does not mention it", async () => {
+    // An unrelated edit (renaming the type, changing the seat limit) must not
+    // reset a configured document policy — the whole point of the feature is
+    // that a rename is now harmless.
+    // First findFirst = the row being edited; second = the duplicate-name
+    // check the rename triggers, which must find nothing.
+    mockDb.ticketType.findFirst
+      .mockResolvedValueOnce({ ...sampleTicketType, requiresDocument: true })
+      .mockResolvedValueOnce(null);
+    mockDb.ticketType.update.mockResolvedValue(sampleTicketType);
+
+    await UpdateTicket(
+      makeRequest("PUT", { name: "Junior Doctor" }),
+      makeDetailParams("evt-1", "tt-1"),
+    );
+
+    const data = mockDb.ticketType.update.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty("requiresDocument");
+    expect(data).not.toHaveProperty("documentLabel");
+    expect(data.name).toBe("Junior Doctor");
+  });
+});

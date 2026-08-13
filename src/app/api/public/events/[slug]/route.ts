@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
-import { readResidentLetterSettings } from "@/lib/resident-letter";
 import { readGroupRegistrationSettings } from "@/lib/group-registration-settings";
 import { checkRateLimit, getClientIp } from "@/lib/security";
 
@@ -92,6 +91,12 @@ export async function GET(req: Request, { params }: RouteParams) {
             maxPerOrder: true,
             salesStart: true,
             salesEnd: true,
+            // Supporting-document policy — the form renders the upload from
+            // THESE, per type, instead of matching the type's name.
+            requiresDocument: true,
+            documentRequired: true,
+            documentLabel: true,
+            documentInstructions: true,
             // New pricing tiers
             pricingTiers: {
               where: { isActive: true },
@@ -236,10 +241,10 @@ export async function GET(req: Request, { params }: RouteParams) {
       // the organizer explicitly enabled it AND the tier/type has a real seat
       // limit (quantity < 999999 sentinel).
       showRemainingTickets: settings.showRemainingTickets === true,
-      // Whether the Resident/Trainee official letter BLOCKS submission
-      // (Settings → Registration). The upload always appears on a resident
-      // rate; this only decides whether the form can be submitted without it.
-      residentLetter: readResidentLetterSettings(event.settings),
+      // NOTE: the supporting-document policy is PER TICKET TYPE (see the
+      // ticketTypes select above), not event-wide. The old event-level
+      // `residentLetter` switch was retired on 2026-08-13 and its value
+      // backfilled onto each matching type's `documentRequired`.
     });
   } catch (error) {
     apiLogger.error({ err: error, msg: "Error fetching public event" });

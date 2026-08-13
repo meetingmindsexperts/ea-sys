@@ -98,20 +98,20 @@ describe("POST /api/public/events/[slug]/resident-letter", () => {
 
   async function post(file: File | null) {
     const { POST } = await import(
-      "@/app/api/public/events/[slug]/resident-letter/route"
+      "@/app/api/public/events/[slug]/supporting-document/route"
     );
     return POST(uploadRequest(file), { params: Promise.resolve({ slug: "evt" }) });
   }
 
   it("stores a real PDF and returns a path our own validator accepts", async () => {
-    const { isResidentLetterPath } = await import("@/lib/resident-letter");
+    const { isSupportingDocumentPath } = await import("@/lib/supporting-document");
     const res = await post(fileOf(PDF, "application/pdf"));
     expect(res.status).toBe(201);
     const body = await res.json();
     // The round trip is the contract: whatever this route returns has to be
     // accepted by the register POST's validator, or the letter is silently
     // dropped at submit.
-    expect(isResidentLetterPath(body.url)).toBe(true);
+    expect(isSupportingDocumentPath(body.url)).toBe(true);
     expect(body.filename).toBe("letter.pdf");
     expect(mockWriteFile).toHaveBeenCalledOnce();
   });
@@ -172,7 +172,7 @@ describe("POST /api/public/events/[slug]/resident-letter", () => {
     // A bad slug should cost a lookup, not 5MB of ingest.
     mockDb.event.findFirst.mockResolvedValue(null);
     const formData = vi.fn();
-    const { POST } = await import("@/app/api/public/events/[slug]/resident-letter/route");
+    const { POST } = await import("@/app/api/public/events/[slug]/supporting-document/route");
     const res = await POST({ formData } as unknown as Request, {
       params: Promise.resolve({ slug: "nope" }),
     });
@@ -189,8 +189,8 @@ describe("GET /api/events/[eventId]/registrations/[registrationId]/resident-lett
     mockAuth.mockResolvedValue({ user: { id: "u1", role: "ORGANIZER", organizationId: "org1" } });
     mockDb.event.findFirst.mockResolvedValue({ id: "evt1", organizationId: "org1" });
     mockDb.registration.findFirst.mockResolvedValue({
-      residentLetterUrl: okPath,
-      residentLetterFilename: "letter.pdf",
+      supportingDocumentUrl: okPath,
+      supportingDocumentFilename: "letter.pdf",
     });
     mockRealpath.mockImplementation(async (p: string) => p);
     mockReadFile.mockResolvedValue(Buffer.from("%PDF-1.7 body"));
@@ -198,7 +198,7 @@ describe("GET /api/events/[eventId]/registrations/[registrationId]/resident-lett
 
   async function get() {
     const { GET } = await import(
-      "@/app/api/events/[eventId]/registrations/[registrationId]/resident-letter/route"
+      "@/app/api/events/[eventId]/registrations/[registrationId]/supporting-document/route"
     );
     return GET({} as Request, {
       params: Promise.resolve({ eventId: "evt1", registrationId: "reg1" }),
@@ -230,8 +230,8 @@ describe("GET /api/events/[eventId]/registrations/[registrationId]/resident-lett
 
   it("404s when no letter is on file", async () => {
     mockDb.registration.findFirst.mockResolvedValue({
-      residentLetterUrl: null,
-      residentLetterFilename: null,
+      supportingDocumentUrl: null,
+      supportingDocumentFilename: null,
     });
     const res = await get();
     expect(res.status).toBe(404);
@@ -243,8 +243,8 @@ describe("GET /api/events/[eventId]/registrations/[registrationId]/resident-lett
     // that trusts the column is one bad write away from arbitrary file
     // disclosure. Nothing reaches the filesystem here.
     mockDb.registration.findFirst.mockResolvedValue({
-      residentLetterUrl: "/uploads/speaker-docs/evt1/passport.pdf",
-      residentLetterFilename: "x.pdf",
+      supportingDocumentUrl: "/uploads/speaker-docs/evt1/passport.pdf",
+      supportingDocumentFilename: "x.pdf",
     });
     const res = await get();
     expect(res.status).toBe(404);

@@ -34,6 +34,13 @@ const createTicketTypeSchema = z.object({
   // Type-level seat limit. 999999 = unlimited (the schema default) — caps
   // admin/desk/import creates and public sign-ups on tier-less types.
   quantity: z.number().int().min(1).default(999999),
+  // Supporting-document policy (Aug 13, 2026). Two booleans, not one enum:
+  // "ask but do not block" has to stay expressible. See
+  // src/lib/supporting-document.ts.
+  requiresDocument: z.boolean().default(false),
+  documentRequired: z.boolean().default(false),
+  documentLabel: z.string().max(120).optional(),
+  documentInstructions: z.string().max(2000).optional(),
   // Optional: create initial pricing tiers alongside the registration type
   pricingTiers: z
     .array(
@@ -152,7 +159,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const { name, description, isActive, requiresApproval, sortOrder, quantity, pricingTiers } = validated.data;
+    const { name, description, isActive, requiresApproval, sortOrder, quantity, pricingTiers, requiresDocument, documentRequired, documentLabel, documentInstructions } = validated.data;
 
     // Check for duplicate name within the event
     const existing = await db.ticketType.findFirst({
@@ -176,6 +183,10 @@ export async function POST(req: Request, { params }: RouteParams) {
         requiresApproval,
         quantity,
         sortOrder: sortOrder ?? 99,
+        requiresDocument,
+        documentRequired,
+        documentLabel: documentLabel?.trim() || null,
+        documentInstructions: documentInstructions?.trim() || null,
         ...(pricingTiers && pricingTiers.length > 0
           ? {
               pricingTiers: {

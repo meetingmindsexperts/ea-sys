@@ -1,7 +1,25 @@
 # Per-registration-type supporting document
 
-> **Status: PLANNED, NOT BUILT.** Written 2026-08-13 from a survey of the live
-> code. Parked at the owner's request. Do not start without owner go-ahead.
+> **Status: BUILT 2026-08-13**, the same day it was planned (owner un-parked it
+> immediately). This doc is kept as the design record; what actually shipped is
+> summarised at the end of §5 and in the CLAUDE.md entry.
+>
+> **Deviations from the plan, and why** (all three are recorded so the next
+> reader does not think the plan was simply ignored):
+>
+>  1. **Registration columns were NOT renamed in SQL.** §3.3 called for it;
+>     deploys are blue/green and migrations run BEFORE the container swap, so an
+>     `ALTER ... RENAME COLUMN` would leave the still-live old container
+>     querying a column that no longer exists. Prisma `@map` gives the honest
+>     field name at zero migration risk. Verified with `prisma migrate diff`:
+>     the rename produces no DDL at all.
+>  2. **The storage prefix stayed** `/uploads/resident-letters/` (§3.4 option 1,
+>     as recommended), and so did the worker's `JOB_NAME`. Both are KEYS rather
+>     than labels: the job name is matched by `EXPECTED_JOBS` for the daily
+>     digest's cadence check and carried in `JobRun` history.
+>  3. **The Required/Optional choice is asked as an explicit pair**, not as a
+>     "refuse without it" checkbox (owner's framing, and better: the organizer
+>     is choosing a policy, not opting out of one).
 >
 > **Goal:** let an organizer tick a box on ANY registration type to demand a
 > supporting document, instead of the system guessing from the type's name.

@@ -73,7 +73,7 @@ import {
   Radar,
   StickyNote,
 } from "lucide-react";
-import { requiresResidentLetter } from "@/lib/resident-letter";
+import { requiresSupportingDocument, supportingDocumentLabel } from "@/lib/supporting-document";
 import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from "@/lib/utils";
 import { formatSerialId } from "@/lib/registration-serial";
 import { computeCancelledCreditState } from "@/lib/registration-financials";
@@ -1361,23 +1361,25 @@ export function RegistrationDetailSheet({
                       </>
                     )}
 
-                    {/* Resident/trainee official letter. Rendered whenever the
-                        registration sits on a resident rate, INCLUDING when no
-                        letter was attached — a silent absence is exactly what
-                        an organizer needs to see in order to chase it. Opens
-                        the authed stream; the file is not publicly readable. */}
-                    {requiresResidentLetter(selectedRegistration.ticketType?.name) && (
+                    {/* Supporting document. Rendered whenever the registration's
+                        TYPE asks for one, INCLUDING when nothing was attached —
+                        a silent absence is exactly what an organizer needs to
+                        see in order to chase it. Opens the authed stream; the
+                        file is not publicly readable. */}
+                    {requiresSupportingDocument(selectedRegistration.ticketType) && (
                       <div className="col-span-2">
-                        <div className="text-xs text-muted-foreground">Official Letter (Resident/Trainee)</div>
-                        {selectedRegistration.residentLetterUrl ? (
+                        <div className="text-xs text-muted-foreground">
+                          {supportingDocumentLabel(selectedRegistration.ticketType)}
+                        </div>
+                        {selectedRegistration.supportingDocumentUrl ? (
                           <a
-                            href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/resident-letter`}
+                            href={`/api/events/${eventId}/registrations/${selectedRegistration.id}/supporting-document`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sm text-primary hover:underline inline-flex items-center gap-1.5"
                           >
                             <FileText className="h-3.5 w-3.5" />
-                            {selectedRegistration.residentLetterFilename || "View letter"}
+                            {selectedRegistration.supportingDocumentFilename || "View document"}
                           </a>
                         ) : (
                           <div className="text-sm text-amber-600">Not provided</div>

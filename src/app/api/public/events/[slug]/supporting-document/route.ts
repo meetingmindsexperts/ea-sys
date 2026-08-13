@@ -37,7 +37,7 @@ import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
 import { checkRateLimit, getClientIp } from "@/lib/security";
-import { RESIDENT_LETTER_MAX_SIZE } from "@/lib/resident-letter";
+import { SUPPORTING_DOCUMENT_MAX_SIZE } from "@/lib/supporting-document";
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -97,7 +97,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 },
       );
     }
-    if (file.size > RESIDENT_LETTER_MAX_SIZE) {
+    if (file.size > SUPPORTING_DOCUMENT_MAX_SIZE) {
       apiLogger.warn({ msg: "public/resident-letter:too-large", slug, eventId: event.id, size: file.size, ip });
       return NextResponse.json({ error: "File must be under 5MB" }, { status: 400 });
     }

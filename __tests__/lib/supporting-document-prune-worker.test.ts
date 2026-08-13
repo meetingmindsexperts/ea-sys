@@ -41,7 +41,7 @@ function layout(files: string[]) {
   );
 }
 
-describe("runResidentLetterPruneTick", () => {
+describe("runSupportingDocumentPruneTick", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUnlink.mockResolvedValue(undefined);
@@ -50,8 +50,8 @@ describe("runResidentLetterPruneTick", () => {
   });
 
   async function run() {
-    const { runResidentLetterPruneTick } = await import("@/lib/resident-letter-prune-worker");
-    return runResidentLetterPruneTick(NOW);
+    const { runSupportingDocumentPruneTick } = await import("@/lib/supporting-document-prune-worker");
+    return runSupportingDocumentPruneTick(NOW);
   }
 
   it("deletes an old file no registration references", async () => {
@@ -75,7 +75,7 @@ describe("runResidentLetterPruneTick", () => {
     layout(["8be760f8-935f.pdf"]);
     await run();
     expect(mockDb.registration.findFirst).toHaveBeenCalledWith({
-      where: { residentLetterUrl: "/uploads/resident-letters/evt1/8be760f8-935f.pdf" },
+      where: { supportingDocumentUrl: "/uploads/resident-letters/evt1/8be760f8-935f.pdf" },
       select: { id: true },
     });
   });
@@ -124,7 +124,7 @@ describe("worker roster", () => {
     // The drift guard: a job that runs but is absent from EXPECTED_JOBS is
     // invisible to the daily digest's expected-vs-actual comparison.
     const { EXPECTED_JOB_NAMES } = await import("@/lib/worker-jobs");
-    const { JOB_NAME, JOB_ID } = await import("../../worker/jobs/resident-letter-prune");
+    const { JOB_NAME, JOB_ID } = await import("../../worker/jobs/supporting-document-prune");
     const { JOB_IDS } = await import("../../worker/lib/job-ids");
     expect(EXPECTED_JOB_NAMES.has(JOB_NAME)).toBe(true);
     expect(JOB_ID).toBe(JOB_IDS.RESIDENT_LETTER_PRUNE);

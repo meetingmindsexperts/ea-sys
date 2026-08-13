@@ -21,6 +21,13 @@ const updateTicketTypeSchema = z.object({
   // sign-ups on tier-less types; public tier sign-ups are capped by each
   // tier's own quantity (independent counters — see registration-seat.ts).
   quantity: z.number().int().min(1).optional(),
+  // Supporting-document policy (Aug 13, 2026). Two booleans, not one enum:
+  // "ask but do not block" has to stay expressible. See
+  // src/lib/supporting-document.ts.
+  requiresDocument: z.boolean().optional(),
+  documentRequired: z.boolean().optional(),
+  documentLabel: z.string().max(120).optional(),
+  documentInstructions: z.string().max(2000).optional(),
 });
 
 interface RouteParams {
@@ -164,6 +171,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
         ...(data.requiresApproval !== undefined && { requiresApproval: data.requiresApproval }),
         ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
         ...(data.quantity !== undefined && { quantity: data.quantity }),
+        ...(data.requiresDocument !== undefined && { requiresDocument: data.requiresDocument }),
+        ...(data.documentRequired !== undefined && { documentRequired: data.documentRequired }),
+        // Empty string clears the organizer's text rather than storing "".
+        ...(data.documentLabel !== undefined && { documentLabel: data.documentLabel.trim() || null }),
+        ...(data.documentInstructions !== undefined && {
+          documentInstructions: data.documentInstructions.trim() || null,
+        }),
       },
       include: {
         pricingTiers: {

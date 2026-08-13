@@ -2,7 +2,7 @@ import { readdir, stat, unlink } from "fs/promises";
 import path from "path";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { RESIDENT_LETTER_PATH_PREFIX } from "@/lib/resident-letter";
+import { SUPPORTING_DOCUMENT_PATH_PREFIX } from "@/lib/supporting-document";
 
 /**
  * resident-letter-prune — removes official-letter uploads no registration ever
@@ -48,10 +48,10 @@ export interface ResidentLetterPruneResult {
   errors: number;
 }
 
-export async function runResidentLetterPruneTick(
+export async function runSupportingDocumentPruneTick(
   now: Date = new Date(),
 ): Promise<ResidentLetterPruneResult> {
-  const root = path.resolve(process.cwd(), "public", RESIDENT_LETTER_PATH_PREFIX.slice(1));
+  const root = path.resolve(process.cwd(), "public", SUPPORTING_DOCUMENT_PATH_PREFIX.slice(1));
   const cutoff = now.getTime() - RESIDENT_LETTER_GRACE_HOURS * 60 * 60 * 1000;
 
   const result: ResidentLetterPruneResult = {
@@ -95,7 +95,7 @@ export async function runResidentLetterPruneTick(
       result.scanned++;
 
       const abs = path.join(dirAbs, file);
-      const url = `${RESIDENT_LETTER_PATH_PREFIX}${eventDir}/${file}`;
+      const url = `${SUPPORTING_DOCUMENT_PATH_PREFIX}${eventDir}/${file}`;
 
       try {
         const info = await stat(abs);
@@ -107,7 +107,7 @@ export async function runResidentLetterPruneTick(
         // The claim check. Deliberately AFTER the age check so a busy event
         // does not cost one query per recent file every night.
         const claimed = await db.registration.findFirst({
-          where: { residentLetterUrl: url },
+          where: { supportingDocumentUrl: url },
           select: { id: true },
         });
         if (claimed) continue;
