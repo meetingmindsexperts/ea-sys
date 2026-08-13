@@ -34,6 +34,7 @@
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
+  --color-skeleton: var(--skeleton);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
@@ -71,6 +72,15 @@
   --secondary-foreground: oklch(0.25 0.02 218);
   --muted: oklch(0.96 0.01 218);
   --muted-foreground: oklch(0.5 0.02 218);
+  /*
+   * Loading-skeleton fill. Its own token on purpose: shadcn ships the primitive
+   * as `bg-accent`, and in THIS theme `--accent` is the MMGroup orange — so every
+   * skeleton in the app pulsed amber, which reads as a warning, not as loading.
+   * Deliberately not `--muted` either: muted (0.96) sits 4% under a white card
+   * and is too faint to show the SHAPE of what's coming, which is the whole point
+   * of a skeleton over a spinner. Neutral light grey, ~8% under card.
+   */
+  --skeleton: oklch(0.92 0.008 218);
   /* Accent: MMGroup Orange/Yellow #ffb433 */
   --accent: oklch(0.84 0.165 75);
   --accent-foreground: oklch(0.25 0.06 75);
@@ -122,6 +132,8 @@
   --secondary-foreground: oklch(0.95 0.01 218);
   --muted: oklch(0.25 0.02 218);
   --muted-foreground: oklch(0.65 0.02 218);
+  /* Skeleton fill — see the light-mode note; sits just above card + muted. */
+  --skeleton: oklch(0.28 0.015 218);
   /* Accent: MMGroup Orange/Yellow */
   --accent: oklch(0.75 0.15 75);
   --accent-foreground: oklch(0.15 0.02 75);
