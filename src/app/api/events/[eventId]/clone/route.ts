@@ -166,6 +166,20 @@ export async function POST(
               salesStart: tt.salesStart,
               salesEnd: tt.salesEnd,
               requiresApproval: tt.requiresApproval,
+              // MUST be copied — the THIRD field on this row to be dropped this
+              // way (isFaculty and virtualPrice above are the other two). It is
+              // also the worst of the three to lose, because the old mechanism
+              // hid the bug: the requirement used to travel with the type's
+              // NAME, which clone does copy, so cloning preserved it for free.
+              // Now the policy is a column, and a clone that drops it means the
+              // recurring series (which is how the next edition is built) sells
+              // a discounted rate with nothing substantiating it — silently, no
+              // error, no log. The positive-field-list test below this file's
+              // sibling is what stops a fourth.
+              requiresDocument: tt.requiresDocument,
+              documentRequired: tt.documentRequired,
+              documentLabel: tt.documentLabel,
+              documentInstructions: tt.documentInstructions,
               pricingTiers: {
                 create: tt.pricingTiers.map((tier) => ({
                   organizationId: event.organizationId,

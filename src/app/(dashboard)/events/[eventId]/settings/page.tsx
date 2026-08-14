@@ -235,8 +235,6 @@ export default function EventSettingsPage() {
 
   // Whether the Resident/Trainee official letter BLOCKS a registration. The
   // upload always shows on a resident rate; this is only about enforcement.
-  // Own state slice (not folded into registrationSettings) because it is
-  // stored nested, like groupRegistration.
 
   // Group registration (docs/GROUP_REGISTRATION_PLAN.md): link-only public
   // flow; the organizer controls enablement + member bounds (hard ceiling 50

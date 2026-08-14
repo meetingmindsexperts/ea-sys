@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { readFile, stat, realpath } from "fs/promises";
 import { join, resolve } from "path";
 import { apiLogger } from "@/lib/logger";
+import { SUPPORTING_DOCUMENT_PATH_SEGMENT } from "@/lib/supporting-document";
 
 const CONTENT_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
@@ -71,15 +72,22 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  // Resident/trainee official letters. PRIVATE for the same reason as the
-  // documents above: the letter names a person, names their employer and
-  // carries an authorised signature and stamp. Uploaded by an UNAUTHENTICATED
+  // Registration supporting documents. PRIVATE for the same reason as the
+  // documents above: the file names a person, names their employer and may
+  // carry an authorised signature and stamp. Uploaded by an UNAUTHENTICATED
   // public form, so unlike the others there is no token bounding who can write
   // here — which makes it all the more important that nobody can read back.
   // Streams only through
-  // /api/events/[eventId]/registrations/[registrationId]/resident-letter.
-  if (path[0] === "resident-letters") {
-    apiLogger.warn({ msg: "Private resident letter blocked on public route", path: path.join("/") });
+  // /api/events/[eventId]/registrations/[registrationId]/supporting-document.
+  //
+  // The segment is DERIVED from the same constant the validators and the upload
+  // route use, not hardcoded. It was a literal until Aug 14 2026, and that is a
+  // silent-failure shape worth avoiding: rename the prefix in the lib without
+  // remembering this file and every stored document becomes world-readable at a
+  // guessable URL, with no test failing — an existing test asserting the OLD
+  // literal is 403 stays true while the NEW prefix is wide open.
+  if (path[0] === SUPPORTING_DOCUMENT_PATH_SEGMENT) {
+    apiLogger.warn({ msg: "Private supporting document blocked on public route", path: path.join("/") });
     return new NextResponse("Forbidden", { status: 403 });
   }
 

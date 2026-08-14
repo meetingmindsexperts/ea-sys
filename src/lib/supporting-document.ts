@@ -122,6 +122,13 @@ export const SUPPORTING_DOCUMENT_PATH_PREFIX = "/uploads/resident-letters/";
  * it is checked again on the way OUT because a column that has been correct
  * for a year is still not a thing to hand to `readFile`.
  */
+/**
+ * Just the directory segment (`resident-letters`), derived so the public
+ * catch-all's block list cannot drift from the prefix the writers use.
+ */
+export const SUPPORTING_DOCUMENT_PATH_SEGMENT =
+  SUPPORTING_DOCUMENT_PATH_PREFIX.split("/").filter(Boolean)[1];
+
 export function isSupportingDocumentPath(url: string): boolean {
   return (
     url.startsWith(SUPPORTING_DOCUMENT_PATH_PREFIX) &&

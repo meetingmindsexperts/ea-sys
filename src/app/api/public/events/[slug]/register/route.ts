@@ -18,6 +18,7 @@ import { ensureRegistrantAccount } from "@/lib/registrant-account";
 import { claimEventSeats } from "@/lib/registration-seat-db";
 import { buildEventConfirmationFields } from "@/lib/registration-confirmation";
 import {
+  SUPPORTING_DOCUMENT_PATH_PREFIX,
   isSupportingDocumentPath,
   requiresSupportingDocument,
   supportingDocumentBlocks,
@@ -61,6 +62,17 @@ const registrationSchema = z.object({
   // shape-validated below before it is trusted.
   supportingDocumentUrl: z.string().max(500).optional(),
   supportingDocumentFilename: z.string().max(255).optional(),
+  // DEPRECATED aliases, added Aug 14 2026, REMOVE after ~1 week.
+  //
+  // The Aug 13 rename changed the route AND these field names in one deploy. A
+  // registrant holding the pre-swap browser bundle posts the OLD names, and Zod
+  // strips unknown keys — so the path was silently discarded, with no
+  // `path-rejected` log either, because the code never entered the branch that
+  // logs. The registration succeeded, the organizer never got the document, and
+  // the file was pruned 24h later. Accepting the old names costs two lines and
+  // makes the skew window a non-event.
+  residentLetterUrl: z.string().max(500).optional(),
+  residentLetterFilename: z.string().max(255).optional(),
   // Billing details
   taxNumber: z.string().max(100).optional(),
   billingFirstName: z.string().max(100).optional(),
@@ -367,20 +379,50 @@ export async function POST(req: Request, { params }: RouteParams) {
     // and failing the whole registration would punish the honest case where a
     // proxy mangled the field.
     const needsDocument = requiresSupportingDocument(ticketType);
+    // Fall back to the pre-rename field names (see the schema note above).
+    const documentUrl = supportingDocumentUrl ?? validated.data.residentLetterUrl;
+    const documentFilename =
+      supportingDocumentFilename ?? validated.data.residentLetterFilename;
+    if (!supportingDocumentUrl && validated.data.residentLetterUrl) {
+      apiLogger.warn({
+        msg: "public/register:legacy-document-field-used",
+        eventId: event.id,
+        note: "pre-Aug-13 browser bundle; safe to remove the alias once this stops appearing",
+      });
+    }
     let letterUrl: string | null = null;
     let letterFilename: string | null = null;
-    if (needsDocument && supportingDocumentUrl) {
-      if (isSupportingDocumentPath(supportingDocumentUrl)) {
-        letterUrl = supportingDocumentUrl;
-        letterFilename = supportingDocumentFilename?.trim() || null;
+    if (needsDocument && documentUrl) {
+      // Shape AND ownership: the path's {eventId} segment must be the event
+      // being registered for. Without this an anonymous POST can point this
+      // registration at ANOTHER event's file (no upload needed — just a known
+      // filename), and that event's own staff would then stream it from their
+      // detail sheet.
+      if (
+        isSupportingDocumentPath(documentUrl) &&
+        documentUrl.startsWith(`${SUPPORTING_DOCUMENT_PATH_PREFIX}${event.id}/`)
+      ) {
+        letterUrl = documentUrl;
+        letterFilename = documentFilename?.trim() || null;
       } else {
         apiLogger.warn({
           msg: "public/register:supporting-document-path-rejected",
           eventId: event.id,
           email,
-          supportingDocumentUrl,
+          supportingDocumentUrl: documentUrl,
         });
       }
+    } else if (documentUrl) {
+      // A document was attached for a type that does not ask for one — the
+      // registrant uploaded, then changed their registration type. Dropping it
+      // is right, but it was the ONE drop in this flow with no log at all, so
+      // an organizer chasing "they said they uploaded it" had nothing to find.
+      apiLogger.warn({
+        msg: "public/register:supporting-document-dropped-type-not-asking",
+        eventId: event.id,
+        email,
+        ticketTypeId,
+      });
     }
     if (needsDocument && !letterUrl && supportingDocumentBlocks(ticketType)) {
       apiLogger.warn({

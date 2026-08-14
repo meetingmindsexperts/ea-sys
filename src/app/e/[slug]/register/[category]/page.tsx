@@ -1165,6 +1165,19 @@ function CategoryRegistrationContent() {
                               return (
                                 <button key={opt.ticketTypeId} type="button"
                                   onClick={() => {
+                                    // Changing the rate discards any document
+                                    // staged for the PREVIOUS one. The upload
+                                    // section is keyed on the selected type, so
+                                    // without this the file stays attached but
+                                    // invisible: the registrant believes they
+                                    // sent it, the server drops it (the new
+                                    // type is not asking), and the orphan is
+                                    // pruned 24h later. Clearing it makes the
+                                    // loss visible at the moment it happens.
+                                    if (opt.ticketTypeId !== field.value) {
+                                      setSupportingDoc(null);
+                                      setDocError(null);
+                                    }
                                     field.onChange(opt.ticketTypeId);
                                     if (opt.pricingTierId) {
                                       form.setValue("pricingTierId", opt.pricingTierId);

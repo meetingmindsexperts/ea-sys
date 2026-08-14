@@ -36,7 +36,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const [session, { eventId, registrationId }] = await Promise.all([auth(), params]);
     if (!session?.user) {
-      apiLogger.warn({ eventId, registrationId }, "resident-letter-file:unauthenticated");
+      apiLogger.warn({ eventId, registrationId }, "supporting-document-file:unauthenticated");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     // Desk staff verify the letter at the registration desk, so the same
@@ -49,7 +49,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       select: { id: true, organizationId: true },
     });
     if (!event) {
-      apiLogger.warn({ eventId, registrationId, userId: session.user.id }, "resident-letter-file:event-not-found");
+      apiLogger.warn({ eventId, registrationId, userId: session.user.id }, "supporting-document-file:event-not-found");
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
@@ -60,16 +60,27 @@ export async function GET(_req: Request, { params }: RouteParams) {
       }),
     );
     if (!registration?.supportingDocumentUrl) {
-      apiLogger.warn({ eventId, registrationId, userId: session.user.id }, "resident-letter-file:not-found");
-      return NextResponse.json({ error: "No letter on file" }, { status: 404 });
+      apiLogger.warn({ eventId, registrationId, userId: session.user.id }, "supporting-document-file:not-found");
+      return NextResponse.json({ error: "No document on file" }, { status: 404 });
     }
 
     const url = registration.supportingDocumentUrl;
+    // The path's {eventId} segment must be THIS event's. isSupportingDocumentPath
+    // validates the SHAPE of that segment and never its ownership, so a value
+    // written by some other path (or a future one) could point at another
+    // event's directory — another TENANT's, on the platform instance, where all
+    // events share one uploads volume. Checked here as well as on write,
+    // because the whole premise of validating on the way out is that the read
+    // side never has to trust the column.
+    if (!url.startsWith(`${SUPPORTING_DOCUMENT_PATH_PREFIX}${eventId}/`)) {
+      apiLogger.error({ eventId, registrationId, url }, "supporting-document-file:event-mismatch");
+      return NextResponse.json({ error: "No document on file" }, { status: 404 });
+    }
     if (!isSupportingDocumentPath(url)) {
       // Only reachable if something wrote the column without going through the
       // register POST's validation. Loud, because that is a bug worth finding.
-      apiLogger.error({ eventId, registrationId, url }, "resident-letter-file:url-outside-root");
-      return NextResponse.json({ error: "No letter on file" }, { status: 404 });
+      apiLogger.error({ eventId, registrationId, url }, "supporting-document-file:url-outside-root");
+      return NextResponse.json({ error: "No document on file" }, { status: 404 });
     }
 
     const allowedRoot = path.resolve(process.cwd(), "public", SUPPORTING_DOCUMENT_PATH_PREFIX.slice(1));
@@ -78,7 +89,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
     try {
       resolved = await realpath(abs);
     } catch {
-      apiLogger.error({ eventId, registrationId, abs }, "resident-letter-file:file-missing");
+      apiLogger.error({ eventId, registrationId, abs }, "supporting-document-file:file-missing");
       return NextResponse.json(
         {
           error:
@@ -91,16 +102,16 @@ export async function GET(_req: Request, { params }: RouteParams) {
     // realpath resolves symlinks, so this also catches a symlink planted inside
     // the allowed directory that points outside it.
     if (!resolved.startsWith(allowedRoot + path.sep)) {
-      apiLogger.warn({ eventId, registrationId, resolved }, "resident-letter-file:traversal-blocked");
-      return NextResponse.json({ error: "No letter on file" }, { status: 404 });
+      apiLogger.warn({ eventId, registrationId, resolved }, "supporting-document-file:traversal-blocked");
+      return NextResponse.json({ error: "No document on file" }, { status: 404 });
     }
 
     const file = await readFile(resolved);
     const ext = (url.split(".").pop() ?? "").toLowerCase();
     const safeName =
-      (registration.supportingDocumentFilename ?? "official-letter")
+      (registration.supportingDocumentFilename ?? "supporting-document")
         .replace(/[^\w.\- ]+/g, "_")
-        .slice(0, 120) || "official-letter";
+        .slice(0, 120) || "supporting-document";
     return new NextResponse(new Uint8Array(file), {
       headers: {
         "Content-Type": CONTENT_TYPES[ext] ?? "application/octet-stream",
@@ -111,7 +122,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       },
     });
   } catch (err) {
-    apiLogger.error({ err }, "resident-letter-file:stream-failed");
-    return NextResponse.json({ error: "Failed to load the letter" }, { status: 500 });
+    apiLogger.error({ err }, "supporting-document-file:stream-failed");
+    return NextResponse.json({ error: "Failed to load the document" }, { status: 500 });
   }
 }

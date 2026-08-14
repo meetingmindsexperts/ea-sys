@@ -188,9 +188,25 @@ half-migrated private-file namespace is a genuinely bad thing to own.
 - **Document review workflow** (approve/reject, chase emails). Today an
   organizer downloads the file from the registration sheet and judges offline.
   Nothing here changes that.
-- **Documents on any door other than public registration.** The admin add-
-  registration form, CSV import and MCP do not collect the file today and would
+- **Documents on any door other than the main public register form.** The admin
+  add-registration form, CSV import and MCP do not collect the file and would
   not start to.
+
+  ⚠ CORRECTED Aug 14, 2026 after review: the sentence above originally said
+  "any door other than public registration", which is wrong, because **two of
+  the omitted doors ARE public registration by a different route**:
+  `/api/public/events/[slug]/group-register` (a coordinator picks a type per
+  member) and `/api/public/events/[slug]/complete-registration` (a
+  CSV-imported registrant self-selects their type). Neither collects a document
+  and neither consults the policy, so a registrant can land on a
+  `documentRequired: true` type through them without one.
+
+  This is pre-existing — the resident letter never applied there either — and
+  it is left as a known gap rather than fixed here, because both need their own
+  upload UI. It is recorded explicitly so it is a decision rather than an
+  oversight. `complete-registration` is the cheaper of the two if it is ever
+  wanted: single type, single registrant, and its
+  `SELECTABLE_TICKET_TYPE_SELECT` just needs the four columns.
 
 ---
 
@@ -230,13 +246,13 @@ Most are mechanical renames. The ones that need thought:
 
 | File | Why |
 |---|---|
-| [resident-letter.ts](../src/lib/resident-letter.ts) | the pattern helper is deleted; path validation stays |
+| [supporting-document.ts](../src/lib/supporting-document.ts) | the pattern helper is deleted; path validation stays |
 | [register/[category]/page.tsx](../src/app/e/%5Bslug%5D/register/%5Bcategory%5D/page.tsx) | trigger + label + instructions now come from the selected type |
 | [register/route.ts](../src/app/api/public/events/%5Bslug%5D/register/route.ts) | server gate reads the flag off the resolved ticket type |
 | [public/events/[slug]/route.ts](../src/app/api/public/events/%5Bslug%5D/route.ts) | must expose the four fields per type so the form can render |
 | [settings/page.tsx](../src/app/%28dashboard%29/events/%5BeventId%5D/settings/page.tsx) | event-wide switch removed |
 | tickets page | new per-type controls |
-| [prune worker](../src/lib/resident-letter-prune-worker.ts) | rename only, unless §3.4 option 2 is chosen |
+| [prune worker](../src/lib/supporting-document-prune-worker.ts) | rename only, unless §3.4 option 2 is chosen |
 
 ---
 

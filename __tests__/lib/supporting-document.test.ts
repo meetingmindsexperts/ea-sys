@@ -3,10 +3,11 @@
  *
  * Two things are pinned here and they are different in kind:
  *
- *  1. The POLICY helpers. These replaced a name-pattern match on 2026-08-13,
- *     so the tests that matter most assert the thing the old mechanism got
- *     wrong: renaming a type must not change what it asks for, and one type
- *     asking must not drag its neighbours in.
+ *  1. The POLICY helpers — the truth table for "does this type ask?" and "does
+ *     a missing answer block?", plus parity with what the Aug 13 migration
+ *     backfills. Note what is NOT here: see the note above
+ *     `isSupportingDocumentPath` about why "a rename must not change
+ *     behaviour" cannot be asserted at this layer.
  *
  *  2. The PATH validator, which is a security boundary rather than tidiness.
  *     `Registration.supportingDocumentUrl` is written from a PUBLIC,
@@ -38,15 +39,6 @@ describe("requiresSupportingDocument", () => {
   it("asks only when the organizer ticked the box", () => {
     expect(requiresSupportingDocument({ requiresDocument: true })).toBe(true);
     expect(requiresSupportingDocument({ requiresDocument: false })).toBe(false);
-  });
-
-  it("does NOT ask a type that merely has a suggestive NAME", () => {
-    // The defect this feature exists to fix, asserted from the other side: a
-    // type called Resident with the box unticked asks for nothing. Under the
-    // old mechanism the name alone was the trigger.
-    expect(requiresSupportingDocument({ requiresDocument: false })).toBe(false);
-    // ...and the helper has no name parameter at all, so it structurally
-    // cannot regress to name-matching.
   });
 
   it("treats a missing or half-configured type as not asking", () => {
@@ -145,28 +137,17 @@ describe("backfill parity — a Resident type behaves as it did before Aug 13", 
   });
 });
 
-describe("renaming a type does not change its behaviour", () => {
-  // The actual defect. Under the old mechanism this pair disagreed; the whole
-  // point of the flag is that the policy travels with the row, not the string.
-  const policy = { requiresDocument: true, documentRequired: true, documentLabel: "Official Letter" };
-
-  it("keeps asking after a rename away from the old magic words", () => {
-    // "Resident" -> "Junior Doctor" used to switch the requirement off
-    // silently: no warning, no log line, the form just stopped rendering the
-    // field and the next registrant was admitted without substantiating the
-    // discount.
-    expect(requiresSupportingDocument(policy)).toBe(true);
-    expect(supportingDocumentBlocks(policy)).toBe(true);
-  });
-
-  it("does not start asking just because a name contains a magic word", () => {
-    // The reverse direction, which mattered too: "Trainee / Student" matched
-    // BOTH the student rule and the resident rule, so it asked for a Student
-    // ID and a letter as a side effect of substring matching rather than
-    // because anyone chose it.
-    expect(requiresSupportingDocument({ requiresDocument: false })).toBe(false);
-  });
-});
+// NOTE — "a rename must not change behaviour" is NOT assertable in this file,
+// and three tests here used to pretend otherwise. `requiresSupportingDocument`
+// takes a policy object and has no name parameter, so every "rename" case was
+// really a fourth restatement of "true returns true". A test that cannot fail
+// is worse than no test, because the commit message cited those three as the
+// load-bearing ones.
+//
+// The property IS assertable one layer up, where a name exists: a ticket type
+// literally called "Resident" with the box unticked must not block. That lives
+// in __tests__/api/supporting-document-gate.test.ts against the real public
+// register route.
 
 describe("isSupportingDocumentPath", () => {
   const valid = "/uploads/resident-letters/cmev123abc/3f8b21ca-9d44-4e11-8a20-1f0b7c6d5e33.pdf";

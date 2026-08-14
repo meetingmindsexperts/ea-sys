@@ -64,7 +64,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       windowMs: 60 * 60 * 1000,
     });
     if (!rate.allowed) {
-      apiLogger.warn({ msg: "public/resident-letter:rate-limited", slug, ip, retryAfterSeconds: rate.retryAfterSeconds });
+      apiLogger.warn({ msg: "public/supporting-document:rate-limited", slug, ip, retryAfterSeconds: rate.retryAfterSeconds });
       return NextResponse.json(
         { error: "Too many uploads. Please try again later." },
         { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
@@ -78,27 +78,27 @@ export async function POST(req: Request, { params }: RouteParams) {
       select: { id: true },
     });
     if (!event) {
-      apiLogger.warn({ msg: "public/resident-letter:event-not-found", slug, ip });
+      apiLogger.warn({ msg: "public/supporting-document:event-not-found", slug, ip });
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     if (!file) {
-      apiLogger.warn({ msg: "public/resident-letter:no-file", slug, eventId: event.id, ip });
+      apiLogger.warn({ msg: "public/supporting-document:no-file", slug, eventId: event.id, ip });
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
     const allowed = ALLOWED[file.type];
     if (!allowed) {
-      apiLogger.warn({ msg: "public/resident-letter:invalid-mime", slug, eventId: event.id, claimedType: file.type, ip });
+      apiLogger.warn({ msg: "public/supporting-document:invalid-mime", slug, eventId: event.id, claimedType: file.type, ip });
       return NextResponse.json(
         { error: "Only PDF, JPG and PNG files are accepted" },
         { status: 400 },
       );
     }
     if (file.size > SUPPORTING_DOCUMENT_MAX_SIZE) {
-      apiLogger.warn({ msg: "public/resident-letter:too-large", slug, eventId: event.id, size: file.size, ip });
+      apiLogger.warn({ msg: "public/supporting-document:too-large", slug, eventId: event.id, size: file.size, ip });
       return NextResponse.json({ error: "File must be under 5MB" }, { status: 400 });
     }
 
@@ -106,7 +106,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!magicMatches(buffer, allowed.magic)) {
       // The declared type and the actual bytes disagree — either a renamed file
       // or a deliberate attempt to store something else under a safe extension.
-      apiLogger.warn({ msg: "public/resident-letter:invalid-magic-bytes", slug, eventId: event.id, claimedType: file.type, ip });
+      apiLogger.warn({ msg: "public/supporting-document:invalid-magic-bytes", slug, eventId: event.id, claimedType: file.type, ip });
       return NextResponse.json(
         { error: "File content does not match its declared type" },
         { status: 400 },
@@ -123,10 +123,10 @@ export async function POST(req: Request, { params }: RouteParams) {
     const url = `/${dirRel.split(path.sep).join("/")}/${storedName}`;
 
     const filename = file.name.slice(0, 255);
-    apiLogger.info({ msg: "public/resident-letter:uploaded", slug, eventId: event.id, size: file.size, mimeType: file.type });
+    apiLogger.info({ msg: "public/supporting-document:uploaded", slug, eventId: event.id, size: file.size, mimeType: file.type });
     return NextResponse.json({ url, filename }, { status: 201 });
   } catch (err) {
-    apiLogger.error({ err, msg: "public/resident-letter:failed", slug, ip });
+    apiLogger.error({ err, msg: "public/supporting-document:failed", slug, ip });
     return NextResponse.json({ error: "Failed to upload the letter" }, { status: 500 });
   }
 }

@@ -346,6 +346,17 @@ export async function GET(req: Request, { params }: RouteParams) {
               soldCount: true,
               // Lets the UI badge/filter faculty companion registrations.
               isFaculty: true,
+              // The detail sheet's document row gates on these. The sheet is
+              // SEEDED from this list row and only later replaced by the detail
+              // GET — and that fetch deliberately keeps the list row on error.
+              // Without them here the row is missing until the detail lands,
+              // and absent entirely if it fails, which hides the amber "Not
+              // provided" that is the whole point of rendering the block for a
+              // registration with nothing attached. The old code gated on
+              // `name`, which this select has always returned, so the blind
+              // spot arrived with the policy columns.
+              requiresDocument: true,
+              documentLabel: true,
             },
           },
           pricingTier: {

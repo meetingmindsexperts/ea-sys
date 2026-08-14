@@ -18,9 +18,16 @@ function logWarn(msg: string, data?: Record<string, unknown>) {
 
 // ── Body size limits ──
 // Reject oversized request bodies early to prevent abuse. 1MB default for JSON
-// API routes (photo upload has its own 500KB app-level limit); CSV imports get
-// a larger allowance. The decision lives in src/lib/body-limits.ts so it can be
+// API routes; CSV imports (JSON-encoded) and file uploads (multipart) get
+// larger allowances. The decision lives in src/lib/body-limits.ts so it can be
 // unit tested without dragging NextAuth into the test.
+//
+// ⚠ A UNIT TEST OF A ROUTE HANDLER CANNOT SEE THIS. Middleware is not in the
+// handler's call path, so a route test asserting "rejects a file over 5MB"
+// passes against its own in-route check while every real request is capped
+// here first. That is how the 1MB ceiling silently overrode every documented
+// upload cap for months (Aug 14, 2026). The limit is testable only in
+// body-limits.test.ts or end to end.
 
 // ── Mobile app CORS ──
 // Allowed origins for mobile app development and production.
@@ -69,7 +76,7 @@ export default auth((req) => {
     const contentLength = req.headers.get("content-length");
     if (contentLength) {
       const size = parseInt(contentLength, 10);
-      const maxSize = maxBodySizeFor(pathname);
+      const maxSize = maxBodySizeFor(pathname, req.headers.get("content-type"));
       if (!Number.isNaN(size) && size > maxSize) {
         logWarn("Request body too large", { pathname, contentLength: size, maxSize });
         return addCorsHeaders(

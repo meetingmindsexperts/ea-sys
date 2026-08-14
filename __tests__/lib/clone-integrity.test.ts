@@ -357,3 +357,95 @@ describe("unique constraint safety", () => {
     expect(key1).not.toBe(key2);
   });
 });
+
+// ── Ticket-type clone completeness (Aug 14, 2026) ────────────────────────────
+//
+// WHY THIS EXISTS, and why it is derived from the schema rather than
+// hand-listed like CLONED_EVENT_FIELDS above.
+//
+// Three config fields have now been silently dropped from the cloned ticket
+// type, one at a time: `isFaculty` (turned the hidden speaker-companion type
+// into a publicly bookable one), `virtualPrice` (reset HYBRID virtual pricing),
+// and `requiresDocument` + friends (a cloned Resident rate stopped asking for
+// its letter). Each was found in production, after the fact, and each got a
+// "MUST be copied" comment on the way past.
+//
+// The event fields do NOT drift this way, because the test above enumerates
+// them. But that list is hand-maintained too, so it only fails once somebody
+// remembers to extend it — which is exactly the step that keeps being missed.
+//
+// So this reads prisma/schema.prisma and requires EVERY scalar on TicketType to
+// be explicitly classified: copied, reset, auto-generated, or deliberately
+// excluded with a reason. Adding a column and doing nothing else fails here,
+// which is the only version of this guard that can stop a fourth.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const PRISMA_SCALARS = new Set([
+  "String", "Int", "Boolean", "DateTime", "Decimal", "Json", "Float", "BigInt", "Bytes",
+]);
+
+/** Scalar (non-relation) field names on a model, read from the schema. */
+function scalarFieldsOf(model: string): string[] {
+  const schema = readFileSync(join(process.cwd(), "prisma/schema.prisma"), "utf8");
+  const block = new RegExp(`^model ${model} \\{([\\s\\S]*?)^\\}`, "m").exec(schema);
+  if (!block) throw new Error(`model ${model} not found in schema.prisma`);
+  const fields: string[] = [];
+  for (const raw of block[1].split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("//") || line.startsWith("///") || line.startsWith("@@")) continue;
+    const m = /^(\w+)\s+(\w+)/.exec(line);
+    if (!m) continue;
+    // `String?`, `Decimal`, `Json` … are scalars; `Event`, `PricingTier[]` are
+    // relations and are handled by their own clone blocks.
+    if (PRISMA_SCALARS.has(m[2])) fields.push(m[1]);
+  }
+  return fields;
+}
+
+/** Copied verbatim from the source ticket type. */
+const CLONED_TICKET_FIELDS = [
+  "name", "description", "isDefault", "isActive", "isFaculty", "sortOrder",
+  "category", "price", "virtualPrice", "currency", "quantity", "maxPerOrder",
+  "salesStart", "salesEnd", "requiresApproval",
+  // Supporting-document policy (Aug 13, 2026).
+  "requiresDocument", "documentRequired", "documentLabel", "documentInstructions",
+];
+
+describe("ticket-type clone completeness", () => {
+  it("classifies every scalar on TicketType", () => {
+    const auto = ["id", "createdAt", "updatedAt"];
+    // Re-derived from the NEW event, never copied from the source.
+    const reparented = ["eventId", "organizationId"];
+    const reset = Object.keys(RESET_TICKET_FIELDS); // soldCount
+
+    const unclassified = scalarFieldsOf("TicketType").filter(
+      (f) =>
+        !CLONED_TICKET_FIELDS.includes(f) &&
+        !auto.includes(f) &&
+        !reparented.includes(f) &&
+        !reset.includes(f),
+    );
+
+    // If this fails you have added a column to TicketType. Decide whether a
+    // clone should carry it, then add it to CLONED_TICKET_FIELDS (and to the
+    // clone route) or to one of the lists above. Do NOT just add it here.
+    expect(unclassified).toEqual([]);
+  });
+
+  it("carries the supporting-document policy across a clone", () => {
+    // The regression itself. Under the old name-pattern mechanism this passed
+    // for free, because the requirement lived in the NAME and clone copies
+    // names. Making the policy a column is what broke it.
+    for (const f of ["requiresDocument", "documentRequired", "documentLabel", "documentInstructions"]) {
+      expect(CLONED_TICKET_FIELDS).toContain(f);
+    }
+  });
+
+  it("still resets soldCount rather than copying it", () => {
+    // A clone starts with nothing sold; copying the counter would show the new
+    // event as part-full and could make it read sold out on day one.
+    expect(CLONED_TICKET_FIELDS).not.toContain("soldCount");
+    expect(RESET_TICKET_FIELDS.soldCount).toBe(0);
+  });
+});
