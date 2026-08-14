@@ -71,7 +71,40 @@ export async function handleStripeEvent(
     const registrationId = session.metadata?.registrationId;
 
     if (!registrationId) {
-      apiLogger.warn({ msg: "Stripe checkout session missing registrationId metadata", sessionId: session.id });
+      // A session THIS APP did not create: our checkout routes always stamp
+      // `registrationId` or `groupId`. Ignoring it is right — but the log line
+      // has to be self-diagnosing, because the ONE field it used to carry
+      // (`sessionId`) is the one the Stripe Dashboard cannot look up: its
+      // search indexes customers / payments / invoices / subscriptions, NOT
+      // Checkout Session ids, so pasting it there returns "no results found"
+      // whether or not the session exists. That dead end cost a real
+      // investigation on Aug 14, 2026.
+      //
+      // So: enough to answer "did money move, and where did this come from?"
+      // without leaving the log. `paymentLinkId` distinguishes the benign
+      // Dashboard-created Payment Link (money real, but outside EA-SYS's
+      // books, so the registration is still being chased as unpaid) from a
+      // $0 / setup-mode session where nothing was charged at all.
+      // `paymentIntentId` IS Dashboard-searchable, unlike the session id.
+      apiLogger.warn({
+        msg: "Stripe checkout session missing registrationId metadata",
+        sessionId: session.id,
+        mode: session.mode,
+        paymentStatus: session.payment_status,
+        amountTotal: session.amount_total,
+        currency: session.currency,
+        paymentIntentId:
+          typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : (session.payment_intent?.id ?? null),
+        paymentLinkId: typeof session.payment_link === "string" ? session.payment_link : null,
+        invoiceId: typeof session.invoice === "string" ? session.invoice : null,
+        // Deliberately NOT the customer email: this line is an
+        // unrecognised-payment signal, not a receipt, and SystemLog is read on
+        // a dashboard by anyone with the role. The two ids above are enough to
+        // find the person in Stripe when that is actually needed.
+        metadataKeys: Object.keys(session.metadata ?? {}),
+      });
       return NextResponse.json({ received: true });
     }
 

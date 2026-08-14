@@ -607,6 +607,67 @@ describe("Webhook: checkout.session.completed idempotency", () => {
       expect.objectContaining({ msg: "Stripe checkout session missing registrationId metadata" })
     );
   });
+
+  // The log line has to answer "did money move, and where did this come from?"
+  // WITHOUT a follow-up lookup. It used to carry only `sessionId` — the one
+  // field the Stripe Dashboard cannot search (it indexes customers, payments,
+  // invoices and subscriptions, NOT Checkout Session ids), so the id returned
+  // "no results found" and the investigation dead-ended. Aug 14, 2026.
+  it("logs enough to diagnose an unrecognised session without leaving the log", async () => {
+    const stripeEvent = makeStripeEvent("checkout.session.completed", {
+      id: "cs_live_unknown",
+      metadata: {},
+      mode: "payment",
+      payment_status: "paid",
+      currency: "aed",
+      amount_total: 45000,
+      payment_intent: "pi_live_abc",
+      payment_link: "plink_live_xyz",
+      invoice: null,
+      customer: null,
+    });
+    mockConstructEvent.mockReturnValue(stripeEvent);
+
+    await POST(makeWebhookRequest());
+
+    const logged = mockApiLogger.warn.mock.calls
+      .map((c) => c[0])
+      .find((a) => a?.msg === "Stripe checkout session missing registrationId metadata");
+
+    // Did money move?
+    expect(logged.paymentStatus).toBe("paid");
+    expect(logged.amountTotal).toBe(45000);
+    expect(logged.mode).toBe("payment");
+    // Where did it come from? A Payment Link is the benign-but-consequential
+    // case: real money, outside EA-SYS's books, registration still chased.
+    expect(logged.paymentLinkId).toBe("plink_live_xyz");
+    // Dashboard-searchable, unlike the session id.
+    expect(logged.paymentIntentId).toBe("pi_live_abc");
+  });
+
+  it("does not log the customer email", async () => {
+    // This is an unrecognised-payment signal, not a receipt, and SystemLog is
+    // read on a dashboard by anyone with the role. The Stripe ids above are
+    // enough to find the person when that is genuinely needed.
+    const stripeEvent = makeStripeEvent("checkout.session.completed", {
+      id: "cs_live_unknown2",
+      metadata: {},
+      currency: "usd",
+      amount_total: 100,
+      payment_intent: null,
+      customer: null,
+      customer_email: "someone@hospital.org",
+      customer_details: { email: "someone@hospital.org" },
+    });
+    mockConstructEvent.mockReturnValue(stripeEvent);
+
+    await POST(makeWebhookRequest());
+
+    const logged = mockApiLogger.warn.mock.calls
+      .map((c) => c[0])
+      .find((a) => a?.msg === "Stripe checkout session missing registrationId metadata");
+    expect(JSON.stringify(logged)).not.toContain("someone@hospital.org");
+  });
 });
 
 // ── Tests: checkout.session.completed — CANCELLED registration (H2) ─────────
