@@ -1,19 +1,23 @@
 "use client";
 
 /**
- * Public Dinner RSVP form — one personalized link covers all the event's
- * dinners. The invitee sees their name/email pre-filled (read-only),
- * ticks the dinners they'll attend (with a guest count each), adds a
- * dietary note, and submits. Re-editable until each dinner's deadline.
+ * Public RSVP form — one personalized link covers all the items in ONE
+ * campaign. The invitee sees their name/email pre-filled (read-only), picks
+ * the items they'll attend (a checkbox each in MULTI mode, a radio in SINGLE),
+ * optionally a guest count and a dietary note, and submits. Re-editable until
+ * each item's deadline.
  *
- * Server (`/api/public/events/[slug]/rsvp/[token]`) re-validates
- * everything — this is the friendly skin around that API.
- * Docs: docs/DINNER_RSVP.md.
+ * The campaign drives the shape: `selectionMode` decides checkbox vs radio,
+ * `allowGuests` and `collectDietary` decide whether those fields render at all.
+ * Server (`/api/public/events/[slug]/rsvp/[token]`) re-validates every one of
+ * those — this is the friendly skin around that API, not the enforcement.
+ *
+ * Docs: docs/RSVP.md.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { AlertCircle, Check, Loader2, UtensilsCrossed, CalendarDays, MapPin } from "lucide-react";
+import { AlertCircle, Check, Loader2, CalendarCheck, CalendarDays, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,10 +27,10 @@ import { EventBanner } from "@/components/public/event-banner";
 import { resolveTimezone, tzLabel } from "@/lib/event-time";
 import { toast } from "sonner";
 
-interface DinnerRow {
+interface ItemRow {
   id: string;
   name: string;
-  dinnerAt: string;
+  startsAt: string;
   location: string | null;
   description: string | null;
   rsvpDeadline: string | null;
@@ -44,13 +48,22 @@ interface RsvpData {
     endDate: string;
     timezone: string | null;
   };
+  campaign: {
+    id: string;
+    name: string;
+    description: string | null;
+    selectionMode: "SINGLE" | "MULTI";
+    allowGuests: boolean;
+    collectDietary: boolean;
+    isActive: boolean;
+  };
   invitee: { name: string; email: string; dietary: string };
   status: string;
-  dinners: DinnerRow[];
+  items: ItemRow[];
 }
 
-// Dinner times render in the EVENT's timezone with a label — an invitee
-// abroad must not read the dinner time in their home clock (review M10).
+// Item times render in the EVENT's timezone with a label — an invitee abroad
+// must not read the start time in their home clock (review M10).
 function fmtDate(iso: string, timezone: string | null | undefined): string {
   const tz = resolveTimezone(timezone);
   const d = new Date(iso);
@@ -70,7 +83,7 @@ export default function RsvpPage() {
   const [data, setData] = useState<RsvpData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dinners, setDinners] = useState<DinnerRow[]>([]);
+  const [items, setItems] = useState<ItemRow[]>([]);
   const [dietary, setDietary] = useState("");
   const [notAttending, setNotAttending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -89,10 +102,10 @@ export default function RsvpPage() {
           return;
         }
         setData(json);
-        setDinners(json.dinners);
+        setItems(json.items);
         setDietary(json.invitee.dietary || "");
         // Reflect a prior "declined all" response so it re-opens ticked.
-        if (json.status === "RESPONDED" && !json.dinners.some((d: DinnerRow) => d.attending)) {
+        if (json.status === "RESPONDED" && !json.items.some((d: ItemRow) => d.attending)) {
           setNotAttending(true);
         }
       } catch (err) {
@@ -107,9 +120,28 @@ export default function RsvpPage() {
     };
   }, [slug, token]);
 
-  const setDinner = useCallback((id: string, patch: Partial<DinnerRow>) => {
-    setDinners((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  const setItem = useCallback((id: string, patch: Partial<ItemRow>) => {
+    setItems((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)));
   }, []);
+
+  /**
+   * SINGLE mode: picking one un-picks the rest. The server rejects a
+   * two-item payload outright (400 SINGLE_SELECTION_ONLY), so this is the
+   * affordance, not the rule.
+   */
+  const pickItem = useCallback(
+    (id: string, on: boolean, single: boolean) => {
+      setItems((prev) =>
+        prev.map((d) => {
+          if (d.id === id) return { ...d, attending: on, guestCount: on ? d.guestCount : 0 };
+          if (single && on && !d.closed) return { ...d, attending: false, guestCount: 0 };
+          return d;
+        }),
+      );
+      if (on) setNotAttending(false);
+    },
+    [],
+  );
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -119,8 +151,8 @@ export default function RsvpPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           dietary,
-          dinners: dinners.map((d) => ({
-            dinnerId: d.id,
+          items: items.map((d) => ({
+            itemId: d.id,
             attending: d.attending,
             guestCount: d.attending ? d.guestCount : 0,
           })),
@@ -130,7 +162,7 @@ export default function RsvpPage() {
       if (!res.ok) {
         console.error("rsvp-form:submit-failed", res.status, json?.error);
         if (json?.code === "STALE_FORM") {
-          // The dinners changed since this form was loaded — reload so the
+          // The items changed since this form was loaded — reload so the
           // invitee answers against the current list (review R2 M3).
           toast.error(json.error);
           window.location.reload();
@@ -139,13 +171,11 @@ export default function RsvpPage() {
         toast.error(json.error || "Failed to submit RSVP");
         return;
       }
-      // A dinner that closed while the form was open is NOT recorded — say
-      // so instead of a false full success (review R2 M2).
-      const ignored: string[] = Array.isArray(json?.ignoredDinnerIds) ? json.ignoredDinnerIds : [];
+      // An item that closed while the form was open is NOT recorded — say so
+      // instead of a false full success (review R2 M2).
+      const ignored: string[] = Array.isArray(json?.ignoredItemIds) ? json.ignoredItemIds : [];
       if (ignored.length > 0) {
-        const names = dinners
-          .filter((d) => ignored.includes(d.id) && d.attending)
-          .map((d) => d.name);
+        const names = items.filter((d) => ignored.includes(d.id) && d.attending).map((d) => d.name);
         if (names.length > 0) {
           toast.warning(
             `RSVP for ${names.join(", ")} closed before you submitted and was not recorded. Please contact the organizer.`,
@@ -160,7 +190,7 @@ export default function RsvpPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [slug, token, dietary, dinners]);
+  }, [slug, token, dietary, items]);
 
   if (loading) {
     return (
@@ -197,18 +227,33 @@ export default function RsvpPage() {
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Thank you, {data.invitee.name}!</h1>
           <p className="text-slate-500">
-            Your dinner RSVP for {data.event.name} has been recorded. You can revisit this link to
-            change your response any time before the deadline.
+            Your response to {data.campaign.name} has been recorded. You can revisit this link to
+            change it any time before the deadline.
           </p>
         </div>
       </div>
     );
   }
 
-  const allClosed = dinners.every((d) => d.closed);
-  const manyDinners = dinners.length > 1;
-  // Require an explicit choice: at least one dinner ticked, or "I won't attend".
-  const hasChoice = notAttending || dinners.some((d) => d.attending);
+  const single = data.campaign.selectionMode === "SINGLE";
+  const allClosed = items.every((d) => d.closed);
+  const manyItems = items.length > 1;
+  // Require an explicit choice: at least one item picked, or "I won't attend".
+  const hasChoice = notAttending || items.some((d) => d.attending);
+
+  const question = !manyItems
+    ? "Will you be attending?"
+    : single
+      ? "Which one will you attend?"
+      : "Which of these will you attend?";
+  const helper = !manyItems
+    ? "Tick the box if you’ll join, or choose “I won’t be able to attend” below."
+    : single
+      ? "Choose one option, or select “I won’t be able to attend” below."
+      : "Tick everything you’ll join, or choose “I won’t be able to attend” below.";
+  const declineLabel = manyItems
+    ? "I won’t be able to attend any of these"
+    : "I won’t be able to attend";
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -222,19 +267,23 @@ export default function RsvpPage() {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-6 sm:px-8 py-6 border-b border-slate-100">
             <div className="flex items-center gap-2 text-primary mb-1">
-              <UtensilsCrossed className="h-5 w-5" />
-              <span className="text-sm font-semibold uppercase tracking-wide">Dinner RSVP</span>
+              <CalendarCheck className="h-5 w-5" />
+              <span className="text-sm font-semibold uppercase tracking-wide">
+                {data.campaign.name}
+              </span>
             </div>
             <h1 className="text-2xl font-bold text-slate-900">{data.event.name}</h1>
             <p className="text-slate-500 mt-1">
-              Hello <strong>{data.invitee.name}</strong> — please let us know which dinners you&rsquo;ll
-              join.
+              Hello <strong>{data.invitee.name}</strong> — please let us know your plans.
             </p>
+            {data.campaign.description && (
+              <p className="text-sm text-slate-500 mt-2">{data.campaign.description}</p>
+            )}
           </div>
 
           <div className="px-6 sm:px-8 py-6 space-y-5">
             {/* Read-only identity */}
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label className="text-xs text-slate-500">Name</Label>
                 <Input value={data.invitee.name} readOnly disabled className="mt-1" />
@@ -245,21 +294,15 @@ export default function RsvpPage() {
               </div>
             </div>
 
-            {/* Dinners */}
+            {/* Items */}
             <div>
-              <Label className="text-sm font-semibold text-slate-800">
-                {manyDinners ? "Which dinners will you attend?" : "Will you be attending?"}
-              </Label>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {manyDinners
-                  ? "Tick the dinners you’ll join (add a guest count if you’re bringing anyone), or choose “I won’t be able to attend” below."
-                  : "Tick the box if you’ll join (add a guest count if you’re bringing anyone), or choose “I won’t be able to attend” below."}
-              </p>
+              <Label className="text-sm font-semibold text-slate-800">{question}</Label>
+              <p className="text-xs text-slate-500 mt-0.5">{helper}</p>
               {allClosed && (
                 <p className="text-sm text-amber-600 mt-1">RSVP is now closed for this event.</p>
               )}
-              <div className="mt-3 space-y-3">
-                {dinners.map((d) => (
+              <div className="mt-3 space-y-3" role={single ? "radiogroup" : undefined}>
+                {items.map((d) => (
                   <div
                     key={d.id}
                     className={`rounded-lg border p-4 ${
@@ -267,20 +310,30 @@ export default function RsvpPage() {
                     } ${d.closed ? "opacity-60" : ""}`}
                   >
                     <div className="flex items-start gap-3">
-                      <Checkbox
-                        checked={d.attending}
-                        disabled={d.closed || notAttending}
-                        onCheckedChange={(v) => {
-                          setDinner(d.id, { attending: v === true });
-                          if (v === true) setNotAttending(false);
-                        }}
-                        className="mt-1"
-                      />
+                      {single ? (
+                        <input
+                          type="radio"
+                          name="rsvp-item"
+                          checked={d.attending}
+                          disabled={d.closed || notAttending}
+                          onChange={(e) => pickItem(d.id, e.target.checked, true)}
+                          className="mt-1.5 h-4 w-4 accent-[var(--primary)]"
+                          aria-label={d.name}
+                        />
+                      ) : (
+                        <Checkbox
+                          checked={d.attending}
+                          disabled={d.closed || notAttending}
+                          onCheckedChange={(v) => pickItem(d.id, v === true, false)}
+                          className="mt-1"
+                        />
+                      )}
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-slate-900">{d.name}</div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500 mt-0.5">
                           <span className="inline-flex items-center gap-1">
-                            <CalendarDays className="h-3.5 w-3.5" /> {fmtDate(d.dinnerAt, data?.event.timezone)}
+                            <CalendarDays className="h-3.5 w-3.5" />{" "}
+                            {fmtDate(d.startsAt, data?.event.timezone)}
                           </span>
                           {d.location && (
                             <span className="inline-flex items-center gap-1">
@@ -289,8 +342,9 @@ export default function RsvpPage() {
                           )}
                         </div>
                         {d.description && <p className="text-sm text-slate-500 mt-1">{d.description}</p>}
-                        {d.closed && <p className="text-xs text-amber-600 mt-1">RSVP closed for this dinner.</p>}
-                        {d.attending && !d.closed && (
+                        {d.closed && <p className="text-xs text-amber-600 mt-1">RSVP closed for this one.</p>}
+                        {/* Guests only when this RSVP actually asks for them. */}
+                        {data.campaign.allowGuests && d.attending && !d.closed && (
                           <div className="flex items-center gap-2 mt-3">
                             <Label className="text-xs text-slate-500">Guests (besides you)</Label>
                             <Input
@@ -299,7 +353,7 @@ export default function RsvpPage() {
                               max={20}
                               value={d.guestCount}
                               onChange={(e) =>
-                                setDinner(d.id, {
+                                setItem(d.id, {
                                   guestCount: Math.max(0, Math.min(20, Number(e.target.value) || 0)),
                                 })
                               }
@@ -311,13 +365,14 @@ export default function RsvpPage() {
                     </div>
                   </div>
                 ))}
-                {dinners.length === 0 && (
-                  <p className="text-sm text-slate-400">No dinners have been set up yet.</p>
+                {items.length === 0 && (
+                  <p className="text-sm text-slate-400">Nothing has been set up yet.</p>
                 )}
               </div>
 
-              {/* Explicit decline */}
-              {dinners.length > 0 && !allClosed && (
+              {/* Explicit decline — valid in BOTH modes; "none of these" must
+                  stay expressible or a SINGLE-mode RSVP forces a false pick. */}
+              {items.length > 0 && !allClosed && (
                 <label
                   className={`mt-3 flex items-center gap-3 rounded-lg border p-3 cursor-pointer ${
                     notAttending ? "border-slate-300 bg-slate-50" : "border-slate-200"
@@ -329,34 +384,32 @@ export default function RsvpPage() {
                       const decline = v === true;
                       setNotAttending(decline);
                       if (decline) {
-                        setDinners((prev) => prev.map((d) => ({ ...d, attending: false, guestCount: 0 })));
+                        setItems((prev) => prev.map((d) => ({ ...d, attending: false, guestCount: 0 })));
                       }
                     }}
                   />
-                  <span className="text-sm font-medium text-slate-700">
-                    {manyDinners
-                      ? "I won’t be able to attend any of the dinners"
-                      : "I won’t be able to attend"}
-                  </span>
+                  <span className="text-sm font-medium text-slate-700">{declineLabel}</span>
                 </label>
               )}
             </div>
 
-            {/* Dietary */}
-            <div>
-              <Label htmlFor="dietary" className="text-sm font-semibold text-slate-800">
-                Dietary requirements (optional)
-              </Label>
-              <Textarea
-                id="dietary"
-                value={dietary}
-                onChange={(e) => setDietary(e.target.value)}
-                placeholder="Vegetarian, allergies, etc."
-                className="mt-1"
-                rows={2}
-                maxLength={1000}
-              />
-            </div>
+            {/* Dietary — only when this RSVP collects it. */}
+            {data.campaign.collectDietary && (
+              <div>
+                <Label htmlFor="dietary" className="text-sm font-semibold text-slate-800">
+                  Dietary requirements (optional)
+                </Label>
+                <Textarea
+                  id="dietary"
+                  value={dietary}
+                  onChange={(e) => setDietary(e.target.value)}
+                  placeholder="Vegetarian, allergies, etc."
+                  className="mt-1"
+                  rows={2}
+                  maxLength={1000}
+                />
+              </div>
+            )}
 
             <Button
               onClick={handleSubmit}
@@ -367,9 +420,11 @@ export default function RsvpPage() {
             </Button>
             {!hasChoice && !allClosed && (
               <p className="text-xs text-slate-400 text-center -mt-2">
-                {manyDinners
-                  ? "Pick at least one dinner, or select “I won’t be able to attend”."
-                  : "Tick the dinner, or select “I won’t be able to attend”."}
+                {manyItems
+                  ? single
+                    ? "Choose one, or select “I won’t be able to attend”."
+                    : "Pick at least one, or select “I won’t be able to attend”."
+                  : "Tick the box, or select “I won’t be able to attend”."}
               </p>
             )}
           </div>

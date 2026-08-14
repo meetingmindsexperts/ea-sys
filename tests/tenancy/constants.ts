@@ -277,8 +277,10 @@ export const SESSION_PROPOSAL_B_ID = "tenancy-sprop-b";
  * Each org gets a dinner + invite + a response on that invite (2-hop chain).
  */
 export const SHARED_RSVP_INVITEE_EMAIL = "vip@tenancy.test";
-export const RSVP_DINNER_A_ID = "tenancy-rdin-a";
-export const RSVP_DINNER_B_ID = "tenancy-rdin-b";
+export const RSVP_CAMPAIGN_A_ID = "tenancy-rcmp-a";
+export const RSVP_CAMPAIGN_B_ID = "tenancy-rcmp-b";
+export const RSVP_ITEM_A_ID = "tenancy-rdin-a";
+export const RSVP_ITEM_B_ID = "tenancy-rdin-b";
 export const RSVP_INVITE_A_ID = "tenancy-rinv-a";
 export const RSVP_INVITE_B_ID = "tenancy-rinv-b";
 export const RSVP_INVITE_A_TOKEN = "tenancy-rtok-a-0000000000000000";

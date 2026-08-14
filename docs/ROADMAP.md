@@ -2357,7 +2357,7 @@ were **fixed in-band**. Deferred (medium/low, each independently shippable):
 
 Dinner RSVP shipped P1→P3 + a first-class email template with preview, then an
 adversarial review (no BLOCKER/HIGH; M2 + M3 fixed). See
-[docs/DINNER_RSVP.md](DINNER_RSVP.md). Deferred / conscious-accept items:
+[docs/RSVP.md](RSVP.md). Deferred / conscious-accept items:
 
 - **Auto-reminder cron (P3c) — deliberately NOT built** (owner decision, July 8).
   The manual **"Remind pending"** button covers it. Revisit only if an event needs

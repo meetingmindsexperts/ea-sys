@@ -56,8 +56,7 @@ SWEPT_ROUTE_DIRS=(
   "src/app/api/events/[eventId]/certificates"  # Certificates sweep — the whole certificates/** route family (July 31, 2026)
   "src/app/api/events/[eventId]/session-proposals"        # Session Proposals sweep — proposals list/create + detail (Aug 3, 2026)
   "src/app/api/events/[eventId]/session-proposal-themes"  # Session Proposals sweep — theme CRUD (Aug 3, 2026)
-  "src/app/api/events/[eventId]/dinners"                  # Dinner RSVP sweep — dinners CRUD (Aug 3, 2026)
-  "src/app/api/events/[eventId]/rsvp-invites"             # Dinner RSVP sweep — roster/add/delete/send (Aug 3, 2026)
+  "src/app/api/events/[eventId]/rsvp-campaigns"           # RSVP sweep — campaigns + items + roster/add/delete/send (Aug 3, 2026; re-scoped to campaigns Aug 14, 2026)
   # Survey sweep (Domain #16, Aug 3, 2026) — the responses reporting pair
   # (list/aggregate + CSV export), RESOURCE-org wraps (buildEventAccessWhere
   # serves org-null SUPER_ADMIN). The sibling survey/share-link route touches
@@ -245,7 +244,7 @@ SWEPT_ROUTE_FILES=(
   # Event by host+slug (publicEventWhere) FIRST, then reads the swept RsvpInvite
   # by its globally-unique token inside runWithTenant — RLS would otherwise
   # fail-close the token lookup to null.
-  "src/app/api/public/events/[slug]/rsvp/[token]/route.ts"                             # Dinner RSVP — public resource-org (Aug 3, 2026)
+  "src/app/api/public/events/[slug]/rsvp/[token]/route.ts"                             # RSVP — public resource-org (Aug 3, 2026)
   # Comms-log sweep (Domain #18, Aug 3, 2026) — the ScheduledEmail enqueue +
   # management routes (SESSION org via requireOrgId) + the event Email
   # Activity rollup. src/lib/email-log.ts self-wraps at the logEmail choke
@@ -342,7 +341,7 @@ SWEPT_MODULES=(
   # event-agenda resource reads EventSession (not yet swept) unwrapped — the
   # Sessions-domain sweep must wrap it then.
   "src/lib/agent/register-mcp-tools.ts"     # MCP resource/tool handlers (July 31, 2026)
-  "src/lib/agent/tools/dinner.ts"           # dinner-rsvp agent / MCP executor (Aug 3, 2026)
+  "src/lib/agent/tools/rsvp.ts"             # rsvp agent / MCP executor (Aug 3, 2026; renamed Aug 14, 2026)
 )
 
 # ---------------------------------------------------------------------------
@@ -424,7 +423,7 @@ HANDLER_RE='export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+(GET|POST|
 # name means a plain property chain like `payment.registration.event` never
 # matches). GROW SWEPT_MODELS as domains are swept; un-swept models (Event, User,
 # session) are the ONLY reads allowed before the wrap (org resolution).
-SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|sessionProposal|sessionProposalTheme|rsvpDinner|rsvpInvite|rsvpDinnerResponse|surveyResponse|speakerReimbursement|speakerReimbursementDocument|emailLog|scheduledEmail|auditLog|helpChatQuery'
+SWEPT_MODELS='registration|attendee|payment|refundAttempt|registrationSerialCounter|ticketType|pricingTier|promoCode|promoCodeRedemption|promoCodeTicketType|contact|invoice|billingAccount|mediaFile|speaker|speakerDocument|zoomMeeting|zoomAttendance|webinarPresence|webinarPoll|webinarPollResponse|webinarQuestion|crmContact|crmCompany|crmDeal|crmDealContact|crmDealProduct|crmDealDocument|crmEmailThread|crmEmailMessage|crmPipelineStage|crmProduct|crmTask|crmNote|crmActivity|crmNotification|crmEmailTemplate|crmQuoteCounter|crmEmailSendClaim|crmDealType|hotel|roomType|accommodation|abstract|abstractTheme|reviewCriterion|abstractReviewer|abstractReviewSubmission|track|eventSession|sessionTopic|sessionSpeaker|topicSpeaker|certificateTemplate|issuedCertificate|certificateIssueRun|certificateIssueRunItem|certificateSerialCounter|sessionProposal|sessionProposalTheme|rsvpCampaign|rsvpItem|rsvpInvite|rsvpResponse|surveyResponse|speakerReimbursement|speakerReimbursementDocument|emailLog|scheduledEmail|auditLog|helpChatQuery'
 # `[.]` (literal-dot char class, no backslash) sidesteps awk -v escape handling.
 SWEPT_OP_RE="[.]($SWEPT_MODELS)[.](findFirst|findUnique|findUniqueOrThrow|findFirstOrThrow|findMany|create|createMany|update|updateMany|delete|deleteMany|upsert|count|aggregate|groupBy)"
 

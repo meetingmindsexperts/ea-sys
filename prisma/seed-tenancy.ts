@@ -115,8 +115,10 @@ import {
   SESSION_PROPOSAL_A_ID,
   SESSION_PROPOSAL_B_ID,
   SHARED_RSVP_INVITEE_EMAIL,
-  RSVP_DINNER_A_ID,
-  RSVP_DINNER_B_ID,
+  RSVP_CAMPAIGN_A_ID,
+  RSVP_CAMPAIGN_B_ID,
+  RSVP_ITEM_A_ID,
+  RSVP_ITEM_B_ID,
   RSVP_INVITE_A_ID,
   RSVP_INVITE_B_ID,
   RSVP_INVITE_A_TOKEN,
@@ -281,7 +283,8 @@ async function seedOrg(
   // All three born with organizationId; RsvpDinner/RsvpInvite cascade from
   // Event, RsvpDinnerResponse from both — the org cascade wipes them.
   rsvp?: {
-    dinnerId: string;
+    campaignId: string;
+    itemId: string;
     inviteId: string;
     inviteToken: string;
     inviteeEmail: string;
@@ -762,22 +765,35 @@ async function seedOrg(
       },
     });
   }
-  // Dinner RSVP sweep fixtures. Dinner + invite (shared email / unique token) +
-  // a response on that invite. RsvpDinner/RsvpInvite cascade from Event;
-  // RsvpDinnerResponse from both — the org cascade removes the whole chain.
+  // RSVP sweep fixtures. Campaign + item + invite (shared email / unique
+  // token) + a response on that invite. RsvpCampaign/RsvpItem/RsvpInvite
+  // cascade from Event; RsvpResponse from both — the org cascade removes the
+  // whole chain.
   if (rsvp) {
-    await db.rsvpDinner.create({
+    await db.rsvpCampaign.create({
       data: {
-        id: rsvp.dinnerId,
+        id: rsvp.campaignId,
         eventId: rsvp.eventId,
         organizationId: orgId,
         name: "Tenancy Gala Dinner",
-        dinnerAt: new Date("2027-01-11T19:00:00Z"),
+        allowGuests: true,
+        collectDietary: true,
+      },
+    });
+    await db.rsvpItem.create({
+      data: {
+        id: rsvp.itemId,
+        campaignId: rsvp.campaignId,
+        eventId: rsvp.eventId,
+        organizationId: orgId,
+        name: "Tenancy Gala Dinner",
+        startsAt: new Date("2027-01-11T19:00:00Z"),
       },
     });
     await db.rsvpInvite.create({
       data: {
         id: rsvp.inviteId,
+        campaignId: rsvp.campaignId,
         eventId: rsvp.eventId,
         organizationId: orgId,
         token: rsvp.inviteToken,
@@ -787,11 +803,11 @@ async function seedOrg(
         respondedAt: new Date("2027-01-06T09:00:00Z"),
       },
     });
-    await db.rsvpDinnerResponse.create({
+    await db.rsvpResponse.create({
       data: {
         id: rsvp.responseId,
         inviteId: rsvp.inviteId,
-        dinnerId: rsvp.dinnerId,
+        itemId: rsvp.itemId,
         organizationId: orgId,
         attending: true,
         guestCount: 1,
@@ -1196,7 +1212,8 @@ async function main() {
       speakerId: SPEAKER_A_ID,
     },
     {
-      dinnerId: RSVP_DINNER_A_ID,
+      campaignId: RSVP_CAMPAIGN_A_ID,
+      itemId: RSVP_ITEM_A_ID,
       inviteId: RSVP_INVITE_A_ID,
       inviteToken: RSVP_INVITE_A_TOKEN,
       inviteeEmail: SHARED_RSVP_INVITEE_EMAIL,
@@ -1347,7 +1364,8 @@ async function main() {
       speakerId: SPEAKER_B_ID,
     },
     {
-      dinnerId: RSVP_DINNER_B_ID,
+      campaignId: RSVP_CAMPAIGN_B_ID,
+      itemId: RSVP_ITEM_B_ID,
       inviteId: RSVP_INVITE_B_ID,
       inviteToken: RSVP_INVITE_B_TOKEN,
       inviteeEmail: SHARED_RSVP_INVITEE_EMAIL,

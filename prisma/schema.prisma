@@ -458,7 +458,8 @@ model Event {
   certificateIssueRuns         CertificateIssueRun[]
   certificateTemplates         CertificateTemplate[]
   surveyResponses              SurveyResponse[]
-  rsvpDinners                  RsvpDinner[]
+  rsvpCampaigns                RsvpCampaign[]
+  rsvpItems                    RsvpItem[]
   rsvpInvites                  RsvpInvite[]
   speakerReimbursements        SpeakerReimbursement[]
   speakerProfileForms          SpeakerProfileForm[]
@@ -3030,27 +3031,75 @@ model EmailLog {
   @@index([createdAt])
 }
 
-// ── Dinner RSVP ────────────────────────────────────────────────────
-// A gala/dinner program for an event. Each event day can have its own
-// dinner (Day 1 Dinner, Day 2 Gala, …). Each invitee gets ONE
-// personalized token link that covers ALL the event's dinners, and
-// answers a per-dinner checkbox (+ per-dinner guest count) plus a
-// single dietary note. Docs: docs/DINNER_RSVP.md.
+// ── RSVP (customizable) ────────────────────────────────────────────
+// An event runs N INDEPENDENT RSVPs (`RsvpCampaign`): a gala dinner, a set
+// of parallel workshops, a site visit. Each campaign owns its own items AND
+// its own invite list, which is the whole point — the dinner audience and
+// the workshop audience are different people.
+//
+// Was "Dinner RSVP" (July 2026), where the invite was EVENT-level with
+// @@unique([eventId, inviteeEmail]), so an event could only ever have ONE
+// audience and one link covering every dinner. Generalized August 2026.
+//
+// ⚠ The three original tables keep their SQL names via @@map / @map. A real
+// ALTER TABLE ... RENAME is not blue/green safe: migrations run BEFORE the
+// container swap, so the still-live old container would query a table that
+// no longer exists. Same call the Aug 13 supporting-document round made for
+// Registration's columns. Cost: the physical table is still "RsvpDinner"
+// while holding workshops. Documented, deliberate.
+//
+// Docs: docs/RSVP.md.
 
 enum RsvpStatus {
   PENDING // invited, not yet responded
-  RESPONDED // submitted the form (attending ≥0 dinners)
+  RESPONDED // submitted the form (attending ≥0 items)
 }
 
-model RsvpDinner {
-  id             String    @id @default(cuid())
+/// How an invitee answers a campaign: tick any of the items, or pick exactly
+/// one. SINGLE is enforced server-side, not just by the radio group.
+enum RsvpSelectionMode {
+  SINGLE // parallel workshop tracks — pick one
+  MULTI // dinners across several nights — tick any
+}
+
+model RsvpCampaign {
+  id             String            @id @default(cuid())
   eventId        String
-  // Denormalized tenant key (multi-tenancy Phase-2, Domain #15). Nullable +
-  // no FK; backfilled 1-hop from Event; stamped at create. Drives the RLS
-  // policy in prisma/rls/rsvp.sql. Inert on master (RLS_SET_LOCAL off).
+  // Denormalized tenant key (Domain #15). Nullable, no FK; stamped at create
+  // from the event. Drives the RLS policy in prisma/rls/rsvp.sql.
   organizationId String?
   name           String
-  dinnerAt       DateTime
+  description    String?           @db.Text
+  selectionMode  RsvpSelectionMode @default(MULTI)
+  // Guests and dietary are INDEPENDENT, deliberately not one `kind` enum: a
+  // site visit collects dietary (packed lunch) but no guests; a workshop
+  // takes neither. Collapsing them makes those cases unrepresentable.
+  allowGuests    Boolean           @default(false)
+  collectDietary Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  sortOrder      Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  event   Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  items   RsvpItem[]
+  invites RsvpInvite[]
+
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+/// One thing an invitee can say yes to: a dinner, a workshop slot, a tour.
+model RsvpItem {
+  id             String    @id @default(cuid())
+  campaignId     String
+  // Denormalized from the campaign. Kept so the existing event-scoped indexes
+  // and tenancy backfill keep working; ALWAYS set from campaign.eventId, never
+  // independently.
+  eventId        String
+  organizationId String?
+  name           String
+  startsAt       DateTime  @map("dinnerAt")
   location       String?
   description    String?   @db.Text
   rsvpDeadline   DateTime?
@@ -3059,25 +3108,29 @@ model RsvpDinner {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  event     Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  responses RsvpDinnerResponse[]
+  campaign  RsvpCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  event     Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  responses RsvpResponse[]
 
+  @@index([campaignId])
   @@index([eventId])
   @@index([organizationId])
+  @@map("RsvpDinner")
 }
 
 model RsvpInvite {
   id             String     @id @default(cuid())
+  campaignId     String
+  // Denormalized from the campaign (see RsvpItem.eventId).
   eventId        String
-  // Denormalized tenant key (Domain #15). Nullable, no FK; backfilled 1-hop
-  // from Event; stamped at create. See prisma/rls/rsvp.sql.
   organizationId String?
   token          String     @unique
   inviteeName    String
   inviteeEmail   String
   // Soft references (no FK) to the person's Registration/Speaker facet,
   // if the invitee was picked from an existing record. The invite keeps
-  // its own name/email snapshot, so a dangling id is harmless.
+  // its own name/email snapshot, so a dangling id is harmless. Submitters
+  // are Speaker rows, so they arrive via speakerId.
   registrationId String?
   speakerId      String?
   dietary        String?    @db.Text
@@ -3086,21 +3139,24 @@ model RsvpInvite {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
-  event     Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  responses RsvpDinnerResponse[]
+  campaign  RsvpCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  event     Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  responses RsvpResponse[]
 
-  @@unique([eventId, inviteeEmail])
+  // THE load-bearing line. Was @@unique([eventId, inviteeEmail]), which made a
+  // second audience on one event impossible — adding someone to the workshop
+  // list collided with their dinner invite.
+  @@unique([campaignId, inviteeEmail])
+  @@index([campaignId])
+  @@index([campaignId, status])
   @@index([eventId])
-  @@index([eventId, status])
   @@index([organizationId])
 }
 
-model RsvpDinnerResponse {
+model RsvpResponse {
   id             String   @id @default(cuid())
   inviteId       String
-  dinnerId       String
-  // Denormalized tenant key (Domain #15). Nullable, no FK; backfilled 2-hop
-  // via RsvpInvite → Event; stamped at create from the invite's org.
+  itemId         String   @map("dinnerId")
   organizationId String?
   attending      Boolean  @default(false)
   guestCount     Int      @default(0)
@@ -3108,12 +3164,13 @@ model RsvpDinnerResponse {
   updatedAt      DateTime @updatedAt
 
   invite RsvpInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
-  dinner RsvpDinner @relation(fields: [dinnerId], references: [id], onDelete: Cascade)
+  item   RsvpItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
-  @@unique([inviteId, dinnerId])
-  @@index([dinnerId])
+  @@unique([inviteId, itemId])
+  @@index([itemId])
   @@index([inviteId])
   @@index([organizationId])
+  @@map("RsvpDinnerResponse")
 }
 
 // ── Speaker reimbursement (July 20, 2026) ──────────────────────────

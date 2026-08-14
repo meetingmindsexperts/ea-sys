@@ -40,7 +40,7 @@ import {
   PenLine,
   Receipt,
   Ticket,
-  UtensilsCrossed,
+  CalendarCheck,
 } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -153,11 +153,11 @@ const SETUP_CARDS: SetupCardConfig[] = [
     hoverBorder: "hover:border-rose-400",
   },
   {
-    slug: "dinner",
-    title: "Dinner RSVP",
+    slug: "rsvp",
+    title: "RSVPs",
     description:
-      "Invite people to the event dinners (Day 1, Gala…) with a personalized link, and track who's attending — per-night headcounts, guests, and dietary needs.",
-    icon: UtensilsCrossed,
+      "Run any number of RSVPs (a gala dinner, parallel workshops, a site visit), each with its own guest list and personalized links, and track who's coming.",
+    icon: CalendarCheck,
     colorClasses:
       "bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300",
     hoverBorder: "hover:border-orange-400",
@@ -243,7 +243,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
       // from the platform default).
       db.emailTemplate.count({ where: { eventId } }),
       db.invoice.count({ where: { eventId } }),
-      db.rsvpDinner.count({ where: { eventId } }),
+      db.rsvpCampaign.count({ where: { eventId } }),
       db.speakerReimbursement.count({ where: { eventId } }),
     ]);
   } catch (err) {
@@ -261,7 +261,7 @@ export default async function SetupPage({ params }: SetupPageProps) {
     mediaFileCount,
     emailTemplateCount,
     invoiceCount,
-    dinnerCount,
+    campaignCount,
     reimbursementCount,
   ] = result;
   if (!event) notFound();
@@ -317,9 +317,9 @@ export default async function SetupPage({ params }: SetupPageProps) {
       configured: mediaFileCount > 0,
       count: mediaFileCount,
     },
-    dinner: {
-      configured: dinnerCount > 0,
-      count: dinnerCount,
+    rsvp: {
+      configured: campaignCount > 0,
+      count: campaignCount,
     },
     reimbursements: {
       configured: reimbursementCount > 0,

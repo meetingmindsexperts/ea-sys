@@ -30,8 +30,10 @@ import {
   ORG_B_ID,
   EVENT_A_SHARED_ID,
   SHARED_RSVP_INVITEE_EMAIL,
-  RSVP_DINNER_A_ID,
-  RSVP_DINNER_B_ID,
+  RSVP_CAMPAIGN_A_ID,
+  RSVP_CAMPAIGN_B_ID,
+  RSVP_ITEM_A_ID,
+  RSVP_ITEM_B_ID,
   RSVP_INVITE_A_ID,
   RSVP_INVITE_B_ID,
   RSVP_INVITE_B_TOKEN,
@@ -73,10 +75,10 @@ describe("Dinner RSVP RLS (prisma/rls/rsvp.sql) via the SET LOCAL extension", ()
     expect(leaked).toBeNull();
   });
 
-  it("RsvpDinner is lane-scoped: per-lane count + cross-tenant by-id miss", async () => {
-    expect(await runWithTenant(ORG_A_ID, () => db.rsvpDinner.count())).toBe(1);
+  it("RsvpItem is lane-scoped: per-lane count + cross-tenant by-id miss", async () => {
+    expect(await runWithTenant(ORG_A_ID, () => db.rsvpItem.count())).toBe(1);
     const leaked = await runWithTenant(ORG_A_ID, () =>
-      db.rsvpDinner.findUnique({ where: { id: RSVP_DINNER_B_ID }, select: { id: true } }),
+      db.rsvpItem.findUnique({ where: { id: RSVP_ITEM_B_ID }, select: { id: true } }),
     );
     expect(leaked).toBeNull();
   });
@@ -89,35 +91,45 @@ describe("Dinner RSVP RLS (prisma/rls/rsvp.sql) via the SET LOCAL extension", ()
     expect(leaked).toBeNull();
   });
 
-  it("2-hop RsvpDinnerResponse is lane-scoped: reading by inviteId resolves own, misses cross-tenant", async () => {
+  it("2-hop RsvpResponse is lane-scoped: reading by inviteId resolves own, misses cross-tenant", async () => {
     const own = await runWithTenant(ORG_A_ID, () =>
-      db.rsvpDinnerResponse.findMany({ where: { inviteId: RSVP_INVITE_A_ID }, select: { id: true } }),
+      db.rsvpResponse.findMany({ where: { inviteId: RSVP_INVITE_A_ID }, select: { id: true } }),
     );
     expect(own.map((r) => r.id)).toEqual([RSVP_RESPONSE_A_ID]);
     // B's response addressed by its own id under A's store misses (USING).
     const leaked = await runWithTenant(ORG_A_ID, () =>
-      db.rsvpDinnerResponse.findUnique({ where: { id: RSVP_RESPONSE_B_ID }, select: { id: true } }),
+      db.rsvpResponse.findUnique({ where: { id: RSVP_RESPONSE_B_ID }, select: { id: true } }),
     );
     expect(leaked).toBeNull();
-    expect(await runWithTenant(ORG_A_ID, () => db.rsvpDinnerResponse.count())).toBe(1);
+    expect(await runWithTenant(ORG_A_ID, () => db.rsvpResponse.count())).toBe(1);
   });
 
-  it("fail-closed: flag on but NO tenant store → zero rows on all three tables", async () => {
-    expect(await db.rsvpDinner.findMany({ select: { id: true } })).toHaveLength(0);
+  it("RsvpCampaign is lane-scoped: per-lane count + cross-tenant by-id miss", async () => {
+    expect(await runWithTenant(ORG_A_ID, () => db.rsvpCampaign.count())).toBe(1);
+    const leaked = await runWithTenant(ORG_A_ID, () =>
+      db.rsvpCampaign.findUnique({ where: { id: RSVP_CAMPAIGN_B_ID }, select: { id: true } }),
+    );
+    expect(leaked).toBeNull();
+  });
+
+  it("fail-closed: flag on but NO tenant store → zero rows on every RSVP table", async () => {
+    expect(await db.rsvpCampaign.findMany({ select: { id: true } })).toHaveLength(0);
+    expect(await db.rsvpItem.findMany({ select: { id: true } })).toHaveLength(0);
     expect(await db.rsvpInvite.findMany({ select: { id: true } })).toHaveLength(0);
-    expect(await db.rsvpDinnerResponse.findMany({ select: { id: true } })).toHaveLength(0);
+    expect(await db.rsvpResponse.findMany({ select: { id: true } })).toHaveLength(0);
   });
 
-  it("WITH CHECK rejects creating an RsvpDinner for ANOTHER tenant", async () => {
+  it("WITH CHECK rejects creating an RsvpItem for ANOTHER tenant", async () => {
     await expect(
       runWithTenant(ORG_A_ID, () =>
-        db.rsvpDinner.create({
+        db.rsvpItem.create({
           data: {
             id: "tenancy-rdin-smuggled",
+            campaignId: RSVP_CAMPAIGN_A_ID,
             eventId: EVENT_A_SHARED_ID,
             organizationId: ORG_B_ID, // tenant A writing into B
             name: "Smuggled Dinner",
-            dinnerAt: new Date("2027-01-11T19:00:00Z"),
+            startsAt: new Date("2027-01-11T19:00:00Z"),
           },
         }),
       ),
@@ -130,6 +142,7 @@ describe("Dinner RSVP RLS (prisma/rls/rsvp.sql) via the SET LOCAL extension", ()
         db.rsvpInvite.create({
           data: {
             id: "tenancy-rinv-smuggled",
+            campaignId: RSVP_CAMPAIGN_A_ID,
             eventId: EVENT_A_SHARED_ID,
             organizationId: ORG_B_ID,
             token: "tenancy-rtok-smuggled-000000000000",
@@ -154,13 +167,13 @@ describe("Dinner RSVP RLS (prisma/rls/rsvp.sql) via the SET LOCAL extension", ()
 
   it("cross-tenant DELETE misses: B's dinner cannot be deleted under A's store (USING)", async () => {
     await expect(
-      runWithTenant(ORG_A_ID, () => db.rsvpDinner.delete({ where: { id: RSVP_DINNER_B_ID } })),
+      runWithTenant(ORG_A_ID, () => db.rsvpItem.delete({ where: { id: RSVP_ITEM_B_ID } })),
     ).rejects.toMatchObject({ code: "P2025" });
   });
 
   it("scoped RsvpDinner by-id read resolves for the tenant's own row", async () => {
     const d = await runWithTenant(ORG_A_ID, () =>
-      db.rsvpDinner.findUnique({ where: { id: RSVP_DINNER_A_ID }, select: { organizationId: true } }),
+      db.rsvpItem.findUnique({ where: { id: RSVP_ITEM_A_ID }, select: { organizationId: true } }),
     );
     expect(d?.organizationId).toBe(ORG_A_ID);
   });

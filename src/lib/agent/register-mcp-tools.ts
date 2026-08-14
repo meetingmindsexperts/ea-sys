@@ -286,7 +286,8 @@ export function registerAllMcpTools(
     }},
     { name: "list_email_templates", description: "List email templates.", params: {} },
     { name: "get_event_stats", description: "Get event statistics dashboard.", params: {} },
-    { name: "list_dinner_rsvps", description: "List dinner RSVPs: each dinner with its per-night headcount (attendees + guests + total seats), an invited/responded/pending summary, and per-invitee responses (which dinners, guest counts, dietary). Optional status (PENDING/RESPONDED) + limit.", params: {
+    { name: "list_rsvps", description: "List the event's RSVPs (a gala dinner, parallel workshops, a site visit — an event can run several, each with its own guest list). Each RSVP carries its items, per-item headcounts (attendees + guests + total seats), an invited/responded/pending summary, and per-invitee responses. Optional campaignId (narrow to one RSVP), status (PENDING/RESPONDED) + limit.", params: {
+      campaignId: z.string().optional(),
       status: z.enum(["PENDING", "RESPONDED"]).optional(), limit: z.number().optional(),
     }},
     // ─── Orchestration reads ───

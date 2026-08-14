@@ -22,7 +22,7 @@ import { COMMUNICATION_TOOL_DEFINITIONS, COMMUNICATION_EXECUTORS } from "./tools
 import { PROMO_CODE_TOOL_DEFINITIONS, PROMO_CODE_EXECUTORS } from "./tools/promo-codes";
 import { DASHBOARD_TOOL_DEFINITIONS, DASHBOARD_EXECUTORS } from "./tools/dashboard";
 import { CERTIFICATE_TOOL_DEFINITIONS, CERTIFICATE_EXECUTORS } from "./tools/certificates";
-import { DINNER_TOOL_DEFINITIONS, DINNER_EXECUTORS } from "./tools/dinner";
+import { RSVP_TOOL_DEFINITIONS, RSVP_EXECUTORS } from "./tools/rsvp";
 
 export type { AgentContext } from "./tools/_shared";
 
@@ -40,7 +40,7 @@ export const AGENT_TOOL_DEFINITIONS: Tool[] = [
   ...PROMO_CODE_TOOL_DEFINITIONS,
   ...DASHBOARD_TOOL_DEFINITIONS,
   ...CERTIFICATE_TOOL_DEFINITIONS,
-  ...DINNER_TOOL_DEFINITIONS,
+  ...RSVP_TOOL_DEFINITIONS,
 ];
 
 export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
@@ -57,5 +57,5 @@ export const TOOL_EXECUTOR_MAP: Record<string, ToolExecutor> = {
   ...PROMO_CODE_EXECUTORS,
   ...DASHBOARD_EXECUTORS,
   ...CERTIFICATE_EXECUTORS,
-  ...DINNER_EXECUTORS,
+  ...RSVP_EXECUTORS,
 };

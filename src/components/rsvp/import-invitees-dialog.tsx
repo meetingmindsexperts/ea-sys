@@ -1,17 +1,24 @@
 "use client";
 
 /**
- * Dinner RSVP — import invitees from Registrations / Speakers.
+ * RSVP — import invitees from Registrations / Speakers / Submitters.
  *
  * Fetches the event's registrations + speakers, lets the organizer
- * multi-select (searchable), and POSTs them to /rsvp-invites with the
- * source `registrationId`/`speakerId` set. Already-invited emails are
- * shown disabled. The POST de-dups on (eventId, email) server-side, so
- * re-importing is safe. Docs: docs/DINNER_RSVP.md.
+ * multi-select (searchable), and POSTs them to the CAMPAIGN's invites route
+ * with the source `registrationId`/`speakerId` set. Already-invited emails are
+ * shown disabled. The POST de-dups on (campaignId, email) server-side, so
+ * re-importing is safe — and the same person may be imported into a DIFFERENT
+ * RSVP on the same event, which is the point of the campaign layer.
+ *
+ * Submitters are `Speaker` rows carrying `submitterSource` (the abstract /
+ * proposal self-signup doors), so they need no separate fetch — just a filter
+ * over the speakers we already have.
+ *
+ * Docs: docs/RSVP.md.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Search, Users, Mic } from "lucide-react";
+import { Loader2, Search, Users, Mic, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -34,20 +41,23 @@ interface Person {
 
 export function ImportInviteesDialog({
   eventId,
+  campaignId,
   open,
   onOpenChange,
   existingEmails,
   onImported,
 }: {
   eventId: string;
+  campaignId: string;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   existingEmails: Set<string>;
   onImported: () => void | Promise<void>;
 }) {
-  const [source, setSource] = useState<"registrations" | "speakers">("registrations");
+  const [source, setSource] = useState<"registrations" | "speakers" | "submitters">("registrations");
   const [regs, setRegs] = useState<Person[]>([]);
   const [speakers, setSpeakers] = useState<Person[]>([]);
+  const [submitters, setSubmitters] = useState<Person[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -89,23 +99,30 @@ export function ImportInviteesDialog({
         }
         if (sRes.ok) {
           const rows = await sRes.json();
-          setSpeakers(
-            (Array.isArray(rows) ? rows : []).flatMap((s: {
-              id: string;
-              firstName?: string;
-              lastName?: string;
-              email?: string;
-            }) =>
-              s.email
-                ? [{
+          const mapped = (Array.isArray(rows) ? rows : []).flatMap((s: {
+            id: string;
+            firstName?: string;
+            lastName?: string;
+            email?: string;
+            submitterSource?: string | null;
+          }) =>
+            s.email
+              ? [{
+                  person: {
                     key: `spk:${s.id}`,
                     name: `${s.firstName ?? ""} ${s.lastName ?? ""}`.trim() || s.email,
                     email: s.email,
                     speakerId: s.id,
-                  }]
-                : [],
-            ),
+                  } as Person,
+                  isSubmitter: Boolean(s.submitterSource),
+                }]
+              : [],
           );
+          // One fetch, two tabs: a submitter IS a Speaker row (with
+          // submitterSource set by the abstract/proposal signup door), so
+          // splitting here beats a second endpoint.
+          setSpeakers(mapped.filter((m) => !m.isSubmitter).map((m) => m.person));
+          setSubmitters(mapped.filter((m) => m.isSubmitter).map((m) => m.person));
         } else {
           console.error("import-invitees:speakers-load-failed", sRes.status);
           toast.error("Couldn't load speakers — try reopening the dialog.");
@@ -119,7 +136,7 @@ export function ImportInviteesDialog({
     })();
   }, [open, eventId]);
 
-  const people = source === "registrations" ? regs : speakers;
+  const people = source === "registrations" ? regs : source === "speakers" ? speakers : submitters;
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return people;
@@ -143,7 +160,7 @@ export function ImportInviteesDialog({
     }
     setSaving(true);
     try {
-      const res = await fetch(`/api/events/${eventId}/rsvp-invites`, {
+      const res = await fetch(`/api/events/${eventId}/rsvp-campaigns/${campaignId}/invites`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -193,6 +210,13 @@ export function ImportInviteesDialog({
             onClick={() => setSource("speakers")}
           >
             <Mic className="h-4 w-4 mr-1" /> Speakers ({speakers.length})
+          </Button>
+          <Button
+            size="sm"
+            variant={source === "submitters" ? "default" : "outline"}
+            onClick={() => setSource("submitters")}
+          >
+            <FileText className="h-4 w-4 mr-1" /> Submitters ({submitters.length})
           </Button>
         </div>
 

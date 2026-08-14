@@ -1,8 +1,14 @@
--- Row-Level Security policies: Dinner RSVP domain (Phase-2 sweep, Domain #15,
--- August 2026) — RsvpDinner + RsvpInvite (both 1-hop from Event) +
--- RsvpDinnerResponse (2-hop via RsvpInvite). All three gained a denormalized
+-- Row-Level Security policies: RSVP domain (Phase-2 sweep, Domain #15,
+-- August 2026) — RsvpCampaign + RsvpDinner + RsvpInvite (all 1-hop from Event)
+-- + RsvpDinnerResponse (2-hop via RsvpInvite). All gained a denormalized
 -- nullable organizationId (migration 20260803130000, backfilled 1/2-hop) and
 -- are stamped at every create site.
+--
+-- ⚠ Table names vs model names (migration 20260814120000): the Prisma models
+-- were renamed RsvpDinner -> RsvpItem and RsvpDinnerResponse -> RsvpResponse
+-- via @@map, so the PHYSICAL tables below keep the original names. A real
+-- rename is not blue/green safe. RsvpCampaign (Aug 14, 2026) is a genuinely
+-- new table and is stamped from its event at create.
 --
 -- See prisma/rls/contact.sql for the full template rationale (applied by the
 -- harness + platform bootstrap ONLY, never a migration; NO FORCE — enforcement
@@ -17,12 +23,13 @@
 --     for tenant A therefore returns null on tenant B's lane — the isolation the
 --     eventMatchesRequestTenant defense-in-depth already asserted, now enforced
 --     at the DB.
---   * RsvpInvite has @@unique([eventId, inviteeEmail]) but NOT a per-org-unique
+--   * RsvpInvite has @@unique([campaignId, inviteeEmail]) but NOT a per-org-unique
 --     on inviteeEmail alone — BOTH orgs can invite the SAME email address, so an
 --     unscoped `where:{ inviteeEmail }` returning only the caller's row is what
 --     proves scoping (the shared-value shape). The token is globally unique, so
 --     a cross-tenant `findUnique({ token })` returning null proves the public
---     bootstrap above.
+--     bootstrap above. (The key moved from eventId to campaignId on Aug 14,
+--     2026 — that is what lets ONE person sit on two audiences in one event.)
 --   * RsvpDinnerResponse is 2-hop — its org is stamped from the invite at create
 --     (public POST) and backfilled via RsvpInvite. Reading a response by its
 --     inviteId still resolves only on the owning tenant's lane.
@@ -32,6 +39,13 @@
 --     touches these tables.
 --
 -- Idempotent: safe to re-run. FOR ALL TO PUBLIC written out explicitly.
+
+ALTER TABLE "RsvpCampaign" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rsvpcampaign_tenant_isolation ON "RsvpCampaign";
+CREATE POLICY rsvpcampaign_tenant_isolation ON "RsvpCampaign"
+  FOR ALL TO PUBLIC
+  USING ("organizationId" = current_setting('app.current_org', true))
+  WITH CHECK ("organizationId" = current_setting('app.current_org', true));
 
 ALTER TABLE "RsvpDinner" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rsvpdinner_tenant_isolation ON "RsvpDinner";

@@ -40,7 +40,7 @@ export function isReadOnlyTool(toolName: string): boolean {
  * read the confidential VIP guest list); the agent surface must agree
  * with that policy, not tunnel around it.
  */
-export const ROSTER_PII_AGENT_TOOLS = new Set(["list_dinner_rsvps"]);
+export const ROSTER_PII_AGENT_TOOLS = new Set(["list_rsvps"]);
 
 export const SPEAKER_STATUSES = new Set(["INVITED", "CONFIRMED", "DECLINED", "CANCELLED"]);
 export const REGISTRATION_STATUSES = new Set(["PENDING", "CONFIRMED", "CANCELLED", "WAITLISTED", "CHECKED_IN"]);
