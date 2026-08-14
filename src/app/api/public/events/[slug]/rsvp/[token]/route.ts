@@ -44,6 +44,20 @@ function isItemOpen(d: { rsvpDeadline: Date | null; startsAt: Date }, now: numbe
   return (d.rsvpDeadline ?? d.startsAt).getTime() >= now;
 }
 
+/**
+ * A campaign the organizer has switched off must stop accepting answers.
+ *
+ * `RsvpItem.isActive` was always enforced (both queries filter it); the
+ * campaign-level flag was selected, badged "Inactive" in the console, reported
+ * to the AI agent — and read by nothing. So an organizer standing down a VIP
+ * dinner saw "Inactive" everywhere while every issued link kept moving the
+ * catering headcount. A flag that is displayed but not enforced is worse than
+ * no flag, because the UI actively lies about system state.
+ */
+function campaignClosed(campaign: { isActive: boolean }): boolean {
+  return !campaign.isActive;
+}
+
 /** Load the invite by token and assert it belongs to the URL's event + tenant. */
 async function loadInviteForSlug(req: Request, slug: string, token: string) {
   const invite = await db.rsvpInvite.findUnique({
@@ -137,6 +151,17 @@ export async function GET(req: Request, { params }: RouteParams) {
       if (!invite) {
         apiLogger.warn({ slug, stage: "load" }, "rsvp-public:invalid-token");
         return NextResponse.json({ error: "This RSVP link is invalid." }, { status: 404 });
+      }
+
+      if (campaignClosed(invite.campaign)) {
+        apiLogger.warn(
+          { slug, inviteId: invite.id, campaignId: invite.campaignId, stage: "campaign-closed" },
+          "rsvp-public:campaign-closed",
+        );
+        return NextResponse.json(
+          { error: "This RSVP is closed.", code: "RSVP_CLOSED" },
+          { status: 400 },
+        );
       }
 
       // Scoped to the invite's CAMPAIGN — this link must never surface another
@@ -233,6 +258,17 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "This RSVP link is invalid." }, { status: 404 });
       }
 
+      if (campaignClosed(invite.campaign)) {
+        apiLogger.warn(
+          { slug, inviteId: invite.id, campaignId: invite.campaignId, stage: "campaign-closed" },
+          "rsvp-public:campaign-closed",
+        );
+        return NextResponse.json(
+          { error: "This RSVP is closed.", code: "RSVP_CLOSED" },
+          { status: 400 },
+        );
+      }
+
       // Only accept responses for the CAMPAIGN's active, still-open items.
       // "Open" = before the explicit rsvpDeadline, else before the item itself
       // starts (review R2 M1 — a deadline-less item must not stay editable
@@ -280,14 +316,40 @@ export async function POST(req: Request, { params }: RouteParams) {
       // SINGLE mode is enforced HERE, not merely by the radio group: a crafted
       // POST naming two items must be a 400, never a silent first-wins.
       // Declining everything stays valid in both modes.
-      if (violatesSelectionMode(invite.campaign.selectionMode, attendingRows.length)) {
+      //
+      // ⚠ Count the RESULTING state, not just the submitted one. The replace-all
+      // below only deletes responses for OPEN items, so a CLOSED item the invitee
+      // is already attending survives untouched — and it is not in `accepted`, so
+      // counting `attendingRows` alone misses it. Without this an invitee picks
+      // Workshop A in the morning, A closes at its start time, they pick B in the
+      // afternoon, and the guard sees 1 while the DB ends up holding 2. That is
+      // reachable through the ordinary UI with no crafting, and it over-allocates
+      // exactly the room capacity SINGLE mode exists to protect.
+      const lockedInAttending = invite.responses.filter(
+        (r) => r.attending && !openIds.has(r.itemId),
+      ).length;
+      if (
+        violatesSelectionMode(
+          invite.campaign.selectionMode,
+          attendingRows.length + lockedInAttending,
+        )
+      ) {
         apiLogger.warn(
-          { slug, inviteId: invite.id, attending: attendingRows.length, stage: "selection-mode" },
+          {
+            slug,
+            inviteId: invite.id,
+            attending: attendingRows.length,
+            lockedInAttending,
+            stage: "selection-mode",
+          },
           "rsvp-public:single-mode-violation",
         );
         return NextResponse.json(
           {
-            error: "You can only choose one option for this RSVP.",
+            error:
+              lockedInAttending > 0
+                ? "You have already confirmed one option for this RSVP and its deadline has passed, so it can't be changed. Please contact the organizer."
+                : "You can only choose one option for this RSVP.",
             code: "SINGLE_SELECTION_ONLY",
           },
           { status: 400 },

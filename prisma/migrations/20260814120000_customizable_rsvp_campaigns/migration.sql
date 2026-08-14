@@ -14,7 +14,11 @@
 --     container querying a table that no longer exists.
 --   * Idempotent throughout: IF NOT EXISTS / IF EXISTS / duplicate_object traps,
 --     and a DETERMINISTIC campaign id so the backfill can be re-run.
---   * Step 12 is the ONE non-additive statement. See its own note.
+--   * NOT purely additive, in full: two SET NOT NULL (step 9) and two DROP
+--     INDEX (step 12 = the load-bearing unique swap; step 13 = a superseded
+--     performance index). Step 12 is the only one that can change behaviour;
+--     the rest are noted where they appear. An earlier version of this header
+--     said "ONE", which understated it.
 --
 -- Verified read-only against prod before writing (2026-08-14):
 --     RsvpDinner 1 · RsvpInvite 2 · RsvpDinnerResponse 0 · events with dinners 1
@@ -131,7 +135,7 @@ CREATE INDEX IF NOT EXISTS "RsvpInvite_campaignId_status_idx" ON "RsvpInvite"("c
 CREATE UNIQUE INDEX IF NOT EXISTS "RsvpInvite_campaignId_inviteeEmail_key"
   ON "RsvpInvite"("campaignId", "inviteeEmail");
 
--- 12. THE ONE NON-ADDITIVE STATEMENT.
+-- 12. THE LOAD-BEARING NON-ADDITIVE STATEMENT (see the header).
 --     Dropping @@unique([eventId, inviteeEmail]) is what actually permits a
 --     person to be on the dinner list AND the workshop list. It only LOOSENS,
 --     so an old container's writes still satisfy the stricter rule it believes

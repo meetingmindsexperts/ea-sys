@@ -1503,7 +1503,9 @@ export const TEMPLATE_VARIABLES: Record<string, { key: string; description: stri
     { key: "fullName", description: "Invitee full name (as entered)" },
     { key: "email", description: "Invitee email address" },
     { key: "eventName", description: "Event name" },
-    { key: "dinnerWord", description: "\"dinner\" or \"dinners\" — matches how many dinners the event has" },
+    { key: "rsvpName", description: "This RSVP's name, e.g. \"Gala Dinner\" or \"Pre-conference Workshops\"" },
+    { key: "itemWord", description: "\"session\" or \"sessions\" — a neutral word for RSVPs that are not dinners" },
+    { key: "dinnerWord", description: "\"dinner\" or \"dinners\" — LEGACY, reads wrong on a workshop RSVP; prefer {{rsvpName}}" },
     { key: "rsvpLink", description: "The invitee's personalized RSVP link (unique per recipient)" },
     { key: "personalMessage", description: "Optional note typed by the organizer at send time" },
     { key: "organizerName", description: "Organizing team / organization name" },
@@ -2588,10 +2590,10 @@ This is an automated message. The {{documentTypeLower}} is attached as a PDF doc
     // Editable per-event under Communications → Email Templates; the send
     // dialog previews it. {{personalMessage}} carries the optional note the
     // organizer types at send time.
-    subject: "You're invited to the {{dinnerWord}} — {{eventName}}",
+    subject: "{{rsvpName}} — {{eventName}}",
     htmlContent: `<div style="padding: 24px 0;">
     <p>Dear <strong>{{firstName}}</strong>,</p>
-    <p>You&apos;re invited to the {{dinnerWord}} for <strong>{{eventName}}</strong>. Please let us know whether you&apos;ll join us — it only takes a moment.</p>
+    <p>You&apos;re invited to <strong>{{rsvpName}}</strong> at {{eventName}}. Please let us know whether you&apos;ll join us — it only takes a moment.</p>
     {{personalMessage}}
     <div style="text-align: center; margin: 28px 0;">
       <a href="{{rsvpLink}}" style="display: inline-block; background: #00aade; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600;">RSVP now</a>
@@ -2604,7 +2606,7 @@ This is an automated message. The {{documentTypeLower}} is attached as a PDF doc
 
 Dear {{firstName}},
 
-You're invited to the {{dinnerWord}} for {{eventName}}. Please let us know whether you'll join us:
+You're invited to {{rsvpName}} at {{eventName}}. Please let us know whether you'll join us:
 {{rsvpLink}}
 
 {{personalMessage}}
@@ -3101,6 +3103,8 @@ export function getSamplePreviewVariables(
     surveyLink: "#",
     // Dinner-RSVP invitation placeholder — real sends use each invitee's token.
     rsvpLink: "#",
+    rsvpName: "Gala Dinner",
+    itemWord: "sessions",
     dinnerWord: "dinners",
     // Speaker-reimbursement placeholders — real sends use each speaker's
     // token link; the claim summary renders from the actual submission.

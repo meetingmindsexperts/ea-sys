@@ -3694,3 +3694,53 @@ shops.**
 ---
 
 *This document is intended for executive review. For technical implementation details, refer to DEVELOPMENT_STATUS.md and ARCHITECTURE.md.*
+
+## RSVP review — deferred (Aug 14, 2026)
+
+Post-ship 3-lens review of `cec1b775`. The 6 findings the commit *introduced*
+were fixed in-band (see the CLAUDE.md entry). These 4 were **verified against
+`cec1b775^` as carried over from the July 2026 Dinner RSVP build**, so they are
+pre-existing behaviour, not regressions — recorded rather than fixed to keep the
+remediation commit honest about what it changed.
+
+- **Replace-all destroys un-addressed fresher answers.** The public submit deletes
+  responses for ALL currently-open items but re-creates only the ones the payload
+  named. A stale desktop tab (loaded before item C existed) that resubmits will
+  delete the "yes" the invitee gave to C from their phone ten minutes earlier, and
+  the response is `{ ok: true, ignoredItemIds: [] }` so nobody is told. The M3
+  stale-form 409 doesn't fire because the payload still addresses ≥1 open item.
+  **Not a quick patch**: narrowing the delete to `accepted` changes the July-2026
+  "server-authoritative replace-all is the invitee's complete intent" contract,
+  which is what kills ghost attendance. Wants a decision, not a diff. The
+  alternative is to have the client send the item-id list it rendered and 409 when
+  it differs from `openIds` — turning it into a STALE_FORM, which is arguably the
+  honest shape.
+- **`RsvpResponse.organizationId` is stamped from the host-resolved slug lookup,**
+  not from `invite.event.organizationId`. Identical today; diverges only on a host
+  with no verified `TenantDomain` row AND a cross-org slug collision, where
+  `eventMatchesRequestTenant` passes unconditionally (`!res.orgId`). Under RLS the
+  mis-stamped rows would be invisible on their owner's lane. One-line fix
+  (`organizationId: invite.event.organizationId`), strictly more correct in every
+  case; deferred only because it is not this commit's regression.
+- **The form tells an invitee a recorded answer "was not recorded".** The client
+  submits every loaded item including already-closed ones, so the server returns
+  them in `ignoredItemIds` and the toast says "RSVP for Night 1 closed before you
+  submitted and was not recorded. Please contact the organizer." It *was* recorded,
+  last week. Generates support traffic. Fix: only warn for items that were NOT
+  already `closed` at load time (the client knows that flag).
+- **No rate limit on 3 writes + the PII-bearing roster GET.** `items/[itemId]` PUT
+  and DELETE, `invites/[inviteId]` DELETE, and `invites?export=csv`. The export is
+  the one that matters: bulk PII (names, emails, dietary), and the contacts export
+  carries 10/hr/org for exactly this reason. Staff-only and audited, so traceable
+  but not throttled.
+
+Also deferred, lower: `registrationId`/`speakerId` on an invite are unvalidated
+free strings (write-only today — nothing dereferences them); `denyReviewer` is
+called without `route` so refusals log who but not what; the setup-hub
+`db.rsvpCampaign.count` runs outside a tenant lane (shared with six sibling
+counts on the same page, fail-closed and cosmetic); duplicate `itemId`s in a
+submit payload aren't rejected (crafted-client only); an item deleted mid-submit
+yields a bare 500 where a 409 STALE_FORM would let the form reload; the invite
+DELETE audit doesn't snapshot the responses it cascades away; the per-event
+rate-limit buckets (`rsvp-send`, `rsvp-invites-add`) are now shared across every
+RSVP on the event and should key on `campaignId`.

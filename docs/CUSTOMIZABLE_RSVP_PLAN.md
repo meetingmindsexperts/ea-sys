@@ -18,8 +18,13 @@
 >   not a where-clause anyone can forget. The page moved `/dinner` → `/rsvp`
 >   (list) + `/rsvp/[campaignId]` (console), with `/dinner` a permanent redirect.
 > - `{{dinnerWord}}` is KEPT as an email variable name (17 materialised templates
->   reference it) with `{{itemWord}}` added as the alias for new templates — the
->   same key-not-label rule §4 states for the slug.
+>   reference it) — the same key-not-label rule §4 states for the slug. `{{itemWord}}`
+>   and `{{rsvpName}}` were ADDED, and they are **not aliases** (a first pass called
+>   them that and shipped a comment saying "both resolve to the same value" above two
+>   lines producing different words; the post-ship review caught it). The DEFAULT
+>   template now uses `{{rsvpName}}`, which is correct for a workshop as well as a
+>   dinner; all three are registered in `TEMPLATE_VARIABLES` + the preview samples so
+>   Preview and the send agree.
 > - §2a's "Add another date" reveal became a permanently-visible **Options** panel
 >   on the console; the one-form create + the Options *config* disclosure are as
 >   planned.
@@ -389,9 +394,8 @@ attend*, that is the workshop shape and this plan covers it with no extra code.
 
 ## 11. Open questions
 
-1. **P1 naming debt** — accept `@@map` (SQL keeps `RsvpDinner`), or spend a second deploy
-   on clean table names?
-2. **P3 wording** — is "RSVPs" the right organizer-facing label, or "Invitations" /
-   "Sign-ups"?
+1. ~~**P1 naming debt**~~ — DECIDED at build: `@@map`, SQL keeps `RsvpDinner`. Revisit only
+   if reading the DB directly becomes common.
+2. ~~**P3 wording**~~ — DECIDED at build: shipped as **"RSVPs"**.
 3. Should a campaign be able to **auto-invite a whole segment** (e.g. everyone with tag
    `committee`) rather than an explicit import, and re-evaluate as registrations arrive?

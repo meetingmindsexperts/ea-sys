@@ -10,7 +10,7 @@
  */
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { denyReviewer } from "@/lib/auth-guards";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -115,20 +115,48 @@ export async function PUT(req: Request, { params }: RouteParams) {
       }
 
       const p = parsed.data;
-      // updateMany bound to { id, eventId }: the org binding is atomic with
-      // the write, not merely checked by the read above.
-      await db.rsvpCampaign.updateMany({
-        where: { id: campaignId, eventId },
-        data: {
-          ...(p.name !== undefined ? { name: p.name } : {}),
-          ...(p.description !== undefined ? { description: p.description || null } : {}),
-          ...(p.selectionMode !== undefined ? { selectionMode: p.selectionMode } : {}),
-          ...(p.allowGuests !== undefined ? { allowGuests: p.allowGuests } : {}),
-          ...(p.collectDietary !== undefined ? { collectDietary: p.collectDietary } : {}),
-          ...(p.isActive !== undefined ? { isActive: p.isActive } : {}),
-          ...(p.sortOrder !== undefined ? { sortOrder: p.sortOrder } : {}),
-        },
+
+      // Turning guests OFF must reconcile the answers already on file, in the
+      // same transaction as the flag. Otherwise the headcount tile keeps summing
+      // guestCount ("20 attending +15 guests · 35 seats") while the CSV drops the
+      // guest columns entirely — so the organizer hands the caterer an export
+      // whose total they cannot explain, and the invitee can no longer correct it
+      // because the input is gone. Config that changes what a field MEANS has to
+      // migrate the field.
+      const turningGuestsOff = p.allowGuests === false && existing.allowGuests;
+      let guestsCleared = 0;
+
+      await tenantTransaction(async (tx) => {
+        // updateMany bound to { id, eventId }: the org binding is atomic with
+        // the write, not merely checked by the read above.
+        await tx.rsvpCampaign.updateMany({
+          where: { id: campaignId, eventId },
+          data: {
+            ...(p.name !== undefined ? { name: p.name } : {}),
+            ...(p.description !== undefined ? { description: p.description || null } : {}),
+            ...(p.selectionMode !== undefined ? { selectionMode: p.selectionMode } : {}),
+            ...(p.allowGuests !== undefined ? { allowGuests: p.allowGuests } : {}),
+            ...(p.collectDietary !== undefined ? { collectDietary: p.collectDietary } : {}),
+            ...(p.isActive !== undefined ? { isActive: p.isActive } : {}),
+            ...(p.sortOrder !== undefined ? { sortOrder: p.sortOrder } : {}),
+          },
+        });
+
+        if (turningGuestsOff) {
+          const { count } = await tx.rsvpResponse.updateMany({
+            where: { invite: { campaignId }, guestCount: { gt: 0 } },
+            data: { guestCount: 0 },
+          });
+          guestsCleared = count;
+        }
       });
+
+      if (guestsCleared > 0) {
+        apiLogger.info(
+          { eventId, campaignId, guestsCleared, userId: session.user.id },
+          "rsvp-campaigns:guest-counts-cleared",
+        );
+      }
 
       const campaign = await loadRsvpCampaign(campaignId, eventId);
 
@@ -148,6 +176,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
                 collectDietary: existing.collectDietary,
                 isActive: existing.isActive,
               },
+              guestsCleared,
               after: {
                 name: campaign?.name,
                 selectionMode: campaign?.selectionMode,

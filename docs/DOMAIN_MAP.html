@@ -461,17 +461,17 @@
 <span class="oneliner">Post-event survey (per-registration token invites + reusable share link + builder) and dinner RSVP (per-dinner headcounts via one personalized token link).</span></summary>
 <div class="kids">
 <details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
-<div class="leaf"><b class="k">UI</b> <code>survey/</code> builder (+ share-link card, preview) · <code>dinner/</code> console (dinners, invitees, headcount tiles, CSV, send/remind)</div>
-<div class="leaf"><b class="k">REST</b> <code>survey/*</code> · <code>survey/share-link</code> · <code>dinners/*</code> · <code>rsvp-invites/*</code> (+ <code>/send</code>)</div>
+<div class="leaf"><b class="k">UI</b> <code>survey/</code> builder (+ share-link card, preview) · <code>rsvp/</code> list + <code>rsvp/[campaignId]/</code> console (dinners, invitees, headcount tiles, CSV, send/remind)</div>
+<div class="leaf"><b class="k">REST</b> <code>survey/*</code> · <code>survey/share-link</code> · <code>rsvp-campaigns/*</code> (+ nested <code>items/*</code> · <code>invites/*</code>) (+ <code>/send</code>)</div>
 <div class="leaf"><b class="k">Public</b> <code>e/[slug]/survey</code> (<code>?token=</code> / <code>?share=</code> / <code>?preview=1</code>) · <code>e/[slug]/rsvp/[token]</code></div>
-<div class="leaf"><b class="k">MCP</b> <code>list_dinner_rsvps</code> (<code>tools/dinner.ts</code>, read-only)</div>
+<div class="leaf"><b class="k">MCP</b> <code>list_rsvps</code> (<code>tools/rsvp.ts</code>, read-only, grouped by campaign)</div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
 <div class="leaf"><code>lib/survey/share-link.ts</code> (timing-safe token) · <code>lib/rsvp/rsvp.ts</code> (tokens, schemas, headcounts)</div>
 <div class="leaf">Survey completion stamps <code>Registration.surveyCompletedAt</code> → <b>feeds cert auto-issue</b></div>
 </div></details>
 <details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
-<div class="leaf"><code>SurveyResponse</code> · <code>Event.surveyConfig</code> / <code>surveyShareLink</code> · <code>RsvpDinner</code> · <code>RsvpInvite</code> (unique token per person per event) · <code>RsvpDinnerResponse</code></div>
+<div class="leaf"><code>SurveyResponse</code> · <code>Event.surveyConfig</code> / <code>surveyShareLink</code> · <code>RsvpCampaign</code> · <code>RsvpItem</code> · <code>RsvpInvite</code> (unique token per person per <b>campaign</b>) · <code>RsvpResponse</code></div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
 <div class="gotcha">One response per registration; the share-link path resolves email → registration (event-scoped).</div>

@@ -35,7 +35,7 @@
 --     inviteId still resolves only on the owning tenant's lane.
 --   * The public POST replace-all runs in a tenantTransaction (SET LOCAL on its
 --     own pooled backend) so the delete/create/update all ride the tenant lane.
---   * MCP list_dinner_rsvps wraps with the session (API-key) org; no cron worker
+--   * MCP list_rsvps wraps with the session (API-key) org; no cron worker
 --     touches these tables.
 --
 -- Idempotent: safe to re-run. FOR ALL TO PUBLIC written out explicitly.

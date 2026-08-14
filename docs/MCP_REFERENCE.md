@@ -127,7 +127,7 @@ Both return the same `{ organizationId }` context, so downstream tools don't car
 | `get_event_info` | Event details: name, dates, venue, status, counts |
 | `get_event_stats` | Basic dashboard: registration/payment/speaker/abstract status counts |
 | `get_event_dashboard` | Rich aggregate: counts + upcoming sessions + live now + recent registrations + agreement signed/unsigned. **Replaces 5-call sequences.** |
-| `list_dinner_rsvps` | Dinner RSVPs: each dinner with per-night headcount (attendees + guests + total seats), invited/responded/pending summary, and per-invitee responses (which dinners, guest counts, dietary). Optional `status` (PENDING/RESPONDED) + `limit`. Read-only. |
+| `list_rsvps` | The event's RSVPs (a gala dinner, parallel workshops, a site visit — an event can run several, each with its own guest list). Each carries its options, per-item headcounts (attendees + guests + total seats), an invited/responded/pending summary, and per-invitee responses. **Grouped by RSVP** so a dinner headcount and a workshop headcount are never summed. Optional `campaignId` (narrow to one), `status` (PENDING/RESPONDED) + `limit`. Read-only. |
 | `search_event` | Cross-domain substring search across registrations, speakers, abstracts, contacts |
 
 ### Registrations & tickets (8)

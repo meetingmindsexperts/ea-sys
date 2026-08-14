@@ -140,13 +140,23 @@ Every lookup binds `{ id, campaignId }` and resolves the campaign against
 `{ id, eventId }` first, so an id from another campaign or event cannot resolve
 against this URL.
 
+**⚠ `{{itemWord}}` is NOT an alias for `{{dinnerWord}}`.** They render different
+words (`session`/`sessions` vs `dinner`/`dinners`) — an earlier version of this
+file and of the route comment claimed otherwise, which would have silently
+rewritten an organizer's copy the moment they swapped the token. All three of
+`{{rsvpName}}`, `{{itemWord}}` and `{{dinnerWord}}` are registered in
+`TEMPLATE_VARIABLES` and `getSamplePreviewVariables`, so the editor lists them
+and **Preview renders them exactly as the send will**. The DEFAULT template now
+uses `{{rsvpName}}` (correct for any RSVP); `{{dinnerWord}}` stays resolvable
+because 17 events already reference it, but reads wrong on a workshop.
+
 **⚠ The email template slug stays `dinner-rsvp-invitation`.** Verified on prod:
 **17 events already hold a materialised row** on that slug (the templates list
 GET auto-seeds system defaults as editable rows). Renaming it orphans all 17 and
 silently falls back to the default for anyone who edited theirs. A slug is a
 **key**, not a label — the display label changed, the slug did not. Same rule
-for the `{{dinnerWord}}` variable; `{{itemWord}}` is the alias new templates
-should use.
+for the `{{dinnerWord}}` variable — kept resolvable, but the default template no
+longer uses it.
 
 Shared helpers: [src/lib/rsvp/rsvp.ts](../src/lib/rsvp/rsvp.ts) —
 `generateRsvpToken`, `normalizeRsvpEmail`, `computeItemHeadcounts`,
@@ -168,9 +178,11 @@ reconnect**; `package.json` bumped as the cache-invalidation hint). In
 
 ## Migration
 
-`prisma/migrations/20260814120000_customizable_rsvp_campaigns` — additive and
-idempotent except **one** statement, `DROP INDEX RsvpInvite_eventId_inviteeEmail_key`,
-which is what actually permits a person on two audiences. It only *loosens*, and
+`prisma/migrations/20260814120000_customizable_rsvp_campaigns` — idempotent throughout. Not purely
+additive, in full: two `SET NOT NULL` and two `DROP INDEX` — of which only
+`DROP INDEX RsvpInvite_eventId_inviteeEmail_key` can change behaviour, and it is
+what actually permits a person on two audiences (the other drops a superseded
+performance index). It only *loosens*, and
 it was verified collision-free first (prod held **1 item, 2 invites, 0
 responses**). Precedent: `20260625140000_cert_per_template_uniqueness`. At real
 scale the principled form is expand/contract — ship the additive steps, deploy,

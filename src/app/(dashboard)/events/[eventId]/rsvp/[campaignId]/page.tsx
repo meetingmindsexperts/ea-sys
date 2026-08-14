@@ -639,7 +639,7 @@ export default function RsvpCampaignConsole() {
       <Dialog open={itemDialog} onOpenChange={setItemDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingItem ? "Edit dinner" : "Add dinner"}</DialogTitle>
+            <DialogTitle>{editingItem ? "Edit option" : "Add option"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>

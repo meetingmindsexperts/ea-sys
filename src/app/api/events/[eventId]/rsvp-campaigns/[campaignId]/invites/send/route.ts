@@ -197,9 +197,18 @@ export async function POST(req: Request, { params }: RouteParams) {
         `${sender?.firstName ?? ""} ${sender?.lastName ?? ""}`.trim() ||
         "Event Organizer";
       const organizerSignature = sender?.emailSignature || "";
-      // `dinnerWord` is kept as the variable NAME for the same reason the slug
-      // is (17 saved templates reference it); `itemWord` is the alias new
-      // templates should use. Both resolve to the same value.
+      // These are NOT aliases — they render different words, and an earlier
+      // comment here claimed otherwise, which would have quietly rewritten an
+      // organizer's copy from "dinner" to "session" the moment they followed
+      // the docs and swapped the token.
+      //
+      // `dinnerWord` is kept because 17 events already hold a materialised
+      // `dinner-rsvp-invitation` row referencing it — a slug and a variable
+      // name are both KEYS, not labels. It reads wrong on a workshop RSVP, so
+      // the DEFAULT template no longer uses it; new events get {{rsvpName}},
+      // which is correct for any RSVP. All three are registered in
+      // TEMPLATE_VARIABLES and getSamplePreviewVariables, so the editor lists
+      // them and Preview renders them exactly as the send will.
       const itemWord = itemCount === 1 ? "session" : "sessions";
       const dinnerWord = itemCount === 1 ? "dinner" : "dinners";
       const rawHtmlKeys = new Set(["personalMessage", "rsvpLink", "organizerSignature"]);

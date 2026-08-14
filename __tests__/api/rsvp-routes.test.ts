@@ -181,6 +181,11 @@ describe("invite de-dup is scoped to the CAMPAIGN, not the event", () => {
   it("someone already on ANOTHER campaign is still created here", async () => {
     // The existing-lookup is campaign-scoped, so a person invited to the
     // dinner returns nothing for the workshop campaign → they are created.
+    //
+    // The mock returns [] for ANY where, so the outcome assertions below would
+    // pass against an eventId-scoped lookup too — i.e. against the exact bug
+    // this test names. The where assertion is what makes it discriminate; a
+    // test whose name outruns its body is worse than no test.
     mockDb.rsvpInvite.findMany.mockResolvedValue([]);
     mockDb.rsvpInvite.createMany.mockResolvedValue({ count: 1 });
 
@@ -190,6 +195,10 @@ describe("invite de-dup is scoped to the CAMPAIGN, not the event", () => {
     } as unknown as Request;
     const res = await invitesPost(req, { params: campaignParams });
 
+    expect(mockDb.rsvpInvite.findMany.mock.calls[0][0].where).toEqual({
+      campaignId: "c1",
+      inviteeEmail: { in: ["x@uni.edu"] },
+    });
     expect((await res.json()).created).toBe(1);
     expect(mockDb.rsvpInvite.createMany.mock.calls[0][0].data[0]).toMatchObject({
       campaignId: "c1",
@@ -406,6 +415,78 @@ describe("POST public rsvp — server-authoritative replace-all over open items 
       });
       expect((await res.json()).ok).toBe(true);
       expect(tx.rsvpResponse.createMany.mock.calls[0][0].data).toHaveLength(2);
+    });
+  });
+
+  describe("a CLOSED item the invitee already attends counts toward SINGLE (H1)", () => {
+    it("400s when picking a second option while a closed one is still attended", async () => {
+      // The replace-all only deletes responses for OPEN items, so A's row
+      // survives. Counting only the submitted rows saw 1 and let the DB reach 2
+      // — reachable with no crafting: pick A, let A close, pick B.
+      const tx = wireInvite({ selectionMode: "SINGLE" });
+      mockDb.rsvpItem.findMany.mockResolvedValue([
+        { id: "A", rsvpDeadline: null, startsAt: PAST },   // closed, still attended
+        { id: "B", rsvpDeadline: null, startsAt: FUTURE },
+      ]);
+      const res = await submit({ items: [{ itemId: "B", attending: true, guestCount: 0 }] });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.code).toBe("SINGLE_SELECTION_ONLY");
+      // The message must explain WHY, or the invitee just retries forever.
+      expect(body.error).toMatch(/already confirmed|deadline has passed/i);
+      expect(tx.rsvpResponse.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("still allows the single pick when the closed item was DECLINED", async () => {
+      const tx = wireInvite({ selectionMode: "SINGLE" });
+      mockDb.rsvpInvite.findUnique.mockResolvedValue({
+        id: "inv1", eventId: "ev1", campaignId: "c1",
+        inviteeName: "Jane", inviteeEmail: "jane@x.com", dietary: null, status: "RESPONDED",
+        campaign: { ...CAMPAIGN, selectionMode: "SINGLE" },
+        event: { slug: "gala", name: "Gala", bannerImage: null, bannerImageMobile: null, startDate: new Date(), endDate: new Date() },
+        responses: [{ itemId: "A", attending: false, guestCount: 0 }], // declined, not attending
+      });
+      mockDb.rsvpItem.findMany.mockResolvedValue([
+        { id: "A", rsvpDeadline: null, startsAt: PAST },
+        { id: "B", rsvpDeadline: null, startsAt: FUTURE },
+      ]);
+      const res = await submit({ items: [{ itemId: "B", attending: true, guestCount: 0 }] });
+      expect((await res.json()).ok).toBe(true);
+      expect(tx.rsvpResponse.createMany.mock.calls[0][0].data).toHaveLength(1);
+    });
+
+    it("MULTI is unaffected by closed attendance", async () => {
+      const tx = wireInvite({ selectionMode: "MULTI" });
+      mockDb.rsvpItem.findMany.mockResolvedValue([
+        { id: "A", rsvpDeadline: null, startsAt: PAST },
+        { id: "B", rsvpDeadline: null, startsAt: FUTURE },
+      ]);
+      const res = await submit({ items: [{ itemId: "B", attending: true, guestCount: 0 }] });
+      expect((await res.json()).ok).toBe(true);
+      expect(tx.rsvpResponse.createMany).toHaveBeenCalled();
+    });
+  });
+
+  describe("an inactive campaign stops accepting answers (M-A)", () => {
+    it("POST 400s RSVP_CLOSED and writes nothing", async () => {
+      // isActive was displayed, badged and settable while being enforced
+      // nowhere — the console said "Inactive" while links kept working.
+      const tx = wireInvite({ isActive: false });
+      const res = await submit({ items: [{ itemId: "B", attending: true, guestCount: 0 }] });
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe("RSVP_CLOSED");
+      expect(tx.rsvpResponse.deleteMany).not.toHaveBeenCalled();
+      expect(tx.rsvpInvite.update).not.toHaveBeenCalled();
+      // Refused before the items are even read.
+      expect(mockDb.rsvpItem.findMany).not.toHaveBeenCalled();
+    });
+
+    it("an ACTIVE campaign is unaffected", async () => {
+      const tx = wireInvite({ isActive: true });
+      const res = await submit({ items: [{ itemId: "B", attending: true, guestCount: 0 }] });
+      expect((await res.json()).ok).toBe(true);
+      expect(tx.rsvpInvite.update).toHaveBeenCalled();
     });
   });
 
