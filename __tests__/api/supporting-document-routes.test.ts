@@ -285,3 +285,58 @@ describe("public /uploads catch-all — resident-letters prefix blocked", () => 
     expect(res.status).toBe(403);
   });
 });
+
+// ── Download guard narrowed (Aug 14, 2026) ───────────────────────────────────
+//
+// The route-level half of src/lib/supporting-document-visibility.ts. The
+// predicate's own tests pin the truth table; this pins that the ROUTE actually
+// consults it — the reachability gap that keeps biting this codebase, where a
+// unit is correct and nothing calls it.
+//
+// Note `denyReviewer` is mocked to a permissive no-op in this suite, so a 403
+// here can only come from the new predicate.
+describe("supporting-document download — narrowed role guard", () => {
+  async function getAs(role: string) {
+    mockAuth.mockResolvedValue({ user: { id: "u1", role, organizationId: "org-1" } });
+    const { GET } = await import(
+      "@/app/api/events/[eventId]/registrations/[registrationId]/supporting-document/route"
+    );
+    return GET({} as Request, {
+      params: Promise.resolve({ eventId: "evt1", registrationId: "reg1" }),
+    });
+  }
+
+  const okPath = "/uploads/resident-letters/evt1/3f8b21ca-9d44-4e11-8a20-1f0b7c6d5e33.pdf";
+
+  /** Everything the happy path needs, so only the ROLE varies between cases. */
+  function seedHappyPath() {
+    mockDb.event.findFirst.mockResolvedValue({ id: "evt1", organizationId: "org1" });
+    mockDb.registration.findFirst.mockResolvedValue({
+      supportingDocumentUrl: okPath,
+      supportingDocumentFilename: "letter.pdf",
+    });
+    mockRealpath.mockImplementation(async (p: string) => p);
+    mockReadFile.mockResolvedValue(Buffer.from("%PDF-1.7 body"));
+  }
+
+  it("refuses the desk roles with a 403 and never reads a file", async () => {
+    for (const role of ["ONSITE", "MEMBER", "WEBINARS"]) {
+      vi.clearAllMocks();
+      // Seeded so the 403 is unambiguously the role guard and not a missing
+      // fixture — the file IS there and IS readable for these calls.
+      seedHappyPath();
+      const res = await getAs(role);
+      expect(res.status, role).toBe(403);
+      expect(mockReadFile, role).not.toHaveBeenCalled();
+    }
+  });
+
+  it("still streams to admin and organizer", async () => {
+    for (const role of ["ADMIN", "ORGANIZER", "SUPER_ADMIN"]) {
+      vi.clearAllMocks();
+      seedHappyPath();
+      const res = await getAs(role);
+      expect(res.status, role).toBe(200);
+    }
+  });
+});

@@ -8,15 +8,16 @@
  *     returned via `include:` on the registration list + detail GETs, and
  *     NEITHER was in `FINANCIAL_KEYS` — so `redactFinancialFields`, the only
  *     redaction pass that runs for non-finance roles, never stripped them. A
- *     MEMBER (read-only sponsor-side observer) and an internal-domain
+ *     MEMBER (org-bound read-only viewer) and an internal-domain
  *     REGISTRANT could pull every attendee's entry barcode in one call and
  *     print/clone a badge.
  *
  * WHY THIS IS ITS OWN BOUNDARY (not folded into finance visibility): the
  * barcode boundary and the finance boundary are DIFFERENT. `FINANCE_ROLES`
  * includes MEMBER + ONSITE (they record payments), but:
- *   - MEMBER must NOT see the entry barcode — a leadership/auditor/sponsor-side
- *     viewer has no reason to hold a door credential.
+ *   - MEMBER must NOT see the entry barcode — a read-only viewer (internal
+ *     staff, per the Aug 14 2026 correction) has no reason to hold a door
+ *     credential.
  *   - ONSITE MUST see it — desk staff print badges (which carry the barcode).
  * So barcode visibility is a strict subset that does not match either
  * `FINANCE_ROLES` or `canWrite`'s set — it needs its own predicate.

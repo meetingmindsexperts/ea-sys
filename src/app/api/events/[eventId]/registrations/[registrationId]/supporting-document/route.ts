@@ -18,7 +18,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
 import { apiLogger } from "@/lib/logger";
-import { denyReviewer, REGISTRATION_DESK_ALLOW } from "@/lib/auth-guards";
+import { denyReviewer } from "@/lib/auth-guards";
+import { canViewSupportingDocument } from "@/lib/supporting-document-visibility";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { SUPPORTING_DOCUMENT_PATH_PREFIX, isSupportingDocumentPath } from "@/lib/supporting-document";
 
@@ -39,10 +40,24 @@ export async function GET(_req: Request, { params }: RouteParams) {
       apiLogger.warn({ eventId, registrationId }, "supporting-document-file:unauthenticated");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    // Desk staff verify the letter at the registration desk, so the same
-    // allow-list that lets them check someone in lets them read it.
-    const denied = denyReviewer(session, { allow: REGISTRATION_DESK_ALLOW });
+    // Narrowed Aug 14, 2026 to ADMIN / ORGANIZER / SUPER_ADMIN — the same guard
+    // the passport-scan and bank-detail routes use. The predicate carries the
+    // full reasoning; the short version is that the original "desk staff verify
+    // it at the desk" justification does not survive contact with what the desk
+    // actually does, and since Aug 13 an organizer can name the requested
+    // document anything, including "Passport copy".
+    //
+    // denyReviewer first (it owns the refusal logging for the restricted set),
+    // then the narrower predicate for the roles it would otherwise admit.
+    const denied = denyReviewer(session);
     if (denied) return denied;
+    if (!canViewSupportingDocument(session.user.role)) {
+      apiLogger.warn(
+        { eventId, registrationId, userId: session.user.id, role: session.user.role },
+        "supporting-document-file:role-refused",
+      );
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),

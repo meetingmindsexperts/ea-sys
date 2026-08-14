@@ -23,7 +23,8 @@
  *
  * Who may read the contact store (owner decision, July 14, 2026):
  *   SUPER_ADMIN / ADMIN / ORGANIZER — staff who run events.
- *   MEMBER — the org-bound read-only viewer (leadership / auditor / sponsor-side).
+ *   MEMBER — the org-bound read-only viewer (internal staff; the older
+ *   "sponsor-side" wording was corrected Aug 14, 2026).
  *            Sees contacts INCLUDING notes; it is a read-only role by design.
  *   API keys — admin-equivalent, org-scoped, admin-minted.
  * Everyone else is blocked: ONSITE (desk temp, event-scoped by design),

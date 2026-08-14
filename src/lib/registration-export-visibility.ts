@@ -11,7 +11,7 @@
  *     That was tolerable while the "export" was a browser-side reassembly of a
  *     JSON payload. It is not tolerable for a one-click
  *     `Content-Disposition: attachment` spreadsheet. Reachability before this
- *     helper: **MEMBER** (leadership / auditors / sponsor-side per the RBAC
+ *     helper: **MEMBER** (the org-bound read-only viewer — internal staff per the RBAC
  *     docs) could pull the full delegate book *including prices and payer
  *     attribution*, and an **internal-domain REGISTRANT** — org-bound since the
  *     June 16 rule, but still role REGISTRANT — could pull every attendee's

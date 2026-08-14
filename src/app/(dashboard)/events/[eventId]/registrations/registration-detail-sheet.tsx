@@ -78,6 +78,7 @@ import { cn, formatCurrency, formatDate, formatDateTime, formatPersonName } from
 import { formatSerialId } from "@/lib/registration-serial";
 import { computeCancelledCreditState } from "@/lib/registration-financials";
 import { canViewFinance } from "@/lib/finance-visibility";
+import { canViewSupportingDocument } from "@/lib/supporting-document-visibility";
 import { queryKeys, useTickets, usePreviewEmailBySlug, useSponsors, useBillingAccounts, useSendCompletionEmails, useEventTags, useEmailTemplates, useEvent, useResendRegistrationDocuments } from "@/hooks/use-api";
 import { isCustomTemplateSlug } from "@/lib/email-template-slugs";
 
@@ -191,6 +192,11 @@ export function RegistrationDetailSheet({
   // ONSITE + MEMBER now SEE money (they record payments) — canViewFinance
   // includes them, so the Billing tab + Payment Summary + amounts show.
   const showFinance = canViewFinance(userSession?.user?.role);
+  // Narrower than finance and narrower than the desk: admin/organizer only
+  // (src/lib/supporting-document-visibility.ts). Hidden rather than rendered
+  // as a dead link — a row whose only action 403s is worse than no row, and it
+  // would invite an organizer to ask desk staff to "just open it".
+  const showSupportingDocument = canViewSupportingDocument(userSession?.user?.role);
   const { data: regTypes = [] } = useTickets(eventId);
   // Active custom email templates — added as "Send Email" dropdown options so a
   // single registration can be sent a saved template, not just the built-ins.
@@ -1366,7 +1372,7 @@ export function RegistrationDetailSheet({
                         a silent absence is exactly what an organizer needs to
                         see in order to chase it. Opens the authed stream; the
                         file is not publicly readable. */}
-                    {requiresSupportingDocument(selectedRegistration.ticketType) && (
+                    {showSupportingDocument && requiresSupportingDocument(selectedRegistration.ticketType) && (
                       <div className="col-span-2">
                         <div className="text-xs text-muted-foreground">
                           {supportingDocumentLabel(selectedRegistration.ticketType)}
