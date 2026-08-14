@@ -604,7 +604,7 @@ describe("Webhook: checkout.session.completed idempotency", () => {
     expect(res.status).toBe(200);
     expect(mockDb.registration.findUnique).not.toHaveBeenCalled();
     expect(mockApiLogger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: "Stripe checkout session missing registrationId metadata" })
+      expect.objectContaining({ msg: expect.stringContaining("foreign-checkout-session-ignored") })
     );
   });
 
@@ -632,7 +632,7 @@ describe("Webhook: checkout.session.completed idempotency", () => {
 
     const logged = mockApiLogger.warn.mock.calls
       .map((c) => c[0])
-      .find((a) => a?.msg === "Stripe checkout session missing registrationId metadata");
+      .find((a) => typeof a?.msg === "string" && a.msg.includes("checkout-session"));
 
     // Did money move?
     expect(logged.paymentStatus).toBe("paid");
@@ -665,8 +665,73 @@ describe("Webhook: checkout.session.completed idempotency", () => {
 
     const logged = mockApiLogger.warn.mock.calls
       .map((c) => c[0])
-      .find((a) => a?.msg === "Stripe checkout session missing registrationId metadata");
+      .find((a) => typeof a?.msg === "string" && a.msg.includes("checkout-session"));
     expect(JSON.stringify(logged)).not.toContain("someone@hospital.org");
+  });
+
+  // Both stay at WARN (owner: "info I don't notice, warning I notice"). What
+  // changes is that they are TELLABLE APART, because they mean opposite things
+  // and the benign one recurs every few days. Under one message the rare real
+  // failure gets dismissed along with the routine noise.
+  it("labels a foreign session (no metadata) distinctly from one of ours that lost its tags", async () => {
+    const foreign = makeStripeEvent("checkout.session.completed", {
+      id: "cs_live_foreign",
+      metadata: {},
+      currency: "usd",
+      amount_total: 10000,
+      payment_intent: null,
+      customer: null,
+    });
+    mockConstructEvent.mockReturnValue(foreign);
+    await POST(makeWebhookRequest());
+    const foreignLog = mockApiLogger.warn.mock.calls
+      .map((c) => c[0])
+      .find((a) => typeof a?.msg === "string" && a.msg.includes("checkout-session"));
+    expect(foreignLog.msg).toContain("foreign-checkout-session-ignored");
+    expect(foreignLog.metadataKeys).toEqual([]);
+
+    vi.clearAllMocks();
+
+    // Metadata PRESENT but carrying neither id — one of ours, broken. Someone
+    // may have paid with nothing recorded, so this must NOT read as routine.
+    const ours = makeStripeEvent("checkout.session.completed", {
+      id: "cs_live_ours_broken",
+      metadata: { organizationId: "org-1", eventId: "evt-1" },
+      currency: "usd",
+      amount_total: 10000,
+      payment_intent: null,
+      customer: null,
+    });
+    mockConstructEvent.mockReturnValue(ours);
+    await POST(makeWebhookRequest());
+    const oursLog = mockApiLogger.warn.mock.calls
+      .map((c) => c[0])
+      .find((a) => typeof a?.msg === "string" && a.msg.includes("metadata"));
+    expect(oursLog.msg).toBe("Stripe checkout session missing registrationId metadata");
+    expect(oursLog.msg).not.toContain("foreign");
+    expect(oursLog.metadataKeys).toEqual(["organizationId", "eventId"]);
+  });
+
+  it("keeps BOTH at warn — neither is downgraded to info", async () => {
+    for (const metadata of [{}, { eventId: "evt-1" }]) {
+      vi.clearAllMocks();
+      mockConstructEvent.mockReturnValue(
+        makeStripeEvent("checkout.session.completed", {
+          id: "cs_live_x",
+          metadata,
+          currency: "usd",
+          amount_total: 100,
+          payment_intent: null,
+          customer: null,
+        }),
+      );
+      await POST(makeWebhookRequest());
+      expect(mockApiLogger.warn).toHaveBeenCalled();
+      const infoMsgs = mockApiLogger.info.mock.calls
+        .map((c) => c[0]?.msg)
+        .filter((m) => typeof m === "string" && m.includes("checkout-session"));
+      expect(infoMsgs).toEqual([]);
+    }
   });
 });
 

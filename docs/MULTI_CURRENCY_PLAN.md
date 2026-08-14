@@ -152,6 +152,24 @@ on top of the processing fee. **A presentment currency that is not enabled on th
 account makes checkout session creation fail**, which surfaces at the moment a
 registrant clicks Pay.
 
+**⚠ THE STRIPE ACCOUNT IS SHARED WITH EVENTSAIR** (confirmed 2026-08-14). A
+`checkout.session.completed` with no metadata reached our webhook and turned
+out to be a USD 100 payment for "OSHC2026", an event that lives in EventsAir,
+not EA-SYS. Two consequences this plan has to carry:
+
+1. **Settlement currency and enabled presentment currencies are NOT ours to
+   change unilaterally.** Enabling AED or EUR, or changing settlement, affects
+   EventsAir's payments on the same account. Whoever owns that side needs to
+   agree before Phase 4.
+2. **Stripe Dashboard totals are not EA-SYS revenue.** They mix both systems,
+   so any figure read off Stripe overstates EA-SYS. `Payment` rows in our own
+   database are the correct source, which is also why §2's "aggregation is
+   already safe" claim holds only for OUR books.
+
+Per-tenant Stripe keys ([PLATFORM_DECISIONS.md](PLATFORM_DECISIONS.md) item 7)
+would separate the two, and this is a concrete argument for doing it before
+multi-currency rather than after.
+
 **Owner action before Phase 4:** in the Stripe Dashboard, check Settings →
 Business → *Bank accounts and currencies* for the settlement currency, and the
 payment-method/currency settings for which presentment currencies are enabled.

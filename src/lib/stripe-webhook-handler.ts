@@ -86,8 +86,26 @@ export async function handleStripeEvent(
       // books, so the registration is still being chased as unpaid) from a
       // $0 / setup-mode session where nothing was charged at all.
       // `paymentIntentId` IS Dashboard-searchable, unlike the session id.
+      //
+      // TWO MESSAGES, BOTH AT WARN (owner, Aug 14 2026: "info I don't notice,
+      // warning I notice" — so neither is downgraded). They are split because
+      // they mean opposite things and were previously indistinguishable:
+      //
+      //   - NO metadata at all ⇒ a session from ANOTHER SYSTEM on this shared
+      //     Stripe account. Confirmed Aug 14: EventsAir runs on the same
+      //     account (a USD 100 "OSHC2026" payment landed here). Expected,
+      //     recurring roughly every 3-4 days, nothing for EA-SYS to do.
+      //   - metadata PRESENT but carrying neither registrationId nor groupId
+      //     ⇒ one of OUR sessions lost its tags. Should never happen; means a
+      //     real registrant may have paid with nothing recorded.
+      //
+      // Under one message the second would be dismissed along with the first,
+      // which is the cry-wolf failure this split exists to prevent.
+      const metadataKeys = Object.keys(session.metadata ?? {});
       apiLogger.warn({
-        msg: "Stripe checkout session missing registrationId metadata",
+        msg: metadataKeys.length
+          ? "Stripe checkout session missing registrationId metadata"
+          : "stripe:foreign-checkout-session-ignored (no metadata — another system on this shared Stripe account, e.g. EventsAir)",
         sessionId: session.id,
         mode: session.mode,
         paymentStatus: session.payment_status,
@@ -103,7 +121,7 @@ export async function handleStripeEvent(
         // unrecognised-payment signal, not a receipt, and SystemLog is read on
         // a dashboard by anyone with the role. The two ids above are enough to
         // find the person in Stripe when that is actually needed.
-        metadataKeys: Object.keys(session.metadata ?? {}),
+        metadataKeys,
       });
       return NextResponse.json({ received: true });
     }
