@@ -68,7 +68,10 @@ describe("email-template-slugs", () => {
       expect(formatTemplateLabel("certificate-delivery")).toBe("Certificate");
       expect(formatTemplateLabel("webinar-reminder-24h")).toBe("Webinar Reminder (24h)");
       expect(formatTemplateLabel("custom-notification")).toBe("Custom Email");
-      expect(formatTemplateLabel("dinner-rsvp-invitation")).toBe("Dinner RSVP Invitation");
+      // Label renamed Aug 14, 2026 when the feature generalized beyond dinners.
+      // The SLUG deliberately did NOT move — 17 events hold materialised rows on
+      // it — which is exactly the key-vs-label split this override exists for.
+      expect(formatTemplateLabel("dinner-rsvp-invitation")).toBe("RSVP Invitation");
     });
 
     it("preserves acronyms when falling back to Title Case", () => {

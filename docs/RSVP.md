@@ -154,7 +154,7 @@ because 17 events already reference it, but reads wrong on a workshop.
 **17 events already hold a materialised row** on that slug (the templates list
 GET auto-seeds system defaults as editable rows). Renaming it orphans all 17 and
 silently falls back to the default for anyone who edited theirs. A slug is a
-**key**, not a label — the display label changed, the slug did not. Same rule
+**key**, not a label — the display label is now "RSVP Invitation", the slug did not move. Same rule
 for the `{{dinnerWord}}` variable — kept resolvable, but the default template no
 longer uses it.
 

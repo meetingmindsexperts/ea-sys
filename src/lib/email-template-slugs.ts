@@ -83,7 +83,9 @@ const TEMPLATE_LABEL_OVERRIDES: Readonly<Record<string, string>> = {
   "certificate-bundle-delivery": "Certificate (bundle)",
   "document-delivery": "Document Delivery",
   "custom-notification": "Custom Email",
-  "dinner-rsvp-invitation": "Dinner RSVP Invitation",
+  // Label only — the SLUG stays `dinner-rsvp-invitation` because 17 events
+  // already hold a materialised row on it. A label moves no data; a slug is a key.
+  "dinner-rsvp-invitation": "RSVP Invitation",
   "speaker-reimbursement-invitation": "Reimbursement Invitation",
   "speaker-reimbursement-received": "Reimbursement Received",
   "speaker-profile-form-request": "Speaker Profile Form Request",
