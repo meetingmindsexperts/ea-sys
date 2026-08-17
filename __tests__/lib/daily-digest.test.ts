@@ -468,3 +468,98 @@ describe("digestRecipients", () => {
     expect(digestRecipients()).toEqual(["a@x.com", "b@x.com"]);
   });
 });
+
+/**
+ * The digest reads a snapshot built for /admin/infra, which deliberately holds
+ * MORE history than a daily email should report (7 days of failed emails, the
+ * last 10 workflow runs with no time bound). Before these windows existed, one
+ * failure turned the digest amber every morning until it aged out of the
+ * SNAPSHOT — seven mornings for an email, and indefinitely for a deploy during
+ * a quiet week, each reading like a fresh overnight problem.
+ *
+ * These tests are about what must NOT fire. Deleting either window makes the
+ * "stale" cases below fail, which is the only reason they are worth having.
+ */
+describe("assessInfra — digest lookback windows", () => {
+  const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+
+  const emailRow = (at: string) => ({
+    to: "a@x.com",
+    subject: "s",
+    error: "boom",
+    templateSlug: null,
+    at,
+  });
+
+  const run = (conclusion: string | null) => ({
+    title: `run ${conclusion}`,
+    status: "completed",
+    conclusion,
+    event: "push",
+    createdAt: daysAgo(1),
+    url: "https://github.com/x/y/actions/runs/1",
+  });
+
+  it("ignores an email failure older than the lookback window", () => {
+    const snap = healthySnapshot();
+    snap.emailFailures = { status: "ok", rows: [emailRow(daysAgo(5))] };
+    const { verdict, findings } = assessInfra(snap);
+    expect(verdict).toBe("ok");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("reports an email failure inside the window, and names the window", () => {
+    const snap = healthySnapshot();
+    snap.emailFailures = { status: "ok", rows: [emailRow(daysAgo(1))] };
+    const { verdict, findings } = assessInfra(snap);
+    expect(verdict).toBe("warn");
+    expect(findings[0].label).toContain("1 email(s) failed to send in the last 2 days");
+  });
+
+  it("counts only the recent rows when the snapshot holds both", () => {
+    const snap = healthySnapshot();
+    snap.emailFailures = {
+      status: "ok",
+      rows: [emailRow(daysAgo(1)), emailRow(daysAgo(6)), emailRow(daysAgo(0))],
+    };
+    const { findings } = assessInfra(snap);
+    expect(findings[0].label).toContain("2 email(s)");
+  });
+
+  it("counts a row with an unreadable timestamp rather than silencing it", () => {
+    // Fail loud: this decides whether to raise an alarm, so an unparseable
+    // date must not be the thing that hides a real failure.
+    const snap = healthySnapshot();
+    snap.emailFailures = { status: "ok", rows: [emailRow("not-a-date")] };
+    expect(assessInfra(snap).verdict).toBe("warn");
+  });
+
+  it("ignores a deploy failure that has fallen outside the recent runs", () => {
+    const snap = healthySnapshot();
+    // Newest-first, as the GitHub API returns them: the failure is 4th.
+    snap.deploys = {
+      status: "ok",
+      runs: [run("success"), run("success"), run("success"), run("failure")],
+    };
+    const { verdict, findings } = assessInfra(snap);
+    expect(verdict).toBe("ok");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("reports a deploy failure still inside the recent runs", () => {
+    const snap = healthySnapshot();
+    snap.deploys = {
+      status: "ok",
+      runs: [run("success"), run("success"), run("failure"), run("success")],
+    };
+    const { verdict, findings } = assessInfra(snap);
+    expect(verdict).toBe("warn");
+    expect(findings[0].label).toContain("Deploy failure");
+  });
+
+  it("does not treat a skipped or still-running deploy as a failure", () => {
+    const snap = healthySnapshot();
+    snap.deploys = { status: "ok", runs: [run("skipped"), run(null), run("success")] };
+    expect(assessInfra(snap).verdict).toBe("ok");
+  });
+});

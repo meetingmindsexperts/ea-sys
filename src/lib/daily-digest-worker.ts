@@ -54,6 +54,28 @@ export const DIGEST_THRESHOLDS = {
   /** AWS starts asking questions above ~5% bounce / ~0.1% complaint. */
   sesBounceRateWarn: 0.05,
   sesComplaintRateWarn: 0.001,
+  /**
+   * How far back a failed email still colours THIS MORNING's digest.
+   *
+   * The snapshot fetches 7 days (EMAIL_FAILURE_WINDOW_DAYS in aws-ops) because
+   * /admin/infra is the drill-down and wants the history. A daily email is a
+   * different question — "what happened since yesterday?" — and reporting a
+   * 7-day window in it meant ONE failure turned the digest amber for seven
+   * consecutive mornings, reading each time like a fresh problem.
+   */
+  emailFailureLookbackDays: 2,
+  /**
+   * How many recent workflow runs the digest considers when deciding whether a
+   * deploy is broken.
+   *
+   * Same mismatch, worse: the snapshot holds the last 10 runs with NO time
+   * bound, so during a quiet week a single red run stays in the window and
+   * holds the digest amber indefinitely. Bounding by COUNT rather than time is
+   * deliberate — deploys are bursty (10 runs spanned 28h in one direction and
+   * 3 days in the other), so "the last 3" tracks "did the most recent work
+   * land?" better than any fixed number of hours would.
+   */
+  deployLookbackRuns: 3,
 } as const;
 
 export type Severity = "critical" | "warn";
@@ -318,21 +340,32 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
   }
 
   note("emailFailures", snap.emailFailures);
-  if (snap.emailFailures.rows.length > 0) {
+  // Only the recent slice colours the digest — see emailFailureLookbackDays.
+  // A row with an unparseable `at` is COUNTED rather than dropped: this decides
+  // whether to raise an alarm, so an unreadable timestamp must not silence one.
+  const emailCutoff =
+    Date.now() - DIGEST_THRESHOLDS.emailFailureLookbackDays * 24 * 60 * 60 * 1000;
+  const recentEmailFailures = snap.emailFailures.rows.filter((r) => {
+    const at = Date.parse(r.at);
+    return Number.isNaN(at) || at >= emailCutoff;
+  });
+  if (recentEmailFailures.length > 0) {
     findings.push({
       severity: "warn",
-      label: `${snap.emailFailures.rows.length} email(s) failed to send`,
+      label: `${recentEmailFailures.length} email(s) failed to send in the last ${DIGEST_THRESHOLDS.emailFailureLookbackDays} days`,
       detail: "Someone did not receive something they were meant to.",
     });
   }
 
   // ── Deploys ────────────────────────────────────────────────────────────
   note("deploys", snap.deploys);
-  for (const d of snap.deploys.runs) {
+  // Only the most recent few runs colour the digest — see deployLookbackRuns.
+  // `runs` arrives newest-first from the GitHub API.
+  for (const d of snap.deploys.runs.slice(0, DIGEST_THRESHOLDS.deployLookbackRuns)) {
     if (d.conclusion && d.conclusion !== "success" && d.conclusion !== "skipped") {
       findings.push({
         severity: "warn",
-        label: `Deploy ${d.conclusion}: ${d.title}`,
+        label: `Deploy ${d.conclusion} (in the last ${DIGEST_THRESHOLDS.deployLookbackRuns} runs): ${d.title}`,
         detail: `${d.url} — prod may not be running the newest commit.`,
       });
       break; // one is enough; the rest is scrollback
