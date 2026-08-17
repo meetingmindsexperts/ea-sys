@@ -59,7 +59,7 @@ export const DIGEST_THRESHOLDS = {
    *
    * The snapshot fetches 7 days (EMAIL_FAILURE_WINDOW_DAYS in aws-ops) because
    * /admin/infra is the drill-down and wants the history. A daily email is a
-   * different question — "what happened since yesterday?" — and reporting a
+   * different question ("what happened since yesterday?"), and reporting a
    * 7-day window in it meant ONE failure turned the digest amber for seven
    * consecutive mornings, reading each time like a fresh problem.
    */
@@ -71,7 +71,7 @@ export const DIGEST_THRESHOLDS = {
    * Same mismatch, worse: the snapshot holds the last 10 runs with NO time
    * bound, so during a quiet week a single red run stays in the window and
    * holds the digest amber indefinitely. Bounding by COUNT rather than time is
-   * deliberate — deploys are bursty (10 runs spanned 28h in one direction and
+   * deliberate, because deploys are bursty (10 runs spanned 28h in one direction and
    * 3 days in the other), so "the last 3" tracks "did the most recent work
    * land?" better than any fixed number of hours would.
    */
@@ -340,7 +340,7 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
   }
 
   note("emailFailures", snap.emailFailures);
-  // Only the recent slice colours the digest — see emailFailureLookbackDays.
+  // Only the recent slice colours the digest. See emailFailureLookbackDays.
   // A row with an unparseable `at` is COUNTED rather than dropped: this decides
   // whether to raise an alarm, so an unreadable timestamp must not silence one.
   const emailCutoff =
@@ -359,7 +359,7 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
 
   // ── Deploys ────────────────────────────────────────────────────────────
   note("deploys", snap.deploys);
-  // Only the most recent few runs colour the digest — see deployLookbackRuns.
+  // Only the most recent few runs colour the digest. See deployLookbackRuns.
   // `runs` arrives newest-first from the GitHub API.
   for (const d of snap.deploys.runs.slice(0, DIGEST_THRESHOLDS.deployLookbackRuns)) {
     if (d.conclusion && d.conclusion !== "success" && d.conclusion !== "skipped") {

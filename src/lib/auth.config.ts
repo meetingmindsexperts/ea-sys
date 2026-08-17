@@ -26,14 +26,14 @@ export function mapTokenToSessionUser(session: Session, token: JWT | null | unde
 }
 
 /**
- * Session lifetime — declared ONCE and consumed by BOTH NextAuth instances.
+ * Session lifetime, declared ONCE and consumed by BOTH NextAuth instances.
  *
  * There are two: the Node one in `auth.ts` (the app + /api/auth/session) and
  * the Edge one in `proxy.ts` (`NextAuth(authConfig)`, for middleware RBAC).
  * They read and re-issue the SAME cookie, so whichever writes last decides how
  * long the session lives.
  *
- * Until Aug 17 2026 only `auth.ts` set `maxAge`. This config was silent — and a
+ * Until Aug 17 2026 only `auth.ts` set `maxAge`. This config was silent, and a
  * silent config does not inherit the other one, it opts into NextAuth's DEFAULT
  * of 30 days. Middleware runs on every dashboard route, so it re-stamped the
  * cookie at 30 days and the documented idle timeout was never in force: a
@@ -41,7 +41,7 @@ export function mapTokenToSessionUser(session: Session, token: JWT | null | unde
  * and a shut-down laptop.
  *
  * Hence one exported constant rather than the same number written twice. This
- * is the same reasoning as `mapTokenToSessionUser` below — that kept the two
+ * is the same reasoning as `mapTokenToSessionUser` below, which kept the two
  * instances' session CLAIMS from drifting; nobody had carried it to the session
  * LIFETIME. Keep it that way: if you change this, both instances change.
  */
@@ -51,12 +51,12 @@ export const SESSION_CONFIG = {
    * 48h ROLLING (idle) timeout, NOT a hard cap from login. Every session read
    * re-signs the JWT with `exp = now + maxAge` and re-sets the cookie, so the
    * window slides forward on use; only a full 48h of INACTIVITY signs someone
-   * out. There is no refresh token — one signed JWT cookie.
+   * out. There is no refresh token, just one signed JWT cookie.
    *
    * 48h and not 24h because staff live in this daily and a one-day window
    * re-prompts constantly; 48h and not a week because this account can move
    * money and we still cannot force a sign-out except by bumping
-   * `User.tokenVersion`. Note it deliberately does NOT carry a weekend — a
+   * `User.tokenVersion`. Note it deliberately does NOT carry a weekend: a
    * Friday-evening finish is ~63h from Monday morning, so Monday is a fresh
    * login. Raise to 72h if that is ever unwanted.
    * See docs/HANDOVER.md §4 "Session lifetime".

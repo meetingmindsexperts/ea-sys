@@ -13,12 +13,12 @@ import authConfig, { SESSION_CONFIG } from "@/lib/auth.config";
  * session's lifetime.
  *
  * Until Aug 17 2026 only `auth.ts` declared `maxAge`. `auth.config.ts` was
- * silent, and a silent config does not inherit its sibling — it takes
+ * silent, and a silent config does not inherit its sibling. It takes
  * NextAuth's default of 30 days. Middleware runs on every dashboard route, so
  * the 24h idle timeout the docs promised was never in force: an account whose
  * last sign-in was Aug 7 was still authenticated on Aug 17.
  *
- * The fix is structural — ONE exported constant, consumed by both — so the two
+ * The fix is structural: ONE exported constant, consumed by both, so the two
  * cannot hold different numbers. What is left to guard is someone re-inlining a
  * `maxAge` later and quietly recreating the split, which the source assertions
  * below catch. That is the whole point of this file; the value assertions are
@@ -26,7 +26,7 @@ import authConfig, { SESSION_CONFIG } from "@/lib/auth.config";
  */
 describe("session config is shared by both NextAuth instances", () => {
   /**
-   * Read a source file with comments stripped. The guard is about CODE — a
+   * Read a source file with comments stripped. The guard is about CODE. A
    * comment explaining why `maxAge` lives in one place must not fail the build
    * for mentioning it. Same reasoning as scripts/check-tenant-als.sh.
    */

@@ -62,9 +62,9 @@ export const {
   signOut,
 } = NextAuth({
   adapter: PrismaAdapter(db) as ReturnType<typeof PrismaAdapter>,
-  // Shared with the Edge instance in proxy.ts — see SESSION_CONFIG in
+  // Shared with the Edge instance in proxy.ts. See SESSION_CONFIG in
   // auth.config.ts for the lifetime and for why it is declared there rather
-  // than inline here. Do NOT re-inline a lifetime here — both instances write
+  // than inline here. Do NOT re-inline a lifetime here: both instances write
   // the same cookie, and the one that stayed silent silently won at 30 days.
   session: SESSION_CONFIG,
   // Trust the host header from Vercel/proxies

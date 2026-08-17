@@ -474,13 +474,13 @@ describe("digestRecipients", () => {
  * MORE history than a daily email should report (7 days of failed emails, the
  * last 10 workflow runs with no time bound). Before these windows existed, one
  * failure turned the digest amber every morning until it aged out of the
- * SNAPSHOT — seven mornings for an email, and indefinitely for a deploy during
+ * SNAPSHOT: seven mornings for an email, and indefinitely for a deploy during
  * a quiet week, each reading like a fresh overnight problem.
  *
  * These tests are about what must NOT fire. Deleting either window makes the
  * "stale" cases below fail, which is the only reason they are worth having.
  */
-describe("assessInfra — digest lookback windows", () => {
+describe("assessInfra: digest lookback windows", () => {
   const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
 
   const emailRow = (at: string) => ({
