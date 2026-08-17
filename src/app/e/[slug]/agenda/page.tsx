@@ -314,14 +314,18 @@ export default function PublicAgendaPage() {
               </div>
             </div>
 
-            {/* Print button */}
+            {/* Print button. Icon-only on phones, where the label costs more
+                width than the event title can spare; the accessible name stays
+                on the button so it is never an unlabelled icon. */}
             <button
               type="button"
               onClick={() => window.print()}
-              className="shrink-0 flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium px-4 py-2 rounded-xl shadow-sm transition-colors print:hidden"
+              aria-label="Print or save the agenda as a PDF"
+              title="Print / Save PDF"
+              className="shrink-0 flex items-center justify-center sm:gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium h-10 w-10 sm:h-auto sm:w-auto sm:px-4 sm:py-2 rounded-xl shadow-sm transition-colors print:hidden"
             >
               <Printer className="h-4 w-4" />
-              Print / Save PDF
+              <span className="hidden sm:inline">Print / Save PDF</span>
             </button>
           </div>
         </div>
