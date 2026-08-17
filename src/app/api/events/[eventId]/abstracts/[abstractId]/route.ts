@@ -633,6 +633,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
       notifyEventAdmins(eventId, {
         type: "ABSTRACT",
         title: isResubmit ? "Abstract Resubmitted" : "New Abstract Submitted",
+        setting: "notifyOnAbstractSubmission" as const,
         message: `"${abstract.title}" ${isResubmit ? "resubmitted (revision)" : "submitted"} by ${abstract.speaker.firstName} ${abstract.speaker.lastName}`,
         link: `/events/${eventId}/abstracts`,
       }).catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission notification" }));

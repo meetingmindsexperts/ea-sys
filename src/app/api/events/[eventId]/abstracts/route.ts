@@ -431,6 +431,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       notifyEventAdmins(eventId, {
         type: "ABSTRACT",
         title: "New Abstract Submitted",
+        setting: "notifyOnAbstractSubmission" as const,
         message: `"${title}" submitted by ${abstract.speaker?.firstName} ${abstract.speaker?.lastName}`,
         link: `/events/${eventId}/abstracts`,
       }).catch((err) => apiLogger.error({ err, msg: "Failed to send abstract submission notification" }));

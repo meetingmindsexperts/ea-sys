@@ -1000,6 +1000,7 @@ export async function createRegistration(
   notifyEventAdmins(eventId, {
     type: "REGISTRATION",
     title: "Registration Added",
+    setting: "notifyOnRegistration" as const,
     message:
       source === "mcp"
         ? `${firstName} ${lastName} added via MCP`

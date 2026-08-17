@@ -555,7 +555,11 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
 
   if (!input.suppressAdminNotification) {
     notifyEventAdmins(eventId, {
-      type: "REGISTRATION",
+      // Was filed as REGISTRATION, which is why an agenda change arrived
+      // looking like a sign-up. `Notification.type` is a plain string column,
+      // so the correction needs no migration.
+      type: "SESSION",
+      setting: "notifyOnSessionCreated" as const,
       title: "Session Created",
       message: `New session: "${session.name}"${source === "mcp" ? " (via the AI agent)" : ""}`,
       link: `/events/${eventId}/agenda`,

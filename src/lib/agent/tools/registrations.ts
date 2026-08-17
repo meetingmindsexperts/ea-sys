@@ -1141,6 +1141,7 @@ const createRegistrationsBulk: ToolExecutor = async (input, ctx) => {
       notifyEventAdmins(ctx.eventId, {
         type: "REGISTRATION",
         title: "Registrations Added (Bulk)",
+        setting: "notifyOnRegistration" as const,
         message: `${created.length} registration${created.length === 1 ? "" : "s"} added via MCP bulk import${errors.length ? ` (${errors.length} failed)` : ""}`,
         link: `/events/${ctx.eventId}/registrations`,
       }).catch((err) => apiLogger.error({ err }, "agent:create_registrations_bulk notify-admins-failed"));

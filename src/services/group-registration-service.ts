@@ -868,6 +868,7 @@ export async function createGroupRegistration(
   notifyEventAdmins(eventId, {
     type: "REGISTRATION",
     title: "New group registration",
+    setting: "notifyOnRegistration" as const,
     message: `${input.coordinator.name} registered a group of ${createdMembers.length} (billed to ${billingAccount.name}).`,
     link: `/events/${eventId}/registrations`,
   }).catch((err) => apiLogger.error({ err, groupId }, "group-registration:notify-failed"));
@@ -1525,6 +1526,7 @@ export async function addGroupMembers(
   notifyEventAdmins(eventId, {
     type: "REGISTRATION",
     title: "Members added to a group",
+    setting: "notifyOnRegistration" as const,
     message: `${createdMembers.length} member(s) added to ${group.coordinatorName}'s group${invoiceNumber ? ` — invoice ${invoiceNumber}` : ""}.`,
     link: `/events/${eventId}/registrations`,
   }).catch((err) => apiLogger.error({ err, groupId }, "group-add-members:notify-failed"));

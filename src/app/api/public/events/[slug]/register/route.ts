@@ -680,6 +680,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     notifyEventAdmins(event.id, {
       type: "REGISTRATION",
       title: "New Registration",
+      setting: "notifyOnRegistration" as const,
       message: `${firstName} ${lastName} registered as ${registrationType}`,
       link: `/events/${event.id}/registrations`,
     }).catch((err) => apiLogger.error({ err, msg: "Failed to send registration notification" }));

@@ -113,9 +113,11 @@ describe("notifyEventAdmins", () => {
       message: "Someone registered",
     });
 
+    // `settings` rides along on the lookup this function already performs, so
+    // the organizer switches cost no extra query.
     expect(mockDb.event.findUnique).toHaveBeenCalledWith({
       where: { id: "evt-1" },
-      select: { organizationId: true },
+      select: { organizationId: true, settings: true },
     });
 
     expect(mockDb.user.findMany).toHaveBeenCalledWith({
@@ -197,5 +199,96 @@ describe("Notification types", () => {
     expect(mockDb.notification.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ type }),
     });
+  });
+});
+
+// ── Organizer notification switches ──────────────────────────────────────────
+
+/**
+ * The gate lives inside notifyEventAdmins rather than at its 37 call sites, so
+ * these tests are the contract: a caller that opts in is suppressible, a caller
+ * that does not opt in can never be silenced.
+ *
+ * Context: notifyOnRegistration and notifyOnAbstractSubmission were UI switches
+ * that saved correctly and were read by nothing, so an organizer who turned one
+ * off kept receiving the notifications.
+ */
+describe("notifyEventAdmins — event notification switches", () => {
+  const admins = [{ id: "admin-1" }, { id: "admin-2" }];
+
+  function withSettings(settings: unknown) {
+    mockDb.event.findUnique.mockResolvedValue({ organizationId: "org-1", settings });
+    mockDb.user.findMany.mockResolvedValue(admins);
+    mockDb.notification.createMany.mockResolvedValue({ count: admins.length });
+  }
+
+  const sessionCreated = {
+    type: "SESSION" as const,
+    setting: "notifyOnSessionCreated" as const,
+    title: "Session Created",
+    message: 'New session: "Keynote"',
+  };
+
+  it("suppresses the notification when the switch is explicitly off", async () => {
+    withSettings({ notifyOnSessionCreated: false });
+    await notifyEventAdmins("evt-1", sessionCreated);
+    expect(mockDb.notification.createMany).not.toHaveBeenCalled();
+    expect(mockApiLogger.debug).toHaveBeenCalled();
+  });
+
+  it("sends when the switch is on", async () => {
+    withSettings({ notifyOnSessionCreated: true });
+    await notifyEventAdmins("evt-1", sessionCreated);
+    expect(mockDb.notification.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends when the key is absent, so an event predating the switch is unchanged", async () => {
+    withSettings({ someOtherKey: 1 });
+    await notifyEventAdmins("evt-1", sessionCreated);
+    expect(mockDb.notification.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends when settings are null or corrupt — fails OPEN", async () => {
+    for (const settings of [null, undefined, "not-an-object", 42]) {
+      vi.clearAllMocks();
+      withSettings(settings);
+      await notifyEventAdmins("evt-1", sessionCreated);
+      expect(mockDb.notification.createMany).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("one switch never silences another", async () => {
+    withSettings({ notifyOnRegistration: false });
+    await notifyEventAdmins("evt-1", sessionCreated);
+    expect(mockDb.notification.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("a caller with NO setting key is never suppressible — the ⚠ invoice alerts", async () => {
+    // Mutation guard: gating on type, or defaulting an absent key to a
+    // suppressible one, would silence a failed invoice when an organizer turns
+    // off registration notices. Every switch is off here and it still sends.
+    withSettings({
+      notifyOnRegistration: false,
+      notifyOnAbstractSubmission: false,
+      notifyOnSessionCreated: false,
+    });
+    await notifyEventAdmins("evt-1", {
+      type: "REGISTRATION",
+      title: "⚠ Group invoice could not be created",
+      message: "Raise one manually",
+    });
+    expect(mockDb.notification.createMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("never writes `setting` to the Notification row", async () => {
+    // It is a routing hint for this function, not a column. Prisma rejects
+    // unknown fields, so leaking it would fail every gated notification.
+    withSettings({});
+    await notifyEventAdmins("evt-1", sessionCreated);
+    const rows = mockDb.notification.createMany.mock.calls[0][0].data;
+    for (const row of rows) {
+      expect(row).not.toHaveProperty("setting");
+      expect(row.type).toBe("SESSION");
+    }
   });
 });

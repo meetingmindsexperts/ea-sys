@@ -9,6 +9,7 @@ import {
   FileText,
   Star,
   LogIn,
+  CalendarClock,
   CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ const typeIcons: Record<string, React.ElementType> = {
   ABSTRACT: FileText,
   REVIEW: Star,
   CHECK_IN: LogIn,
+  SESSION: CalendarClock,
 };
 
 export function NotificationBell() {

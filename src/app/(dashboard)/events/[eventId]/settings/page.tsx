@@ -186,6 +186,12 @@ const eventStatuses = [
   { value: "COMPLETED", label: "Completed" },
   { value: "CANCELLED", label: "Cancelled" },
 ];
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  NOTIFICATION_SETTING_KEYS,
+  NOTIFICATION_SETTING_LABELS,
+  type NotificationSettingKey,
+} from "@/lib/notification-settings";
 
 export default function EventSettingsPage() {
   const params = useParams();
@@ -282,10 +288,9 @@ export default function EventSettingsPage() {
    */
   const [eventTimezone, setEventTimezone] = useState("Asia/Dubai");
 
-  const [notificationSettings, setNotificationSettings] = useState({
-    notifyOnRegistration: true,
-    notifyOnAbstractSubmission: true,
-  });
+  const [notificationSettings, setNotificationSettings] = useState<
+    Record<NotificationSettingKey, boolean>
+  >({ ...DEFAULT_NOTIFICATION_SETTINGS });
 
   const [brandingSettings, setBrandingSettings] = useState({
     bannerImage: "",
@@ -396,10 +401,17 @@ export default function EventSettingsPage() {
             lim.maxAbstractsPerSubmitter === null ? "" : String(lim.maxAbstractsPerSubmitter),
         });
 
-        setNotificationSettings({
-          notifyOnRegistration: settings.notifyOnRegistration ?? true,
-          notifyOnAbstractSubmission: settings.notifyOnAbstractSubmission ?? true,
-        });
+        // Only an explicit false disables, matching isNotificationEnabled
+        // on the server — a corrupt or absent value shows as ON because
+        // that is what will actually happen.
+        setNotificationSettings(
+          Object.fromEntries(
+            NOTIFICATION_SETTING_KEYS.map((k) => [
+              k,
+              (settings as Record<string, unknown>)[k] !== false,
+            ]),
+          ) as Record<NotificationSettingKey, boolean>,
+        );
 
         setBrandingSettings({
           bannerImage: data.bannerImage || "",
@@ -944,45 +956,32 @@ export default function EventSettingsPage() {
             <CardHeader>
               <CardTitle>Notification Settings</CardTitle>
               <CardDescription>
-                Configure when you receive notifications
+                Which alerts reach the bell and your mobile app. Payments,
+                check-ins and anything flagged with a warning are always sent.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>New Registration Notifications</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Receive an email when someone registers for this event
-                  </p>
+              {/* Rendered from NOTIFICATION_SETTING_KEYS so the panel and the
+                  server gate can never disagree about which switches exist. */}
+              {NOTIFICATION_SETTING_KEYS.map((key) => (
+                <div key={key} className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>{NOTIFICATION_SETTING_LABELS[key].label}</Label>
+                    <p className="text-sm text-muted-foreground">
+                      {NOTIFICATION_SETTING_LABELS[key].description}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={notificationSettings[key]}
+                    onCheckedChange={(checked) =>
+                      setNotificationSettings({
+                        ...notificationSettings,
+                        [key]: checked,
+                      })
+                    }
+                  />
                 </div>
-                <Switch
-                  checked={notificationSettings.notifyOnRegistration}
-                  onCheckedChange={(checked) =>
-                    setNotificationSettings({
-                      ...notificationSettings,
-                      notifyOnRegistration: checked,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Abstract Submission Notifications</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Receive an email when a speaker submits an abstract
-                  </p>
-                </div>
-                <Switch
-                  checked={notificationSettings.notifyOnAbstractSubmission}
-                  onCheckedChange={(checked) =>
-                    setNotificationSettings({
-                      ...notificationSettings,
-                      notifyOnAbstractSubmission: checked,
-                    })
-                  }
-                />
-              </div>
+              ))}
 
               <div className="flex justify-end">
                 <Button onClick={handleSaveSettings} disabled={saving}>
