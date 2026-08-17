@@ -506,7 +506,6 @@ export default function PublicAgendaPage() {
 // ── Session Row Component ─────────────────────────────────────────────────
 
 function SessionRow({ session, timezone }: { session: Session; timezone: string }) {
-  const [expanded, setExpanded] = useState(false);
   const duration = getDurationMin(session.startTime, session.endTime);
   const color = session.track?.color || "#6B7280";
   const topicTimes = useMemo(
@@ -571,11 +570,11 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
       className="print-session-card bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden transition-shadow hover:shadow-md print:shadow-none print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200"
       style={{ borderLeft: `4px solid ${color}` }}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="w-full text-left px-5 py-5 print:cursor-default print:pointer-events-none"
-      >
+      {/* Was a <button> whose only job was toggling the description open.
+          The description is always visible now, so the card has nothing to
+          expand, and a card that invites a click and does nothing is worse
+          than a plain one. */}
+      <div className="w-full text-left px-5 py-5">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-2 sm:gap-5 print:flex-row">
           {/* Time — inline line on phones, right-aligned column on sm+ */}
           <div className="shrink-0 sm:w-28 sm:pt-0.5 sm:text-right print:w-24 print:text-right flex flex-wrap items-baseline gap-x-2 sm:block print:block">
@@ -605,6 +604,15 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
                     </span>
                   )}
                 </h3>
+
+                {/* Description sits directly under the title, always visible
+                    (organizer, Aug 17 2026). It used to require expanding the
+                    card, so on a printed-looking programme it read as absent. */}
+                {session.description && (
+                  <p className="mt-1.5 text-base text-slate-600 leading-relaxed whitespace-pre-line">
+                    {session.description}
+                  </p>
+                )}
 
                 {/* Meta row */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
@@ -733,33 +741,10 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
                 )}
               </div>
 
-              {/* Expand toggle */}
-              {session.description && (
-                <ChevronRight
-                  className={cn(
-                    "h-5 w-5 text-slate-400 shrink-0 mt-0.5 transition-transform print:hidden",
-                    expanded && "rotate-90"
-                  )}
-                />
-              )}
             </div>
-
-            {/* Expandable description */}
-            {session.description && expanded && (
-              <p className="mt-3 text-base text-slate-600 leading-relaxed border-t border-slate-100 pt-3">
-                {session.description}
-              </p>
-            )}
-
-            {/* Print: always show description */}
-            {session.description && (
-              <p className="mt-2 text-sm text-slate-500 leading-relaxed hidden print:block">
-                {session.description}
-              </p>
-            )}
           </div>
         </div>
-      </button>
+      </div>
     </div>
   );
 }

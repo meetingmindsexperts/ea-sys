@@ -500,7 +500,13 @@ export default function AgendaPage() {
         // would pass on a write it should refuse.
         ...(editingSession ? { expectedUpdatedAt: editingSession.updatedAt } : {}),
         name: rest.name,
-        description: rest.description || undefined,
+        // On EDIT send the raw value, empty string included. `|| undefined`
+        // omitted the field entirely, the PUT read that as "unchanged", and a
+        // description could therefore never be cleared: emptying the box and
+        // saving left the old text in place with a success toast. The service
+        // maps "" to null, and the route's Zod takes a string but not null, so
+        // "" is the clear signal. On create there is nothing to clear.
+        description: editingSession ? rest.description : rest.description || undefined,
         type: rest.type,
         // Break items are deliberately track-less (they render as a
         // full-width band, not inside a track column). On edit, `null`
@@ -1745,6 +1751,16 @@ export default function AgendaPage() {
                             </span>
                           </div>
 
+                          {/* Description under the title, matching the public
+                              agenda (organizer, Aug 17 2026). It rendered
+                              nowhere on this screen before — you had to open
+                              the session to edit it to find out it existed. */}
+                          {s.description && (
+                            <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+                              {s.description}
+                            </p>
+                          )}
+
                           <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
@@ -1950,6 +1966,11 @@ function SessionCard({
       >
         <div className="space-y-1.5">
           <div className="font-medium">{session.name}</div>
+          {session.description && (
+            <div className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line line-clamp-4">
+              {session.description}
+            </div>
+          )}
           <div className="text-xs space-y-1 text-muted-foreground">
             <div className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
