@@ -36,6 +36,7 @@ import {
   topicNeedsTba,
   TBA_LABEL,
 } from "@/lib/session-enums";
+import { buildAgendaRows, type AgendaRow } from "@/lib/agenda-layout";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -126,6 +127,15 @@ function formatDateHeading(dateStr: string) {
     month: "long",
     day: "numeric",
     year: "numeric",
+  });
+}
+
+/** "Fri, Oct 2" — the sub-label under a day tab. */
+function formatDayTabDate(dateStr: string) {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
   });
 }
 
@@ -331,50 +341,95 @@ export default function PublicAgendaPage() {
         </div>
       </div>
 
-      {/* ── Filters (hidden when printing) ───────────────────────────────── */}
-      {(allDates.length > 1 || (eventData.tracks.length > 0)) && (
+      {/* ── Filters (hidden when printing) ───────────────────────────────────
+             Two levels, not one row of equal pills: the day is the first thing
+             an attendee picks on a multi-day programme, and the track is a
+             refinement within it. Both sat side by side before, which read as
+             two filters of equal weight. */}
+      {(allDates.length > 1 || eventData.tracks.length > 0) && (
         <div className="bg-white border-b border-slate-100 print:hidden">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center gap-4">
-            {/* Day tabs */}
-            {allDates.length > 1 && (
-              <div className="flex items-center gap-1 flex-wrap">
-                <span className="text-xs font-semibold tracking-widest uppercase text-slate-400 mr-1">
-                  Day
-                </span>
-                {allDates.map((d, i) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setSelectedDate(d)}
-                    className={cn(
-                      "px-3 py-1 rounded-lg text-sm font-medium transition-colors",
-                      resolvedDate === d
-                        ? "bg-primary text-white"
-                        : "text-slate-600 hover:bg-slate-100"
-                    )}
-                  >
-                    Day {i + 1}
-                  </button>
-                ))}
+          {/* Day tabs — the primary control. Only ever shown when there is a
+              genuine choice to make. */}
+          {allDates.length > 1 && (
+            <div className="max-w-5xl mx-auto px-4 sm:px-6">
+              <div className="flex items-end gap-1 overflow-x-auto">
+                {allDates.map((d, i) => {
+                  const active = resolvedDate === d && selectedDate !== null;
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setSelectedDate(d)}
+                      aria-current={active ? "true" : undefined}
+                      className={cn(
+                        "shrink-0 border-b-2 px-4 pt-3 pb-2.5 text-left transition-colors",
+                        active
+                          ? "border-primary"
+                          : "border-transparent hover:border-slate-200",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "block text-sm font-bold",
+                          active ? "text-primary" : "text-slate-700",
+                        )}
+                      >
+                        Day {i + 1}
+                      </span>
+                      <span
+                        className={cn(
+                          "block text-xs",
+                          active ? "text-primary/70" : "text-slate-400",
+                        )}
+                      >
+                        {formatDayTabDate(d)}
+                      </span>
+                    </button>
+                  );
+                })}
                 <button
                   type="button"
                   onClick={() => setSelectedDate(null)}
+                  aria-current={selectedDate === null ? "true" : undefined}
                   className={cn(
-                    "px-3 py-1 rounded-lg text-sm font-medium transition-colors",
+                    "shrink-0 border-b-2 px-4 pt-3 pb-2.5 text-left transition-colors",
                     selectedDate === null
-                      ? "bg-primary text-white"
-                      : "text-slate-600 hover:bg-slate-100"
+                      ? "border-primary"
+                      : "border-transparent hover:border-slate-200",
                   )}
                 >
-                  All Days
+                  <span
+                    className={cn(
+                      "block text-sm font-bold",
+                      selectedDate === null ? "text-primary" : "text-slate-700",
+                    )}
+                  >
+                    All Days
+                  </span>
+                  <span
+                    className={cn(
+                      "block text-xs",
+                      selectedDate === null ? "text-primary/70" : "text-slate-400",
+                    )}
+                  >
+                    {allDates.length} days
+                  </span>
                 </button>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Track filter */}
-            {eventData.tracks.length > 0 && (
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs font-semibold tracking-widest uppercase text-slate-400">
+          {/* Track filter — the secondary row, set on a tinted strip so it
+              reads as a refinement of the day above rather than a peer of it. */}
+          {eventData.tracks.length > 0 && (
+            <div
+              className={cn(
+                "bg-slate-50/80",
+                allDates.length > 1 && "border-t border-slate-100",
+              )}
+            >
+              <div className="max-w-5xl mx-auto px-4 sm:px-6 py-2.5 flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-semibold tracking-widest uppercase text-slate-400 mr-1">
                   Track
                 </span>
                 <button
@@ -384,7 +439,7 @@ export default function PublicAgendaPage() {
                     "px-3 py-1 rounded-lg text-sm font-medium transition-colors",
                     selectedTrack === "all"
                       ? "bg-slate-800 text-white"
-                      : "text-slate-600 hover:bg-slate-100"
+                      : "text-slate-600 hover:bg-slate-200/70",
                   )}
                 >
                   All
@@ -398,7 +453,7 @@ export default function PublicAgendaPage() {
                       "flex items-center gap-1.5 px-3 py-1 rounded-lg text-sm font-medium transition-all border",
                       selectedTrack === t.id
                         ? "text-white"
-                        : "text-slate-600 border-transparent hover:bg-slate-100"
+                        : "bg-white text-slate-600 hover:bg-slate-100",
                     )}
                     style={
                       selectedTrack === t.id
@@ -414,8 +469,8 @@ export default function PublicAgendaPage() {
                   </button>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -466,11 +521,18 @@ export default function PublicAgendaPage() {
                       <div className="flex-1 h-px bg-slate-200 print:bg-slate-300" />
                     </div>
 
-                    {/* Sessions for this day */}
+                    {/* Sessions for this day. Sessions whose times OVERLAP
+                        collapse into one "choose one" block so parallel halls
+                        stop reading as a sequence; everything else renders
+                        exactly as it always has. */}
                     <div className="space-y-4 print:space-y-2">
-                      {dayFiltered.map((session) => (
-                        <SessionRow key={session.id} session={session} timezone={eventData.timezone} />
-                      ))}
+                      {buildAgendaRows(dayFiltered).map((row) =>
+                        row.kind === "parallel" ? (
+                          <ParallelBlock key={row.key} row={row} timezone={eventData.timezone} />
+                        ) : (
+                          <SessionRow key={row.key} session={row.session} timezone={eventData.timezone} />
+                        )
+                      )}
                     </div>
                   </div>
                 );
@@ -507,30 +569,98 @@ export default function PublicAgendaPage() {
   );
 }
 
+// ── Parallel Block ────────────────────────────────────────────────────────
+
+/**
+ * Sessions running at the same time in different halls.
+ *
+ * Before this, three sessions all at 10:15–13:00 rendered as three stacked
+ * cards with the time printed three times, which reads as a sequence. Someone
+ * scanning the programme top to bottom had no way to learn they were a choice,
+ * and the cost of getting that wrong is walking into the wrong hall.
+ */
+function ParallelBlock({
+  row,
+  timezone,
+}: {
+  row: Extract<AgendaRow<Session>, { kind: "parallel" }>;
+  timezone: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-100/60 p-3 sm:p-4 print:border-slate-300 print:bg-white">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 px-1 pb-3">
+        <span className="text-base font-bold text-slate-800 tabular-nums">
+          {formatTimeInTz(new Date(row.start), timezone)} –{" "}
+          {formatTimeInTz(new Date(row.end), timezone)}
+        </span>
+        <span className="text-slate-300">·</span>
+        <span className="text-sm font-semibold text-primary">
+          {row.columns.length} parallel sessions
+        </span>
+      </div>
+
+      <div
+        className={cn(
+          "grid gap-3 print:grid-cols-1",
+          row.columns.length === 2
+            ? "md:grid-cols-2"
+            : "md:grid-cols-2 lg:grid-cols-3",
+        )}
+      >
+        {row.columns.map((column) => (
+          <div key={column.room ?? "no-room"} className="flex flex-col gap-3">
+            {column.room && (
+              <div className="flex items-center gap-1.5 px-1">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  {column.room}
+                </span>
+              </div>
+            )}
+            {column.sessions.map((session) => (
+              <SessionCard
+                key={session.id}
+                session={session}
+                timezone={timezone}
+                variant="column"
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Session Row Component ─────────────────────────────────────────────────
 
+/**
+ * One row of the day: a break band or a full session card. Kept as the
+ * dispatcher so a non-parallel day renders byte-for-byte as it did before the
+ * parallel-block work.
+ */
 function SessionRow({ session, timezone }: { session: Session; timezone: string }) {
-  const duration = getDurationMin(session.startTime, session.endTime);
-  const color = session.track?.color || "#6B7280";
-  const topicTimes = useMemo(
-    () => computeTopicTimes(session.startTime, session.topics, timezone),
-    [session.startTime, session.topics, timezone],
-  );
-
-  // Break items — a slim, non-interactive band. They carry no speakers/topics
-  // (server-enforced), so none of the card machinery applies. Styled as an
-  // intentional divider (soft per-type accent chip + left border echoing the
-  // session cards' language) rather than the old dashed "placeholder" look,
-  // which read as an empty state next to the rich session cards.
   if (isBreakSessionType(session.type)) {
-    const BreakIcon = BREAK_TYPE_ICONS[session.type ?? ""] ?? Clock;
-    const accent =
-      BREAK_TYPE_ACCENTS[session.type ?? ""] ?? {
-        chip: "bg-slate-100",
-        icon: "text-slate-500",
-        border: "#94a3b8",
-      };
-    return (
+    return <BreakBand session={session} timezone={timezone} />;
+  }
+  return <SessionCard session={session} timezone={timezone} variant="full" />;
+}
+
+// Break items — a slim, non-interactive band. They carry no speakers/topics
+// (server-enforced), so none of the card machinery applies. Styled as an
+// intentional divider (soft per-type accent chip + left border echoing the
+// session cards' language) rather than the old dashed "placeholder" look,
+// which read as an empty state next to the rich session cards.
+function BreakBand({ session, timezone }: { session: Session; timezone: string }) {
+  const duration = getDurationMin(session.startTime, session.endTime);
+  const BreakIcon = BREAK_TYPE_ICONS[session.type ?? ""] ?? Clock;
+  const accent =
+    BREAK_TYPE_ACCENTS[session.type ?? ""] ?? {
+      chip: "bg-slate-100",
+      icon: "text-slate-500",
+      border: "#94a3b8",
+    };
+  return (
       <div
         className="print-session-card rounded-xl border border-slate-200 bg-slate-50 px-5 py-3 print:rounded-none print:border-l-0 print:border-r-0 print:border-t-0 print:border-b print:border-slate-200"
         style={{ borderLeft: `4px solid ${accent.border}` }}
@@ -566,8 +696,32 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
           </span>
         </div>
       </div>
-    );
-  }
+  );
+}
+
+/**
+ * A programme session.
+ *
+ * `variant="column"` is the cell inside a parallel block: the hall already sits
+ * in the column header so the card drops it, and the time collapses to one
+ * inline line because a ~300px column has no room for a right-aligned time rail.
+ */
+function SessionCard({
+  session,
+  timezone,
+  variant,
+}: {
+  session: Session;
+  timezone: string;
+  variant: "full" | "column";
+}) {
+  const duration = getDurationMin(session.startTime, session.endTime);
+  const color = session.track?.color || "#6B7280";
+  const inColumn = variant === "column";
+  const topicTimes = useMemo(
+    () => computeTopicTimes(session.startTime, session.topics, timezone),
+    [session.startTime, session.topics, timezone],
+  );
 
   return (
     <div
@@ -578,21 +732,37 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
           The description is always visible now, so the card has nothing to
           expand, and a card that invites a click and does nothing is worse
           than a plain one. */}
-      <div className="w-full text-left px-5 py-5">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-2 sm:gap-5 print:flex-row">
-          {/* Time — inline line on phones, right-aligned column on sm+ */}
-          <div className="shrink-0 sm:w-28 sm:pt-0.5 sm:text-right print:w-24 print:text-right flex flex-wrap items-baseline gap-x-2 sm:block print:block">
-            <p className="text-base font-bold text-slate-800 tabular-nums whitespace-nowrap">
-              {formatTimeInTz(new Date(session.startTime), timezone)}
-              <span className="sm:hidden print:hidden font-normal text-slate-400">
-                {" "}– {formatTimeInTz(new Date(session.endTime), timezone)}
-              </span>
-            </p>
-            <p className="hidden sm:block print:block text-sm text-slate-400 tabular-nums">
+      <div className={cn("w-full text-left", inColumn ? "px-4 py-4" : "px-5 py-5")}>
+        <div
+          className={cn(
+            "flex items-stretch gap-2",
+            inColumn
+              ? "flex-col"
+              : "flex-col sm:flex-row sm:items-start sm:gap-5 print:flex-row",
+          )}
+        >
+          {/* Time — one inline line inside a column and on phones, a
+              right-aligned rail on sm+ in the full-width layout. */}
+          {inColumn ? (
+            <p className="text-sm font-bold text-slate-800 tabular-nums">
+              {formatTimeInTz(new Date(session.startTime), timezone)} –{" "}
               {formatTimeInTz(new Date(session.endTime), timezone)}
+              <span className="ml-2 font-normal text-slate-400">{duration} min</span>
             </p>
-            <p className="text-sm text-slate-400 sm:mt-0.5 whitespace-nowrap">{duration} min</p>
-          </div>
+          ) : (
+            <div className="shrink-0 sm:w-28 sm:pt-0.5 sm:text-right print:w-24 print:text-right flex flex-wrap items-baseline gap-x-2 sm:block print:block">
+              <p className="text-base font-bold text-slate-800 tabular-nums whitespace-nowrap">
+                {formatTimeInTz(new Date(session.startTime), timezone)}
+                <span className="sm:hidden print:hidden font-normal text-slate-400">
+                  {" "}– {formatTimeInTz(new Date(session.endTime), timezone)}
+                </span>
+              </p>
+              <p className="hidden sm:block print:block text-sm text-slate-400 tabular-nums">
+                {formatTimeInTz(new Date(session.endTime), timezone)}
+              </p>
+              <p className="text-sm text-slate-400 sm:mt-0.5 whitespace-nowrap">{duration} min</p>
+            </div>
+          )}
 
           {/* Content */}
           <div className="flex-1 min-w-0">
@@ -618,9 +788,10 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
                   </p>
                 )}
 
-                {/* Meta row */}
+                {/* Meta row. Inside a parallel block the hall is the column
+                    header, so repeating it on every card is noise. */}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
-                  {session.track && (
+                  {session.track && !inColumn && (
                     <span
                       className="flex items-center gap-1.5 text-sm font-medium"
                       style={{ color: session.track.color }}
@@ -697,26 +868,44 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
                     {session.topics.map((topic) => {
                       const timeRange = topicTimes.get(topic.id);
                       return (
-                        <li key={topic.id} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4 px-4 py-3">
-                          <div className="shrink-0 sm:w-44 sm:pt-0.5">
+                        <li
+                          key={topic.id}
+                          className={cn(
+                            "flex gap-1 px-4 py-3",
+                            // Inside a parallel column the two-column run-sheet
+                            // has nowhere to go: `sm:` reads the VIEWPORT, not
+                            // the ~300px column, so on a wide screen it would
+                            // still try to lay out side by side and clip the
+                            // topic title. Columns always stack.
+                            inColumn
+                              ? "flex-col"
+                              : "flex-col sm:flex-row sm:items-start sm:gap-4",
+                          )}
+                        >
+                          <div className={cn("shrink-0", !inColumn && "sm:w-44 sm:pt-0.5")}>
                             {timeRange ? (
                               <>
                                 <p className="print-topic-time text-sm font-semibold tabular-nums" style={{ color }}>
                                   <span className="whitespace-nowrap">{timeRange}</span>
                                   {topic.duration ? (
-                                    <span className="sm:hidden font-normal text-slate-400 whitespace-nowrap">
+                                    <span
+                                      className={cn(
+                                        "font-normal text-slate-400 whitespace-nowrap",
+                                        !inColumn && "sm:hidden",
+                                      )}
+                                    >
                                       {" "}· {topic.duration} min
                                     </span>
                                   ) : null}
                                 </p>
-                                {topic.duration ? (
+                                {topic.duration && !inColumn ? (
                                   <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">
                                     {topic.duration} min
                                   </p>
                                 ) : null}
                               </>
                             ) : (
-                              <p className="hidden sm:block text-sm text-slate-300">—</p>
+                              <p className={cn("text-sm text-slate-300", inColumn ? "hidden" : "hidden sm:block")}>—</p>
                             )}
                           </div>
                           <div className="min-w-0 flex-1">

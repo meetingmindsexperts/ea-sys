@@ -212,6 +212,76 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Public agenda — the rest of the multi-track proposal (Aug 17, 2026)
+
+Items 1 and 2 of the agenda UX proposal shipped (parallel blocks keyed by hall,
+and the day/track tab hierarchy). The remainder was ranked with the owner and
+deferred. Grounded in what the real agendas contain, read off production on
+2026-08-17: EHSMHC2026 is 2 days / 12 sessions / 3 halls with a clean three-way
+parallel block, BHS2026 is 1 day / 15 sessions with a workshop straddling two
+consecutive plenary sessions.
+
+**Speaker de-duplication (highest value of what is left).** On BHS, a session
+lists five or six speaker chips and then repeats the same people underneath
+their own topics. Session V shows Dr Khaled Al Qawasmeh, Dr Mohamed Abuhaleeqa
+and Dr Somaya Alnuaimi twice each. The rule: chairs and moderators stay at
+session level always; a plain speaker who appears on a topic renders only
+against that topic. Session V's chip row drops from five to two and the card
+becomes a run-sheet you read down. Small change, entirely in the public agenda
+card, no data or API work.
+
+**Add to calendar, per session.** [calendar-links.ts](../src/lib/calendar-links.ts)
+already builds Google, Outlook and RFC 5545 ICS links and was written for the
+webinar confirmation email, where it encodes everything in UTC so it is
+timezone-proof by construction. Reusing it per session on a multi-day
+conference is close to free. A whole-day or whole-event `.ics` is the same
+work again.
+
+**Live-now marker and auto-scroll on the event day.** High value on site, low
+cost. Nothing exists for this today.
+
+**Sticky day and track bar.** On BHS the filters scroll out of view within one
+screen and there is no way back without scrolling to the top. On mobile the
+same applies to the hall label inside a stacked parallel block: once you scroll
+past "WORKSHOP ROOM" there is nothing telling you which column you are in.
+
+**Per-session anchor links** (`#session-<id>`) so an organizer can link one
+session from an email. Currently impossible.
+
+**Find a speaker.** A text filter over the day. Dr Maryam Darwish appears in
+three sessions on BHS across both halls, and there is no way to answer "where
+am I speaking" without reading the whole programme.
+
+**Print the parallel block as a grid.** Print currently stacks the columns
+(`print:grid-cols-1`), which is safe but loses the structure at exactly the
+moment it matters most, since a printed programme is the artifact people carry
+around the venue. A4 portrait with three columns of long titles is the reason
+it was not done first.
+
+**Star sessions into a personal agenda**, browser-storage only, no login. The
+classic conference-app feature and the largest piece here.
+
+**Two data observations, not code.** All three EHSMHC tracks are the same blue
+(`#3B82F6`), so track colour carries no information on that event and the
+design deliberately does not depend on it. And `location` duplicates the hall:
+it is empty on 11 of 12 EHSMHC sessions, set only on Opening Ceremony, which is
+also the one session with no track. Either set the track there and clear the
+location, or decide `location` means something finer (a floor, a room number)
+and render both.
+
+### Public agenda is 404 for attendees on every event (Aug 17, 2026, needs an owner decision)
+
+Found while setting up the local preview. `GET /api/public/events/[slug]/agenda`
+returns 404 `Agenda not published yet` unless `settings.agendaPublished` or
+`settings.programmePublished` is true, and neither is set on any of the seven
+published events. So `/e/<slug>/agenda` is currently unreachable for the
+public everywhere, including EHSMHC2026 and BHS2026.
+
+This may be deliberate (agendas still being built, nothing is missing yet), but
+it is worth confirming rather than discovering on the morning of an event. Two
+of the seven are inside two months.
+
+
 ### Presenter registration: the sign-in door still sends the delegate email (Aug 11, 2026, DEFERRED by owner)
 
 Recorded when the presenter feature shipped. Deliberately left as-is; not a
