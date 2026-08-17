@@ -15,7 +15,7 @@ import {
 import { touchLastSeen, LAST_SEEN_STAMP_INTERVAL_MS } from "@/lib/active-users";
 import { decideSessionValidity } from "@/lib/session-validity";
 import { isTeamRole } from "@/lib/team-roles";
-import authConfig, { mapTokenToSessionUser } from "./auth.config";
+import authConfig, { mapTokenToSessionUser, SESSION_CONFIG } from "./auth.config";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -62,15 +62,11 @@ export const {
   signOut,
 } = NextAuth({
   adapter: PrismaAdapter(db) as ReturnType<typeof PrismaAdapter>,
-  session: {
-    strategy: "jwt",
-    // 24h ROLLING (idle) timeout — NOT a hard cap from login. NextAuth re-signs
-    // the JWT with exp = now + maxAge and re-sets the cookie on every session
-    // read (mount/focus/navigation), so the window slides forward on activity;
-    // only a full 24h of inactivity logs the user out. No refresh token (single
-    // signed JWT cookie). See docs/HANDOVER.md §4 "Session lifetime".
-    maxAge: 24 * 60 * 60,
-  },
+  // Shared with the Edge instance in proxy.ts — see SESSION_CONFIG in
+  // auth.config.ts for the lifetime and for why it is declared there rather
+  // than inline here. Do NOT re-inline a lifetime here — both instances write
+  // the same cookie, and the one that stayed silent silently won at 30 days.
+  session: SESSION_CONFIG,
   // Trust the host header from Vercel/proxies
   trustHost: true,
   pages: authConfig.pages,

@@ -24,7 +24,31 @@ third kind of thing — it is server-side sessions with the storage swapped.
 
 ## 2. Stateless JWT — what EA-SYS uses today
 
-`src/lib/auth.ts`: `session: { strategy: "jwt", maxAge: 24 * 60 * 60 }`.
+`SESSION_CONFIG` in `src/lib/auth.config.ts`:
+`{ strategy: "jwt", maxAge: 48 * 60 * 60 }`.
+
+**48h rolling idle**, chosen Aug 17 2026: 24h re-prompts staff who use this
+daily, a week is too long for accounts that move money given we cannot force a
+sign-out (only `User.tokenVersion` revokes). It deliberately does **not** carry
+a weekend — Friday evening to Monday morning is ~63h, so Monday is a fresh
+login.
+
+**Why it lives in `auth.config.ts` and not `auth.ts`.** There are TWO NextAuth
+instances over one cookie: the Node one in `auth.ts` (the app, `/api/auth/session`)
+and an Edge one in `proxy.ts` — `NextAuth(authConfig)` — for middleware RBAC.
+Both re-issue the cookie, so whichever writes last sets the lifetime.
+
+Until **Aug 17 2026** only `auth.ts` declared `maxAge`. `auth.config.ts` was
+silent, and a silent config does not inherit its sibling — it opts into
+NextAuth's **default of 30 days**. Middleware runs on every dashboard route, so
+it re-stamped the cookie at 30 days and **the 24h idle timeout this document
+described was never actually in force**: an account whose last sign-in was Aug 7
+was still authenticated on Aug 17, across two weekends and a shut-down laptop.
+(Found by asking why a session survived a weekend with the laptop shut down —
+the answer was in `LoginEvent` vs `User.lastSeenAt`, ten days apart.)
+It is one exported constant consumed by both instances now, so the two cannot
+hold different numbers; `__tests__/lib/session-config.test.ts` pins that nobody
+re-inlines one.
 
 **How it works.** On a correct password the server builds a small JSON payload —
 user id, role, organization id, name — and **signs** it with `NEXTAUTH_SECRET`.
@@ -172,7 +196,7 @@ delivers.
 
 **Be precise about what last-seen is not.** It shows who has been *active*, not
 who holds a valid cookie. Someone who closed their laptop is still signed in for
-up to 24 hours and will not appear online — which is usually what an operator
+up to 48 hours and will not appear online — which is usually what an operator
 actually means by the question, but is not the same statement.
 
 ### The limitation that remained, and was closed on 2026-08-11
@@ -187,8 +211,10 @@ if (dbUser) { token.role = dbUser.role; }   // no else
 
 A deleted user produced `dbUser === null`, the `if` did nothing, and the request
 continued **with the cached role**. A deleted ADMIN stayed an ADMIN. And because
-the 24h window is a ROLLING idle timeout, an actively-used session never expired
-at all, so "up to 24 hours" was the optimistic reading rather than a bound.
+the window is a ROLLING idle timeout, an actively-used session never expired at
+all, so "up to a day" was the optimistic reading rather than a bound. (Worse
+than anyone realised at the time: the Edge config's silent 30-day default meant
+the real bound was a month — see §2.)
 
 Closed by shipping §7 (`tokenVersion`) together with the missing `else`. The
 decision now lives in a pure `decideSessionValidity` so the truth table is unit
@@ -342,6 +368,7 @@ the missing half.
 | Date | Decision | Rationale |
 |---|---|---|
 | (original) | Stateless JWT, 24h rolling | No per-request DB read; trivially horizontally scalable |
+| 2026-08-17 | 48h rolling, declared ONCE in `auth.config.ts` and shared | The 24h was never in force — the Edge instance's silent config defaulted to 30 days. One constant for both instances so they cannot disagree; 48h balances daily staff use against an account that moves money and cannot be force-signed-out |
 | (original) | 5-min periodic role re-validation | Closes the one staleness hole that matters without abandoning stateless |
 | 2026-07-28 | `User.lastSeenAt` over database sessions for presence | Answers "who is active now" for a nullable column + one write per user per 5 min, vs a DB read on every request and signing everyone out at cutover |
 | 2026-07-28 | **Open:** no session revocation | Recorded as a real gap. Preferred fix is `tokenVersion` (§7), not a model change |
