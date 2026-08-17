@@ -10,7 +10,7 @@ import { hashVerificationToken } from "./security";
 import { formatPersonName, getTitleLabel, formatDate, slugify } from "./utils";
 import { resolveTimezone, formatDateInTz, formatTimeInTz, tzLabel } from "./event-time";
 import { DEFAULT_SPEAKER_AGREEMENT_HTML } from "./default-terms";
-import { formatSessionRole } from "./session-enums";
+import { formatSessionRole, TBA_LABEL } from "./session-enums";
 
 export interface SpeakerAgreementTemplateMeta {
   url: string;
@@ -404,8 +404,12 @@ function buildModeratorBlocks(row: SpeakerEmailContextRow): { html: string; text
       const speakers = topic.speakers
         .map((ts) => formatPersonName(ts.speaker.title, ts.speaker.firstName, ts.speaker.lastName))
         .join(", ");
-      bodyRows += `        <tr><td style="${MOD_CELL_STYLE}">${escapeHtmlForAgreement(topic.title)}</td><td style="${MOD_CELL_STYLE}">${speakers ? escapeHtmlForAgreement(speakers) : "—"}</td></tr>\n`;
-      topicTextLines.push(`  ${topic.title}${speakers ? ` — ${speakers}` : ""}`);
+      // An unassigned topic reads TBA rather than a bare dash. This document is
+      // handed to someone running a room, where a blank cell looks like a
+      // mistake in the run-sheet instead of a slot still being filled.
+      const presentedBy = speakers ? escapeHtmlForAgreement(speakers) : TBA_LABEL;
+      bodyRows += `        <tr><td style="${MOD_CELL_STYLE}">${escapeHtmlForAgreement(topic.title)}</td><td style="${MOD_CELL_STYLE}">${presentedBy}</td></tr>\n`;
+      topicTextLines.push(`  ${topic.title} — ${speakers || TBA_LABEL}`);
     }
 
     const topicsTable = session.topics.length

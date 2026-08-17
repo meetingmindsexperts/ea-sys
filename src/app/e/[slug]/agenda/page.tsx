@@ -28,7 +28,14 @@ import {
   resolveTimezone,
   tzLabel,
 } from "@/lib/event-time";
-import { formatSessionRole, formatSessionType, isBreakSessionType } from "@/lib/session-enums";
+import {
+  formatSessionRole,
+  formatSessionType,
+  isBreakSessionType,
+  sessionNeedsTba,
+  topicNeedsTba,
+  TBA_LABEL,
+} from "@/lib/session-enums";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -621,6 +628,18 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
                   )}
                 </div>
 
+                {/* No speaker anywhere in this session (neither a session-level
+                    role nor any topic) ⇒ a TBA chip, so the slot reads as
+                    "a name is coming" instead of an unexplained blank. Break
+                    items are excluded inside the helper. */}
+                {sessionNeedsTba(session) && (
+                  <div className="mt-3">
+                    <span className="inline-flex items-center rounded-full border border-dashed border-slate-300 bg-slate-50 px-3 py-1 text-sm font-medium text-slate-500">
+                      {TBA_LABEL}
+                    </span>
+                  </div>
+                )}
+
                 {/* Speakers (always visible) — name + role badge, no
                     affiliations (organizer decision, July 22). */}
                 {session.speakers.length > 0 && (
@@ -692,7 +711,7 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
                             <p className="text-base font-medium text-slate-800 leading-snug">
                               {topic.title}
                             </p>
-                            {topic.speakers.length > 0 && (
+                            {topic.speakers.length > 0 ? (
                               <p className="text-sm text-slate-500 mt-1">
                                 {topic.speakers
                                   .map(({ speaker }) =>
@@ -700,7 +719,12 @@ function SessionRow({ session, timezone }: { session: Session; timezone: string 
                                   )
                                   .join(", ")}
                               </p>
-                            )}
+                            ) : topicNeedsTba({
+                                topicSpeakerCount: topic.speakers.length,
+                                sessionShowsTba: sessionNeedsTba(session),
+                              }) ? (
+                              <p className="text-sm text-slate-400 mt-1 italic">{TBA_LABEL}</p>
+                            ) : null}
                           </div>
                         </li>
                       );

@@ -75,6 +75,7 @@ import {
   formatSessionStatus,
   formatSessionType,
   isBreakSessionType,
+  sessionNeedsTba,
   sessionStatusColor,
 } from "@/lib/session-enums";
 import { useSessions, useTracks, useSpeakers, useEvent, queryKeys } from "@/hooks/use-api";
@@ -752,6 +753,17 @@ export default function AgendaPage() {
   const sessionsOnly = programSessions.filter(
     (s) => s.type !== "WORKSHOP" && s.type !== "SYMPOSIUM"
   );
+  // Program sessions with nobody assigned anywhere. These are exactly the ones
+  // the PUBLIC programme renders as TBA, so the same predicate answers both
+  // questions and the chase-list can never disagree with what attendees see.
+  // Deliberately a count here rather than TBA on the cards (owner, Aug 17
+  // 2026): the organizer needs to clear these before publishing, not be told
+  // what the public will be told.
+  const sessionsNeedingSpeaker = useMemo(
+    () => programSessions.filter((s) => sessionNeedsTba(s)),
+    [programSessions]
+  );
+
   const stats = {
     total: sessionsOnly.length,
     scheduled: sessionsOnly.filter((s) => s.status === "SCHEDULED").length,
@@ -759,6 +771,7 @@ export default function AgendaPage() {
     symposia: programSessions.filter((s) => s.type === "SYMPOSIUM").length,
     tracks: (tracks as Track[]).length,
     days: allEventDates,
+    needsSpeaker: sessionsNeedingSpeaker.length,
   };
 
   // Sessions grouped by date for the list panel
@@ -875,6 +888,32 @@ export default function AgendaPage() {
             </Card>
           ))}
         </div>
+
+        {/* ── Speaker gaps ─────────────────────────────────────────────────
+            The chase-list. These sessions publish as TBA, so clearing them
+            before hitting Publish Agenda is the point of showing it here. */}
+        {stats.needsSpeaker > 0 && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <Users className="h-4 w-4 mt-0.5 shrink-0" />
+            <p>
+              <span className="font-semibold">
+                {stats.needsSpeaker} session{stats.needsSpeaker === 1 ? "" : "s"} still
+                need{stats.needsSpeaker === 1 ? "s" : ""} a speaker
+              </span>
+              <span className="text-amber-800">
+                {" · "}
+                {sessionsNeedingSpeaker
+                  .slice(0, 3)
+                  .map((s) => s.name)
+                  .join(", ")}
+                {stats.needsSpeaker > 3 ? ` +${stats.needsSpeaker - 3} more` : ""}
+              </span>
+              <span className="block text-xs text-amber-700 mt-0.5">
+                These show as “TBA” on the public programme until someone is assigned.
+              </span>
+            </p>
+          </div>
+        )}
 
         {/* ── Tracks bar ───────────────────────────────────────────────────── */}
         {(tracks as Track[]).length > 0 && (

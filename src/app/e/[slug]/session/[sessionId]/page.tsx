@@ -35,7 +35,13 @@ import {
   resolveTimezone,
   tzLabel,
 } from "@/lib/event-time";
-import { formatSessionRole, formatSessionType } from "@/lib/session-enums";
+import {
+  formatSessionRole,
+  formatSessionType,
+  sessionNeedsTba,
+  topicNeedsTba,
+  TBA_LABEL,
+} from "@/lib/session-enums";
 
 /**
  * "9:00 AM GST on Jun 15" — join-availability timestamps must render in the
@@ -850,6 +856,15 @@ export default function PublicSessionPage() {
                           ) : null}
                         </div>
                       </div>
+                      {topic.speakers.length === 0 &&
+                        topicNeedsTba({
+                          topicSpeakerCount: 0,
+                          sessionShowsTba: !!session && sessionNeedsTba(session),
+                        }) && (
+                          <p className="text-xs text-muted-foreground italic mt-3">
+                            {TBA_LABEL}
+                          </p>
+                        )}
                       {topic.speakers.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-3">
                           {topic.speakers.map((sp) => (
@@ -880,6 +895,21 @@ export default function PublicSessionPage() {
                     </li>
                   ))}
                 </ol>
+              </section>
+            )}
+
+            {/* Nobody assigned anywhere in this session — keep the Speakers
+                heading and say TBA, rather than dropping the section and
+                leaving the attendee to guess. */}
+            {session && sessionNeedsTba(session) && (
+              <section>
+                <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  Speakers
+                </h2>
+                <div className="border border-dashed rounded-lg bg-muted/30 p-4 text-sm text-muted-foreground">
+                  {TBA_LABEL}
+                </div>
               </section>
             )}
 
@@ -939,7 +969,10 @@ export default function PublicSessionPage() {
 
             {!session?.description &&
               (!session || session.topics.length === 0) &&
-              (!session || session.speakers.length === 0) && (
+              (!session || session.speakers.length === 0) &&
+              // The TBA block above already explains an empty session; saying
+              // "no details yet" underneath it just repeats the point.
+              !(session && sessionNeedsTba(session)) && (
                 <div className="text-center py-12 text-sm text-muted-foreground">
                   No additional details for this session yet.
                 </div>

@@ -115,6 +115,70 @@ export function isBreakSessionType(type: string | null | undefined): boolean {
   return type != null && SESSION_TYPE_KIND[type as SessionType] === "break";
 }
 
+/**
+ * Placeholder labels for a programme slot whose speaker is not settled.
+ *
+ * TBA = nobody is assigned yet. TBC = someone is named but has not accepted
+ * (`Speaker.status === "INVITED"`). Defined together so the two never drift
+ * into different wordings on different surfaces; a change here changes the
+ * agenda, the session page and the speaker emails at once.
+ *
+ * TBC_LABEL is deliberately unused today. TBA shipped first (owner, Aug 17
+ * 2026) because it needs no judgement about publishing a real person's name
+ * next to a qualifier. See docs/SPEAKER_TBA_PLAN.md §7.
+ */
+export const TBA_LABEL = "TBA";
+export const TBC_LABEL = "TBC";
+
+/**
+ * True when a session should show TBA in place of its speaker line.
+ *
+ * DERIVED, never stored. Nothing is written when a slot is unfilled, so the
+ * label clears itself the moment a speaker is assigned and there is no
+ * placeholder row to remember to delete. (An organizer previously worked around
+ * the blank by creating a Speaker literally named "TBC", which minted a
+ * companion registration, a Faculty badge and an entry barcode for a person who
+ * does not exist.)
+ *
+ * Two conditions, both load-bearing and both established from live data:
+ *
+ *  - Break kinds never qualify. Delegated to `isBreakSessionType` so there is
+ *    ONE definition: an equality check on "SESSION" would miss WORKSHOP and
+ *    SYMPOSIUM, and on prod both genuinely-unassigned slots are Symposia. The
+ *    helper fails OPEN on an absent/unknown type, so bad data shows TBA on a
+ *    real session rather than hiding it on a break.
+ *
+ *  - No speaker ANYWHERE in the session, session-level roles and topic
+ *    speakers alike. Checking only the session level would print TBA directly
+ *    above a named keynote speaker: "Keynote Lecture" on EHS carries zero
+ *    SessionSpeaker rows and names its speaker on its single topic.
+ */
+export function sessionNeedsTba(session: {
+  type?: string | null;
+  speakers: readonly unknown[];
+  topics?: readonly { speakers: readonly unknown[] }[] | null;
+}): boolean {
+  if (isBreakSessionType(session.type)) return false;
+  if (session.speakers.length > 0) return false;
+  return !(session.topics ?? []).some((t) => t.speakers.length > 0);
+}
+
+/**
+ * True when an individual topic row should show TBA.
+ *
+ * `sessionShowsTba` suppresses it: when the session as a whole already reads
+ * TBA, repeating it on every topic row underneath says nothing new and reads as
+ * noise. A topic with no speaker inside a session that DOES have speakers still
+ * gets its own TBA, which is the case that carries information.
+ */
+export function topicNeedsTba(args: {
+  topicSpeakerCount: number;
+  sessionShowsTba: boolean;
+}): boolean {
+  if (args.sessionShowsTba) return false;
+  return args.topicSpeakerCount === 0;
+}
+
 /** Display label for a session type coming off the wire. */
 export function formatSessionType(type: string | null | undefined): string {
   if (!type) return SESSION_TYPE_LABELS.SESSION;

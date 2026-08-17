@@ -263,6 +263,25 @@ describe("buildSpeakerEmailContext — {{moderatorDetails}} run-sheet", () => {
     expect(ctx?.moderatorDetailsText).toContain("TAVR Outcomes");
   });
 
+  it("renders TBA in 'Presented by' for a topic with no speaker, in both HTML and text", async () => {
+    // This document is handed to someone running a room, so an unassigned slot
+    // has to read as unassigned rather than as a blank cell they mistake for a
+    // rendering fault. Previously a bare dash in HTML and nothing at all in the
+    // plain-text mirror.
+    mockDb.speaker.findFirst.mockResolvedValue(
+      moderatorRow([
+        { title: "Opening Remarks", duration: 10, speakers: [] },
+        ...TOPICS,
+      ]),
+    );
+    const ctx = await buildSpeakerEmailContext("evt-1", "spk-1");
+    expect(ctx?.moderatorDetails).toContain("Opening Remarks");
+    expect(ctx?.moderatorDetails).toContain("TBA");
+    expect(ctx?.moderatorDetailsText).toContain("Opening Remarks — TBA");
+    // Assigned topics are untouched.
+    expect(ctx?.moderatorDetails).toContain("Dr. Jane Doe");
+  });
+
   it("renders the labeled Session / Date & Time table then the Topic | Presented by run-sheet — no role, no track, no Time column", async () => {
     const row = moderatorRow();
     (row.sessions[0].session as { track: unknown }).track = { name: "Track B" };
