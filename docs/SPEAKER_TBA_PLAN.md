@@ -174,15 +174,32 @@ computed from data on hand. No new endpoint.
 
 ## 7. Not in this round
 
+### TBC is PARKED (owner, 2026-08-17)
+
+Not deferred with intent to follow, **parked**. Do not build it without an
+explicit owner go-ahead. The analysis below is kept so the work can start cold
+if it ever un-parks.
+
+`TBC_LABEL` stays defined in `session-enums.ts` and unused. It costs one line and
+settles the wording, which was the only open question; it is not scaffolding for
+imminent work.
+
+---
+
 **TBC, meaning a speaker who is named but has not accepted.** Derivable from
 `Speaker.status === "INVITED"`, which no public surface currently reads, so an
 invited speaker renders identically to a confirmed one. On the Hematology Summit
 that is **29 of 34** session assignments.
 
-Deferred because it is the more sensitive half: it puts a real person's name on a
+Parked because it is the more sensitive half: it puts a real person's name on a
 public page with a qualifier next to it, and the choice between hiding the name
 and marking it is a judgement about how the organizer wants to market the
-programme. `TBC_LABEL` is defined now so the wording is settled when it lands.
+programme, not a technical call.
+
+**The reason it is not urgent:** no public agenda is live, so those 29 names are
+not on display today. The exposure only begins at Publish Agenda, and by then the
+organizer may simply have confirmed them. Revisit if an agenda is published while
+a material share of the faculty is still unconfirmed.
 
 **A related item worth carrying forward:** one **DECLINED** speaker (Manuel
 Algora) is still attached to a workshop on the Hematology Summit. A declined
