@@ -46,10 +46,29 @@ contents aside and truncates the original in place, which an open descriptor
 tolerates. The same reason `truncate -s 0` is the correct manual fix and `rm`
 is not.
 
-**`su ssm-user ssm-user`.** The containers run as uid 1001, which surfaces on
-the host as `ssm-user`. Rotated files must keep that ownership or the containers
-lose the ability to write. This is the same ownership trap as
-[INC-004](../../docs/INCIDENTS.md).
+**No `su` directive.** The containers write as uid 1001, which surfaces on the
+host as `ssm-user`, so `su ssm-user ssm-user` looks like the right call. It is
+not, and it fails closed:
+
+```
+switching euid from 0 to 1001 and egid from 0 to 1001
+considering log /home/ubuntu/ea-sys/logs/app.log
+error: stat of /home/ubuntu/ea-sys/logs/app.log failed: Permission denied
+```
+
+`/home/ubuntu` is mode `0700`, so `ssm-user` cannot traverse into it and
+logrotate cannot even `stat` the files — the same trap
+[infra/cloudwatch](../cloudwatch/README.md) hit, where the `cwagent` user needed
+ACLs on `/home/ubuntu` to read these very files. Root needs none of that, and
+running as root is safe here because the directory is not group- or
+world-writable, which is the condition logrotate actually guards against.
+
+There is no `create` rule either: with `copytruncate` logrotate never makes a
+new file, so ownership is preserved by construction.
+
+The lesson generalises: **a world-readable file inside a `0700` parent is
+functionally unreadable to anyone but its owner and root.** It has now caught
+two separate integrations on this box.
 
 ## The timer
 

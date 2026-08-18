@@ -37,9 +37,21 @@
     # handler pino.destination does not have.
     copytruncate
 
-    # Files are written from inside the containers, which run as uid 1001 and
-    # surface on the host as ssm-user. Rotated copies keep that ownership so the
-    # containers can carry on writing.
-    su ssm-user ssm-user
-    create 0644 ssm-user ssm-user
+    # NO `su` directive — deliberately. logrotate must run as root here.
+    #
+    # The obvious-looking `su ssm-user ssm-user` (the containers write as uid
+    # 1001, which surfaces on the host as ssm-user) FAILS: /home/ubuntu is mode
+    # 0700, so ssm-user cannot traverse into it and logrotate cannot even stat
+    # the files —
+    #     switching euid from 0 to 1001 …
+    #     error: stat of /home/ubuntu/ea-sys/logs/app.log failed: Permission denied
+    # This is the same trap infra/cloudwatch hit, where the cwagent user needed
+    # ACLs on /home/ubuntu to read these very files. Root needs none of that.
+    #
+    # Running as root is safe here because the directory is not group- or
+    # world-writable, which is the condition logrotate actually guards against.
+    #
+    # No `create` either: with copytruncate logrotate never makes a new file,
+    # it truncates the original in place, so ownership is preserved by
+    # construction and a create rule would be dead config.
 }
