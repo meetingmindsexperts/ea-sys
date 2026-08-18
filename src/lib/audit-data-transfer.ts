@@ -157,7 +157,7 @@ export function recordExport(req: Request | null, args: ExportArgs): void {
  * how much of it landed" — including the skipped and failed rows, which leave
  * no per-row trace at all.
  */
-export function recordImport(req: Request | null, args: ImportArgs): void {
+export function recordImport(req: Request | null, args: ImportArgs): Promise<void> {
   const changes: TransferChanges = {
     source: args.source ?? "rest",
     format: args.format ?? "csv",
@@ -171,7 +171,18 @@ export function recordImport(req: Request | null, args: ImportArgs): void {
   if (args.skipped !== undefined) changes.skipped = args.skipped;
   if (args.errors !== undefined) changes.errors = args.errors;
 
-  db.auditLog
+  // Returns the promise so a SHORT-LIVED caller can await it. HTTP routes must
+  // still ignore the return (fire-and-forget: an audit blip must not fail an
+  // import that already committed), but a script that calls this and then
+  // exits has the opposite problem — the process tears the Prisma client down
+  // mid-write. That produced a genuine incident: the failed write logged at
+  // error level, the logger's admin-alert path tried to read `alertState` on
+  // the now-disconnected client, that read failed and logged at error level,
+  // and the two fed each other in an unbounded loop.
+  //
+  // The catch is inside, so the returned promise never rejects: awaiting it is
+  // safe and still cannot fail the caller.
+  const write = db.auditLog
     .create({
       data: {
         eventId: args.eventId ?? null,
@@ -192,6 +203,13 @@ export function recordImport(req: Request | null, args: ImportArgs): void {
         organizationId: args.organizationId ?? null,
       }),
     );
+
+  // Promise.resolve() rather than returning `write` straight: 34 test files
+  // stub `db.auditLog.create` as `{ catch: () => {} }`, deliberately mirroring
+  // the fire-and-forget shape every caller uses, so `.catch()` there yields
+  // undefined rather than a promise. Wrapping makes this awaitable in
+  // production without demanding all 34 stubs grow a `.then`.
+  return Promise.resolve(write).then(() => undefined);
 }
 
 /**

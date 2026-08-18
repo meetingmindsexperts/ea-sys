@@ -124,6 +124,39 @@ describe("recordExport", () => {
   });
 });
 
+describe("recordImport — awaitable", () => {
+  // This exists because of a production incident. The contacts import script
+  // called recordImport fire-and-forget, then disconnected Prisma and exited.
+  // The write raced the teardown and failed; that failure logged at error
+  // level; the logger's admin-alert path then read `alertState` on the
+  // disconnected client; that read failed and logged at error level; and the
+  // two fed each other in an unbounded loop that filled the log file until it
+  // could no longer be read into memory.
+  //
+  // Long-lived HTTP callers must still ignore the return value. A short-lived
+  // script must be able to await it.
+  it("returns a promise, so a script can await it before disconnecting", async () => {
+    mockDb.auditLog.create.mockReturnValueOnce(Promise.resolve({ id: "a1" }));
+    const returned = recordImport(req, {
+      entityType: "Contact",
+      organizationId: "org_1",
+      totalProcessed: 1,
+    });
+    expect(typeof returned?.then).toBe("function");
+    await expect(returned).resolves.toBeUndefined();
+  });
+
+  it("never rejects, so awaiting it cannot fail the caller", async () => {
+    // The whole point of fire-and-forget is that an audit blip is not fatal.
+    // Making it awaitable must not quietly turn it into a throw.
+    mockDb.auditLog.create.mockReturnValueOnce(Promise.reject(new Error("db down")));
+    await expect(
+      recordImport(req, { entityType: "Contact", organizationId: "org_1", totalProcessed: 1 }),
+    ).resolves.toBeUndefined();
+    expect(mockLogger.error).toHaveBeenCalled();
+  });
+});
+
 describe("recordImport", () => {
   it("writes an IMPORT row with the created/skipped/errors breakdown", () => {
     recordImport(req, {

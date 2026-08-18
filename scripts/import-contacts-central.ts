@@ -669,7 +669,11 @@ async function main() {
       // an import or how much of it landed — including the skipped rows, which
       // have no per-row trace at all. `recordImport` is fire-and-forget by
       // contract, so a logging blip cannot fail an import already committed.
-      recordImport(null, {
+      // AWAITED, unlike every HTTP caller. This process disconnects Prisma in
+      // the finally below and then exits; a fire-and-forget write would race
+      // that teardown, fail, and the failure log would drive the admin-alert
+      // path into an unbounded loop against the disconnected client.
+      await recordImport(null, {
         entityType: "Contact",
         organizationId: org.id,
         source: "cron", // no HTTP request and no session — an operator-run script
