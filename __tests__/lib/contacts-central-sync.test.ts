@@ -4,6 +4,7 @@ import {
   buildCentralRow,
   buildCentralRows,
   mergeWithExisting,
+  SELECT_COLS as CENTRAL_SELECT_COLS,
   type ContactForSync,
   type EventMeta,
   type CentralContactRow,
@@ -25,6 +26,7 @@ const NOW = "2026-07-06T00:00:00.000Z";
 function contact(o: Partial<ContactForSync> = {}): ContactForSync {
   return {
     email: "Ada@Example.com",
+    title: null,
     firstName: "Ada",
     lastName: "Lovelace",
     organization: "Analytical Engines",
@@ -120,6 +122,7 @@ describe("buildCentralRow", () => {
 describe("mergeWithExisting", () => {
   const ours: CentralContactRow = {
     email: "ada@example.com",
+    title: "DR",
     first_name: "Ada",
     last_name: "Lovelace",
     organization_name: "Analytical Engines",
@@ -181,6 +184,48 @@ describe("mergeWithExisting", () => {
   it("last_updated is always ours (freshness marker)", () => {
     const p = mergeWithExisting(ours, { email: "ada@example.com", last_updated: "2000-01-01T00:00:00.000Z" });
     expect(p.last_updated).toBe(NOW);
+  });
+});
+
+describe("title", () => {
+  const base: CentralContactRow = buildCentralRow(contact(), new Map(), new Map(), NOW);
+
+  it("sends the raw enum, not the display label", () => {
+    // "DR", never "Dr." — the label carries a trailing period and is a
+    // presentation choice; the enum is the stable value.
+    const r = buildCentralRow(contact({ title: "DR" }), new Map(), new Map(), NOW);
+    expect(r.title).toBe("DR");
+  });
+
+  it("is null when the contact has no title", () => {
+    expect(buildCentralRow(contact(), new Map(), new Map(), NOW).title).toBeNull();
+  });
+
+  it("ENRICHES — a title already in the target is never overwritten", () => {
+    // The whole point of the enrich rule: another source may know a title we
+    // do not, and a nightly full reconcile must not stamp over it.
+    const ours: CentralContactRow = { ...base, title: "MR" };
+    const p = mergeWithExisting(ours, { email: "ada@example.com", title: "PROF" });
+    expect(p.title).toBe("PROF");
+  });
+
+  it("fills a blank title in the target from ours", () => {
+    const ours: CentralContactRow = { ...base, title: "DR" };
+    expect(mergeWithExisting(ours, { email: "ada@example.com", title: "" }).title).toBe("DR");
+    expect(mergeWithExisting(ours, { email: "ada@example.com" }).title).toBe("DR");
+  });
+
+  it("leaves the target's title alone when we have none", () => {
+    const ours: CentralContactRow = { ...base, title: null };
+    expect(mergeWithExisting(ours, { email: "ada@example.com", title: "DR" }).title).toBe("DR");
+    expect(mergeWithExisting(ours, { email: "ada@example.com" }).title).toBeNull();
+  });
+
+  it("is in SELECT_COLS, or the enrich would silently overwrite the target", () => {
+    // A column absent from the read comes back undefined, so `nz(e.title)`
+    // yields null and OUR value wins — an overwrite wearing an enrich's
+    // clothing. This asserts the read list and the merge cannot drift apart.
+    expect(CENTRAL_SELECT_COLS.split(",")).toContain("title");
   });
 });
 

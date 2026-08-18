@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import { EventsAirContactsImportDialog } from "@/components/import/eventsair-contacts-import-dialog";
 import { ContactDetailSheet } from "@/components/contacts/contact-detail-sheet";
+import { TagFilterPopover, getTagColor, type TagUsage } from "@/components/contacts/tag-filter-popover";
 import { formatDate, formatPersonName } from "@/lib/utils";
 import { formatAttendeeRole } from "@/lib/schemas";
 
@@ -73,15 +74,6 @@ interface Contact {
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 
-const TAG_COLORS = [
-  "bg-sky-50 text-sky-700 border-sky-200",
-  "bg-emerald-50 text-emerald-700 border-emerald-200",
-  "bg-violet-50 text-violet-700 border-violet-200",
-  "bg-amber-50 text-amber-700 border-amber-200",
-  "bg-rose-50 text-rose-700 border-rose-200",
-  "bg-cyan-50 text-cyan-700 border-cyan-200",
-];
-
 const AVATAR_BG = [
   "bg-primary/10 text-primary",
   "bg-violet-100 text-violet-600",
@@ -90,12 +82,6 @@ const AVATAR_BG = [
   "bg-rose-100 text-rose-600",
   "bg-indigo-100 text-indigo-600",
 ];
-
-function getTagColor(tag: string): string {
-  let hash = 0;
-  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) % TAG_COLORS.length;
-  return TAG_COLORS[Math.abs(hash) % TAG_COLORS.length];
-}
 
 function getAvatarBg(name: string): string {
   let hash = 0;
@@ -143,6 +129,14 @@ export default function ContactsPage() {
   const total: number = data?.total ?? 0;
   const totalPages: number = data?.totalPages ?? 1;
   const allTags: string[] = tagsData?.tags ?? [];
+  // Frequency-ordered for the filter popover. `usage` is additive on the tags
+  // API; fall back to the alphabetical list if an older response shape arrives.
+  // Depend on `tagsData` itself: `allTags` is rebuilt every render by its `?? []`
+  // fallback, so using it as a dep would defeat the memo.
+  const tagUsage: TagUsage[] = useMemo(
+    () => tagsData?.usage ?? (tagsData?.tags ?? []).map((tag) => ({ tag, count: 0 })),
+    [tagsData],
+  );
 
   const handleSearchChange = (value: string) => {
     setSearchInput(value);
@@ -416,36 +410,14 @@ export default function ContactsPage() {
           </div>
         </div>
         
-        {/* Tag filter pills */}
-        {allTags.length > 0 && (
-          <div className="w-full flex flex-wrap gap-1.5 items-center">
-            <span className="text-xs font-medium text-gray-400 mr-0.5 shrink-0">Filter:</span>
-            {allTags.map((tag) => (
-              <button
-                type="button"
-                key={tag}
-                onClick={() => toggleTagFilter(tag)}
-                className={`text-xs px-2.5 py-0.5 rounded-full border font-medium transition-all cursor-pointer ${
-                  tagFilter.has(tag)
-                    ? "bg-primary text-white border-primary shadow-sm"
-                    : `${getTagColor(tag)} hover:opacity-80`
-                }`}
-              >
-                {tag}
-              </button>
-            ))}
-            {tagFilter.size > 0 && (
-              <button
-                type="button"
-                onClick={() => { setTagFilter(new Set()); setPage(1); }}
-                className="text-xs text-gray-400 hover:text-gray-600 ml-0.5 flex items-center gap-0.5 cursor-pointer"
-              >
-                <X className="h-3 w-3" />
-                Clear
-              </button>
-            )}
-          </div>
-        )}
+        {/* Tag filter — searchable popover, not one pill per tag. See the
+            component header for why the flat pill row stopped working. */}
+        <TagFilterPopover
+          tags={tagUsage}
+          selected={tagFilter}
+          onToggle={toggleTagFilter}
+          onClear={() => { setTagFilter(new Set()); setPage(1); }}
+        />
         </div>
         {/* Bulk actions bar */}
         {selectedIds.size > 0 && (

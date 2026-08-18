@@ -6,8 +6,9 @@
  * populated from registrants, speakers, submitters, and reviewers — see
  * src/lib/contact-sync.ts), enriched with per-event arrays.
  *
- * Merge semantics (enforced ATOMICALLY by the `ea_upsert_contacts` Postgres
- * function on the TARGET — see docs/CONTACTS_CENTRAL_SYNC.md):
+ * Merge semantics (computed HERE, then sent as a PostgREST merge-duplicates
+ * upsert — the target has no functions or triggers, see
+ * docs/CONTACTS_CENTRAL_SYNC.md §1):
  *   - arrays (tags, events_attended, registration_type, event_speciality,
  *     event_type, event_group) → UNION with whatever is already there (add,
  *     never remove) so other sources' entries survive.
@@ -21,7 +22,7 @@
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { formatAttendeeRole } from "@/lib/schemas";
-import type { AttendeeRole } from "@prisma/client";
+import type { AttendeeRole, Title } from "@prisma/client";
 
 const isEnabled = () => process.env.CONTACTS_CENTRAL_ENABLED === "true";
 const baseUrl = () => (process.env.CONTACTS_CENTRAL_URL || "").replace(/\/+$/, "");
@@ -38,6 +39,8 @@ export function isCentralSyncConfigured(): boolean {
 /** The exact payload we send — ONLY EA-SYS-owned columns. */
 export interface CentralContactRow {
   email: string;
+  /** Personal honorific as the raw enum (DR / PROF / …), NOT `job_title`. */
+  title: string | null;
   first_name: string | null;
   last_name: string | null;
   organization_name: string | null;
@@ -58,6 +61,7 @@ export interface CentralContactRow {
 
 export interface ContactForSync {
   email: string;
+  title: Title | null;
   firstName: string;
   lastName: string;
   organization: string | null;
@@ -100,6 +104,12 @@ export function buildCentralRow(
 
   return {
     email,
+    // Raw enum (DR / PROF / MR / MRS / MS / OTHER), not the display label.
+    // `Title` is a Prisma enum here, so the stored value is the stable thing;
+    // "Dr." is a presentation choice that can change. Deliberately unlike
+    // `role` below, which has shipped as a formatted label since day one and
+    // cannot be changed now without breaking whatever reads it downstream.
+    title: c.title ?? null,
     first_name: c.firstName || null,
     last_name: c.lastName || null,
     organization_name: c.organization || null,
@@ -141,7 +151,7 @@ export async function buildCentralRows(opts: { since?: Date } = {}): Promise<Cen
   const contacts = await db.contact.findMany({
     where: opts.since ? { updatedAt: { gte: opts.since } } : {},
     select: {
-      email: true, firstName: true, lastName: true, organization: true, jobTitle: true,
+      email: true, title: true, firstName: true, lastName: true, organization: true, jobTitle: true,
       phone: true, city: true, country: true, specialty: true, customSpecialty: true,
       role: true, tags: true, eventIds: true, registrationType: true,
     },
@@ -189,6 +199,7 @@ export async function buildCentralRows(opts: { since?: Date } = {}): Promise<Cen
 /** The merged payload we actually send — enriched scalars + unioned arrays. */
 export interface CentralPayload {
   email: string;
+  title: string | null;
   first_name: string | null;
   last_name: string | null;
   organization_name: string | null;
@@ -228,6 +239,7 @@ export function mergeWithExisting(ours: CentralContactRow, existing?: Record<str
   const e = existing ?? {};
   return {
     email: ours.email,
+    title: nz(e.title) ?? ours.title,
     first_name: nz(e.first_name) ?? ours.first_name,
     last_name: nz(e.last_name) ?? ours.last_name,
     organization_name: nz(e.organization_name) ?? ours.organization_name,
@@ -249,8 +261,11 @@ export function mergeWithExisting(ours: CentralContactRow, existing?: Record<str
   };
 }
 
-const SELECT_COLS =
-  "email,first_name,last_name,organization_name,job_title,mobile,city,country," +
+// Must list every column mergeWithExisting reads. A column missing here comes
+// back undefined, so the enrich falls through to OUR value and silently
+// overwrites what the target already had.
+export const SELECT_COLS =
+  "email,title,first_name,last_name,organization_name,job_title,mobile,city,country," +
   "speciality,role,source,tags,events_attended,registration_type,event_speciality,event_type,event_group";
 
 /**
@@ -326,7 +341,7 @@ export async function upsertCentralRows(rows: CentralContactRow[]): Promise<{ se
 
 /**
  * Incremental worker tick — sync contacts touched in the last `lookbackMinutes`
- * (default 30). Idempotent (the RPC's union/enrich makes re-sends safe), so the
+ * (default 45). Idempotent (the union/enrich merge makes re-sends safe), so the
  * generous overlap vs the ~10-min cadence is harmless.
  */
 export async function runContactsCentralTick(opts: { lookbackMinutes?: number } = {}): Promise<{ synced: number; failed: number }> {

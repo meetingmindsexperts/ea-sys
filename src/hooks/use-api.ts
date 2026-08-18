@@ -744,7 +744,10 @@ export function useDeleteContact() {
 export function useContactTags() {
   return useQuery({
     queryKey: [...queryKeys.contacts, "tags"],
-    queryFn: () => fetchApi<{ tags: string[] }>("/api/contacts/tags"),
+    // `usage` is frequency-ordered and additive — the three existing callers
+    // read `tags` (distinct, alphabetical) and are unaffected.
+    queryFn: () =>
+      fetchApi<{ tags: string[]; usage?: { tag: string; count: number }[] }>("/api/contacts/tags"),
   });
 }
 

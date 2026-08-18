@@ -31,6 +31,9 @@ const { mockGetOrgContext, mockDb, mockRateLimit } = vi.hoisted(() => ({
     speaker: { findMany: vi.fn() },
     registration: { findMany: vi.fn() },
     auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
+    // The tags route aggregates with unnest via $queryRaw rather than pulling
+    // every contact's tag array into Node, so the mock needs it too.
+    $queryRaw: vi.fn(),
   },
   mockRateLimit: vi.fn((): { allowed: boolean; retryAfterSeconds: number } => ({
     allowed: true,
@@ -101,6 +104,7 @@ beforeEach(() => {
   mockDb.speaker.findMany.mockResolvedValue([]);
   mockDb.registration.findMany.mockResolvedValue([]);
   mockDb.auditLog.create.mockReturnValue({ catch: () => {} });
+  mockDb.$queryRaw.mockResolvedValue([]);
 });
 
 describe("canViewContacts — the boundary (staff + MEMBER + CRM_USER; fails closed)", () => {

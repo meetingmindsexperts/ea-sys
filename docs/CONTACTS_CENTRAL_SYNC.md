@@ -16,10 +16,13 @@ backfill/reconcile.
   script is the same full reconcile, on demand. All logic runs on the **EA-SYS
   side** (read-modify-write via PostgREST — GET existing → merge → upsert); **no
   functions/objects live in the target project** beyond the table + the `ea_synced`
-  column.
+  and `title` columns.
 
 > **Data residency:** the target is **EU**, so attendee **PII leaves the Mumbai
-> boundary**. This is an explicit, signed-off data-sharing decision.
+> boundary**. This is an explicit, signed-off data-sharing decision. The exported
+> field set is the "Field mapping" table below — keep it accurate when adding a
+> column, since it IS the record of what was signed off. `title` (Aug 18, 2026)
+> is a closed enum rather than free text, so it widens that set only slightly.
 
 ## Merge semantics (done on the EA-SYS side)
 - **Arrays** (`tags`, `events_attended`, `registration_type`, `event_speciality`,
@@ -41,6 +44,7 @@ all control on the EA-SYS side (nothing to install in the target project).
 | `contacts_centralv1` | EA-SYS `Contact` |
 |---|---|
 | `email` (key) | `email` (lowercased) |
+| `title` | `title` → **raw enum** (`DR` / `PROF` / `MR` / `MRS` / `MS` / `OTHER`), NOT the display label. Deliberately asymmetric with `role` below, which has shipped as a formatted label since day one and cannot change without breaking downstream readers. Not the same thing as `job_title`. |
 | `first_name` / `last_name` | `firstName` / `lastName` |
 | `organization_name` | `organization` |
 | `job_title` | `jobTitle` |
@@ -60,14 +64,25 @@ all control on the EA-SYS side (nothing to install in the target project).
 
 ## Setup
 
-### 1. Target project — one column to add
-No functions or triggers — all merge logic runs on the EA-SYS side. The only
-change in the target project is a provenance column (set `true` on every row
-EA-SYS touches, so you can tell our data apart from other sources):
+### 1. Target project — two columns to add
+No functions or triggers — all merge logic runs on the EA-SYS side. The changes
+in the target project are a provenance column (set `true` on every row EA-SYS
+touches, so you can tell our data apart from other sources) and a personal-title
+column:
 
 ```sql
 alter table public.contacts_centralv1 add column if not exists ea_synced boolean;
+alter table public.contacts_centralv1 add column if not exists title text;
 ```
+
+Both are additive + idempotent, and adding a nullable column with no default is
+metadata-only in Postgres, so neither rewrites the table.
+
+⚠️ **Add the column BEFORE deploying a sync that writes it.** `SELECT_COLS` names
+every column in the per-chunk `GET`, and PostgREST 400s on an unknown column —
+`upsertCentralRows` counts that chunk as failed and `continue`s, so a missing
+column makes **every** chunk of both the incremental tick and the nightly
+reconcile a silent no-op, visible only in error logs.
 
 The **service-role key** must be able to `select` + `insert`/`update` on the
 table (a service_role key bypasses RLS, so this works out of the box).

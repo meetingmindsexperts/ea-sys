@@ -1,8 +1,9 @@
 /**
  * contacts-central-sync job — mirrors EA-SYS contacts (touched in the last
- * ~30 min) into the external `contacts_centralv1` table via the target's
- * `ea_upsert_contacts` RPC. No-ops unless CONTACTS_CENTRAL_ENABLED=true +
- * URL/key are set. Failure-isolated: a tick error never crashes the scheduler.
+ * 45 min) into the external `contacts_centralv1` table. The merge runs HERE and
+ * goes out as a PostgREST merge-duplicates upsert; the target has no functions
+ * or triggers. No-ops unless CONTACTS_CENTRAL_ENABLED=true + URL/key are set.
+ * Failure-isolated: a tick error never crashes the scheduler.
  *
  * Cadence: fires at :16 and :53 each hour (37 min apart, ~37-min cadence),
  * deliberately OFF the top of the hour and off the every-3/5/10-min jobs so we

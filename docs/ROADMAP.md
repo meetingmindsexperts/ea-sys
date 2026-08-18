@@ -212,6 +212,28 @@ The platform handles the entire event lifecycle — from public registration and
 
 ## Deferred review findings
 
+### Contacts inbound import — deferred review findings (Aug 18, 2026)
+
+Three-lens adversarial review of the inbound `contacts_centralv1` import, the
+do-not-import blocklist, and the tag-filter rework. 0 BLOCKER. Everything HIGH
+was fixed in-band (see the CLAUDE.md entry). These are the deliberate carry-overs.
+
+| # | Sev | Finding |
+|---|-----|---------|
+| C1 | MED | **`GET /api/contacts/tags` is the first `$queryRaw` on a tenant-scoped table.** [db.ts](../src/lib/db.ts) states raw client ops are deliberately NOT wrapped by the tenant extension, so under `RLS_SET_LOCAL=1` the statement runs with no `app.current_org`, the Contact policy fails closed, and the tag filter silently returns `{tags: [], usage: []}` — no error, no log. Not a leak (the explicit `WHERE "organizationId"` holds). Fix: issue it inside `tenantTransaction()`, which does the `SET LOCAL` on the tx backend. **Platform precondition — must be closed before RLS is enabled anywhere real.** |
+| C2 | MED | **`check-tenant-als.sh` now passes vacuously on `src/app/api/contacts`.** The gate counts `runWithTenant(` against handler count and separately checks read placement on `SWEPT_MODELS` (`.contact.findMany` etc). Converting that route's only swept model read into `$queryRaw` removed the thing the gate inspects, while the textual `runWithTenant` wrap remains. Fix: extend the gate to flag `$queryRaw`/`$executeRaw` inside swept route dirs. Pairs with C1. |
+| C3 | MED | **`getTagColor` is now a 5th copy, and one existing copy already diverges.** Verified: `contacts/[contactId]/page.tsx`, `bulk-tag-dialog.tsx`, `contact-detail-sheet.tsx`, `import-contacts-dialog.tsx` (a 4-colour `bg-blue-100` palette, so the same tag renders a different colour there today), plus `tag-filter-popover.tsx`. The rework relocated the page's copy rather than consolidating. Fix: one `src/lib/tag-colors.ts`, point all five at it. |
+| C4 | MED | **Imported tags bypass `normalizeTag`.** Nine in-app write paths Title-Case tags; the import deliberately does not, because the n8n/Webflow tag filter matches case-sensitively. Consequence now visible in the new popover: `"MASH in Focus"` and `"Mash In Focus"` are two rows with two counts filtering to disjoint sets, while `TagInput` hides one as a duplicate. Fix: normalize on import and fix the n8n matcher, or state the split in both the script header and the tags route so nobody "fixes" it by adding `normalizeTag`. |
+| C5 | MED | **The documented undo decays with use.** "Delete every Contact tagged `central-import`" is safe at t=0. Once an imported contact registers for an event, `syncToContact` updates that same row with real `eventIds` and history while the tag remains. Fix: state the undo as tagged **AND** `eventIds = []` **AND** `createdAt <= <run time>`, or have the script print its run timestamp. |
+| C6 | MED | **No test executes the tags route's SQL output mapping.** `mockDb.$queryRaw` is stubbed to `[]`, so `rows.map`, the `localeCompare` sort and the `Number(r.count)` BigInt conversion never run with data. Fix: stub a two-row result. Related: nothing pins `title: true` in `buildCentralRows`' Prisma select — dropping it silently stops sending titles with no test failing. |
+| C7 | LOW | **`NAME_IS_EMAIL` deletes people whose surname field holds their email.** 85 of the 304 had a plausible real given name (e.g. `acweyand@med.umich.edu`, U. Michigan Medicine). Bounded: 0 of the deleted rows had any `eventIds`. The correct action is repairing `lastName`, not deleting. |
+| C8 | LOW | **The import cannot carry `title` inbound.** `SELECT_COLS`/`mapRow` in the script omit it while the same change adds it outbound. Harmless today (mirror has 0 non-null titles) but lossy once the reconcile populates them and someone re-runs with `--include-synced`. |
+| C9 | LOW | **Offset pagination on a collation-ordered key with no tiebreaker.** `order=email.asc` + `offset` across 57 pages. Postgres guarantees no stable order for collation-equal keys. Fix: keyset-paginate (`email=gt.<last>`). |
+| C10 | LOW | **`created` counts rows `skipDuplicates` may have dropped**, so the reported figure can exceed the actual insert count. The `before → after` line is the honest number. |
+| C11 | LOW | **The blocklist is not wired into the public registration form**, which the module header names as the door the spam walked in. Only the local script consumes it. Fix: call `screenContact` in the public register + contacts import routes with a logged `warn` on refusal, or soften the header. |
+| C12 | LOW | **`emailDomain` is duplicated** between `contact-import-blocklist.ts` and the private one in `internal-domains.ts` (already a documented dependency-free leaf module — the natural home). |
+| C13 | LOW | **`sanitizeImportedTag` is exported from a self-executing script**, so it is untestable (importing it runs `main()`) and untested, despite carrying the JSON-blob unwrapping and machine-id rejection logic. Fix: move it beside `screenContact`. |
+
 ### Public agenda — the rest of the multi-track proposal (Aug 17, 2026)
 
 Items 1 and 2 of the agenda UX proposal shipped (parallel blocks keyed by hall,
@@ -3224,7 +3246,7 @@ a wrong-but-well-formed payload fails **silently and successfully**, so always t
 | M12 | MED | Both central-sync jobs are exposed to the **P3 pooler advisory-lock stall**: a lock stranded on one pooled backend makes every later tick skip at **debug** level with no `JobRun` row → the mirror silently stops. If the reconcile's lock wedges too, the safety net for every LOW here stops as well. | Durable fix = point the worker at `DIRECT_URL`. Interim = log the skip at `info` / use `pg_advisory_xact_lock`. |
 | L1 | LOW | Central-sync summary logs at `info` even when `failed > 0` (per-chunk failures *do* log at error). |
 | L2 | LOW | **ROADMAP drift:** the M9 note (line ~757) says the speakers CSV import lacks contact-sync — **it doesn't**; the real gap is narrower (omits `role`/`state`/`zipCode`/`photo`/`additionalEmail`). |
-| L3 | LOW | Worker-job + backfill-script comments describe an `ea_upsert_contacts` RPC that **deliberately does not exist** (all merge logic is client-side); the job comment also states the wrong lookback (30 vs 45 min). |
+| ~~L3~~ | ~~LOW~~ | ~~Worker-job + backfill-script comments describe an `ea_upsert_contacts` RPC that **deliberately does not exist** (all merge logic is client-side); the job comment also states the wrong lookback (30 vs 45 min).~~ **✅ SHIPPED Aug 18, 2026** — all four references corrected (`worker/jobs/contacts-central-sync.ts`, `scripts/backfill-contacts-central.ts`, and two inside `src/lib/contacts-central-sync.ts` itself, incl. the 30→45 lookback). |
 | L4 | LOW | `buildCentralRows` runs `db.registration.findMany` with **no `where`** — loads every registration in the DB on every tick, even a 2-contact incremental. |
 | L5 | LOW | CSV import's `created`/`skipped` counts derive from two racing `count()` queries (`createMany` returns `{count}`). |
 | L6 | LOW | `PROTECTED_EMAILS = ["krishna@meetingmindsdubai.com"]` hardcoded as policy inside a route handler (untestable, multi-tenant footgun; its 403 is also unlogged per M8). |

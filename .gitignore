@@ -96,3 +96,9 @@ cert-*.png
 # Claude Code runtime state — scheduled wakeup lockfile etc.
 .claude/scheduled_tasks.lock
 eventsair-introspect-output.txt
+
+# Quarantined rows from scripts/dev-import-contacts-central.ts --purge-blocked
+contacts-quarantine*.json
+
+# Archived quarantine batches (PII from --purge-blocked runs)
+.quarantine-archive/

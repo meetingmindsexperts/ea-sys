@@ -1,15 +1,15 @@
 /**
  * Backfill / full reconcile — push EVERY EA-SYS contact into the external
- * `contacts_centralv1` table via the target's `ea_upsert_contacts` RPC
- * (arrays UNION, scalars ENRICH, never touches evenstair/created_at/fetched_at/
- * mailchimp_*). Idempotent + safe to re-run.
+ * `contacts_centralv1` table (arrays UNION, scalars ENRICH, never touches
+ * evenstair/created_at/fetched_at/mailchimp_*). Idempotent + safe to re-run.
  *
  *   npx tsx scripts/backfill-contacts-central.ts           # dry-run (counts + sample)
  *   npx tsx scripts/backfill-contacts-central.ts --write   # actually push
  *
- * Prereqs: the ea_upsert_contacts + ea_array_union functions exist in the target
- * project (see docs/CONTACTS_CENTRAL_SYNC.md), and CONTACTS_CENTRAL_ENABLED=true
- * + CONTACTS_CENTRAL_URL + CONTACTS_CENTRAL_SERVICE_KEY are set in .env.
+ * Prereqs: CONTACTS_CENTRAL_ENABLED=true + CONTACTS_CENTRAL_URL +
+ * CONTACTS_CENTRAL_SERVICE_KEY in .env. No functions or triggers are needed in
+ * the target project — the merge runs here and goes out as a PostgREST
+ * merge-duplicates upsert (see docs/CONTACTS_CENTRAL_SYNC.md §1).
  */
 import "dotenv/config";
 import {
