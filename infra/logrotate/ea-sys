@@ -1,0 +1,45 @@
+# EA-SYS application log rotation.
+#
+# Installed to /etc/logrotate.d/ea-sys by infra/logrotate/setup.sh.
+#
+# Why this exists: src/lib/logger.ts writes app.log and error.log via plain
+# `pino.destination(...)` — append-only, no size cap, no roll. Nothing in the
+# application rotates them, and until 2026-08-18 nothing on the box did either,
+# so both files had been growing since the box was built. An error-feedback loop
+# during the contacts import took them to 1.2 GB each in about ten minutes,
+# which is how the gap surfaced. Normally it is a slow leak measured in months;
+# that made it a fast one.
+#
+# NOT the same thing as the `log-archive` worker job. That archives the
+# SystemLog TABLE monthly into logs/archive/. The database side was already
+# bounded; the files were not.
+
+/home/ubuntu/ea-sys/logs/*.log {
+    # Size-based, checked hourly by the systemd timer, so a burst is caught in
+    # minutes rather than at the next daily run. A purely daily rule would have
+    # let the 2.4 GB above accumulate untouched.
+    size 100M
+
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+
+    # LOAD-BEARING. The files are held open by the running web and worker
+    # containers, which write by file descriptor. Ordinary rotation renames the
+    # file and the process keeps writing to the same inode, so the "rotated"
+    # file keeps growing invisibly and no space is reclaimed. copytruncate
+    # copies the contents aside and truncates the original in place, which the
+    # open descriptor tolerates.
+    #
+    # The alternative (`create` + signalling the app to reopen) needs a reopen
+    # handler pino.destination does not have.
+    copytruncate
+
+    # Files are written from inside the containers, which run as uid 1001 and
+    # surface on the host as ssm-user. Rotated copies keep that ownership so the
+    # containers can carry on writing.
+    su ssm-user ssm-user
+    create 0644 ssm-user ssm-user
+}

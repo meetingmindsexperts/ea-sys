@@ -194,7 +194,8 @@ All application-level jobs (cert-issue, scheduled-emails, webinar syncs, oauth-c
 
 1. **fail2ban:** `sudo apt-get install -y fail2ban` (sshd jail comes enabled by default), then `bash infra/fail2ban/setup.sh` for the nginx 429 jail. 📸 Live jail values: `maxretry=100 findtime=120 bantime=1800 backend=auto logpath=/var/log/nginx/error.log`. Add the office egress IP to `ignoreip` (live currently has localhost only). Verify: `sudo fail2ban-client status nginx-rate-limit`.
 2. **CloudWatch agent:** `bash infra/cloudwatch/setup.sh` — ships `logs/app.log` + `logs/error.log` to log groups `ea-sys/app` (30d) / `ea-sys/error` (90d). The §1.1 role already carries the policy. Verify entries appear in `ap-south-1` CloudWatch within minutes.
-3. **SSM:** should already work via the role (agent is stock on Ubuntu AMIs) — verify `aws ssm start-session --target <new-instance-id> --region ap-south-1` from your machine.
+3. **Log rotation:** `bash infra/logrotate/setup.sh`, then switch `logrotate.timer` to hourly (the script prints the exact commands). **Do not skip this.** `src/lib/logger.ts` writes `app.log`/`error.log` with plain `pino.destination` — no size cap, no roll — so without a `/etc/logrotate.d/ea-sys` entry they grow forever. The original box ran without one until 2026-08-18, when an error loop took both files to 1.2 GB each in ten minutes and broke the `/logs` file reader. Note this is NOT the `log-archive` worker job, which bounds the `SystemLog` *table*, not the files. Verify: `sudo logrotate -d /etc/logrotate.d/ea-sys`.
+4. **SSM:** should already work via the role (agent is stock on Ubuntu AMIs) — verify `aws ssm start-session --target <new-instance-id> --region ap-south-1` from your machine.
 
 ---
 
@@ -213,6 +214,7 @@ Update GitHub repo **Actions secrets** for the deploy workflow (host = new Elast
 - [ ] Send yourself a test email from Communications (exercises SES via the role)
 - [ ] Force one of each backup: run the three cron commands by hand once, confirm objects land in `s3://ea-sys-dr-singapore/{env,uploads,db}/`
 - [ ] `sudo fail2ban-client status` lists both jails; CloudWatch log groups receiving
+- [ ] `/etc/logrotate.d/ea-sys` installed and `logrotate.timer` is hourly (`sudo logrotate -d /etc/logrotate.d/ea-sys` parses clean)
 - [ ] A GitHub Actions deploy completes end-to-end (Phase 8)
 - [ ] Run `scripts/dr-restore-drill.sh` once from the box — proves the new box can also *restore*
 - [ ] Update `docs/AWS_OPERATIONS.md` inventory + this doc's Phase 0 table with the new instance id
