@@ -56,9 +56,17 @@ export async function GET(req: Request) {
       );
     }
 
+    // Row cap. This route builds the whole CSV in memory on a t3.large that is
+    // also serving the door scanner, and the contact book went from ~3.3k to
+    // ~57k with the contacts_centralv1 import. Truncating SILENTLY would be
+    // worse than either extreme — the file would look complete — so the header
+    // row below reports it and the response carries an explicit header.
+    const EXPORT_ROW_CAP = 25_000;
+
     const contacts = await db.contact.findMany({
       where: { organizationId: ctx.organizationId },
       orderBy: { createdAt: "desc" },
+      take: EXPORT_ROW_CAP,
       select: {
         title: true,
         firstName: true,
@@ -106,18 +114,32 @@ export async function GET(req: Request) {
       format: "csv",
     });
 
+    // A cap that nobody is told about produces a file that looks complete and
+    // is not — the silent-truncation class this repo has been bitten by before.
+    const truncated = contacts.length === EXPORT_ROW_CAP;
+    if (truncated) {
+      apiLogger.warn({
+        msg: "contacts-export:truncated",
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        cap: EXPORT_ROW_CAP,
+      });
+    }
+
     apiLogger.info({
       msg: "contacts-export:completed",
       organizationId: ctx.organizationId,
       userId: ctx.userId,
       role: ctx.role,
       rowCount: contacts.length,
+      truncated,
     });
 
     return new Response(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="contacts-${Date.now()}.csv"`,
+        ...(truncated ? { "X-Export-Truncated": String(EXPORT_ROW_CAP) } : {}),
       },
     });
     });

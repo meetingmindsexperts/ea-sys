@@ -12,13 +12,25 @@
  * at 02:24 UTC, which flips every imported row to `ea_synced = true`. There is
  * no second incremental run to be had without a new column on the target.
  *
- * Local only
+ * Running it
  * ----------
- * Refuses unless DATABASE_URL resolves to localhost, and refuses the known prod
- * project ref. There is no escape hatch: the local DB is a restored copy of
- * production (docs/LOCAL_DEV_DATABASE.md), so a test here is realistic AND
- * reversible, which is the whole point. Reads against the EU mirror are GET-only
- * regardless of flags — this script never writes to the mirror.
+ * Dry-run by default, `--write` to apply — the repo's convention for prod ops
+ * scripts. Every run prints which database it is pointed at before doing
+ * anything. Reads against the EU mirror are GET-only regardless of flags: this
+ * script never writes to the mirror.
+ *
+ * On the box, via the worker container so it gets the same runtime, deps,
+ * Prisma client and env as production:
+ *   docker exec ea-sys-worker npx tsx scripts/import-contacts-central.ts --count
+ *
+ * ⚠️ BEFORE a production import, turn the outbound sync off:
+ * every imported row gets a fresh `updatedAt`, and contacts-central-sync has a
+ * 45-minute lookback, so the next tick would push all ~53k straight back to the
+ * mirror they came from. Set CONTACTS_CENTRAL_ENABLED=false, import, re-enable.
+ *
+ * ⚠️ `--purge-blocked --write` DELETES. It additionally requires
+ * `--confirm-delete`, because the screen is a heuristic that has already been
+ * wrong on real data (see contact-import-blocklist.ts).
  *
  * Merge semantics (mirror image of the outbound sync)
  * ---------------------------------------------------
@@ -47,20 +59,21 @@
  * because it only ever filled blanks.
  *
  * Usage:
- *   npx tsx scripts/dev-import-contacts-central.ts                    # dry run, 5 rows
- *   npx tsx scripts/dev-import-contacts-central.ts --count            # totals only
- *   npx tsx scripts/dev-import-contacts-central.ts --limit 60000      # full dry run
- *   npx tsx scripts/dev-import-contacts-central.ts --limit 60000 --write
- *   npx tsx scripts/dev-import-contacts-central.ts --include-synced   # ignore the ea_synced filter
- *   npx tsx scripts/dev-import-contacts-central.ts --purge-blocked   # clean rows already imported
- *   npx tsx scripts/dev-import-contacts-central.ts --purge-blocked --write
+ *   npx tsx scripts/import-contacts-central.ts --count                 # totals only, no writes
+ *   npx tsx scripts/import-contacts-central.ts                          # dry run, 5 rows
+ *   npx tsx scripts/import-contacts-central.ts --limit 60000            # full dry run
+ *   npx tsx scripts/import-contacts-central.ts --limit 60000 --write    # apply
+ *   npx tsx scripts/import-contacts-central.ts --org <id|slug>          # required when >1 org
+ *   npx tsx scripts/import-contacts-central.ts --include-synced         # ignore the ea_synced filter
+ *   npx tsx scripts/import-contacts-central.ts --purge-blocked          # dry run of the delete
+ *   npx tsx scripts/import-contacts-central.ts --purge-blocked --write --confirm-delete
  */
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import dotenv from "dotenv";
-import { PrismaClient } from "@prisma/client";
 import { parseAttendeeRole } from "@/lib/schemas";
 import { screenContact } from "@/lib/contact-import-blocklist";
+import { recordImport } from "@/lib/audit-data-transfer";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
@@ -82,33 +95,55 @@ function arg(name: string): string | undefined {
 }
 const flag = (name: string) => process.argv.includes(`--${name}`);
 
-function assertLocalDatabase(): void {
-  // Mirrors scripts/dev-create-admin.ts, which has four checks. This one writes
-  // and deletes contacts, so it gets the same four.
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("[import-central] NODE_ENV=production. Refusing — this script writes and deletes contacts.");
-  }
+/**
+ * Identify the target and gate on it.
+ *
+ * This used to refuse any non-localhost database outright. That was correct
+ * while it was a dev tool, and wrong once the point is to load production. The
+ * repo's convention for prod ops scripts (backfill-contacts-central.ts, the
+ * speaker-companion backfill) is dry-run default + an explicit --write, so this
+ * follows that — with one addition, because unlike those two this script can
+ * also DELETE.
+ *
+ * Returns a description of the target so every run prints what it is about to
+ * touch. Silence about which database you are pointed at is how the wrong one
+ * gets written to.
+ */
+function resolveTarget(): { host: string; isProd: boolean; label: string } {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("[import-central] DATABASE_URL is not set. Refusing.");
-  if (url.includes(PROD_MARKER)) {
-    throw new Error(
-      `[import-central] DATABASE_URL points at the production Supabase project (${PROD_MARKER}). Refusing — this script writes contacts.`,
-    );
-  }
+
   // Parse rather than substring-match: "…@evil.example/db?host=localhost" must
-  // not pass, and a bare `.includes("localhost")` would let it.
+  // not read as local. URL.hostname returns IPv6 literals WITH brackets.
   let host: string;
   try {
-    host = new URL(url).hostname;
+    host = new URL(url).hostname.replace(/^\[|\]$/g, "");
   } catch {
     throw new Error("[import-central] DATABASE_URL is not a parseable URL. Refusing.");
   }
-  // URL.hostname returns IPv6 literals WITH brackets ("[::1]"), so comparing to
-  // a bare "::1" is dead code — strip them before the check.
-  host = host.replace(/^\[|\]$/g, "");
-  if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
+
+  const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1";
+  const isProd = url.includes(PROD_MARKER) || (!isLocal && process.env.NODE_ENV === "production");
+  return {
+    host,
+    isProd,
+    label: isLocal ? "LOCAL" : isProd ? "PRODUCTION" : `remote (${host})`,
+  };
+}
+
+/**
+ * The delete path gets its own gate, deliberately harder than --write.
+ *
+ * `screenContact` is a heuristic, and it has already been wrong in production
+ * data: an early version deleted a lab worker and a pharmacist because their
+ * employer had been typed with a `.com` suffix. Creating a wrong row is
+ * recoverable by editing it; deleting a right one is not, quarantine file or no.
+ */
+function assertDeleteConfirmed(target: ReturnType<typeof resolveTarget>) {
+  if (!flag("confirm-delete")) {
     throw new Error(
-      `[import-central] DATABASE_URL host is "${host}", not localhost. Refusing — this script only ever runs against a local database.`,
+      `[import-central] --purge-blocked --write DELETES contacts on ${target.label}. ` +
+        `Re-run with --confirm-delete once you have read the dry-run output.`,
     );
   }
 }
@@ -339,7 +374,7 @@ function collapseByEmail(rows: Mapped[]): Mapped[] {
  *
  * Reports before it deletes and honours --write like everything else here.
  */
-async function purgeBlocked(db: PrismaClient, organizationId: string, write: boolean) {
+async function purgeBlocked(db: typeof import("@/lib/db").db, organizationId: string, write: boolean) {
   const BATCH = 1000;
   const doomed: {
     reason: string;
@@ -440,13 +475,23 @@ async function purgeBlocked(db: PrismaClient, organizationId: string, write: boo
 }
 
 async function main() {
-  assertLocalDatabase();
-  const db = new PrismaClient();
+  const target = resolveTarget();
+
+  // The shared client, not a bare `new PrismaClient()`: it carries the INC-002
+  // prod guard, the tenancy extension and the audit-org stamp, all of which a
+  // prod-capable script needs. Imported HERE rather than at the top because the
+  // dotenv calls above are statements, not imports — a static import would
+  // evaluate @/lib/db before .env.local had been read, and it would connect to
+  // the wrong database. Top-level await is not available under the CJS
+  // transform, so this is the dynamic form.
+  const { db } = await import("@/lib/db");
 
   const write = flag("write");
   const limitRaw = Number(arg("limit") ?? 5);
   const limit = Math.min(Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 5, MAX_LIMIT);
   const verbose = limit <= VERBOSE_THRESHOLD;
+
+  console.log(`\n  database:  ${target.label}  (host ${target.host})`);
 
   try {
     const totals = await fetchTotals();
@@ -456,10 +501,28 @@ async function main() {
 
     if (flag("count")) return;
 
-    const org = await db.organization.findFirst({ select: { id: true, name: true } });
-    if (!org) throw new Error("[import-central] no Organization row found in the local database.");
+    // --org wins; otherwise refuse to guess when there is more than one. An
+    // unordered findFirst let heap order decide which org received ~57k rows.
+    const orgArg = arg("org");
+    const orgs = await db.organization.findMany({ select: { id: true, name: true, slug: true } });
+    if (orgs.length === 0) throw new Error("[import-central] no Organization row found.");
+    const org = orgArg
+      ? orgs.find((o) => o.id === orgArg || o.slug === orgArg)
+      : orgs.length === 1
+        ? orgs[0]
+        : undefined;
+    if (!org) {
+      throw new Error(
+        orgArg
+          ? `[import-central] no organization matches "${orgArg}".`
+          : `[import-central] ${orgs.length} organizations exist — pass --org <id|slug>. Found: ${orgs
+              .map((o) => `${o.name} (${o.slug})`)
+              .join(", ")}`,
+      );
+    }
 
     if (flag("purge-blocked")) {
+      if (write) assertDeleteConfirmed(target);
       await purgeBlocked(db, org.id, write);
       return;
     }
@@ -599,8 +662,30 @@ async function main() {
     console.log(`  case-collapsed: ${collapsed}  (same person, two rows in the mirror)`);
     console.log(`  contacts:       ${before} → ${after}`);
     console.log(`  elapsed:        ${((Date.now() - startedAt) / 1000).toFixed(0)}s`);
-    if (!write) console.log(`\n  Dry run. Re-run with --write to apply.`);
-    else console.log(`\n  Undo:  delete every Contact carrying the "${IMPORT_TAG}" tag.`);
+    if (!write) {
+      console.log(`\n  Dry run. Re-run with --write to apply.`);
+    } else {
+      // One AuditLog row for the run. Per-row creates leave no trace of WHO ran
+      // an import or how much of it landed — including the skipped rows, which
+      // have no per-row trace at all. `recordImport` is fire-and-forget by
+      // contract, so a logging blip cannot fail an import already committed.
+      recordImport(null, {
+        entityType: "Contact",
+        organizationId: org.id,
+        source: "cron", // no HTTP request and no session — an operator-run script
+        format: "contacts-centralv1",
+        totalProcessed: fetched,
+        created,
+        updated: enriched,
+        skipped,
+        errors: 0,
+      });
+      const stamp = new Date().toISOString();
+      console.log(`\n  Undo:  delete Contacts carrying the "${IMPORT_TAG}" tag,`);
+      console.log(`         created at or before ${stamp}, with no eventIds.`);
+      console.log(`         (The tag alone stops being safe once an imported contact registers`);
+      console.log(`          for an event — syncToContact updates that same row with real history.)`);
+    }
   } finally {
     await db.$disconnect();
   }
