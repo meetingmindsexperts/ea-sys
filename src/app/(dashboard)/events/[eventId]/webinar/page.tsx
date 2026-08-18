@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -260,18 +261,22 @@ export default function WebinarConsolePage() {
         </div>
       </div>
 
-      {/* Sticky status bar — always visible summary + primary action */}
-      <WebinarStatusBar
-        eventId={eventId}
-        status={status}
-        anchor={anchor ?? null}
-        zoom={zoom ?? null}
-        eventSlug={data?.event?.slug ?? null}
-        hasZoom={hasZoom}
-        provisionPending={provision.isPending}
-        onProvision={handleProvision}
-        onCopy={handleCopy}
-      />
+      {/* Sticky status bar — pinned to the top of the scroll area so the room
+          state + primary action never scroll away (the bar's own bg carries a
+          backdrop blur so content sliding under it stays legible). */}
+      <div className="sticky top-0 z-20">
+        <WebinarStatusBar
+          eventId={eventId}
+          status={status}
+          anchor={anchor ?? null}
+          zoom={zoom ?? null}
+          eventSlug={data?.event?.slug ?? null}
+          hasZoom={hasZoom}
+          provisionPending={provision.isPending}
+          onProvision={handleProvision}
+          onCopy={handleCopy}
+        />
+      </div>
 
       {/* Tabs — collapse 7 cards of equal weight into 3 grouped views */}
       <Tabs defaultValue={defaultTab} className="space-y-4">
@@ -291,28 +296,38 @@ export default function WebinarConsolePage() {
         </TabsList>
 
         <TabsContent value="setup" className="space-y-6 mt-4">
-          <OverviewCard
-            status={status}
-            anchor={anchor ?? null}
-            zoom={zoom ?? null}
-            eventSlug={data?.event?.slug ?? null}
-            hasZoom={hasZoom}
-            provisionPending={provision.isPending}
-            onProvision={handleProvision}
-            onCopy={handleCopy}
-          />
-          <LobbyCard
-            eventId={eventId}
-            webinar={data?.webinar ?? {}}
-            anchor={anchor ?? null}
-            eventStatus={data?.event?.status}
-          />
-          <LiveNowCard
-            eventId={eventId}
-            live={anchor?.status === "LIVE" || status === "live"}
-          />
+          {/* Two-zone layout: the wide column is the configuration work area,
+              the narrow rail is monitoring + comms. Panelists (a wide table +
+              add form) keeps the full width below. items-start stops the
+              columns stretching to each other's height. */}
+          <div className="grid items-start gap-6 lg:grid-cols-3">
+            <div className="space-y-6 lg:col-span-2">
+              <OverviewCard
+                status={status}
+                anchor={anchor ?? null}
+                zoom={zoom ?? null}
+                eventSlug={data?.event?.slug ?? null}
+                hasZoom={hasZoom}
+                provisionPending={provision.isPending}
+                onProvision={handleProvision}
+                onCopy={handleCopy}
+              />
+              <LobbyCard
+                eventId={eventId}
+                webinar={data?.webinar ?? {}}
+                anchor={anchor ?? null}
+                eventStatus={data?.event?.status}
+              />
+            </div>
+            <div className="space-y-6">
+              <LiveNowCard
+                eventId={eventId}
+                live={anchor?.status === "LIVE" || status === "live"}
+              />
+              <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
+            </div>
+          </div>
           <PanelistsCard eventId={eventId} hasZoom={hasZoom} />
-          <EmailSequenceCard eventId={eventId} hasZoom={hasZoom} />
         </TabsContent>
 
         <TabsContent value="analytics" className="space-y-6 mt-4">
@@ -326,8 +341,11 @@ export default function WebinarConsolePage() {
             sessionEnded={status === "ended"}
             hasZoom={hasZoom}
           />
-          <PollsCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
-          <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+          {/* Polls + Q&A are peer reports — side by side on wide screens. */}
+          <div className="grid items-start gap-6 lg:grid-cols-2">
+            <PollsCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+            <QaCard eventId={eventId} sessionEnded={status === "ended"} hasZoom={hasZoom} />
+          </div>
         </TabsContent>
 
         <TabsContent value="settings" className="mt-4">
@@ -353,6 +371,42 @@ type ZoomMeetingLite = NonNullable<
 >["zoomMeeting"];
 
 type WebinarStatus = "scheduled" | "live" | "ended";
+
+// ── Section-title system: one colored icon chip per card so each section has a
+// consistent, scannable anchor (hierarchy via size + contrast, not text alone).
+// Static class strings per tone — Tailwind can't see dynamically-built names.
+const TITLE_TONES = {
+  sky: "bg-sky-100 text-sky-700",
+  violet: "bg-violet-100 text-violet-700",
+  emerald: "bg-emerald-100 text-emerald-700",
+  amber: "bg-amber-100 text-amber-700",
+  red: "bg-red-100 text-red-600",
+  slate: "bg-slate-100 text-slate-600",
+} as const;
+
+function ConsoleTitle({
+  icon: Icon,
+  tone,
+  pulse = false,
+  children,
+}: {
+  icon: LucideIcon;
+  tone: keyof typeof TITLE_TONES;
+  /** Pulses the chip icon — used by the Live-now card while the room is live. */
+  pulse?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <CardTitle className="flex items-center gap-2.5">
+      <span
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${TITLE_TONES[tone]}`}
+      >
+        <Icon className={pulse ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+      </span>
+      {children}
+    </CardTitle>
+  );
+}
 
 function formatSessionWindow(
   start: string | undefined,
@@ -439,7 +493,7 @@ function WebinarStatusBar({
   // No Zoom attached → collapse to a "Configure Zoom" banner with provisioner retry.
   if (!hasZoom || !zoom) {
     return (
-      <Card className="border-amber-200 bg-amber-50/50">
+      <Card className="border-amber-200 bg-amber-50/90 shadow-md backdrop-blur-sm">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
           <div className="flex items-center gap-3 min-w-0">
             <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
@@ -477,11 +531,13 @@ function WebinarStatusBar({
   return (
     <Card
       className={
+        // /90 tints + backdrop blur: the bar is sticky, so content scrolling
+        // beneath it must not bleed through; shadow-md lifts it off the page.
         status === "live"
-          ? "border-red-200 bg-red-50/30"
+          ? "border-red-200 bg-red-50/90 shadow-md backdrop-blur-sm"
           : status === "ended"
-            ? "border-gray-200"
-            : "border-blue-200 bg-blue-50/30"
+            ? "border-gray-200 bg-card/95 shadow-md backdrop-blur-sm"
+            : "border-blue-200 bg-blue-50/90 shadow-md backdrop-blur-sm"
       }
     >
       <CardContent className="py-4">
@@ -522,8 +578,13 @@ function WebinarStatusBar({
               <Copy className="h-4 w-4" />
             </Button>
             {zoom.passcode ? (
-              <Badge variant="outline" className="shrink-0 font-mono text-xs">
-                🔒 {zoom.passcode}
+              <Badge
+                variant="outline"
+                className="shrink-0 gap-1 font-mono text-xs"
+                title="Meeting passcode"
+              >
+                <Lock className="h-3 w-3" />
+                {zoom.passcode}
               </Badge>
             ) : null}
           </div>
@@ -651,10 +712,9 @@ function OverviewCard({
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
+          <ConsoleTitle icon={Calendar} tone="sky">
             Overview
-          </CardTitle>
+          </ConsoleTitle>
           <StatusBadge status={status} />
         </div>
         <CardDescription>
@@ -908,10 +968,9 @@ function EmailSequenceCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <Mail className="h-5 w-5" />
+            <ConsoleTitle icon={Mail} tone="emerald">
               Email Sequence
-            </CardTitle>
+            </ConsoleTitle>
             <CardDescription>
               Auto-scheduled reminders + live alert + thank-you with recording link.
             </CardDescription>
@@ -1090,10 +1149,9 @@ function RecordingCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <PlayCircle className="h-5 w-5" />
+            <ConsoleTitle icon={PlayCircle} tone="violet">
               Recording
-            </CardTitle>
+            </ConsoleTitle>
             <CardDescription>
               Zoom cloud recording — polled automatically after the session ends.
             </CardDescription>
@@ -1282,13 +1340,12 @@ function AttendanceCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
+            <ConsoleTitle icon={Users} tone="sky">
               Attendance
               {isFetching && !isLoading && (
                 <ReloadingSpinner className="ml-1 inline-block" />
               )}
-            </CardTitle>
+            </ConsoleTitle>
             <CardDescription>
               Pulled from Zoom&apos;s participant report. Polled automatically once the session has been over for 30 min.
               {kpis?.lastSyncedAt ? (
@@ -1539,10 +1596,9 @@ function PanelistsCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <UserPlus className="h-5 w-5" />
+            <ConsoleTitle icon={UserPlus} tone="amber">
               Panelists
-            </CardTitle>
+            </ConsoleTitle>
             <CardDescription>
               Panelists get a privileged Zoom join link and can present on screen.
             </CardDescription>
@@ -1727,10 +1783,9 @@ function PollsCard({
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
+            <ConsoleTitle icon={BarChart3} tone="amber">
               Polls
-            </CardTitle>
+            </ConsoleTitle>
             <CardDescription>
               Results from polls run during the webinar. Pulled from Zoom alongside
               attendance (~30 min after session ends).
@@ -1873,10 +1928,9 @@ function QaCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <MessageSquare className="h-5 w-5" />
+        <ConsoleTitle icon={MessageSquare} tone="emerald">
           Q&amp;A
-        </CardTitle>
+        </ConsoleTitle>
         <CardDescription>
           Questions asked during the webinar and their answers. Pulled from Zoom alongside polls.
         </CardDescription>
@@ -1950,10 +2004,9 @@ function LiveNowCard({ eventId, live }: { eventId: string; live: boolean }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CircleDot className="h-5 w-5 text-red-500 animate-pulse" />
+        <ConsoleTitle icon={CircleDot} tone="red" pulse>
           Live now
-        </CardTitle>
+        </ConsoleTitle>
         <CardDescription>
           Registrants currently on the webinar page (heartbeat in the last 60s) —
           lobby-page presence, distinct from the post-event attendance report.
@@ -2090,10 +2143,9 @@ function LobbyCard({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <PlayCircle className="h-5 w-5" />
+          <ConsoleTitle icon={PlayCircle} tone="violet">
             Waiting Room
-          </CardTitle>
+          </ConsoleTitle>
           <CardDescription>
             Run the provisioner to create the webinar session first.
           </CardDescription>
@@ -2107,10 +2159,9 @@ function LobbyCard({
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <PlayCircle className="h-5 w-5" />
+            <ConsoleTitle icon={PlayCircle} tone="violet">
               Waiting Room
-            </CardTitle>
+            </ConsoleTitle>
             <CardDescription>
               Hold registered attendees in a branded lobby, then admit them when you go live.
             </CardDescription>
@@ -2304,10 +2355,9 @@ function WebinarSettingsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Lock className="h-5 w-5" />
+        <ConsoleTitle icon={SettingsIcon} tone="slate">
           Webinar Settings
-        </CardTitle>
+        </ConsoleTitle>
         <CardDescription>
           Defaults used when auto-provisioning the Zoom webinar for this event.
         </CardDescription>
