@@ -29,12 +29,26 @@ if ! $SUDO systemctl list-timers --all | grep -q logrotate; then
   echo "[logrotate-setup] ⚠ logrotate.timer not found — the config is installed but nothing runs it."
   echo "   Enable it with: sudo systemctl enable --now logrotate.timer"
 else
-  echo "[logrotate-setup] logrotate.timer is present:"
+  echo "[logrotate-setup] logrotate.timer:"
   $SUDO systemctl list-timers --all | grep logrotate || true
-  echo "[logrotate-setup] NOTE: the stock Debian/Ubuntu timer fires DAILY."
-  echo "   For size-based rotation to catch a burst, switch it to hourly:"
-  echo "     sudo systemctl edit logrotate.timer     # add: [Timer] / OnCalendar= / OnCalendar=hourly"
-  echo "     sudo systemctl restart logrotate.timer"
+
+  # Report the ACTUAL schedule rather than assuming the stock daily one. An
+  # unconditional "your timer is daily" note is worse than none: it is wrong
+  # the moment someone fixes it, and a warning that cries wolf gets ignored.
+  # `OnCalendar=hourly` normalises to `*-*-* *:00:00` in systemd's output.
+  CALENDAR="$($SUDO systemctl show logrotate.timer -p TimersCalendar --value 2>/dev/null || true)"
+  if printf '%s' "$CALENDAR" | grep -q '\*:00:00'; then
+    echo "[logrotate-setup] ✓ timer is hourly — a burst is caught within the hour."
+  else
+    echo "[logrotate-setup] ⚠ timer is NOT hourly (${CALENDAR:-unknown})."
+    echo "   'size 100M' only bites when logrotate actually runs; the stock timer is daily,"
+    echo "   which can let gigabytes accumulate overnight. Switch it:"
+    echo "     sudo mkdir -p /etc/systemd/system/logrotate.timer.d"
+    # printf, not echo: this line is itself a printf command we want printed
+    # literally, backslash-n and all, for the operator to copy.
+    printf '     %s\n' "printf '[Timer]\\nOnCalendar=\\nOnCalendar=hourly\\n' | sudo tee /etc/systemd/system/logrotate.timer.d/override.conf"
+    echo "     sudo systemctl daemon-reload && sudo systemctl restart logrotate.timer"
+  fi
 fi
 
 echo
