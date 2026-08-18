@@ -10,10 +10,10 @@ backfill/reconcile.
   region **eu-north-1**, table `contacts_centralv1`, keyed on `email`.
 - **Mechanism:** the `ea-sys-worker` tier runs an **incremental** job at :16 and
   :53 each hour (~37-min cadence; upserts contacts touched in the last 45 min)
-  **plus a nightly full reconcile** (02:24 UTC) that re-pushes everything, so the
-  mirror self-heals. Both run at offset minutes (never :00) to avoid piling onto
-  the DB pool at a shared minute. The backfill
-  script is the same full reconcile, on demand. All logic runs on the **EA-SYS
+  **plus a nightly 25-hour sweep** (02:24 UTC) that catches anything the
+  incremental missed within that window. Both run at offset minutes (never :00)
+  to avoid piling onto the DB pool at a shared minute. The backfill
+  script is a FULL push, on demand — it is now the only full push. All logic runs on the **EA-SYS
   side** (read-modify-write via PostgREST — GET existing → merge → upsert); **no
   functions/objects live in the target project** beyond the table + the `ea_synced`
   and `title` columns.
@@ -109,8 +109,22 @@ Two worker jobs, both no-op unless configured, both failure-isolated (a tick err
 never crashes the scheduler):
 - **`contacts-central-sync`** — incremental, `16,53 * * * *` (:16 and :53, ~37-min
   cadence, lock 1007), syncs contacts whose `updatedAt` changed in the last 45 min.
-- **`contacts-central-reconcile`** — full push of every contact, `24 2 * * *`
-  (daily 02:24 UTC, lock 1008) — the self-healing safety net.
+- **`contacts-central-reconcile`** — 25-hour sweep, `24 2 * * *`
+  (daily 02:24 UTC, lock 1008).
+
+> ⚠️ **The nightly job stopped being a full push on Aug 18, 2026, and the mirror
+> is no longer self-healing.** It used to re-send every contact each night, so a
+> send that failed at any point in the past was eventually repaired. The inbound
+> import took the contact store from ~3.3k to ~57k, which made that ~1,200
+> sequential HTTP round trips per night to re-send rows that came FROM the mirror
+> in the first place. Owner decision: narrow it to 25 hours (not 24, so a late or
+> skipped run overlaps rather than gapping) and accept the loss. A weekly full
+> sweep was offered and declined.
+>
+> **Consequence:** a send failing outside the window is never retried
+> automatically; the row stays stale in the mirror until the contact is touched
+> again. If drift is suspected, run the backfill script — it is now the only
+> thing that pushes everything.
 
 All schedules use **offset minutes (never :00)** to avoid clustering with the
 every-minute / every-3-5-10-minute jobs on the DB pool.

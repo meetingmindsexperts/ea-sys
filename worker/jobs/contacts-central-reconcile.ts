@@ -1,8 +1,16 @@
 /**
- * contacts-central-reconcile job — nightly FULL push of every EA-SYS contact
- * into `contacts_centralv1` (union+enrich). The safety net that makes the mirror
- * self-healing: anything the ~37-min incremental ticks missed (a transient
- * failure outside the lookback window, a worker restart) is corrected here.
+ * contacts-central-reconcile job — nightly 25-hour sweep into
+ * `contacts_centralv1` (union+enrich), catching anything the ~37-min
+ * incremental ticks missed within that window.
+ *
+ * ⚠️ It was a FULL push of every contact until Aug 18, 2026, which made the
+ * mirror self-healing at any age. That was narrowed deliberately when the
+ * inbound import took the contact store from ~3.3k to ~57k: a nightly full push
+ * is ~1,200 sequential HTTP round trips to re-send rows that came FROM the
+ * mirror. The cost is that a failure older than 25h is no longer repaired
+ * automatically — see the docblock on runContactsCentralReconcile, and run
+ * `scripts/backfill-contacts-central.ts --write` for a manual full push.
+ *
  * No-ops unless CONTACTS_CENTRAL_ENABLED + URL/key are set. Failure-isolated.
  *
  * Own lock id (not shared with the incremental) so it can never be skipped by an

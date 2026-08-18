@@ -291,7 +291,12 @@ also the one session with no track. Either set the track there and clear the
 location, or decide `location` means something finer (a floor, a room number)
 and render both.
 
-### Public agenda is 404 for attendees on every event (Aug 17, 2026, needs an owner decision)
+### ~~Public agenda is 404 for attendees on every event~~ — RESOLVED, deliberate (owner, Aug 18, 2026)
+
+**Owner: "agenda will be open later, nothing for now."** The unpublished state is
+intentional while programmes are still being built. Do not re-raise it. The
+mechanism below is left recorded because it is the switch to flip when they do
+open, and because "the page 404s" reads as a bug to anyone who finds it cold.
 
 Found while setting up the local preview. `GET /api/public/events/[slug]/agenda`
 returns 404 `Agenda not published yet` unless `settings.agendaPublished` or

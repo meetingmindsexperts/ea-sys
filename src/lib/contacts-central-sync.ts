@@ -356,16 +356,40 @@ export async function runContactsCentralTick(opts: { lookbackMinutes?: number } 
 }
 
 /**
- * Full reconcile — push EVERY EA-SYS contact (no `since`). Makes the mirror
- * self-healing: anything the incremental ticks missed (a transient failure
- * outside the lookback window, a worker restart) is corrected. Cheap at a few
- * thousand contacts; runs nightly. Same as the backfill script, on a schedule.
+ * Nightly reconcile — a WIDE incremental, not a full push.
+ *
+ * ⚠️ This deliberately no longer sends every contact, and that is a real
+ * trade-off, made knowingly (owner, Aug 18, 2026).
+ *
+ * What it was: `buildCentralRows({})`, every contact, every night. That made the
+ * mirror SELF-HEALING — a row whose sync failed three days ago, or anything
+ * missed while the worker was down, was corrected on the next run. Its docblock
+ * called it "cheap at a few thousand contacts", which was true when the store
+ * held ~3.3k.
+ *
+ * Why it changed: the contacts_centralv1 inbound import takes the store to ~57k.
+ * At 100 rows per read-modify-write chunk that is ~1,200 sequential HTTP round
+ * trips every night, 4-8 minutes of pointless work — pointless because those
+ * rows CAME from the mirror, so re-sending them enriches nothing.
+ *
+ * What it costs: a send that fails outside this window is now never retried
+ * automatically. The row stays stale in the mirror until something touches the
+ * contact again. A weekly full sweep was offered and declined; if the mirror is
+ * ever found to have drifted, `scripts/backfill-contacts-central.ts --write` is
+ * the manual full push.
+ *
+ * The window is 25 hours, not 24, so a late or skipped run still overlaps the
+ * previous one rather than leaving a gap.
  */
-export async function runContactsCentralReconcile(): Promise<{ synced: number; failed: number }> {
+export async function runContactsCentralReconcile(
+  opts: { lookbackHours?: number } = {},
+): Promise<{ synced: number; failed: number }> {
   if (!isCentralSyncConfigured()) return { synced: 0, failed: 0 };
-  const rows = await buildCentralRows({});
+  const lookbackHours = opts.lookbackHours ?? 25;
+  const since = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+  const rows = await buildCentralRows({ since });
   if (rows.length === 0) return { synced: 0, failed: 0 };
   const { sent, failed } = await upsertCentralRows(rows);
-  apiLogger.info({ msg: "contacts-central:reconcile", candidates: rows.length, sent, failed });
+  apiLogger.info({ msg: "contacts-central:reconcile", candidates: rows.length, sent, failed, lookbackHours });
   return { synced: sent, failed };
 }

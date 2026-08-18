@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { AttendeeRole } from "@prisma/client";
 import {
   buildCentralRow,
   buildCentralRows,
   mergeWithExisting,
+  runContactsCentralReconcile,
   SELECT_COLS as CENTRAL_SELECT_COLS,
   type ContactForSync,
   type EventMeta,
@@ -20,6 +21,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 import { formatAttendeeRole } from "@/lib/schemas";
+import { db } from "@/lib/db";
 
 const NOW = "2026-07-06T00:00:00.000Z";
 
@@ -226,6 +228,49 @@ describe("title", () => {
     // yields null and OUR value wins — an overwrite wearing an enrich's
     // clothing. This asserts the read list and the merge cannot drift apart.
     expect(CENTRAL_SELECT_COLS.split(",")).toContain("title");
+  });
+});
+
+describe("runContactsCentralReconcile — 25h window, not a full push", () => {
+  const findMany = vi.mocked(db.contact.findMany);
+
+  beforeEach(() => {
+    findMany.mockClear();
+    findMany.mockResolvedValue([]);
+    // isCentralSyncConfigured() gates the whole function; without these it
+    // returns early and never queries.
+    process.env.CONTACTS_CENTRAL_ENABLED = "true";
+    process.env.CONTACTS_CENTRAL_URL = "https://example.test";
+    process.env.CONTACTS_CENTRAL_SERVICE_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    delete process.env.CONTACTS_CENTRAL_ENABLED;
+    delete process.env.CONTACTS_CENTRAL_URL;
+    delete process.env.CONTACTS_CENTRAL_SERVICE_KEY;
+  });
+
+  it("scopes to updatedAt within the last 25 hours", async () => {
+    // The behaviour the whole change exists for. A regression here silently
+    // restores ~1,200 nightly HTTP round trips against the mirror.
+    await runContactsCentralReconcile();
+    const where = findMany.mock.calls[0][0]?.where as { updatedAt?: { gte: Date } };
+    expect(where?.updatedAt?.gte).toBeInstanceOf(Date);
+    const hoursAgo = (Date.now() - where.updatedAt!.gte.getTime()) / 3_600_000;
+    expect(hoursAgo).toBeGreaterThan(24); // 25, not 24 — a skipped run must overlap
+    expect(hoursAgo).toBeLessThan(26);
+  });
+
+  it("never issues an unscoped findMany", async () => {
+    await runContactsCentralReconcile();
+    expect(findMany.mock.calls[0][0]?.where).not.toEqual({});
+  });
+
+  it("honours an explicit lookback", async () => {
+    await runContactsCentralReconcile({ lookbackHours: 1 });
+    const where = findMany.mock.calls[0][0]?.where as { updatedAt?: { gte: Date } };
+    const hoursAgo = (Date.now() - where.updatedAt!.gte.getTime()) / 3_600_000;
+    expect(hoursAgo).toBeLessThan(1.1);
   });
 });
 
