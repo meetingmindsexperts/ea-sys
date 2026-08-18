@@ -191,6 +191,21 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
     // pooler lock leak kept scheduled-emails at 435 of 1,440 runs a day for
     // months while every dashboard showed green. Skipped for cadences longer
     // than the 24h window (expectedPerDay 0).
+    // The digest cannot meaningfully check ITSELF, and must not try.
+    //
+    // recordJobRun writes the JobRun row AFTER the job body, so the tick doing
+    // the checking is invisible to its own query. Its previous run then sits
+    // exactly 24h back — right on the edge of the 24h window — so whether it
+    // counts is decided by milliseconds of drift between two runs. It warns
+    // about itself roughly at random, which it did on 2026-08-18 inside an
+    // email that had plainly been delivered.
+    //
+    // Nothing is lost by skipping: the ABSENCE of the email is the alarm for
+    // the email. A line inside the digest claiming the digest did not run is
+    // self-refuting, and a monitor that cries wolf about itself teaches people
+    // to distrust the parts that are real.
+    if (j.job === SELF_JOB_NAME) continue;
+
     const expected = expectedRuns.get(j.job) ?? 0;
     if (expected > 0) {
       const actual = j.ok24h + j.failed24h;
@@ -396,13 +411,20 @@ export function assessInfra(snap: InfraSnapshot): Assessment {
 
 const SUMMARY_TIMEOUT_MS = 25_000;
 
-const SUMMARY_SYSTEM = `You write the opening two or three sentences of a daily server-health email for a non-engineer who runs an events business.
+/**
+ * This job's own name in EXPECTED_JOBS. Pinned by a test so a rename cannot
+ * silently re-enable the self-check. See the skip in assess().
+ */
+export const SELF_JOB_NAME = "daily-digest";
+
+export const SUMMARY_SYSTEM = `You write the opening two or three sentences of a daily server-health email for a non-engineer who runs an events business.
 
 Rules:
 - The verdict (OK / NEEDS ATTENTION / CRITICAL) has ALREADY been decided by monitoring code and is shown below your text. Never contradict it, never reassure past it, never downplay a listed problem.
 - Plain English. No jargon, no bullet points, no headings, no markdown, no greeting, no sign-off.
 - If there are no problems, say so briefly and mention one concrete number that shows the system is healthy.
-- If there are problems, lead with the most serious one and say what it means in practice.
+- If there are problems, lead with the most serious one and restate it in plain words.
+- ONLY use what is listed below. Never invent a consequence, an affected group, or a downstream effect that is not stated. You are given job names and counts; you are NOT told what any job does or who it emails, so do not guess. "The X job did not run" is the whole truth available to you — "which means customers did not receive Y" is a fabrication.
 - Two or three sentences. Never more.`;
 
 /**

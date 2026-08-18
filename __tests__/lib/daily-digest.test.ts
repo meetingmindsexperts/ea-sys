@@ -38,7 +38,10 @@ import {
   digestRecipients,
   renderDigest,
   runDailyDigestTick,
+  SELF_JOB_NAME,
+  SUMMARY_SYSTEM,
 } from "@/lib/daily-digest-worker";
+import { EXPECTED_JOBS } from "@/lib/worker-jobs";
 
 /** A snapshot with every section present, healthy, and nothing to report. */
 function healthySnapshot(): InfraSnapshot {
@@ -198,6 +201,67 @@ describe("assessInfra — verdict", () => {
     // Must NOT be reported as failing — it isn't, and saying so would send
     // whoever reads it looking in the wrong place.
     expect(a.findings.some((f) => f.label.startsWith("Job failing"))).toBe(false);
+  });
+
+  it("never reports the digest itself as under-running", () => {
+    // Observed 2026-08-18: a delivered digest whose own body said the digest
+    // had not run. recordJobRun writes the JobRun row AFTER the job body, so
+    // the tick doing the checking is invisible to its own query, and the
+    // previous run sits exactly 24h back — on the window edge. It therefore
+    // warns about itself at random.
+    //
+    // 0 runs is the WORST case (its own row missing and yesterday's fallen out
+    // of the window), so that is what this pins.
+    const s = healthySnapshot();
+    s.jobs.rows = [
+      {
+        job: SELF_JOB_NAME,
+        cadence: "daily 05:30 UTC",
+        lastStatus: "OK",
+        lastRunAt: "x",
+        lastDurationMs: 900,
+        lastError: null,
+        ok24h: 0,
+        failed24h: 0,
+      },
+    ];
+    const a = assessInfra(s);
+    expect(a.findings.some((f) => f.label.includes("under-running"))).toBe(false);
+    expect(a.verdict).toBe("ok");
+  });
+
+  it("still reports the digest as FAILING if it actually failed", () => {
+    // The skip above is scoped to the under-run check only. A real failure of
+    // this job must still surface — silencing a job entirely to fix a false
+    // positive would be the worse bug.
+    const s = healthySnapshot();
+    s.jobs.rows = [
+      {
+        job: SELF_JOB_NAME,
+        cadence: "daily 05:30 UTC",
+        lastStatus: "FAILED",
+        lastRunAt: "x",
+        lastDurationMs: 900,
+        lastError: "boom",
+        ok24h: 0,
+        failed24h: 1,
+      },
+    ];
+    const a = assessInfra(s);
+    expect(a.findings.some((f) => f.label.startsWith("Job failing"))).toBe(true);
+  });
+
+  it("SELF_JOB_NAME matches a real registered job, so a rename cannot re-enable the self-check", () => {
+    expect(EXPECTED_JOBS.some((j) => j.name === SELF_JOB_NAME)).toBe(true);
+  });
+
+  it("the summary prompt forbids inventing consequences", () => {
+    // The same 2026-08-18 email claimed "attendees or contacts who should have
+    // received it today have not". The digest emails admins; no attendee is
+    // involved. The model was given a job name and a count and filled in the
+    // rest. The prompt is the only place that can stop it.
+    expect(SUMMARY_SYSTEM).toMatch(/never invent/i);
+    expect(SUMMARY_SYSTEM).toMatch(/not told what any job does/i);
   });
 
   it("a job at full cadence is not flagged, and the threshold has deploy headroom", () => {
