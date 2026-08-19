@@ -13,39 +13,45 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, mockReaddir, mockStat, mockUnlink } = vi.hoisted(() => ({
+const { mockDb, mockList, mockDelete } = vi.hoisted(() => ({
   mockDb: { registration: { findFirst: vi.fn() } },
-  mockReaddir: vi.fn(),
-  mockStat: vi.fn(),
-  mockUnlink: vi.fn().mockResolvedValue(undefined),
+  mockList: vi.fn(),
+  mockDelete: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 vi.mock("@/lib/logger", () => ({
   apiLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
-vi.mock("fs/promises", () => ({
-  readdir: mockReaddir,
-  stat: mockStat,
-  unlink: mockUnlink,
+// Mocked at the STORAGE boundary rather than at fs, because enumeration moved
+// behind listStoredFiles so this job works under any backing store. What is
+// under test here is the age gate, the claim check and the per-tick cap, not
+// how bytes are enumerated — storage.test.ts covers that separately.
+vi.mock("@/lib/storage", () => ({
+  listStoredFiles: mockList,
+  deleteStoredFile: mockDelete,
 }));
 
 const NOW = new Date("2026-08-12T12:00:00Z");
 const OLD = NOW.getTime() - 48 * 60 * 60 * 1000; // 2 days — outside the window
 const RECENT = NOW.getTime() - 2 * 60 * 60 * 1000; // 2 hours — inside it
 
-/** One event directory holding the given files. */
-function layout(files: string[]) {
-  mockReaddir.mockImplementation(async (p: string) =>
-    p.endsWith("resident-letters") ? ["evt1"] : files,
+/** One event directory holding the given files, all outside the grace window. */
+function layout(files: string[], mtimeMs: number = OLD) {
+  mockList.mockResolvedValue(
+    files.map((f) => ({
+      storedPath: `/uploads/resident-letters/evt1/${f}`,
+      modifiedAt: new Date(mtimeMs),
+      sizeBytes: 1234,
+    })),
   );
 }
 
 describe("runSupportingDocumentPruneTick", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUnlink.mockResolvedValue(undefined);
-    mockStat.mockResolvedValue({ mtimeMs: OLD });
+    mockDelete.mockResolvedValue(undefined);
+    mockList.mockResolvedValue([]);
     mockDb.registration.findFirst.mockResolvedValue(null);
   });
 
@@ -58,7 +64,7 @@ describe("runSupportingDocumentPruneTick", () => {
     layout(["abandoned.pdf"]);
     const res = await run();
     expect(res.deleted).toBe(1);
-    expect(mockUnlink).toHaveBeenCalledOnce();
+    expect(mockDelete).toHaveBeenCalledOnce();
   });
 
   it("NEVER deletes a file a registration references", async () => {
@@ -66,7 +72,7 @@ describe("runSupportingDocumentPruneTick", () => {
     mockDb.registration.findFirst.mockResolvedValue({ id: "reg1" });
     const res = await run();
     expect(res.deleted).toBe(0);
-    expect(mockUnlink).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   it("looks the file up by the URL shape the register POST stores", async () => {
@@ -82,29 +88,28 @@ describe("runSupportingDocumentPruneTick", () => {
 
   it("NEVER deletes an unreferenced file inside the grace window", async () => {
     // The safety margin: this is a form that is still being filled in.
-    layout(["in-flight.pdf"]);
-    mockStat.mockResolvedValue({ mtimeMs: RECENT });
+    layout(["in-flight.pdf"], RECENT);
     const res = await run();
     expect(res.deleted).toBe(0);
     expect(res.skippedRecent).toBe(1);
-    expect(mockUnlink).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
     // And it does not even ask the database about a file it cannot delete.
     expect(mockDb.registration.findFirst).not.toHaveBeenCalled();
   });
 
-  it("is a clean no-op when the directory does not exist yet", async () => {
-    mockReaddir.mockRejectedValue(new Error("ENOENT"));
+  it("is a clean no-op when nothing has been uploaded yet", async () => {
+    mockList.mockResolvedValue([]);
     const res = await run();
     expect(res).toMatchObject({ scanned: 0, deleted: 0, errors: 0 });
-    expect(mockUnlink).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   it("keeps sweeping when one file fails", async () => {
     // One unreadable file must not strand the rest of the backlog.
     layout(["bad.pdf", "good.pdf"]);
-    mockStat.mockImplementation(async (p: string) => {
-      if (p.endsWith("bad.pdf")) throw new Error("EACCES");
-      return { mtimeMs: OLD };
+    mockDb.registration.findFirst.mockImplementation(async (args: { where: { supportingDocumentUrl: string } }) => {
+      if (args.where.supportingDocumentUrl.endsWith("bad.pdf")) throw new Error("EACCES");
+      return null;
     });
     const res = await run();
     expect(res.errors).toBe(1);

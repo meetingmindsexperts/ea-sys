@@ -1,8 +1,7 @@
-import { readdir, stat, unlink } from "fs/promises";
-import path from "path";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
-import { storageProvider } from "@/lib/storage";
+import { listStoredFiles, deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
 import { SUPPORTING_DOCUMENT_PATH_PREFIX } from "@/lib/supporting-document";
 
 /**
@@ -52,7 +51,6 @@ export interface ResidentLetterPruneResult {
 export async function runSupportingDocumentPruneTick(
   now: Date = new Date(),
 ): Promise<ResidentLetterPruneResult> {
-  const root = path.resolve(process.cwd(), "public", SUPPORTING_DOCUMENT_PATH_PREFIX.slice(1));
   const cutoff = now.getTime() - RESIDENT_LETTER_GRACE_HOURS * 60 * 60 * 1000;
 
   const result: ResidentLetterPruneResult = {
@@ -63,83 +61,47 @@ export async function runSupportingDocumentPruneTick(
     errors: 0,
   };
 
-  // This is the ONE file operation not yet routed through storage.ts, because
-  // it walks directories and storage.ts has no listing primitive yet. See
-  // docs/UAE_DOCUMENT_RESIDENCY_PLAN.md Phase 2.
-  //
-  // The guard matters more than the gap. Under a non-local provider the walk
-  // below would readdir an empty local directory, find no orphans, and report a
-  // clean tick forever while unclaimed uploads accumulated untouched. That is a
-  // silent failure, and the difference between an outage you can see and one
-  // you cannot. Logging at error means it reaches the admin alert and the daily
-  // digest on the very first tick after a provider change.
-  if (storageProvider !== "local") {
-    apiLogger.error({
-      msg: "resident-letter-prune:unsupported-provider",
-      provider: storageProvider,
-      detail:
-        "The prune walk is filesystem-only. It cannot see files under this provider and has pruned NOTHING. Needs a storage listing primitive before the provider switch.",
-    });
-    result.errors++;
-    return result;
-  }
-
-  let eventDirs: string[];
+  // Enumeration goes through the storage layer, so this works whatever the
+  // backing store is. It used to walk the filesystem directly, which meant that
+  // under any other provider it would have listed an empty local directory,
+  // found no orphans, and reported a clean tick forever while unclaimed uploads
+  // accumulated. A reaper that silently reaps nothing is the worst shape of
+  // failure: every dashboard stays green.
+  let files: Awaited<ReturnType<typeof listStoredFiles>>;
   try {
-    eventDirs = await readdir(root);
-  } catch {
-    // No directory yet — no event has taken a resident registration with a
-    // letter. Nothing to do, and not a failure.
+    files = await listStoredFiles(UPLOAD_SEGMENT.supportingDocuments);
+  } catch (err) {
+    result.errors++;
+    apiLogger.error({ err, msg: "resident-letter-prune:list-failed" });
     return result;
   }
 
-  for (const eventDir of eventDirs) {
+  for (const file of files) {
     if (result.deleted >= MAX_DELETES_PER_TICK) {
       result.capped = true;
       break;
     }
+    result.scanned++;
 
-    const dirAbs = path.join(root, eventDir);
-    let files: string[];
     try {
-      files = await readdir(dirAbs);
+      if (file.modifiedAt.getTime() >= cutoff) {
+        result.skippedRecent++;
+        continue;
+      }
+
+      // The claim check. Deliberately AFTER the age check so a busy event
+      // does not cost one query per recent file every night.
+      const claimed = await db.registration.findFirst({
+        where: { supportingDocumentUrl: file.storedPath },
+        select: { id: true },
+      });
+      if (claimed) continue;
+
+      await deleteStoredFile(file.storedPath, SUPPORTING_DOCUMENT_PATH_PREFIX);
+      result.deleted++;
     } catch (err) {
       result.errors++;
-      apiLogger.warn({ err, msg: "resident-letter-prune:readdir-failed", eventDir });
-      continue;
-    }
-
-    for (const file of files) {
-      if (result.deleted >= MAX_DELETES_PER_TICK) {
-        result.capped = true;
-        break;
-      }
-      result.scanned++;
-
-      const abs = path.join(dirAbs, file);
-      const url = `${SUPPORTING_DOCUMENT_PATH_PREFIX}${eventDir}/${file}`;
-
-      try {
-        const info = await stat(abs);
-        if (info.mtimeMs >= cutoff) {
-          result.skippedRecent++;
-          continue;
-        }
-
-        // The claim check. Deliberately AFTER the age check so a busy event
-        // does not cost one query per recent file every night.
-        const claimed = await db.registration.findFirst({
-          where: { supportingDocumentUrl: url },
-          select: { id: true },
-        });
-        if (claimed) continue;
-
-        await unlink(abs);
-        result.deleted++;
-      } catch (err) {
-        result.errors++;
-        apiLogger.warn({ err, msg: "resident-letter-prune:file-failed", url });
-      }
+      apiLogger.warn({ err, msg: "resident-letter-prune:file-failed", url: file.storedPath });
     }
   }
 

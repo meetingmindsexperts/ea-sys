@@ -44,7 +44,7 @@ import { StorageError } from "./storage-errors";
 export { StorageError } from "./storage-errors";
 export type { StorageFailureReason } from "./storage-errors";
 
-const PROVIDER = (process.env.STORAGE_PROVIDER || "local") as "local" | "supabase";
+const PROVIDER = (process.env.STORAGE_PROVIDER || "local") as "local" | "supabase" | "s3";
 const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "photos";
 
 // ── Supabase client (lazy init, same pattern as lib/email.ts) ────────────
@@ -182,13 +182,15 @@ const UPLOADS_URL_PREFIX = "/uploads/";
  * that someone eventually leaves out. Forcing each caller to name its own root
  * is the whole point of centralising this.
  */
-async function resolveLocalReadPath(
-  storedPath: string,
-  requirePrefix: string,
-): Promise<string> {
-  const { resolve, sep } = await import("path");
-  const { realpath } = await import("fs/promises");
-
+/**
+ * The provider-independent half of the guard: the three string checks.
+ *
+ * Shared so the S3 branch enforces exactly the same rules as the local one.
+ * S3 has no symlinks and its keys are flat, so it cannot do the filesystem
+ * resolution below, which makes it all the more important that it is not
+ * quietly running a WEAKER version of the string checks.
+ */
+function assertStoredPathWithin(storedPath: string, requirePrefix: string): void {
   // A prefix that is itself malformed is a programming error, not user input.
   // Fail loudly rather than silently widening the guard to the whole disk.
   if (!requirePrefix.startsWith(UPLOADS_URL_PREFIX) || !requirePrefix.endsWith("/")) {
@@ -206,6 +208,26 @@ async function resolveLocalReadPath(
       `Stored path is outside ${requirePrefix}: ${storedPath}`,
     );
   }
+}
+
+/** `/uploads/photos/x.jpg` -> `photos/x.jpg`. The whole migration story. */
+function storedPathToKey(storedPath: string): string {
+  return storedPath.slice(UPLOADS_URL_PREFIX.length);
+}
+
+/** `photos/x.jpg` -> `/uploads/photos/x.jpg`. */
+function keyToStoredPath(key: string): string {
+  return `${UPLOADS_URL_PREFIX}${key}`;
+}
+
+async function resolveLocalReadPath(
+  storedPath: string,
+  requirePrefix: string,
+): Promise<string> {
+  const { resolve, sep } = await import("path");
+  const { realpath } = await import("fs/promises");
+
+  assertStoredPathWithin(storedPath, requirePrefix);
 
   const root = resolve(process.cwd(), "public", requirePrefix.slice(1));
   const abs = resolve(process.cwd(), "public", storedPath.slice(1));
@@ -243,6 +265,13 @@ export async function uploadFile(
   if (PROVIDER === "supabase") {
     return uploadSupabase(buffer, filename, mimeType, subdirectory);
   }
+  if (PROVIDER === "s3") {
+    const { s3Upload } = await import("./storage-s3");
+    const storedPath = `/uploads/${subdirectory}/${filename}`;
+    await s3Upload(buffer, storedPathToKey(storedPath), mimeType);
+    apiLogger.info({ msg: "storage:file-written", storedPath, provider: "s3" });
+    return storedPath;
+  }
   return uploadLocal(buffer, filename, subdirectory);
 }
 
@@ -254,6 +283,11 @@ export async function readStoredFile(
   storedPath: string,
   requirePrefix: string,
 ): Promise<Buffer> {
+  if (PROVIDER === "s3") {
+    assertStoredPathWithin(storedPath, requirePrefix);
+    const { s3Read } = await import("./storage-s3");
+    return s3Read(storedPathToKey(storedPath));
+  }
   const { readFile } = await import("fs/promises");
   const real = await resolveLocalReadPath(storedPath, requirePrefix);
   return readFile(real);
@@ -279,14 +313,83 @@ export async function deleteStoredFile(
   if (PROVIDER === "supabase") {
     return deleteSupabase(storedPath);
   }
-  const { unlink } = await import("fs/promises");
   try {
+    if (PROVIDER === "s3") {
+      assertStoredPathWithin(storedPath, requirePrefix);
+      const { s3Delete } = await import("./storage-s3");
+      await s3Delete(storedPathToKey(storedPath));
+      return;
+    }
+    const { unlink } = await import("fs/promises");
     const real = await resolveLocalReadPath(storedPath, requirePrefix);
     await unlink(real);
   } catch (err) {
-    const reason = err instanceof StorageError ? err.reason : "unlink-failed";
+    const reason = err instanceof StorageError ? err.reason : "delete-failed";
     apiLogger.warn({ msg: "storage:delete-failed", storedPath, reason });
   }
+}
+
+/**
+ * List every stored file beneath `subdirectory`, newest-agnostic, recursive.
+ *
+ * Exists for the supporting-document prune worker, which has to find files that
+ * no database row claims. That is the one job that cannot work from the
+ * database alone, so it is the one job that needs to enumerate storage.
+ */
+export async function listStoredFiles(
+  subdirectory: string,
+): Promise<{ storedPath: string; modifiedAt: Date; sizeBytes: number }[]> {
+  if (PROVIDER === "s3") {
+    const { s3List } = await import("./storage-s3");
+    const objects = await s3List(`${subdirectory}/`);
+    return objects.map((o) => ({
+      storedPath: keyToStoredPath(o.key),
+      modifiedAt: o.modifiedAt,
+      sizeBytes: o.sizeBytes,
+    }));
+  }
+  if (PROVIDER === "supabase") {
+    // Not implemented: nothing calls this under the Supabase provider, and a
+    // half-working listing is worse than an obvious refusal, because its
+    // caller reaps files and an empty result reads as "nothing to do".
+    throw new Error("listStoredFiles is not implemented for STORAGE_PROVIDER=supabase");
+  }
+
+  const { readdir, stat } = await import("fs/promises");
+  const { join, resolve, sep } = await import("path");
+  const root = resolve(process.cwd(), "public", "uploads", subdirectory);
+  const out: { storedPath: string; modifiedAt: Date; sizeBytes: number }[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      // A missing root means nothing has been uploaded yet, which is not an
+      // error. A deeper unreadable directory is skipped rather than aborting
+      // the whole sweep, matching the per-directory tolerance the prune worker
+      // had before this was centralised.
+      return;
+    }
+    for (const entry of entries) {
+      const abs = join(dir, entry);
+      const info = await stat(abs).catch(() => null);
+      if (!info) continue;
+      if (info.isDirectory()) {
+        await walk(abs);
+        continue;
+      }
+      const rel = abs.slice(root.length + 1).split(sep).join("/");
+      out.push({
+        storedPath: `${UPLOADS_URL_PREFIX}${subdirectory}/${rel}`,
+        modifiedAt: info.mtime,
+        sizeBytes: info.size,
+      });
+    }
+  }
+
+  await walk(root);
+  return out;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────

@@ -243,9 +243,40 @@ daily digest instead of silently pruning nothing.
 
 ### Phase 2 — Add the `s3` provider
 
-**Must include a `listStoredFiles(subdirectory)` primitive** returning stored
-path plus modified time, mapping to S3 `ListObjectsV2`. The supporting-document
-prune worker is blocked on it and is currently guarded rather than working.
+**Status: DONE (Aug 19, 2026), inert until `STORAGE_PROVIDER=s3` is set.**
+
+[src/lib/storage-s3.ts](../src/lib/storage-s3.ts) is imported **dynamically**, so
+the AWS SDK is not pulled in while the provider is `local`, which is every
+deployment until cutover. Credentials come from the EC2 instance role via the
+SDK's default chain, exactly as the SES and CloudWatch clients already do, so
+nothing is added to `.env` that could leak.
+
+Two new environment variables, needed only when the provider is `s3`:
+
+```
+S3_UPLOADS_BUCKET=ea-sys-documents-uae
+S3_UPLOADS_REGION=me-central-1
+```
+
+A missing bucket name throws at first use rather than defaulting, because a
+provider that silently degrades to local disk is exactly the failure this whole
+plan exists to prevent.
+
+`listStoredFiles(subdirectory)` shipped with it, and the supporting-document
+prune worker now runs on it under any provider. Its non-local guard is gone
+because the gap it guarded is closed.
+
+Encryption is **not** set per object: the bucket carries default SSE-KMS with a
+customer-managed key, so it is a property of the bucket that a caller cannot
+forget rather than a parameter every write must remember. A test pins that we do
+not set it.
+
+Three things are mutation-verified, each because the failure would be silent:
+dropping `IsTruncated` pagination (the prune worker would stop seeing anything
+past the first 1000 files), classifying `NoSuchBucket` as not-found (a wrong
+bucket name would look like an empty bucket and the sweep would report clean),
+and skipping the prefix guard on the S3 read branch (S3 has no symlinks to
+resolve, so the string checks are the ONLY guard there).
 
 
 
