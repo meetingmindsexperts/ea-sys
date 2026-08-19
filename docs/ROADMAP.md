@@ -3841,3 +3841,33 @@ yields a bare 500 where a 409 STALE_FORM would let the form reload; the invite
 DELETE audit doesn't snapshot the responses it cascades away; the per-event
 rate-limit buckets (`rsvp-send`, `rsvp-invites-add`) are now shared across every
 RSVP on the event and should key on `campaignId`.
+
+## Document storage — S3 bucket (deferred, low priority)
+
+Code is shipped and inert (`STORAGE_PROVIDER` unset on prod, so the S3 provider
+and migration script never run). What is outstanding is one bucket.
+
+- **Create `ea-sys-uploads` in `ap-south-1`** — Console runbook in
+  [UAE_DOCUMENT_RESIDENCY_PLAN.md](UAE_DOCUMENT_RESIDENCY_PLAN.md) section 5.
+  KMS key, block-all-public-access, versioning, IAM inline policy, then migrate
+  and flip two env vars.
+- **Why it is low priority:** the original justification was UAE residency and
+  that is gone until `me-central-1` recovers. What remains is durability
+  (versioning, KMS encryption at rest, 11 nines, off the unencrypted EBS root
+  volume) plus being pre-staged for the UAE move. Section 11 of the plan argues
+  both sides, including the honest counter: if encryption at rest were the only
+  motivation, **enabling EBS encryption is free and more direct**.
+- **UAE move** — blocked on AWS restoring `me-central-1` (evacuation notice,
+  multi-month estimate, 2026-08-19). Revival is a bucket plus two env vars.
+- **Permanent rule, do not lose it:** never delete the local
+  `public/uploads/` copies, and the provider switch must stay reversible by one
+  env var plus a redeploy (~22s). That is the regional-outage failover.
+
+### Deferred from the same work
+
+- **`storedFileExists` was removed** as speculative. If a caller ever needs it,
+  it is five lines; do not re-add it "for completeness".
+- **`storage-errors.ts` is a leaf module** purely so `api-errors.ts` does not
+  transitively import the Supabase client. Marginal, kept, worth knowing why.
+- **CloudFront in front of the public prefixes** — not needed at 2.5ms
+  in-region. Would matter again if the bucket ever moves out of region.

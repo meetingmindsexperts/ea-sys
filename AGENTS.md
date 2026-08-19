@@ -126,6 +126,23 @@ The corollary for tests: **a mocked Prisma has one fake connection, so this clas
 expressible in the unit suite.** Anything whose correctness is about concurrency or connection identity
 needs the real-Postgres harness (`tests/crm-db/`). See `docs/BACKGROUND_JOBS.md`.
 
+### 8. Every file operation goes through `storage.ts`
+Four primitives — `uploadFile` / `readStoredFile` / `deleteStoredFile` / `listStoredFiles` — and **no
+route may call `writeFile`, `readFile` or `unlink` on `public/uploads/` directly.** A stored path is
+always `/uploads/{segment}/...` and is what the database holds; it is a logical id, not a filesystem
+path, so the backing store can change without touching a single stored value.
+
+`readStoredFile(storedPath, requirePrefix)` takes the prefix as a **required** argument on purpose: it
+is the traversal guard, and an optional guard is one somebody eventually omits. Until Aug 2026 nine
+document routes hand-rolled `mkdir` + `writeFile` and a dozen read sites carried their own copy of that
+guard — and they were exactly the sensitive ones (passports, CVs, bank details, employer letters).
+
+**The public/private split is an allow-list** (`upload-prefixes.ts`, `PUBLIC_UPLOAD_SEGMENTS`), not a
+deny-list. A segment absent from it is refused by the `/uploads` catch-all. The deny-list it replaced
+failed OPEN: a private prefix added later was world-readable until someone remembered one file, with no
+test failing. Note "public" there means only "served to anyone who knows the URL" — certificates are on
+that list because that is how they are delivered — which is a different axis from where bytes are stored.
+
 ---
 
 ## Roles and visibility
@@ -135,7 +152,9 @@ Eight roles: `SUPER_ADMIN` `ADMIN` `ORGANIZER` `MEMBER` `ONSITE` — org-bound;
 event assignment or linked entity. **Internal-domain emails get the org attached even as REGISTRANT**
 (see `src/lib/internal-domains.ts`), so "org-bound" alone is never a sufficient authorization check.
 
-**There is no single "can this role see it?" predicate. There are seven, and they deliberately disagree:**
+**There is no single "can this role see it?" predicate. There are several, and they deliberately disagree.**
+The last row is not a role predicate at all — it is included because it answers the same question for a
+different subject:
 
 | Boundary | File | Notable |
 |---|---|---|
@@ -146,6 +165,7 @@ event assignment or linked entity. **Internal-domain emails get the org attached
 | Contact store | `contact-visibility.ts` | **Includes MEMBER, excludes ONSITE.** |
 | Zoom host creds | `zoom-visibility.ts` | Staff only — narrower than finance. |
 | Cross-tenant reads | `platform-operator.ts` / `denyNonOperator()` | SUPER_ADMIN only, and **refuses org API keys**, which every other surface treats as admin-equivalent. Pair it with `dbOperator` (below); the DB lane and the RBAC check are two walls. |
+| Uploaded files | `upload-prefixes.ts` — `PUBLIC_UPLOAD_SEGMENTS` | Not a role predicate at all: an **allow-list of prefixes** the public catch-all may serve. Everything else streams only through an authed route. Fails closed. |
 
 If you find yourself reaching for an existing predicate because it's "close enough", that is the
 signal to write a new one. Four of these exist precisely because "close enough" leaked something.

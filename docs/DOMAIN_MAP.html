@@ -497,7 +497,9 @@
 <div class="leaf"><b class="k">MCP</b> <code>list_media</code></div>
 </div></details>
 <details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
-<div class="leaf"><code>lib/storage.ts</code> — <code>uploadMedia</code> / <code>deleteMedia</code>, <b>magic-byte validation</b>, 2MB cap, <code>STORAGE_PROVIDER</code> local/Supabase (prod = local)</div>
+<div class="leaf"><code>lib/storage.ts</code> — <b>the ONLY place any file is written, read or deleted</b> (Aug 19, 2026). Four primitives: <code>uploadFile</code> / <code>readStoredFile</code> / <code>deleteStoredFile</code> / <code>listStoredFiles</code>. <code>STORAGE_PROVIDER</code> local / supabase / s3 (prod = <b>local</b>; the S3 provider in <code>storage-s3.ts</code> is inert until a bucket + 2 env vars exist). A stored path is always <code>/uploads/{segment}/…</code> and is a <b>logical id, not a filesystem path</b> — the backing store changes without touching a stored value. <code>readStoredFile(path, requirePrefix)</code>: the prefix is <b>required</b>, it IS the traversal guard.</div>
+<div class="leaf"><code>lib/upload-prefixes.ts</code> — every uploads prefix, one leaf module. <code>PUBLIC_UPLOAD_SEGMENTS</code> is an <b>ALLOW-list</b>: a segment absent from it is refused by the <code>/uploads</code> catch-all, so a new private prefix is safe by default. Replaced a deny-list that failed OPEN. <b>"Public" = "served to anyone with the URL"</b> (certificates are on it, that is how they are delivered) — a different axis from where bytes are stored.</div>
+<div class="leaf"><b>Gotcha:</b> no route may call <code>writeFile</code>/<code>readFile</code>/<code>unlink</code> on <code>public/uploads/</code> directly. Nine document routes used to, and they were exactly the sensitive ones (passports, CVs, bank details). See <code>docs/UAE_DOCUMENT_RESIDENCY_PLAN.md</code>.</div>
 </div></details>
 <details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
 <div class="leaf"><code>MediaFile</code> (optional <code>eventId</code>)</div>
