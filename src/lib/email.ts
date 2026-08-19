@@ -621,7 +621,67 @@ export function isInfraFault(error: unknown): boolean {
 
 // ── Main send function ─────────────────────────────────────────────────────────
 
-export async function sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
+/** Default marker. Front-loaded because inboxes truncate subjects. */
+const NON_PRODUCTION_SUBJECT_PREFIX = "[LOCAL TEST - IGNORE]";
+
+/**
+ * Mark a subject when the send did not come from production.
+ *
+ * A test invoice is byte-identical to a real one in an inbox: same branding,
+ * same sender, same attached PDF with a real-looking number. The only way to
+ * tell them apart is to know which machine produced it, which the recipient
+ * cannot. That is how a local run gets chased as a real payment.
+ *
+ * Applied at the ONE choke point every sender goes through, so it covers
+ * invoices, receipts, confirmations, bulk sends and the digest without any
+ * per-caller wiring, and lands in the `EmailLog` row too, so the history says
+ * which sends were tests.
+ *
+ * Deliberate choices:
+ *   - `production` is the ONLY value that suppresses the marker, so a new
+ *     environment is marked by default. A marker on a real invoice is
+ *     embarrassing and instantly visible; a MISSING marker on a test invoice is
+ *     the failure being fixed here, and it is silent. Fail toward the loud one.
+ *   - `test` is exempt because nobody reads an inbox during a vitest run, and
+ *     every existing assertion on an exact subject would otherwise break for a
+ *     reason unrelated to what it is testing.
+ *   - Idempotent: a bulk retry or a caller that already marked the subject must
+ *     not stack prefixes.
+ *   - `EMAIL_FORCE_TEST_SUBJECT_PREFIX=1` marks a box that runs with
+ *     NODE_ENV=production but is not the real one (a staging or DR rehearsal
+ *     box), which is exactly where this mistake is easiest to make.
+ */
+export function markNonProductionSubject(
+  subject: string,
+  // Structural rather than NodeJS.ProcessEnv: this reads three keys, and the
+  // narrow type lets a test pass `{}` to assert the unrecognised-environment
+  // default without constructing a whole ProcessEnv.
+  env: {
+    NODE_ENV?: string;
+    EMAIL_TEST_SUBJECT_PREFIX?: string;
+    EMAIL_FORCE_TEST_SUBJECT_PREFIX?: string;
+  } = process.env,
+): string {
+  const forced = env.EMAIL_FORCE_TEST_SUBJECT_PREFIX === "1";
+  if (!forced) {
+    if (env.NODE_ENV === "production") return subject;
+    if (env.NODE_ENV === "test") return subject;
+  }
+
+  const prefix = (env.EMAIL_TEST_SUBJECT_PREFIX || NON_PRODUCTION_SUBJECT_PREFIX).trim();
+  if (!prefix) return subject;
+  if (subject.startsWith(prefix)) return subject;
+  return `${prefix} ${subject}`;
+}
+
+export async function sendEmail(input: SendEmailParams): Promise<SendEmailResult> {
+  // Mark BEFORE anything reads the subject, so the provider, both log lines and
+  // the EmailLog audit row all agree on what actually went out.
+  const params: SendEmailParams = {
+    ...input,
+    subject: markNonProductionSubject(input.subject),
+  };
+
   // Don't gate on env-var existence — SES SDK picks up credentials from the
   // full AWS chain (instance profile on EC2 has no env vars at all). Let the
   // SendEmailCommand surface a credential error in the catch block instead.
