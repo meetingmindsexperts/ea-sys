@@ -296,9 +296,31 @@ mutation-verified (a test that cannot fail is not load-bearing).
 
 ### Phase 3 — Migrate the existing 515 files
 
-An idempotent script copies `public/uploads/**` into the bucket, preserving the
-key mapping, then verifies count and per-object size or checksum. Re-runnable.
-Writes nothing to the database.
+**Status: script written (Aug 19, 2026), not yet run.** Blocked on the bucket
+existing.
+
+```bash
+docker exec ea-sys-worker npx tsx scripts/migrate-uploads-to-s3.ts            # dry run
+docker exec ea-sys-worker npx tsx scripts/migrate-uploads-to-s3.ts --write
+docker exec ea-sys-worker npx tsx scripts/migrate-uploads-to-s3.ts --verify   # compare only
+```
+
+It runs inside the worker container so it uses the same runtime, instance role
+and env as production. Four properties worth knowing:
+
+- **Idempotent.** A re-run copies nothing already present at the same size.
+- **Writes nothing to the database.** Stored paths do not change, by design. If
+  this script needed a database write, the plan would be wrong.
+- **Never deletes anything,** from either side. Removing the local copies is a
+  separate deliberate act after the bake period, because a migration that
+  deletes as it goes has no rollback.
+- **Verifies by size, not just presence.** A truncated copy is worse than a
+  missing one: missing is loud, truncated renders as a broken image forever.
+
+It reads the local side through the filesystem directly rather than through
+`storage.ts`, because during cutover `STORAGE_PROVIDER` may already be `s3`, and
+then the listing would enumerate the destination and compare the bucket against
+itself.
 
 ### Phase 4 — Cutover
 
