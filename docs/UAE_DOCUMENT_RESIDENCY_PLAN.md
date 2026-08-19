@@ -1,9 +1,38 @@
 # UAE document residency — plan
 
-**Status:** PLANNED, not built. Awaiting sign-off.
+> ## ⛔ BLOCKED — do not provision in `me-central-1`
+>
+> **2026-08-19.** On attempting to switch to the region, the AWS console
+> returned:
+>
+> > *"The Middle East (UAE) (ME-CENTRAL-1) Region has suffered damage as a
+> > result of the conflict in the Middle East and is currently unable to
+> > reliably support customer applications. While some workloads continue to
+> > function normally, we strongly recommend customers migrate all accessible
+> > resources to other Regions and restore inaccessible resources from remote
+> > backups as soon as possible. Relevant billing operations are currently
+> > suspended while we restore normal operations in this AWS Region. This
+> > process is expected to take several months."*
+>
+> AWS is telling customers to **evacuate** that region. Provisioning a new
+> document store into it, for identity documents, under an active migrate-out
+> recommendation with a multi-month recovery estimate, is not a defensible
+> decision at any level of care.
+>
+> **Phase 0 is suspended. No bucket, no KMS key, no IAM policy in the UAE.**
+>
+> Phases 1 to 3 are already shipped and are NOT wasted: the storage
+> consolidation stands on its own merits, and the S3 provider is region-agnostic.
+> Reviving this plan is changing two environment variables and running the
+> migration script, once the region is healthy again.
+>
+> See section 10 for what to do instead.
+
+**Status:** BLOCKED on region availability. Code complete (Phases 1 to 3),
+infrastructure suspended.
 **Date:** 2026-08-19
-**Goal:** every uploaded file lives in AWS `me-central-1` (UAE). Compute and
-database do not move.
+**Original goal:** every uploaded file lives in AWS `me-central-1` (UAE).
+Compute and database do not move.
 
 ---
 
@@ -336,64 +365,234 @@ copies.
 
 ## 5. Infrastructure runbook (operator)
 
-Commands to run, in order. Nothing here is destructive.
+Verified values as of 2026-08-19: account **803726282629**, instance role
+**ea-sys-mumbai-ec2-role** (5 existing inline policies), `me-central-1`
+**not-opted-in**, bucket name `ea-sys-documents-uae` **free**.
+
+Commands to run, in order. Nothing here is destructive. Steps 1 to 7 are
+required; step 8 is optional and can be added later.
+
+### Step 1 — Opt in to the UAE region
+
+Everything else fails until this finishes, and it is not instant.
 
 ```bash
-# 1. Opt in to the UAE region (currently not-opted-in)
 aws account enable-region --region-name me-central-1
-#    Takes a few minutes. Verify:
-aws ec2 describe-regions --all-regions --region-names me-central-1 \
-  --query 'Regions[0].OptInStatus' --output text
 
-# 2. KMS key, in-region (a Singapore key cannot encrypt a UAE bucket)
-aws kms create-key --region me-central-1 \
+# Poll until it reads ENABLED (usually a few minutes, occasionally longer).
+until [ "$(aws ec2 describe-regions --all-regions --region-names me-central-1 \
+  --query 'Regions[0].OptInStatus' --output text)" = "opted-in" ]; do
+  echo "  still enabling…"; sleep 30
+done
+echo "me-central-1 is enabled"
+```
+
+### Step 2 — KMS key, in-region
+
+A KMS key is regional, so the Singapore DR key cannot encrypt a UAE bucket.
+One key serves both buckets, which also keeps replication simple.
+
+```bash
+KEY_ID=$(aws kms create-key --region me-central-1 \
   --description "EA-SYS document storage (UAE residency)" \
   --key-usage ENCRYPT_DECRYPT --key-spec SYMMETRIC_DEFAULT \
-  --query 'KeyMetadata.KeyId' --output text
+  --query 'KeyMetadata.KeyId' --output text)
+
 aws kms create-alias --region me-central-1 \
-  --alias-name alias/ea-sys-documents --target-key-id <KEY_ID_FROM_ABOVE>
+  --alias-name alias/ea-sys-documents --target-key-id "$KEY_ID"
 
-# 3. Buckets (primary + same-region replica)
-aws s3api create-bucket --region me-central-1 --bucket ea-sys-documents-uae \
-  --create-bucket-configuration LocationConstraint=me-central-1
-aws s3api create-bucket --region me-central-1 --bucket ea-sys-documents-uae-dr \
-  --create-bucket-configuration LocationConstraint=me-central-1
+KEY_ARN=$(aws kms describe-key --region me-central-1 \
+  --key-id alias/ea-sys-documents --query 'KeyMetadata.Arn' --output text)
+echo "KEY_ARN=$KEY_ARN"   # needed in step 7
+```
 
-# 4. Block public access — THE critical control (both buckets)
+### Step 3 — Create both buckets
+
+`LocationConstraint` is required for every region except us-east-1.
+
+```bash
 for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
-  aws s3api put-public-access-block --region me-central-1 --bucket $B \
-    --public-access-block-configuration \
-    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-done
-
-# 5. Versioning (required for replication, and the delete-recovery net)
-for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
-  aws s3api put-bucket-versioning --region me-central-1 --bucket $B \
-    --versioning-configuration Status=Enabled
-done
-
-# 6. Default encryption with the customer key
-for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
-  aws s3api put-bucket-encryption --region me-central-1 --bucket $B \
-    --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"aws:kms","KMSMasterKeyID":"alias/ea-sys-documents"},"BucketKeyEnabled":true}]}'
+  aws s3api create-bucket --region me-central-1 --bucket "$B" \
+    --create-bucket-configuration LocationConstraint=me-central-1
 done
 ```
 
-Then verify before proceeding:
+### Step 4 — Block public access (the critical control)
+
+Do this BEFORE anything is uploaded. Once files live in S3, this setting is
+what stands between a passport and the open internet, replacing the code-level
+guard the catch-all used to provide.
+
+```bash
+for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
+  aws s3api put-public-access-block --region me-central-1 --bucket "$B" \
+    --public-access-block-configuration \
+    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+done
+```
+
+### Step 5 — Versioning
+
+Required for replication, and independently the recovery net for an accidental
+delete. This is the INC-004 lesson: a file referenced by copied paths is shared
+state, and a delete you cannot undo is data loss.
+
+```bash
+for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
+  aws s3api put-bucket-versioning --region me-central-1 --bucket "$B" \
+    --versioning-configuration Status=Enabled
+done
+```
+
+### Step 6 — Default encryption
+
+Set on the BUCKET so no caller has to remember it. `BucketKeyEnabled` cuts KMS
+request cost substantially on read-heavy prefixes like photos.
+
+```bash
+for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
+  aws s3api put-bucket-encryption --region me-central-1 --bucket "$B" \
+    --server-side-encryption-configuration '{
+      "Rules":[{
+        "ApplyServerSideEncryptionByDefault":{
+          "SSEAlgorithm":"aws:kms",
+          "KMSMasterKeyID":"alias/ea-sys-documents"
+        },
+        "BucketKeyEnabled":true
+      }]
+    }'
+done
+```
+
+### Step 7 — Grant the app access
+
+Scoped to the PRIMARY bucket only. The DR bucket is written by the replication
+service, never by the application, so the app has no reason to hold a key to it.
+
+```bash
+cat > /tmp/uae-document-storage.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UploadsObjects",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::ea-sys-documents-uae/*"
+    },
+    {
+      "Sid": "UploadsList",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::ea-sys-documents-uae"
+    },
+    {
+      "Sid": "UploadsKms",
+      "Effect": "Allow",
+      "Action": ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+      "Resource": "$KEY_ARN"
+    }
+  ]
+}
+JSON
+
+aws iam put-role-policy --role-name ea-sys-mumbai-ec2-role \
+  --policy-name UaeDocumentStorage \
+  --policy-document file:///tmp/uae-document-storage.json
+
+rm /tmp/uae-document-storage.json
+```
+
+IAM is global, so a Mumbai instance role reaching a UAE bucket needs nothing
+extra.
+
+### Step 8 — Same-region replication (optional, can be added later)
+
+Versioning already covers accidental deletion. Replication additionally survives
+a bucket-level mistake. Skip it on the first pass if you would rather get to the
+latency probe.
+
+```bash
+cat > /tmp/s3-replication-trust.json <<'JSON'
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+ "Principal":{"Service":"s3.amazonaws.com"},"Action":"sts:AssumeRole"}]}
+JSON
+
+aws iam create-role --role-name ea-sys-documents-replication \
+  --assume-role-policy-document file:///tmp/s3-replication-trust.json
+
+cat > /tmp/s3-replication-policy.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow",
+      "Action": ["s3:GetReplicationConfiguration", "s3:ListBucket"],
+      "Resource": "arn:aws:s3:::ea-sys-documents-uae" },
+    { "Effect": "Allow",
+      "Action": ["s3:GetObjectVersionForReplication", "s3:GetObjectVersionAcl",
+                 "s3:GetObjectVersionTagging"],
+      "Resource": "arn:aws:s3:::ea-sys-documents-uae/*" },
+    { "Effect": "Allow",
+      "Action": ["s3:ReplicateObject", "s3:ReplicateDelete", "s3:ReplicateTags"],
+      "Resource": "arn:aws:s3:::ea-sys-documents-uae-dr/*" },
+    { "Effect": "Allow",
+      "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"],
+      "Resource": "$KEY_ARN" }
+  ]
+}
+JSON
+
+aws iam put-role-policy --role-name ea-sys-documents-replication \
+  --policy-name ReplicateToDr --policy-document file:///tmp/s3-replication-policy.json
+
+ROLE_ARN=$(aws iam get-role --role-name ea-sys-documents-replication \
+  --query 'Role.Arn' --output text)
+
+cat > /tmp/s3-replication-config.json <<JSON
+{
+  "Role": "$ROLE_ARN",
+  "Rules": [{
+    "ID": "all-objects-to-dr",
+    "Status": "Enabled",
+    "Priority": 1,
+    "Filter": {},
+    "DeleteMarkerReplication": { "Status": "Disabled" },
+    "SourceSelectionCriteria": {
+      "SseKmsEncryptedObjects": { "Status": "Enabled" }
+    },
+    "Destination": {
+      "Bucket": "arn:aws:s3:::ea-sys-documents-uae-dr",
+      "EncryptionConfiguration": { "ReplicaKmsKeyID": "$KEY_ARN" }
+    }
+  }]
+}
+JSON
+
+aws s3api put-bucket-replication --region me-central-1 \
+  --bucket ea-sys-documents-uae \
+  --replication-configuration file:///tmp/s3-replication-config.json
+
+rm /tmp/s3-replication-*.json
+```
+
+`DeleteMarkerReplication` is **Disabled** deliberately: replicating deletions
+would mean a mistaken delete propagates to the copy that exists to survive it.
+
+### Step 9 — Verify before going further
 
 ```bash
 aws s3api get-public-access-block --region me-central-1 --bucket ea-sys-documents-uae
 aws s3api get-bucket-encryption   --region me-central-1 --bucket ea-sys-documents-uae
 aws s3api get-bucket-versioning   --region me-central-1 --bucket ea-sys-documents-uae
+
+# All four blocks must read true. Anything else and STOP.
 ```
 
-Still to write once the region is enabled: the same-region replication role and
-rule, and the IAM policy granting `ea-sys-mumbai-ec2-role` the following on the
-primary bucket only (`s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`,
-`s3:ListBucket`) plus `kms:Encrypt`, `kms:Decrypt`, `kms:GenerateDataKey` on the
-key. IAM is global, so a Mumbai instance role reaching a UAE bucket is fine.
+### Step 10 — Then the latency probe (section 4)
 
-**Also worth doing at the same time, unrelated to this plan but free:**
+That is the gate. Run it from the box before Phase 3 starts.
+
+### Also worth doing at the same time, unrelated but free
 
 ```bash
 aws ec2 enable-ebs-encryption-by-default --region ap-south-1
@@ -464,3 +663,65 @@ application where the role checks already live.
    answer is that identity documents are stored encrypted in the UAE. Before it
    ships, the honest answer is that they are stored encrypted in Mumbai. The
    email to Medhat should say whichever is true on the day it is sent.
+
+---
+
+## 10. What to do instead (2026-08-19)
+
+The UAE region is unavailable for the foreseeable future, so UAE residency is
+not purchasable on AWS by anyone right now. That is worth saying plainly,
+because it also settles the client conversation: this is not a gap in our
+architecture, it is a gap in the region.
+
+### Options, ranked
+
+**A. Do nothing.** Files stay on the Mumbai EC2 volume with the hourly Singapore
+sync. No residency change. No work. This is the status quo and it is not broken.
+
+**B. Point the new S3 provider at `ap-south-1` instead.** No residency change
+versus today, but a real durability win that is independent of the UAE question:
+
+- Uploads leave the EC2 root volume, which is currently the single copy between
+  hourly syncs, and which is also the volume that is not encrypted.
+- Object versioning means a delete is recoverable. Today it is not.
+- SSE-KMS encryption at rest, which is the answer EHS actually asked about.
+- 11 nines of durability across three AZs rather than one EBS volume.
+
+The code is already written and provider-agnostic, so this is a bucket, an IAM
+policy and two environment variables. When the UAE region recovers, moving is
+changing the bucket name and re-running the migration script.
+
+**C. Bahrain (`me-south-1`).** Rejected. It is a different country, so it does
+not deliver UAE residency, and it is 500km away in the same theatre as whatever
+damaged `me-central-1`. It buys a weaker claim and correlated risk.
+
+**D. A non-AWS UAE provider** (Azure UAE North, Oracle Dubai). Technically
+possible, and disproportionate: a second cloud vendor, second credential path
+and second failure mode, for one storage prefix.
+
+### Recommendation
+
+**B**, and treat it as a durability project rather than a residency one. It
+removes the "the only copy is on an unencrypted EBS volume" problem, which is a
+genuine finding in its own right, and it leaves the UAE move as a one-line
+change whenever that becomes possible again.
+
+### For the EHS answer
+
+The honest line is that data is hosted in AWS Mumbai with encrypted offsite
+backups, and that in-UAE hosting is not currently available because the AWS UAE
+region is not operational following regional events. That is verifiable, it is
+not a deflection, and it is a stronger answer than an aspiration.
+
+### The failover question this arrived in the middle of
+
+The owner asked, hours before this notice appeared, how we would recover in
+under five minutes if a regional conflict took the UAE region out for two weeks.
+The answer being drafted was: keep the Mumbai copies, never delete them, add a
+reverse sync, and fail over by flipping one environment variable.
+
+That instinct was correct and the scenario was not hypothetical. **The rule it
+produced stands regardless of which region is chosen: never delete the local
+copies, and the provider switch must always be reversible by one env var and a
+redeploy.** Phase 4's "remove the local copies after the bake period" step is
+struck permanently.
