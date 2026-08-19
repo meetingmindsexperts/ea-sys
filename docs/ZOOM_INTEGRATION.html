@@ -98,22 +98,49 @@ Organization Settings (DB)
                  → Opens Zoom web client in new tab
     </div>
 
-    <h3>Two Zoom Apps Required</h3>
+    <h3>Two Zoom Apps, and only one of them is required</h3>
+    <p>
+      These are <strong>separate apps</strong> in the Zoom Marketplace with separate
+      credentials. They do different jobs and neither can do the other's.
+    </p>
     <table>
-      <tr><th>App Type</th><th>Purpose</th><th>Credentials</th><th>Where Stored</th></tr>
+      <tr><th>App Type</th><th>Purpose</th><th>Credentials</th><th>Required?</th></tr>
       <tr>
         <td><strong>Server-to-Server OAuth</strong></td>
-        <td>Create/manage meetings & webinars via API</td>
+        <td>Everything server-side: create webinars, sync panelists, pull recordings
+            and attendance, configure RTMP live streaming. <em>Cannot render video.</em></td>
         <td>Account ID, Client ID, Client Secret</td>
-        <td>Org Settings (encrypted)</td>
+        <td><strong>Yes</strong></td>
       </tr>
       <tr>
-        <td><strong>General App</strong></td>
-        <td>JWT signatures for attendee join + future embedding</td>
-        <td>Client ID (SDK Key), Client Secret (SDK Secret)</td>
-        <td>Org Settings (Dev + Prod, encrypted)</td>
+        <td><strong>General App</strong> (Meeting SDK enabled)</td>
+        <td>The <em>only</em> way to draw Zoom video inside our own session page.
+            Nothing else can do it.</td>
+        <td>Client ID (SDK Key), Client Secret (SDK Secret), Dev and Prod columns.
+            <strong>No Account ID</strong>; that field exists only on S2S apps.</td>
+        <td><strong>No</strong>, see below</td>
       </tr>
     </table>
+
+    <div class="warning">
+      <p><strong>The Meeting SDK app is optional, and the SDK fields may be left blank.</strong>
+      An org can run webinars end to end without ever creating one. What you give up
+      is only <em>where</em> attendees watch:</p>
+      <table>
+        <tr><th>Path</th><th>Attendee watches</th><th>Interactive?</th><th>Needs SDK app?</th></tr>
+        <tr><td>SDK embed (<code>viewingMode: "zoom"</code>)</td><td>Our page</td><td>Yes, Q&amp;A, polls, raise hand</td><td><strong>Yes</strong></td></tr>
+        <tr><td>Open in Zoom (<code>mode: "url"</code>)</td><td>Zoom's own client</td><td>Yes</td><td>No</td></tr>
+        <tr><td>HLS live stream (<code>viewingMode: "hls"</code>)</td><td>Our page</td><td>No, one way</td><td>No</td></tr>
+      </table>
+      <p>With the SDK fields empty, <code>generateZoomSignatureForOrg</code> returns
+      <code>null</code> and the join route falls back to <code>mode: "url"</code>
+      automatically. <strong>Wrong SDK credentials fail worse than none</strong>, because
+      "none" has a working fallback and "wrong" does not.</p>
+      <p>Note the HLS trade-off: an HLS viewer is never a Zoom participant, so Zoom's
+      attendance, poll and Q&amp;A reports see only the host and panelists. Anything
+      gated on attendance (CME certificates) will find an empty room. Our own
+      <code>WebinarPresence</code> heartbeat still counts HLS viewers.</p>
+    </div>
 
     <h3>Credential Security</h3>
     <table>
@@ -124,6 +151,83 @@ Organization Settings (DB)
       <tr><td>sdkSecretDevEncrypted, sdkSecretProdEncrypted</td><td>AES-256-GCM encrypted</td></tr>
     </table>
     <p>Encryption uses <code>NEXTAUTH_SECRET</code> as the key derivation input via SHA-256. Secrets are never returned by the GET endpoint — only <code>hasClientSecret: true/false</code> flags. Pino logger auto-redacts fields containing "secret".</p>
+
+    <h3>Credential failure modes (learned 2026-08-19)</h3>
+    <p>
+      A live webinar would not join and it took an afternoon to diagnose. Every
+      failure that day shared one shape, and it is the shape to remember:
+      <strong>the wrong value was accepted everywhere it was entered, and failed only
+      inside the attendee's browser, where we have no logs.</strong> The server minted a
+      signature, the join route answered 200, and nothing complained.
+    </p>
+    <table>
+      <tr><th>Zoom error</th><th>Means</th><th>Usual cause</th></tr>
+      <tr>
+        <td><code>3712 Signature is invalid</code></td>
+        <td>Zoom could not verify our JWT against the app that owns the SDK key</td>
+        <td>The SDK key belongs to a <strong>deleted app</strong>, or is a
+            Server-to-Server Client ID (which has no SDK capability at all), or key
+            and secret come from different apps/columns</td>
+      </tr>
+      <tr>
+        <td><code>3707 The meeting number is not found</code></td>
+        <td>Signature accepted far enough to look up the meeting, which failed</td>
+        <td>Same root cause. <strong>Do not chase 3707 as a separate problem</strong> ,
+            the two codes are the same fault seen from different angles</td>
+      </tr>
+    </table>
+
+    <div class="warning">
+      <p><strong>There is no server-side test for SDK credentials.</strong> Zoom publishes
+      no endpoint that validates them. The "Test Connection" button exercises
+      <code>/users/me</code> over OAuth, so it proves the <em>Server-to-Server</em>
+      credentials work and says <em>nothing</em> about the SDK ones. The only real test
+      is a browser actually joining. Do that deliberately on a throwaway event, never
+      for the first time on a live one.</p>
+    </div>
+
+    <p><strong>Guards added afterwards</strong>, so the same afternoon cannot repeat:</p>
+    <table>
+      <tr><th>Guard</th><th>Where</th></tr>
+      <tr>
+        <td>Saving the S2S Client ID into either SDK key field is refused
+            (<code>SDK_KEY_IS_OAUTH_CLIENT_ID</code>), comparing against the client id
+            being <em>saved</em> since one request can set both</td>
+        <td><code>/api/organization/zoom/credentials</code> PUT</td>
+      </tr>
+      <tr>
+        <td>Dev credentials on a production deployment log at <strong>error</strong>
+            (<code>zoom:sdk-dev-credentials-on-production</code>). Note it still returns a
+            signature, that is the trap, so the alarm must fire at signing time</td>
+        <td><code>src/lib/zoom/signature.ts</code></td>
+      </tr>
+      <tr>
+        <td>Every signature records mode, meeting number, role and a six-char key
+            prefix (<code>zoom:signature-generated</code>)</td>
+        <td><code>src/lib/zoom/signature.ts</code></td>
+      </tr>
+      <tr>
+        <td>A join that fails inside the SDK reports itself, carrying phase, Zoom's
+            errorCode and the key prefix (<code>zoom:join-failed-in-browser</code>).
+            Authenticated and rate-limited so it cannot flood the log</td>
+        <td><code>.../sessions/[sessionId]/join-error</code></td>
+      </tr>
+      <tr>
+        <td>Credential saves and deletes write an <code>AuditLog</code> row with
+            before → after <em>fingerprints</em> (six chars + length) for keys, and
+            <code>{ rotated: true }</code> for secrets, never a secret, not even a prefix</td>
+        <td><code>/api/organization/zoom/credentials</code></td>
+      </tr>
+    </table>
+
+    <div class="note">
+      <p><strong>Why fingerprints and not values.</strong> Answering "what was the SDK key
+      before 11:50, and who changed it" requires knowing what it <em>became</em>, but an
+      audit table is read by more people than a settings page. Six characters plus the
+      length tells two credentials apart at a glance without writing one down. Before
+      this existed the only trace was a single <code>configuredAt</code> that each save
+      overwrote, so the question had no answer.</p>
+    </div>
 
     <!-- ─── IMPLEMENTATION STEPS ──────────────────────────────────── -->
 
@@ -320,7 +424,17 @@ list_zoom_meetings              create_zoom_meeting</code></pre>
     </div>
 
     <div class="step">
-      <h3><span class="step-number">B</span>Create General App (for Meeting SDK / embedding)</h3>
+      <h3><span class="step-number">B</span>Create General App (OPTIONAL, only for in-page embedding)</h3>
+      <div class="warning">
+        <p><strong>Skip this step unless you specifically need attendees to watch inside
+        our own page while staying interactive.</strong> Without it, webinars still work:
+        attendees open Zoom directly, or watch an HLS stream on our page. See
+        &ldquo;Two Zoom Apps&rdquo; above for the trade-offs.</p>
+        <p>Two things that catch people out: the Meeting SDK feature must be
+        <strong>enabled</strong> on the app (it is not on by default), and this app has
+        <strong>no Account ID</strong>, that field exists only on Server-to-Server apps,
+        and its absence here is normal, not a missing value.</p>
+      </div>
       <ol>
         <li>In Zoom App Marketplace &rarr; Develop &rarr; Build App</li>
         <li>Choose <strong>General App</strong> type &rarr; Create</li>
@@ -332,8 +446,9 @@ list_zoom_meetings              create_zoom_meeting</code></pre>
             <li><code>events.meetingmindsgroup.com</code> (for production)</li>
           </ul>
         </li>
-        <li>Set <strong>OAuth Redirect URL</strong> to <code>https://zoom.us</code> (not used — just a required field)</li>
-        <li>The app has both Development and Production credentials — copy each set separately</li>
+        <li>Set <strong>OAuth Redirect URL</strong> to <code>https://zoom.us</code> (not used, just a required field)</li>
+        <li>The app has both Development and Production credentials, copy each set separately, and copy key and secret <strong>together in one pass</strong>: a key from one column with a secret from the other produces <code>3712 Signature is invalid</code>, which only surfaces in an attendee's browser</li>
+        <li><strong>If this app is ever deleted, the stored credentials become permanently invalid.</strong> Nothing in EA-SYS or Zoom notices until someone fails to join. Clear the SDK fields rather than leaving dead values in them</li>
       </ol>
     </div>
 
