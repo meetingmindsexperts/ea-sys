@@ -28,11 +28,40 @@
 >
 > See section 10 for what to do instead.
 
-**Status:** BLOCKED on region availability. Code complete (Phases 1 to 3),
-infrastructure suspended.
+**Status:** Repointed to `ap-south-1`. Code complete (Phases 1 to 3), bucket not
+yet created.
 **Date:** 2026-08-19
-**Original goal:** every uploaded file lives in AWS `me-central-1` (UAE).
-Compute and database do not move.
+**North star:** every uploaded file lives in AWS `me-central-1` (UAE). Unreachable
+until the region recovers.
+**Current step:** the same move, into `ap-south-1` (Mumbai). Same code, same
+script, different bucket name. It is a **durability** project at this stage, not
+a residency one, and it is the staging ground for the UAE move whenever that
+becomes possible.
+
+Compute and database do not move, in either version.
+
+### Measured latency, from the box, 2026-08-19
+
+The Phase 0 probe was run for real rather than estimated, using the existing
+`ea-sys-crm-inbound` (ap-south-1) and `ea-sys-dr-singapore` (ap-southeast-1)
+buckets:
+
+| Path | TCP connect | TLS handshake |
+|---|---|---|
+| Mumbai EC2 → S3 **ap-south-1** | **2.5ms** | 34ms |
+| Mumbai EC2 → S3 ap-southeast-1 (~3,900km) | 62ms | 127ms |
+| Local disk | below `time` resolution |
+
+Dubai (~1,900km) sits between those, which brackets the earlier ~33ms published
+estimate with real numbers instead of trust.
+
+**In-region network cost is 2.5ms.** The remaining per-object cost is S3's own
+first-byte time, 10 to 20ms for a small object, and that is the same wherever
+the bucket lives. The 34ms handshake is per CONNECTION, and the SDK pools them.
+
+Two consequences: the read-through cache fallback is **resolved as unnecessary**
+(see section 3), and the "image-heavy pages gain half a second" warning that
+shaped the original design does not apply in-region.
 
 ---
 
@@ -63,20 +92,24 @@ buy a partial residency answer. It is the worst available configuration.
 
 ### Residency after this change
 
-| Data | Where it lives now | After |
-|---|---|---|
-| Uploaded files (all categories) | Mumbai EC2 disk | **UAE (`me-central-1`)** |
-| Backup of uploaded files | Singapore S3 | **UAE, same region** |
-| Registration / contact data | Supabase Mumbai | Supabase Mumbai (unchanged) |
-| Database dumps | Singapore S3 | Singapore S3 (unchanged) |
-| `.env`, break-glass box | Singapore | Singapore (unchanged) |
-| Email in transit | SES Mumbai | SES Mumbai (unchanged) |
+| Data | Now | After (ap-south-1 step) | If the UAE recovers |
+|---|---|---|---|
+| Uploaded files | Mumbai EC2 disk | **S3 Mumbai** (+ disk standby) | UAE |
+| Backup of uploaded files | Singapore S3 | Singapore S3 (unchanged) | see below |
+| Registration / contact data | Supabase Mumbai | unchanged | unchanged |
+| Database dumps | Singapore S3 | unchanged | unchanged |
+| `.env`, break-glass box | Singapore | unchanged | unchanged |
+| Email in transit | SES Mumbai | unchanged | unchanged |
+
+**Nothing about residency changes at this step.** The files are in India before
+and after. What changes is durability: they leave a single unencrypted EBS
+volume for versioned, KMS-encrypted object storage.
 
 **Backup follows the primary's jurisdiction.** The database is in India, so a
-Singapore backup does not change its residency story and Singapore remains the
-DR constant for it. The document bucket is the one exception: its primary would
-genuinely be in the UAE, so replicating it to Singapore would break a claim that
-is otherwise clean and true.
+Singapore backup does not change its residency story, and Singapore remains the
+DR constant. That reasoning is why the Singapore sync stays exactly as it is at
+this step. It is only the eventual UAE version where the document backup would
+have to stay in-country, because only there is the primary genuinely in the UAE.
 
 ---
 
@@ -131,24 +164,40 @@ to be migrated out of the wrong jurisdiction or purged from Singapore.
 
 ### Bucket
 
-One bucket, `me-central-1`, holding every category. A single central store was
+One bucket, `ap-south-1`, holding every category. A single central store was
 chosen over per-category routing because it is **less** code, not more: routing
 needs a category-to-provider map, moving everything needs none.
 
 | Setting | Value | Why |
 |---|---|---|
-| Region | `me-central-1` | The requirement |
+| Region | **`ap-south-1`** | Same region as the app: 2.5ms instead of 33ms, and free transfer |
+| Bucket | `ea-sys-uploads` | Not `-uae`; the name should not promise a residency it does not deliver |
 | Block Public Access | all four ON | The critical control, see §6 |
 | Versioning | Enabled | Recovers deleted objects; the INC-004 lesson about shared paths |
-| Encryption | SSE-KMS, customer-managed key **in `me-central-1`** | KMS keys are regional; the Singapore key cannot be reused |
-| Replication | Same-region, to a second UAE bucket | DR without leaving the UAE |
+| Encryption | SSE-KMS, customer-managed key in `ap-south-1` | KMS keys are regional |
+| Replication | **None needed** | See below |
 
-**"DR in the UAE" cannot mean cross-region, because AWS has one UAE region.**
-S3 already replicates across three availability zones inside a region at eleven
-nines of durability, so hardware loss is not the exposure. The real risks are
-accidental deletion and a bad bucket policy, and versioning plus same-region
-replication cover both while staying inside the country. A full regional outage
-remains uncovered, which is the same exposure the EC2 box already carries.
+### DR falls out of the existing setup, so no replication rule is required
+
+The failover rule from the outage question stands: **the local copies are never
+deleted.** That makes the Mumbai disk a warm standby, and it also means the
+hourly `aws s3 sync` to `ea-sys-dr-singapore` keeps working exactly as it does
+today, because it syncs from local disk rather than from the bucket.
+
+So after this change there are three copies, and the DR story is unchanged:
+
+1. **S3 `ap-south-1`** — primary, versioned, KMS-encrypted
+2. **Mumbai EC2 disk** — warm standby, one env var away from serving
+3. **Singapore S3** — offsite, hourly, already running
+
+A same-region replication rule would be a fourth copy solving a problem the
+first three already cover. Skipped.
+
+### The read-through cache fallback is resolved: NOT needed
+
+Held as a fallback on 2026-08-19 pending measurement, in case the round trip
+made image-heavy pages slow. Measured at **2.5ms in-region**, which removes the
+entire argument for it. It stays documented only so nobody re-derives it.
 
 ### Keys keep the existing URL shape
 
@@ -363,241 +412,114 @@ copies.
 
 ---
 
-## 5. Infrastructure runbook (operator)
+## 5. Infrastructure runbook (operator) — Console, `ap-south-1`
 
-Verified values as of 2026-08-19: account **803726282629**, instance role
-**ea-sys-mumbai-ec2-role** (5 existing inline policies), `me-central-1`
-**not-opted-in**, bucket name `ea-sys-documents-uae` **free**.
+Verified 2026-08-19: account **803726282629**, instance role
+**ea-sys-mumbai-ec2-role** (5 existing inline policies, we add a 6th).
 
-Commands to run, in order. Nothing here is destructive. Steps 1 to 7 are
-required; step 8 is optional and can be added later.
+The Console is the better route here: the bucket wizard sets encryption,
+versioning and public-access-block in one pass.
 
-### Step 1 — Opt in to the UAE region
+### Step 1 — KMS key
 
-Everything else fails until this finishes, and it is not instant.
+**KMS** (region **Asia Pacific (Mumbai) ap-south-1**) → Customer managed keys →
+Create key.
 
-```bash
-aws account enable-region --region-name me-central-1
+- Symmetric, Encrypt and decrypt
+- Alias `ea-sys-uploads`
+- Key administrators: yourself
+- **Key usage permissions: tick `ea-sys-mumbai-ec2-role`.** This is the step
+  people skip, and the symptom is every upload failing with AccessDenied after
+  cutover rather than at setup time.
 
-# Poll until it reads ENABLED (usually a few minutes, occasionally longer).
-until [ "$(aws ec2 describe-regions --all-regions --region-names me-central-1 \
-  --query 'Regions[0].OptInStatus' --output text)" = "opted-in" ]; do
-  echo "  still enabling…"; sleep 30
-done
-echo "me-central-1 is enabled"
-```
+Copy the key ARN; step 3 needs it.
 
-### Step 2 — KMS key, in-region
+### Step 2 — Create the bucket
 
-A KMS key is regional, so the Singapore DR key cannot encrypt a UAE bucket.
-One key serves both buckets, which also keeps replication simple.
+**S3** → Create bucket.
 
-```bash
-KEY_ID=$(aws kms create-key --region me-central-1 \
-  --description "EA-SYS document storage (UAE residency)" \
-  --key-usage ENCRYPT_DECRYPT --key-spec SYMMETRIC_DEFAULT \
-  --query 'KeyMetadata.KeyId' --output text)
+- Region **Asia Pacific (Mumbai) ap-south-1**
+- Name `ea-sys-uploads`
+- **Block all public access: leave CHECKED.** On by default. The risk is
+  someone unchecking it, not forgetting it. Once files live here this one
+  setting is what stands between a private document and the open internet,
+  replacing the code-level guard the catch-all used to provide.
+- **Bucket Versioning: Enable**
+- **Default encryption:** SSE-KMS → Choose from your KMS keys →
+  `alias/ea-sys-uploads`
+- **Bucket Key: Enable** (cuts KMS request cost on read-heavy prefixes)
 
-aws kms create-alias --region me-central-1 \
-  --alias-name alias/ea-sys-documents --target-key-id "$KEY_ID"
+No second bucket and no replication rule: see section 3.
 
-KEY_ARN=$(aws kms describe-key --region me-central-1 \
-  --key-id alias/ea-sys-documents --query 'KeyMetadata.Arn' --output text)
-echo "KEY_ARN=$KEY_ARN"   # needed in step 7
-```
+### Step 3 — Grant the app access
 
-### Step 3 — Create both buckets
+**IAM** → Roles → `ea-sys-mumbai-ec2-role` → Add permissions → Create inline
+policy → JSON. Replace `KEY_ARN_HERE`:
 
-`LocationConstraint` is required for every region except us-east-1.
-
-```bash
-for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
-  aws s3api create-bucket --region me-central-1 --bucket "$B" \
-    --create-bucket-configuration LocationConstraint=me-central-1
-done
-```
-
-### Step 4 — Block public access (the critical control)
-
-Do this BEFORE anything is uploaded. Once files live in S3, this setting is
-what stands between a passport and the open internet, replacing the code-level
-guard the catch-all used to provide.
-
-```bash
-for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
-  aws s3api put-public-access-block --region me-central-1 --bucket "$B" \
-    --public-access-block-configuration \
-    BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-done
-```
-
-### Step 5 — Versioning
-
-Required for replication, and independently the recovery net for an accidental
-delete. This is the INC-004 lesson: a file referenced by copied paths is shared
-state, and a delete you cannot undo is data loss.
-
-```bash
-for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
-  aws s3api put-bucket-versioning --region me-central-1 --bucket "$B" \
-    --versioning-configuration Status=Enabled
-done
-```
-
-### Step 6 — Default encryption
-
-Set on the BUCKET so no caller has to remember it. `BucketKeyEnabled` cuts KMS
-request cost substantially on read-heavy prefixes like photos.
-
-```bash
-for B in ea-sys-documents-uae ea-sys-documents-uae-dr; do
-  aws s3api put-bucket-encryption --region me-central-1 --bucket "$B" \
-    --server-side-encryption-configuration '{
-      "Rules":[{
-        "ApplyServerSideEncryptionByDefault":{
-          "SSEAlgorithm":"aws:kms",
-          "KMSMasterKeyID":"alias/ea-sys-documents"
-        },
-        "BucketKeyEnabled":true
-      }]
-    }'
-done
-```
-
-### Step 7 — Grant the app access
-
-Scoped to the PRIMARY bucket only. The DR bucket is written by the replication
-service, never by the application, so the app has no reason to hold a key to it.
-
-```bash
-cat > /tmp/uae-document-storage.json <<JSON
+```json
 {
   "Version": "2012-10-17",
   "Statement": [
-    {
-      "Sid": "UploadsObjects",
-      "Effect": "Allow",
+    { "Sid": "UploadsObjects", "Effect": "Allow",
       "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
-      "Resource": "arn:aws:s3:::ea-sys-documents-uae/*"
-    },
-    {
-      "Sid": "UploadsList",
-      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::ea-sys-uploads/*" },
+    { "Sid": "UploadsList", "Effect": "Allow",
       "Action": ["s3:ListBucket"],
-      "Resource": "arn:aws:s3:::ea-sys-documents-uae"
-    },
-    {
-      "Sid": "UploadsKms",
-      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::ea-sys-uploads" },
+    { "Sid": "UploadsKms", "Effect": "Allow",
       "Action": ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
-      "Resource": "$KEY_ARN"
-    }
+      "Resource": "KEY_ARN_HERE" }
   ]
 }
-JSON
-
-aws iam put-role-policy --role-name ea-sys-mumbai-ec2-role \
-  --policy-name UaeDocumentStorage \
-  --policy-document file:///tmp/uae-document-storage.json
-
-rm /tmp/uae-document-storage.json
 ```
 
-IAM is global, so a Mumbai instance role reaching a UAE bucket needs nothing
-extra.
+Name it `UploadsS3Storage`.
 
-### Step 8 — Same-region replication (optional, can be added later)
-
-Versioning already covers accidental deletion. Replication additionally survives
-a bucket-level mistake. Skip it on the first pass if you would rather get to the
-latency probe.
+### Step 4 — Verify before migrating
 
 ```bash
-cat > /tmp/s3-replication-trust.json <<'JSON'
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
- "Principal":{"Service":"s3.amazonaws.com"},"Action":"sts:AssumeRole"}]}
-JSON
-
-aws iam create-role --role-name ea-sys-documents-replication \
-  --assume-role-policy-document file:///tmp/s3-replication-trust.json
-
-cat > /tmp/s3-replication-policy.json <<JSON
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    { "Effect": "Allow",
-      "Action": ["s3:GetReplicationConfiguration", "s3:ListBucket"],
-      "Resource": "arn:aws:s3:::ea-sys-documents-uae" },
-    { "Effect": "Allow",
-      "Action": ["s3:GetObjectVersionForReplication", "s3:GetObjectVersionAcl",
-                 "s3:GetObjectVersionTagging"],
-      "Resource": "arn:aws:s3:::ea-sys-documents-uae/*" },
-    { "Effect": "Allow",
-      "Action": ["s3:ReplicateObject", "s3:ReplicateDelete", "s3:ReplicateTags"],
-      "Resource": "arn:aws:s3:::ea-sys-documents-uae-dr/*" },
-    { "Effect": "Allow",
-      "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"],
-      "Resource": "$KEY_ARN" }
-  ]
-}
-JSON
-
-aws iam put-role-policy --role-name ea-sys-documents-replication \
-  --policy-name ReplicateToDr --policy-document file:///tmp/s3-replication-policy.json
-
-ROLE_ARN=$(aws iam get-role --role-name ea-sys-documents-replication \
-  --query 'Role.Arn' --output text)
-
-cat > /tmp/s3-replication-config.json <<JSON
-{
-  "Role": "$ROLE_ARN",
-  "Rules": [{
-    "ID": "all-objects-to-dr",
-    "Status": "Enabled",
-    "Priority": 1,
-    "Filter": {},
-    "DeleteMarkerReplication": { "Status": "Disabled" },
-    "SourceSelectionCriteria": {
-      "SseKmsEncryptedObjects": { "Status": "Enabled" }
-    },
-    "Destination": {
-      "Bucket": "arn:aws:s3:::ea-sys-documents-uae-dr",
-      "EncryptionConfiguration": { "ReplicaKmsKeyID": "$KEY_ARN" }
-    }
-  }]
-}
-JSON
-
-aws s3api put-bucket-replication --region me-central-1 \
-  --bucket ea-sys-documents-uae \
-  --replication-configuration file:///tmp/s3-replication-config.json
-
-rm /tmp/s3-replication-*.json
+aws s3api get-public-access-block --region ap-south-1 --bucket ea-sys-uploads
+aws s3api get-bucket-encryption   --region ap-south-1 --bucket ea-sys-uploads
+aws s3api get-bucket-versioning   --region ap-south-1 --bucket ea-sys-uploads
 ```
 
-`DeleteMarkerReplication` is **Disabled** deliberately: replicating deletions
-would mean a mistaken delete propagates to the copy that exists to survive it.
+All four public-access blocks must read `true`. Anything else, stop.
 
-### Step 9 — Verify before going further
+### Step 5 — Env vars on the box
+
+Add to `.env`, but do NOT set the provider yet:
+
+```
+S3_UPLOADS_BUCKET=ea-sys-uploads
+S3_UPLOADS_REGION=ap-south-1
+```
+
+### Step 6 — Migrate, then cut over
 
 ```bash
-aws s3api get-public-access-block --region me-central-1 --bucket ea-sys-documents-uae
-aws s3api get-bucket-encryption   --region me-central-1 --bucket ea-sys-documents-uae
-aws s3api get-bucket-versioning   --region me-central-1 --bucket ea-sys-documents-uae
-
-# All four blocks must read true. Anything else and STOP.
+docker exec ea-sys-worker npx tsx scripts/migrate-uploads-to-s3.ts            # dry run
+docker exec ea-sys-worker npx tsx scripts/migrate-uploads-to-s3.ts --write
+docker exec ea-sys-worker npx tsx scripts/migrate-uploads-to-s3.ts --verify   # must report all present
 ```
 
-### Step 10 — Then the latency probe (section 4)
+Then set `STORAGE_PROVIDER=s3` in `.env` and `bash scripts/deploy.sh`.
 
-That is the gate. Run it from the box before Phase 3 starts.
-
-### Also worth doing at the same time, unrelated but free
+### Rollback, at any point
 
 ```bash
-aws ec2 enable-ebs-encryption-by-default --region ap-south-1
-aws ec2 enable-ebs-encryption-by-default --region me-central-1
+sed -i 's/^STORAGE_PROVIDER=s3/STORAGE_PROVIDER=local/' .env
+bash scripts/deploy.sh          # ~22s, measured
 ```
+
+The local copies are still there and are never deleted. That is the permanent
+rule from the outage question, and it is what makes this reversible.
+
+### Also worth doing, unrelated and free
+
+**EC2** → Dashboard → Account attributes → **EBS encryption** → Manage →
+Enable, in `ap-south-1`. It does not touch the running volume, but every future
+volume and snapshot is encrypted, and it is the account setting an auditor
+checks.
 
 ---
 
@@ -725,3 +647,43 @@ produced stands regardless of which region is chosen: never delete the local
 copies, and the provider switch must always be reversible by one env var and a
 redeploy.** Phase 4's "remove the local copies after the bake period" step is
 struck permanently.
+
+---
+
+## 11. Is the ap-south-1 step actually worth doing now?
+
+Worth asking honestly, because the original justification was residency and that
+justification is gone for the moment. Repointing at Mumbai keeps the work
+moving, and "keeps the work moving" is not by itself a reason to change
+production.
+
+**What it genuinely buys, given the local copies stay:**
+
+- **Versioning.** Today a deleted upload is gone, recoverable only from the
+  hourly Singapore sync and only if the deletion is noticed within the hour.
+  INC-004 is the precedent: 27 files destroyed, recovered only because that
+  sync is non-deleting. Versioning removes the luck from that.
+- **Encryption at rest under a customer-managed key.** The EBS root volume is
+  `Encrypted: false`. This is the answer EHS actually asked for.
+- **Durability.** Eleven nines across three AZs, versus one EBS volume.
+- **It removes EBS as the primary** for the one class of data that cannot be
+  regenerated. Everything else on that volume can be rebuilt from the image.
+- **The UAE move becomes one env var and a script run** whenever the region
+  returns, instead of a project.
+
+**What it does not buy, and should not be claimed:**
+
+- No residency change. The files are in India before and after.
+- No availability improvement over the status quo, because the local copies
+  stay and the app already serves from them.
+
+**The honest counter-argument.** Enabling EBS encryption is free, takes a
+maintenance window, and addresses the encryption-at-rest finding directly. If
+encryption were the only motivation, that would be the cheaper answer. The case
+for S3 rests on versioning, durability and being pre-staged for the UAE. That
+is a real case, but it is a smaller one than the residency argument it replaced,
+and it should be chosen on those terms rather than on momentum.
+
+**Recommendation:** do it, but as a low-priority durability improvement rather
+than the urgent piece of work it was yesterday. The code is already shipped and
+inert, so nothing is lost by leaving the bucket uncreated for a while.
