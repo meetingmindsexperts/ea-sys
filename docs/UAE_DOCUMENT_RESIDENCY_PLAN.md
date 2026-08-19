@@ -230,7 +230,24 @@ rule, and it means the next storage change is one file.
 **Verification:** full gate (tsc, eslint, vitest, build), plus manual upload and
 download of one file per category on the local prod copy.
 
+**Status: DONE (Aug 19, 2026).** All fourteen file-handling sites route through
+`storage.ts`. Net effect on the touched routes and libraries was **88 fewer
+lines**, because each site lost its own copy of `mkdir` + `writeFile` or
+`realpath` + containment. The public catch-all was flipped from a deny-list to
+an allow-list in the same pass.
+
+One site is deliberately NOT migrated: `supporting-document-prune-worker` walks
+directories, and there is no listing primitive yet (see Phase 2). It now refuses
+to run under a non-local provider and logs at error, so the gap surfaces in the
+daily digest instead of silently pruning nothing.
+
 ### Phase 2 — Add the `s3` provider
+
+**Must include a `listStoredFiles(subdirectory)` primitive** returning stored
+path plus modified time, mapping to S3 `ListObjectsV2`. The supporting-document
+prune worker is blocked on it and is currently guarded rather than working.
+
+
 
 `STORAGE_PROVIDER=s3` becomes a valid value. Not enabled anywhere yet.
 `@aws-sdk/client-s3` is already a dependency. Credentials come from the EC2

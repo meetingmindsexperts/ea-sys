@@ -9,8 +9,8 @@
  */
 import { createHash } from "node:crypto";
 import { runWithTenant } from "@/lib/tenant-context";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { readStoredFile } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -65,8 +65,6 @@ const sendSchema = z
     path: ["documentIds"],
   });
 
-const DEAL_DOCS_ROOT = path.resolve(process.cwd(), "public", "uploads", "crm-deal-docs");
-
 /**
  * Resolve stored deal-document ids into base64 attachments.
  *
@@ -100,13 +98,10 @@ async function loadStoredAttachments(
 
   const attachments: Array<{ name: string; content: string; contentType: string }> = [];
   for (const doc of docs) {
-    const abs = path.resolve(process.cwd(), "public", doc.url.replace(/^\//, ""));
-    if (!doc.url.startsWith("/uploads/crm-deal-docs/") || !abs.startsWith(DEAL_DOCS_ROOT + path.sep)) {
-      apiLogger.error({ msg: "crm/sponsor-email/send:document-path-rejected", documentId: doc.id, url: doc.url });
-      return { ok: false, code: "DOCUMENT_FILE_MISSING", message: "A selected document could not be read" };
-    }
     try {
-      const buf = await fs.readFile(abs);
+      // Path validation lives in readStoredFile; a rejection lands in the catch
+      // below and refuses the send, which is the same outcome as before.
+      const buf = await readStoredFile(doc.url, UPLOAD_PREFIX.crmDealDocs);
       attachments.push({ name: doc.filename, content: buf.toString("base64"), contentType: doc.mimeType });
     } catch (err) {
       // Honest failure: refuse the send rather than deliver without the file.

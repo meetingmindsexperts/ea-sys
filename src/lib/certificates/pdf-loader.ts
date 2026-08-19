@@ -1,4 +1,6 @@
 import { apiLogger } from "@/lib/logger";
+import { readStoredFile, StorageError } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 
 /**
  * Load a certificate PDF's bytes from local disk OR a remote URL — the SINGLE
@@ -76,18 +78,21 @@ export async function loadCertificatePdfBytes(
   logCtx: PdfLoadLogContext = {},
 ): Promise<Buffer> {
   if (pdfUrl.startsWith("/uploads/")) {
-    const { readFile } = await import("fs/promises");
-    const { join, resolve, sep } = await import("path");
-    // Allowed prefix = public/uploads/certificates/ (every cert PDF lives there
-    // per uploadCertificatePdf's storage convention). Trailing separator so
-    // `/public/uploads/certificates-evil/` can't share the prefix.
-    const allowedPrefix = resolve(process.cwd(), "public", "uploads", "certificates") + sep;
-    const absPath = resolve(join(process.cwd(), "public", pdfUrl));
-    if (!absPath.startsWith(allowedPrefix)) {
-      apiLogger.warn({ msg: "cert-pdf:path-traversal", pdfUrl, absPath, allowedPrefix, ...logCtx });
-      throw new Error(`PDF path escapes allowed prefix: ${pdfUrl}`);
+    // The traversal + prefix guards this function has carried since the June
+    // 2026 BLOCKER fix now live in readStoredFile, which enforces the same two
+    // rules: the stored path must sit under /uploads/certificates/, and the
+    // symlink-resolved path must still be inside that root. The trailing
+    // separator that stops /uploads/certificates-evil/ sharing the prefix is
+    // part of the prefix contract there and is covered by its own test.
+    try {
+      return await readStoredFile(pdfUrl, UPLOAD_PREFIX.certificates);
+    } catch (err) {
+      if (err instanceof StorageError && err.reason !== "not-found") {
+        apiLogger.warn({ msg: "cert-pdf:path-traversal", pdfUrl, reason: err.reason, ...logCtx });
+        throw new Error(`PDF path escapes allowed prefix: ${pdfUrl}`);
+      }
+      throw err;
     }
-    return readFile(absPath);
   }
 
   // Remote — must be https + on the host allowlist.

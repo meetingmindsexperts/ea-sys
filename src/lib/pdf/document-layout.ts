@@ -10,8 +10,8 @@
  * Receipt PDF intentionally does not use these helpers — it has its own layout
  * with the "PAID IN FULL" watermark and a simpler structure.
  */
-import fs from "fs/promises";
-import path from "path";
+import { readStoredFile } from "../storage";
+import { UPLOAD_PREFIX } from "../upload-prefixes";
 import { apiLogger } from "../logger";
 import { getTitleLabel } from "../utils";
 
@@ -109,10 +109,13 @@ export async function loadLocalLogo(logoPath: string | null): Promise<Buffer | n
   }
 
   try {
-    // logoPath = "/uploads/photos/2026/04/abc.png"
-    // on disk:  <project>/public/uploads/photos/2026/04/abc.png
-    const absolutePath = path.join(process.cwd(), "public", logoPath);
-    return await fs.readFile(absolutePath);
+    // logoPath = "/uploads/photos/2026/04/abc.png" or "/uploads/media/..."
+    // An org logo comes from the media library or a photo upload, so both
+    // public image prefixes are permitted and nothing else is.
+    const prefix = logoPath.startsWith(UPLOAD_PREFIX.media)
+      ? UPLOAD_PREFIX.media
+      : UPLOAD_PREFIX.photos;
+    return await readStoredFile(logoPath, prefix);
   } catch (err) {
     apiLogger.warn({
       err,

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
-import fs from "fs/promises";
-import path from "path";
+import { storageErrorResponse } from "@/lib/api-errors";
+import { readStoredFile } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { requireCrmRead } from "@/crm/lib/crm-route";
@@ -55,32 +56,19 @@ export async function GET(
       return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
     }
 
-    const allowedRoot = path.resolve(process.cwd(), "public", "uploads", "crm-email-attachments");
-    if (!meta.path.startsWith("/uploads/crm-email-attachments/")) {
-      apiLogger.warn({ msg: "crm/inbox:attachment-outside-root", messageId, path: meta.path });
-      return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
-    }
-    const abs = path.resolve(process.cwd(), "public", meta.path.slice(1));
-    let resolved: string;
+    let file: Buffer;
     try {
-      resolved = await fs.realpath(abs);
-    } catch {
-      apiLogger.error({ msg: "crm/inbox:attachment-file-missing", messageId, abs });
-      return NextResponse.json(
-        {
-          error:
-            "The file is missing on this server. With local storage, files stored on another machine are not present here.",
-          code: "FILE_MISSING",
-        },
-        { status: 404 },
-      );
+      file = await readStoredFile(meta.path, UPLOAD_PREFIX.crmEmailAttachments);
+    } catch (err) {
+      const res = storageErrorResponse(err, {
+        route: "crm/inbox-attachment",
+        notFoundMessage: "Attachment not found",
+        messageId,
+        index: idx,
+      });
+      if (res) return res;
+      throw err;
     }
-    if (!resolved.startsWith(allowedRoot + path.sep)) {
-      apiLogger.warn({ msg: "crm/inbox:attachment-traversal-blocked", messageId, resolved });
-      return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
-    }
-
-    const file = await fs.readFile(resolved);
     const mimeType = meta.mimeType ?? "application/octet-stream";
     const disposition = INLINE_TYPES.has(mimeType) ? "inline" : "attachment";
     const safeName = (meta.filename ?? "attachment").replace(/[^\w.\- ]+/g, "_").slice(0, 120) || "attachment";

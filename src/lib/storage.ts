@@ -9,7 +9,6 @@
  *
  *   uploadFile(buffer, filename, mimeType, subdirectory) -> storedPath
  *   readStoredFile(storedPath, requirePrefix)            -> Buffer
- *   storedFileExists(storedPath, requirePrefix)          -> boolean
  *   deleteStoredFile(storedPath, requirePrefix)          -> void, never throws
  *
  * A "stored path" is always `/uploads/{subdirectory}/{filename}` and is what
@@ -258,19 +257,6 @@ export async function readStoredFile(
   const { readFile } = await import("fs/promises");
   const real = await resolveLocalReadPath(storedPath, requirePrefix);
   return readFile(real);
-}
-
-/** True when the stored file exists and is inside `requirePrefix`. Never throws. */
-export async function storedFileExists(
-  storedPath: string,
-  requirePrefix: string,
-): Promise<boolean> {
-  try {
-    await resolveLocalReadPath(storedPath, requirePrefix);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**

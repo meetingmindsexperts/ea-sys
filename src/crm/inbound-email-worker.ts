@@ -18,8 +18,8 @@
  * The row is the source of truth; notification/forward failures log and never
  * un-record a received email.
  */
-import fs from "fs/promises";
-import path from "path";
+import { uploadFile, deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import {
   S3Client,
   ListObjectsV2Command,
@@ -142,14 +142,10 @@ export function verifySender(
   return { verified: true, reason: "domain-match" };
 }
 
-/** Best-effort unlink of just-written attachment files when the row never lands. */
+/** Best-effort removal of just-written attachment files when the row never lands. */
 async function cleanupAttachmentFiles(paths: string[]): Promise<void> {
   for (const rel of paths) {
-    if (!rel.startsWith("/uploads/crm-email-attachments/")) continue;
-    const abs = path.resolve(process.cwd(), "public", rel.slice(1));
-    await fs.unlink(abs).catch((err) =>
-      apiLogger.warn({ msg: "crm-inbound:orphan-unlink-failed", abs, err: err instanceof Error ? err.message : String(err) }),
-    );
+    await deleteStoredFile(rel, UPLOAD_PREFIX.crmEmailAttachments);
   }
 }
 
@@ -190,16 +186,18 @@ async function storeAttachments(parsed: ParsedMail, threadId: string): Promise<S
       continue;
     }
     const safeName = (att.filename ?? "attachment").replace(/[^\w.\- ]+/g, "_").slice(0, 120);
-    const dirRel = path.join("uploads", "crm-email-attachments", threadId);
-    const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-    await fs.mkdir(dirAbs, { recursive: true });
-    const storedName = `${globalThis.crypto.randomUUID()}-${safeName}`;
-    await fs.writeFile(path.join(dirAbs, storedName), att.content);
+    const mimeType = att.contentType ?? "application/octet-stream";
+    const storedPath = await uploadFile(
+      att.content,
+      `${globalThis.crypto.randomUUID()}-${safeName}`,
+      mimeType,
+      `${UPLOAD_SEGMENT.crmEmailAttachments}/${threadId}`,
+    );
     out.push({
       filename: safeName,
       size: att.size,
-      mimeType: att.contentType ?? "application/octet-stream",
-      path: `/${dirRel.split(path.sep).join("/")}/${storedName}`,
+      mimeType,
+      path: storedPath,
     });
   }
   return out;

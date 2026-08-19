@@ -21,7 +21,6 @@ vi.mock("@/lib/logger", () => ({
 import {
   uploadFile,
   readStoredFile,
-  storedFileExists,
   deleteStoredFile,
   uploadPhoto,
   StorageError,
@@ -182,21 +181,6 @@ describe("readStoredFile", () => {
       () => readStoredFile(`/uploads/${TEST_SEGMENT}/rt.txt`, `/uploads/${TEST_SEGMENT}`),
       "prefix-rejected",
     );
-  });
-});
-
-describe("storedFileExists", () => {
-  it("is true for a real file inside the prefix", async () => {
-    const stored = await uploadFile(Buffer.from("e"), "exists.txt", "text/plain", TEST_SEGMENT);
-    expect(await storedFileExists(stored, TEST_PREFIX)).toBe(true);
-  });
-
-  it("is false, not throwing, for a missing file", async () => {
-    expect(await storedFileExists(`/uploads/${TEST_SEGMENT}/ghost.txt`, TEST_PREFIX)).toBe(false);
-  });
-
-  it("is false, not throwing, for a traversal attempt", async () => {
-    expect(await storedFileExists(`/uploads/${TEST_SEGMENT}/../x`, TEST_PREFIX)).toBe(false);
   });
 });
 

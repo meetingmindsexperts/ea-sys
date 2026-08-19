@@ -15,14 +15,21 @@ vi.mock("@/lib/logger", () => ({
 
 // File writes go to a scratch-safe void — the service's disk layout is not
 // under test, the row/number/guard logic is.
-vi.mock("fs/promises", () => ({
-  default: {
+// Both named and default exports, because storage.ts imports fs/promises
+// dynamically and destructures NAMED members. A default-only mock leaves those
+// undefined, which surfaces as an unrelated-looking service failure.
+const { fsMock } = vi.hoisted(() => ({
+  fsMock: {
     mkdir: vi.fn().mockResolvedValue(undefined),
     writeFile: vi.fn().mockResolvedValue(undefined),
     unlink: vi.fn().mockResolvedValue(undefined),
     readFile: vi.fn().mockRejectedValue(new Error("no logo")),
+    // Storage resolves symlinks before its containment check. Identity
+    // realpath keeps the REAL guard running instead of mocking it out.
+    realpath: vi.fn(async (p: string) => p),
   },
 }));
+vi.mock("fs/promises", () => ({ default: fsMock, ...fsMock }));
 
 const tx = {
   crmQuoteCounter: {

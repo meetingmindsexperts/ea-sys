@@ -35,6 +35,9 @@ const { dbMock, fsMock } = vi.hoisted(() => ({
     writeFile: vi.fn(),
     unlink: vi.fn(),
     readFile: vi.fn(),
+    // See note in crm-quote-service.test.ts: identity realpath keeps the
+    // real storage containment guard in play.
+    realpath: vi.fn(async (p: string) => p),
   },
 }));
 vi.mock("@/lib/db", () => ({ db: dbMock }));
@@ -95,6 +98,7 @@ beforeEach(() => {
   fsMock.mkdir.mockResolvedValue(undefined);
   fsMock.writeFile.mockResolvedValue(undefined);
   fsMock.unlink.mockResolvedValue(undefined);
+  fsMock.realpath.mockImplementation(async (p: string) => p);
   dbMock.event.update.mockResolvedValue({});
 });
 

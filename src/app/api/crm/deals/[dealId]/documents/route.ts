@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
-import fs from "fs/promises";
-import path from "path";
 import { randomUUID } from "crypto";
+import { uploadFile, deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit } from "@/lib/security";
@@ -117,12 +117,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "File content is not a PDF" }, { status: 400 });
     }
 
-    const dirRel = path.join("uploads", "crm-deal-docs", dealId);
-    const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-    await fs.mkdir(dirAbs, { recursive: true });
-    const storedName = `${randomUUID()}.pdf`;
-    await fs.writeFile(path.join(dirAbs, storedName), buffer);
-    const url = `/${dirRel.split(path.sep).join("/")}/${storedName}`;
+    const url = await uploadFile(
+      buffer,
+      `${randomUUID()}.pdf`,
+      "application/pdf",
+      `${UPLOAD_SEGMENT.crmDealDocs}/${dealId}`,
+    );
 
     const result = await addDealDocument({
       organizationId: ctx.organizationId,
@@ -139,18 +139,13 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     if (!result.ok) {
       // The row never landed — don't leave the just-written file orphaned.
-      await fs.unlink(path.join(dirAbs, storedName)).catch((err) =>
-        apiLogger.warn({ err, msg: "crm/deal-documents:orphan-unlink-failed", dealId }),
-      );
+      await deleteStoredFile(url, UPLOAD_PREFIX.crmDealDocs);
       return crmErrorResponse(result);
     }
 
-    // A replaced prospectus file is unlinked best-effort AFTER commit.
-    if (result.replacedUrl?.startsWith("/uploads/crm-deal-docs/")) {
-      const replacedAbs = path.resolve(process.cwd(), "public", result.replacedUrl.slice(1));
-      await fs.unlink(replacedAbs).catch((err) =>
-        apiLogger.warn({ err, msg: "crm/deal-documents:replace-unlink-failed", replacedAbs }),
-      );
+    // A replaced prospectus file is removed best-effort AFTER commit.
+    if (result.replacedUrl) {
+      await deleteStoredFile(result.replacedUrl, UPLOAD_PREFIX.crmDealDocs);
     }
 
     return NextResponse.json({ document: result.document }, { status: 201 });

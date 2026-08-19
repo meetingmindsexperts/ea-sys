@@ -1,5 +1,5 @@
-import fs from "fs/promises";
-import path from "path";
+import { uploadFile, readStoredFile, deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { randomBytes, randomUUID } from "crypto";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
@@ -723,16 +723,16 @@ export async function buildSpeakerEmailContext(
 }
 
 /**
- * Resolve a stored agreement-template URL ("/uploads/agreements/.../foo.docx")
- * to an absolute on-disk path inside `public/`. Path-traversal guarded.
+ * Is this a stored agreement upload ("/uploads/agreements/.../foo.docx")?
+ *
+ * This used to resolve the URL to an absolute on-disk path and carry its own
+ * traversal guard. Resolution and the guard now live in readStoredFile, so what
+ * remains is the cheap shape check that lets callers distinguish "no template
+ * configured" (return null) from "configured but unreadable" (throw) BEFORE
+ * doing the expensive context build.
  */
-function resolveTemplatePath(url: string): string | null {
-  if (!url.startsWith("/uploads/agreements/")) return null;
-  const rel = url.replace(/^\/+/, "");
-  const abs = path.resolve(process.cwd(), "public", rel);
-  const expectedRoot = path.resolve(process.cwd(), "public", "uploads", "agreements");
-  if (!abs.startsWith(expectedRoot + path.sep)) return null;
-  return abs;
+function isAgreementUpload(url: string): boolean {
+  return url.startsWith(UPLOAD_PREFIX.agreements);
 }
 
 /**
@@ -756,8 +756,7 @@ export async function generateSpeakerAgreementDocx(opts: {
   const meta = event.speakerAgreementTemplate as SpeakerAgreementTemplateMeta | null;
   if (!meta?.url) return null;
 
-  const absPath = resolveTemplatePath(meta.url);
-  if (!absPath) {
+  if (!isAgreementUpload(meta.url)) {
     apiLogger.error({ msg: "speaker-agreement:template-path-rejected", eventId, url: meta.url });
     return null;
   }
@@ -767,9 +766,9 @@ export async function generateSpeakerAgreementDocx(opts: {
 
   let templateBuffer: Buffer;
   try {
-    templateBuffer = await fs.readFile(absPath);
+    templateBuffer = await readStoredFile(meta.url, UPLOAD_PREFIX.agreements);
   } catch (err) {
-    apiLogger.error({ err, msg: "speaker-agreement:template-read-failed", eventId, absPath });
+    apiLogger.error({ err, msg: "speaker-agreement:template-read-failed", eventId, url: meta.url });
     throw new Error("Speaker agreement template file is missing or unreadable");
   }
 
@@ -971,17 +970,16 @@ export async function saveAgreementPdfImage({
     throw new SpeakerAgreementTemplateError("EVENT_NOT_FOUND", `Event ${eventId} not found or access denied`);
   }
 
-  const dirRel = path.join("uploads", "agreements", eventId);
-  const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-  await fs.mkdir(dirAbs, { recursive: true });
+  const url = await uploadFile(
+    buffer,
+    `${scope}-${slot}-${randomUUID()}.${format === "png" ? "png" : "jpg"}`,
+    format === "png" ? "image/png" : "image/jpeg",
+    `${UPLOAD_SEGMENT.agreements}/${eventId}`,
+  );
 
-  const storedFilename = `${scope}-${slot}-${randomUUID()}.${format === "png" ? "png" : "jpg"}`;
-  await fs.writeFile(path.join(dirAbs, storedFilename), buffer);
+  // Best-effort previous-file cleanup, prefix-guarded inside deleteStoredFile.
+  await unlinkAgreementUpload(event[column]);
 
-  // Best-effort previous-file cleanup, path-traversal guarded.
-  await unlinkAgreementUpload(event[column], "agreement-pdf-image:previous-unlink-failed");
-
-  const url = `/${dirRel.replace(/\\/g, "/")}/${storedFilename}`;
   await db.event.update({ where: { id: eventId }, data: { [column]: url } });
 
   return { url };
@@ -1011,17 +1009,22 @@ export async function deleteAgreementPdfImage({
     throw new SpeakerAgreementTemplateError("EVENT_NOT_FOUND", `Event ${eventId} not found or access denied`);
   }
 
-  await unlinkAgreementUpload(event[column], "agreement-pdf-image:delete-unlink-failed");
+  await unlinkAgreementUpload(event[column]);
   await db.event.update({ where: { id: eventId }, data: { [column]: null } });
 }
 
-/** Unlink a file under /uploads/agreements/ — same guard as the .docx cleanup. */
-async function unlinkAgreementUpload(url: string | null | undefined, failLogMsg: string): Promise<void> {
-  if (!url?.startsWith("/uploads/agreements/")) return;
-  const abs = path.resolve(process.cwd(), "public", url.replace(/^\/+/, ""));
-  const expectedRoot = path.resolve(process.cwd(), "public", "uploads", "agreements");
-  if (!abs.startsWith(expectedRoot + path.sep)) return;
-  await fs.unlink(abs).catch((err) => apiLogger.warn({ err, msg: failLogMsg, abs }));
+/**
+ * Remove a file under /uploads/agreements/.
+ *
+ * The prefix check, symlink resolution, containment check and failure log all
+ * live in deleteStoredFile now, so the per-call failLogMsg argument is gone:
+ * the storage layer logs a single storage:delete-failed line carrying the
+ * stored path and the reason, which is the information those three distinct
+ * messages were each conveying separately.
+ */
+async function unlinkAgreementUpload(url: string | null | undefined): Promise<void> {
+  if (!url) return;
+  await deleteStoredFile(url, UPLOAD_PREFIX.agreements);
 }
 
 /**
@@ -2179,12 +2182,11 @@ export async function loadAgreementPdfImage(
 ): Promise<AgreementPdfImage | null> {
   if (!url) return null;
   try {
-    const abs = resolveTemplatePath(url);
-    if (!abs) {
+    if (!isAgreementUpload(url)) {
       apiLogger.warn({ msg: "agreement:pdf-image-path-rejected", eventId, slot, url });
       return null;
     }
-    const buffer = await fs.readFile(abs);
+    const buffer = await readStoredFile(url, UPLOAD_PREFIX.agreements);
     const format = sniffAgreementImageFormat(buffer);
     if (!format) {
       apiLogger.warn({ msg: "agreement:pdf-image-not-png-or-jpeg", eventId, slot });
@@ -2334,22 +2336,21 @@ export async function saveSpeakerAgreementTemplate({
     );
   }
 
-  const dirRel = path.join("uploads", "agreements", eventId);
-  const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-  await fs.mkdir(dirAbs, { recursive: true });
+  const storedUrl = await uploadFile(
+    buffer,
+    `${randomUUID()}.docx`,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    `${UPLOAD_SEGMENT.agreements}/${eventId}`,
+  );
 
-  const storedFilename = `${randomUUID()}.docx`;
-  const fileAbs = path.join(dirAbs, storedFilename);
-  await fs.writeFile(fileAbs, buffer);
-
-  // Best-effort previous-file cleanup. Path-traversal guarded.
+  // Best-effort previous-file cleanup, prefix-guarded inside deleteStoredFile.
   const previous = event.speakerAgreementTemplate as SpeakerAgreementTemplateMeta | null;
-  await unlinkAgreementUpload(previous?.url, "agreement-template:previous-unlink-failed");
+  await unlinkAgreementUpload(previous?.url);
 
   const safeFilename =
     filename && filename.trim() ? filename.trim().slice(0, 255) : "template.docx";
   const meta: SpeakerAgreementTemplateMeta = {
-    url: `/${dirRel.replace(/\\/g, "/")}/${storedFilename}`,
+    url: storedUrl,
     filename: safeFilename,
     uploadedAt: new Date().toISOString(),
     uploadedBy: actorUserId,

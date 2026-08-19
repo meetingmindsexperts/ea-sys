@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
+import { deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
 import { requireOrgId } from "@/lib/require-org";
@@ -154,14 +154,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     const previous = event.speakerAgreementTemplate as SpeakerAgreementTemplateMeta | null;
-    if (previous?.url?.startsWith("/uploads/agreements/")) {
-      const previousAbs = path.resolve(process.cwd(), "public", previous.url.replace(/^\/+/, ""));
-      const expectedRoot = path.resolve(process.cwd(), "public", "uploads", "agreements");
-      if (previousAbs.startsWith(expectedRoot + path.sep)) {
-        await fs.unlink(previousAbs).catch((err) =>
-          apiLogger.warn({ err, msg: "agreement-template:delete-unlink-failed", previousAbs }),
-        );
-      }
+    if (previous?.url) {
+      await deleteStoredFile(previous.url, UPLOAD_PREFIX.agreements);
     }
 
     await db.event.update({

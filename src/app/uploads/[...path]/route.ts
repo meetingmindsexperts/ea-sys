@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { readFile, stat, realpath } from "fs/promises";
-import { join, resolve } from "path";
 import { apiLogger } from "@/lib/logger";
-import { SUPPORTING_DOCUMENT_PATH_SEGMENT } from "@/lib/supporting-document";
+import { readStoredFile, StorageError } from "@/lib/storage";
+import { isPublicUploadSegment, uploadPrefix, type UploadSegment } from "@/lib/upload-prefixes";
 
 const CONTENT_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
@@ -34,81 +33,41 @@ export async function GET(_req: Request, { params }: RouteParams) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  // Speaker-reimbursement documents (passport scans, receipts backing wire
-  // transfers) are PRIVATE. They live under public/uploads so they ride the
-  // persistent Docker volume + hourly DR sync like every other upload, but
-  // they must NEVER be served by this public catch-all — they stream only
-  // through the authed route
-  // /api/events/[eventId]/reimbursements/[id]/documents/[documentId].
-  if (path[0] === "reimbursements") {
-    apiLogger.warn({ msg: "Private reimbursement upload blocked on public route", path: path.join("/") });
-    return new NextResponse("Forbidden", { status: 403 });
-  }
-
-  // CRM deal documents (sponsorship prospectus, generated QUOTE PDFs — which
-  // print deal money — contract drafts) are likewise PRIVATE: same volume/DR
-  // ride, but they stream only through the authed
-  // GET /api/crm/deals/[dealId]/documents/[documentId]. Multi-tenant prep —
-  // one tenant's quote must never be a guessable URL for another.
-  if (path[0] === "crm-deal-docs") {
-    apiLogger.warn({ msg: "Private CRM deal upload blocked on public route", path: path.join("/") });
-    return new NextResponse("Forbidden", { status: 403 });
-  }
-
-  // Inbound CRM email attachments (sponsor-sent files) — same policy: private,
-  // streamed only through the authed inbox attachment route.
-  if (path[0] === "crm-email-attachments") {
-    apiLogger.warn({ msg: "Private CRM email attachment blocked on public route", path: path.join("/") });
-    return new NextResponse("Forbidden", { status: 403 });
-  }
-
-  // Per-speaker documents (signed agreements, and — since the public speaker
-  // profile form, Aug 4 2026 — PASSPORT photocopies) are PRIVATE. Previously
-  // served here behind UUID obscurity only; now they stream exclusively
-  // through the authed route
-  // /api/events/[eventId]/speakers/[speakerId]/documents/[documentId]/file.
-  if (path[0] === "speaker-docs") {
-    apiLogger.warn({ msg: "Private speaker document blocked on public route", path: path.join("/") });
-    return new NextResponse("Forbidden", { status: 403 });
-  }
-
-  // Registration supporting documents. PRIVATE for the same reason as the
-  // documents above: the file names a person, names their employer and may
-  // carry an authorised signature and stamp. Uploaded by an UNAUTHENTICATED
-  // public form, so unlike the others there is no token bounding who can write
-  // here — which makes it all the more important that nobody can read back.
-  // Streams only through
-  // /api/events/[eventId]/registrations/[registrationId]/supporting-document.
+  // ALLOW-LIST, not a deny-list (Aug 19, 2026).
   //
-  // The segment is DERIVED from the same constant the validators and the upload
-  // route use, not hardcoded. It was a literal until Aug 14 2026, and that is a
-  // silent-failure shape worth avoiding: rename the prefix in the lib without
-  // remembering this file and every stored document becomes world-readable at a
-  // guessable URL, with no test failing — an existing test asserting the OLD
-  // literal is 403 stays true while the NEW prefix is wide open.
-  if (path[0] === SUPPORTING_DOCUMENT_PATH_SEGMENT) {
-    apiLogger.warn({ msg: "Private supporting document blocked on public route", path: path.join("/") });
+  // This used to name the five private prefixes and refuse them. That fails
+  // OPEN: every private prefix added afterwards was world-readable until
+  // someone remembered to edit this file, with no test failing, because a test
+  // asserting the OLD prefixes are 403 stays green while a NEW one is wide
+  // open. This file's own previous comments described exactly that trap.
+  //
+  // Inverted, the same mistake fails closed: a segment absent from
+  // PUBLIC_UPLOAD_SEGMENTS is refused, so forgetting to classify a new prefix
+  // costs a broken image rather than leaked passports.
+  //
+  // The set is byte-identical to what the deny-list permitted, so this is a
+  // structural change, not a behavioural one.
+  const segment = path[0] ?? "";
+  if (!isPublicUploadSegment(segment)) {
+    apiLogger.warn({
+      msg: "uploads:private-segment-blocked",
+      segment,
+      path: path.join("/"),
+    });
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  // Only serve from /uploads/ — no other subdirectory of public
-  const uploadsRoot = resolve(process.cwd(), "public", "uploads");
-  const filePath = join(uploadsRoot, ...path);
+  const storedPath = `/uploads/${path.join("/")}`;
 
   try {
-    // Resolve symlinks and verify the real path is within uploads directory
-    const resolvedPath = await realpath(filePath);
-    if (!resolvedPath.startsWith(uploadsRoot)) {
-      apiLogger.warn({ msg: "Symlink escape attempt blocked", path: path.join("/"), resolvedPath });
-      return new NextResponse("Forbidden", { status: 403 });
-    }
-
-    await stat(resolvedPath);
-    const file = await readFile(resolvedPath);
+    // Symlink resolution and root containment live in readStoredFile, scoped to
+    // the public segment this request named, so a public prefix cannot be used
+    // to reach a private one.
+    const file = await readStoredFile(storedPath, uploadPrefix(segment as UploadSegment));
     const ext = (path[path.length - 1].split(".").pop() ?? "jpg").toLowerCase();
     const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
 
-    return new NextResponse(file, {
+    return new NextResponse(new Uint8Array(file), {
       headers: {
         "Content-Type": contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
@@ -118,10 +77,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
       },
     });
   } catch (error) {
-    const isNotFound = error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
-    if (!isNotFound) {
-      apiLogger.error({ err: error, msg: "Unexpected error serving upload", path: path.join("/") });
+    if (error instanceof StorageError) {
+      // A missing file is ordinary. A traversal or prefix rejection is not, and
+      // is logged so it is visible rather than looking like a 404.
+      if (error.reason !== "not-found") {
+        apiLogger.warn({ msg: `uploads:${error.reason}`, path: path.join("/") });
+      }
+      return new NextResponse("Not found", { status: 404 });
     }
+    apiLogger.error({ err: error, msg: "Unexpected error serving upload", path: path.join("/") });
     return new NextResponse("Not found", { status: 404 });
   }
 }

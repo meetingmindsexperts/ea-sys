@@ -16,8 +16,8 @@
  * header/bill-to/line-items/totals the event quotes and invoices use, so CRM
  * quotes look like the rest of the company's paper.
  */
-import fs from "fs/promises";
-import path from "path";
+import { uploadFile, deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { randomUUID } from "crypto";
 import PDFDocument from "pdfkit";
 import { db, tenantTransaction } from "@/lib/db";
@@ -232,12 +232,12 @@ export async function generateDealQuote(
     });
 
     // ── Store as a deal document (kind QUOTE — history kept, never replaced) ─
-    const dirRel = path.join("uploads", "crm-deal-docs", deal.id);
-    const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-    await fs.mkdir(dirAbs, { recursive: true });
-    const storedName = `quote-${randomUUID()}.pdf`;
-    await fs.writeFile(path.join(dirAbs, storedName), pdf);
-    const url = `/${dirRel.split(path.sep).join("/")}/${storedName}`;
+    const url = await uploadFile(
+      pdf,
+      `quote-${randomUUID()}.pdf`,
+      "application/pdf",
+      `${UPLOAD_SEGMENT.crmDealDocs}/${deal.id}`,
+    );
 
     let document: Record<string, unknown> & { id: string };
     try {
@@ -257,7 +257,7 @@ export async function generateDealQuote(
       });
     } catch (err) {
       // The row never landed — don't leave the just-written file orphaned.
-      await fs.unlink(path.join(dirAbs, storedName)).catch(() => undefined);
+      await deleteStoredFile(url, UPLOAD_PREFIX.crmDealDocs);
       throw err;
     }
 

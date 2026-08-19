@@ -7,7 +7,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { readFileMock } = vi.hoisted(() => ({ readFileMock: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock("fs/promises", () => ({ readFile: readFileMock }));
+vi.mock("fs/promises", () => ({
+  readFile: readFileMock,
+  // The guards this suite exercises moved into storage.readStoredFile,
+  // which resolves symlinks first. Identity realpath means the assertions
+  // below still test the real containment logic rather than a stub.
+  realpath: vi.fn(async (p: string) => p),
+}));
 
 import { loadCertificatePdfBytes, validateBackgroundPdfUrl } from "@/lib/certificates/pdf-loader";
 

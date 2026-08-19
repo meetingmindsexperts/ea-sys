@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { runWithTenant } from "@/lib/tenant-context";
-import fs from "fs/promises";
-import path from "path";
+import { storageErrorResponse } from "@/lib/api-errors";
+import { readStoredFile, deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { apiLogger } from "@/lib/logger";
 import { db } from "@/lib/db";
 import { requireCrmRead, requireCrmWrite, crmErrorResponse } from "@/crm/lib/crm-route";
@@ -44,32 +45,19 @@ export async function GET(
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 
-    const allowedRoot = path.resolve(process.cwd(), "public", "uploads", "crm-deal-docs");
-    if (!doc.url.startsWith("/uploads/crm-deal-docs/")) {
-      apiLogger.warn({ msg: "crm/deal-documents:url-outside-root", documentId, url: doc.url });
-      return NextResponse.json({ error: "Document not found" }, { status: 404 });
-    }
-    const abs = path.resolve(process.cwd(), "public", doc.url.slice(1));
-    let resolved: string;
+    let file: Buffer;
     try {
-      resolved = await fs.realpath(abs);
-    } catch {
-      apiLogger.error({ msg: "crm/deal-documents:file-missing", documentId, abs });
-      return NextResponse.json(
-        {
-          error:
-            "The file is missing on this server. With local storage, files uploaded on another machine are not present here.",
-          code: "FILE_MISSING",
-        },
-        { status: 404 },
-      );
+      file = await readStoredFile(doc.url, UPLOAD_PREFIX.crmDealDocs);
+    } catch (err) {
+      const res = storageErrorResponse(err, {
+        route: "crm/deal-documents",
+        notFoundMessage: "Document not found",
+        dealId,
+        documentId,
+      });
+      if (res) return res;
+      throw err;
     }
-    if (!resolved.startsWith(allowedRoot + path.sep)) {
-      apiLogger.warn({ msg: "crm/deal-documents:traversal-blocked", documentId, resolved });
-      return NextResponse.json({ error: "Document not found" }, { status: 404 });
-    }
-
-    const file = await fs.readFile(resolved);
     // ASCII-sanitized filename — a crafted filename must not inject header chars.
     const safeName = doc.filename.replace(/[^\w.\- ]+/g, "_").slice(0, 120) || "document.pdf";
     return new NextResponse(new Uint8Array(file), {
@@ -116,12 +104,7 @@ export async function DELETE(
   });
   if (!result.ok) return crmErrorResponse(result);
 
-  if (result.removedUrl.startsWith("/uploads/crm-deal-docs/")) {
-    const abs = path.resolve(process.cwd(), "public", result.removedUrl.slice(1));
-    await fs.unlink(abs).catch((err) =>
-      apiLogger.warn({ err, msg: "crm/deal-documents:delete-unlink-failed", abs }),
-    );
-  }
+  await deleteStoredFile(result.removedUrl, UPLOAD_PREFIX.crmDealDocs);
 
   return NextResponse.json({ removed: true });
   });
