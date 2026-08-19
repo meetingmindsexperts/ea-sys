@@ -43,6 +43,17 @@ const bodySchema = z.object({
   phase: z.enum(["loading", "joining", "joined", "unknown"]).optional(),
   /** "sdk" (in-page embed) or "url" (redirect to Zoom). */
   mode: z.string().max(32).optional(),
+  /**
+   * First few characters of the SDK key the browser was handed.
+   *
+   * The server logs the full picture at INFO in `zoom:signature-generated`, but
+   * on EC2 only warn-and-above reaches SystemLog, so that line never shows up in
+   * /logs. This warn-level report is the one an operator actually reads, so it
+   * has to carry the single fact that identifies WHICH credentials failed.
+   * A prefix, not the key: it is not a secret (the browser needs it to join) but
+   * a log surface is no place for a whole credential.
+   */
+  sdkKeyPrefix: z.string().max(12).optional(),
 });
 
 /** Browser-supplied text: keep it short and keep it out of the message. */
@@ -102,6 +113,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         ip,
         phase: parsed.data.phase ?? "unknown",
         joinMode: parsed.data.mode,
+        sdkKeyPrefix: parsed.data.sdkKeyPrefix,
         errorCode: parsed.data.errorCode,
         reason: clip(parsed.data.message, 500),
         userAgent: clip(req.headers.get("user-agent") ?? undefined, 200),

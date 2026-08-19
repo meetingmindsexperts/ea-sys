@@ -100,6 +100,43 @@ export async function PUT(req: Request) {
       ? (currentSettings.zoom as Record<string, unknown>)
       : {};
 
+    // A Server-to-Server OAuth app has NO Meeting SDK credentials. Pasting its
+    // Client ID into an SDK key field is accepted silently by everything up to
+    // and including Zoom's own signature endpoint: we mint a signature, the
+    // join route answers 200, and the failure only appears as errorCode 3712
+    // ("Signature is invalid") in the ATTENDEE's browser, minutes later, during
+    // a live webinar. That is what happened on 2026-08-19 and it cost an
+    // afternoon, because nothing on the server had any reason to complain.
+    //
+    // The two credential sets look interchangeable in the Zoom console and are
+    // stored side by side here, so this confusion is the default outcome rather
+    // than an unlucky one. Refuse it at the only moment we can still say so
+    // cheaply, and name the fix rather than just the error.
+    const effectiveClientId = validated.data.clientId.trim();
+    const sdkKeyFields: Array<[string, string | undefined]> = [
+      ["sdkKeyProd", validated.data.sdkKeyProd],
+      ["sdkKeyDev", validated.data.sdkKeyDev],
+    ];
+    for (const [field, value] of sdkKeyFields) {
+      if (value && value.trim() === effectiveClientId) {
+        apiLogger.warn(
+          { userId: session.user.id, organizationId: session.user.organizationId, field },
+          "zoom:credentials-sdk-key-is-oauth-client-id",
+        );
+        return NextResponse.json(
+          {
+            error:
+              "That is your Server-to-Server OAuth Client ID, which cannot sign Meeting SDK joins. " +
+              "SDK credentials come from a separate General App with the Meeting SDK feature enabled: " +
+              "use that app's Client ID and Client Secret here.",
+            code: "SDK_KEY_IS_OAUTH_CLIENT_ID",
+            field,
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     const zoomData: Record<string, unknown> = {
       ...existingZoom,
       accountId: validated.data.accountId,

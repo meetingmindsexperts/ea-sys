@@ -185,18 +185,24 @@ export function OrgZoomCredentials() {
           {/* ── Meeting SDK — Development ─────────────────── */}
           <div className="border-t pt-4">
             <p className="text-sm font-medium mb-3">Meeting SDK — Development (for local/test embedding)</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              From a <strong>different</strong> Zoom app: a General App with the Meeting SDK
+              feature enabled. This is <strong>not</strong> the Server-to-Server Client ID above —
+              that app cannot sign SDK joins, and pasting it here fails only in the
+              attendee&apos;s browser with &ldquo;Signature is invalid&rdquo;.
+            </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="zoom-sdk-key-dev">SDK Key (Client ID)</Label>
+                <Label htmlFor="zoom-sdk-key-dev">SDK Key</Label>
                 <Input
                   id="zoom-sdk-key-dev"
                   value={displaySdkKeyDev}
                   onChange={(e) => setSdkKeyDev(e.target.value)}
-                  placeholder="Dev Client ID"
+                  placeholder="Meeting SDK app Client ID"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="zoom-sdk-secret-dev">SDK Secret (Client Secret)</Label>
+                <Label htmlFor="zoom-sdk-secret-dev">SDK Secret</Label>
                 <Input
                   id="zoom-sdk-secret-dev"
                   type="password"
@@ -216,18 +222,24 @@ export function OrgZoomCredentials() {
           {/* ── Meeting SDK — Production ──────────────────── */}
           <div className="border-t pt-4">
             <p className="text-sm font-medium mb-3">Meeting SDK — Production (for live domain)</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              From a <strong>different</strong> Zoom app: a General App with the Meeting SDK
+              feature enabled. This is <strong>not</strong> the Server-to-Server Client ID above —
+              that app cannot sign SDK joins, and pasting it here fails only in the
+              attendee&apos;s browser with &ldquo;Signature is invalid&rdquo;.
+            </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="zoom-sdk-key-prod">SDK Key (Client ID)</Label>
+                <Label htmlFor="zoom-sdk-key-prod">SDK Key</Label>
                 <Input
                   id="zoom-sdk-key-prod"
                   value={displaySdkKeyProd}
                   onChange={(e) => setSdkKeyProd(e.target.value)}
-                  placeholder="Prod Client ID"
+                  placeholder="Meeting SDK app Client ID"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="zoom-sdk-secret-prod">SDK Secret (Client Secret)</Label>
+                <Label htmlFor="zoom-sdk-secret-prod">SDK Secret</Label>
                 <Input
                   id="zoom-sdk-secret-prod"
                   type="password"

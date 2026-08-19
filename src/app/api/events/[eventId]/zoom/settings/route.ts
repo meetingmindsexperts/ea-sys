@@ -13,6 +13,23 @@ const zoomSettingsSchema = z.object({
   autoCreateForSessions: z.boolean().optional(),
 });
 
+/**
+ * What "Meeting Type" should default to for this event.
+ *
+ * It used to be a flat "MEETING" for everything, including WEBINAR events. That
+ * default is written into settings the first time Zoom is configured, so the
+ * create-meeting form on a webinar event arrives pre-set to the ONE value that
+ * breaks it: panelists refuse a MEETING, and attendance/polls/Q&A read
+ * /report/webinars/... which does not exist for meetings.
+ *
+ * Deriving it from eventType costs nothing and removes a footgun that is
+ * otherwise armed on every webinar. An explicit choice still wins — this only
+ * supplies the default when none was made.
+ */
+function defaultMeetingTypeFor(eventType: string | null | undefined): "MEETING" | "WEBINAR" {
+  return eventType === "WEBINAR" ? "WEBINAR" : "MEETING";
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ eventId: string }> },
@@ -44,7 +61,7 @@ export async function GET(
     const [event, org] = await Promise.all([
       db.event.findFirst({
         where: buildEventAccessWhere(session.user, eventId),
-        select: { id: true, settings: true },
+        select: { id: true, settings: true, eventType: true },
       }),
       db.organization.findUnique({
         where: { id: organizationId },
@@ -62,7 +79,7 @@ export async function GET(
 
     return NextResponse.json({
       enabled: zoom.enabled === true,
-      defaultMeetingType: zoom.defaultMeetingType || "MEETING",
+      defaultMeetingType: zoom.defaultMeetingType || defaultMeetingTypeFor(event.eventType),
       autoCreateForSessions: zoom.autoCreateForSessions === true,
       // True when the org has Server-to-Server OAuth configured (same check the
       // admin credentials route uses for `configured`). Non-secret.
@@ -104,7 +121,7 @@ export async function PUT(
 
     const event = await db.event.findFirst({
       where: buildEventAccessWhere(session.user, eventId),
-      select: { id: true, settings: true },
+      select: { id: true, settings: true, eventType: true },
     });
 
     if (!event) {
@@ -114,7 +131,8 @@ export async function PUT(
     await updateEventSettings(eventId, {
       zoom: {
         enabled: validated.data.enabled,
-        defaultMeetingType: validated.data.defaultMeetingType || "MEETING",
+        defaultMeetingType:
+          validated.data.defaultMeetingType || defaultMeetingTypeFor(event.eventType),
         autoCreateForSessions: validated.data.autoCreateForSessions || false,
       },
     });

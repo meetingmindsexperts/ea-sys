@@ -7,7 +7,7 @@ import { denyReviewer, WEBINAR_STAFF_ALLOW } from "@/lib/auth-guards";
 import { buildEventAccessWhere } from "@/lib/event-access";
 import { checkRateLimit } from "@/lib/security";
 import { runWithTenant } from "@/lib/tenant-context";
-import { webinarSecondRoomViolation } from "@/lib/webinar";
+import { webinarSecondRoomViolation, readWebinarSettings } from "@/lib/webinar";
 import {
   isZoomConfigured,
   createZoomMeeting,
@@ -154,6 +154,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // meeting on any session but the anchor splits attendees from the
     // producer. Creation on the anchor itself stays allowed (that's the
     // delete-and-recreate path, e.g. to enable live streaming).
+    const meetingTypeRequested = validated.data.meetingType;
     const anchorSessionId = webinarSecondRoomViolation(event.eventType, event.settings, sessionId);
     if (anchorSessionId) {
       apiLogger.warn(
@@ -169,6 +170,39 @@ export async function POST(req: Request, { params }: RouteParams) {
         },
         { status: 409 },
       );
+    }
+
+    // The anchor session of a WEBINAR event must carry a Zoom WEBINAR, never a
+    // plain meeting.
+    //
+    // This is reachable through the ordinary UI: the only way to enable live
+    // streaming on an existing session is to delete the Zoom meeting and create
+    // it again (the PUT is a refresh and does not persist streaming), and the
+    // create form's type defaults to whatever `Event.settings.zoom.defaultMeetingType`
+    // says — which is "MEETING" on events that never set it, INCLUDING
+    // WEBINAR-type events. So the documented recovery procedure silently
+    // downgrades a webinar to a meeting unless the operator notices a dropdown.
+    //
+    // A downgrade is not a cosmetic difference. Panelists stop working (the
+    // panelists route refuses meetingType MEETING), attendance/polls/Q&A break
+    // (they call /report/webinars/... which does not exist for meetings), and
+    // attendees gain the ability to unmute. Refuse it rather than document it.
+    if (event.eventType === "WEBINAR" && meetingTypeRequested === "MEETING") {
+      const webinar = readWebinarSettings(event.settings);
+      if (webinar?.sessionId === sessionId) {
+        apiLogger.warn(
+          { eventId, sessionId, userId: session.user.id },
+          "zoom:webinar-anchor-meeting-type-refused",
+        );
+        return NextResponse.json(
+          {
+            error:
+              "This is the main session of a Webinar event, so it must host a Zoom Webinar rather than a Meeting. Set Meeting Type to \"Webinar\" and try again.",
+            code: "WEBINAR_ANCHOR_REQUIRES_WEBINAR",
+          },
+          { status: 400 },
+        );
+      }
     }
 
     // Check org has Zoom configured

@@ -734,7 +734,13 @@ export default function PublicSessionPage() {
                       {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ ...detail, mode: "sdk" }),
+                        body: JSON.stringify({
+                          ...detail,
+                          mode: "sdk",
+                          // Identifies which credentials were in play, in the
+                          // one log line that reaches /logs.
+                          sdkKeyPrefix: joinInfo.sdkKey?.slice(0, 6),
+                        }),
                         keepalive: true,
                       },
                     ).catch(() => {});
