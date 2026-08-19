@@ -186,10 +186,15 @@ export function OrgZoomCredentials() {
           <div className="border-t pt-4">
             <p className="text-sm font-medium mb-3">Meeting SDK — Development (for local/test embedding)</p>
             <p className="text-xs text-muted-foreground mb-3">
-              From a <strong>different</strong> Zoom app: a General App with the Meeting SDK
-              feature enabled. This is <strong>not</strong> the Server-to-Server Client ID above —
-              that app cannot sign SDK joins, and pasting it here fails only in the
-              attendee&apos;s browser with &ldquo;Signature is invalid&rdquo;.
+              <strong>Optional.</strong> Only needed to embed the meeting inside our own
+              session page. Leave blank and attendees open Zoom directly, or use live
+              streaming to watch on our page without Zoom accounts.
+            </p>
+            <p className="text-xs text-muted-foreground mb-3">
+              These come from a <strong>different</strong> Zoom app: a General App with the
+              Meeting SDK feature enabled. Server-to-Server OAuth apps have no SDK
+              credentials, so the Client ID above will <strong>not</strong> work here — it fails
+              only in the attendee&apos;s browser with &ldquo;Signature is invalid&rdquo;.
             </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
@@ -223,10 +228,15 @@ export function OrgZoomCredentials() {
           <div className="border-t pt-4">
             <p className="text-sm font-medium mb-3">Meeting SDK — Production (for live domain)</p>
             <p className="text-xs text-muted-foreground mb-3">
-              From a <strong>different</strong> Zoom app: a General App with the Meeting SDK
-              feature enabled. This is <strong>not</strong> the Server-to-Server Client ID above —
-              that app cannot sign SDK joins, and pasting it here fails only in the
-              attendee&apos;s browser with &ldquo;Signature is invalid&rdquo;.
+              <strong>Optional.</strong> Only needed to embed the meeting inside our own
+              session page. Leave blank and attendees open Zoom directly, or use live
+              streaming to watch on our page without Zoom accounts.
+            </p>
+            <p className="text-xs text-muted-foreground mb-3">
+              These come from a <strong>different</strong> Zoom app: a General App with the
+              Meeting SDK feature enabled. Server-to-Server OAuth apps have no SDK
+              credentials, so the Client ID above will <strong>not</strong> work here — it fails
+              only in the attendee&apos;s browser with &ldquo;Signature is invalid&rdquo;.
             </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
