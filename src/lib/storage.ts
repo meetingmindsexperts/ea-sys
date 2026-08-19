@@ -38,6 +38,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { apiLogger } from "./logger";
 import { safeFetchImage } from "./safe-fetch";
+import { StorageError } from "./storage-errors";
+
+// Re-exported so callers can keep importing from "@/lib/storage" and do not
+// have to know the leaf-module split exists. See storage-errors.ts for why.
+export { StorageError } from "./storage-errors";
+export type { StorageFailureReason } from "./storage-errors";
 
 const PROVIDER = (process.env.STORAGE_PROVIDER || "local") as "local" | "supabase";
 const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "photos";
@@ -165,31 +171,6 @@ async function deleteSupabase(url: string): Promise<void> {
 // rather than a twenty-file sweep in which a single missed site silently
 // leaves sensitive files in the wrong jurisdiction while the claim says
 // otherwise. See docs/UAE_DOCUMENT_RESIDENCY_PLAN.md.
-
-/**
- * Why a read was refused.
- *
- * These stay distinguishable because they mean different things to whoever
- * reads /logs: a traversal attempt is a security event, a missing file is an
- * operational one (commonly "uploaded on another machine under local
- * storage"), and a prefix rejection means a stored path escaped the root its
- * own route declared. Collapsing them into one error would make the first
- * invisible.
- */
-export type StorageFailureReason =
-  | "prefix-rejected"
-  | "not-found"
-  | "traversal-blocked";
-
-export class StorageError extends Error {
-  constructor(
-    public readonly reason: StorageFailureReason,
-    message: string,
-  ) {
-    super(message);
-    this.name = "StorageError";
-  }
-}
 
 const UPLOADS_URL_PREFIX = "/uploads/";
 

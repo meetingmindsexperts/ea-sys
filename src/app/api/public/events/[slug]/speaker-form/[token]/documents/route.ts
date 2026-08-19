@@ -14,9 +14,9 @@
  * authed documents file route.
  */
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
 import { randomUUID } from "crypto";
+import { uploadFile, deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { db, tenantTransaction } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -106,12 +106,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         return NextResponse.json({ error: "File content does not match its declared type" }, { status: 400 });
       }
 
-      const dirRel = path.join("uploads", "speaker-docs", row.eventId);
-      const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-      await fs.mkdir(dirAbs, { recursive: true });
-      const storedName = `${randomUUID()}.${allowed.ext}`;
-      await fs.writeFile(path.join(dirAbs, storedName), buffer);
-      const url = `/${dirRel.split(path.sep).join("/")}/${storedName}`;
+      const url = await uploadFile(
+        buffer,
+        `${randomUUID()}.${allowed.ext}`,
+        file.type,
+        `${UPLOAD_SEGMENT.speakerDocs}/${row.eventId}`,
+      );
 
       const label = PROFILE_DOC_LABELS[slot];
       // Replace-in-place: one document per slot. Alias-matched (an
@@ -141,14 +141,12 @@ export async function POST(req: Request, { params }: RouteParams) {
           select: { id: true, label: true, filename: true, size: true, createdAt: true },
         });
       });
-      if (previousUrl?.startsWith("/uploads/speaker-docs/")) {
-        const rel = previousUrl.replace(/^\//, "");
-        const abs = path.resolve(process.cwd(), "public", rel);
-        if (abs.startsWith(path.resolve(process.cwd(), "public", "uploads", "speaker-docs") + path.sep)) {
-          fs.unlink(abs).catch(() => {
-            apiLogger.warn({ formId: row.id, previousUrl }, "speaker-form-upload:old-file-unlink-failed");
-          });
-        }
+      // Best-effort cleanup of the replaced file. Now awaited rather than
+      // fire-and-forget: deleteStoredFile never throws, and a detached promise
+      // after the response has been returned can be killed before it runs.
+      // The containment check and the failure log both live inside it.
+      if (previousUrl) {
+        await deleteStoredFile(previousUrl, UPLOAD_PREFIX.speakerDocs);
       }
 
       apiLogger.info({ slug, formId: row.id, slot, size: file.size, replaced: !!previous }, "speaker-form-upload:uploaded");

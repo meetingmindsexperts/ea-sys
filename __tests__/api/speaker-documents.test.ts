@@ -28,7 +28,16 @@ const { mockAuth, mockDb, mockTx, mockFs } = vi.hoisted(() => {
       speakerDocument: { findMany: vi.fn(), findFirst: vi.fn(), delete: vi.fn() },
       auditLog: { create: vi.fn().mockReturnValue({ catch: () => {} }) },
     },
-    mockFs: { mkdir: vi.fn(), writeFile: vi.fn(), unlink: vi.fn().mockResolvedValue(undefined) },
+    mockFs: {
+      mkdir: vi.fn(),
+      writeFile: vi.fn(),
+      unlink: vi.fn().mockResolvedValue(undefined),
+      // The route now deletes through storage.deleteStoredFile, which resolves
+      // symlinks before its containment check. Identity realpath keeps the real
+      // guard running (so these tests still cover it) rather than mocking the
+      // deletion out at the route boundary.
+      realpath: vi.fn(async (p: string) => p),
+    },
   };
 });
 

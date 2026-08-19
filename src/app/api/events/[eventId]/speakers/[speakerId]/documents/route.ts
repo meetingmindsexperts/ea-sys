@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
 import { randomUUID } from "crypto";
+import { uploadFile, deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_SEGMENT, UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { auth } from "@/lib/auth";
 import { db, tenantTransaction } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
@@ -185,12 +185,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const dirRel = path.join("uploads", "speaker-docs", eventId);
-    const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-    await fs.mkdir(dirAbs, { recursive: true });
-    const storedName = `${randomUUID()}.${allowed.ext}`;
-    await fs.writeFile(path.join(dirAbs, storedName), buffer);
-    const url = `/${dirRel.split(path.sep).join("/")}/${storedName}`;
+    const url = await uploadFile(
+      buffer,
+      `${randomUUID()}.${allowed.ext}`,
+      file.type,
+      `${UPLOAD_SEGMENT.speakerDocs}/${eventId}`,
+    );
 
     // SIGNED_AGREEMENT is one-per-speaker: replace the previous row inside
     // the transaction (the partial unique index backstops a race), then
@@ -224,11 +224,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       return { document: created, replacedUrl: replaced };
     });
 
-    if (replacedUrl?.startsWith("/uploads/speaker-docs/")) {
-      const replacedAbs = path.resolve(process.cwd(), "public", replacedUrl.slice(1));
-      await fs.unlink(replacedAbs).catch((err) =>
-        apiLogger.warn({ err, msg: "speaker-documents:replace-unlink-failed", replacedAbs }),
-      );
+    // Best-effort cleanup of the file the new upload replaced. deleteStoredFile
+    // is prefix-guarded and never throws, so the old startsWith check and the
+    // .catch() are both handled inside it.
+    if (replacedUrl) {
+      await deleteStoredFile(replacedUrl, UPLOAD_PREFIX.speakerDocs);
     }
 
     db.auditLog

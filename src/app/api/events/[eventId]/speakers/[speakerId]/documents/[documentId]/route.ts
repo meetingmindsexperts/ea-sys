@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
+import { deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenantLane } from "@/lib/tenant-lane";
@@ -48,12 +48,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     await db.speakerDocument.delete({ where: { id: document.id } });
 
-    if (document.url.startsWith("/uploads/speaker-docs/")) {
-      const abs = path.resolve(process.cwd(), "public", document.url.slice(1));
-      await fs.unlink(abs).catch((err) =>
-        apiLogger.warn({ err, msg: "speaker-document-delete:unlink-failed", abs }),
-      );
-    }
+    await deleteStoredFile(document.url, UPLOAD_PREFIX.speakerDocs);
 
     db.auditLog
       .create({

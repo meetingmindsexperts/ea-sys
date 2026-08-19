@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { ZodError } from "zod";
 import { apiLogger } from "./logger";
+import { StorageError } from "./storage-errors";
 
 // Discriminated-union shape that zod returns from `safeParse` / `safeParseAsync`.
 // Kept local because zod v4 doesn't re-export the named type at the top level.
@@ -140,5 +141,66 @@ export function apiErrorResponse(
     { error, ...(extraBody ?? {}) },
     { status },
   );
+}
+
+/**
+ * Map a {@link StorageError} to a response, preserving the three cases as
+ * distinct LOG lines while returning one indistinguishable status on the wire.
+ *
+ * Every authenticated document route needs exactly this mapping, so without a
+ * shared helper it gets hand-rolled five times and drifts. The split that
+ * matters:
+ *
+ *   - traversal-blocked / prefix-rejected → warn. A stored path escaped the
+ *     root its own route declared. Someone should look at that.
+ *   - not-found → error, plus a `FILE_MISSING` code and an operator-facing
+ *     hint, because under local storage the overwhelmingly common cause is a
+ *     file uploaded on a different machine.
+ *
+ * All three return 404. A caller must not be able to tell "you may not see
+ * this" from "this does not exist", or the route becomes an existence oracle.
+ *
+ * Returns `null` when `err` is not a StorageError, so the caller can rethrow
+ * and let its own catch handle a genuine unknown:
+ *
+ *   try {
+ *     file = await readStoredFile(doc.url, UPLOAD_PREFIX.speakerDocs);
+ *   } catch (err) {
+ *     const res = storageErrorResponse(err, { route: "speaker-doc-file", documentId });
+ *     if (res) return res;
+ *     throw err;
+ *   }
+ */
+export function storageErrorResponse(
+  err: unknown,
+  context: {
+    route: string;
+    /** User-facing text for the two refusal cases. Default "Not found". */
+    notFoundMessage?: string;
+  } & Record<string, unknown>,
+): NextResponse | null {
+  if (!(err instanceof StorageError)) return null;
+
+  const { notFoundMessage, ...logContext } = context;
+  const message = notFoundMessage ?? "Not found";
+
+  if (err.reason === "not-found") {
+    apiLogger.error({ msg: `${context.route}:file-missing`, ...logContext });
+    return NextResponse.json(
+      {
+        error:
+          "The file is missing on this server. With local storage, files uploaded on another machine are not present here.",
+        code: "FILE_MISSING",
+      },
+      { status: 404 },
+    );
+  }
+
+  apiLogger.warn({
+    msg: `${context.route}:${err.reason}`,
+    reason: err.reason,
+    ...logContext,
+  });
+  return NextResponse.json({ error: message }, { status: 404 });
 }
 
