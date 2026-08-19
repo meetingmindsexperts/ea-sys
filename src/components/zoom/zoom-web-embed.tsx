@@ -47,6 +47,18 @@ interface ZoomWebEmbedProps {
   userEmail?: string;
   joinUrl: string;
   onLeave?: () => void;
+  /**
+   * Called when the embed fails to mount or join. The failure happens entirely
+   * inside the browser, so without this it reaches no log we can read: the
+   * server already answered 200 with a signature. The page owns the reporting
+   * because this component knows nothing about routes; see the public session
+   * page for the one consumer.
+   */
+  onJoinError?: (detail: {
+    phase: "loading" | "joining" | "joined" | "unknown";
+    message: string;
+    errorCode?: string | number;
+  }) => void;
 }
 
 type LoadState =
@@ -64,6 +76,7 @@ export function ZoomWebEmbed({
   userEmail,
   joinUrl,
   onLeave,
+  onJoinError,
 }: ZoomWebEmbedProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // The SDK's module-level client handle. We hold it in a ref so cleanup
@@ -77,11 +90,23 @@ export function ZoomWebEmbed({
   const onLeaveRef = useRef(onLeave);
   onLeaveRef.current = onLeave;
 
+  // Same reason as onLeave: a parent that re-creates this handler each render
+  // must not tear down and re-mount the SDK, which would drop the attendee out
+  // of the meeting.
+  const onJoinErrorRef = useRef(onJoinError);
+  onJoinErrorRef.current = onJoinError;
+
   useEffect(() => {
     let cancelled = false;
 
     async function mount() {
       if (!containerRef.current) return;
+
+      // Which step we reached, so a failure report says whether the SDK failed
+      // to LOAD (CDN blocked, React incompatibility) or failed to JOIN (bad
+      // signature, domain not allowlisted). Those point at different fixes, and
+      // the thrown error alone rarely distinguishes them.
+      let reachedPhase: "loading" | "joining" | "joined" = "loading";
 
       try {
         // Wait for any in-flight destroy from a previous mount (StrictMode
@@ -138,6 +163,7 @@ export function ZoomWebEmbed({
         });
 
         if (cancelled) return;
+        reachedPhase = "joining";
         setState({ phase: "joining" });
 
         await client.join({
@@ -150,6 +176,7 @@ export function ZoomWebEmbed({
         });
 
         if (cancelled) return;
+        reachedPhase = "joined";
         setState({ phase: "joined" });
       } catch (err) {
         if (cancelled) return;
@@ -158,6 +185,21 @@ export function ZoomWebEmbed({
         // Log to console for dev visibility; production Sentry picks it up
         // via the app's existing instrumentation.
         console.error("ZoomWebEmbed failed to mount", err);
+        // Report it somewhere we can actually read. Until this existed, the
+        // server logged a clean 200 with a signature and the attendee saw a
+        // dead player, so "the webinar will not join" had no server-side trace
+        // at all. Never allowed to throw: the attendee is already looking at a
+        // broken join and a failing report would only replace one error with
+        // another.
+        try {
+          onJoinErrorRef.current?.({
+            phase: reachedPhase,
+            message,
+            errorCode: extractZoomErrorCode(err),
+          });
+        } catch {
+          // Reporting is best-effort by contract.
+        }
       }
     }
 
@@ -243,6 +285,21 @@ export function ZoomWebEmbed({
       )}
     </div>
   );
+}
+
+/**
+ * Zoom's numeric errorCode, when the SDK supplies one.
+ *
+ * Worth carrying separately from the message because the code is the stable
+ * part: Zoom's human-readable text varies across SDK versions, while the code
+ * is what their documentation is indexed by. Extracted defensively because the
+ * SDK rejects with a plain object, not an Error.
+ */
+function extractZoomErrorCode(err: unknown): string | number | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const obj = err as Record<string, unknown>;
+  const code = obj.errorCode ?? obj.type ?? obj.code;
+  return typeof code === "string" || typeof code === "number" ? code : undefined;
 }
 
 function extractZoomErrorMessage(err: unknown): string {

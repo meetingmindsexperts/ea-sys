@@ -723,6 +723,22 @@ export default function PublicSessionPage() {
                   userEmail={zoomUserEmail}
                   joinUrl={joinInfo.joinUrl}
                   onLeave={() => setIsJoining(false)}
+                  onJoinError={(detail) => {
+                    // The join failed inside the SDK, so the server saw a clean
+                    // 200 and logged nothing. Ship it somewhere readable.
+                    // Fire-and-forget: the attendee already has a broken join
+                    // and must never see a second error because reporting the
+                    // first one failed.
+                    void fetch(
+                      `/api/public/events/${slug}/sessions/${sessionId}/join-error`,
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ ...detail, mode: "sdk" }),
+                        keepalive: true,
+                      },
+                    ).catch(() => {});
+                  }}
                 />
               )}
 
