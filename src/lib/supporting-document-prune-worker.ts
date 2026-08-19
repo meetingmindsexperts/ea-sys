@@ -2,6 +2,7 @@ import { readdir, stat, unlink } from "fs/promises";
 import path from "path";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
+import { storageProvider } from "@/lib/storage";
 import { SUPPORTING_DOCUMENT_PATH_PREFIX } from "@/lib/supporting-document";
 
 /**
@@ -61,6 +62,27 @@ export async function runSupportingDocumentPruneTick(
     capped: false,
     errors: 0,
   };
+
+  // This is the ONE file operation not yet routed through storage.ts, because
+  // it walks directories and storage.ts has no listing primitive yet. See
+  // docs/UAE_DOCUMENT_RESIDENCY_PLAN.md Phase 2.
+  //
+  // The guard matters more than the gap. Under a non-local provider the walk
+  // below would readdir an empty local directory, find no orphans, and report a
+  // clean tick forever while unclaimed uploads accumulated untouched. That is a
+  // silent failure, and the difference between an outage you can see and one
+  // you cannot. Logging at error means it reaches the admin alert and the daily
+  // digest on the very first tick after a provider change.
+  if (storageProvider !== "local") {
+    apiLogger.error({
+      msg: "resident-letter-prune:unsupported-provider",
+      provider: storageProvider,
+      detail:
+        "The prune walk is filesystem-only. It cannot see files under this provider and has pruned NOTHING. Needs a storage listing primitive before the provider switch.",
+    });
+    result.errors++;
+    return result;
+  }
 
   let eventDirs: string[];
   try {

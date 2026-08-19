@@ -10,9 +10,9 @@
  * authed documents route, and the speaker only ever sees filename metadata.
  */
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
 import { randomUUID } from "crypto";
+import { uploadFile } from "@/lib/storage";
+import { UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -119,12 +119,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const dirRel = path.join("uploads", "reimbursements", row.eventId);
-    const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-    await fs.mkdir(dirAbs, { recursive: true });
-    const storedName = `${randomUUID()}.${allowed.ext}`;
-    await fs.writeFile(path.join(dirAbs, storedName), buffer);
-    const url = `/${dirRel.split(path.sep).join("/")}/${storedName}`;
+    const url = await uploadFile(
+      buffer,
+      `${randomUUID()}.${allowed.ext}`,
+      file.type,
+      `${UPLOAD_SEGMENT.reimbursements}/${row.eventId}`,
+    );
 
     const document = await db.speakerReimbursementDocument.create({
       data: {

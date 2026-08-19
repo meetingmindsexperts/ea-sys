@@ -4,8 +4,8 @@
  * reimbursement. Unlinks the stored file best-effort after the row delete.
  */
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
+import { deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { checkRateLimit, getClientIp } from "@/lib/security";
@@ -72,12 +72,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     await db.speakerReimbursementDocument.delete({ where: { id: doc.id } });
-    if (doc.url.startsWith("/uploads/reimbursements/")) {
-      const abs = path.resolve(process.cwd(), "public", doc.url.slice(1));
-      await fs.unlink(abs).catch((err) =>
-        apiLogger.warn({ err, abs }, "reimbursement-doc-delete:unlink-failed"),
-      );
-    }
+    await deleteStoredFile(doc.url, UPLOAD_PREFIX.reimbursements);
 
     apiLogger.info({ slug, reimbursementId: row.id, documentId }, "reimbursement-doc-delete:deleted");
     return NextResponse.json({ ok: true });

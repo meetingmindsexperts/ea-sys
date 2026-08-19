@@ -30,9 +30,9 @@
  * above; the `resident-letter-prune` worker job removes unreferenced files.
  */
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
 import { randomUUID } from "crypto";
+import { uploadFile } from "@/lib/storage";
+import { UPLOAD_SEGMENT } from "@/lib/upload-prefixes";
 import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { publicEventWhere } from "@/lib/public-event";
@@ -113,14 +113,14 @@ export async function POST(req: Request, { params }: RouteParams) {
       );
     }
 
-    const dirRel = path.join("uploads", "resident-letters", event.id);
-    const dirAbs = path.resolve(process.cwd(), "public", dirRel);
-    await fs.mkdir(dirAbs, { recursive: true });
     // The stored name is a uuid, never the registrant's: their filename is
     // attacker-controlled and would otherwise reach the filesystem.
-    const storedName = `${randomUUID()}.${allowed.ext}`;
-    await fs.writeFile(path.join(dirAbs, storedName), buffer);
-    const url = `/${dirRel.split(path.sep).join("/")}/${storedName}`;
+    const url = await uploadFile(
+      buffer,
+      `${randomUUID()}.${allowed.ext}`,
+      file.type,
+      `${UPLOAD_SEGMENT.supportingDocuments}/${event.id}`,
+    );
 
     const filename = file.name.slice(0, 255);
     apiLogger.info({ msg: "public/supporting-document:uploaded", slug, eventId: event.id, size: file.size, mimeType: file.type });

@@ -13,8 +13,8 @@
  * see the list route header).
  */
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
+import { deleteStoredFile } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -185,11 +185,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     });
 
     for (const doc of docs) {
-      if (!doc.url.startsWith("/uploads/reimbursements/")) continue;
-      const abs = path.resolve(process.cwd(), "public", doc.url.slice(1));
-      await fs.unlink(abs).catch((err) =>
-        apiLogger.warn({ err, abs }, "reimbursement:delete-unlink-failed"),
-      );
+      await deleteStoredFile(doc.url, UPLOAD_PREFIX.reimbursements);
     }
 
     db.auditLog

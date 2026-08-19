@@ -9,8 +9,9 @@
  * DB url is trusted-ish, but defense in depth is free).
  */
 import { NextResponse } from "next/server";
-import { readFile, realpath } from "fs/promises";
-import path from "path";
+import { storageErrorResponse } from "@/lib/api-errors";
+import { readStoredFile } from "@/lib/storage";
+import { UPLOAD_PREFIX } from "@/lib/upload-prefixes";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -62,32 +63,23 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }
 
-    const allowedRoot = path.resolve(process.cwd(), "public", "uploads", "reimbursements");
-    if (!doc.url.startsWith("/uploads/reimbursements/")) {
-      apiLogger.warn({ documentId, url: doc.url }, "reimbursement-doc:url-outside-root");
-      return NextResponse.json({ error: "Document not found" }, { status: 404 });
-    }
-    const abs = path.resolve(process.cwd(), "public", doc.url.slice(1));
-    let resolved: string;
+    // Prefix check, symlink resolution and root containment all live in
+    // readStoredFile now; storageErrorResponse keeps the three cases apart in
+    // the logs while returning one 404 either way.
+    let file: Buffer;
     try {
-      resolved = await realpath(abs);
-    } catch {
-      apiLogger.error({ documentId, abs }, "reimbursement-doc:file-missing");
-      return NextResponse.json(
-        {
-          error:
-            "The file is missing on this server. With local storage, files uploaded on another machine are not present here.",
-          code: "FILE_MISSING",
-        },
-        { status: 404 },
-      );
+      file = await readStoredFile(doc.url, UPLOAD_PREFIX.reimbursements);
+    } catch (err) {
+      const res = storageErrorResponse(err, {
+        route: "reimbursement-doc",
+        notFoundMessage: "Document not found",
+        eventId,
+        reimbursementId,
+        documentId,
+      });
+      if (res) return res;
+      throw err;
     }
-    if (!resolved.startsWith(allowedRoot + path.sep)) {
-      apiLogger.warn({ documentId, resolved }, "reimbursement-doc:traversal-blocked");
-      return NextResponse.json({ error: "Document not found" }, { status: 404 });
-    }
-
-    const file = await readFile(resolved);
     const ext = (doc.url.split(".").pop() ?? "").toLowerCase();
     const contentType = CONTENT_TYPES[ext] ?? doc.mimeType ?? "application/octet-stream";
     // ASCII-sanitized filename for the header (a crafted filename must not

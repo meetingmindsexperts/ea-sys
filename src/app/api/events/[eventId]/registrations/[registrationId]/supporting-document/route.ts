@@ -12,8 +12,8 @@
  * the database is one bad write away from arbitrary file disclosure.
  */
 import { NextResponse } from "next/server";
-import { readFile, realpath } from "fs/promises";
-import path from "path";
+import { storageErrorResponse } from "@/lib/api-errors";
+import { readStoredFile } from "@/lib/storage";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -98,30 +98,24 @@ export async function GET(_req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "No document on file" }, { status: 404 });
     }
 
-    const allowedRoot = path.resolve(process.cwd(), "public", SUPPORTING_DOCUMENT_PATH_PREFIX.slice(1));
-    const abs = path.resolve(process.cwd(), "public", url.slice(1));
-    let resolved: string;
+    // Symlink resolution and root containment live in readStoredFile now. The
+    // isSupportingDocumentPath check above is deliberately kept: it logs at
+    // ERROR because a column written outside the register POST's validation is
+    // a bug worth finding, which is a louder signal than the storage layer's
+    // generic prefix rejection.
+    let file: Buffer;
     try {
-      resolved = await realpath(abs);
-    } catch {
-      apiLogger.error({ eventId, registrationId, abs }, "supporting-document-file:file-missing");
-      return NextResponse.json(
-        {
-          error:
-            "The file is missing on this server. With local storage, files uploaded on another machine are not present here.",
-          code: "FILE_MISSING",
-        },
-        { status: 404 },
-      );
+      file = await readStoredFile(url, SUPPORTING_DOCUMENT_PATH_PREFIX);
+    } catch (err) {
+      const res = storageErrorResponse(err, {
+        route: "supporting-document-file",
+        notFoundMessage: "No document on file",
+        eventId,
+        registrationId,
+      });
+      if (res) return res;
+      throw err;
     }
-    // realpath resolves symlinks, so this also catches a symlink planted inside
-    // the allowed directory that points outside it.
-    if (!resolved.startsWith(allowedRoot + path.sep)) {
-      apiLogger.warn({ eventId, registrationId, resolved }, "supporting-document-file:traversal-blocked");
-      return NextResponse.json({ error: "No document on file" }, { status: 404 });
-    }
-
-    const file = await readFile(resolved);
     const ext = (url.split(".").pop() ?? "").toLowerCase();
     const safeName =
       (registration.supportingDocumentFilename ?? "supporting-document")
