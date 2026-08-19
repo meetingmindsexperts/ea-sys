@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { apiLogger } from "@/lib/logger";
 import { encryptSecret } from "@/lib/eventsair-client";
-import { checkRateLimit } from "@/lib/security";
+import { checkRateLimit, getClientIp } from "@/lib/security";
 import { updateOrganizationSettings } from "@/lib/event-settings";
 import { z } from "zod";
 
@@ -18,6 +19,56 @@ const credentialsSchema = z.object({
   sdkSecretProd: z.string().max(500).optional(),
   sdkMode: z.enum(["dev", "prod"]).optional(),
 });
+
+/**
+ * A credential's first few characters, or a marker for absent/secret.
+ *
+ * Keys (Account ID, Client ID, SDK Key) are not secrets — the SDK key is handed
+ * to every browser that joins — but an audit table is read by more people than
+ * a settings page, so only a prefix is kept. Secrets are never recorded at all,
+ * just whether they changed.
+ */
+function credentialFingerprint(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  return `${value.slice(0, 6)}…(${value.length})`;
+}
+
+/**
+ * Which fields a save actually altered, as a before → after of fingerprints.
+ *
+ * Written because on 2026-08-19 two people changed these credentials on
+ * production hours apart, and the only trace was a single `configuredAt` that
+ * each save overwrote. Reconstructing "what was the SDK key before 11:50, and
+ * who changed it" was impossible, which mattered because that value was the
+ * cause of a failed live webinar. A prefix diff answers that question without
+ * putting a credential in the audit table.
+ */
+function describeCredentialChange(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): Prisma.JsonObject {
+  const keyFields = ["accountId", "clientId", "sdkKeyDev", "sdkKeyProd"];
+  const secretFields = [
+    "clientSecretEncrypted",
+    "sdkSecretDevEncrypted",
+    "sdkSecretProdEncrypted",
+  ];
+
+  const changed: Prisma.JsonObject = {};
+  for (const f of keyFields) {
+    const from = credentialFingerprint(before[f]);
+    const to = credentialFingerprint(after[f]);
+    if (from !== to) changed[f] = { from, to };
+  }
+  for (const f of secretFields) {
+    // Never the value, not even a prefix: this is ciphertext of a live secret.
+    if (before[f] !== after[f]) changed[f] = { rotated: true };
+  }
+  if (before.sdkMode !== after.sdkMode) {
+    changed.sdkMode = { from: before.sdkMode ?? null, to: after.sdkMode ?? null };
+  }
+  return changed;
+}
 
 export async function GET() {
   try {
@@ -175,7 +226,30 @@ export async function PUT(req: Request) {
     const cleanZoom = JSON.parse(JSON.stringify(zoomData));
     await updateOrganizationSettings(session.user.organizationId, { zoom: cleanZoom });
 
-    apiLogger.info({ userId: session.user.id }, "zoom:credentials-saved");
+    const changed = describeCredentialChange(existingZoom, cleanZoom);
+    apiLogger.info(
+      { userId: session.user.id, changed, sdkMode: cleanZoom.sdkMode },
+      "zoom:credentials-saved",
+    );
+
+    // Fire-and-forget: the credentials are already written, and losing the
+    // audit row must not turn a successful save into a 500.
+    void db.auditLog
+      .create({
+        data: {
+          userId: session.user.id,
+          organizationId: session.user.organizationId,
+          action: "UPDATE_ZOOM_CREDENTIALS",
+          entityType: "Organization",
+          entityId: session.user.organizationId,
+          changes: { changed, sdkMode: cleanZoom.sdkMode ?? null, ip: getClientIp(req) },
+          ipAddress: getClientIp(req),
+        },
+      })
+      .catch((err) =>
+        apiLogger.error({ err, userId: session.user.id }, "zoom:credentials-audit-failed"),
+      );
+
     return NextResponse.json({ success: true });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:credentials-save-failed");
@@ -202,6 +276,25 @@ export async function DELETE() {
     });
 
     apiLogger.info({ userId: session.user.id }, "zoom:credentials-deleted");
+
+    // Removing the whole Zoom integration is the single most consequential
+    // change on this route: every webinar stops being creatable and every SDK
+    // join degrades to opening Zoom directly. It gets a row.
+    void db.auditLog
+      .create({
+        data: {
+          userId: session.user.id,
+          organizationId: session.user.organizationId,
+          action: "DELETE_ZOOM_CREDENTIALS",
+          entityType: "Organization",
+          entityId: session.user.organizationId,
+          changes: { cleared: true },
+        },
+      })
+      .catch((err) =>
+        apiLogger.error({ err, userId: session.user.id }, "zoom:credentials-audit-failed"),
+      );
+
     return NextResponse.json({ success: true });
   } catch (error) {
     apiLogger.error({ err: error }, "zoom:credentials-delete-failed");
