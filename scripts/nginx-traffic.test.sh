@@ -112,6 +112,66 @@ run_snap
 AFTER="$(JQ "console.log(d.buckets.reduce((a,b)=>a+b.total,0))")"
 is "a second run is idempotent"             "$BEFORE" "$AFTER"
 
+# THE REGRESSION THAT REACHED PRODUCTION.
+#
+# grep exits 1 when it matches nothing. Under `set -euo pipefail` that fails the
+# pipeline and kills the script AFTER the archive has been written, so it exits
+# silently having produced no JSON while the cron log looks clean.
+#
+# Both empty cases below are ordinary, not exotic. The first fixture has
+# referer "-" on every line, which is what a direct visit looks like; the
+# second is all bots and health checks, which is most of a quiet hour on this
+# box. The original suite missed it because every fixture happened to contain
+# at least one of each row type.
+#
+# (My first attempt at this test used 40 distinct paths, on a wrong diagnosis
+# that `head` was causing SIGPIPE. It passed against the bug. Kept below as the
+# third case, because head-into-a-full-pipe IS a real hazard at scale, just not
+# the one that bit.)
+
+mk_case() { mkdir -p "$TMP/$1"; }
+
+# 1. No external referrers at all: every visit direct.
+mk_case direct
+i=1
+while [ "$i" -le 5 ]; do
+  line "1.1.1.$i" "20/Aug/2026:08:00:00 +0000" "GET /e/event-$i HTTP/1.1" 200 "-" "Mozilla/5.0 Chrome/120"
+  i=$((i+1))
+done > "$TMP/direct/access.log"
+
+# 2. No human page views at all: bots and health checks only.
+mk_case botsonly
+line 1.1.1.1 "20/Aug/2026:08:00:00 +0000" "GET /health HTTP/1.1"   200 "-" "Amazon-Route53-Health-Check-Service" >  "$TMP/botsonly/access.log"
+line 2.2.2.2 "20/Aug/2026:08:01:00 +0000" "GET /e/x HTTP/1.1"      200 "-" "Mozilla/5.0 (compatible; AhrefsBot/7.0)" >> "$TMP/botsonly/access.log"
+
+# 3. More distinct paths than the cap, so truncation is actually exercised.
+mk_case many
+i=1
+while [ "$i" -le 40 ]; do
+  line "1.1.1.$i" "20/Aug/2026:08:00:00 +0000" "GET /e/event-$i/register HTTP/1.1" 200 "https://ref-$i.example.com/" "Mozilla/5.0 Chrome/120"
+  i=$((i+1))
+done > "$TMP/many/access.log"
+
+run_case() {
+  NGINX_TRAFFIC_LOG_DIR="$TMP/$1" NGINX_TRAFFIC_OUT="$TMP/$1/out.json" \
+  NGINX_TRAFFIC_ARCHIVE="$TMP/$1/archive.tsv" NGINX_TRAFFIC_LOCK="$TMP/$1/lock" \
+  bash "$SNAP" >/dev/null 2>&1
+  echo $?
+}
+json_ok() { node -e "require('$TMP/$1/out.json');console.log('ok')" 2>/dev/null || echo no-json; }
+json_len() { node -e "console.log(require('$TMP/$1/out.json').$2.length)" 2>/dev/null || echo missing; }
+
+is "survives a window with NO referrers"        0     "$(run_case direct)"
+is "  and still writes JSON"                    "ok"  "$(json_ok direct)"
+is "  with an empty referrer list"              0     "$(json_len direct topReferrers)"
+
+is "survives a window with NO human pages"      0     "$(run_case botsonly)"
+is "  and still writes JSON"                    "ok"  "$(json_ok botsonly)"
+is "  with an empty page list"                  0     "$(json_len botsonly topPaths)"
+
+is "survives more paths than the cap"           0     "$(run_case many)"
+is "  and truncates rather than dropping"       15    "$(json_len many topPaths)"
+
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

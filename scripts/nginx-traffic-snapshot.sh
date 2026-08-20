@@ -109,7 +109,7 @@ NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 [ -d "$LOG_DIR" ]  || { echo "missing log dir: $LOG_DIR" >&2; exit 1; }
 
 TMP_TSV="$(mktemp)"; TMP_MERGED="$(mktemp)"; TMP_OUT="$(mktemp)"
-trap 'rm -f "$TMP_TSV" "$TMP_MERGED" "$TMP_OUT"' EXIT
+trap 'rm -f "$TMP_TSV" "$TMP_MERGED" "$TMP_MERGED.json" "$TMP_OUT"' EXIT
 
 TAB="$(printf '\t')"
 
@@ -175,15 +175,30 @@ mv -f "$TMP_OUT" "$ARCHIVE"
   # Top lists cover the LIVE window only, never the archive. Making them
   # time-filterable would mean storing per-path counts per hour, which turns a
   # 4 KB day into a large one for a list nobody filters. The card says so.
+  #
+  # The `|| true` on each grep is load-bearing, and it is what broke the first
+  # real run on the box. grep exits 1 when it matches NOTHING; under
+  # `set -euo pipefail` that fails the pipeline and kills the script silently,
+  # AFTER the archive has already been written, so it looks like success and
+  # produces no JSON. Both empty cases are ordinary here rather than exotic: a
+  # window with no external referrers (everyone arrived direct or internally)
+  # and a window with no human page views (all bots and health checks) are both
+  # completely normal on a quiet day.
+  #
+  # The limit is applied inside awk rather than by `head` for a separate and
+  # still-real reason: `sort | head -n N` makes head close the pipe early, and
+  # once sort's output exceeds the 64 KB pipe buffer sort dies of SIGPIPE, which
+  # pipefail would propagate the same way. That one has not bitten yet because
+  # the output is small, but it is a genuine hazard at production path counts.
   printf '  "topPaths": [\n'
-  grep '^#P' "$TMP_TSV" | sort -t"$TAB" -k2,2nr | head -n "$TOP_N" | awk -F"$TAB" '
-    { if (NR > 1) printf ",\n"; printf "    {\"path\":\"%s\",\"count\":%s}", $3, $2 }
+  { grep '^#P' "$TMP_TSV" || true; } | sort -t"$TAB" -k2,2nr | awk -F"$TAB" -v n="$TOP_N" '
+    NR <= n { if (NR > 1) printf ",\n"; printf "    {\"path\":\"%s\",\"count\":%s}", $3, $2 }
     END { if (NR > 0) printf "\n" }'
   printf '  ],\n'
 
   printf '  "topReferrers": [\n'
-  grep '^#R' "$TMP_TSV" | sort -t"$TAB" -k2,2nr | head -n "$TOP_N" | awk -F"$TAB" '
-    { if (NR > 1) printf ",\n"; printf "    {\"host\":\"%s\",\"count\":%s}", $3, $2 }
+  { grep '^#R' "$TMP_TSV" || true; } | sort -t"$TAB" -k2,2nr | awk -F"$TAB" -v n="$TOP_N" '
+    NR <= n { if (NR > 1) printf ",\n"; printf "    {\"host\":\"%s\",\"count\":%s}", $3, $2 }
     END { if (NR > 0) printf "\n" }'
   printf '  ]\n'
   printf '}\n'
