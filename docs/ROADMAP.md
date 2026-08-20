@@ -3871,3 +3871,39 @@ and migration script never run). What is outstanding is one bucket.
   transitively import the Supabase client. Marginal, kept, worth knowing why.
 - **CloudFront in front of the public prefixes** — not needed at 2.5ms
   in-region. Would matter again if the bucket ever moves out of region.
+
+### Analytics review (Aug 20, 2026): deferred findings
+
+Self-review after the five-phase build. **H1 (full referrer left the browser
+before being reduced) and M2 (rate limit sized for a person, not a venue) were
+fixed in-band** (`8a1c...`); these are the rest, none of which blocks anything.
+
+- **M3.** `MAX_HITS = 100_000` in the dashboard read.** One request could pull
+  roughly 15 MB into a 3,500 MB container. Generous today by a wide margin
+  (production's entire fortnight of public traffic is about 2,200 hits) but it
+  is the number that bounds the worst case. Lower it, or move to a
+  pre-aggregated daily table, when any single event approaches it.
+  `src/analytics/store/event-traffic.ts`.
+- **M4.** buffer overflow uses `Array.shift()` per hit**, which is O(n) element
+  moves, in the state where the database is already unreachable and the process
+  is least able to afford it. A ring buffer or dropping from the tail would fix
+  it. Only reachable at 10,000 buffered hits, i.e. never in normal operation.
+  `src/analytics/buffer.ts`.
+- **M5.** the site-resolver cache holds 500 entries** and evicts oldest-inserted,
+  not least-recently-used. Spraying unique slugs can evict the real entries and
+  force a database lookup per legitimate hit. Bounded by the per-IP rate limit,
+  so the cost is one indexed query, but an LRU would remove the vector.
+  `src/analytics/store/site-resolver.ts`.
+- **L1.** visitor counts are inflatable.** A script rotating its user agent
+  produces unlimited distinct "visitors" from one address, because the identity
+  is derived from IP plus user agent. This is inherent to every client-side
+  beacon, Google Analytics included, and the alternative (a persistent
+  identifier) is exactly what the design refuses. **Documented rather than
+  fixed**; if a number ever looks implausible, this is the first thing to check.
+- **L2.** up to 2 seconds of hits are lost on graceful shutdown.** The flush
+  timer is `unref`'d so it cannot hold the process open, and there is no SIGTERM
+  hook. A shutdown flush would close the window. Traffic measurement, not money.
+
+Also deferred from the plan itself (§6.2, §7.4): country (needs a self-hosted
+MaxMind database to avoid adding a third party), the org-level cross-event view,
+and publishing `src/analytics/core/` as a package.

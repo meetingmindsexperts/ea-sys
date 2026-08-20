@@ -40,6 +40,35 @@ describe("what is reported", () => {
     expect(sent[0].payload.query).toBe("?utm_source=linkedin");
   });
 
+  it("sends a referring HOST, never the full referrer URL", () => {
+    // A referring URL can carry a token or an email in its OWN query. That is
+    // somebody else's sensitive data, and it should not leave the browser even
+    // to be discarded by us. Reducing it server-side would have been too late.
+    track(
+      "x",
+      "pageview",
+      loc("/e/x/register"),
+      {},
+      "https://mail.example.com/inbox?token=SUPERSECRET&user=a@b.com",
+      { send },
+    );
+    expect(sent[0].payload.referrerHost).toBe("mail.example.com");
+    expect(JSON.stringify(sent[0].payload)).not.toMatch(/SUPERSECRET|a@b\.com|inbox/);
+  });
+
+  it("drops our own host, so internal navigation is not acquisition", () => {
+    track(
+      "x",
+      "pageview",
+      loc("/e/x/register"),
+      {},
+      "https://events.meetingmindsgroup.com/e/x",
+      { send },
+      ["events.meetingmindsgroup.com"],
+    );
+    expect(sent[0].payload.referrerHost).toBeUndefined();
+  });
+
   it("carries engagement figures when given them", () => {
     track("x", "page_engagement", loc("/e/x"), { durationMs: 42_000, scrollDepth: 80 }, undefined, {
       send,

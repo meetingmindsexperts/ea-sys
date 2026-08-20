@@ -112,6 +112,21 @@ describe("what is stored", () => {
     expect(JSON.stringify(hit)).not.toMatch(/secret|Ahmed/);
   });
 
+  it("accepts a host the browser already reduced", async () => {
+    await POST(post({ ...VALID, referrerHost: "linkedin.com" }));
+    expect(mockEnqueue.mock.calls[0][0].referrerHost).toBe("linkedin.com");
+  });
+
+  it("re-reduces a full URL, so a tampered or legacy payload cannot store one", async () => {
+    // The browser reduces it now, but this body is client-supplied and a
+    // browser holding the previous bundle still sends the old field.
+    mockEnqueue.mockClear();
+    await POST(post({ ...VALID, referrerHost: "https://mail.example.com/x?token=SECRET" }));
+    const hit = mockEnqueue.mock.calls[0][0];
+    expect(hit.referrerHost).toBe("mail.example.com");
+    expect(JSON.stringify(hit)).not.toContain("SECRET");
+  });
+
   it("reduces the referrer to a host and drops our own", async () => {
     await POST(post({ ...VALID, referrer: "https://www.linkedin.com/feed/?q=x" }));
     expect(mockEnqueue.mock.calls[0][0].referrerHost).toBe("linkedin.com");
@@ -119,7 +134,7 @@ describe("what is stored", () => {
     mockEnqueue.mockClear();
     // Own-host navigation is not acquisition. The internal host comes from THIS
     // request, so on a multi-tenant instance each tenant excludes its own.
-    await POST(post({ ...VALID, referrer: "https://events.meetingmindsgroup.com/e/hema-2026" }));
+    await POST(post({ ...VALID, referrerHost: "events.meetingmindsgroup.com" }));
     expect(mockEnqueue.mock.calls[0][0].referrerHost).toBeNull();
   });
 

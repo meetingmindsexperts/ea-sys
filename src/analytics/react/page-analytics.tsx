@@ -49,15 +49,21 @@ export function PageAnalytics({ site }: { site: string }) {
     const search = searchParams?.toString() ?? "";
     const location = { pathname, search: search ? `?${search}` : "" };
 
+    // The referrer is reduced to a host HERE, before anything is sent. A
+    // referring URL can carry a token or an email in its own query, which is
+    // somebody else's sensitive data, and it should not leave the browser even
+    // to be discarded by us. Our own host is passed so internal navigation is
+    // not counted as acquisition.
+    const internalHosts = typeof window !== "undefined" ? [window.location.host] : [];
+
     track(
       site,
       "pageview",
       location,
       {},
-      // Only an EXTERNAL referrer is of interest, and the server reduces it to
-      // a host and drops our own. Passing it through unchanged here keeps the
-      // decision in one place rather than half here and half there.
       typeof document !== "undefined" ? document.referrer : undefined,
+      {},
+      internalHosts,
     );
 
     const onScroll = () => {
@@ -78,10 +84,15 @@ export function PageAnalytics({ site }: { site: string }) {
       if (durationMs < MIN_ENGAGEMENT_MS) return;
       engagementSent.current = true;
 
-      track(site, "page_engagement", location, {
-        durationMs,
-        scrollDepth: maxScroll.current,
-      });
+      track(
+        site,
+        "page_engagement",
+        location,
+        { durationMs, scrollDepth: maxScroll.current },
+        undefined,
+        {},
+        internalHosts,
+      );
     };
 
     const onVisibility = () => {

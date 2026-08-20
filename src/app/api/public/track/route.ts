@@ -78,7 +78,17 @@ const bodySchema = z.object({
   path: z.string().min(1).max(2000),
   /** Raw query string, so the three utm keys can be extracted and the rest dropped. */
   query: z.string().max(2000).optional(),
-  /** document.referrer. Reduced to a host. */
+  /**
+   * Referring HOST, already reduced in the browser so a referring URL's own
+   * path and query never reach us. Re-reduced below as defence in depth, since
+   * this body is client-supplied.
+   */
+  referrerHost: z.string().max(300).optional(),
+  /**
+   * Legacy full referrer. Kept only so a browser holding the previous bundle
+   * during a deploy still reports acquisition rather than silently losing it;
+   * it is reduced identically. Remove once no old bundle can be in flight.
+   */
   referrer: z.string().max(2000).optional(),
   /** Time on page, reported on unload. */
   durationMs: z.number().int().min(0).max(24 * 3600_000).optional(),
@@ -92,13 +102,19 @@ export async function POST(req: Request) {
     const ip = getClientIp(req);
     const userAgent = req.headers.get("user-agent");
 
-    // Generous: a whole conference hall shares one venue NAT, and the cost of a
-    // false positive here is silently losing the traffic we are trying to
-    // measure at the exact moment it matters most. This is a bound on abuse,
-    // not a quota.
+    // Sized for a VENUE, not for a person. A whole conference hall arrives
+    // through one NAT address, so this budget is shared by everyone in the
+    // room: 1,000 attendees at roughly fifteen hits each is 15,000 in a single
+    // busy hour. The earlier 2,000 would have been exhausted mid-morning and
+    // then silently dropped the traffic we are trying to measure, at the exact
+    // moment it matters most. That is the same failure the survey ipHash dedup
+    // had, where the guard fired hardest during intended use.
+    //
+    // It is a bound on a runaway client, not a quota. The real limits on junk
+    // are the bot filter, the path allow-list, and the 400-day prune.
     const { allowed } = checkRateLimit({
       key: `analytics-track:${ip}`,
-      limit: 2000,
+      limit: 20_000,
       windowMs: 3600_000,
     });
     if (!allowed) {
@@ -181,11 +197,17 @@ export async function POST(req: Request) {
       routePattern: route.pattern,
       visitorHash,
       sessionHash,
-      // The internal host is this request's own host, so on a multi-tenant
-      // instance each tenant's own navigation is correctly excluded from its
-      // acquisition figures rather than one hardcoded domain being excluded
-      // from everyone's.
-      referrerHost: referrerHost(body.referrer, [req.headers.get("host") ?? ""]),
+      // Re-reduced even though the browser already did it: this body is
+      // client-supplied, so a tampered or legacy payload carrying a full URL
+      // must still be cut down to a host. referrerHost is idempotent, so a
+      // value that is already a bare host passes through unchanged.
+      //
+      // The internal host is this request's own, so on a multi-tenant instance
+      // each tenant's own navigation is excluded from its acquisition figures
+      // rather than one hardcoded domain being excluded from everyone's.
+      referrerHost: referrerHost(body.referrerHost ?? body.referrer, [
+        req.headers.get("host") ?? "",
+      ]),
       utmSource: utm.utmSource,
       utmMedium: utm.utmMedium,
       utmCampaign: utm.utmCampaign,

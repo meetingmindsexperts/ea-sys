@@ -16,7 +16,7 @@
  *     token-gated page should not leave the browser even to be refused.
  */
 
-import { isMeasurable, normalisePath } from "./path-policy";
+import { isMeasurable, normalisePath, referrerHost } from "./path-policy";
 
 export interface BeaconPayload {
   /** Event slug. */
@@ -26,7 +26,16 @@ export interface BeaconPayload {
   /** Pathname. The query is passed separately and mostly discarded. */
   path: string;
   query?: string;
-  referrer?: string;
+  /**
+   * Referring HOST only, already reduced in the browser.
+   *
+   * Deliberately not the full referrer: a referring URL can carry a token or an
+   * email in its own query, and that is somebody else's sensitive data. The
+   * server reduces it again as defence in depth, but the reduction happens here
+   * so the full URL never leaves the browser at all. Same principle this module
+   * applies to our own paths.
+   */
+  referrerHost?: string;
   durationMs?: number;
   scrollDepth?: number;
   value?: number;
@@ -87,9 +96,12 @@ export function track(
   site: string,
   name: string,
   location: { pathname: string; search: string },
-  extras: Omit<BeaconPayload, "site" | "name" | "path" | "query" | "referrer"> = {},
+  extras: Omit<BeaconPayload, "site" | "name" | "path" | "query" | "referrerHost"> = {},
+  /** Raw document.referrer. Reduced to a host here and never sent whole. */
   referrer?: string,
   opts: TrackOptions = {},
+  /** Hosts that count as our own, so internal navigation is not acquisition. */
+  internalHosts: readonly string[] = [],
 ): boolean {
   try {
     if (!site) return false;
@@ -102,7 +114,7 @@ export function track(
       name,
       path,
       query: location.search || undefined,
-      referrer: referrer || undefined,
+      referrerHost: referrerHost(referrer, internalHosts) ?? undefined,
       ...extras,
     });
     return true;
