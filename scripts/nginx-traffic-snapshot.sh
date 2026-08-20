@@ -35,10 +35,33 @@
 # incremental read: the complexity would buy nothing, and a full re-parse is
 # self-healing if a run is ever missed.
 #
-# CADENCE. Hourly. The data is bucketed by hour, so finer granularity buys
-# nothing. Run from the ubuntu crontab:
+# SETUP. Two things have to be true, and the second is NOT true by default:
 #
-#   5 * * * * /home/ubuntu/ea-sys/scripts/nginx-traffic-snapshot.sh >> /home/ubuntu/ea-sys/logs/nginx-traffic.cron.log 2>&1
+#   1. The cron user must be able to READ /var/log/nginx. Those files are
+#      www-data:adm, and `ubuntu` is already in the adm group, so this works
+#      with no change and without sudo. Verified on the box 2026-08-20.
+#
+#   2. The cron user must be able to WRITE into ea-sys/logs, which is the only
+#      directory shared with the web containers. That directory is owned by
+#      ssm-user (the container's uid) mode 755, so `ubuntu` CANNOT write to it
+#      and this script would produce nothing at all while appearing to succeed.
+#      Grant exactly that, once, rather than changing ownership on a directory
+#      two running containers write to:
+#
+#        sudo setfacl -m u:ubuntu:rwx /home/ubuntu/ea-sys/logs
+#
+#      Same ACL approach the CloudWatch agent needed for the same reason. Do NOT
+#      solve this by running the cron as root: this file is replaced by
+#      `git reset --hard` on every deploy, so it should not execute as root.
+#
+# CADENCE. Hourly. The data is bucketed by hour, so finer granularity buys
+# nothing. Run from the UBUNTU crontab (`sudo -u ubuntu crontab -e`; a plain
+# `crontab -e` over SSM edits root's, which is not where anything else lives):
+#
+#   5 * * * * /home/ubuntu/ea-sys/scripts/nginx-traffic-snapshot.sh >> /home/ubuntu/cron-nginx-traffic.log 2>&1
+#
+# The cron log goes to the home directory, matching the DR backup jobs, so only
+# the snapshot itself depends on the ACL above.
 #
 # If it stops running, the card reports the snapshot as stale rather than
 # showing old numbers as if they were current.

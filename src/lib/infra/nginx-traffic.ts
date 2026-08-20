@@ -132,7 +132,7 @@ export async function fetchNginxTraffic(): Promise<{
         status: "unconfigured",
         info: null,
         error:
-          "No traffic snapshot yet. Add the hourly cron for scripts/nginx-traffic-snapshot.sh (see the script header).",
+          "No traffic snapshot yet. Grant the cron user write access to logs/ and add the hourly job: see the SETUP block at the top of scripts/nginx-traffic-snapshot.sh.",
       };
     }
     apiLogger.error({ err, file }, "infra:nginx-traffic-read-failed");
