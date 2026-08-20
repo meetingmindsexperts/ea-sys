@@ -32,7 +32,7 @@ sitting there intact.
 | Root device name | `/dev/sda1` |
 | Encrypted | **false** |
 | DeleteOnTermination | **true** (see §7) |
-| Elastic IP | `3.108.247.193`, **attached** — survives stop/start, DNS does not change |
+| Elastic IP | `3.108.247.193`, **attached** , survives stop/start, DNS does not change |
 | Default EBS encryption | **enabled** in `ap-south-1` and `ap-southeast-1` (2026-08-20), key `alias/aws/ebs` |
 
 **Recreate the gp3 settings explicitly.** A volume created from a snapshot
@@ -115,7 +115,7 @@ settle late rather than being lost.
 
 ## 5. The procedure
 
-### Step 0 — Warm-up snapshot, ~20 minutes before, instance RUNNING
+### Step 0: Warm-up snapshot, ~20 minutes before, instance RUNNING
 
 ```bash
 aws ec2 create-snapshot --region ap-south-1 \
@@ -137,7 +137,7 @@ snapshot. The consistency requirement attaches to restoring, not to copying.
 
 Wait for `State: completed` before opening the window.
 
-### Step 1 — Stop the instance (window opens)
+### Step 1: Stop the instance (window opens)
 
 ```bash
 aws ec2 stop-instances --region ap-south-1 --instance-ids i-0b51ab1213d084640
@@ -147,7 +147,7 @@ aws ec2 wait instance-stopped --region ap-south-1 --instance-ids i-0b51ab1213d08
 Stopping gives the filesystem-consistent snapshot that step 2 needs. The
 database is Supabase and lives off the box, so nothing transactional is at risk.
 
-### Step 2 — Snapshot the stopped volume
+### Step 2: Snapshot the stopped volume
 
 ```bash
 SNAP=$(aws ec2 create-snapshot --region ap-south-1 \
@@ -163,7 +163,7 @@ path, so keep it until the bake period ends.
 
 Incremental against the warm-up, so expect well under a minute.
 
-### Step 3 — Create the encrypted volume, same AZ, same settings
+### Step 3: Create the encrypted volume, same AZ, same settings
 
 ```bash
 NEW_VOL_ID=$(aws ec2 create-volume --region ap-south-1 \
@@ -189,7 +189,7 @@ error arrives only at attach time.
 **Keep the size at 50.** A larger disk boots fine but leaves the filesystem
 undersized against it, which is a second job you did not plan for.
 
-### Step 4 — Swap
+### Step 4: Swap
 
 ```bash
 aws ec2 detach-volume --region ap-south-1 --volume-id vol-073ca563deaa8732a
@@ -203,7 +203,7 @@ aws ec2 wait volume-in-use --region ap-south-1 --volume-ids "$NEW_VOL_ID"
 **`/dev/sda1` exactly.** That is the root device name this instance expects; any
 other name and it will not boot.
 
-### Step 5 — Start and verify
+### Step 5: Start and verify
 
 ```bash
 aws ec2 start-instances --region ap-south-1 --instance-ids i-0b51ab1213d084640
