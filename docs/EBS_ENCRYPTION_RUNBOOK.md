@@ -32,7 +32,7 @@ sitting there intact.
 | Root device name | `/dev/sda1` |
 | Encrypted | **false** |
 | DeleteOnTermination | **true** (see §7) |
-| Elastic IP | `3.108.247.193`, **attached** , survives stop/start, DNS does not change |
+| Elastic IP | `3.108.247.193`, **attached**. Survives stop/start, so DNS does not change |
 | Default EBS encryption | **enabled** in `ap-south-1` and `ap-southeast-1` (2026-08-20), key `alias/aws/ebs` |
 
 **Recreate the gp3 settings explicitly.** A volume created from a snapshot
