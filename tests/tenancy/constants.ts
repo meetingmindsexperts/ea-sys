@@ -352,6 +352,15 @@ export const SHARED_AUDIT_ENTITY_ID = "tenancy-shared-audit-entity";
  * minted BY THE TEST via bare createMany (the asymmetric write-half proof —
  * the org-null REVIEWER/SUBMITTER/REGISTRANT asker path).
  */
+/**
+ * Analytics fixtures. AnalyticsEvent has no per-org unique field, so scoping is
+ * proved the MediaFile way: both orgs carry a hit on the SAME path, and the
+ * by-path read resolving to one lane's row is the proof.
+ */
+export const ANALYTICS_A_ID = "tenancy-analytics-a";
+export const ANALYTICS_B_ID = "tenancy-analytics-b";
+export const SHARED_ANALYTICS_PATH = "/e/tenancy-fixture/register";
+
 export const HELP_QUERY_A_ID = "tenancy-helpq-a";
 export const HELP_QUERY_B_ID = "tenancy-helpq-b";
 export const HELP_QUERY_NULLORG_ID = "tenancy-helpq-nullorg";

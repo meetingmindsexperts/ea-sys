@@ -77,8 +77,8 @@ export interface AnalyticsHit {
  * this, and a narrower interface is a smaller thing for an adapter to get
  * right. It takes an array because every real caller batches.
  */
-export interface AnalyticsWriter {
-  record(hits: AnalyticsHit[]): Promise<void>;
+export interface AnalyticsWriter<H extends AnalyticsHit = AnalyticsHit> {
+  record(hits: readonly H[]): Promise<void>;
 }
 
 /**
@@ -86,8 +86,8 @@ export interface AnalyticsWriter {
  * guessing at a query language before there is a consumer is how interfaces
  * end up with fields nobody uses.
  */
-export interface AnalyticsReader {
-  query(q: AnalyticsQuery): Promise<AnalyticsHit[]>;
+export interface AnalyticsReader<H extends AnalyticsHit = AnalyticsHit> {
+  query(q: AnalyticsQuery): Promise<H[]>;
 }
 
 export interface AnalyticsQuery {
@@ -100,4 +100,5 @@ export interface AnalyticsQuery {
   limit?: number;
 }
 
-export type AnalyticsStore = AnalyticsWriter & AnalyticsReader;
+export type AnalyticsStore<H extends AnalyticsHit = AnalyticsHit> =
+  AnalyticsWriter<H> & AnalyticsReader<H>;

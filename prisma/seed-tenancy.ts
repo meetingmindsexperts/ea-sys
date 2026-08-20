@@ -144,6 +144,9 @@ import {
   AUDIT_LOG_NULLORG_ID,
   SHARED_AUDIT_ENTITY_TYPE,
   SHARED_AUDIT_ENTITY_ID,
+  ANALYTICS_A_ID,
+  ANALYTICS_B_ID,
+  SHARED_ANALYTICS_PATH,
   HELP_QUERY_A_ID,
   HELP_QUERY_B_ID,
   HELP_QUERY_NULLORG_ID,
@@ -337,6 +340,10 @@ async function seedOrg(
   // coordinator email in both orgs (no per-org unique field) + a B-only group.
   // Needs this org's event + a payer; cascades from Event → Organization.
   groups?: { id: string; eventId: string; billingAccountId: string }[],
+  // Analytics (born-compliant, Aug 20 2026): one hit per org on the SHARED
+  // path (no per-org unique field on AnalyticsEvent). NO FKs, so rows always
+  // survive the org cascade — cleaned explicitly in main().
+  analyticsHitId?: string,
 ) {
   await db.organization.create({
     data: {
@@ -892,6 +899,26 @@ async function seedOrg(
       },
     });
   }
+  if (analyticsHitId) {
+    // createMany, not create(): the policy's USING is strict, so create()'s
+    // INSERT..RETURNING would be rejected. That is the production writer's
+    // shape too, which is the point of seeding it this way.
+    await db.analyticsEvent.createMany({
+      data: [
+        {
+          id: analyticsHitId,
+          organizationId: orgId,
+          eventId: null,
+          siteId: `site-${orgId}`,
+          name: "pageview",
+          path: SHARED_ANALYTICS_PATH,
+          routePattern: "/e/:slug/register",
+          visitorHash: `visitor-${orgId}`,
+          sessionHash: `session-${orgId}`,
+        },
+      ],
+    });
+  }
   if (helpQueryId) {
     await db.helpChatQuery.create({
       data: {
@@ -1069,6 +1096,21 @@ async function main() {
   // rejection-probe ids (same reasoning as the EmailLog probe cleanup below).
   // HelpChatQuery fixtures (Domain #20): NO FKs at all — rows always survive
   // the org cascade; delete explicitly, incl. the null-org + probe ids.
+  // Analytics fixtures: NO FKs at all — rows always survive the org cascade;
+  // delete explicitly, incl. the write-probe ids.
+  await db.analyticsEvent.deleteMany({
+    where: {
+      id: {
+        in: [
+          ANALYTICS_A_ID,
+          ANALYTICS_B_ID,
+          "tenancy-analytics-smuggled",
+          "tenancy-analytics-writer-probe",
+          "tenancy-analytics-returning",
+        ],
+      },
+    },
+  });
   await db.helpChatQuery.deleteMany({
     where: {
       id: {
@@ -1246,6 +1288,7 @@ async function main() {
     },
     HELP_QUERY_A_ID,
     [{ id: GROUP_A_ID, eventId: EVENT_A_SHARED_ID, billingAccountId: BILLING_A_SHARED_ID }],
+    ANALYTICS_A_ID,
   );
   await seedCrmGroup1(ORG_A_ID, UPLOADER_A_ID, {
     companyId: CRM_CO_A_ID,
@@ -1401,6 +1444,7 @@ async function main() {
       { id: GROUP_B_ID, eventId: EVENT_B_SHARED_ID, billingAccountId: BILLING_B_SHARED_ID },
       { id: GROUP_B_ONLY_ID, eventId: EVENT_B_SHARED_ID, billingAccountId: BILLING_B_SHARED_ID },
     ],
+    ANALYTICS_B_ID,
   );
   await seedCrmGroup1(ORG_B_ID, UPLOADER_B_ID, {
     companyId: CRM_CO_B_ID,

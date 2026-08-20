@@ -62,6 +62,7 @@ import * as loginEventPrune from "./jobs/login-event-prune";
 import * as systemLogPrune from "./jobs/system-log-prune";
 import * as supportingDocumentPrune from "./jobs/supporting-document-prune";
 import * as dailyDigest from "./jobs/daily-digest";
+import * as analyticsPrune from "./jobs/analytics-prune";
 
 import { startHealthServer, type HealthState } from "./lib/health-server";
 import { installShutdownHandler } from "./lib/shutdown";
@@ -98,6 +99,7 @@ const JOBS = [
   systemLogPrune,
   supportingDocumentPrune,
   dailyDigest,
+  analyticsPrune,
 ];
 
 // Shared state — populated as jobs tick. The health endpoint reads

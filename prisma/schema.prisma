@@ -2130,6 +2130,73 @@ enum LoginSurface {
 /// would sit between the password check and session creation and make signing
 /// in feel broken. They stay null until an admin opens the view, and null in
 /// `geoResolvedAt` means "not looked up yet", not "no location".
+/// One measured hit on a public page. A pageview is a hit whose `name` is
+/// "pageview"; conversions are hits with a different name and optionally a
+/// `value`. See docs/ANALYTICS_PLAN.md.
+///
+/// WHAT IS DELIBERATELY ABSENT, and must stay absent:
+///   - There is NO ipAddress column. Not nullable, not optional. Absent. The IP
+///     is consumed at the request boundary to derive visitorHash, deviceType,
+///     browser and os, and then discarded. A column that does not exist cannot
+///     be filled in by a well-meaning future change, which is the whole point.
+///   - There is no userId. Linking a hit to an account would make this personal
+///     data and collapse the argument that no consent banner is needed.
+///   - `path` never carries a query string. Enforced upstream in
+///     src/analytics/core/path-policy.ts and asserted by test.
+///
+/// No FK relations, on purpose. This is the highest-write table in the system,
+/// and a hit that outlives its event is still a valid historical fact; a
+/// cascade would silently delete traffic history when an event is removed.
+/// organizationId is the denormalized tenancy scalar (the LoginEvent
+/// convention), stamped at write from the resolved site.
+model AnalyticsEvent {
+  id             String   @id @default(cuid())
+  organizationId String?
+  /// Which conference's public pages. Null only for a site we could not resolve.
+  eventId        String?
+  /// Opaque tenant/site key. In EA-SYS this is the event slug.
+  siteId         String
+  /// "pageview", or a conversion name such as "register_submitted".
+  name           String
+  /// Pathname only, allow-listed, query stripped.
+  path           String
+  /// The matched pattern, e.g. "/e/:slug/register/:category", so one page can
+  /// be compared across events.
+  routePattern   String
+  /// Rotating-salt identity. Unlinkable across days by construction.
+  visitorHash    String
+  /// Derived 30-minute window. Nothing is stored client-side.
+  sessionHash    String
+  /// Host only, never the full referrer URL.
+  referrerHost   String?
+  utmSource      String?
+  utmMedium      String?
+  utmCampaign    String?
+  deviceType     String?
+  browser        String?
+  os             String?
+  /// ISO 3166-1 alpha-2. Phase 2 of the plan; always null in v1.
+  country        String?
+  durationMs     Int?
+  /// 0-100.
+  scrollDepth    Int?
+  /// Conversion value, e.g. a ticket price.
+  value          Decimal? @db.Decimal(10, 2)
+  /// When the hit happened, not when the buffer flushed.
+  createdAt      DateTime @default(now())
+
+  /// "How did this site do over this window?" — the main chart.
+  @@index([siteId, createdAt])
+  /// "How many reached each funnel step for this event?"
+  @@index([eventId, name, createdAt])
+  /// Tenancy scoping.
+  @@index([organizationId])
+  /// Unique-visitor and session rollups.
+  @@index([visitorHash, createdAt])
+  /// Retention sweep (prune by age, across all orgs).
+  @@index([createdAt])
+}
+
 model LoginEvent {
   id             String       @id @default(cuid())
   userId         String?

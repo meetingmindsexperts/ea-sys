@@ -265,6 +265,12 @@ SWEPT_ROUTE_FILES=(
   "src/app/api/help-chat/route.ts"                                                     # HelpChatQuery sweep (Aug 4, 2026)
 )
 SWEPT_MODULES=(
+  # Analytics (Aug 20, 2026). The INGEST ROUTE is deliberately NOT listed: it
+  # does not wrap, it enqueues into an in-memory buffer and returns. The tenant
+  # lane is entered by the store when the buffer flushes, which is the only
+  # place a row is written, and it groups by organisation first because one
+  # container's buffer can hold hits for several tenants.
+  "src/analytics/store/prisma-store.ts"   # buffered analytics writer (Aug 20, 2026)
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
   "src/lib/agent/tools/invoices.ts"   # invoice agent / MCP executors (July 27, 2026)
   "src/lib/agent/tools/webinar.ts"    # webinar agent / MCP executors (July 28, 2026)
