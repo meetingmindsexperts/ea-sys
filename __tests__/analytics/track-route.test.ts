@@ -177,18 +177,34 @@ describe("what is refused", () => {
     );
   });
 
+  it("raises the missing-secret alarm ONCE, not once per pageview", async () => {
+    // This is the ordinary state between deploying the code and setting the
+    // variable. At a few thousand hits a day an unguarded error would bury
+    // /logs and hammer the SES admin alert with the same sentence.
+    vi.stubEnv("ANALYTICS_SALT_SECRET", "");
+    await POST(post(VALID));
+    await POST(post(VALID));
+    await POST(post(VALID));
+    const alarms = mockLogger.error.mock.calls.filter((c) =>
+      String(c[1]).includes("analytics:missing-salt-secret"),
+    );
+    expect(alarms.length).toBeLessThanOrEqual(1);
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
   it("refuses to hash with a known salt when the secret is unset", async () => {
     // Falling back to a constant would make every visitor hash reproducible by
-    // anyone who read the source. Error level, because it means the feature is
-    // silently collecting nothing.
+    // anyone who read the source.
+    //
+    // This asserts the BEHAVIOUR (nothing recorded, still 204). The alarm
+    // itself is asserted by the test above, and deliberately not here: the
+    // latch is module state, so whichever of these two ran first would consume
+    // it and the other would fail for a reason that has nothing to do with
+    // what it is checking.
     vi.stubEnv("ANALYTICS_SALT_SECRET", "");
     const res = await POST(post(VALID));
     expect(res.status).toBe(204);
     expect(mockEnqueue).not.toHaveBeenCalled();
-    expect(mockLogger.error).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.stringContaining("analytics:missing-salt-secret"),
-    );
   });
 
   it("refuses when rate limited, and says so", async () => {

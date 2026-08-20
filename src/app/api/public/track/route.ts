@@ -36,6 +36,12 @@ import { parseUserAgent } from "@/analytics/core/user-agent";
 import { enqueueHit } from "@/analytics/buffer";
 import { resolveSite } from "@/analytics/store/site-resolver";
 
+/**
+ * Latched so the "no secret configured" alarm is raised once per container
+ * rather than once per request. See where it is used.
+ */
+let warnedMissingSecret = false;
+
 /** Answered for every outcome. See rule 1. */
 const NO_CONTENT = new NextResponse(null, { status: 204 });
 function noContent() {
@@ -135,10 +141,22 @@ export async function POST(req: Request) {
     const secret = process.env.ANALYTICS_SALT_SECRET;
     if (!secret) {
       // Refuse rather than fall back to a constant: a known salt makes every
-      // hash reproducible by anyone who reads the source, which is the one
-      // outcome this design must never have. Error level, because it means the
-      // feature is silently collecting nothing.
-      apiLogger.error({}, "analytics:missing-salt-secret — set ANALYTICS_SALT_SECRET");
+      // visitor hash reproducible by anyone who reads the source, which is the
+      // one outcome this design must never have.
+      //
+      // Error level, because the feature is silently collecting nothing and
+      // that should page. But ONCE per process, not once per pageview: this is
+      // the ordinary state between deploying the code and setting the variable,
+      // and at a few thousand hits a day an unguarded error here would bury
+      // /logs and hammer the SES admin alert with the same sentence. One line
+      // per container is the whole signal; repeating it adds nothing.
+      if (!warnedMissingSecret) {
+        warnedMissingSecret = true;
+        apiLogger.error(
+          {},
+          "analytics:missing-salt-secret — set ANALYTICS_SALT_SECRET; no traffic is being recorded",
+        );
+      }
       return noContent();
     }
 
