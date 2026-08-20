@@ -89,6 +89,39 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+
+  // ── Analytics core import boundary (docs/ANALYTICS_PLAN.md §7) ─────────────
+  //
+  // The INVERSE of the CRM rule above, and stricter. src/analytics/core/ must
+  // import NOTHING from EA-SYS: not @/lib/db, not the logger, not next/server.
+  // Node built-ins are fine.
+  //
+  // The point is that core/ could be lifted out as a standalone package. That
+  // is not a commitment to publish it (§7.4 leaves that decision open), but the
+  // discipline is worth having either way: a directory that imports nothing is
+  // one you can test without a database and reason about without holding the
+  // rest of the app in your head.
+  //
+  // The adapter lives one level up, in src/analytics/store/, which may import
+  // whatever it likes. If core seems to need something from the app, the answer
+  // is almost always to pass it in as a parameter instead.
+  {
+    files: ["src/analytics/core/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/*", "@/**", "../*", "../**"],
+              message:
+                "src/analytics/core/ must not import from EA-SYS — it is meant to be extractable (docs/ANALYTICS_PLAN.md §7). Pass what you need in as a parameter, or put the code in src/analytics/store/ which has no such restriction.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
