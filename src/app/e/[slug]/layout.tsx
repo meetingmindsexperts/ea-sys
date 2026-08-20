@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { buildEventMetadata, getPublicEventBrandColor } from "@/lib/public-event-metadata";
 import { brandPaletteCss } from "@/lib/org-color";
+import { Suspense } from "react";
+import { PageAnalytics } from "@/analytics/react/page-analytics";
 
 /**
  * Base per-event SEO metadata for the public `/e/[slug]` subtree. Each public
@@ -44,6 +46,19 @@ export default async function PublicEventLayout({
   return (
     <>
       {css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : null}
+      {/*
+        Mounted once for the WHOLE public subtree rather than per page.
+        Remembering to add it to each new public page is exactly the thing that
+        gets forgotten, and mounting it everywhere is safe because the
+        allow-list means it sends nothing at all from a route we may not
+        measure. It renders null and never causes a re-render.
+
+        Suspense because it reads useSearchParams, which opts the subtree into
+        client rendering without a boundary.
+      */}
+      <Suspense fallback={null}>
+        <PageAnalytics site={slug} />
+      </Suspense>
       {children}
     </>
   );

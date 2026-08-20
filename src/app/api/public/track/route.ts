@@ -49,6 +49,9 @@ function noContent() {
  */
 const EVENT_NAMES = [
   "pageview",
+  // Sent on departure with time-on-page and scroll depth. Separate from
+  // "pageview" so the count is not doubled by amending it.
+  "page_engagement",
   "register_viewed",
   "register_step2",
   "register_submitted",
