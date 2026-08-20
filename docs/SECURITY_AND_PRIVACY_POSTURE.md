@@ -221,8 +221,30 @@ Route 2 addresses the specific concern — passport scans and bank documents —
 | **EventsAir** | One-directional import from the previous platform | Read-only import of contact data | Vendor-hosted |
 | **ipapi.co** | Approximate location of a sign-in | IP address only. Can be disabled with one setting | US |
 | **MediaMTX** | Live video streaming | Self-hosted on our own server; no third party involved | Mumbai |
+| **Visitor analytics** | Counting visits to public event pages | Self-hosted, our own software; no cookie, no IP retained, no third party involved | Mumbai |
 
-**No advertising or behavioural analytics.** There is no Google Analytics, no advertising pixel, no tracking cookie, and no third-party analytics of any kind. The only cookie is the sign-in session.
+**No advertising or third-party analytics.** There is no Google Analytics, no advertising pixel, no tracking cookie, and no third-party analytics of any kind. The only cookie is the sign-in session.
+
+**We do count visits to public event pages, using our own software.** This was added on 2026-08-20 and the distinction from the paragraph above is deliberate rather than a hedge:
+
+- **Nothing is stored on the visitor's device.** No cookie, no localStorage, no sessionStorage. This is stricter than the law requires and is why no consent banner is needed.
+- **No IP address is retained.** There is no column for one. The address is used at the moment of the request to derive an anonymous identifier and is then discarded.
+- **That identifier cannot be followed across days.** It is an HMAC under a salt derived from the date, so it changes every 24 hours by construction. See the appendix below; it is nine lines and a reviewer can verify the property by reading them.
+- **Nothing leaves our infrastructure.** The data lands in the same Mumbai database as everything else and is encrypted at rest with it (§3). No third party receives it, and no vendor assessment applies.
+- **A visitor cannot be identified.** We can answer "500 people opened the registration page and 80 registered". We cannot answer "did Dr X visit", and the design makes that permanently impossible rather than merely disallowed.
+
+Retained for 400 days, then deleted, so a year-on-year comparison is possible and nothing accumulates indefinitely.
+
+### Appendix: how a visitor is counted without being identified
+
+The whole mechanism, so it can be checked rather than taken on trust:
+
+```
+salt        = HMAC-SHA256(secret, "YYYY-MM-DD")        # changes every day
+visitorHash = HMAC-SHA256(salt, siteId + ip + userAgent)
+```
+
+The date is an *input*, so rotation cannot fail to happen: there is no scheduled job that could stop, and yesterday's identifier is unreachable today. `siteId` is included so the same person visiting two customers' events produces two unrelated identifiers, which is what prevents any correlation between customers. The IP and user agent are consumed here and never stored. Source: `src/analytics/core/visitor-hash.ts`.
 
 **Fonts** are served from Google Fonts, which discloses visitor IP addresses to Google. Trivial to self-host if EHS objects.
 

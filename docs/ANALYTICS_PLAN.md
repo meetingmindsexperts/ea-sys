@@ -1,6 +1,35 @@
 # In-house, open-sourceable public-page analytics
 
-> **Status: PLANNED and APPROVED 2026-08-20. Not built.**
+> **Status: BUILT 2026-08-20**, the same day it was planned. Live on production
+> and recording. This doc is kept as the design record; what shipped is in the
+> five commits `8e83845a` (core), `cb960966` (ingest + storage), `dccdcaca`
+> (beacon), `34a90d58` (alarm latch) and `f2add6e1` (dashboard).
+>
+> **Deviations from the plan, recorded so the next reader does not think it was
+> simply ignored:**
+>
+> 1. **Two hits per visit, not one.** §3.1 listed time-on-page and scroll depth
+>    without saying how they arrive. They are a SECOND hit (`page_engagement`)
+>    sent on departure, because amending the `pageview` would double the one
+>    number that has to be right.
+> 2. **The funnel is route-based, not event-based.** §6.1 called for named
+>    conversion events on the register path. The shipped funnel is derived from
+>    ordinary pageviews plus the real `Registration` count, which needs no extra
+>    instrumentation and cannot under-report the final step when a beacon is lost
+>    to a closed tab. The named events are accepted by the endpoint and unused;
+>    they refine this later rather than replace it.
+> 3. **The no-secret alarm is latched.** Not in the plan at all. Logging an error
+>    per pageview while `ANALYTICS_SALT_SECRET` was unset would have buried
+>    `/logs` and fed the SES alert the same sentence hourly, in a state that is
+>    completely ordinary between deploying and configuring.
+> 4. **A real bug was found while testing the buffer**, not by review: when a
+>    flush was in flight and the buffer refilled to the threshold, the enqueue
+>    path returned early without scheduling a timer, so that batch sat stranded
+>    until another hit happened to arrive. Under a burst that ends abruptly it
+>    would never have been written.
+>
+> Still deferred as planned: country (§6.2), the org-level cross-event view, and
+> publication of the core as a package (§7.4).
 >
 > Owner decision this round: build visitor analytics **in house**, structured so
 > the measurement core **could be open sourced** later, and capture as much as

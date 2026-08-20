@@ -166,7 +166,7 @@
 <!-- ================= THE 11 DOMAINS ================= -->
 <div class="tree">
 <details class="group" open>
-<summary>The 11 active domains</summary>
+<summary>The 12 active domains</summary>
 <div class="kids">
 
 <!-- 1. REGISTRATIONS + SPEAKERS -->
@@ -596,6 +596,44 @@
 <div class="kids">
 <div class="leaf"><b class="k">Deploy</b> <code>scripts/deploy.sh</code> (blue-green; NEVER raw <code>docker compose</code> on the box) · rollback = <code>IMAGE_TAG=&lt;sha&gt; bash scripts/deploy.sh</code></div>
 <div class="leaf"><b class="k">Docs</b> <code>docs/AWS_OPERATIONS.md</code> (master runbook) · <code>docs/FROM_SCRATCH_REBUILD.md</code> (full box rebuild) · <code>docs/ROLLBACK.md</code> · <code>docs/INCIDENTS.md</code> · <code>infra/dr/README.md</code> · <code>infra/cloudwatch/README.md</code></div>
+</div>
+</details>
+
+<!-- 12. ANALYTICS -->
+<details class="domain">
+<summary><span class="num">12</span> Analytics <span class="chip ok">built aug 20</span> <span class="chip">not yet reviewed</span>
+<span class="oneliner">Counts visits to PUBLIC event pages. The denominator: every other domain describes people who completed something, this describes the ones who looked and left. Cookieless, no IP stored, no third party.</span></summary>
+<div class="kids">
+<details class="sec"><summary><span class="ico">🚪</span>Entry points</summary><div class="kids">
+<div class="leaf"><b class="k">UI</b> <code>TrafficSection</code> on <code>events/[eventId]/analytics</code> (traffic + registration funnel)</div>
+<div class="leaf"><b class="k">REST</b> <code>api/events/[eventId]/analytics/traffic?days=</code> (read; same access as the Analytics page)</div>
+<div class="leaf"><b class="k">Public</b> <code>api/public/track</code> (the ONLY write surface; unauthenticated, always answers 204)</div>
+<div class="leaf"><b class="k">Browser</b> <code>analytics/react/page-analytics.tsx</code>, mounted ONCE on <code>app/e/[slug]/layout.tsx</code></div>
+<div class="leaf"><b class="k">Worker</b> <code>analytics-prune</code> (JOB_ID 1017, 03:15 UTC daily, 400-day retention)</div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚙️</span>Core logic</summary><div class="kids">
+<div class="leaf"><code>analytics/core/</code> imports NOTHING from EA-SYS (eslint zone) so it stays extractable: <code>visitor-hash</code> · <code>path-policy</code> · <code>bots</code> · <code>user-agent</code> · <code>beacon</code> · <code>funnel</code> · <code>aggregate</code></div>
+<div class="leaf"><code>analytics/store/</code> is the adapter: <code>prisma-store</code> (batched write, one createMany per org) · <code>site-resolver</code> (slug → org+event, cached) · <code>event-traffic</code> (dashboard read)</div>
+<div class="leaf"><code>analytics/buffer.ts</code> — 25 hits or 2s, so pageviews never compete with the registration desk for the Prisma pool</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🗄️</span>Data models</summary><div class="kids">
+<div class="leaf"><code>AnalyticsEvent</code> (siteId, name, path, routePattern, visitorHash, sessionHash, referrerHost, utm*, deviceType/browser/os, durationMs, scrollDepth, value). <b>NO ipAddress column, NO userId, NO foreign keys.</b></div>
+</div></details>
+<details class="sec"><summary><span class="ico">⚠️</span>Gotchas</summary><div class="kids">
+<div class="gotcha">The salt ROTATES BY CONSTRUCTION: it is derived from the UTC date, not refreshed by a job. Freeze it and the data becomes personal data and every claim in SECURITY_AND_PRIVACY_POSTURE §6 stops being true. Four tests fail if you do.</div>
+<div class="gotcha">Measurable paths are an ALLOW-list (<code>MEASURABLE_ROUTES</code>), never an exclude-list. Eight public routes carry bearer tokens or a person's name in the URL, so failing open is not theoretical. A new public page is invisible until deliberately added, which is the intended default.</div>
+<div class="gotcha">There is <b>no <code>ipAddress</code> column and there must never be one</b>. The address is consumed at the request boundary to derive the hash and discarded. A column that does not exist cannot be filled in by a well-meaning change.</div>
+<div class="gotcha">No cookie, no localStorage, no sessionStorage. Sessions are DERIVED from a 30-minute window, which splits a visit that straddles a boundary. Accepted and documented; do NOT "fix" it with client storage.</div>
+<div class="gotcha">Two hits per visit: <code>pageview</code> on arrival (the count) and <code>page_engagement</code> on departure (duration + scroll). Never amend the pageview, or the one number that has to be right doubles.</div>
+<div class="gotcha">The funnel counts DISTINCT VISITORS, not pageviews, and its last step comes from the <code>Registration</code> table rather than a beacon (a conversion hit can be lost to a closed tab).</div>
+<div class="gotcha"><code>ANALYTICS_SALT_SECRET</code> must be set or NOTHING is recorded — the route refuses rather than using a constant salt, and says so ONCE per container. Treat the value as permanent: changing it makes every returning visitor look new from that day.</div>
+<div class="gotcha">Aggregation is in-process over one slim query (the <code>event-analytics.ts</code> pattern). Do NOT reach for <code>$queryRaw</code>: it sits outside the tenant lane and would fail closed to empty results under RLS.</div>
+</div></details>
+<details class="sec"><summary><span class="ico">🔍</span>Review &amp; deferred</summary><div class="kids">
+<div class="leaf"><b class="k">Docs</b> <code>docs/ANALYTICS_PLAN.md</code> (design record + why GA/Plausible/Matomo were rejected) · <code>src/analytics/README.md</code> (the five invariants) · <code>SECURITY_AND_PRIVACY_POSTURE.md</code> §6 (client-facing, incl. the hash appendix)</div>
+<div class="leaf"><b class="k">Deferred</b> country (needs self-hosted MaxMind to avoid a third party) · org-level cross-event view · publishing <code>core/</code> as a package (plan §7.4)</div>
+<div class="leaf"><b class="k">Deliberately impossible</b> cross-day journeys · cross-device identity · "did person X visit" · ad-platform bid optimisation (plan §3.2). If any becomes a requirement this is the wrong design.</div>
+</div></details>
 </div>
 </details>
 
