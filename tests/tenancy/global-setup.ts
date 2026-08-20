@@ -12,10 +12,10 @@
  * makes the policy actually apply. See tests/tenancy/policies/00-roles.sql.
  */
 import { execSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
+import { applyPolicyFiles, sharedPolicyDir } from "../../prisma/rls/apply";
 
 export default async function globalSetup() {
   dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
@@ -55,64 +55,19 @@ export default async function globalSetup() {
     //      future platform bootstrap applies too (single source of truth;
     //      the harness proving exactly the SQL the platform will run is the
     //      point of reading them from here)
-    const sqlDirs = [
-      path.resolve(process.cwd(), "tests/tenancy/policies"),
-      path.resolve(process.cwd(), "prisma/rls"),
-    ];
-    for (const dir of sqlDirs) {
-      if (!existsSync(dir)) {
-        // Explicit, contract-naming failure instead of a raw ENOENT: git does
-        // not track empty directories, so moving the last .sql out of
-        // prisma/rls/ would otherwise crash every fresh checkout with a
-        // message that looks like harness infra, not a broken contract.
-        throw new Error(
-          `${dir} is missing. Both SQL dirs are load-bearing: tests/tenancy/policies ` +
-            `(role split + harness pilots) and prisma/rls (the SHARED per-domain ` +
-            `policies the platform bootstrap applies). Restore the dir/files.`,
-        );
-      }
-      for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
-        const sql = readFileSync(path.join(dir, file), "utf8");
-        // Prisma can't run multi-statement strings via $executeRaw; split on
-        // statement boundaries while keeping DO $$ ... $$ blocks intact.
-        for (const statement of splitSql(sql)) {
-          await owner.$executeRawUnsafe(statement);
-        }
-        console.log(`[tenancy:setup]   applied ${path.basename(dir)}/${file}`);
-      }
-    }
+    // Applied by the SHARED applier (prisma/rls/apply.ts), the same one
+    // scripts/bootstrap-rls.ts uses on a real database. If the harness applied
+    // policies its own way it would stop being evidence about the thing that
+    // actually runs.
+    await applyPolicyFiles(
+      owner,
+      [path.resolve(process.cwd(), "tests/tenancy/policies"), sharedPolicyDir()],
+      (f) => console.log(`[tenancy:setup]   applied ${f.dir}/${f.file}`),
+    );
   } finally {
     await owner.$disconnect();
   }
 
   console.log("[tenancy:setup] seeding two tenants");
   execSync("npx tsx prisma/seed-tenancy.ts", { env, stdio: "inherit" });
-}
-
-/** Split SQL into statements on top-level semicolons (respects $$ blocks). */
-function splitSql(sql: string): string[] {
-  const withoutComments = sql
-    .split("\n")
-    .filter((line) => !line.trim().startsWith("--"))
-    .join("\n");
-  const statements: string[] = [];
-  let current = "";
-  let inDollar = false;
-  for (let i = 0; i < withoutComments.length; i++) {
-    if (withoutComments.startsWith("$$", i)) {
-      inDollar = !inDollar;
-      current += "$$";
-      i += 1;
-      continue;
-    }
-    const ch = withoutComments[i];
-    if (ch === ";" && !inDollar) {
-      if (current.trim()) statements.push(current.trim());
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-  if (current.trim()) statements.push(current.trim());
-  return statements;
 }

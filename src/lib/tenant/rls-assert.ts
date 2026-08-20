@@ -38,12 +38,30 @@ const POLICIED_TABLES_SQL = `
   ORDER BY c.relname
 `;
 
+export interface PoliciedTable {
+  table: string;
+  /** row_security_active() for the CONNECTED role. False = this role bypasses RLS. */
+  active: boolean;
+}
+
+/**
+ * List every policied table with whether RLS is actually in force for the
+ * connected role.
+ *
+ * Exported UNGATED so the bootstrap script (scripts/bootstrap-rls.ts) can run
+ * the same check as a provisioning pre-flight, before RLS_SET_LOCAL is set
+ * anywhere. The flag-gated boot tripwire below is the real gate; sharing this
+ * query means the pre-flight and the gate can never disagree about what
+ * "enforced" means.
+ */
+export async function listPoliciedTables(client: RlsQueryClient): Promise<PoliciedTable[]> {
+  return client.$queryRawUnsafe<PoliciedTable[]>(POLICIED_TABLES_SQL);
+}
+
 export async function assertRlsEnforced(client: RlsQueryClient): Promise<void> {
   if (process.env.RLS_SET_LOCAL !== "1") return;
 
-  const rows = await client.$queryRawUnsafe<{ table: string; active: boolean }[]>(
-    POLICIED_TABLES_SQL,
-  );
+  const rows = await listPoliciedTables(client);
 
   if (rows.length === 0) {
     throw new Error(

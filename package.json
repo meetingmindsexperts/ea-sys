@@ -20,6 +20,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:tenancy": "vitest run -c vitest.config.tenancy.ts",
+    "rls:bootstrap": "tsx scripts/bootstrap-rls.ts",
+    "rls:verify": "tsx scripts/bootstrap-rls.ts --verify-only",
     "test:crm-db": "vitest run -c vitest.config.crm-db.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
