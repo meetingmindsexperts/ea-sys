@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TrafficCard } from "@/components/infra/traffic-card";
 
 interface Snapshot {
   generatedAt: string;
@@ -633,6 +634,13 @@ export default function InfraPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Traffic. Sits beside the error rate because they are the two
+              halves of one question: how much came in, and how much of it
+              failed. Loads from its own endpoint rather than the shared
+              snapshot: hundreds of hourly buckets would bloat every poll of
+              this page, and it refreshes hourly rather than every 60s. */}
+          <TrafficCard />
 
           {/* Disaster recovery — all THREE streams, not just the database. A
               restore needs the dump AND the uploads AND the .env. Checking only
