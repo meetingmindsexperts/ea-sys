@@ -1,18 +1,19 @@
 # Encrypting the EC2 root volume
 
-**Status:** not yet performed. Written 2026-08-19, verified against live state.
+**Status:** not yet performed. Written 2026-08-19, shortened 2026-08-20 after
+measuring the fast path (§3).
 **Why:** the root volume is `Encrypted: false`, which is the weakest answer on
 the client security questionnaire (`SECURITY_AND_PRIVACY_POSTURE.md` §0.2).
-**Downtime:** 20 to 40 minutes, planned.
+**Downtime:** 7 to 10 minutes, planned. (The original single-pass version of this
+document said 20 to 40; see §3 for what changed.)
 
 ---
 
 ## 0. The one property that makes this safe
 
 **Nothing in this procedure modifies the original volume.** A snapshot is a
-read. Copying a snapshot is a read. The encrypted volume is a new object. The
-original is detached, not erased, and it stays in the account until you
-explicitly delete it.
+read. The encrypted volume is a new object. The original is detached, not
+erased, and it stays in the account until you explicitly delete it.
 
 So at every step before the final cleanup, **rollback is reattaching the volume
 you already have**, and it takes about five minutes. That is the failover
@@ -21,7 +22,7 @@ sitting there intact.
 
 ---
 
-## 1. Verified live state (2026-08-19)
+## 1. Verified live state (2026-08-20)
 
 | Item | Value |
 |---|---|
@@ -30,9 +31,9 @@ sitting there intact.
 | Size / type | 50 GB, **gp3**, **3000 IOPS**, **125 MB/s** |
 | Root device name | `/dev/sda1` |
 | Encrypted | **false** |
-| DeleteOnTermination | **true** (see §6) |
+| DeleteOnTermination | **true** (see §7) |
 | Elastic IP | `3.108.247.193`, **attached** — survives stop/start, DNS does not change |
-| KMS keys present | only `alias/aws/ebs` (AWS-managed) |
+| Default EBS encryption | **enabled** in `ap-south-1` and `ap-southeast-1` (2026-08-20), key `alias/aws/ebs` |
 
 **Recreate the gp3 settings explicitly.** A volume created from a snapshot
 without them gets defaults. Those defaults happen to be 3000/125 today, so it
@@ -55,9 +56,34 @@ Customer-managed keys buy key-policy control, rotation and revocation. Those are
 worth having for *documents*, where revoking access to a prefix is a meaningful
 action. They are not worth having for the disk your operating system boots from.
 
+Since default encryption is enabled account-wide in these regions, the new volume
+picks this key up automatically. Nothing needs to be passed.
+
 ---
 
-## 3. Pre-flight (do not skip)
+## 3. Why there is no `copy-snapshot` step
+
+The obvious shape of this job is: snapshot, **copy the snapshot with encryption
+on**, create a volume from the encrypted copy. That copy is a full 50 GB
+re-encrypt and is what made the original estimate 20 to 40 minutes.
+
+**It is unnecessary once encryption-by-default is enabled.** `CreateVolume` from
+an *unencrypted* snapshot then produces an *encrypted* volume, with the
+re-encryption happening implicitly as blocks are pulled.
+
+**Measured, not assumed (2026-08-20):** a throwaway volume created from the
+unencrypted April snapshot `snap-08e84992f929dc0b4` came back
+`Encrypted: true`, key `alias/aws/ebs`. The test volume was deleted immediately.
+**If you ever run this in a region where default encryption is off, the copy step
+comes back.** Check §1 before trusting the short path.
+
+**The general point worth keeping:** an account-level default changed what the
+per-resource API does. Re-measure a plan after changing a default, because the
+cheapest step is often the one that stopped being necessary.
+
+---
+
+## 4. Pre-flight (do not skip)
 
 ```bash
 # 1. No live event in the window. Check the events calendar. A conference
@@ -67,11 +93,14 @@ action. They are not worth having for the disk your operating system boots from.
 aws s3 ls s3://ea-sys-dr-singapore/db/ --recursive --region ap-southeast-1 | tail -2
 #    Expect a dump from within the last hour.
 
-# 3. Record the current state so you can compare afterwards.
+# 3. Default encryption is still on (this is what removes the copy step).
+aws ec2 get-ebs-encryption-by-default --region ap-south-1
+
+# 4. Record the current state so you can compare afterwards.
 aws ec2 describe-volumes --region ap-south-1 --volume-ids vol-073ca563deaa8732a \
   --query 'Volumes[0].{Size:Size,Type:VolumeType,Iops:Iops,Throughput:Throughput,AZ:AvailabilityZone}'
 
-# 4. Confirm the Elastic IP is still attached (it is what keeps DNS working).
+# 5. Confirm the Elastic IP is still attached (it is what keeps DNS working).
 aws ec2 describe-addresses --region ap-south-1 \
   --query 'Addresses[?InstanceId==`i-0b51ab1213d084640`].PublicIp' --output text
 ```
@@ -84,19 +113,41 @@ settle late rather than being lost.
 
 ---
 
-## 4. The procedure
+## 5. The procedure
 
-### Step 1 — Stop the instance
+### Step 0 — Warm-up snapshot, ~20 minutes before, instance RUNNING
+
+```bash
+aws ec2 create-snapshot --region ap-south-1 \
+  --volume-id vol-073ca563deaa8732a \
+  --description "ea-sys warmup pre-encryption" \
+  --tag-specifications 'ResourceType=snapshot,Tags=[{Key=Name,Value=ea-sys-warmup}]' \
+  --query 'SnapshotId' --output text
+```
+
+**Zero downtime.** This does not pause I/O and does not touch the instance.
+
+Its only job is to make the in-window snapshot incremental against something
+recent, so that snapshot ships minutes of changed blocks instead of months.
+
+**This snapshot is crash-consistent, not filesystem-consistent, and that is
+fine because nothing ever boots from it.** The rule underneath: it is always
+safe to snapshot a running volume as long as you never restore from that
+snapshot. The consistency requirement attaches to restoring, not to copying.
+
+Wait for `State: completed` before opening the window.
+
+### Step 1 — Stop the instance (window opens)
 
 ```bash
 aws ec2 stop-instances --region ap-south-1 --instance-ids i-0b51ab1213d084640
 aws ec2 wait instance-stopped --region ap-south-1 --instance-ids i-0b51ab1213d084640
 ```
 
-Stopping first gives a filesystem-consistent snapshot. The database is Supabase
-and lives off the box, so nothing transactional is at risk either way.
+Stopping gives the filesystem-consistent snapshot that step 2 needs. The
+database is Supabase and lives off the box, so nothing transactional is at risk.
 
-### Step 2 — Snapshot the volume
+### Step 2 — Snapshot the stopped volume
 
 ```bash
 SNAP=$(aws ec2 create-snapshot --region ap-south-1 \
@@ -107,61 +158,60 @@ echo "SNAP=$SNAP"
 aws ec2 wait snapshot-completed --region ap-south-1 --snapshot-ids "$SNAP"
 ```
 
-This snapshot is your second rollback path. Keep it.
+**This is the one the new disk is built from.** It is also your second rollback
+path, so keep it until the bake period ends.
 
-### Step 3 — Copy the snapshot, encrypted
+Incremental against the warm-up, so expect well under a minute.
 
-```bash
-ENC_SNAP=$(aws ec2 copy-snapshot --region ap-south-1 \
-  --source-region ap-south-1 --source-snapshot-id "$SNAP" \
-  --encrypted --kms-key-id alias/aws/ebs \
-  --description "encrypted root snapshot" \
-  --query 'SnapshotId' --output text)
-echo "ENC_SNAP=$ENC_SNAP"
-aws ec2 wait snapshot-completed --region ap-south-1 --snapshot-ids "$ENC_SNAP"
-```
-
-This is the slow step: a full re-encrypt of 50 GB, not an incremental copy.
-Budget 5 to 15 minutes.
-
-### Step 4 — Create the encrypted volume, same AZ, same settings
+### Step 3 — Create the encrypted volume, same AZ, same settings
 
 ```bash
-NEW_VOL=$(aws ec2 create-volume --region ap-south-1 \
-  --snapshot-id "$ENC_SNAP" \
+NEW_VOL_ID=$(aws ec2 create-volume --region ap-south-1 \
+  --snapshot-id "$SNAP" \
   --availability-zone ap-south-1b \
-  --volume-type gp3 --iops 3000 --throughput 125 \
+  --volume-type gp3 --iops 3000 --throughput 125 --size 50 \
+  --tag-specifications 'ResourceType=volume,Tags=[{Key=Name,Value=ea-sys-root-encrypted}]' \
   --query 'VolumeId' --output text)
-echo "NEW_VOL=$NEW_VOL"
-aws ec2 wait volume-available --region ap-south-1 --volume-ids "$NEW_VOL"
+echo "NEW_VOL_ID=$NEW_VOL_ID"
+aws ec2 wait volume-available --region ap-south-1 --volume-ids "$NEW_VOL_ID"
+
+aws ec2 describe-volumes --region ap-south-1 --volume-ids "$NEW_VOL_ID" \
+  --query 'Volumes[0].{Encrypted:Encrypted,Kms:KmsKeyId,Size:Size,Iops:Iops,Throughput:Throughput}'
 ```
+
+**Check `Encrypted` is `true` before continuing.** If it is `false`,
+default encryption is off and you should abort and restart the instance rather
+than swap in an unencrypted disk for nothing.
 
 **The AZ must be `ap-south-1b`.** A volume in another AZ cannot attach, and the
 error arrives only at attach time.
 
-### Step 5 — Swap
+**Keep the size at 50.** A larger disk boots fine but leaves the filesystem
+undersized against it, which is a second job you did not plan for.
+
+### Step 4 — Swap
 
 ```bash
 aws ec2 detach-volume --region ap-south-1 --volume-id vol-073ca563deaa8732a
 aws ec2 wait volume-available --region ap-south-1 --volume-ids vol-073ca563deaa8732a
 
 aws ec2 attach-volume --region ap-south-1 \
-  --volume-id "$NEW_VOL" --instance-id i-0b51ab1213d084640 --device /dev/sda1
-aws ec2 wait volume-in-use --region ap-south-1 --volume-ids "$NEW_VOL"
+  --volume-id "$NEW_VOL_ID" --instance-id i-0b51ab1213d084640 --device /dev/sda1
+aws ec2 wait volume-in-use --region ap-south-1 --volume-ids "$NEW_VOL_ID"
 ```
 
 **`/dev/sda1` exactly.** That is the root device name this instance expects; any
 other name and it will not boot.
 
-### Step 6 — Start and verify
+### Step 5 — Start and verify
 
 ```bash
 aws ec2 start-instances --region ap-south-1 --instance-ids i-0b51ab1213d084640
 aws ec2 wait instance-running --region ap-south-1 --instance-ids i-0b51ab1213d084640
 
-# Encryption is on:
-aws ec2 describe-volumes --region ap-south-1 --volume-ids "$NEW_VOL" \
-  --query 'Volumes[0].{Encrypted:Encrypted,Iops:Iops,Throughput:Throughput}'
+# Encryption is on and the settings carried over:
+aws ec2 describe-volumes --region ap-south-1 --volume-ids "$NEW_VOL_ID" \
+  --query 'Volumes[0].{Encrypted:Encrypted,Size:Size,Iops:Iops,Throughput:Throughput}'
 
 # The app is back (give it 2 to 3 minutes for containers to come up):
 curl -s -o /dev/null -w "app:    %{http_code}\n" https://events.meetingmindsgroup.com/health
@@ -176,10 +226,9 @@ curl -s -o /dev/null -w "private: %{http_code} (expect 403)\n" \
   "https://events.meetingmindsgroup.com/uploads/speaker-docs/x/y.pdf"
 ```
 
-Then check the containers directly:
+Then check the containers directly (via SSM):
 
 ```bash
-# via SSM
 docker ps --format "{{.Names}} {{.Status}}"
 df -h /
 ls /home/ubuntu/ea-sys/public/uploads
@@ -187,7 +236,7 @@ ls /home/ubuntu/ea-sys/public/uploads
 
 ---
 
-## 5. Failover, in order of cost
+## 6. Failover, in order of cost
 
 ### A. Rollback: reattach the original volume (~5 minutes)
 
@@ -199,8 +248,8 @@ filesystem looks wrong, containers will not come up.
 aws ec2 stop-instances --region ap-south-1 --instance-ids i-0b51ab1213d084640
 aws ec2 wait instance-stopped --region ap-south-1 --instance-ids i-0b51ab1213d084640
 
-aws ec2 detach-volume --region ap-south-1 --volume-id "$NEW_VOL"
-aws ec2 wait volume-available --region ap-south-1 --volume-ids "$NEW_VOL"
+aws ec2 detach-volume --region ap-south-1 --volume-id "$NEW_VOL_ID"
+aws ec2 wait volume-available --region ap-south-1 --volume-ids "$NEW_VOL_ID"
 
 aws ec2 attach-volume --region ap-south-1 \
   --volume-id vol-073ca563deaa8732a --instance-id i-0b51ab1213d084640 --device /dev/sda1
@@ -210,7 +259,7 @@ aws ec2 start-instances --region ap-south-1 --instance-ids i-0b51ab1213d084640
 
 You are exactly where you started, unencrypted, with nothing lost.
 
-### B. Rebuild from the pre-encryption snapshot (~15 minutes)
+### B. Rebuild from the in-window snapshot (~15 minutes)
 
 Only needed if the original volume is somehow also unusable, which this
 procedure cannot cause. Create a volume from `$SNAP` in `ap-south-1b` and attach
@@ -225,15 +274,16 @@ procedure does not change it.
 
 ### What cannot be rolled back
 
-Only the final cleanup in §6. Until you delete the old volume, every path above
+Only the final cleanup in §7. Until you delete the old volume, every path above
 stays open.
 
 ---
 
-## 6. Afterwards
+## 7. Afterwards
 
-**Keep the old volume for at least a week.** It is your rollback. At 50 GB gp3
-it costs roughly $4/month, which is nothing against the option value.
+**Keep the old volume for at least a week**, two if the calendar is clear. It is
+your rollback. At 50 GB gp3 it costs roughly $4/month, which is nothing against
+the option value.
 
 **Check `DeleteOnTermination`.** The original root had it set to `true`. A volume
 attached afterwards defaults to `false`, which is safer during the bake (an
@@ -245,24 +295,18 @@ aws ec2 describe-instances --region ap-south-1 --instance-ids i-0b51ab1213d08464
   --query 'Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.DeleteOnTermination'
 ```
 
-**Turn on default encryption for future volumes** so a rebuilt box is encrypted
-without anyone remembering:
-
-```bash
-aws ec2 enable-ebs-encryption-by-default --region ap-south-1
-```
-
-**Deal with the old unencrypted snapshots.** The April snapshot
-(`snap-08e84992f929dc0b4`) and `$SNAP` from this procedure are unencrypted
-copies of the same data. Leaving them around keeps the finding alive. Delete
-them once the bake period ends.
+**Delete the unencrypted snapshots.** There are three by the end: the April one
+(`snap-08e84992f929dc0b4`), the warm-up, and the in-window `$SNAP`. All are full
+plaintext copies of the same data, so leaving them keeps the finding alive.
+Delete them once the bake period ends, not before, since `$SNAP` is rollback
+path B.
 
 **Update the questionnaire.** `SECURITY_AND_PRIVACY_POSTURE.md` §0.2, §3 and §9
 all currently say the disk is unencrypted.
 
 ---
 
-## 7. Known surprises
+## 8. Known surprises
 
 **The box will be slow for a while after booting.** A volume restored from a
 snapshot loads blocks from S3 lazily on first access. It is not broken; it is
@@ -271,8 +315,12 @@ removes this and costs money by the hour, which is not worth it for a one-off.
 
 **This has never been drilled on this box.** The steps are standard AWS and the
 rollback is sound in principle, but the procedure is unverified here. That is an
-argument for a quiet window and for reading §5 before starting, not against
+argument for a quiet window and for reading §6 before starting, not against
 doing it.
 
 **The public IP does not change.** An Elastic IP is attached, so DNS needs no
 change. If that EIP is ever released, this assumption breaks.
+
+**The short path depends on an account-level setting.** If default EBS encryption
+is ever turned off, §5 step 3 silently produces an unencrypted volume. That is
+why the step checks `Enc` in the response instead of assuming.
