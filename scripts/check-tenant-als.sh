@@ -271,6 +271,7 @@ SWEPT_MODULES=(
   # place a row is written, and it groups by organisation first because one
   # container's buffer can hold hits for several tenants.
   "src/analytics/store/prisma-store.ts"   # buffered analytics writer (Aug 20, 2026)
+  "src/analytics/store/event-traffic.ts"  # dashboard traffic read (Aug 20, 2026)
   "src/lib/agent/tools/contacts.ts"   # contact agent / MCP executors
   "src/lib/agent/tools/invoices.ts"   # invoice agent / MCP executors (July 27, 2026)
   "src/lib/agent/tools/webinar.ts"    # webinar agent / MCP executors (July 28, 2026)

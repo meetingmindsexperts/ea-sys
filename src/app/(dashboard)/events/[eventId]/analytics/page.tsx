@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, Download, Users, ScanBarcode, IdCard, DollarSign, Clock } from "lucide-react";
 import type { EventAnalytics } from "@/lib/event-analytics";
+import { TrafficSection } from "@/components/analytics/traffic-section";
 
 const STATUS_COLORS: Record<string, string> = {
   CONFIRMED: "bg-emerald-500",
@@ -120,6 +121,15 @@ export default function EventAnalyticsPage() {
           <Kpi icon={<Clock className="h-4 w-4" />} label="Peak check-in" value={a.checkIn.peakHour ? `${String(a.checkIn.peakHour.hour).padStart(2, "0")}:00` : "—"} sub={a.checkIn.peakHour ? `${a.checkIn.peakHour.count} in that hour` : undefined} />
         )}
       </div>
+
+      {/*
+        Immediately under the headline KPIs, and above the registration
+        breakdowns, on purpose. Everything below this describes people who
+        already completed something; this is the only thing on the page that
+        describes the ones who looked and left, so it reads as context for the
+        rest rather than as a footnote to it.
+      */}
+      <TrafficSection eventId={a.event.id} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Section title="Registrations by status">
