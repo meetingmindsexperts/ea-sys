@@ -37,6 +37,8 @@ line 2.2.2.2 "20/Aug/2026:08:11:00 +0000" "GET /_next/static/a.js HTTP/1.1"   20
 line 3.3.3.3 "20/Aug/2026:08:12:00 +0000" "POST /api/public/x HTTP/1.1"       500 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
 line 4.4.4.4 "20/Aug/2026:08:13:00 +0000" "GET /e/x/agenda HTTP/1.1"          404 "-" "Mozilla/5.0 (compatible; AhrefsBot/7.0)" >> "$FIX"
 line 5.5.5.5 "01/Jan/2020:08:00:00 +0000" "GET /e/ancient HTTP/1.1"           200 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
+line 6.6.6.6 "20/Aug/2026:08:14:00 +0000" "GET /dashboard HTTP/1.1"           200 "-" "Mozilla/5.0 Chrome/120" >> "$FIX"
+line 7.7.7.7 "20/Aug/2026:08:15:00 +0000" "GET /e/shared HTTP/1.1"            200 "-" "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)" >> "$FIX"
 
 echo "nginx-traffic.awk"
 
@@ -44,21 +46,31 @@ OUT="$(awk -f "$AWK_PROG" -v cutoff=2026-08-01T00 "$FIX")"
 B="$(printf '%s' "$OUT" | grep '^#B' | head -1)"
 
 is "one hour bucket is produced"            1     "$(printf '%s' "$OUT" | grep -c '^#B')"
-is "total counts every in-window line"      5     "$(printf '%s' "$B" | cut -f3)"
-is "bots counted (route53 + ahrefs)"        2     "$(printf '%s' "$B" | cut -f4)"
-is "2xx counted"                            3     "$(printf '%s' "$B" | cut -f5)"
+is "total counts every in-window line"      7     "$(printf '%s' "$B" | cut -f3)"
+is "bots counted (route53+ahrefs+fb)"       3     "$(printf '%s' "$B" | cut -f4)"
+is "2xx counted"                            5     "$(printf '%s' "$B" | cut -f5)"
 is "4xx counted"                            1     "$(printf '%s' "$B" | cut -f7)"
 is "5xx counted"                            1     "$(printf '%s' "$B" | cut -f8)"
-is "human page requests"                    1     "$(printf '%s' "$B" | cut -f9)"
-is "bot page requests"                      1     "$(printf '%s' "$B" | cut -f10)"
-is "human api requests"                     1     "$(printf '%s' "$B" | cut -f11)"
-is "human asset requests"                   1     "$(printf '%s' "$B" | cut -f13)"
-is "health is its OWN category, not api"    1     "$(printf '%s' "$B" | cut -f16)"
+
+# Columns 9-20 are six [human,bot] pairs in this order:
+#   public, app, api, asset, health, other
+is "human PUBLIC (/e/) requests"            1     "$(printf '%s' "$B" | cut -f9)"
+is "bot PUBLIC requests"                    2     "$(printf '%s' "$B" | cut -f10)"
+is "human ADMIN (/dashboard) requests"      1     "$(printf '%s' "$B" | cut -f11)"
+is "public and admin do NOT share a bucket" 0     "$(printf '%s' "$B" | cut -f12)"
+is "human api requests"                     1     "$(printf '%s' "$B" | cut -f13)"
+is "human asset requests"                   1     "$(printf '%s' "$B" | cut -f15)"
+is "health is its OWN category, not api"    1     "$(printf '%s' "$B" | cut -f18)"
 is "cutoff excludes the 2020 line"          1     "$(printf '%s' "$OUT" | grep '^#META' | cut -f3)"
 
-# Top lists must be humans-and-pages only, or they answer a different question.
-is "top pages excludes the bot-fetched one" "/e/x/register" \
+# Link-preview fetchers do not contain the string "bot", so they slip through a
+# naive bot list. Event links circulate in WhatsApp groups and on Facebook, and
+# every share triggers a preview fetch that would otherwise read as a visit.
+is "facebookexternalhit is a bot, not a visit" "/e/x/register" \
    "$(printf '%s' "$OUT" | grep '^#P' | cut -f3 | sort | tr '\n' ' ' | sed 's/ $//')"
+is "staff pages go in their OWN list"       "/dashboard" \
+   "$(printf '%s' "$OUT" | grep '^#S' | cut -f3)"
+
 is "top referrers keeps a real host"        "linkedin.com" \
    "$(printf '%s' "$OUT" | grep '^#R' | cut -f3)"
 
@@ -91,9 +103,9 @@ run_snap() {
 
 # Seed the archive with three cases the merge has to get right.
 {
-  printf '#B\t2026-07-01T10\t999\t0\t999\t0\t0\t0\t999\t0\t0\t0\t0\t0\t0\t0\t0\t0\n'
-  printf '#B\t2020-01-01T10\t555\t0\t555\t0\t0\t0\t555\t0\t0\t0\t0\t0\t0\t0\t0\t0\n'
-  printf '#B\t2026-08-20T08\t111111\t0\t1\t0\t0\t0\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\n'
+  printf '#B\t2026-07-01T10\t999\t0\t999\t0\t0\t0\t999\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n'
+  printf '#B\t2020-01-01T10\t555\t0\t555\t0\t0\t0\t555\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n'
+  printf '#B\t2026-08-20T08\t111111\t0\t1\t0\t0\t0\t1\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n'
 } > "$TMP/archive.tsv"
 
 run_snap
@@ -102,7 +114,7 @@ JQ() { node -e "const d=require('$TMP/out.json');$1"; }
 is "output is valid JSON"                   "ok"  "$(node -e "require('$TMP/out.json');console.log('ok')" 2>/dev/null || echo parse-error)"
 is "pre-window archive history is KEPT"     999   "$(JQ "console.log((d.buckets.find(b=>b.h==='2026-07-01T10')||{}).total)")"
 is "beyond-horizon history is dropped"      undefined "$(JQ "console.log((d.buckets.find(b=>b.h==='2020-01-01T10')||{}).total)")"
-is "fresh parse SUPERSEDES a stale bucket"  5     "$(JQ "console.log((d.buckets.find(b=>b.h==='2026-08-20T08')||{}).total)")"
+is "fresh parse SUPERSEDES a stale bucket"  7     "$(JQ "console.log((d.buckets.find(b=>b.h==='2026-08-20T08')||{}).total)")"
 is "buckets are sorted ascending"           "true" "$(JQ "console.log(d.buckets.every((b,i,a)=>i===0||a[i-1].h<=b.h))")"
 is "no bucket is double counted"            "true" "$(JQ "console.log(new Set(d.buckets.map(b=>b.h)).size===d.buckets.length)")"
 

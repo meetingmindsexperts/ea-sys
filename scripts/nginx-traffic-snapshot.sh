@@ -15,6 +15,14 @@
 # This mirrors how the CloudWatch agent works: the host reads the files, the app
 # does not.
 #
+# ARCHIVE FORMAT. Each row is a fixed-width TSV bucket. If the column set ever
+# changes, rows written by an older version are the wrong width and must not be
+# merged with new ones. There is no version field and no migration: the recovery
+# is to delete the archive once and re-run, which is lossless for as long as the
+# archive holds nothing older than nginx does (about a fortnight). Past that
+# point a format change costs the older history, so change it early or not at
+# all.
+#
 # WHY IT KEEPS ITS OWN ARCHIVE
 # ----------------------------
 # logrotate is `daily` + `rotate 14`: the box holds today's access.log plus
@@ -166,8 +174,10 @@ mv -f "$TMP_OUT" "$ARCHIVE"
       if (NR > 1) printf ",\n";
       printf "    {\"h\":\"%s\",\"total\":%s,\"bot\":%s,\"s2\":%s,\"s3\":%s,\"s4\":%s,\"s5\":%s,",
         $2, $3, $4, $5, $6, $7, $8;
-      printf "\"page\":[%s,%s],\"api\":[%s,%s],\"asset\":[%s,%s],\"health\":[%s,%s],\"other\":[%s,%s]}",
-        $9, $10, $11, $12, $13, $14, $15, $16, $17, $18;
+      printf "\"public\":[%s,%s],\"app\":[%s,%s],\"api\":[%s,%s],",
+        $9, $10, $11, $12, $13, $14;
+      printf "\"asset\":[%s,%s],\"health\":[%s,%s],\"other\":[%s,%s]}",
+        $15, $16, $17, $18, $19, $20;
     }
     END { if (NR > 0) printf "\n" }' "$TMP_MERGED"
   printf '  ],\n'
@@ -192,6 +202,14 @@ mv -f "$TMP_OUT" "$ARCHIVE"
   # the output is small, but it is a genuine hazard at production path counts.
   printf '  "topPaths": [\n'
   { grep '^#P' "$TMP_TSV" || true; } | sort -t"$TAB" -k2,2nr | awk -F"$TAB" -v n="$TOP_N" '
+    NR <= n { if (NR > 1) printf ",\n"; printf "    {\"path\":\"%s\",\"count\":%s}", $3, $2 }
+    END { if (NR > 0) printf "\n" }'
+  printf '  ],\n'
+
+  # Staff pages are their own list rather than competing with public ones. See
+  # the classification comment in nginx-traffic.awk for why.
+  printf '  "topStaffPaths": [\n'
+  { grep '^#S' "$TMP_TSV" || true; } | sort -t"$TAB" -k2,2nr | awk -F"$TAB" -v n="$TOP_N" '
     NR <= n { if (NR > 1) printf ",\n"; printf "    {\"path\":\"%s\",\"count\":%s}", $3, $2 }
     END { if (NR > 0) printf "\n" }'
   printf '  ],\n'

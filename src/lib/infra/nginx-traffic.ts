@@ -37,7 +37,12 @@ export interface TrafficBucket {
   s3: number;
   s4: number;
   s5: number;
-  page: SplitCount;
+  /** Public attendee pages, /e/... */
+  public: SplitCount;
+  /** Staff dashboard. Kept apart from `public` because they are different
+   *  populations: staff concentrate on a few urls and would otherwise bury
+   *  attendee traffic entirely in any shared ranking. */
+  app: SplitCount;
   api: SplitCount;
   asset: SplitCount;
   health: SplitCount;
@@ -59,7 +64,10 @@ export interface NginxTraffic {
   malformed: number;
   offsetSkew: number;
   buckets: TrafficBucket[];
+  /** Public attendee pages only. */
   topPaths: { path: string; count: number }[];
+  /** Staff dashboard pages only. */
+  topStaffPaths: { path: string; count: number }[];
   topReferrers: { host: string; count: number }[];
   /** Derived at read time so the card does not have to trust a stored value. */
   ageMinutes: number;
@@ -101,7 +109,8 @@ function parseBucket(raw: unknown): TrafficBucket | null {
     s3: toInt(r.s3),
     s4: toInt(r.s4),
     s5: toInt(r.s5),
-    page: toSplit(r.page),
+    public: toSplit(r.public),
+    app: toSplit(r.app),
     api: toSplit(r.api),
     asset: toSplit(r.asset),
     health: toSplit(r.health),
@@ -153,13 +162,16 @@ export async function fetchNginxTraffic(): Promise<{
       .filter((b): b is TrafficBucket => b !== null)
       .sort((a, b) => a.h.localeCompare(b.h));
 
-    const topPaths = (Array.isArray(raw.topPaths) ? raw.topPaths : [])
-      .slice(0, MAX_TOP)
-      .map((p) => {
-        const r = (p ?? {}) as Record<string, unknown>;
-        return { path: typeof r.path === "string" ? r.path : "", count: toInt(r.count) };
-      })
-      .filter((p) => p.path !== "");
+    const pathList = (v: unknown) =>
+      (Array.isArray(v) ? v : [])
+        .slice(0, MAX_TOP)
+        .map((p) => {
+          const r = (p ?? {}) as Record<string, unknown>;
+          return { path: typeof r.path === "string" ? r.path : "", count: toInt(r.count) };
+        })
+        .filter((p) => p.path !== "");
+    const topPaths = pathList(raw.topPaths);
+    const topStaffPaths = pathList(raw.topStaffPaths);
 
     const topReferrers = (Array.isArray(raw.topReferrers) ? raw.topReferrers : [])
       .slice(0, MAX_TOP)
@@ -186,6 +198,7 @@ export async function fetchNginxTraffic(): Promise<{
         offsetSkew: toInt(raw.offsetSkew),
         buckets,
         topPaths,
+        topStaffPaths,
         topReferrers,
         ageMinutes,
         stale: ageMinutes > STALE_AFTER_MINUTES,

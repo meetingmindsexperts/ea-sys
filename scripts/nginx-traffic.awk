@@ -80,8 +80,15 @@ BEGIN {
     cat = "asset";
   else if (path ~ /^\/api\//)
     cat = "api";
-  else if (path ~ /^\/e\// || path == "/" || path ~ /^\/(events|dashboard|admin|settings|login|register|crm|contacts|invoices|logs|profile|my-registration|my-reviews|verify-email)/)
-    cat = "page";
+  # Public attendee pages and the staff dashboard are separated deliberately.
+  # They are different populations answering different questions, and lumping
+  # them hides the smaller one: staff hit /events two thousand times on ONE
+  # url, while attendees generate comparable volume spread across fifty, so a
+  # single global top-15 is entirely staff and public traffic is invisible.
+  else if (path ~ /^\/e\//)
+    cat = "public";
+  else if (path == "/" || path ~ /^\/(events|dashboard|admin|settings|login|register|crm|contacts|invoices|logs|profile|my-registration|my-reviews|verify-email)/)
+    cat = "app";
   else
     cat = "other";
 
@@ -91,6 +98,13 @@ BEGIN {
   isbot = 0;
   if (ua == "" || ua == "-") isbot = 1;
   else if (ua ~ /bot|crawler|spider|slurp|scrape|curl|wget|python|go-http|java\/|okhttp|axios|node-fetch|headless|phantom|puppeteer|playwright|monitoring|uptime|pingdom|statuscake|health-check|route53|newrelic|datadog|zabbix|nagios|censys|masscan|zgrab|expanse|shodan/) isbot = 1;
+  # Link-preview fetchers, which are NOT caught above because most of them do
+  # not contain the string "bot". They matter here more than on a typical site:
+  # event links circulate in WhatsApp groups and on Facebook, and every share
+  # triggers a preview fetch that would otherwise be counted as a visit.
+  # Slackbot, LinkedInBot, Twitterbot and TelegramBot are already caught by
+  # "bot"; these are the ones that are not.
+  else if (ua ~ /facebookexternalhit|whatsapp|skypeuripreview|embedly|vkshare|outbrain|viber|snapchat|iframely|linkpreview|opengraph|metainspector|w3c_validator|quora link/) isbot = 1;
 
   parsed++;
   total[bucket]++;
@@ -103,12 +117,15 @@ BEGIN {
   else if (status >= 300) s3[bucket]++;
   else if (status >= 200) s2[bucket]++;
 
-  # Top-N inputs. Human page requests only: "which pages do people look at" is
-  # the question, and including bots or assets makes the answer meaningless.
-  if (!isbot && cat == "page") {
+  # Top-N inputs, kept in two lists for the reason given at the classification
+  # above. Human requests only: including bots makes the answer meaningless.
+  # Paths are sanitised because a request path is attacker-controlled and these
+  # values are emitted into JSON.
+  if (!isbot && (cat == "public" || cat == "app")) {
     safe = path;
     gsub(/[^a-zA-Z0-9._~\/-]/, "", safe);
-    toppath[substr(safe, 1, 120)]++;
+    safe = substr(safe, 1, 120);
+    if (cat == "public") toppath[safe]++; else topapp[safe]++;
   }
 
   ref = $4;
@@ -127,16 +144,17 @@ END {
   # Section markers keep the wrapper's parsing trivial and unambiguous.
   print "#META\t" parsed "\t" skipped "\t" skewed "\t" malformed;
 
-  split("page api asset health other", cats, " ");
+  split("public app api asset health other", cats, " ");
   for (b in total) {
     printf "#B\t%s\t%d\t%d\t%d\t%d\t%d\t%d", b, total[b], bots[b] + 0,
       s2[b] + 0, s3[b] + 0, s4[b] + 0, s5[b] + 0;
-    for (i = 1; i <= 5; i++)
+    for (i = 1; i <= 6; i++)
       printf "\t%d\t%d", catcount[b SUBSEP cats[i] SUBSEP "h"] + 0,
                           catcount[b SUBSEP cats[i] SUBSEP "b"] + 0;
     printf "\n";
   }
 
   for (p in toppath) print "#P\t" toppath[p] "\t" p;
+  for (p in topapp)  print "#S\t" topapp[p]  "\t" p;
   for (r in topref)  print "#R\t" topref[r] "\t" r;
 }

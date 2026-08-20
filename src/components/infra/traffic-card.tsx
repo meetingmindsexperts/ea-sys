@@ -36,7 +36,8 @@ interface Bucket {
   s3: number;
   s4: number;
   s5: number;
-  page: SplitCount;
+  public: SplitCount;
+  app: SplitCount;
   api: SplitCount;
   asset: SplitCount;
   health: SplitCount;
@@ -55,6 +56,7 @@ interface Traffic {
   offsetSkew: number;
   buckets: Bucket[];
   topPaths: { path: string; count: number }[];
+  topStaffPaths: { path: string; count: number }[];
   topReferrers: { host: string; count: number }[];
   ageMinutes: number;
   stale: boolean;
@@ -66,7 +68,7 @@ interface Payload {
   info: Traffic | null;
 }
 
-type Category = "all" | "page" | "api" | "asset" | "health" | "other";
+type Category = "all" | "public" | "app" | "api" | "asset" | "health" | "other";
 
 /**
  * nginx itself keeps only about a fortnight: logrotate is `daily` with
@@ -91,9 +93,16 @@ type RangeKey = (typeof RANGES)[number]["key"];
 /** Offer a range only when the archive covers most of it. */
 const COVERAGE_REQUIRED = 0.8;
 
+/**
+ * Public attendee pages are listed before the staff dashboard, and separately,
+ * because they are the question this card is usually opened to answer. Merged
+ * into one "Pages" bucket the staff traffic wins on concentration and hides
+ * the attendee traffic completely.
+ */
 const CATEGORIES: { key: Category; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "page", label: "Pages" },
+  { key: "public", label: "Public" },
+  { key: "app", label: "Admin" },
   { key: "api", label: "API" },
   { key: "asset", label: "Assets" },
   { key: "health", label: "Health" },
@@ -184,7 +193,7 @@ export function TrafficCard() {
     if (inRange.length === 0) return null;
 
     const total = inRange.reduce((a, b) => a + valueOf(b, category, excludeBots), 0);
-    const humanPages = inRange.reduce((a, b) => a + b.page[0], 0);
+    const publicViews = inRange.reduce((a, b) => a + b.public[0], 0);
     const errors = inRange.reduce((a, b) => a + b.s4 + b.s5, 0);
     const serverErrors = inRange.reduce((a, b) => a + b.s5, 0);
     const allRequests = inRange.reduce((a, b) => a + b.total, 0);
@@ -220,7 +229,7 @@ export function TrafficCard() {
       ? observed.reduce((a, b) => (b.avg < a.avg ? b : a))
       : null;
 
-    return { series, total, humanPages, errors, serverErrors, allRequests, quietest, daily, buckets: inRange.length };
+    return { series, total, publicViews, errors, serverErrors, allRequests, quietest, daily, buckets: inRange.length };
   }, [info, effectiveRange, category, excludeBots]);
 
   const peak = view ? Math.max(1, ...view.series.map((s) => s.value)) : 1;
@@ -324,7 +333,7 @@ export function TrafficCard() {
                 {/* Headline numbers */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Stat label="Requests" value={fmtInt(view.total)} hint={excludeBots ? "bots excluded" : "all sources"} />
-                  <Stat label="Human page views" value={fmtInt(view.humanPages)} hint="pages only, no bots" />
+                  <Stat label="Public page views" value={fmtInt(view.publicViews)} hint="attendee pages, no bots" />
                   <Stat
                     label="Error rate"
                     value={`${view.allRequests ? ((view.errors / view.allRequests) * 100).toFixed(1) : "0.0"}%`}
@@ -371,16 +380,21 @@ export function TrafficCard() {
                 </div>
 
                 {/* Top lists */}
-                <div className="grid sm:grid-cols-2 gap-4 pt-1">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-1">
                   <TopList
-                    title="Top pages"
-                    note={`humans only, last ${info.windowDays}d`}
+                    title="Top public pages"
+                    note={`attendees, last ${info.windowDays}d`}
                     rows={info.topPaths.map((p) => ({ label: p.path, count: p.count }))}
                   />
                   <TopList
                     title="Top referrers"
-                    note={`humans only, last ${info.windowDays}d`}
+                    note={`attendees, last ${info.windowDays}d`}
                     rows={info.topReferrers.map((r) => ({ label: r.host, count: r.count }))}
+                  />
+                  <TopList
+                    title="Top admin pages"
+                    note={`staff, last ${info.windowDays}d`}
+                    rows={info.topStaffPaths.map((p) => ({ label: p.path, count: p.count }))}
                   />
                 </div>
 

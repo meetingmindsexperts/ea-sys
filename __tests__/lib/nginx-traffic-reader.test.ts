@@ -25,7 +25,7 @@ let file: string;
 function bucket(h: string, over: Record<string, unknown> = {}) {
   return {
     h, total: 10, bot: 4, s2: 9, s3: 0, s4: 1, s5: 0,
-    page: [3, 1], api: [2, 0], asset: [1, 0], health: [0, 3], other: [0, 0],
+    public: [3, 1], app: [2, 1], api: [2, 0], asset: [1, 0], health: [0, 3], other: [0, 0],
     ...over,
   };
 }
@@ -83,7 +83,8 @@ describe("fetchNginxTraffic", () => {
     expect(r.status).toBe("ok");
     expect(r.info!.buckets.map((b) => b.h)).toEqual(["2026-08-19T00", "2026-08-20T09"]);
     expect(r.info!.topPaths[0].path).toBe("/e/x/register");
-    expect(r.info!.buckets[0].page).toEqual([3, 1]);
+    expect(r.info!.buckets[0].public).toEqual([3, 1]);
+    expect(r.info!.buckets[0].app).toEqual([2, 1]);
   });
 
   it("drops a bucket whose hour key is malformed rather than rendering a gap", async () => {
@@ -101,12 +102,12 @@ describe("fetchNginxTraffic", () => {
   it("coerces hostile field types instead of trusting them", async () => {
     write({
       generatedAt: new Date().toISOString(),
-      buckets: [bucket("2026-08-20T08", { total: "999", bot: -5, page: "nope" })],
+      buckets: [bucket("2026-08-20T08", { total: "999", bot: -5, public: "nope" })],
     });
     const r = await fetchNginxTraffic();
     expect(r.info!.buckets[0].total).toBe(0); // a string is not a count
     expect(r.info!.buckets[0].bot).toBe(0); // negatives are floored
-    expect(r.info!.buckets[0].page).toEqual([0, 0]);
+    expect(r.info!.buckets[0].public).toEqual([0, 0]);
   });
 
   it("flags a snapshot older than the hourly cadence as stale", async () => {
