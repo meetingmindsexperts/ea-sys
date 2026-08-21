@@ -65,6 +65,29 @@ resolves to different events.
 This never touches your prod copy, and `npm run test:tenancy` (a different
 database) cannot clobber it.
 
+Before walking the UI, prove it at the database layer, which takes one command
+and is unambiguous:
+
+```bash
+DIRECT_URL=postgresql://postgres:postgres@localhost:55432/sandbox \
+DATABASE_URL=postgresql://app_user:app_user_pw@localhost:55432/sandbox \
+npx tsx scripts/verify-tenant-isolation.ts
+```
+
+It sets each tenant's lane as the **app role** and counts rows per table, with
+the owner connection supplying the denominator. Expect each policied table with
+data to split between the tenants and to return **zero** with no lane set. Two
+readings that look like failures and are not:
+
+- **`Event` shows the full count from every lane, including no lane.** That is
+  the un-swept table, visible. See the last section of this document.
+- **`AuditLog` shows rows the owner can see and no lane can.** Those carry a
+  NULL org, and the policy is strict on `USING`, so they are reachable only from
+  the privileged lane. That is `PLATFORM_DECISIONS.md` §2 and §3 working.
+
+The same script runs against the platform later with no arguments at all, since
+its `DIRECT_URL` and `DATABASE_URL` are already the two roles it needs.
+
 ### A2. The prod copy — does the app run against real data?
 
 The sandbox has one event, one contact and one speaker per tenant, so it cannot
