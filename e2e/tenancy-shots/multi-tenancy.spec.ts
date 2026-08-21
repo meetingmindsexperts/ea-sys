@@ -36,6 +36,8 @@ interface Tenant {
   /** Distinguishing string that must appear for this tenant and not the other. */
   eventName: string;
   otherEventName: string;
+  /** The OTHER tenant's key, for building its seeded emails. */
+  other: string;
   eventId: string;
 }
 
@@ -47,6 +49,7 @@ const TENANTS: Tenant[] = [
     email: "admin@acme.test",
     eventName: "Acme Annual Summit 2026",
     otherEventName: "Globex Annual Summit 2026",
+    other: "globex",
     eventId: "sandbox-evt-acme",
   },
   {
@@ -56,6 +59,7 @@ const TENANTS: Tenant[] = [
     email: "admin@globex.test",
     eventName: "Globex Annual Summit 2026",
     otherEventName: "Acme Annual Summit 2026",
+    other: "acme",
     eventId: "sandbox-evt-globex",
   },
 ];
@@ -106,14 +110,26 @@ for (const t of TENANTS) {
     await expect(page.getByText(t.otherEventName)).toHaveCount(0);
     await snap(page, { chapter: CHAPTER, name: `02-events-list-${t.key}` });
 
-    // Org-level contacts: a swept table, one row per tenant in the sandbox.
+    // Org-level contacts: an RLS-POLICIED table, one row per tenant.
+    //
+    // Asserting PRESENCE here is the load-bearing half, and it is not padding.
+    // On Aug 21 these pages rendered empty for both tenants because the query
+    // extension had lost its AsyncLocalStorage and every policy fail-closed —
+    // and an empty list is indistinguishable from correct isolation if you only
+    // check that the other tenant is absent. A suite that merely photographs
+    // would have produced a deck full of "look, no cross-tenant data" images
+    // taken of a broken app.
     await page.goto(url(t, "/contacts"));
     await page.waitForLoadState("networkidle").catch(() => undefined);
+    await expect(page.getByText(`contact@${t.key}.test`)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(`contact@${t.other}.test`)).toHaveCount(0);
     await snap(page, { chapter: CHAPTER, name: `03-contacts-${t.key}` });
 
-    // Event-scoped speakers: a swept table reached through the event.
+    // Event-scoped speakers: policied too, reached through the event.
     await page.goto(url(t, `/events/${t.eventId}/speakers`));
     await page.waitForLoadState("networkidle").catch(() => undefined);
+    await expect(page.getByText(`speaker@${t.key}.test`)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(`speaker@${t.other}.test`)).toHaveCount(0);
     await snap(page, { chapter: CHAPTER, name: `04-speakers-${t.key}` });
   });
 }
