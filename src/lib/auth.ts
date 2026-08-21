@@ -14,6 +14,8 @@ import {
 } from "@/lib/login-throttle";
 import { touchLastSeen, LAST_SEEN_STAMP_INTERVAL_MS } from "@/lib/active-users";
 import { decideSessionValidity } from "@/lib/session-validity";
+import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
+import { findUserByEmail, userEmailScope } from "@/lib/tenant/user-lookup";
 import { isTeamRole } from "@/lib/team-roles";
 import authConfig, { mapTokenToSessionUser, SESSION_CONFIG } from "./auth.config";
 
@@ -103,25 +105,37 @@ export const {
         // admin view, which is precisely the case an admin needs to see. This
         // is a single indexed lookup; the expensive step (bcrypt) still sits
         // behind the throttle.
-        const user = await db.user.findUnique({
-          where: { email },
-          select: {
-            id: true,
-            email: true,
-            passwordHash: true,
-            firstName: true,
-            lastName: true,
-            role: true,
-            // Session revocation counter — stamped into the token below and
-            // compared on every periodic re-validation. See the jwt callback.
-            tokenVersion: true,
-            deactivatedAt: true,
-            organizationId: true,
-            organization: {
-              select: { name: true, logo: true, primaryColor: true },
+        // The tenant comes from the HOST, because the credential cannot supply
+        // it: on the platform an address may exist in two tenants, so "which
+        // account is this?" is only answerable once we know which front door
+        // they walked through (docs/PLATFORM_DECISIONS.md §6, trap 2). The
+        // resolver is micro-cached per container, so this costs a DB query
+        // once a minute, not once a login. On master it resolves to
+        // DEFAULT_ORG_ID and the lookup behaves exactly as the previous global
+        // one, because email is still globally unique there.
+        const tenant = await resolveTenantOrg(normalizeHost(request?.headers.get("host")));
+        const user = await findUserByEmail(
+          userEmailScope(tenant.orgId, "sign-in: host did not resolve to a tenant"),
+          email,
+          {
+            select: {
+              id: true,
+              email: true,
+              passwordHash: true,
+              firstName: true,
+              lastName: true,
+              role: true,
+              // Session revocation counter — stamped into the token below and
+              // compared on every periodic re-validation. See the jwt callback.
+              tokenVersion: true,
+              deactivatedAt: true,
+              organizationId: true,
+              organization: {
+                select: { name: true, logo: true, primaryColor: true },
+              },
             },
           },
-        });
+        );
 
         // ── Throttle: refuse before bcrypt so a flood costs us nothing ──
         const throttle = isLoginBlocked(email, ipAddress);

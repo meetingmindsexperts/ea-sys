@@ -23,16 +23,24 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import { applyPolicyFiles, platformOnlyDir } from "../../prisma/rls/apply";
+import { findUserByEmail } from "@/lib/tenant/user-lookup";
 import { ORG_A_ID, ORG_B_ID } from "./constants";
 
 const SHARED = "same.person@tenancy.test";
 const ORPHAN = "no.org@tenancy.test";
+/** Held by tenant A AND by an org-less row — the preference case. */
+const CONTESTED = "contested@tenancy.test";
+/** Held ONLY by an org-less row — the master sign-in case. */
+const ORGLESS_ONLY = "orgless.only@tenancy.test";
 const IDS = [
   "tenancy-ident-a",
   "tenancy-ident-b",
   "tenancy-ident-dupe",
   "tenancy-ident-null-1",
   "tenancy-ident-null-2",
+  "tenancy-ident-contested-a",
+  "tenancy-ident-contested-null",
+  "tenancy-ident-orgless-only",
 ];
 
 const mk = (id: string, email: string, organizationId: string | null) =>
@@ -114,5 +122,49 @@ describe("User identity: unique per tenant, not globally", () => {
     // is the only thing in the suite that can tell the two apart.
     await mk(IDS[3], ORPHAN, null);
     await expect(mk(IDS[4], ORPHAN, null)).rejects.toMatchObject({ code: "P2002" });
+  });
+});
+
+/**
+ * The other half of item 6: the CODE that has to survive the dropped index.
+ *
+ * Prisma still believes `email` is `@unique`, so every
+ * `findUnique({ where: { email } })` in the codebase keeps compiling and keeps
+ * running once `User_email_key` is gone — it just returns whichever of the
+ * candidate rows the planner reaches first. Dropping an index cannot make
+ * application code fail loudly, which is why these two assertions have to be
+ * made against a real planner rather than a mock: the unit suite can prove the
+ * query ASKS for nulls-last, and nothing else.
+ */
+describe("findUserByEmail resolves the right row once email is per-tenant", () => {
+  it("prefers the TENANT's account over an org-less one with the same address", async () => {
+    await mk(IDS[5], CONTESTED, ORG_A_ID);
+    await mk(IDS[6], CONTESTED, null);
+
+    const row = await findUserByEmail({ organizationId: ORG_A_ID }, CONTESTED, {
+      select: { id: true, organizationId: true },
+    });
+    expect(row).toEqual({ id: IDS[5], organizationId: ORG_A_ID });
+  });
+
+  it("still finds an ORG-LESS account under a tenant scope", async () => {
+    // Master's ordinary case, and the reason the org-less branch exists at all:
+    // 113 of its 126 accounts carry no org. A strict `{ organizationId, email }`
+    // lookup returns null here and nobody signs in.
+    await mk(IDS[7], ORGLESS_ONLY, null);
+
+    const row = await findUserByEmail({ organizationId: ORG_A_ID }, ORGLESS_ONLY, {
+      select: { id: true, organizationId: true },
+    });
+    expect(row).toEqual({ id: IDS[7], organizationId: null });
+  });
+
+  it("does NOT reach into another tenant", async () => {
+    // SHARED exists in A and in B. Scoped to B, tenant A's row must be
+    // invisible — this is the cross-tenant sign-in the whole exercise prevents.
+    const row = await findUserByEmail({ organizationId: ORG_B_ID }, SHARED, {
+      select: { id: true, organizationId: true },
+    });
+    expect(row).toEqual({ id: IDS[1], organizationId: ORG_B_ID });
   });
 });

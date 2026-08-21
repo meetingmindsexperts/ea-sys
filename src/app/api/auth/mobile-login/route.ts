@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { db } from "@/lib/db";
 import { apiLogger } from "@/lib/logger";
 import { getClientIp } from "@/lib/security";
 import { recordLoginEvent, readUserAgent } from "@/lib/login-audit";
@@ -11,6 +10,8 @@ import {
   clearLoginFailures,
 } from "@/lib/login-throttle";
 import { touchLastSeen } from "@/lib/active-users";
+import { normalizeHost, resolveTenantOrg } from "@/lib/tenant/resolver";
+import { findUserByEmail, userEmailScope } from "@/lib/tenant/user-lookup";
 import {
   createMobileAccessToken,
   createMobileRefreshToken,
@@ -46,21 +47,27 @@ export async function POST(req: Request) {
 
     // Same lookup-first ordering as the web path: every recorded outcome,
     // including a throttled one, is attributed to the right user and org.
-    const user = await db.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        email: true,
-        passwordHash: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        organizationId: true,
-        organization: {
-          select: { name: true },
+    // Tenant from the HOST, exactly as the web sign-in does: the credential
+    // cannot name a tenant, and on the platform one address may exist in two.
+    const tenant = await resolveTenantOrg(normalizeHost(req.headers.get("host")));
+    const user = await findUserByEmail(
+      userEmailScope(tenant.orgId, "mobile sign-in: host did not resolve to a tenant"),
+      email,
+      {
+        select: {
+          id: true,
+          email: true,
+          passwordHash: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          organizationId: true,
+          organization: {
+            select: { name: true },
+          },
         },
       },
-    });
+    );
 
     // ONE throttle policy shared with the web login (src/lib/login-throttle.ts)
     // rather than this route's own numbers: only failures are charged, a

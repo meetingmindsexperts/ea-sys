@@ -421,14 +421,53 @@ resolver is what closes that, and it must land with, or before, this file.
 - `schema.prisma` stays as it is — `organizationId String?`, `email @unique` —
   because master needs both. The divergence is deliberate and documented in the
   SQL file's header.
-- Tenant-scoped login: resolve the org from the host, then look up
-  `(organizationId, email)`. Three `token.role` write sites and the 5-minute
-  revalidation read stay as they are.
-- **23 email-keyed lookup sites across 18 files** gain an org filter. The ones
-  needing a judgement call rather than a mechanical edit are the deliberate
-  cross-org sweeps: `src/lib/registrant-account.ts` (sweeps sibling unlinked
-  registrations on the same email), `check-email`, `abstract-start`,
-  `group-register`. On the platform each must become tenant-local.
+- ✅ **Done Aug 21:** the tenant-aware resolver
+  ([src/lib/tenant/user-lookup.ts](../src/lib/tenant/user-lookup.ts)) plus the
+  two sign-in paths (`src/lib/auth.ts`, `api/auth/mobile-login`), which resolve
+  the tenant from the **Host** via the existing resolver before the lookup.
+  Three `token.role` write sites and the 5-minute revalidation read are
+  untouched, as predicted.
+
+  **The rule turned out to need no environment flag, and that is the useful
+  part.** A tenant-scoped lookup matches *this tenant's row, or a tenant-less
+  one, preferring this tenant's*. That single rule is correct on both
+  deployments because what differs between them is the **data**, not the code:
+  master's 113 org-null accounts are served by the org-less branch, the
+  platform's tenant-bound ones by the org branch, and on master email is still
+  globally unique so exactly one branch can match — behaviour is unchanged.
+  A `PLATFORM_ORG_ID`-style fork was rejected because forgetting to set it on
+  the platform fails **OPEN**: global lookups against a database that no longer
+  guarantees global uniqueness, i.e. the same shape as the `x-org-id` defect
+  found the same day. There is nothing to misconfigure.
+
+  The strict `{ organizationId, email }` that looks like the obvious
+  implementation was rejected for a blunter reason: on master it misses every
+  org-null row, so **90% of accounts could no longer sign in**. The org-less
+  branch is not a convenience; it is what lets one rule serve both.
+
+  Two properties are mutation-verified against a real planner
+  ([tests/tenancy/user-identity.test.ts](../tests/tenancy/user-identity.test.ts)):
+  dropping the org-less branch breaks org-null sign-in, and flipping the
+  `NULLS LAST` ordering makes a tenant-less account **shadow** a real tenant
+  account with the same address — Postgres genuinely returns the wrong row
+  without it, so the ordering is not decoration.
+- **Remaining: 19 email-keyed lookup sites across 16 files.** Five groups with
+  genuinely different tenant sources — token flows (the token's own row),
+  collision checks (the session), public registration (the event), CRM (the
+  ctx), and the deliberate cross-org sweeps. The ones needing a judgement call
+  rather than a mechanical edit are those sweeps:
+  `src/lib/registrant-account.ts` (sweeps sibling unlinked registrations on the
+  same email), `check-email`, `abstract-start`, `group-register`. On the
+  platform each must become tenant-local.
+- **A CI gate** forbidding a direct user-by-email lookup outside the resolver,
+  once the sites are migrated. Until it exists, the resolver is a convention
+  rather than an invariant.
+- **Flagged, not fixed: the login throttle is keyed on email globally.**
+  `isLoginBlocked(email, ip)` shares one bucket across tenants, so on the
+  platform an attacker hammering tenant A's login with a known address locks
+  that address out at tenant B. Low severity (a nuisance, not a breach) and
+  deliberately out of scope for the identity change, but it is the same class
+  of global-by-email assumption and should move with the rest.
 - The `/api/registrant/**` routes, deliberately unwrapped pending this decision,
   can now take their tenant lane. Until they do, **the whole registrant portal
   returns nothing on the platform** — my-registration, invoices, quotes,
